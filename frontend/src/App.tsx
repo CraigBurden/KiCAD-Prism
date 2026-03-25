@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Toaster } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Search } from 'lucide-react';
-import { ApiHttpError, fetchApi, fetchJson } from '@/lib/api';
+import { ApiHttpError, fetchApi } from '@/lib/api';
+import { fetchAuthConfig, fetchCurrentUser, isAuthCallbackPath } from '@/lib/auth';
 import prismLogoMark from './assets/branding/kicad-prism/kicad-prism-icon.svg';
 
 const LoginPage = lazy(() =>
@@ -29,6 +30,14 @@ function RouteFallback() {
     );
 }
 
+function FullScreenMessage({ message, isError = false }: { message: string; isError?: boolean }) {
+    return (
+        <div className="flex items-center justify-center h-screen bg-background">
+            <div className={isError ? "text-red-500" : "text-muted-foreground"}>{message}</div>
+        </div>
+    );
+}
+
 function App() {
     const [user, setUser] = useState<User | null>(null);
     const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
@@ -36,14 +45,11 @@ function App() {
     const [authError, setAuthError] = useState<string | null>(null);
     const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState("");
     const deferredWorkspaceSearchQuery = useDeferredValue(workspaceSearchQuery);
-    const isAuthCallbackRoute = typeof window !== "undefined" && window.location.pathname === "/auth/callback";
-    const fetchCurrentUser = async (config: AuthConfig, signal?: AbortSignal) => {
+    const isAuthCallbackRoute = typeof window !== "undefined" && isAuthCallbackPath();
+
+    const loadCurrentUser = async (config: AuthConfig, signal?: AbortSignal) => {
         try {
-            const currentUser = await fetchJson<User>(
-                '/api/auth/me',
-                signal ? { signal } : undefined,
-                'Failed to fetch current user'
-            );
+            const currentUser = await fetchCurrentUser(signal);
             if (signal?.aborted) {
                 return;
             }
@@ -66,20 +72,16 @@ function App() {
     useEffect(() => {
         const controller = new AbortController();
 
-        const fetchAuthConfig = async () => {
+        const initializeAuth = async () => {
             try {
-                const config = await fetchJson<AuthConfig>(
-                    '/api/auth/config',
-                    { signal: controller.signal },
-                    'Failed to fetch auth config'
-                );
+                const config = await fetchAuthConfig(controller.signal);
                 if (controller.signal.aborted) {
                     return;
                 }
 
                 setAuthConfig(config);
                 setAuthError(null);
-                await fetchCurrentUser(config, controller.signal);
+                await loadCurrentUser(config, controller.signal);
             } catch (err) {
                 if (controller.signal.aborted) {
                     return;
@@ -94,7 +96,7 @@ function App() {
             }
         };
 
-        fetchAuthConfig();
+        initializeAuth();
         return () => controller.abort();
     }, []);
 
@@ -122,33 +124,18 @@ function App() {
         });
     };
 
-    const handleAuthCodeSuccess = () => {
-        if (!authConfig) {
-            setAuthError('Failed to initialize authentication');
-            setUser(null);
-            return;
-        }
-        void fetchCurrentUser(authConfig).catch((err) => {
-            setAuthError(err instanceof Error ? err.message : 'Authentication failed');
-            setUser(null);
-        });
+    const handleAuthCodeSuccess = (currentUser: User) => {
+        setUser(currentUser);
+        setAuthError(null);
     };
 
     // Show loading state while fetching auth config
     if (loading) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-background">
-                <div className="text-muted-foreground">Loading...</div>
-            </div>
-        );
+        return <FullScreenMessage message="Loading..." />;
     }
 
     if (!authConfig) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-background">
-                <div className="text-red-500">{authError || 'Failed to load authentication configuration.'}</div>
-            </div>
-        );
+        return <FullScreenMessage message={authError || 'Failed to load authentication configuration.'} isError />;
     }
 
     if (authConfig.auth_enabled && !user && isAuthCallbackRoute) {
@@ -163,11 +150,7 @@ function App() {
     if (authConfig.auth_enabled && !user) {
         // Fallback for missing client ID in config
         if (!authConfig.google_client_id) {
-            return (
-                <div className="flex items-center justify-center h-screen bg-background">
-                    <div className="text-red-500">Error: Missing Google Client ID in backend configuration.</div>
-                </div>
-            );
+            return <FullScreenMessage message="Error: Missing Google Client ID in backend configuration." isError />;
         }
 
         return (
@@ -183,11 +166,7 @@ function App() {
     }
 
     if (!user) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-background">
-                <div className="text-red-500">{authError || 'Failed to resolve current user.'}</div>
-            </div>
-        );
+        return <FullScreenMessage message={authError || 'Failed to resolve current user.'} isError />;
     }
 
     // User is authenticated or auth is disabled - show app

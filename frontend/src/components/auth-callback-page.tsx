@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 
-import { readApiError } from "@/lib/api";
+import { exchangeGoogleAuthCode } from "@/lib/auth";
+import type { User } from "@/types/auth";
 
 interface AuthCallbackPageProps {
-  onLoginSuccess: () => void;
+  onLoginSuccess: (user: User) => void;
 }
 
 export function AuthCallbackPage({ onLoginSuccess }: AuthCallbackPageProps) {
@@ -26,20 +27,9 @@ export function AuthCallbackPage({ onLoginSuccess }: AuthCallbackPageProps) {
       }
 
       try {
-        const redirectUri = `${window.location.origin}/auth/callback`;
-        const response = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ code, redirectUri }),
-        });
-
-        if (!response.ok) {
-          throw new Error(await readApiError(response, "Authentication failed"));
-        }
-
+        const user = await exchangeGoogleAuthCode(code);
         window.history.replaceState(null, "", "/");
-        onLoginSuccess();
+        onLoginSuccess(user);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Authentication failed");
       }

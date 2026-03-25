@@ -5,6 +5,7 @@ import prismLogoHorizontal from "@/assets/branding/kicad-prism/kicad-prism-logo-
 import prismLogoMark from "@/assets/branding/kicad-prism/kicad-prism-icon.svg";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildGoogleAuthUrl } from "@/lib/auth";
 
 interface LoginPageProps {
   googleClientId: string;
@@ -17,7 +18,6 @@ const RELEASE_CACHE_KEY = "kicad_prism_latest_release_tag";
 const RELEASE_CACHE_TIME_KEY = "kicad_prism_latest_release_tag_fetched_at";
 const RELEASE_CACHE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_GITHUB_REPO = "krishna-swaroop/KiCAD-Prism";
-const GOOGLE_SCOPE = "openid https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email";
 
 export function LoginPage({
   googleClientId,
@@ -82,15 +82,7 @@ export function LoginPage({
   const handleSignIn = () => {
     setIsLoading(true);
     setError(null);
-
-    const redirectUri = `${window.location.origin}/auth/callback`;
-    const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    authUrl.searchParams.set("client_id", googleClientId);
-    authUrl.searchParams.set("redirect_uri", redirectUri);
-    authUrl.searchParams.set("response_type", "code");
-    authUrl.searchParams.set("scope", GOOGLE_SCOPE);
-
-    window.location.href = authUrl.toString();
+    window.location.href = buildGoogleAuthUrl(googleClientId);
   };
 
   const handleDevBypass = () => {
