@@ -38,6 +38,31 @@ function App() {
     useEffect(() => {
         const controller = new AbortController();
 
+        const fetchCurrentUser = async (config: AuthConfig) => {
+            try {
+                const currentUser = await fetchJson<User>(
+                    '/api/auth/me',
+                    { signal: controller.signal },
+                    'Failed to fetch current user'
+                );
+                if (controller.signal.aborted) {
+                    return;
+                }
+                setUser(currentUser);
+                setAuthError(null);
+            } catch (err) {
+                if (controller.signal.aborted) {
+                    return;
+                }
+                if (err instanceof ApiHttpError && (err.status === 401 || err.status === 403)) {
+                    setUser(null);
+                    setAuthError(config.auth_enabled && err.status === 403 ? err.message : null);
+                    return;
+                }
+                throw err;
+            }
+        };
+
         const fetchAuthConfig = async () => {
             try {
                 const config = await fetchJson<AuthConfig>(
@@ -51,44 +76,14 @@ function App() {
 
                 setAuthConfig(config);
                 setAuthError(null);
-
-                // If auth is disabled, auto-login as guest
-                if (!config.auth_enabled) {
-                    const guestUser: User = { name: 'Guest', email: 'guest@local', role: 'viewer' };
-                    setUser(guestUser);
-                    return;
-                }
-
-                try {
-                    const currentUser = await fetchJson<User>(
-                        '/api/auth/me',
-                        { signal: controller.signal },
-                        'Failed to fetch current user'
-                    );
-                    if (controller.signal.aborted) {
-                        return;
-                    }
-                    setUser(currentUser);
-                    setAuthError(null);
-                } catch (err) {
-                    if (controller.signal.aborted) {
-                        return;
-                    }
-                    if (err instanceof ApiHttpError && (err.status === 401 || err.status === 403)) {
-                        setUser(null);
-                        setAuthError(err.status === 403 ? err.message : null);
-                    } else {
-                        setUser(null);
-                    }
-                }
+                await fetchCurrentUser(config);
             } catch (err) {
                 if (controller.signal.aborted) {
                     return;
                 }
                 console.error('Failed to fetch auth config:', err);
-                // On error, default to no auth (allow access)
-                const guestUser: User = { name: 'Guest', email: 'guest@local', role: 'viewer' };
-                setUser(guestUser);
+                setUser(null);
+                setAuthError('Failed to initialize authentication');
             } finally {
                 if (!controller.signal.aborted) {
                     setLoading(false);
@@ -133,8 +128,16 @@ function App() {
         );
     }
 
+    if (!authConfig) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-background">
+                <div className="text-red-500">{authError || 'Failed to load authentication configuration.'}</div>
+            </div>
+        );
+    }
+
     // If auth is enabled and no user, show login page
-    if (authConfig?.auth_enabled && !user) {
+    if (authConfig.auth_enabled && !user) {
         // Fallback for missing client ID in config
         if (!authConfig.google_client_id) {
             return (
