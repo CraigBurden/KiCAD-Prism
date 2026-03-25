@@ -24,6 +24,10 @@ def _bootstrap_admin_set() -> set[str]:
     return {email.strip().lower() for email in settings.BOOTSTRAP_ADMIN_USERS if email.strip()}
 
 
+def _default_viewer_domain_set() -> set[str]:
+    return {domain.strip().lower() for domain in settings.DEFAULT_VIEWER_DOMAINS if domain.strip()}
+
+
 def _default_store() -> dict[str, Any]:
     return {
         "version": ROLE_STORE_VERSION,
@@ -76,14 +80,42 @@ def _entry_to_role(entry: Any) -> Role | None:
     return None
 
 
+def _load_explicit_user_role(normalized_email: str) -> Role | None:
+    payload = _load_role_store()
+    users = payload.get("users") or {}
+    return _entry_to_role(users.get(normalized_email))
+
+
 def resolve_user_role(email: str) -> Role | None:
     normalized_email = _normalize_email(email)
     if normalized_email in _bootstrap_admin_set():
         return "admin"
 
-    payload = _load_role_store()
-    users = payload.get("users") or {}
-    return _entry_to_role(users.get(normalized_email))
+    explicit_role = _load_explicit_user_role(normalized_email)
+    if explicit_role:
+        return explicit_role
+
+    domain = normalized_email.split("@", 1)[-1]
+    if domain in _default_viewer_domain_set():
+        return "viewer"
+
+    return None
+
+
+def ensure_default_viewer_assignment(email: str) -> dict[str, str] | None:
+    normalized_email = _normalize_email(email)
+    if normalized_email in _bootstrap_admin_set():
+        return {"email": normalized_email, "role": "admin", "source": "bootstrap"}
+
+    explicit_role = _load_explicit_user_role(normalized_email)
+    if explicit_role:
+        return {"email": normalized_email, "role": explicit_role, "source": "store"}
+
+    domain = normalized_email.split("@", 1)[-1]
+    if domain not in _default_viewer_domain_set():
+        return None
+
+    return upsert_user_role(email=normalized_email, role="viewer", updated_by="system@local")
 
 
 def list_role_assignments() -> list[dict[str, str]]:

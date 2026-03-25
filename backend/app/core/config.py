@@ -63,6 +63,15 @@ class Settings(BaseSettings):
         description="Comma-separated list of admin user emails provisioned from env"
     )
 
+    # Comma-separated list of email domains that receive implicit viewer access.
+    DEFAULT_VIEWER_DOMAINS_STR: str = Field(
+        default="pixxel.co.in,spacepixxel.co.in",
+        description=(
+            "Comma-separated list of email domains that get viewer access when no "
+            "explicit RBAC assignment exists"
+        ),
+    )
+
     # Path to persistent role assignment JSON file.
     ROLE_STORE_PATH: str = Field(
         default="",
@@ -131,6 +140,11 @@ class Settings(BaseSettings):
     def BOOTSTRAP_ADMIN_USERS(self) -> List[str]:
         """Parse bootstrap admin emails from comma-separated string."""
         return [u.strip().lower() for u in self.BOOTSTRAP_ADMIN_USERS_STR.split(",") if u.strip()]
+
+    @property
+    def DEFAULT_VIEWER_DOMAINS(self) -> List[str]:
+        """Parse implicit viewer domains from comma-separated string."""
+        return [d.strip().lower() for d in self.DEFAULT_VIEWER_DOMAINS_STR.split(",") if d.strip()]
 
     @property
     def KICAD_PROJECTS_ROOT(self) -> str:

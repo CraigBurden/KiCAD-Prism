@@ -51,6 +51,7 @@ SESSION_COOKIE_SECURE=false
 ALLOWED_USERS_STR=
 ALLOWED_DOMAINS_STR=
 BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
+DEFAULT_VIEWER_DOMAINS_STR=pixxel.co.in,spacepixxel.co.in
 GITHUB_TOKEN=
 DEV_MODE=false
 ```
@@ -119,15 +120,19 @@ Behavior:
 ```env
 AUTH_ENABLED=true
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 SESSION_SECRET=your-random-secret
+DEFAULT_VIEWER_DOMAINS_STR=pixxel.co.in,spacepixxel.co.in
 DEV_MODE=false
 ```
 
 Behavior:
 - frontend shows the Google sign-in screen
-- backend verifies the Google ID token
+- backend exchanges the Google authorization code for user info
 - backend issues an `HttpOnly` signed session cookie
 - RBAC role resolution uses stored assignments plus bootstrap admins
+- users from `DEFAULT_VIEWER_DOMAINS_STR` get implicit `viewer` access when no explicit role is stored
+- on first successful login, those implicit viewers are written into `.rbac_roles.json` so admins can promote them later
 
 ### Local Dev Bypass
 

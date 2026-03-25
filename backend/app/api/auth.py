@@ -141,6 +141,7 @@ async def login(request: LoginRequest, response: Response):
             raise HTTPException(status_code=401, detail="Invalid token")
 
         _validate_allowed_user(email)
+        access_service.ensure_default_viewer_assignment(email)
         role = access_service.resolve_user_role(email)
         if not role:
             raise HTTPException(
