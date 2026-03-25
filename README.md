@@ -93,6 +93,7 @@ Google login + RBAC session auth:
 ```env
 AUTH_ENABLED=true
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 SESSION_SECRET=replace-with-a-long-random-secret
 BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
 SESSION_COOKIE_SECURE=false
@@ -140,7 +141,8 @@ By default, local development usually runs without auth because `DEV_MODE=true` 
 Current auth behavior is session-based:
 
 - frontend reads `/api/auth/config`
-- Google Sign-In exchanges an ID token with `/api/auth/login`
+- frontend redirects to Google OAuth and receives an auth code at `/auth/callback`
+- `/auth/callback` exchanges that auth code with `/api/auth/login`
 - backend issues an `HttpOnly` signed session cookie
 - subsequent API calls resolve the current user and role from that cookie
 

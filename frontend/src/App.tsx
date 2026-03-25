@@ -11,6 +11,9 @@ import prismLogoMark from './assets/branding/kicad-prism/kicad-prism-icon.svg';
 const LoginPage = lazy(() =>
     import('./components/login-page').then((module) => ({ default: module.LoginPage }))
 );
+const AuthCallbackPage = lazy(() =>
+    import('./components/auth-callback-page').then((module) => ({ default: module.AuthCallbackPage }))
+);
 const Workspace = lazy(() =>
     import('./components/workspace').then((module) => ({ default: module.Workspace }))
 );
@@ -33,6 +36,7 @@ function App() {
     const [authError, setAuthError] = useState<string | null>(null);
     const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState("");
     const deferredWorkspaceSearchQuery = useDeferredValue(workspaceSearchQuery);
+    const isAuthCallbackRoute = typeof window !== "undefined" && window.location.pathname === "/auth/callback";
 
     // Fetch auth configuration on mount
     useEffect(() => {
@@ -124,12 +128,34 @@ function App() {
         });
     };
 
+    const handleAuthCodeSuccess = () => {
+        void fetchJson<User>(
+            '/api/auth/me',
+            undefined,
+            'Failed to fetch current user'
+        ).then((currentUser) => {
+            setUser(currentUser);
+            setAuthError(null);
+        }).catch((err) => {
+            setAuthError(err instanceof Error ? err.message : 'Authentication failed');
+            setUser(null);
+        });
+    };
+
     // Show loading state while fetching auth config
     if (loading) {
         return (
             <div className="flex items-center justify-center h-screen bg-background">
                 <div className="text-muted-foreground">Loading...</div>
             </div>
+        );
+    }
+
+    if (authConfig?.auth_enabled && !user && isAuthCallbackRoute) {
+        return (
+            <Suspense fallback={<RouteFallback />}>
+                <AuthCallbackPage onLoginSuccess={handleAuthCodeSuccess} />
+            </Suspense>
         );
     }
 
@@ -147,7 +173,6 @@ function App() {
         return (
             <Suspense fallback={<RouteFallback />}>
                 <LoginPage
-                    onLoginSuccess={setUser}
                     googleClientId={authConfig.google_client_id}
                     devMode={authConfig.dev_mode}
                     workspaceName={authConfig.workspace_name}

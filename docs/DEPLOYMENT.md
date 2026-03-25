@@ -44,6 +44,7 @@ Baseline authenticated configuration:
 WORKSPACE_NAME=KiCAD Prism
 AUTH_ENABLED=true
 GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 SESSION_SECRET=replace-with-a-long-random-secret
 SESSION_TTL_HOURS=12
 SESSION_COOKIE_SECURE=false
@@ -143,14 +144,19 @@ Behavior:
 
 ## Google OAuth Setup
 
-Create a Google OAuth client of type "Web application" and add the frontend origins you actually use.
+Create a Google OAuth client of type "Web application" and add the frontend origins and redirect URIs you actually use.
 
 Typical origins:
 - local frontend dev: `http://127.0.0.1:5173`
 - local Docker frontend: `http://127.0.0.1:8080`
 - production: `https://your-domain.example`
 
-Use the client ID value in `GOOGLE_CLIENT_ID`.
+Typical redirect URIs:
+- local frontend dev: `http://127.0.0.1:5173/auth/callback`
+- local Docker frontend: `http://127.0.0.1:8080/auth/callback`
+- production: `https://your-domain.example/auth/callback`
+
+Use the client ID value in `GOOGLE_CLIENT_ID` and the client secret in `GOOGLE_CLIENT_SECRET`.
 
 If your production deployment is HTTPS, also set:
 

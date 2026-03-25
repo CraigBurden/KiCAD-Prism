@@ -7,8 +7,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
-from google.oauth2 import id_token
-from google.auth.transport import requests
+import requests
 from app.core.config import settings
 from app.core.roles import Role
 from app.core.security import AuthenticatedUser, get_current_user, guest_user
@@ -19,9 +18,10 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-class TokenRequest(BaseModel):
-    """Request body for login endpoint."""
-    token: str = Field(min_length=1)
+class LoginRequest(BaseModel):
+    """Request body for Google auth code exchange."""
+    code: str = Field(min_length=1)
+    redirectUri: str = Field(min_length=1)
 
 
 class UserSession(BaseModel):
@@ -72,6 +72,11 @@ def _require_session_secret() -> None:
         raise HTTPException(status_code=500, detail="SESSION_SECRET is not configured")
 
 
+def _require_google_oauth_credentials() -> None:
+    if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="Google OAuth client credentials are not configured")
+
+
 @router.get("/config", response_model=AuthConfig)
 async def get_auth_config():
     """
@@ -89,11 +94,11 @@ async def get_auth_config():
 
 
 @router.post("/login", response_model=UserSession)
-async def login(request: TokenRequest, response: Response):
+async def login(request: LoginRequest, response: Response):
     """
-    Authenticate user with Google OAuth token.
+    Authenticate user with Google OAuth authorization code.
     
-    Validates the token, checks domain restrictions, and returns user session data.
+    Exchanges the code with Google, checks domain restrictions, and returns user session data.
     """
     # If auth is disabled, this endpoint shouldn't normally be called,
     # but handle gracefully just in case
@@ -101,16 +106,37 @@ async def login(request: TokenRequest, response: Response):
         return _guest_user_session()
 
     _require_session_secret()
+    _require_google_oauth_credentials()
     
     try:
-        # Verify the token with Google
-        id_info = id_token.verify_oauth2_token(
-            request.token,
-            requests.Request(),
-            settings.GOOGLE_CLIENT_ID
+        token_response = requests.post(
+            "https://oauth2.googleapis.com/token",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data={
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "code": request.code,
+                "grant_type": "authorization_code",
+                "redirect_uri": request.redirectUri,
+            },
+            timeout=10,
         )
+        token_payload = token_response.json()
 
-        email = (id_info.get("email") or "").strip()
+        access_token = str(token_payload.get("access_token") or "").strip()
+        if not access_token:
+            details = token_payload.get("error_description") or token_payload.get("error") or "Failed to exchange code"
+            raise HTTPException(status_code=401, detail=str(details))
+
+        userinfo_response = requests.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
+        )
+        userinfo_response.raise_for_status()
+        userinfo = userinfo_response.json()
+
+        email = str(userinfo.get("email") or "").strip()
         if not email:
             raise HTTPException(status_code=401, detail="Invalid token")
 
@@ -122,8 +148,8 @@ async def login(request: TokenRequest, response: Response):
                 detail="Access denied. No role assignment found for your account.",
             )
 
-        name = id_info.get("name", email.split("@")[0])
-        picture = id_info.get("picture", "")
+        name = str(userinfo.get("name") or email.split("@")[0])
+        picture = str(userinfo.get("picture") or "")
 
         token = create_session_token(
             email=email,
@@ -140,9 +166,9 @@ async def login(request: TokenRequest, response: Response):
             role=role,
         )
 
-    except ValueError:
-        # Token verification failed
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except requests.RequestException:
+        logger.exception("Authentication error during Google OAuth code exchange")
+        raise HTTPException(status_code=502, detail="Failed to contact Google authentication services")
     except HTTPException:
         # Re-raise HTTP exceptions (like 403 for domain validation)
         raise
