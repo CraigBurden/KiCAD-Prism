@@ -42,9 +42,12 @@ backend runtime. If preview generation fails, the import still succeeds and the 
 placeholder artwork until previews can be regenerated.
 
 The provider list/search APIs intentionally return lightweight component summaries. The panel fetches
-the first 100 search matches and the first 500 category entries, then loads full asset and preview
+the first 50 server-ranked search matches and the first 500 category entries, then loads full asset and preview
 details only after a user opens a part. This keeps the KiCad panel responsive on large catalogs and
 avoids downloading thousands of asset records during search.
+
+Preview SVG responses include cache headers and can be reused by the KiCad WebView until previews
+are regenerated.
 
 If you keep KiCad's default Remote Symbol settings, the provider's rewritten payloads will match:
 - library prefix: `remote`

@@ -65,7 +65,13 @@ async function panelFetch<T>(url: string, signal?: AbortSignal): Promise<T> {
   if (apiToken) {
     headers["Authorization"] = `Bearer ${apiToken}`;
   }
-  const response = await fetch(url, { credentials: "include", headers, signal });
+  let response: Response;
+  try {
+    response = await fetch(url, { credentials: "include", headers, signal });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    throw new PanelApiError(0, `Network error: ${(err as Error).message}`);
+  }
   if (!response.ok) {
     let detail = `Request failed (${response.status})`;
     try {
@@ -113,7 +119,7 @@ export async function searchComponents(
 ): Promise<PanelComponent[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  return fetchComponentPages("/api/remote-provider/search", params, 100, 100, signal);
+  return fetchComponentPages("/api/remote-provider/search", params, 50, 50, signal);
 }
 
 export async function getCategories(

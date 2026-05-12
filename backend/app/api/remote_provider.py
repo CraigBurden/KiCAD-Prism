@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -111,7 +112,9 @@ async def provider_panel():
 @router.get("/remote-provider/assets/{asset_name:path}", include_in_schema=False)
 async def provider_static_asset(asset_name: str):
     asset_path = (STATIC_DIR / asset_name).resolve()
-    if not str(asset_path).startswith(str(STATIC_DIR.resolve())):
+    try:
+        asset_path.relative_to(STATIC_DIR.resolve())
+    except ValueError:
         raise HTTPException(status_code=403, detail="Forbidden")
     if not asset_path.is_file():
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -143,7 +146,7 @@ async def search_components(
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    result = catalog_service.search_components(q, page=page, page_size=page_size)
+    result = await asyncio.to_thread(catalog_service.search_components, q, page=page, page_size=page_size)
     return {
         "items": [_component_payload(c, request) for c in result["items"]],
         "total": result["total"],
@@ -158,7 +161,8 @@ async def list_categories(
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    return {"categories": catalog_service.list_categories()}
+    categories = await asyncio.to_thread(catalog_service.list_categories)
+    return {"categories": categories}
 
 
 @router.get("/api/remote-provider/components-by-category")
@@ -170,7 +174,8 @@ async def components_by_category(
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    result = catalog_service.list_components(
+    result = await asyncio.to_thread(
+        catalog_service.list_components,
         category=category,
         page=page,
         page_size=page_size,
@@ -192,7 +197,12 @@ async def get_component(
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    component = catalog_service.get_component(component_id, include_inactive=False, released_only=True)
+    component = await asyncio.to_thread(
+        catalog_service.get_component,
+        component_id,
+        include_inactive=False,
+        released_only=True,
+    )
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return _component_payload(component, request)
@@ -206,7 +216,7 @@ async def get_part_manifest(
 ):
     _ = user
     try:
-        manifest = catalog_service.build_manifest(part_id, _provider_origin(request))
+        manifest = await asyncio.to_thread(catalog_service.build_manifest, part_id, _provider_origin(request))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not manifest:
@@ -221,7 +231,7 @@ async def get_inline_component(
 ):
     _ = user
     try:
-        bundle = catalog_service.build_inline_bundle(component_id)
+        bundle = await asyncio.to_thread(catalog_service.build_inline_bundle, component_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not bundle:
@@ -234,7 +244,7 @@ async def download_asset(asset_id: str, rev: str = Query(...), exp: int = Query(
     if not catalog_service.validate_asset_signature(asset_id, rev, exp, sig):
         raise HTTPException(status_code=403, detail="Invalid or expired asset signature")
 
-    asset = catalog_service.get_asset_by_id(asset_id, revision_id=rev)
+    asset = await asyncio.to_thread(catalog_service.get_asset_by_id, asset_id, revision_id=rev)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
@@ -255,9 +265,13 @@ async def download_preview(
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    preview = catalog_service.get_preview(preview_id)
+    preview = await asyncio.to_thread(catalog_service.get_preview, preview_id)
     if not preview:
         raise HTTPException(status_code=404, detail="Preview not found")
     if preview.status != "ready" or not preview.file_path:
         raise HTTPException(status_code=404, detail="Preview is not available")
-    return FileResponse(preview.file_path, media_type=preview.content_type)
+    return FileResponse(
+        preview.file_path,
+        media_type=preview.content_type,
+        headers={"Cache-Control": "public, max-age=3600, immutable"},
+    )

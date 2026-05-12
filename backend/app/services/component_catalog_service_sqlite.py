@@ -444,6 +444,7 @@ class ComponentCatalogService:
         conn.execute("PRAGMA busy_timeout = 5000")
         conn.execute("PRAGMA temp_store = MEMORY")
         conn.execute("PRAGMA cache_size = -64000")
+        conn.execute("PRAGMA wal_autocheckpoint = 1000")
         try:
             yield conn
         finally:
@@ -1153,10 +1154,25 @@ class ComponentCatalogService:
                 """,
                 tuple(params + order_params + [page_size, offset]),
             ).fetchall()
-            parsed_rows = []
+            row_pairs: list[tuple[dict[str, Any], str]] = []
             for row in rows:
                 component_row = dict(row)
-                revision = self._revision_row(conn, str(component_row.pop("revision_id")))
+                revision_id = str(component_row.pop("revision_id"))
+                row_pairs.append((component_row, revision_id))
+
+            revision_ids = [revision_id for _, revision_id in row_pairs]
+            revisions_by_id: dict[str, dict[str, Any]] = {}
+            if revision_ids:
+                placeholders = ",".join("?" for _ in revision_ids)
+                revision_rows = conn.execute(
+                    f"SELECT * FROM component_revisions WHERE id IN ({placeholders})",
+                    tuple(revision_ids),
+                ).fetchall()
+                revisions_by_id = {str(revision["id"]): dict(revision) for revision in revision_rows}
+
+            parsed_rows = []
+            for component_row, revision_id in row_pairs:
+                revision = revisions_by_id.get(revision_id)
                 if revision:
                     parsed_rows.append((component_row, revision))
 
@@ -1903,7 +1919,7 @@ class ComponentCatalogService:
         target_name: str,
     ) -> dict[str, Any]:
         root = self._asset_root(asset_type)
-        path = (root / file_path).expanduser().resolve()
+        path = (root / file_path).resolve()
         if not path.is_file():
             raise ValueError(f"Asset file not found: {path}")
         try:

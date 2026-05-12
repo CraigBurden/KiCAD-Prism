@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader2, Search } from "lucide-react";
-import Fuse, { type IFuseOptions } from "fuse.js";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -19,20 +18,6 @@ interface SymbolFinderScreenProps {
   onAuthRequired: () => void;
   appendLog: (msg: string) => void;
 }
-
-const FUSE_OPTIONS: IFuseOptions<PanelComponent> = {
-  keys: [
-    { name: "name", weight: 2 },
-    { name: "mpn", weight: 2 },
-    { name: "description", weight: 1.5 },
-    { name: "manufacturer", weight: 1.5 },
-    { name: "package_name", weight: 1 },
-    { name: "category", weight: 1 },
-  ],
-  threshold: 0.35,
-  includeScore: true,
-  ignoreLocation: true,
-};
 
 const CATEGORY_ICONS: Record<string, string> = {
   Resistors: "Ω",
@@ -107,15 +92,7 @@ export function SymbolFinderScreen({
       searchComponents(trimmed, controller.signal)
         .then((items) => {
           if (controller.signal.aborted) return;
-
-          // Client-side Fuse.js re-rank
-          if (items.length > 0) {
-            const fuse = new Fuse(items, FUSE_OPTIONS);
-            const ranked = fuse.search(trimmed).map((r) => r.item);
-            setSearchResults(ranked.length > 0 ? ranked : items);
-          } else {
-            setSearchResults([]);
-          }
+          setSearchResults(items);
           setSearching(false);
         })
         .catch((err) => {

@@ -374,29 +374,35 @@ For migrating existing KiCad libraries, see [Import Existing KiCad Libraries](IM
 
 ## Production Tuning
 
-Local Docker defaults favor fast startup:
-
-```env
-UVICORN_WORKERS=1
-```
-
-For a production host, increase workers based on CPU count and expected concurrent users:
+Docker defaults favor the workstation/VPN deployment profile:
 
 ```env
 UVICORN_WORKERS=4
 ```
 
-SQLite uses one local database file with WAL enabled. Keep write-heavy catalog imports as explicit admin operations rather than background jobs running across many workers.
+For constrained development machines, lower this to one worker if startup speed matters more than
+concurrent request handling:
+
+```env
+UVICORN_WORKERS=1
+```
+
+SQLite uses one local database file with WAL enabled and automatic WAL checkpoints. Keep write-heavy
+catalog imports as explicit admin operations rather than background jobs running across many workers.
 
 Remote-symbol search uses SQLite FTS5 when available. The backend maintains the FTS index with
 SQLite triggers and falls back to `LIKE` search only if the runtime SQLite build does not include
 FTS5. The KiCad panel also fetches slim list payloads for search/category views and loads full
 asset/preview details only when a part is opened.
 
+Signed asset URLs are valid for a short time and are not bound to a specific user session. Anyone
+who receives a signed asset URL can download that single asset until the URL expires, so keep Prism
+behind the office network/VPN as planned.
+
 For a workstation-class host with local NVMe and 10-15 concurrent users, expected server-side
 latency at a CERN-scale catalog size is:
 
-- component search, first 100 results: usually below `100 ms`
+- component search, first 50 results: usually below `100 ms`
 - category browsing, first 200-500 results: usually below `100 ms`
 - part manifest or inline placement bundle: usually below `20 ms` plus file read time
 
