@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.security import AuthenticatedUser, require_admin, require_remote_symbol_reader  # noqa: E402
 from app.services import provider_auth_service  # noqa: E402
+from app.services import service_client_service  # noqa: E402
+from app.services.component_catalog_service import ComponentCatalogService  # noqa: E402
 
 
 class AuthSecurityTests(unittest.TestCase):
@@ -66,6 +69,39 @@ class AuthSecurityTests(unittest.TestCase):
             provider_auth_service.normalize_provider_scope("remote_symbols.read api:read")
 
         self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_service_client_credentials_use_sqlite_catalog(self) -> None:
+        previous_db = service_client_service._db  # type: ignore[attr-defined]  # noqa: SLF001
+        previous_secret = service_client_service.settings.SESSION_SECRET
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                catalog = ComponentCatalogService(
+                    store_root=root / "components",
+                    database_url=str(root / "prism.sqlite3"),
+                )
+                catalog.initialize()
+                service_client_service._db = lambda: catalog  # type: ignore[attr-defined]  # noqa: SLF001
+                service_client_service.settings.SESSION_SECRET = "test-secret"
+
+                created = service_client_service.create_service_client(
+                    name="Inventree",
+                    role="viewer",
+                    scopes=["api:read", "remote_symbols.read"],
+                )
+                token = service_client_service.issue_client_credentials_token(
+                    client_id=created["client_id"],
+                    client_secret=created["client_secret"],
+                    requested_scope="api:read",
+                )
+                resolved = service_client_service.validate_service_access_token(token["access_token"])
+
+                self.assertEqual(resolved["client_id"], created["client_id"])
+                self.assertEqual(resolved["role"], "viewer")
+                self.assertEqual(resolved["scopes"], ["api:read"])
+        finally:
+            service_client_service._db = previous_db  # type: ignore[attr-defined]  # noqa: SLF001
+            service_client_service.settings.SESSION_SECRET = previous_secret
 
 
 if __name__ == "__main__":

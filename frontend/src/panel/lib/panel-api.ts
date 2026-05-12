@@ -86,6 +86,8 @@ export function isAuthError(err: unknown): boolean {
 async function fetchComponentPages(
   endpoint: string,
   params: URLSearchParams,
+  pageSize: number,
+  maxItems: number,
   signal?: AbortSignal
 ): Promise<PanelComponent[]> {
   const items: PanelComponent[] = [];
@@ -93,7 +95,7 @@ async function fetchComponentPages(
   let pages = 1;
   do {
     params.set("page", String(page));
-    params.set("page_size", "500");
+    params.set("page_size", String(pageSize));
     const data = await panelFetch<{ items: PanelComponent[]; pages: number }>(
       `${endpoint}?${params.toString()}`,
       signal
@@ -101,8 +103,8 @@ async function fetchComponentPages(
     items.push(...data.items);
     pages = data.pages;
     page += 1;
-  } while (page <= pages && !signal?.aborted);
-  return items;
+  } while (page <= pages && items.length < maxItems && !signal?.aborted);
+  return items.slice(0, maxItems);
 }
 
 export async function searchComponents(
@@ -111,7 +113,7 @@ export async function searchComponents(
 ): Promise<PanelComponent[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  return fetchComponentPages("/api/remote-provider/search", params, signal);
+  return fetchComponentPages("/api/remote-provider/search", params, 100, 100, signal);
 }
 
 export async function getCategories(
@@ -129,7 +131,7 @@ export async function getComponentsByCategory(
   signal?: AbortSignal
 ): Promise<PanelComponent[]> {
   const params = new URLSearchParams({ category });
-  return fetchComponentPages("/api/remote-provider/components-by-category", params, signal);
+  return fetchComponentPages("/api/remote-provider/components-by-category", params, 200, 500, signal);
 }
 
 export async function getComponent(

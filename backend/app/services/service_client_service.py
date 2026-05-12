@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from psycopg.types.json import Jsonb
 
 from app.core.config import settings
 from app.core.roles import normalize_role
@@ -28,6 +27,10 @@ def _db():
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _utc_now_iso() -> str:
+    return _utc_now().isoformat()
 
 
 def _now() -> int:
@@ -97,15 +100,21 @@ def _verify_secret(secret: str, stored_hash: str) -> bool:
 
 
 def _public_client(row: dict[str, Any]) -> dict[str, Any]:
+    scopes = row.get("scopes") or []
+    if isinstance(scopes, str):
+        try:
+            scopes = json.loads(scopes)
+        except json.JSONDecodeError:
+            scopes = []
     return {
         "client_id": row["client_id"],
         "name": row["name"],
         "role": row["role"],
-        "scopes": list(row.get("scopes") or []),
+        "scopes": list(scopes),
         "enabled": bool(row["enabled"]),
-        "created_at": row["created_at"].isoformat() if row.get("created_at") else "",
-        "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else "",
-        "last_used_at": row["last_used_at"].isoformat() if row.get("last_used_at") else None,
+        "created_at": str(row["created_at"] or ""),
+        "updated_at": str(row["updated_at"] or ""),
+        "last_used_at": str(row["last_used_at"]) if row.get("last_used_at") else None,
     }
 
 
@@ -116,19 +125,32 @@ def create_service_client(*, name: str, role: str, scopes: list[str]) -> dict[st
 
     client_id = f"prism_{secrets.token_urlsafe(12)}"
     client_secret = f"{SECRET_PREFIX}{secrets.token_urlsafe(32)}"
-    now = _utc_now()
+    now = _utc_now_iso()
     with _db()._connect() as conn:  # noqa: SLF001 - shared catalog DB owns auth tables.
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO oauth_service_clients
-                    (client_id, name, secret_hash, role, scopes, enabled, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, TRUE, %s, %s)
-                RETURNING client_id, name, role, scopes, enabled, created_at, updated_at, last_used_at
-                """,
-                (client_id, name.strip() or client_id, _hash_secret(client_secret), normalized_role, Jsonb(scopes), now, now),
-            )
-            row = cur.fetchone()
+        conn.execute(
+            """
+            INSERT INTO oauth_service_clients
+                (client_id, name, secret_hash, role, scopes, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            """,
+            (
+                client_id,
+                name.strip() or client_id,
+                _hash_secret(client_secret),
+                normalized_role,
+                json.dumps(scopes, separators=(",", ":")),
+                now,
+                now,
+            ),
+        )
+        row = conn.execute(
+            """
+            SELECT client_id, name, role, scopes, enabled, created_at, updated_at, last_used_at
+            FROM oauth_service_clients
+            WHERE client_id = ?
+            """,
+            (client_id,),
+        ).fetchone()
         conn.commit()
     payload = _public_client(dict(row))
     payload["client_secret"] = client_secret
@@ -149,16 +171,23 @@ def list_service_clients() -> list[dict[str, Any]]:
 
 def rotate_service_client_secret(client_id: str) -> dict[str, Any]:
     client_secret = f"{SECRET_PREFIX}{secrets.token_urlsafe(32)}"
-    now = _utc_now()
+    now = _utc_now_iso()
     with _db()._connect() as conn:  # noqa: SLF001
-        row = conn.execute(
+        conn.execute(
             """
             UPDATE oauth_service_clients
-            SET secret_hash = %s, updated_at = %s
-            WHERE client_id = %s
-            RETURNING client_id, name, role, scopes, enabled, created_at, updated_at, last_used_at
+            SET secret_hash = ?, updated_at = ?
+            WHERE client_id = ?
             """,
             (_hash_secret(client_secret), now, client_id),
+        )
+        row = conn.execute(
+            """
+            SELECT client_id, name, role, scopes, enabled, created_at, updated_at, last_used_at
+            FROM oauth_service_clients
+            WHERE client_id = ?
+            """,
+            (client_id,),
         ).fetchone()
         conn.commit()
     if not row:
@@ -169,16 +198,23 @@ def rotate_service_client_secret(client_id: str) -> dict[str, Any]:
 
 
 def set_service_client_enabled(client_id: str, enabled: bool) -> dict[str, Any]:
-    now = _utc_now()
+    now = _utc_now_iso()
     with _db()._connect() as conn:  # noqa: SLF001
-        row = conn.execute(
+        conn.execute(
             """
             UPDATE oauth_service_clients
-            SET enabled = %s, updated_at = %s
-            WHERE client_id = %s
-            RETURNING client_id, name, role, scopes, enabled, created_at, updated_at, last_used_at
+            SET enabled = ?, updated_at = ?
+            WHERE client_id = ?
             """,
-            (enabled, now, client_id),
+            (1 if enabled else 0, now, client_id),
+        )
+        row = conn.execute(
+            """
+            SELECT client_id, name, role, scopes, enabled, created_at, updated_at, last_used_at
+            FROM oauth_service_clients
+            WHERE client_id = ?
+            """,
+            (client_id,),
         ).fetchone()
         conn.commit()
     if not row:
@@ -188,7 +224,7 @@ def set_service_client_enabled(client_id: str, enabled: bool) -> dict[str, Any]:
 
 def delete_service_client(client_id: str) -> bool:
     with _db()._connect() as conn:  # noqa: SLF001
-        result = conn.execute("DELETE FROM oauth_service_clients WHERE client_id = %s", (client_id,))
+        result = conn.execute("DELETE FROM oauth_service_clients WHERE client_id = ?", (client_id,))
         conn.commit()
     return bool(result.rowcount)
 
@@ -199,21 +235,22 @@ def issue_client_credentials_token(*, client_id: str, client_secret: str, reques
             """
             SELECT client_id, name, secret_hash, role, scopes, enabled
             FROM oauth_service_clients
-            WHERE client_id = %s
+            WHERE client_id = ?
             """,
             (client_id,),
         ).fetchone()
         if not row or not bool(row["enabled"]) or not _verify_secret(client_secret, str(row["secret_hash"])):
             raise HTTPException(status_code=401, detail="Invalid client credentials")
 
-        allowed_scopes = [str(scope) for scope in (row.get("scopes") or [])]
+        raw_scopes = row["scopes"] or "[]"
+        allowed_scopes = [str(scope) for scope in json.loads(str(raw_scopes))]
         requested_scopes = requested_scope.split() if requested_scope.strip() else allowed_scopes
         if not set(requested_scopes).issubset(set(allowed_scopes)):
             raise HTTPException(status_code=403, detail="Requested scope is not allowed for this client")
 
         conn.execute(
-            "UPDATE oauth_service_clients SET last_used_at = %s WHERE client_id = %s",
-            (_utc_now(), client_id),
+            "UPDATE oauth_service_clients SET last_used_at = ? WHERE client_id = ?",
+            (_utc_now_iso(), client_id),
         )
         conn.commit()
 
@@ -242,7 +279,7 @@ def validate_service_access_token(token: str) -> dict[str, Any]:
     client_id = str(payload.get("client_id") or "")
     with _db()._connect() as conn:  # noqa: SLF001
         row = conn.execute(
-            "SELECT client_id, name, role, scopes, enabled FROM oauth_service_clients WHERE client_id = %s",
+            "SELECT client_id, name, role, scopes, enabled FROM oauth_service_clients WHERE client_id = ?",
             (client_id,),
         ).fetchone()
     if not row or not bool(row["enabled"]):

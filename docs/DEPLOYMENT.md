@@ -4,13 +4,12 @@ This document covers the current KiCAD Prism deployment model for Docker hosting
 
 ## Runtime Overview
 
-KiCAD Prism runs as three services:
+KiCAD Prism runs as two services:
 
-- `postgres`: Postgres catalog database on port `5432`
 - `backend`: FastAPI API server on port `8000`
 - `frontend`: production Vite bundle served by Nginx on port `8080`
 
-In Docker, the frontend proxies `/api/*` requests to the backend over the Compose network. The backend stores component metadata, release workflow state, and reusable asset indexes in Postgres. KiCad symbol, footprint, 3D model, SPICE, preview, and revision files are stored on disk under the mounted project data directory.
+In Docker, the frontend proxies `/api/*`, `/oauth/*`, `/.well-known/kicad-remote-provider`, and `/remote-provider/*` requests to the backend over the Compose network. The backend stores component metadata, release workflow state, KiCad OAuth state, and local service-client metadata in SQLite under the mounted project data directory. KiCad symbol, footprint, 3D model, SPICE, preview, DBL export, and revision files are stored on disk under the same project data directory.
 
 Default local endpoints:
 - UI: [http://127.0.0.1:8080](http://127.0.0.1:8080)
@@ -56,11 +55,8 @@ BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
 DEFAULT_VIEWER_DOMAINS_STR=pixxel.co.in,spacepixxel.co.in
 GITHUB_TOKEN=
 DEV_MODE=false
-
-POSTGRES_DB=kicad_prism
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=
-CATALOG_DATABASE_URL=
+CATALOG_SQLITE_PATH=
+CATALOG_DBL_EXPORT_DIR=
 ```
 
 Generate a session secret with:
@@ -74,9 +70,8 @@ PY
 
 Important:
 - `SESSION_SECRET` is required whenever auth is effectively enabled.
-- `POSTGRES_PASSWORD` is required for Docker Compose. Keep it only in your private `.env`; do not commit it.
-- `CATALOG_DATABASE_URL` can stay empty for the bundled Compose stack. The backend will build the internal database URL from `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`.
-- Set `CATALOG_DATABASE_URL` only when pointing Prism at an externally managed Postgres instance.
+- `CATALOG_SQLITE_PATH` can stay empty for the bundled Compose stack. Docker defaults to `/app/projects/.kicad-prism/prism.sqlite3`.
+- `CATALOG_DBL_EXPORT_DIR` can stay empty for the bundled Compose stack. Docker defaults to `/app/projects/.kicad-prism/exports/kicad-dbl`.
 - `SESSION_COOKIE_SECURE=true` should be used only behind HTTPS.
 - `DEV_MODE` should stay `false` in Docker hosting.
 
@@ -98,14 +93,14 @@ docker compose down
 
 Current Compose mounts:
 
-- `./data/postgres` -> `/var/lib/postgresql/data`
 - `./data/projects` -> `/app/projects`
 - `./data/ssh` -> `/root/.ssh`
 
 Persisted data includes:
-- Postgres component catalog data
+- SQLite component catalog, KiCad OAuth state, and service-client metadata at `data/projects/.kicad-prism/prism.sqlite3`
 - imported repositories
-- canonical KiCad component library files under `data/projects/.kicad-prism-components`
+- canonical KiCad component library files under `data/projects/.kicad-prism/components`
+- generated CERN-style DBL bundles under `data/projects/.kicad-prism/exports/kicad-dbl`
 - generated symbol and footprint previews
 - `.project_registry.json`
 - `.rbac_roles.json`
@@ -113,7 +108,7 @@ Persisted data includes:
 - exported comments JSON inside repos when generated
 - SSH keys and `known_hosts`
 
-The backend creates `data/projects/.kicad-prism-components` automatically during startup after the catalog database configuration is valid. The startup initializer also creates the canonical subdirectories:
+The backend creates `data/projects/.kicad-prism` automatically during startup. The catalog initializer also creates the canonical component subdirectories:
 
 - `symbols/`
 - `footprints/`
@@ -232,6 +227,35 @@ If your production deployment is HTTPS, also set:
 SESSION_COOKIE_SECURE=true
 ```
 
+## Reverse Proxy for Office/VPN Hosting
+
+For an internal workstation deployment such as `http://kicad-prism.pixxel.space`, keep the SQLite
+database and `.kicad-prism/components` asset directory on the workstation's local SSD/NVMe. Do not
+place either path on NFS/SMB/network storage; SQLite WAL mode is designed for local filesystems.
+
+If the external reverse proxy points at the frontend container, the bundled frontend Nginx config
+already forwards KiCad/API paths to the backend. If the external reverse proxy routes directly to
+individual containers, use these path rules:
+
+- `/` to the frontend container
+- `/api/*` to the backend container
+- `/oauth/*` to the backend container
+- `/.well-known/kicad-remote-provider` to the backend container
+- `/remote-provider/*` to the backend container
+
+For plain internal HTTP:
+
+```env
+CORS_ORIGINS_STR=http://kicad-prism.pixxel.space
+SESSION_COOKIE_SECURE=false
+```
+
+For HTTPS, use the HTTPS origin and set `SESSION_COOKIE_SECURE=true`.
+
+The proxy must preserve the original `Host` header so provider metadata advertises the public
+office/VPN URL instead of the backend container name. Enable gzip or Brotli compression at the
+proxy for JSON responses and static panel assets.
+
 ## Private Repository Access
 
 KiCAD Prism supports two normal approaches.
@@ -275,7 +299,7 @@ uvicorn app.main:app --reload --port 8000
 Notes:
 - backend settings also support a backend-local `.env`
 - if nothing is configured, local dev defaults generally keep auth off because `DEV_MODE=true`
-- local backend development still requires Postgres for the component catalog unless tests inject a service-specific database URL
+- local backend development uses SQLite by default at `data/projects/.kicad-prism/prism.sqlite3`
 
 ### Frontend
 
@@ -321,8 +345,9 @@ docker compose up --build -d
 
 The component catalog has two storage layers:
 
-- Postgres stores component metadata, revisions, reusable asset rows, release workflow state, and preview status.
-- Disk storage under `data/projects/.kicad-prism-components` stores canonical KiCad files.
+- SQLite stores component metadata, revisions, reusable asset rows, release workflow state, OAuth state, service-client metadata, and preview status.
+- Disk storage under `data/projects/.kicad-prism/components` stores canonical KiCad files.
+- Disk storage under `data/projects/.kicad-prism/exports/kicad-dbl` stores generated KiCad DBL compatibility bundles.
 
 Canonical disk layout:
 
@@ -333,9 +358,17 @@ Canonical disk layout:
 - `previews/`
 - `revisions/`
 
-Back up both Postgres and `data/projects/.kicad-prism-components`. A database backup without the canonical asset directory is not enough to restore placeable components.
+Back up the full `data/projects/.kicad-prism` directory. A database backup without the canonical asset directory is not enough to restore placeable components.
 
 Only components in the `Released` workflow stage and with both symbol and footprint assets attached are visible/placeable through the KiCad Remote Symbols panel.
+
+To generate a CERN-style KiCad DBL bundle from released/place-ready parts, call the admin API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/catalog/exports/kicad-dbl
+```
+
+The export writes `Prism.sqlite`, `Prism_Linux.kicad_dbl`, `Prism_Windows.kicad_dbl`, `sym-lib-table`, `fp-lib-table`, `SchLib/`, and `PcbLib/`. Symbols are exported as one `.kicad_sym` file per DBL symbol library entry, which matches the KiCad v10 DBL lookup model while avoiding packed generated symbol libraries.
 
 For migrating existing KiCad libraries, see [Import Existing KiCad Libraries](IMPORT_EXISTING_KICAD_LIBRARIES.md).
 
@@ -345,20 +378,31 @@ Local Docker defaults favor fast startup:
 
 ```env
 UVICORN_WORKERS=1
-CATALOG_POOL_MIN_SIZE=1
-CATALOG_POOL_MAX_SIZE=5
 ```
 
-For a production host, increase workers and pool limits based on CPU count and Postgres capacity:
+For a production host, increase workers based on CPU count and expected concurrent users:
 
 ```env
 UVICORN_WORKERS=4
-CATALOG_POOL_MIN_SIZE=1
-CATALOG_POOL_MAX_SIZE=10
-POSTGRES_MAX_CONNECTIONS=100
 ```
 
-Keep `UVICORN_WORKERS * CATALOG_POOL_MAX_SIZE` comfortably below `POSTGRES_MAX_CONNECTIONS` after accounting for admin sessions, import jobs, and future background workers.
+SQLite uses one local database file with WAL enabled. Keep write-heavy catalog imports as explicit admin operations rather than background jobs running across many workers.
+
+Remote-symbol search uses SQLite FTS5 when available. The backend maintains the FTS index with
+SQLite triggers and falls back to `LIKE` search only if the runtime SQLite build does not include
+FTS5. The KiCad panel also fetches slim list payloads for search/category views and loads full
+asset/preview details only when a part is opened.
+
+For a workstation-class host with local NVMe and 10-15 concurrent users, expected server-side
+latency at a CERN-scale catalog size is:
+
+- component search, first 100 results: usually below `100 ms`
+- category browsing, first 200-500 results: usually below `100 ms`
+- part manifest or inline placement bundle: usually below `20 ms` plus file read time
+
+Perceived latency over office LAN/VPN is mostly network RTT. A healthy same-site VPN should keep
+search in the `100-300 ms` range; slow or cross-region VPN links can push that higher without
+indicating a database bottleneck.
 
 ## Operational Notes
 
@@ -412,16 +456,14 @@ Check:
 
 Cause:
 - the frontend is running, but the backend is unavailable or restarting
-- a common local cause is changing `POSTGRES_PASSWORD` after `./data/postgres` was already initialized
 
 Fix:
 - inspect `docker compose logs --tail=100 backend`
-- if the log says `password authentication failed for user "postgres"`, either restore the original `POSTGRES_PASSWORD` value or reset the local Postgres data directory
-- for a disposable local test database, stop the stack and move `data/postgres` aside before restarting:
+- if the catalog database is corrupt during local testing, stop the stack and move `data/projects/.kicad-prism/prism.sqlite3` aside before restarting:
 
 ```bash
 docker compose down
-mv data/postgres "data/postgres.bak.$(date +%Y%m%d%H%M%S)"
+mv data/projects/.kicad-prism/prism.sqlite3 "data/projects/.kicad-prism/prism.sqlite3.bak.$(date +%Y%m%d%H%M%S)"
 docker compose up --build -d
 ```
 

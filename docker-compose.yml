@@ -1,29 +1,4 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: kicad-prism-postgres
-    restart: unless-stopped
-    command: >
-      postgres
-      -c shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
-      -c effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-2GB}
-      -c work_mem=${POSTGRES_WORK_MEM:-16MB}
-      -c maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-256MB}
-      -c max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB:-kicad_prism}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" -c 'SELECT 1' >/dev/null"]
-      interval: 1s
-      timeout: 3s
-      retries: 30
-
   backend:
     build:
       context: .
@@ -75,14 +50,8 @@ services:
       - DEV_MODE=false
       # GitHub Token for private repository access (optional)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-      - CATALOG_DATABASE_URL=${CATALOG_DATABASE_URL:-}
-      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
-      - POSTGRES_DB=${POSTGRES_DB:-kicad_prism}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - CATALOG_POOL_MIN_SIZE=${CATALOG_POOL_MIN_SIZE:-1}
-      - CATALOG_POOL_MAX_SIZE=${CATALOG_POOL_MAX_SIZE:-5}
+      - CATALOG_SQLITE_PATH=${CATALOG_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
+      - CATALOG_DBL_EXPORT_DIR=${CATALOG_DBL_EXPORT_DIR:-/app/projects/.kicad-prism/exports/kicad-dbl}
       - REMOTE_PROVIDER_LIBRARY_PREFIX=${REMOTE_PROVIDER_LIBRARY_PREFIX:-remote}
       - REMOTE_PROVIDER_DESTINATION_DIR=${REMOTE_PROVIDER_DESTINATION_DIR:-$${KIPRJMOD}/RemoteLibrary}
       - REMOTE_PROVIDER_OAUTH_CLIENT_ID=${REMOTE_PROVIDER_OAUTH_CLIENT_ID:-kicad-prism-kicad}
@@ -90,10 +59,6 @@ services:
       - REMOTE_PROVIDER_REFRESH_TOKEN_TTL_SECONDS=${REMOTE_PROVIDER_REFRESH_TOKEN_TTL_SECONDS:-604800}
       - GIT_SCAN_KNOWN_HOSTS_ON_STARTUP=${GIT_SCAN_KNOWN_HOSTS_ON_STARTUP:-false}
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   frontend:
     build: ./frontend
     container_name: kicad-prism-frontend

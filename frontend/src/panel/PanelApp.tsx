@@ -9,7 +9,7 @@ import {
   setLogCallback,
   hasSession,
 } from "@/panel/lib/kicad-bridge";
-import { searchComponents, isAuthError, setApiToken } from "@/panel/lib/panel-api";
+import { getCategories, isAuthError, setApiToken } from "@/panel/lib/panel-api";
 import type { PanelComponent } from "@/panel/lib/panel-api";
 
 import { PanelLoginScreen } from "@/panel/screens/PanelLoginScreen";
@@ -41,7 +41,7 @@ export function PanelApp() {
   const testAuthAndRoute = useCallback(async () => {
     try {
       // This succeeds if we have a valid cookie session or valid token.
-      await searchComponents("", undefined);
+      await getCategories(undefined);
       appendLog("Session authenticated — entering finder.");
       setScreen({ kind: "finder" });
     } catch (err) {

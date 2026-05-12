@@ -1,10 +1,10 @@
 # Import Existing KiCad Libraries
 
-This guide covers migrating existing KiCad component libraries into Prism's Postgres-backed component catalog.
+This guide covers migrating existing KiCad component libraries into Prism's SQLite-backed component catalog.
 
 Prism uses two separate layers:
 
-- canonical files on disk under `data/projects/.kicad-prism-components`
+- canonical files on disk under `data/projects/.kicad-prism/components`
 - database rows that index components, reusable assets, preview status, and component-to-asset links
 
 The scripts in this repo help convert existing KiCad libraries into that structure and generate a CSV that can be uploaded through the Library Manager Import Dialog.
@@ -38,7 +38,7 @@ Supported files:
 The importer writes Prism canonical files into:
 
 ```text
-data/projects/.kicad-prism-components/
+data/projects/.kicad-prism/components/
   symbols/
   footprints/
   3dmodels/
@@ -86,7 +86,7 @@ Use `scripts/import_kicad_library_assets.py` for the normal migration workflow. 
 
 - normalize and split packed symbols
 - copy footprints, STEP models, and SPICE files into canonical storage
-- register reusable asset rows in Postgres
+- register reusable asset rows in SQLite
 - generate asset-scoped symbol and footprint previews
 - generate a component metadata CSV with asset-link columns
 
@@ -95,11 +95,11 @@ Run it inside the backend container so the script has backend dependencies, KiCa
 Example:
 
 ```bash
-POSTGRES_PASSWORD="$POSTGRES_PASSWORD" docker compose run --rm backend \
+docker compose run --rm backend \
   python3 /app/scripts/import_kicad_library_assets.py \
     /app/../EEE_KiCAD_Libraries \
-    --store-root /app/projects/.kicad-prism-components \
-    --csv-store-root /app/projects/.kicad-prism-components \
+    --store-root /app/projects/.kicad-prism/components \
+    --csv-store-root /app/projects/.kicad-prism/components \
     --component-csv /app/projects/imports/eee-kicad-components.csv \
     --report-json /app/projects/imports/eee-kicad-import-report.json
 ```
@@ -109,27 +109,27 @@ If your source library is outside the Compose context on your host system, use t
 For example, to mount a folder located at `/path/to/my_libraries` on your host machine to `/app/custom_imports` inside the Docker backend container, execute:
 
 ```bash
-POSTGRES_PASSWORD="$POSTGRES_PASSWORD" docker compose run --rm \
+docker compose run --rm \
   -v /path/to/my_libraries:/app/custom_imports:ro \
   backend \
   python3 /app/scripts/import_kicad_library_assets.py \
     /app/custom_imports \
-    --store-root /app/projects/.kicad-prism-components \
-    --csv-store-root /app/projects/.kicad-prism-components \
+    --store-root /app/projects/.kicad-prism/components \
+    --csv-store-root /app/projects/.kicad-prism/components \
     --component-csv /app/projects/imports/custom-components.csv \
     --report-json /app/projects/imports/custom-import-report.json
 ```
 
 As the script processes your files, it will explicitly output the current progress (e.g. `Processing symbol library: MyLib.kicad_sym ...` and `-> Extracting symbol: Resistor_10k`) so you can directly monitor the operation.
 
-For a host-side dry run without touching Postgres:
+For a host-side dry run without touching SQLite:
 
 ```bash
 python3 scripts/import_kicad_library_assets.py \
   ./EEE_KiCAD_Libraries \
   --store-root /tmp/prism-component-store \
   --component-csv /tmp/prism-components.csv \
-  --csv-store-root /app/projects/.kicad-prism-components \
+  --csv-store-root /app/projects/.kicad-prism/components \
   --no-index-db \
   --no-previews \
   --dry-run
@@ -137,9 +137,9 @@ python3 scripts/import_kicad_library_assets.py \
 
 Useful options:
 
-- `--store-root path`: Prism canonical store root. In Docker this is normally `/app/projects/.kicad-prism-components`.
-- `--database-url url`: explicit Postgres URL. Normally omit this in Docker and let backend settings build the URL from `POSTGRES_*`.
-- `--no-index-db`: write canonical files only; do not create Postgres asset rows.
+- `--store-root path`: Prism canonical store root. In Docker this is normally `/app/projects/.kicad-prism/components`.
+- `--database-url path`: explicit SQLite catalog path. Normally omit this in Docker and let backend settings use `CATALOG_SQLITE_PATH`.
+- `--no-index-db`: write canonical files only; do not create SQLite asset rows.
 - `--no-previews`: skip preview generation.
 - `--skip-symbol-upgrade`: do not run `kicad-cli sym upgrade` before splitting symbols.
 - `--overwrite`: overwrite conflicting canonical files instead of writing suffixed names.
@@ -149,7 +149,7 @@ Useful options:
 - `--component-csv path`: write a CSV for the Library Manager Import Dialog.
 - `--csv-store-root path`: root path to write into CSV asset-link columns.
 
-Use `--csv-store-root /app/projects/.kicad-prism-components` when the generated CSV will be uploaded through the Docker-hosted Library Manager. This ensures asset paths in the CSV match paths visible to the backend.
+Use `--csv-store-root /app/projects/.kicad-prism/components` when the generated CSV will be uploaded through the Docker-hosted Library Manager. This ensures asset paths in the CSV match paths visible to the backend.
 
 ## Generated CSV Contract
 
@@ -230,7 +230,7 @@ By generating a CSV out of your symbols, the Python script prepares the bridge. 
 The importer depends on backend Python packages. If host-side execution fails with a dependency error, run it inside the backend container:
 
 ```bash
-POSTGRES_PASSWORD="$POSTGRES_PASSWORD" docker compose run --rm backend \
+docker compose run --rm backend \
   python3 /app/scripts/import_kicad_library_assets.py --help
 ```
 
@@ -251,7 +251,7 @@ You can retry previews later from the Library Manager component detail pane with
 Use paths that are visible to the backend container. For Docker-hosted Prism, prefer:
 
 ```bash
---csv-store-root /app/projects/.kicad-prism-components
+--csv-store-root /app/projects/.kicad-prism/components
 ```
 
 If the CSV contains host-only paths such as `/Users/...`, the backend container will not be able to resolve them unless that host path is also mounted into the container.

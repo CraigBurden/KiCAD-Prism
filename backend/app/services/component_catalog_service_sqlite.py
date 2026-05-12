@@ -10,29 +10,28 @@ import logging
 import mimetypes
 import os
 import re
-
-logger = logging.getLogger(__name__)
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import threading
 import time
 import uuid
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
-from urllib.parse import quote
-
-import psycopg
-from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
-from psycopg_pool import ConnectionPool
+from typing import Any, Iterable, Iterator
 
 from app.core.config import settings
 
-DEFAULT_STORE_DIRNAME = ".kicad-prism-components"
+logger = logging.getLogger(__name__)
+
+DEFAULT_STORE_DIRNAME = ".kicad-prism"
+CATALOG_DB_FILENAME = "prism.sqlite3"
+DBL_EXPORT_DIRNAME = "kicad-dbl"
+
 PREVIEW_KIND_SYMBOL = "symbol"
 PREVIEW_KIND_FOOTPRINT = "footprint"
 PREVIEW_STATUS_READY = "ready"
@@ -109,6 +108,21 @@ CSV_ASSET_COLUMNS = (
     "footprint_target_name",
     "model_3d_file_path",
     "spice_file_path",
+)
+
+DBL_COMMON_COLUMNS: tuple[str, ...] = (
+    "Part Number",
+    "Part Number Nocolon",
+    "Comment",
+    "Value",
+    "Manufacturer",
+    "Manufacturer Part Number",
+    "PackageDescription",
+    "Status",
+    "Part Description",
+    "Datasheet",
+    "LibSymbol",
+    "LibFootprint",
 )
 
 _TOP_LEVEL_PROPERTY_RE = re.compile(r'^([ \t]+)\(property "([^"]+)" ')
@@ -241,26 +255,11 @@ def _rewrite_symbol_payload(payload: bytes, footprint_ref: str | None, component
 
     existing_blocks = {name: block for name, block in extracted_blocks}
     ordered_names = [name for name, _ in extracted_blocks]
-
     metadata_fields = _symbol_metadata_fields(component)
-    custom_blocks: dict[str, str] = {
-        "Description": _symbol_property_block("Description", metadata_fields["Description"], indent=indent),
-        "Datasheet": _symbol_property_block("Datasheet", metadata_fields["Datasheet"], indent=indent),
-        "Manufacturer": _symbol_property_block("Manufacturer", metadata_fields["Manufacturer"], indent=indent),
-        "Manufacturer Part Number": _symbol_property_block("Manufacturer Part Number", metadata_fields["Manufacturer Part Number"], indent=indent),
-        "Vendor": _symbol_property_block("Vendor", metadata_fields["Vendor"], indent=indent),
-        "Vendor Part Number": _symbol_property_block("Vendor Part Number", metadata_fields["Vendor Part Number"], indent=indent),
-        "Mass (g)": _symbol_property_block("Mass (g)", metadata_fields["Mass (g)"], indent=indent),
-        "RQjC (C/W)": _symbol_property_block("RQjC (C/W)", metadata_fields["RQjC (C/W)"], indent=indent),
-        "RQjC_top (C/W)": _symbol_property_block("RQjC_top (C/W)", metadata_fields["RQjC_top (C/W)"], indent=indent),
-        "Temp_max (C)": _symbol_property_block("Temp_max (C)", metadata_fields["Temp_max (C)"], indent=indent),
-        "Temp_min (C)": _symbol_property_block("Temp_min (C)", metadata_fields["Temp_min (C)"], indent=indent),
-        "Power Dissipation (W)": _symbol_property_block("Power Dissipation (W)", metadata_fields["Power Dissipation (W)"], indent=indent),
-        "Rate": _symbol_property_block("Rate", metadata_fields["Rate"], indent=indent),
-        "SAP Code": _symbol_property_block("SAP Code", metadata_fields["SAP Code"], indent=indent),
+    custom_blocks = {
+        label: _symbol_property_block(label, metadata_fields[label], indent=indent, hidden=label != "Value")
+        for label in SYMBOL_METADATA_FIELD_ORDER
     }
-
-    custom_blocks["Value"] = _symbol_property_block("Value", metadata_fields["Value"], indent=indent, hidden=False)
     if footprint_ref:
         custom_blocks["Footprint"] = _symbol_property_block("Footprint", footprint_ref, indent=indent)
     elif "Footprint" in existing_blocks:
@@ -272,10 +271,10 @@ def _rewrite_symbol_payload(payload: bytes, footprint_ref: str | None, component
     if "Footprint" not in ordered_names:
         ordered_names.append("Footprint")
 
-    rebuilt_blocks = []
-    for property_name in ordered_names:
-        rebuilt_blocks.append(custom_blocks.get(property_name, existing_blocks.get(property_name, "")))
-
+    rebuilt_blocks = [
+        custom_blocks.get(property_name, existing_blocks.get(property_name, ""))
+        for property_name in ordered_names
+    ]
     return (prefix + "".join(rebuilt_blocks) + trailing + suffix).encode("utf-8")
 
 
@@ -284,7 +283,6 @@ def _rewrite_footprint_payload(payload: bytes, asset: dict[str, Any]) -> bytes:
     prefix = _sanitize_name(settings.REMOTE_PROVIDER_LIBRARY_PREFIX, "remote").lower()
     destination = settings.REMOTE_PROVIDER_DESTINATION_DIR.rstrip("/")
     if destination in {"/RemoteLibrary", "$/RemoteLibrary"}:
-        # python-dotenv / Compose can interpolate ${KIPRJMOD} to an empty string.
         destination = "${KIPRJMOD}/RemoteLibrary"
     target_name = asset.get("target_name") or asset.get("name") or "model.step"
     file_stem = target_name[:-10] if str(target_name).lower().endswith(".kicad_mod") else str(target_name)
@@ -339,60 +337,88 @@ def _normalize_workflow_stage(stage: str) -> str:
     return LEGACY_WORKFLOW_STAGE_MAP.get(normalized, normalized)
 
 
+def _json_loads(value: Any, default: Any) -> Any:
+    if value in (None, ""):
+        return default
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(str(value))
+    except json.JSONDecodeError:
+        return default
+
+
+def _quote_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _sexpr_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _part_number_nocolon(value: str) -> str:
+    cleaned = re.sub(r":+", "_", value.strip())
+    cleaned = re.sub(r"\s+", "_", cleaned)
+    return cleaned or "PART"
+
+
+def _dbl_symbol_library_name(part_number: str, symbol_asset: dict[str, Any] | None) -> str:
+    if not symbol_asset:
+        return ""
+    raw = f"Prism_{part_number}_{symbol_asset['target_library']}_{symbol_asset['target_name']}"
+    return _sanitize_name(raw, "Prism_Symbol")
+
+
 class ComponentCatalogService:
     def __init__(self, store_root: Path | None = None, database_url: str | None = None) -> None:
-        self._store_root = Path(store_root or (Path(settings.KICAD_PROJECTS_ROOT) / DEFAULT_STORE_DIRNAME)).resolve()
-        self._database_url = database_url or self._database_url_from_settings()
+        prism_root = Path(settings.KICAD_PROJECTS_ROOT) / DEFAULT_STORE_DIRNAME
+        self._store_root = Path(store_root or prism_root / "components").resolve()
+        self._db_path = self._database_path(database_url)
+        default_export_root = self._store_root.parent / "exports" / DBL_EXPORT_DIRNAME if store_root else prism_root / "exports" / DBL_EXPORT_DIRNAME
+        self._export_root = Path(settings.CATALOG_DBL_EXPORT_DIR or default_export_root).resolve()
         self._lock = threading.Lock()
         self._initialized = False
         self._kicad_cli: str | None = None
-        self._pool: ConnectionPool | None = None
-        # In-memory category cache (per-worker; fine for multiple uvicorn workers)
         self._category_cache: list[dict[str, Any]] | None = None
         self._category_cache_ts: float = 0.0
-        self._CATEGORY_CACHE_TTL: float = 60.0  # seconds
+        self._CATEGORY_CACHE_TTL: float = 60.0
+        self._fts_available = False
 
-    def _database_url_from_settings(self) -> str:
-        if settings.CATALOG_DATABASE_URL:
-            return settings.CATALOG_DATABASE_URL
-        if not settings.POSTGRES_PASSWORD:
-            return ""
-        user = quote(settings.POSTGRES_USER, safe="")
-        password = quote(settings.POSTGRES_PASSWORD, safe="")
-        host = settings.POSTGRES_HOST
-        database = quote(settings.POSTGRES_DB, safe="")
-        return f"postgresql://{user}:{password}@{host}:{settings.POSTGRES_PORT}/{database}"
+    def _database_path(self, database_url: str | None) -> Path:
+        configured = database_url or settings.CATALOG_SQLITE_PATH
+        if configured:
+            if configured.startswith("sqlite:///"):
+                configured = configured.removeprefix("sqlite:///")
+            return Path(configured).expanduser().resolve()
+        return (Path(settings.KICAD_PROJECTS_ROOT) / DEFAULT_STORE_DIRNAME / CATALOG_DB_FILENAME).resolve()
 
     @property
     def store_root(self) -> Path:
         return self._store_root
 
+    @property
+    def db_path(self) -> Path:
+        return self._db_path
+
+    @property
+    def export_root(self) -> Path:
+        return self._export_root
+
     def initialize(self) -> None:
         with self._lock:
             if self._initialized:
                 return
-            if not self._database_url:
-                raise RuntimeError(
-                    "Component catalog database is not configured. Set CATALOG_DATABASE_URL or POSTGRES_PASSWORD."
-                )
             self._ensure_storage_dirs()
-            self._pool = ConnectionPool(
-                self._database_url,
-                min_size=settings.CATALOG_POOL_MIN_SIZE,
-                max_size=settings.CATALOG_POOL_MAX_SIZE,
-                kwargs={"row_factory": dict_row},
-            )
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
             with self._connect() as conn:
                 self._create_schema(conn)
                 self._migrate_workflow_stages(conn)
+                self._ensure_search_index(conn)
                 conn.commit()
             self._initialized = True
 
     def close(self) -> None:
         with self._lock:
-            if self._pool is not None:
-                self._pool.close()
-                self._pool = None
             self._initialized = False
 
     def _ensure_storage_dirs(self) -> None:
@@ -404,196 +430,262 @@ class ComponentCatalogService:
             self._store_root / "previews" / "symbols",
             self._store_root / "previews" / "footprints",
             self._store_root / "revisions",
+            self._export_root,
         ):
             path.mkdir(parents=True, exist_ok=True)
 
-    def _connect(self):
-        """Return a context-manager that borrows a connection from the pool.
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(self._db_path, timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        conn.execute("PRAGMA cache_size = -64000")
+        try:
+            yield conn
+        finally:
+            conn.close()
 
-        Falls back to a raw connection when the pool has not been created yet
-        (i.e. during the very first ``initialize()`` call).
-        """
-        if self._pool is not None:
-            return self._pool.connection()
-        return psycopg.connect(self._database_url, row_factory=dict_row)
+    def _create_schema(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS components (
+                id TEXT PRIMARY KEY,
+                slug TEXT NOT NULL UNIQUE,
+                source TEXT NOT NULL DEFAULT 'manual',
+                external_source TEXT NOT NULL DEFAULT '',
+                external_id TEXT NOT NULL DEFAULT '',
+                external_workflow_source TEXT NOT NULL DEFAULT '',
+                external_workflow_id TEXT NOT NULL DEFAULT '',
+                external_workflow_url TEXT NOT NULL DEFAULT '',
+                stock_quantity REAL NOT NULL DEFAULT 0,
+                stock_uom TEXT NOT NULL DEFAULT '',
+                inventory_status TEXT NOT NULL DEFAULT '',
+                serial_number TEXT NOT NULL DEFAULT '',
+                lot_number TEXT NOT NULL DEFAULT '',
+                pedigree TEXT NOT NULL DEFAULT '',
+                last_synced_at TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                current_revision_id TEXT NOT NULL DEFAULT '',
+                released_revision_id TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
 
-    def _create_schema(self, conn: psycopg.Connection[Any]) -> None:
-        with conn.cursor() as cur:
-            cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS components (
-                    id TEXT PRIMARY KEY,
-                    slug TEXT NOT NULL UNIQUE,
-                    source TEXT NOT NULL DEFAULT 'manual',
-                    external_source TEXT NOT NULL DEFAULT '',
-                    external_id TEXT NOT NULL DEFAULT '',
-                    external_workflow_source TEXT NOT NULL DEFAULT '',
-                    external_workflow_id TEXT NOT NULL DEFAULT '',
-                    external_workflow_url TEXT NOT NULL DEFAULT '',
-                    stock_quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
-                    stock_uom TEXT NOT NULL DEFAULT '',
-                    inventory_status TEXT NOT NULL DEFAULT '',
-                    serial_number TEXT NOT NULL DEFAULT '',
-                    lot_number TEXT NOT NULL DEFAULT '',
-                    pedigree TEXT NOT NULL DEFAULT '',
-                    last_synced_at TIMESTAMPTZ,
-                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                    current_revision_id TEXT NOT NULL DEFAULT '',
-                    released_revision_id TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS component_revisions (
-                    id TEXT PRIMARY KEY,
-                    component_id TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
-                    version INTEGER NOT NULL,
-                    release_status TEXT NOT NULL DEFAULT 'open',
-                    name TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    datasheet_url TEXT NOT NULL,
-                    manufacturer TEXT NOT NULL,
-                    mpn TEXT NOT NULL,
-                    category TEXT NOT NULL DEFAULT '',
-                    package_name TEXT NOT NULL DEFAULT '',
-                    vendor TEXT NOT NULL DEFAULT '',
-                    vendor_part_number TEXT NOT NULL DEFAULT '',
-                    mass_g TEXT NOT NULL DEFAULT '',
-                    rqjc_c_w TEXT NOT NULL DEFAULT '',
-                    rqjc_top_c_w TEXT NOT NULL DEFAULT '',
-                    temp_max_c TEXT NOT NULL DEFAULT '',
-                    temp_min_c TEXT NOT NULL DEFAULT '',
-                    power_dissipation_w TEXT NOT NULL DEFAULT '',
-                    rate TEXT NOT NULL DEFAULT '',
-                    sap_code TEXT NOT NULL DEFAULT '',
-                    summary TEXT NOT NULL DEFAULT '',
-                    keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
-                    search_document TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    UNIQUE(component_id, version)
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS assets (
-                    id TEXT PRIMARY KEY,
-                    asset_type TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    canonical_path TEXT NOT NULL,
-                    target_library TEXT NOT NULL DEFAULT '',
-                    target_name TEXT NOT NULL DEFAULT '',
-                    source_group TEXT NOT NULL DEFAULT '',
-                    sha256 TEXT NOT NULL,
-                    size_bytes BIGINT NOT NULL,
-                    content_type TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    UNIQUE(asset_type, canonical_path, target_name)
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS revision_assets (
-                    revision_id TEXT NOT NULL REFERENCES component_revisions(id) ON DELETE CASCADE,
-                    asset_type TEXT NOT NULL,
-                    asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE RESTRICT,
-                    required BOOLEAN NOT NULL DEFAULT FALSE,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    PRIMARY KEY(revision_id, asset_type)
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS asset_previews (
-                    id TEXT PRIMARY KEY,
-                    asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-                    kind TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'failed',
-                    content_type TEXT NOT NULL DEFAULT 'image/svg+xml',
-                    file_path TEXT NOT NULL DEFAULT '',
-                    generation_error TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    UNIQUE(asset_id, kind)
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS oauth_auth_codes (
-                    code TEXT PRIMARY KEY,
-                    grant_json JSONB NOT NULL,
-                    exp BIGINT NOT NULL
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS oauth_revoked_tokens (
-                    jti TEXT PRIMARY KEY,
-                    exp BIGINT NOT NULL
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS oauth_service_clients (
-                    client_id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    secret_hash TEXT NOT NULL,
-                    role TEXT NOT NULL DEFAULT 'viewer',
-                    scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
-                    enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    last_used_at TIMESTAMPTZ
-                )
-                """
-            )
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_components_active ON components(is_active)")
-            cur.execute("ALTER TABLE components ADD COLUMN IF NOT EXISTS external_workflow_source TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE components ADD COLUMN IF NOT EXISTS external_workflow_id TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE components ADD COLUMN IF NOT EXISTS external_workflow_url TEXT NOT NULL DEFAULT ''")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_components_source ON components(source, external_source, external_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_revisions_component ON component_revisions(component_id, version DESC)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_revisions_status ON component_revisions(release_status)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_assets_kind ON assets(asset_type, target_library, target_name)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_revision_assets_revision ON revision_assets(revision_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_asset_previews_asset ON asset_previews(asset_id, kind)")
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_revisions_search ON component_revisions USING GIN (search_document gin_trgm_ops)"
-            )
-            # Performance indexes for filtered browsing
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_revisions_category ON component_revisions(category)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_revisions_manufacturer ON component_revisions(manufacturer)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_revisions_mpn ON component_revisions(mpn)")
-            # Covering indexes for the common list_components join patterns
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_components_current_rev "
-                "ON components(current_revision_id) WHERE is_active = TRUE"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_components_released_rev "
-                "ON components(released_revision_id) WHERE released_revision_id <> ''"
-            )
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_oauth_service_clients_enabled ON oauth_service_clients(enabled)")
+            CREATE TABLE IF NOT EXISTS component_revisions (
+                id TEXT PRIMARY KEY,
+                component_id TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+                version INTEGER NOT NULL,
+                release_status TEXT NOT NULL DEFAULT 'open',
+                name TEXT NOT NULL,
+                value TEXT NOT NULL,
+                description TEXT NOT NULL,
+                datasheet_url TEXT NOT NULL,
+                manufacturer TEXT NOT NULL,
+                mpn TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT '',
+                package_name TEXT NOT NULL DEFAULT '',
+                vendor TEXT NOT NULL DEFAULT '',
+                vendor_part_number TEXT NOT NULL DEFAULT '',
+                mass_g TEXT NOT NULL DEFAULT '',
+                rqjc_c_w TEXT NOT NULL DEFAULT '',
+                rqjc_top_c_w TEXT NOT NULL DEFAULT '',
+                temp_max_c TEXT NOT NULL DEFAULT '',
+                temp_min_c TEXT NOT NULL DEFAULT '',
+                power_dissipation_w TEXT NOT NULL DEFAULT '',
+                rate TEXT NOT NULL DEFAULT '',
+                sap_code TEXT NOT NULL DEFAULT '',
+                summary TEXT NOT NULL DEFAULT '',
+                keywords TEXT NOT NULL DEFAULT '[]',
+                search_document TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(component_id, version)
+            );
 
-    def _migrate_workflow_stages(self, conn: psycopg.Connection[Any]) -> None:
+            CREATE TABLE IF NOT EXISTS assets (
+                id TEXT PRIMARY KEY,
+                asset_type TEXT NOT NULL,
+                name TEXT NOT NULL,
+                canonical_path TEXT NOT NULL,
+                target_library TEXT NOT NULL DEFAULT '',
+                target_name TEXT NOT NULL DEFAULT '',
+                source_group TEXT NOT NULL DEFAULT '',
+                sha256 TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                content_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(asset_type, canonical_path, target_name)
+            );
+
+            CREATE TABLE IF NOT EXISTS revision_assets (
+                revision_id TEXT NOT NULL REFERENCES component_revisions(id) ON DELETE CASCADE,
+                asset_type TEXT NOT NULL,
+                asset_id TEXT NOT NULL REFERENCES assets(id),
+                required INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(revision_id, asset_type)
+            );
+
+            CREATE TABLE IF NOT EXISTS asset_previews (
+                id TEXT PRIMARY KEY,
+                asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'failed',
+                content_type TEXT NOT NULL DEFAULT 'image/svg+xml',
+                file_path TEXT NOT NULL DEFAULT '',
+                generation_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(asset_id, kind)
+            );
+
+            CREATE TABLE IF NOT EXISTS oauth_auth_codes (
+                code TEXT PRIMARY KEY,
+                grant_json TEXT NOT NULL,
+                exp INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS oauth_revoked_tokens (
+                jti TEXT PRIMARY KEY,
+                exp INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS oauth_service_clients (
+                client_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                secret_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'viewer',
+                scopes TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_used_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_components_active ON components(is_active);
+            CREATE INDEX IF NOT EXISTS idx_components_source ON components(source, external_source, external_id);
+            CREATE INDEX IF NOT EXISTS idx_revisions_component ON component_revisions(component_id, version DESC);
+            CREATE INDEX IF NOT EXISTS idx_revisions_status ON component_revisions(release_status);
+            CREATE INDEX IF NOT EXISTS idx_revisions_category ON component_revisions(category);
+            CREATE INDEX IF NOT EXISTS idx_revisions_search ON component_revisions(search_document);
+            CREATE INDEX IF NOT EXISTS idx_revisions_mpn ON component_revisions(mpn);
+            CREATE INDEX IF NOT EXISTS idx_revisions_updated ON component_revisions(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_assets_kind ON assets(asset_type, target_library, target_name);
+            CREATE INDEX IF NOT EXISTS idx_revision_assets_revision ON revision_assets(revision_id);
+            CREATE INDEX IF NOT EXISTS idx_asset_previews_asset ON asset_previews(asset_id, kind);
+            CREATE INDEX IF NOT EXISTS idx_oauth_service_clients_enabled ON oauth_service_clients(enabled);
+
+            CREATE TABLE IF NOT EXISTS catalog_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            """
+        )
+
+    def _ensure_search_index(self, conn: sqlite3.Connection) -> None:
+        try:
+            conn.executescript(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS component_revisions_fts USING fts5(
+                    name,
+                    value,
+                    description,
+                    manufacturer,
+                    mpn,
+                    category,
+                    package_name,
+                    vendor,
+                    vendor_part_number,
+                    sap_code,
+                    search_document,
+                    content='component_revisions',
+                    content_rowid='rowid',
+                    tokenize='unicode61'
+                );
+
+                CREATE TRIGGER IF NOT EXISTS component_revisions_fts_ai
+                AFTER INSERT ON component_revisions BEGIN
+                    INSERT INTO component_revisions_fts(
+                        rowid, name, value, description, manufacturer, mpn, category,
+                        package_name, vendor, vendor_part_number, sap_code, search_document
+                    )
+                    VALUES (
+                        new.rowid, new.name, new.value, new.description, new.manufacturer, new.mpn,
+                        new.category, new.package_name, new.vendor, new.vendor_part_number,
+                        new.sap_code, new.search_document
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS component_revisions_fts_ad
+                AFTER DELETE ON component_revisions BEGIN
+                    INSERT INTO component_revisions_fts(
+                        component_revisions_fts, rowid, name, value, description, manufacturer,
+                        mpn, category, package_name, vendor, vendor_part_number, sap_code,
+                        search_document
+                    )
+                    VALUES (
+                        'delete', old.rowid, old.name, old.value, old.description, old.manufacturer,
+                        old.mpn, old.category, old.package_name, old.vendor, old.vendor_part_number,
+                        old.sap_code, old.search_document
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS component_revisions_fts_au
+                AFTER UPDATE ON component_revisions BEGIN
+                    INSERT INTO component_revisions_fts(
+                        component_revisions_fts, rowid, name, value, description, manufacturer,
+                        mpn, category, package_name, vendor, vendor_part_number, sap_code,
+                        search_document
+                    )
+                    VALUES (
+                        'delete', old.rowid, old.name, old.value, old.description, old.manufacturer,
+                        old.mpn, old.category, old.package_name, old.vendor, old.vendor_part_number,
+                        old.sap_code, old.search_document
+                    );
+                    INSERT INTO component_revisions_fts(
+                        rowid, name, value, description, manufacturer, mpn, category,
+                        package_name, vendor, vendor_part_number, sap_code, search_document
+                    )
+                    VALUES (
+                        new.rowid, new.name, new.value, new.description, new.manufacturer, new.mpn,
+                        new.category, new.package_name, new.vendor, new.vendor_part_number,
+                        new.sap_code, new.search_document
+                    );
+                END;
+                """
+            )
+            signature_row = conn.execute(
+                "SELECT COUNT(1) AS count, COALESCE(MAX(updated_at), '') AS updated_at FROM component_revisions"
+            ).fetchone()
+            signature = f"{int(signature_row['count'])}:{signature_row['updated_at']}"
+            stored = conn.execute("SELECT value FROM catalog_meta WHERE key = 'component_revisions_fts_signature'").fetchone()
+            if not stored or str(stored["value"]) != signature:
+                conn.execute("INSERT INTO component_revisions_fts(component_revisions_fts) VALUES ('rebuild')")
+                conn.execute(
+                    """
+                    INSERT INTO catalog_meta(key, value)
+                    VALUES ('component_revisions_fts_signature', ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    (signature,),
+                )
+            self._fts_available = True
+        except sqlite3.OperationalError as exc:
+            self._fts_available = False
+            logger.warning("SQLite FTS5 is unavailable; falling back to LIKE catalog search: %s", exc)
+
+    def _migrate_workflow_stages(self, conn: sqlite3.Connection) -> None:
         for old_stage, new_stage in LEGACY_WORKFLOW_STAGE_MAP.items():
             if old_stage == new_stage:
                 continue
             conn.execute(
-                "UPDATE component_revisions SET release_status = %s WHERE release_status = %s",
+                "UPDATE component_revisions SET release_status = ? WHERE release_status = ?",
                 (new_stage, old_stage),
             )
 
@@ -618,7 +710,7 @@ class ComponentCatalogService:
         if not cli:
             return False, "kicad-cli is not available in the backend runtime"
         try:
-            result = subprocess.run([cli, *args], capture_output=True, text=True, timeout=60)
+            result = subprocess.run([cli, *args], capture_output=True, text=True, timeout=60, check=False)
         except subprocess.TimeoutExpired:
             return False, "kicad-cli timed out after 60 seconds"
         if result.returncode != 0:
@@ -656,6 +748,10 @@ class ComponentCatalogService:
                 "sap_code",
             )
         ).strip()
+
+    def _fts_query(self, query: str) -> str:
+        tokens = re.findall(r"[A-Za-z0-9_]+", query.strip().lower())
+        return " ".join(f"{token}*" for token in tokens[:8])
 
     def _keywords(self, payload: dict[str, Any]) -> list[str]:
         return _dedupe(
@@ -696,40 +792,51 @@ class ComponentCatalogService:
         normalized["summary"] = normalized["description"]
         return normalized
 
-    def _unique_slug(self, conn: psycopg.Connection[Any], base: str) -> str:
+    def _unique_slug(self, conn: sqlite3.Connection, base: str) -> str:
         slug = _slugify(base or "component")
         candidate = slug
         counter = 2
-        while conn.execute("SELECT 1 FROM components WHERE slug = %s", (candidate,)).fetchone():
+        while conn.execute("SELECT 1 FROM components WHERE slug = ?", (candidate,)).fetchone():
             candidate = f"{slug}-{counter}"
             counter += 1
         return candidate
 
-    def _component_row(self, conn: psycopg.Connection[Any], component_id: str) -> dict[str, Any] | None:
-        return conn.execute("SELECT * FROM components WHERE id = %s", (component_id,)).fetchone()
+    def _component_row(self, conn: sqlite3.Connection, component_id: str) -> dict[str, Any] | None:
+        row = conn.execute("SELECT * FROM components WHERE id = ?", (component_id,)).fetchone()
+        return dict(row) if row else None
 
-    def _revision_row(self, conn: psycopg.Connection[Any], revision_id: str) -> dict[str, Any] | None:
-        return conn.execute("SELECT * FROM component_revisions WHERE id = %s", (revision_id,)).fetchone()
+    def _revision_row(self, conn: sqlite3.Connection, revision_id: str) -> dict[str, Any] | None:
+        row = conn.execute("SELECT * FROM component_revisions WHERE id = ?", (revision_id,)).fetchone()
+        return dict(row) if row else None
 
-    def _active_revision_row(self, conn: psycopg.Connection[Any], component_id: str, *, released: bool = False) -> tuple[dict[str, Any], dict[str, Any]] | tuple[None, None]:
+    def _active_revision_row(
+        self,
+        conn: sqlite3.Connection,
+        component_id: str,
+        *,
+        released: bool = False,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         component = self._component_row(conn, component_id)
         if not component:
             return None, None
         revision_id = component["released_revision_id"] if released else component["current_revision_id"]
         if not revision_id:
             return component, None
-        return component, self._revision_row(conn, revision_id)
+        return component, self._revision_row(conn, str(revision_id))
 
-    def _clone_revision(self, conn: psycopg.Connection[Any], component_id: str) -> dict[str, Any]:
+    def _clone_revision(self, conn: sqlite3.Connection, component_id: str) -> dict[str, Any]:
         component, current = self._active_revision_row(conn, component_id, released=False)
         if not component or not current:
             raise ValueError("Component not found")
         if _normalize_workflow_stage(str(current["release_status"])) == "open":
             return current
 
-        now = _utc_now()
+        now = _utc_now_iso()
         next_version = int(
-            conn.execute("SELECT COALESCE(MAX(version), 0) AS max_version FROM component_revisions WHERE component_id = %s", (component_id,)).fetchone()["max_version"]
+            conn.execute(
+                "SELECT COALESCE(MAX(version), 0) AS max_version FROM component_revisions WHERE component_id = ?",
+                (component_id,),
+            ).fetchone()["max_version"]
         ) + 1
         revision_id = str(uuid.uuid4())
         conn.execute(
@@ -741,37 +848,37 @@ class ComponentCatalogService:
                 summary, keywords, search_document, created_at, updated_at
             )
             SELECT
-                %s, component_id, %s, 'open', name, value, description, datasheet_url,
+                ?, component_id, ?, 'open', name, value, description, datasheet_url,
                 manufacturer, mpn, category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
-                summary, keywords, search_document, %s, %s
+                summary, keywords, search_document, ?, ?
             FROM component_revisions
-            WHERE id = %s
+            WHERE id = ?
             """,
             (revision_id, next_version, now, now, current["id"]),
         )
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
-            SELECT %s, asset_type, asset_id, required, %s, %s
+            SELECT ?, asset_type, asset_id, required, ?, ?
             FROM revision_assets
-            WHERE revision_id = %s
+            WHERE revision_id = ?
             """,
             (revision_id, now, now, current["id"]),
         )
         conn.execute(
-            "UPDATE components SET current_revision_id = %s, updated_at = %s WHERE id = %s",
+            "UPDATE components SET current_revision_id = ?, updated_at = ? WHERE id = ?",
             (revision_id, now, component_id),
         )
-        return self._revision_row(conn, revision_id)
+        return self._revision_row(conn, revision_id) or {}
 
-    def _load_assets_for_revision(self, conn: psycopg.Connection[Any], revision_id: str) -> list[dict[str, Any]]:
+    def _load_assets_for_revision(self, conn: sqlite3.Connection, revision_id: str) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT a.*, ra.required
             FROM revision_assets ra
             JOIN assets a ON a.id = ra.asset_id
-            WHERE ra.revision_id = %s
+            WHERE ra.revision_id = ?
             ORDER BY CASE a.asset_type
                 WHEN 'symbol' THEN 1
                 WHEN 'footprint' THEN 2
@@ -784,12 +891,13 @@ class ComponentCatalogService:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def _load_previews_for_assets(self, conn: psycopg.Connection[Any], asset_ids: list[str]) -> list[dict[str, Any]]:
+    def _load_previews_for_assets(self, conn: sqlite3.Connection, asset_ids: list[str]) -> list[dict[str, Any]]:
         if not asset_ids:
             return []
+        placeholders = ",".join("?" for _ in asset_ids)
         rows = conn.execute(
-            "SELECT * FROM asset_previews WHERE asset_id = ANY(%s) ORDER BY kind, updated_at DESC",
-            (asset_ids,),
+            f"SELECT * FROM asset_previews WHERE asset_id IN ({placeholders}) ORDER BY kind, updated_at DESC",
+            tuple(asset_ids),
         ).fetchall()
         return [dict(row) for row in rows]
 
@@ -807,7 +915,7 @@ class ComponentCatalogService:
 
     def _component_payload(
         self,
-        conn: psycopg.Connection[Any],
+        conn: sqlite3.Connection,
         component_row: dict[str, Any],
         revision_row: dict[str, Any],
         *,
@@ -831,10 +939,11 @@ class ComponentCatalogService:
                 "content_type": str(preview["content_type"]),
                 "file_path": str(preview["file_path"]),
                 "generation_error": str(preview["generation_error"]),
-                "updated_at": preview["updated_at"].isoformat() if preview["updated_at"] else "",
+                "updated_at": str(preview["updated_at"] or ""),
             }
             for preview in previews
         ]
+        keywords = _json_loads(revision_row.get("keywords"), [])
         return {
             "id": str(component_row["id"]),
             "slug": str(component_row["slug"]),
@@ -862,7 +971,7 @@ class ComponentCatalogService:
             "power_dissipation_w": str(revision_row["power_dissipation_w"]),
             "rate": str(revision_row["rate"]),
             "sap_code": str(revision_row["sap_code"]),
-            "keywords": list(revision_row["keywords"] or []),
+            "keywords": list(keywords),
             "availability_state": availability_state,
             "missing_assets": missing_assets,
             "place_enabled": place_enabled,
@@ -872,7 +981,7 @@ class ComponentCatalogService:
             "serial_number": str(component_row["serial_number"]),
             "lot_number": str(component_row["lot_number"]),
             "pedigree": str(component_row["pedigree"]),
-            "last_synced_at": component_row["last_synced_at"].isoformat() if component_row["last_synced_at"] else "",
+            "last_synced_at": str(component_row["last_synced_at"] or ""),
             "is_active": bool(component_row["is_active"]),
             "revision_id": str(revision_row["id"]),
             "version": f"{int(revision_row['version'])}.0.0",
@@ -897,6 +1006,48 @@ class ComponentCatalogService:
             "previews": preview_payloads,
         }
 
+    def _component_summary_payload(
+        self,
+        component_row: dict[str, Any],
+        revision_row: dict[str, Any],
+        assets: list[dict[str, Any]],
+        *,
+        released_view: bool = False,
+    ) -> dict[str, Any]:
+        availability_state, missing_assets, place_enabled = self._availability(
+            assets,
+            str(revision_row["release_status"]),
+            bool(component_row["is_active"]),
+        )
+        symbol_asset = next((asset for asset in assets if asset["asset_type"] == "symbol"), None)
+        return {
+            "id": str(component_row["id"]),
+            "slug": str(component_row["slug"]),
+            "name": str(revision_row["name"]),
+            "manufacturer": str(revision_row["manufacturer"]),
+            "mpn": str(revision_row["mpn"]),
+            "description": str(revision_row["description"]),
+            "package_name": str(revision_row["package_name"]),
+            "category": str(revision_row["category"]),
+            "datasheet_url": str(revision_row["datasheet_url"]),
+            "summary": str(revision_row["summary"]),
+            "version": f"{int(revision_row['version'])}.0.0",
+            "library_name": str(symbol_asset["target_library"]) if symbol_asset else "",
+            "symbol_name": str(symbol_asset["target_name"]) if symbol_asset else "",
+            "availability_state": availability_state,
+            "missing_assets": missing_assets,
+            "place_enabled": place_enabled,
+            "stock_quantity": float(component_row["stock_quantity"]),
+            "stock_uom": str(component_row["stock_uom"]),
+            "inventory_status": str(component_row["inventory_status"]),
+            "release_status": _normalize_workflow_stage(str(revision_row["release_status"])),
+            "workflow_stage": _normalize_workflow_stage(str(revision_row["release_status"])),
+            "released_view": released_view,
+            "revision_id": str(revision_row["id"]),
+            "assets": [],
+            "previews": [],
+        }
+
     def list_components(
         self,
         *,
@@ -909,27 +1060,28 @@ class ComponentCatalogService:
         page: int = 1,
         page_size: int = 50,
         released_only: bool = False,
+        lightweight: bool = False,
     ) -> dict[str, Any]:
         self.initialize()
         offset = (page - 1) * page_size
-        filters = []
-        params: list[Any] = []
         revision_ref = "rr" if released_only else "cr"
         revision_join_column = "released_revision_id" if released_only else "current_revision_id"
+        filters: list[str] = []
+        params: list[Any] = []
 
         if not include_inactive:
-            filters.append("c.is_active = TRUE")
+            filters.append("c.is_active = 1")
         if source:
-            filters.append("c.source = %s")
+            filters.append("c.source = ?")
             params.append(source)
         if category is not None:
-            filters.append(f"{revision_ref}.category = %s")
+            filters.append(f"{revision_ref}.category = ?")
             params.append(category)
         normalized_workflow_stage = _normalize_workflow_stage(workflow_stage or "")
         if normalized_workflow_stage:
             if normalized_workflow_stage not in WORKFLOW_STAGES:
                 raise ValueError("Unsupported workflow stage")
-            filters.append(f"{revision_ref}.release_status = %s")
+            filters.append(f"{revision_ref}.release_status = ?")
             params.append(normalized_workflow_stage)
         if availability_state:
             symbol_exists = (
@@ -951,10 +1103,32 @@ class ComponentCatalogService:
         if released_only:
             filters.append("c.released_revision_id <> ''")
             filters.append("rr.release_status = 'released'")
-        if query.strip():
-            filters.append(f"{revision_ref}.search_document ILIKE %s")
-            params.append(f"%{query.strip()}%")
+        query_text = query.strip()
+        fts_query = self._fts_query(query_text) if query_text and self._fts_available else ""
+        if fts_query:
+            filters.append(
+                f"{revision_ref}.rowid IN ("
+                "SELECT rowid FROM component_revisions_fts "
+                "WHERE component_revisions_fts MATCH ?"
+                ")"
+            )
+            params.append(fts_query)
+        elif query_text:
+            filters.append(f"LOWER({revision_ref}.search_document) LIKE LOWER(?)")
+            params.append(f"%{query_text}%")
         where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
+        if query_text:
+            order_sql = (
+                f"ORDER BY CASE "
+                f"WHEN LOWER({revision_ref}.mpn) = LOWER(?) THEN 0 "
+                f"WHEN LOWER({revision_ref}.mpn) LIKE LOWER(?) THEN 1 "
+                f"WHEN LOWER({revision_ref}.name) LIKE LOWER(?) THEN 2 "
+                f"ELSE 3 END, {revision_ref}.updated_at DESC"
+            )
+            order_params: list[Any] = [query_text, f"{query_text}%", f"{query_text}%"]
+        else:
+            order_sql = f"ORDER BY {revision_ref}.updated_at DESC"
+            order_params = []
 
         with self._connect() as conn:
             total = int(
@@ -970,169 +1144,78 @@ class ComponentCatalogService:
             )
             rows = conn.execute(
                 f"""
-                SELECT
-                    c.id AS c_id,
-                    c.slug AS c_slug,
-                    c.source AS c_source,
-                    c.external_source AS c_external_source,
-                    c.external_id AS c_external_id,
-                    c.stock_quantity AS c_stock_quantity,
-                    c.stock_uom AS c_stock_uom,
-                    c.inventory_status AS c_inventory_status,
-                    c.serial_number AS c_serial_number,
-                    c.lot_number AS c_lot_number,
-                    c.pedigree AS c_pedigree,
-                    c.last_synced_at AS c_last_synced_at,
-                    c.is_active AS c_is_active,
-                    c.current_revision_id AS c_current_revision_id,
-                    c.released_revision_id AS c_released_revision_id,
-                    c.created_at AS c_created_at,
-                    c.updated_at AS c_updated_at,
-                    {revision_ref}.id AS r_id,
-                    {revision_ref}.component_id AS r_component_id,
-                    {revision_ref}.version AS r_version,
-                    {revision_ref}.release_status AS r_release_status,
-                    {revision_ref}.name AS r_name,
-                    {revision_ref}.value AS r_value,
-                    {revision_ref}.description AS r_description,
-                    {revision_ref}.datasheet_url AS r_datasheet_url,
-                    {revision_ref}.manufacturer AS r_manufacturer,
-                    {revision_ref}.mpn AS r_mpn,
-                    {revision_ref}.category AS r_category,
-                    {revision_ref}.package_name AS r_package_name,
-                    {revision_ref}.vendor AS r_vendor,
-                    {revision_ref}.vendor_part_number AS r_vendor_part_number,
-                    {revision_ref}.mass_g AS r_mass_g,
-                    {revision_ref}.rqjc_c_w AS r_rqjc_c_w,
-                    {revision_ref}.rqjc_top_c_w AS r_rqjc_top_c_w,
-                    {revision_ref}.temp_max_c AS r_temp_max_c,
-                    {revision_ref}.temp_min_c AS r_temp_min_c,
-                    {revision_ref}.power_dissipation_w AS r_power_dissipation_w,
-                    {revision_ref}.rate AS r_rate,
-                    {revision_ref}.sap_code AS r_sap_code,
-                    {revision_ref}.summary AS r_summary,
-                    {revision_ref}.keywords AS r_keywords,
-                    {revision_ref}.search_document AS r_search_document,
-                    {revision_ref}.created_at AS r_created_at,
-                    {revision_ref}.updated_at AS r_updated_at
+                SELECT c.*, {revision_ref}.id AS revision_id
                 FROM components c
                 JOIN component_revisions {revision_ref} ON {revision_ref}.id = c.{revision_join_column}
                 {where_sql}
-                ORDER BY
-                    CASE WHEN %s = '' THEN 0 ELSE similarity({revision_ref}.search_document, %s) END DESC,
-                    {revision_ref}.updated_at DESC
-                LIMIT %s OFFSET %s
+                {order_sql}
+                LIMIT ? OFFSET ?
                 """,
-                tuple(params + [query.strip(), query.strip(), page_size, offset]),
+                tuple(params + order_params + [page_size, offset]),
             ).fetchall()
-
-            # ── Batch-load assets and previews (eliminates N+1 queries) ──
             parsed_rows = []
             for row in rows:
-                row_dict = dict(row)
-                component_row = {
-                    "id": row_dict["c_id"],
-                    "slug": row_dict["c_slug"],
-                    "source": row_dict["c_source"],
-                    "external_source": row_dict["c_external_source"],
-                    "external_id": row_dict["c_external_id"],
-                    "stock_quantity": row_dict["c_stock_quantity"],
-                    "stock_uom": row_dict["c_stock_uom"],
-                    "inventory_status": row_dict["c_inventory_status"],
-                    "serial_number": row_dict["c_serial_number"],
-                    "lot_number": row_dict["c_lot_number"],
-                    "pedigree": row_dict["c_pedigree"],
-                    "last_synced_at": row_dict["c_last_synced_at"],
-                    "is_active": row_dict["c_is_active"],
-                    "current_revision_id": row_dict["c_current_revision_id"],
-                    "released_revision_id": row_dict["c_released_revision_id"],
-                    "created_at": row_dict["c_created_at"],
-                    "updated_at": row_dict["c_updated_at"],
-                }
-                revision_row = {
-                    "id": row_dict["r_id"],
-                    "component_id": row_dict["r_component_id"],
-                    "version": row_dict["r_version"],
-                    "release_status": row_dict["r_release_status"],
-                    "name": row_dict["r_name"],
-                    "value": row_dict["r_value"],
-                    "description": row_dict["r_description"],
-                    "datasheet_url": row_dict["r_datasheet_url"],
-                    "manufacturer": row_dict["r_manufacturer"],
-                    "mpn": row_dict["r_mpn"],
-                    "category": row_dict["r_category"],
-                    "package_name": row_dict["r_package_name"],
-                    "vendor": row_dict["r_vendor"],
-                    "vendor_part_number": row_dict["r_vendor_part_number"],
-                    "mass_g": row_dict["r_mass_g"],
-                    "rqjc_c_w": row_dict["r_rqjc_c_w"],
-                    "rqjc_top_c_w": row_dict["r_rqjc_top_c_w"],
-                    "temp_max_c": row_dict["r_temp_max_c"],
-                    "temp_min_c": row_dict["r_temp_min_c"],
-                    "power_dissipation_w": row_dict["r_power_dissipation_w"],
-                    "rate": row_dict["r_rate"],
-                    "sap_code": row_dict["r_sap_code"],
-                    "summary": row_dict["r_summary"],
-                    "keywords": row_dict["r_keywords"],
-                    "search_document": row_dict["r_search_document"],
-                    "created_at": row_dict["r_created_at"],
-                    "updated_at": row_dict["r_updated_at"],
-                }
-                parsed_rows.append((component_row, revision_row))
+                component_row = dict(row)
+                revision = self._revision_row(conn, str(component_row.pop("revision_id")))
+                if revision:
+                    parsed_rows.append((component_row, revision))
 
-            # Batch-load: one query for all assets, one for all previews
-            revision_ids = [rev["id"] for _, rev in parsed_rows]
-            all_assets_rows: list[dict[str, Any]] = []
+            revision_ids = [str(rev["id"]) for _, rev in parsed_rows]
+            assets_by_revision: dict[str, list[dict[str, Any]]] = {}
+            all_asset_ids: list[str] = []
             if revision_ids:
+                placeholders = ",".join("?" for _ in revision_ids)
                 all_assets_rows = [
                     dict(r) for r in conn.execute(
-                        """
+                        f"""
                         SELECT a.*, ra.required, ra.revision_id
                         FROM revision_assets ra
                         JOIN assets a ON a.id = ra.asset_id
-                        WHERE ra.revision_id = ANY(%s)
+                        WHERE ra.revision_id IN ({placeholders})
                         ORDER BY CASE a.asset_type
                             WHEN 'symbol' THEN 1 WHEN 'footprint' THEN 2
                             WHEN '3dmodel' THEN 3 WHEN 'spice' THEN 4 ELSE 99
                         END, a.target_library, a.target_name
                         """,
-                        (revision_ids,),
+                        tuple(revision_ids),
                     ).fetchall()
                 ]
-
-            assets_by_revision: dict[str, list[dict[str, Any]]] = {}
-            all_asset_ids: list[str] = []
-            for asset_row in all_assets_rows:
-                rev_id = str(asset_row.pop("revision_id"))
-                assets_by_revision.setdefault(rev_id, []).append(asset_row)
-                all_asset_ids.append(str(asset_row["id"]))
-
-            all_previews_rows: list[dict[str, Any]] = []
-            if all_asset_ids:
-                all_previews_rows = [
-                    dict(r) for r in conn.execute(
-                        "SELECT * FROM asset_previews WHERE asset_id = ANY(%s) ORDER BY kind, updated_at DESC",
-                        (all_asset_ids,),
-                    ).fetchall()
-                ]
+                for asset_row in all_assets_rows:
+                    rev_id = str(asset_row.pop("revision_id"))
+                    assets_by_revision.setdefault(rev_id, []).append(asset_row)
+                    all_asset_ids.append(str(asset_row["id"]))
 
             previews_by_asset: dict[str, list[dict[str, Any]]] = {}
-            for preview_row in all_previews_rows:
-                aid = str(preview_row["asset_id"])
-                previews_by_asset.setdefault(aid, []).append(preview_row)
+            if not lightweight:
+                for preview_row in self._load_previews_for_assets(conn, all_asset_ids):
+                    previews_by_asset.setdefault(str(preview_row["asset_id"]), []).append(preview_row)
 
             items = []
             for component_row, revision_row in parsed_rows:
                 rev_assets = assets_by_revision.get(str(revision_row["id"]), [])
+                if lightweight:
+                    items.append(
+                        self._component_summary_payload(
+                            component_row,
+                            revision_row,
+                            rev_assets,
+                            released_view=released_only,
+                        )
+                    )
+                    continue
                 rev_previews: list[dict[str, Any]] = []
                 for asset in rev_assets:
                     rev_previews.extend(previews_by_asset.get(str(asset["id"]), []))
-                items.append(self._component_payload(
-                    conn, component_row, revision_row,
-                    released_view=released_only,
-                    preloaded_assets=rev_assets,
-                    preloaded_previews=rev_previews,
-                ))
+                items.append(
+                    self._component_payload(
+                        conn,
+                        component_row,
+                        revision_row,
+                        released_view=released_only,
+                        preloaded_assets=rev_assets,
+                        preloaded_previews=rev_previews,
+                    )
+                )
 
         pages = max(1, (total + page_size - 1) // page_size)
         return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": pages}
@@ -1148,7 +1231,7 @@ class ComponentCatalogService:
                 SELECT cr.release_status AS workflow_stage, COUNT(1) AS count
                 FROM components c
                 JOIN component_revisions cr ON cr.id = c.current_revision_id
-                WHERE c.is_active = TRUE
+                WHERE c.is_active = 1
                 GROUP BY cr.release_status
                 """
             ).fetchall()
@@ -1157,15 +1240,17 @@ class ComponentCatalogService:
             stage = _normalize_workflow_stage(str(row["workflow_stage"]))
             if stage in counts:
                 counts[stage] += int(row["count"])
-        return {
-            "stages": [
-                {"workflow_stage": stage, "count": counts[stage]}
-                for stage in WORKFLOW_STAGES
-            ]
-        }
+        return {"stages": [{"workflow_stage": stage, "count": counts[stage]} for stage in WORKFLOW_STAGES]}
 
     def search_components(self, query: str, *, page: int = 1, page_size: int = 50) -> dict[str, Any]:
-        return self.list_components(query=query, include_inactive=False, page=page, page_size=page_size, released_only=True)
+        return self.list_components(
+            query=query,
+            include_inactive=False,
+            page=page,
+            page_size=page_size,
+            released_only=True,
+            lightweight=True,
+        )
 
     def list_categories(self) -> list[dict[str, Any]]:
         self.initialize()
@@ -1178,7 +1263,7 @@ class ComponentCatalogService:
                 SELECT rr.category AS name, COUNT(1) AS count
                 FROM components c
                 JOIN component_revisions rr ON rr.id = c.released_revision_id
-                WHERE c.is_active = TRUE AND c.released_revision_id <> '' AND rr.release_status = 'released'
+                WHERE c.is_active = 1 AND c.released_revision_id <> '' AND rr.release_status = 'released'
                 GROUP BY rr.category
                 ORDER BY rr.category
                 """
@@ -1203,9 +1288,8 @@ class ComponentCatalogService:
     def create_manual_component(self, **payload: Any) -> dict[str, Any]:
         self.initialize()
         metadata = self._normalize_metadata(payload)
-        now = _utc_now()
+        now = _utc_now_iso()
         component_id = str(uuid.uuid4())
-
         with self._connect() as conn:
             self._upsert_component_metadata_row(conn, component_id=component_id, metadata=metadata, now=now, existing_component_id=None)
             conn.commit()
@@ -1213,11 +1297,11 @@ class ComponentCatalogService:
 
     def _upsert_component_metadata_row(
         self,
-        conn: psycopg.Connection[Any],
+        conn: sqlite3.Connection,
         *,
         component_id: str,
         metadata: dict[str, str],
-        now: datetime,
+        now: str,
         existing_component_id: str | None,
     ) -> tuple[str, str]:
         if existing_component_id:
@@ -1225,12 +1309,12 @@ class ComponentCatalogService:
             conn.execute(
                 """
                 UPDATE component_revisions
-                SET name = %s, value = %s, description = %s, datasheet_url = %s, manufacturer = %s, mpn = %s,
-                    category = %s, package_name = %s, vendor = %s, vendor_part_number = %s, mass_g = %s,
-                    rqjc_c_w = %s, rqjc_top_c_w = %s, temp_max_c = %s, temp_min_c = %s,
-                    power_dissipation_w = %s, rate = %s, sap_code = %s, summary = %s, keywords = %s,
-                    search_document = %s, updated_at = %s
-                WHERE id = %s
+                SET name = ?, value = ?, description = ?, datasheet_url = ?, manufacturer = ?, mpn = ?,
+                    category = ?, package_name = ?, vendor = ?, vendor_part_number = ?, mass_g = ?,
+                    rqjc_c_w = ?, rqjc_top_c_w = ?, temp_max_c = ?, temp_min_c = ?,
+                    power_dissipation_w = ?, rate = ?, sap_code = ?, summary = ?, keywords = ?,
+                    search_document = ?, updated_at = ?
+                WHERE id = ?
                 """,
                 (
                     metadata["name"],
@@ -1252,13 +1336,13 @@ class ComponentCatalogService:
                     metadata["rate"],
                     metadata["sap_code"],
                     metadata["summary"],
-                    Jsonb(self._keywords(metadata)),
+                    json.dumps(self._keywords(metadata), separators=(",", ":")),
                     self._search_document(metadata),
                     now,
                     revision["id"],
                 ),
             )
-            conn.execute("UPDATE components SET updated_at = %s WHERE id = %s", (now, existing_component_id))
+            conn.execute("UPDATE components SET updated_at = ? WHERE id = ?", (now, existing_component_id))
             return existing_component_id, str(revision["id"])
 
         slug = self._unique_slug(conn, metadata["mpn"] or metadata["value"])
@@ -1270,7 +1354,7 @@ class ComponentCatalogService:
                 serial_number, lot_number, pedigree, last_synced_at, is_active, current_revision_id,
                 released_revision_id, created_at, updated_at
             )
-            VALUES (%s, %s, %s, '', '', 0, '', '', '', '', '', NULL, TRUE, %s, '', %s, %s)
+            VALUES (?, ?, ?, '', '', 0, '', '', '', '', '', NULL, 1, ?, '', ?, ?)
             """,
             (component_id, slug, SOURCE_MANUAL, revision_id, now, now),
         )
@@ -1283,8 +1367,8 @@ class ComponentCatalogService:
                 summary, keywords, search_document, created_at, updated_at
             )
             VALUES (
-                %s, %s, 1, 'open', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s
+                ?, ?, 1, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?
             )
             """,
             (
@@ -1309,7 +1393,7 @@ class ComponentCatalogService:
                 metadata["rate"],
                 metadata["sap_code"],
                 metadata["summary"],
-                Jsonb(self._keywords(metadata)),
+                json.dumps(self._keywords(metadata), separators=(",", ":")),
                 self._search_document(metadata),
                 now,
                 now,
@@ -1348,44 +1432,8 @@ class ComponentCatalogService:
                 if key in updates:
                     merged[column] = str(updates[key] or "")
             metadata = self._normalize_metadata(merged)
-            now = _utc_now()
-            conn.execute(
-                """
-                UPDATE component_revisions
-                SET name = %s, value = %s, description = %s, datasheet_url = %s, manufacturer = %s, mpn = %s,
-                    category = %s, package_name = %s, vendor = %s, vendor_part_number = %s, mass_g = %s,
-                    rqjc_c_w = %s, rqjc_top_c_w = %s, temp_max_c = %s, temp_min_c = %s,
-                    power_dissipation_w = %s, rate = %s, sap_code = %s, summary = %s, keywords = %s,
-                    search_document = %s, updated_at = %s
-                WHERE id = %s
-                """,
-                (
-                    metadata["name"],
-                    metadata["value"],
-                    metadata["description"],
-                    metadata["datasheet_url"],
-                    metadata["manufacturer"],
-                    metadata["mpn"],
-                    metadata["category"],
-                    metadata["package_name"],
-                    metadata["vendor"],
-                    metadata["vendor_part_number"],
-                    metadata["mass_g"],
-                    metadata["rqjc_c_w"],
-                    metadata["rqjc_top_c_w"],
-                    metadata["temp_max_c"],
-                    metadata["temp_min_c"],
-                    metadata["power_dissipation_w"],
-                    metadata["rate"],
-                    metadata["sap_code"],
-                    metadata["summary"],
-                    Jsonb(self._keywords(metadata)),
-                    self._search_document(metadata),
-                    now,
-                    revision["id"],
-                ),
-            )
-            conn.execute("UPDATE components SET updated_at = %s WHERE id = %s", (now, component_id))
+            now = _utc_now_iso()
+            self._upsert_component_metadata_row(conn, component_id=component_id, metadata=metadata, now=now, existing_component_id=component_id)
             conn.commit()
         return self.get_component(component_id)
 
@@ -1406,42 +1454,33 @@ class ComponentCatalogService:
         errors: list[str] = []
         for index, row in enumerate(reader, start=2):
             try:
-                normalized = self._normalize_csv_row({str(k): str(v or "") for k, v in row.items()}, index)
-                rows.append(normalized)
+                rows.append(self._normalize_csv_row({str(k): str(v or "") for k, v in row.items()}, index))
             except ValueError as exc:
                 errors.append(str(exc))
-
         if errors:
             raise ValueError("\n".join(errors))
 
-        total_rows = len(rows)
-        logger.info(f"Starting CSV import of {total_rows} component rows...")
         created = 0
         updated = 0
         with self._connect() as conn:
-            now = _utc_now()
-            for idx, row in enumerate(rows, start=1):
+            now = _utc_now_iso()
+            for row in rows:
                 mpn = row["manufacturer_part_number"]
-                logger.info(f"[{idx}/{total_rows}] Processing component: MPN={mpn}")
                 existing = conn.execute(
                     """
                     SELECT c.id
                     FROM components c
                     JOIN component_revisions cr ON cr.id = c.current_revision_id
-                    WHERE cr.mpn = %s
+                    WHERE cr.mpn = ?
                     LIMIT 1
                     """,
                     (mpn,),
                 ).fetchone()
                 asset_links = []
                 if row.get("symbol_file_path"):
-                    asset_links.append(
-                        ("symbol", row["symbol_file_path"], row.get("symbol_target_library", ""), row.get("symbol_target_name", ""))
-                    )
+                    asset_links.append(("symbol", row["symbol_file_path"], row.get("symbol_target_library", ""), row.get("symbol_target_name", "")))
                 if row.get("footprint_file_path"):
-                    asset_links.append(
-                        ("footprint", row["footprint_file_path"], row.get("footprint_target_library", ""), row.get("footprint_target_name", ""))
-                    )
+                    asset_links.append(("footprint", row["footprint_file_path"], row.get("footprint_target_library", ""), row.get("footprint_target_name", "")))
                 if row.get("model_3d_file_path"):
                     asset_links.append(("3dmodel", row["model_3d_file_path"], "", ""))
                 if row.get("spice_file_path"):
@@ -1487,8 +1526,6 @@ class ComponentCatalogService:
                     )
                     created += 1
 
-                if asset_links:
-                    logger.info(f"[{idx}/{total_rows}]   -> Resolving {len(asset_links)} asset links...")
                 for asset_type, file_path, target_library, target_name in asset_links:
                     asset = self._resolve_existing_asset(
                         conn,
@@ -1499,8 +1536,6 @@ class ComponentCatalogService:
                     )
                     self._link_asset_to_revision(conn, revision_id, asset, required=asset_type in PLACE_REQUIRED_ASSET_TYPES)
             conn.commit()
-
-        logger.info(f"CSV metadata import completed. Created: {created}, Updated: {updated}")
         return {"created": created, "updated": updated, "errors": []}
 
     def import_stock_csv(self, file_content: str) -> dict[str, Any]:
@@ -1522,7 +1557,7 @@ class ComponentCatalogService:
                     SELECT c.id
                     FROM components c
                     JOIN component_revisions cr ON cr.id = c.current_revision_id
-                    WHERE cr.mpn = %s
+                    WHERE cr.mpn = ?
                     LIMIT 1
                     """,
                     (mpn,),
@@ -1530,18 +1565,13 @@ class ComponentCatalogService:
                 if not component:
                     not_found += 1
                     continue
+                now = _utc_now_iso()
                 conn.execute(
                     """
                     UPDATE components
-                    SET stock_quantity = %s,
-                        stock_uom = %s,
-                        inventory_status = %s,
-                        serial_number = %s,
-                        lot_number = %s,
-                        pedigree = %s,
-                        last_synced_at = %s,
-                        updated_at = %s
-                    WHERE id = %s
+                    SET stock_quantity = ?, stock_uom = ?, inventory_status = ?, serial_number = ?,
+                        lot_number = ?, pedigree = ?, last_synced_at = ?, updated_at = ?
+                    WHERE id = ?
                     """,
                     (
                         float(row.get("stock_quantity") or 0),
@@ -1550,8 +1580,8 @@ class ComponentCatalogService:
                         str(row.get("serial_number") or ""),
                         str(row.get("lot_number") or ""),
                         str(row.get("pedigree") or ""),
-                        _utc_now(),
-                        _utc_now(),
+                        now,
+                        now,
                         component["id"],
                     ),
                 )
@@ -1572,15 +1602,12 @@ class ComponentCatalogService:
             paths = root.rglob("*")
         return sorted(path.relative_to(root).as_posix() for path in paths if path.is_file())
 
-    def _resolve_component_for_edit(self, conn: psycopg.Connection[Any], component_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _resolve_component_for_edit(self, conn: sqlite3.Connection, component_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
         component = self._component_row(conn, component_id)
         if not component:
             raise ValueError("Component not found")
         revision = self._clone_revision(conn, component_id)
         return component, revision
-
-    def _infer_symbol_names(self, file_path: Path) -> list[str]:
-        return _discover_symbol_names_in_text(file_path.read_text(encoding="utf-8", errors="ignore"))
 
     def _extract_top_level_symbol_blocks(self, text: str) -> list[tuple[str, str]]:
         blocks: list[tuple[str, str]] = []
@@ -1656,12 +1683,9 @@ class ComponentCatalogService:
         escaped_name = re.escape(selected_symbol)
         unit_pattern = re.compile(rf"^{escaped_name}_\d+_\d+$")
         unit_blocks = [b for n, b in blocks if unit_pattern.match(n)]
-
         all_blocks_text = "\n  ".join([base_block] + unit_blocks)
-
         version, generator = self._symbol_header(text)
-        payload = f"(kicad_symbol_lib (version {version}) (generator {generator})\n  {all_blocks_text}\n)\n"
-        return payload.encode("utf-8")
+        return f"(kicad_symbol_lib (version {version}) (generator {generator})\n  {all_blocks_text}\n)\n".encode("utf-8")
 
     def _write_canonical_file(self, destination: Path, payload: bytes) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1686,24 +1710,27 @@ class ComponentCatalogService:
     def _aux_destination(self, asset_type: str, target_library: str, upload_name: str) -> Path:
         safe_library = _sanitize_name(target_library, "Prism_Assets")
         safe_name = _sanitize_name(Path(upload_name).name, f"{asset_type}.bin")
-        folder = self._asset_root(asset_type) / safe_library
-        return folder / safe_name
+        return self._asset_root(asset_type) / safe_library / safe_name
 
-    def _asset_by_key(self, conn: psycopg.Connection[Any], asset_type: str, canonical_path: str, target_name: str) -> dict[str, Any] | None:
+    def _asset_by_key(self, conn: sqlite3.Connection, asset_type: str, canonical_path: str, target_name: str) -> dict[str, Any] | None:
         row = conn.execute(
-            """
-            SELECT * FROM assets
-            WHERE asset_type = %s AND canonical_path = %s AND target_name = %s
-            """,
+            "SELECT * FROM assets WHERE asset_type = ? AND canonical_path = ? AND target_name = ?",
             (asset_type, canonical_path, target_name),
         ).fetchone()
         return dict(row) if row else None
 
-    def _asset_by_signature(self, conn: psycopg.Connection[Any], asset_type: str, sha256: str, target_library: str, target_name: str) -> dict[str, Any] | None:
+    def _asset_by_signature(
+        self,
+        conn: sqlite3.Connection,
+        asset_type: str,
+        sha256: str,
+        target_library: str,
+        target_name: str,
+    ) -> dict[str, Any] | None:
         row = conn.execute(
             """
             SELECT * FROM assets
-            WHERE asset_type = %s AND sha256 = %s AND target_library = %s AND target_name = %s
+            WHERE asset_type = ? AND sha256 = ? AND target_library = ? AND target_name = ?
             LIMIT 1
             """,
             (asset_type, sha256, target_library, target_name),
@@ -1712,7 +1739,7 @@ class ComponentCatalogService:
 
     def _register_asset(
         self,
-        conn: psycopg.Connection[Any],
+        conn: sqlite3.Connection,
         *,
         asset_type: str,
         canonical_path: Path,
@@ -1728,7 +1755,7 @@ class ComponentCatalogService:
         same_content = self._asset_by_signature(conn, asset_type, sha256, target_library, target_name)
         if same_content:
             return same_content
-        now = _utc_now()
+        now = _utc_now_iso()
         asset_id = str(uuid.uuid4())
         conn.execute(
             """
@@ -1736,7 +1763,7 @@ class ComponentCatalogService:
                 id, asset_type, name, canonical_path, target_library, target_name, source_group,
                 sha256, size_bytes, content_type, created_at, updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 asset_id,
@@ -1753,11 +1780,12 @@ class ComponentCatalogService:
                 now,
             ),
         )
-        return dict(conn.execute("SELECT * FROM assets WHERE id = %s", (asset_id,)).fetchone())
+        row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        return dict(row)
 
     def _upsert_asset_preview(
         self,
-        conn: psycopg.Connection[Any],
+        conn: sqlite3.Connection,
         *,
         asset_id: str,
         kind: str,
@@ -1765,17 +1793,17 @@ class ComponentCatalogService:
         file_path: str = "",
         generation_error: str = "",
     ) -> None:
-        now = _utc_now()
+        now = _utc_now_iso()
         existing = conn.execute(
-            "SELECT id FROM asset_previews WHERE asset_id = %s AND kind = %s",
+            "SELECT id FROM asset_previews WHERE asset_id = ? AND kind = ?",
             (asset_id, kind),
         ).fetchone()
         if existing:
             conn.execute(
                 """
                 UPDATE asset_previews
-                SET status = %s, content_type = 'image/svg+xml', file_path = %s, generation_error = %s, updated_at = %s
-                WHERE id = %s
+                SET status = ?, content_type = 'image/svg+xml', file_path = ?, generation_error = ?, updated_at = ?
+                WHERE id = ?
                 """,
                 (status, file_path, generation_error, now, existing["id"]),
             )
@@ -1783,7 +1811,7 @@ class ComponentCatalogService:
         conn.execute(
             """
             INSERT INTO asset_previews (id, asset_id, kind, status, content_type, file_path, generation_error, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, 'image/svg+xml', %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, 'image/svg+xml', ?, ?, ?, ?)
             """,
             (str(uuid.uuid4()), asset_id, kind, status, file_path, generation_error, now, now),
         )
@@ -1791,16 +1819,7 @@ class ComponentCatalogService:
     def _generate_symbol_preview(self, asset: dict[str, Any]) -> tuple[str, str]:
         with tempfile.TemporaryDirectory(prefix="prism_symsvg_") as tmp_dir:
             success, error = self._run_kicad_cli(
-                [
-                    "sym",
-                    "export",
-                    "svg",
-                    str(asset["canonical_path"]),
-                    "--output",
-                    tmp_dir,
-                    "--symbol",
-                    str(asset["target_name"]),
-                ]
+                ["sym", "export", "svg", str(asset["canonical_path"]), "--output", tmp_dir, "--symbol", str(asset["target_name"])]
             )
             if not success:
                 return PREVIEW_STATUS_FAILED, error
@@ -1824,16 +1843,7 @@ class ComponentCatalogService:
             isolated_footprint = isolated_library / f"{_sanitize_name(target_name, footprint_source.stem)}.kicad_mod"
             shutil.copy2(footprint_source, isolated_footprint)
             success, error = self._run_kicad_cli(
-                [
-                    "fp",
-                    "export",
-                    "svg",
-                    "--output",
-                    tmp_dir,
-                    "--footprint",
-                    target_name,
-                    str(isolated_library),
-                ]
+                ["fp", "export", "svg", "--output", tmp_dir, "--footprint", target_name, str(isolated_library)]
             )
             if not success:
                 return PREVIEW_STATUS_FAILED, error
@@ -1848,7 +1858,7 @@ class ComponentCatalogService:
             shutil.copy2(expected, destination)
             return PREVIEW_STATUS_READY, str(destination)
 
-    def _ensure_asset_preview(self, conn: psycopg.Connection[Any], asset: dict[str, Any]) -> None:
+    def _ensure_asset_preview(self, conn: sqlite3.Connection, asset: dict[str, Any]) -> None:
         asset_type = str(asset["asset_type"])
         if asset_type == "symbol":
             status, result = self._generate_symbol_preview(asset)
@@ -1871,21 +1881,21 @@ class ComponentCatalogService:
                 generation_error="" if status == PREVIEW_STATUS_READY else result,
             )
 
-    def _link_asset_to_revision(self, conn: psycopg.Connection[Any], revision_id: str, asset: dict[str, Any], *, required: bool) -> None:
-        now = _utc_now()
+    def _link_asset_to_revision(self, conn: sqlite3.Connection, revision_id: str, asset: dict[str, Any], *, required: bool) -> None:
+        now = _utc_now_iso()
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT (revision_id, asset_type)
-            DO UPDATE SET asset_id = EXCLUDED.asset_id, required = EXCLUDED.required, updated_at = EXCLUDED.updated_at
+            DO UPDATE SET asset_id = excluded.asset_id, required = excluded.required, updated_at = excluded.updated_at
             """,
-            (revision_id, asset["asset_type"], asset["id"], required, now, now),
+            (revision_id, asset["asset_type"], asset["id"], 1 if required else 0, now, now),
         )
 
     def _resolve_existing_asset(
         self,
-        conn: psycopg.Connection[Any],
+        conn: sqlite3.Connection,
         *,
         asset_type: str,
         file_path: str,
@@ -1966,7 +1976,8 @@ class ComponentCatalogService:
             input_path.write_bytes(payload)
             success, error = self._run_kicad_cli(["sym", "upgrade", "--force", "--output", str(output_path), str(input_path)])
             if not success:
-                raise ValueError(error)
+                logger.warning("Falling back to uploaded symbol payload without kicad-cli normalization: %s", error)
+                return payload
             if not output_path.is_file():
                 raise ValueError("kicad-cli sym upgrade did not produce a normalized symbol library")
             return output_path.read_bytes()
@@ -2017,7 +2028,6 @@ class ComponentCatalogService:
             text = payload.decode("utf-8", errors="ignore")
             name = _discover_footprint_name_in_text(text) or Path(upload_name).stem
             return {name: payload}
-
         if suffix == ".zip":
             discovered: dict[str, bytes] = {}
             with zipfile.ZipFile(io.BytesIO(payload)) as archive:
@@ -2028,7 +2038,6 @@ class ComponentCatalogService:
                     footprint_name = _discover_footprint_name_in_text(content.decode("utf-8", errors="ignore")) or Path(name).stem
                     discovered[footprint_name] = content
             return discovered
-
         raise ValueError("Footprint upload must be a .kicad_mod file or a zipped .pretty library")
 
     def import_footprint(
@@ -2052,7 +2061,6 @@ class ComponentCatalogService:
             self._footprint_destination(target_library or "Prism_Footprints", chosen),
             discovered[chosen],
         )
-
         with self._connect() as conn:
             _, revision = self._resolve_component_for_edit(conn, component_id)
             asset = self._register_asset(
@@ -2107,7 +2115,7 @@ class ComponentCatalogService:
         self.initialize()
         with self._connect() as conn:
             _, revision = self._resolve_component_for_edit(conn, component_id)
-            conn.execute("DELETE FROM revision_assets WHERE revision_id = %s AND asset_type = %s", (revision["id"], asset_type))
+            conn.execute("DELETE FROM revision_assets WHERE revision_id = ? AND asset_type = ?", (revision["id"], asset_type))
             conn.commit()
         return {"component": self.get_component(component_id)}
 
@@ -2145,7 +2153,6 @@ class ComponentCatalogService:
             if not revision:
                 raise ValueError("Component revision not found")
             current_status = _normalize_workflow_stage(str(revision["release_status"]))
-
             if current_status == "released" and release_status == "open":
                 revision = self._clone_revision(conn, component_id)
                 current_status = _normalize_workflow_stage(str(revision["release_status"]))
@@ -2166,42 +2173,42 @@ class ComponentCatalogService:
             if release_status == "released" and availability_state != STATE_PLACE_READY:
                 raise ValueError(f"Cannot release component while files are incomplete: missing {', '.join(missing_assets)}")
 
-            now = _utc_now()
+            now = _utc_now_iso()
             conn.execute(
-                "UPDATE component_revisions SET release_status = %s, updated_at = %s WHERE id = %s",
+                "UPDATE component_revisions SET release_status = ?, updated_at = ? WHERE id = ?",
                 (release_status, now, revision["id"]),
             )
             if release_status == "released":
                 conn.execute(
-                    "UPDATE components SET released_revision_id = %s, updated_at = %s WHERE id = %s",
+                    "UPDATE components SET released_revision_id = ?, updated_at = ? WHERE id = ?",
                     (revision["id"], now, component_id),
                 )
             elif release_status == "archived":
                 conn.execute(
-                    "UPDATE components SET released_revision_id = '', updated_at = %s WHERE id = %s",
+                    "UPDATE components SET released_revision_id = '', updated_at = ? WHERE id = ?",
                     (now, component_id),
                 )
             else:
-                conn.execute("UPDATE components SET updated_at = %s WHERE id = %s", (now, component_id))
+                conn.execute("UPDATE components SET updated_at = ? WHERE id = ?", (now, component_id))
             conn.commit()
         return self.get_component(component_id) or {}
 
     def deactivate_component(self, component_id: str) -> bool:
         self.initialize()
         with self._connect() as conn:
-            updated = conn.execute(
-                "UPDATE components SET is_active = FALSE, updated_at = %s WHERE id = %s",
-                (_utc_now(), component_id),
+            result = conn.execute(
+                "UPDATE components SET is_active = 0, updated_at = ? WHERE id = ?",
+                (_utc_now_iso(), component_id),
             )
             conn.commit()
-            return updated.rowcount > 0
+            return result.rowcount > 0
 
     def delete_component(self, component_id: str) -> bool:
         self.initialize()
         with self._connect() as conn:
-            deleted = conn.execute("DELETE FROM components WHERE id = %s", (component_id,))
+            result = conn.execute("DELETE FROM components WHERE id = ?", (component_id,))
             conn.commit()
-            return deleted.rowcount > 0
+            return result.rowcount > 0
 
     def _materialize_asset(self, asset: dict[str, Any], assets_for_revision: list[dict[str, Any]], component: dict[str, Any] | None = None) -> dict[str, Any]:
         path = Path(str(asset["canonical_path"]))
@@ -2292,13 +2299,13 @@ class ComponentCatalogService:
     def get_asset_by_id(self, asset_id: str, *, revision_id: str = "") -> dict[str, Any] | None:
         self.initialize()
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM assets WHERE id = %s", (asset_id,)).fetchone()
+            row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
             if not row:
                 return None
             asset = dict(row)
             effective_revision_id = revision_id
             if not effective_revision_id:
-                link = conn.execute("SELECT revision_id FROM revision_assets WHERE asset_id = %s ORDER BY updated_at DESC LIMIT 1", (asset_id,)).fetchone()
+                link = conn.execute("SELECT revision_id FROM revision_assets WHERE asset_id = ? ORDER BY updated_at DESC LIMIT 1", (asset_id,)).fetchone()
                 effective_revision_id = str(link["revision_id"]) if link else ""
             assets_for_revision = self._load_assets_for_revision(conn, effective_revision_id) if effective_revision_id else [asset]
             component = None
@@ -2313,7 +2320,7 @@ class ComponentCatalogService:
     def get_preview(self, preview_id: str) -> CatalogPreview | None:
         self.initialize()
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM asset_previews WHERE id = %s", (preview_id,)).fetchone()
+            row = conn.execute("SELECT * FROM asset_previews WHERE id = ?", (preview_id,)).fetchone()
         if not row:
             return None
         return CatalogPreview(
@@ -2348,10 +2355,10 @@ class ComponentCatalogService:
             conn.execute(
                 """
                 INSERT INTO oauth_auth_codes (code, grant_json, exp)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (code) DO UPDATE SET grant_json = EXCLUDED.grant_json, exp = EXCLUDED.exp
+                VALUES (?, ?, ?)
+                ON CONFLICT (code) DO UPDATE SET grant_json = excluded.grant_json, exp = excluded.exp
                 """,
-                (code, Jsonb(grant), exp),
+                (code, json.dumps(grant, separators=(",", ":")), exp),
             )
             conn.commit()
 
@@ -2359,13 +2366,13 @@ class ComponentCatalogService:
         self.initialize()
         now = int(time.time())
         with self._connect() as conn:
-            row = conn.execute("SELECT grant_json, exp FROM oauth_auth_codes WHERE code = %s", (code,)).fetchone()
-            conn.execute("DELETE FROM oauth_auth_codes WHERE code = %s", (code,))
-            conn.execute("DELETE FROM oauth_auth_codes WHERE exp <= %s", (now,))
+            row = conn.execute("SELECT grant_json, exp FROM oauth_auth_codes WHERE code = ?", (code,)).fetchone()
+            conn.execute("DELETE FROM oauth_auth_codes WHERE code = ?", (code,))
+            conn.execute("DELETE FROM oauth_auth_codes WHERE exp <= ?", (now,))
             conn.commit()
         if not row or int(row["exp"]) <= now:
             return None
-        return dict(row["grant_json"])
+        return dict(_json_loads(row["grant_json"], {}))
 
     def add_revoked_token(self, jti: str, exp: int) -> None:
         self.initialize()
@@ -2373,8 +2380,8 @@ class ComponentCatalogService:
             conn.execute(
                 """
                 INSERT INTO oauth_revoked_tokens (jti, exp)
-                VALUES (%s, %s)
-                ON CONFLICT (jti) DO UPDATE SET exp = EXCLUDED.exp
+                VALUES (?, ?)
+                ON CONFLICT (jti) DO UPDATE SET exp = excluded.exp
                 """,
                 (jti, exp),
             )
@@ -2384,10 +2391,186 @@ class ComponentCatalogService:
         self.initialize()
         now = int(time.time())
         with self._connect() as conn:
-            conn.execute("DELETE FROM oauth_revoked_tokens WHERE exp <= %s", (now,))
-            row = conn.execute("SELECT 1 FROM oauth_revoked_tokens WHERE jti = %s", (jti,)).fetchone()
+            conn.execute("DELETE FROM oauth_revoked_tokens WHERE exp <= ?", (now,))
+            row = conn.execute("SELECT 1 FROM oauth_revoked_tokens WHERE jti = ?", (jti,)).fetchone()
             conn.commit()
         return bool(row)
+
+    def _released_place_ready_components(self) -> list[dict[str, Any]]:
+        return [
+            component
+            for component in self.list_components_flat(released_only=True, include_inactive=False)
+            if component["place_enabled"]
+        ]
+
+    def _dbl_row_for_component(self, component: dict[str, Any], part_number: str) -> dict[str, str]:
+        symbol_asset = next((asset for asset in component["assets"] if asset["asset_type"] == "symbol"), None)
+        footprint_asset = next((asset for asset in component["assets"] if asset["asset_type"] == "footprint"), None)
+        lib_symbol = ""
+        lib_footprint = ""
+        if symbol_asset:
+            lib_symbol = f"{_dbl_symbol_library_name(part_number, symbol_asset)}:{symbol_asset['target_name']}"
+        if footprint_asset:
+            lib_footprint = f"{footprint_asset['target_library']}:{footprint_asset['target_name']}"
+        return {
+            "Part Number": part_number,
+            "Part Number Nocolon": part_number,
+            "Comment": component["value"] or component["name"],
+            "Value": component["value"],
+            "Manufacturer": component["manufacturer"],
+            "Manufacturer Part Number": component["mpn"],
+            "PackageDescription": component["package_name"],
+            "Status": component["workflow_stage"],
+            "Part Description": component["description"],
+            "Datasheet": component["datasheet_url"],
+            "LibSymbol": lib_symbol,
+            "LibFootprint": lib_footprint,
+        }
+
+    def _collect_dbl_assets(
+        self,
+        component: dict[str, Any],
+        part_number: str,
+        export_root: Path,
+        conn: sqlite3.Connection,
+    ) -> None:
+        assets = self._load_assets_for_revision(conn, component["revision_id"])
+        for raw_asset in assets:
+            if raw_asset["asset_type"] not in {"symbol", "footprint"}:
+                continue
+            asset = self._materialize_asset(raw_asset, assets, component)
+            if raw_asset["asset_type"] == "symbol":
+                library_name = _dbl_symbol_library_name(part_number, asset)
+                destination = export_root / "SchLib" / f"{library_name}.kicad_sym"
+            else:
+                destination = export_root / "PcbLib" / f"{asset['target_library']}.pretty" / f"{asset['target_name']}.kicad_mod"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(asset["payload"])
+
+    def _write_dbl_config(self, export_root: Path, *, filename: str, connection_string: str, libraries: list[dict[str, Any]]) -> None:
+        payload = {
+            "meta": {"version": 0},
+            "name": "KiCAD Prism Database Library",
+            "description": "KiCAD Prism released component database library",
+            "source": {
+                "type": "odbc",
+                "dsn": "",
+                "username": "",
+                "password": "",
+                "timeout_seconds": 2,
+                "connection_string": connection_string,
+            },
+            "cache": {"max_age": 28800},
+            "libraries": libraries,
+        }
+        (export_root / filename).write_text(json.dumps(payload, indent=4) + "\n", encoding="utf-8")
+
+    def export_kicad_dbl_bundle(self) -> dict[str, Any]:
+        self.initialize()
+        export_root = self._export_root
+        if export_root.exists():
+            shutil.rmtree(export_root)
+        (export_root / "SchLib").mkdir(parents=True, exist_ok=True)
+        (export_root / "PcbLib").mkdir(parents=True, exist_ok=True)
+
+        components = sorted(self._released_place_ready_components(), key=lambda c: (c["category"], c["mpn"], c["id"]))
+        db_path = export_root / "Prism.sqlite"
+        used_part_numbers: set[str] = set()
+        grouped_rows: dict[str, list[dict[str, str]]] = {}
+
+        with self._connect() as catalog_conn:
+            for component in components:
+                base_part = _part_number_nocolon(component["mpn"] or component["value"] or component["id"])
+                part_number = base_part
+                counter = 2
+                while part_number in used_part_numbers:
+                    part_number = f"{base_part}_{counter}"
+                    counter += 1
+                used_part_numbers.add(part_number)
+                category = component["category"] or "Uncategorized"
+                grouped_rows.setdefault(category, []).append(self._dbl_row_for_component(component, part_number))
+                self._collect_dbl_assets(component, part_number, export_root, catalog_conn)
+
+        with sqlite3.connect(db_path) as dbl_conn:
+            for category, rows in sorted(grouped_rows.items()):
+                table = _quote_identifier(category)
+                columns_sql = ", ".join(f"{_quote_identifier(column)} TEXT NOT NULL DEFAULT ''" for column in DBL_COMMON_COLUMNS)
+                dbl_conn.execute(f"CREATE TABLE {table} ({columns_sql})")
+                column_names = ", ".join(_quote_identifier(column) for column in DBL_COMMON_COLUMNS)
+                placeholders = ", ".join("?" for _ in DBL_COMMON_COLUMNS)
+                for row in rows:
+                    dbl_conn.execute(
+                        f"INSERT INTO {table} ({column_names}) VALUES ({placeholders})",
+                        tuple(row.get(column, "") for column in DBL_COMMON_COLUMNS),
+                    )
+
+        fields = [
+            {
+                "column": column,
+                "name": column,
+                "visible_on_add": False,
+                "visible_in_chooser": column not in {"LibSymbol", "LibFootprint"},
+                "show_name": True,
+                "inherit_properties": True,
+            }
+            for column in DBL_COMMON_COLUMNS
+            if column not in {"Part Number Nocolon"}
+        ]
+        libraries = [
+            {
+                "name": category,
+                "table": category,
+                "key": "Part Number Nocolon",
+                "symbols": "LibSymbol",
+                "footprints": "LibFootprint",
+                "fields": fields,
+            }
+            for category in sorted(grouped_rows)
+        ]
+        self._write_dbl_config(
+            export_root,
+            filename="Prism_Linux.kicad_dbl",
+            connection_string="Driver={SQLite3};Database=${CWD}/Prism.sqlite;",
+            libraries=libraries,
+        )
+        self._write_dbl_config(
+            export_root,
+            filename="Prism_Windows.kicad_dbl",
+            connection_string="Driver={SQLite3 ODBC Driver};Database=${CWD}/Prism.sqlite;",
+            libraries=libraries,
+        )
+
+        symbol_libraries = sorted(path.stem for path in (export_root / "SchLib").glob("*.kicad_sym"))
+        footprint_libraries = sorted({asset["target_library"] for component in components for asset in component["assets"] if asset["asset_type"] == "footprint"})
+        sym_lines = [
+            '(sym_lib_table',
+            '  (lib (name "Prism")(type "Database")(uri "${PRISM_LIB_DIR}/Prism_Linux.kicad_dbl")(options "")(descr ""))',
+        ]
+        sym_lines.extend(
+            f'  (lib (name "{_sexpr_string(library)}")(type "KiCad")(uri "${{PRISM_LIB_DIR}}/SchLib/{_sexpr_string(library)}.kicad_sym")(options "")(descr "")(hidden))'
+            for library in symbol_libraries
+        )
+        sym_lines.append(")")
+        (export_root / "sym-lib-table").write_text("\n".join(sym_lines) + "\n", encoding="utf-8")
+
+        fp_lines = ["(fp_lib_table"]
+        fp_lines.extend(
+            f'  (lib (name "{_sexpr_string(library)}")(type "KiCad")(uri "${{PRISM_LIB_DIR}}/PcbLib/{_sexpr_string(library)}.pretty")(options "")(descr ""))'
+            for library in footprint_libraries
+        )
+        fp_lines.append(")")
+        (export_root / "fp-lib-table").write_text("\n".join(fp_lines) + "\n", encoding="utf-8")
+
+        return {
+            "export_root": str(export_root),
+            "component_count": len(components),
+            "category_count": len(grouped_rows),
+            "sqlite_path": str(db_path),
+            "linux_dbl": str(export_root / "Prism_Linux.kicad_dbl"),
+            "windows_dbl": str(export_root / "Prism_Windows.kicad_dbl"),
+            "sym_lib_table": str(export_root / "sym-lib-table"),
+            "fp_lib_table": str(export_root / "fp-lib-table"),
+        }
 
 
 catalog_service = ComponentCatalogService()

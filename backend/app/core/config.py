@@ -257,50 +257,20 @@ class Settings(BaseSettings):
         description="Optional row limit for Manufacturo syncs. 0 means no explicit limit."
     )
 
-    CATALOG_DATABASE_URL: str = Field(
+    CATALOG_SQLITE_PATH: str = Field(
         default="",
-        description="Optional full Postgres connection URL for the component catalog.",
+        description=(
+            "SQLite database path for component catalog, remote-provider OAuth, "
+            "and local service-client metadata. Defaults under KICAD_PROJECTS_ROOT."
+        ),
     )
 
-    POSTGRES_HOST: str = Field(
-        default="postgres",
-        description="Postgres host used when CATALOG_DATABASE_URL is not set.",
-    )
-
-    POSTGRES_PORT: int = Field(
-        default=5432,
-        ge=1,
-        le=65535,
-        description="Postgres port used when CATALOG_DATABASE_URL is not set.",
-    )
-
-    POSTGRES_DB: str = Field(
-        default="kicad_prism",
-        description="Postgres database used when CATALOG_DATABASE_URL is not set.",
-    )
-
-    POSTGRES_USER: str = Field(
-        default="postgres",
-        description="Postgres username used when CATALOG_DATABASE_URL is not set.",
-    )
-
-    POSTGRES_PASSWORD: str = Field(
+    CATALOG_DBL_EXPORT_DIR: str = Field(
         default="",
-        description="Postgres password used when CATALOG_DATABASE_URL is not set.",
-    )
-
-    CATALOG_POOL_MIN_SIZE: int = Field(
-        default=1,
-        ge=0,
-        le=20,
-        description="Minimum Postgres connections opened per backend worker.",
-    )
-
-    CATALOG_POOL_MAX_SIZE: int = Field(
-        default=5,
-        ge=1,
-        le=100,
-        description="Maximum Postgres connections opened per backend worker.",
+        description=(
+            "Output directory for generated KiCad DBL bundles. Defaults under "
+            "KICAD_PROJECTS_ROOT/.kicad-prism/exports/kicad-dbl."
+        ),
     )
 
     GIT_SCAN_KNOWN_HOSTS_ON_STARTUP: bool = Field(

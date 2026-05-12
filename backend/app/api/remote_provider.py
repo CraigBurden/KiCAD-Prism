@@ -127,7 +127,11 @@ async def provider_static_asset(asset_name: str):
     }
     suffix = asset_path.suffix.lower()
     media_type = mime_map.get(suffix, "application/octet-stream")
-    return FileResponse(asset_path, media_type=media_type)
+    return FileResponse(
+        asset_path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.get("/api/remote-provider/search")
@@ -166,7 +170,13 @@ async def components_by_category(
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    result = catalog_service.list_components(category=category, page=page, page_size=page_size, released_only=True)
+    result = catalog_service.list_components(
+        category=category,
+        page=page,
+        page_size=page_size,
+        released_only=True,
+        lightweight=True,
+    )
     return {
         "items": [_component_payload(c, request) for c in result["items"]],
         "total": result["total"],

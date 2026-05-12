@@ -5,8 +5,10 @@ import argparse
 import csv
 import json
 import os
+import re
 import shutil
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -36,7 +38,7 @@ def _load_catalog_runtime() -> None:
     global _sanitize_name
 
     try:
-        from app.services.component_catalog_service_pg import (  # noqa: PLC0415
+        from app.services.component_catalog_service_sqlite import (  # noqa: PLC0415
             ComponentCatalogService as LoadedComponentCatalogService,
             _discover_footprint_name_in_text as loaded_discover_footprint_name,
             _discover_symbol_names_in_text as loaded_discover_symbol_names,
@@ -70,6 +72,21 @@ class ImportStats:
     reused_existing_files: int = 0
     skipped_files: int = 0
     errors: list[str] = field(default_factory=list)
+
+
+def _merge_stats(target: ImportStats, source: ImportStats) -> None:
+    target.symbol_libraries_seen += source.symbol_libraries_seen
+    target.symbols_written += source.symbols_written
+    target.footprints_written += source.footprints_written
+    target.models_written += source.models_written
+    target.spice_written += source.spice_written
+    target.component_csv_rows += source.component_csv_rows
+    target.component_csv_required_placeholders += source.component_csv_required_placeholders
+    target.assets_indexed += source.assets_indexed
+    target.previews_attempted += source.previews_attempted
+    target.reused_existing_files += source.reused_existing_files
+    target.skipped_files += source.skipped_files
+    target.errors.extend(source.errors)
 
 
 @dataclass
@@ -295,7 +312,7 @@ def _component_row_from_symbol(
         datasheet=_fill_required(_property_first(properties, ("Datasheet",)), "TBD", stats),
         description=_fill_required(_property_first(properties, ("Description",)), value or symbol_name, stats),
         manufacturer=_fill_required(manufacturer, "TBD", stats),
-        manufacturer_part_number=_fill_required(mpn, value or symbol_name, stats),
+        manufacturer_part_number=_fill_required(mpn, f"{library}:{symbol_name}", stats),
         category=_infer_category(library),
         package_name="",
         vendor=vendor,
@@ -305,6 +322,25 @@ def _component_row_from_symbol(
         symbol_target_name=symbol_name,
     )
     return row, footprint_ref
+
+
+def _single_symbol_payload_from_parsed_blocks(
+    service: ComponentCatalogService,
+    text: str,
+    blocks: list[tuple[str, str]],
+    selected_symbol: str,
+) -> bytes:
+    blocks_dict = dict(blocks)
+    base_block = blocks_dict.get(selected_symbol)
+    if not base_block:
+        raise ValueError("Selected symbol was not found in the library")
+
+    escaped_name = re.escape(selected_symbol)
+    unit_pattern = re.compile(rf"^{escaped_name}_\d+_\d+$")
+    unit_blocks = [block for name, block in blocks if unit_pattern.match(name)]
+    version, generator = service._symbol_header(text)  # type: ignore[attr-defined]
+    all_blocks_text = "\n  ".join([base_block] + unit_blocks)
+    return f"(kicad_symbol_lib (version {version}) (generator {generator})\n  {all_blocks_text}\n)\n".encode("utf-8")
 
 
 def _register_asset(
@@ -347,13 +383,17 @@ def _import_symbols(
     csv_store_root: Path | None,
     component_rows: list[tuple[ComponentCsvRow, str]],
     stats: ImportStats,
+    jobs: int = 1,
 ) -> None:
     symbols_root = source_root / "symbols"
     if not symbols_root.is_dir():
         return
 
-    for symbol_file in sorted(symbols_root.rglob("*.kicad_sym")):
-        stats.symbol_libraries_seen += 1
+    symbol_files = sorted(symbols_root.rglob("*.kicad_sym"))
+
+    def process_symbol_file(symbol_file: Path, worker_conn: Any | None) -> tuple[ImportStats, list[tuple[ComponentCsvRow, str]]]:
+        local_stats = ImportStats(symbol_libraries_seen=1)
+        local_rows: list[tuple[ComponentCsvRow, str]] = []
         library = _library_from_symbol_file(symbol_file)
         print(f"Processing symbol library: {symbol_file.name} ({library}) ...")
         try:
@@ -364,16 +404,17 @@ def _import_symbols(
                 normalized = service._normalize_symbol_upload(symbol_file.name, payload)  # type: ignore[attr-defined]
             text = normalized.decode("utf-8", errors="ignore")
             symbols = _discover_symbol_names_in_text(text)
-            blocks = dict(service._extract_top_level_symbol_blocks(text))  # type: ignore[attr-defined]
+            parsed_blocks = service._extract_top_level_symbol_blocks(text)  # type: ignore[attr-defined]
+            blocks = dict(parsed_blocks)
             if not symbols:
-                stats.skipped_files += 1
-                stats.errors.append(f"No symbols found in {symbol_file}")
-                continue
+                local_stats.skipped_files += 1
+                local_stats.errors.append(f"No symbols found in {symbol_file}")
+                return local_stats, local_rows
 
             for symbol_name in symbols:
                 try:
                     print(f"  -> Extracting symbol: {symbol_name}")
-                    canonical_payload = service._single_symbol_payload(text, symbol_name)  # type: ignore[attr-defined]
+                    canonical_payload = _single_symbol_payload_from_parsed_blocks(service, text, parsed_blocks, symbol_name)
                     destination = service._symbol_destination(library, symbol_name)  # type: ignore[attr-defined]
                     if destination.exists() and not _same_bytes(destination, canonical_payload) and not overwrite:
                         destination = _unique_destination(destination)
@@ -382,11 +423,11 @@ def _import_symbols(
                         canonical_payload,
                         dry_run=dry_run,
                         overwrite=overwrite,
-                        stats=stats,
+                        stats=local_stats,
                     )
-                    stats.symbols_written += 1
+                    local_stats.symbols_written += 1
                     if symbol_name in blocks:
-                        component_rows.append(
+                        local_rows.append(
                             _component_row_from_symbol(
                                 symbol_name=symbol_name,
                                 library=library,
@@ -394,24 +435,40 @@ def _import_symbols(
                                 symbol_path=canonical,
                                 csv_store_root=csv_store_root,
                                 service_store_root=service.store_root,
-                                stats=stats,
+                                stats=local_stats,
                             )
                         )
                     _register_asset(
                         service,
-                        conn,
+                        worker_conn,
                         asset_type="symbol",
                         canonical_path=canonical,
                         target_library=library,
                         target_name=symbol_name,
                         source_group=symbol_file.name,
                         generate_previews=generate_previews,
-                        stats=stats,
+                        stats=local_stats,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    stats.errors.append(f"{symbol_file}::{symbol_name}: {exc}")
+                    local_stats.errors.append(f"{symbol_file}::{symbol_name}: {exc}")
         except Exception as exc:  # noqa: BLE001
-            stats.errors.append(f"{symbol_file}: {exc}")
+            local_stats.errors.append(f"{symbol_file}: {exc}")
+        return local_stats, local_rows
+
+    if jobs > 1 and conn is None:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            futures = [executor.submit(process_symbol_file, symbol_file, None) for symbol_file in symbol_files]
+            for future in as_completed(futures):
+                local_stats, local_rows = future.result()
+                _merge_stats(stats, local_stats)
+                component_rows.extend(local_rows)
+        component_rows.sort(key=lambda item: (item[0].category, item[0].manufacturer_part_number, item[0].symbol_target_name))
+        return
+
+    for symbol_file in symbol_files:
+        local_stats, local_rows = process_symbol_file(symbol_file, conn)
+        _merge_stats(stats, local_stats)
+        component_rows.extend(local_rows)
 
 
 def _import_footprints(
@@ -423,13 +480,17 @@ def _import_footprints(
     overwrite: bool,
     generate_previews: bool,
     stats: ImportStats,
+    jobs: int = 1,
 ) -> dict[str, tuple[Path, str, str]]:
     footprint_index: dict[str, tuple[Path, str, str]] = {}
     footprints_root = source_root / "footprints"
     if not footprints_root.is_dir():
         return footprint_index
 
-    for footprint_file in sorted(footprints_root.rglob("*.kicad_mod")):
+    footprint_files = sorted(footprints_root.rglob("*.kicad_mod"))
+
+    def process_footprint_file(footprint_file: Path, worker_conn: Any | None) -> tuple[ImportStats, tuple[str, tuple[Path, str, str]] | None]:
+        local_stats = ImportStats()
         try:
             print(f"Processing footprint: {footprint_file.name} ...")
             library = _library_from_footprint_file(footprint_file, footprints_root)
@@ -443,22 +504,39 @@ def _import_footprints(
                 destination,
                 dry_run=dry_run,
                 overwrite=overwrite,
-                stats=stats,
+                stats=local_stats,
             )
-            stats.footprints_written += 1
-            footprint_index.setdefault(footprint_name, (canonical, library, footprint_name))
+            local_stats.footprints_written += 1
             _register_asset(
                 service,
-                conn,
+                worker_conn,
                 asset_type="footprint",
                 canonical_path=canonical,
                 target_library=library,
                 target_name=footprint_name,
                 generate_previews=generate_previews,
-                stats=stats,
+                stats=local_stats,
             )
+            return local_stats, (footprint_name, (canonical, library, footprint_name))
         except Exception as exc:  # noqa: BLE001
-            stats.errors.append(f"{footprint_file}: {exc}")
+            local_stats.errors.append(f"{footprint_file}: {exc}")
+            return local_stats, None
+
+    if jobs > 1 and conn is None:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            futures = [executor.submit(process_footprint_file, footprint_file, None) for footprint_file in footprint_files]
+            for future in as_completed(futures):
+                local_stats, indexed = future.result()
+                _merge_stats(stats, local_stats)
+                if indexed is not None:
+                    footprint_index.setdefault(indexed[0], indexed[1])
+        return footprint_index
+
+    for footprint_file in footprint_files:
+        local_stats, indexed = process_footprint_file(footprint_file, conn)
+        _merge_stats(stats, local_stats)
+        if indexed is not None:
+            footprint_index.setdefault(indexed[0], indexed[1])
     return footprint_index
 
 
@@ -591,19 +669,28 @@ def _build_parser() -> argparse.ArgumentParser:
         "--store-root",
         type=Path,
         default=None,
-        help="Prism canonical store root. Defaults to backend settings KICAD_PROJECTS_ROOT/.kicad-prism-components.",
+        help="Prism canonical store root. Defaults to backend settings KICAD_PROJECTS_ROOT/.kicad-prism/components.",
     )
     parser.add_argument(
         "--database-url",
-        default=os.environ.get("CATALOG_DATABASE_URL", ""),
-        help="Postgres URL used to index reusable asset rows. Defaults to CATALOG_DATABASE_URL.",
+        default=os.environ.get("CATALOG_SQLITE_PATH", ""),
+        help="SQLite catalog path used to index reusable asset rows. Defaults to CATALOG_SQLITE_PATH.",
     )
-    parser.add_argument("--no-index-db", action="store_true", help="Only write files; do not create/update Postgres asset rows.")
+    parser.add_argument("--no-index-db", action="store_true", help="Only write files; do not create/update SQLite catalog asset rows.")
     parser.add_argument("--no-previews", action="store_true", help="Skip symbol/footprint preview generation.")
     parser.add_argument("--skip-symbol-upgrade", action="store_true", help="Do not run kicad-cli sym upgrade before splitting symbols.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite conflicting canonical files instead of writing suffixed names.")
     parser.add_argument("--dry-run", action="store_true", help="Report what would be imported without writing files or DB rows.")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero when any asset fails to import.")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help=(
+            "Parallel file workers for symbol splitting and footprint copying. "
+            "Parallelism is used only when --no-index-db or --dry-run keeps DB writes disabled."
+        ),
+    )
     parser.add_argument("--report-json", type=Path, default=None, help="Optional path for a JSON import report.")
     parser.add_argument(
         "--component-csv",
@@ -617,7 +704,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Store root to use when writing asset paths into --component-csv. "
-            "Use /app/projects/.kicad-prism-components when the CSV will be uploaded to the Docker backend."
+            "Use /app/projects/.kicad-prism/components when the CSV will be uploaded to the Docker backend."
         ),
     )
     return parser
@@ -639,6 +726,7 @@ def main() -> int:
     service = ComponentCatalogService(store_root=args.store_root, database_url=args.database_url or None)
     stats = ImportStats()
     component_rows: list[tuple[ComponentCsvRow, str]] = []
+    jobs = max(1, int(args.jobs or 1))
 
     conn = None
     conn_context = None
@@ -652,6 +740,9 @@ def main() -> int:
             service.initialize()
             conn_context = service._connect()  # type: ignore[attr-defined]
             conn = conn_context.__enter__()
+            if jobs > 1:
+                print("--jobs is ignored while indexing DB rows directly; use --no-index-db for parallel file import.", file=sys.stderr)
+                jobs = 1
 
         _import_symbols(
             source_root,
@@ -664,6 +755,7 @@ def main() -> int:
             csv_store_root=args.csv_store_root,
             component_rows=component_rows,
             stats=stats,
+            jobs=jobs,
         )
         footprint_index = _import_footprints(
             source_root,
@@ -673,6 +765,7 @@ def main() -> int:
             overwrite=args.overwrite,
             generate_previews=not args.no_previews and not args.dry_run,
             stats=stats,
+            jobs=jobs,
         )
         if args.component_csv:
             _write_component_csv(
@@ -711,6 +804,7 @@ def main() -> int:
     report["store_root"] = str(service.store_root)
     report["indexed_db"] = bool(not args.no_index_db and not args.dry_run)
     report["previews_enabled"] = bool(not args.no_previews and not args.dry_run)
+    report["jobs"] = jobs
 
     if args.report_json:
         args.report_json.parent.mkdir(parents=True, exist_ok=True)

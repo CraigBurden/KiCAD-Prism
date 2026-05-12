@@ -65,9 +65,9 @@ export function PartDetailScreen({
   const [placing, setPlacing] = useState(false);
   const [placingInline, setPlacingInline] = useState(false);
 
-  // Fetch full component details (only if not prefetched)
+  // Fetch full component details. List screens pass a slim payload, so detail
+  // refreshes the component before previews/assets are shown.
   useEffect(() => {
-    if (prefetched) return;
     const controller = new AbortController();
     getComponent(componentId, controller.signal)
       .then((c) => {

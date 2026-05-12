@@ -1,10 +1,11 @@
 # KiCAD Prism Remote Symbol Provider
 
-Prism includes a KiCad remote-symbol provider backed by the Postgres component catalog.
+Prism includes a KiCad remote-symbol provider backed by the SQLite component catalog.
 
 What is included:
-- a Postgres-backed component catalog managed through the Library Manager
-- canonical KiCad-style asset storage under `.kicad-prism-components/`
+- a SQLite-backed component catalog managed through the Library Manager
+- canonical KiCad-style asset storage under `.kicad-prism/components/`
+- CERN-style KiCad DBL export under `.kicad-prism/exports/kicad-dbl/`
 - provider discovery at `/.well-known/kicad-remote-provider`
 - a same-origin provider webview page at `/remote-provider/panel`
 - KiCad-compatible OAuth endpoints for `REMOTE_LOGIN`
@@ -14,7 +15,7 @@ What is included:
 
 ## Catalog storage layout
 
-Prism now stores the active catalog state in KiCad-style directories:
+Prism stores catalog metadata, release workflow state, OAuth state, and local service-client metadata in `prism.sqlite3`. It stores active KiCad assets in KiCad-style directories:
 - `symbols/<library>/*.kicad_sym`
 - `footprints/<library>.pretty/*.kicad_mod`
 - `3dmodels/<library>/*.step`
@@ -23,8 +24,12 @@ Prism now stores the active catalog state in KiCad-style directories:
 - `previews/footprints/*.svg`
 - `revisions/<revision-id>/...`
 
-The Postgres catalog indexes those canonical files and tracks active revisions, preview status, and
+The SQLite catalog indexes those canonical files and tracks active revisions, preview status, and
 remote-provider metadata.
+
+Search is backed by SQLite FTS5 when the runtime SQLite build supports it. FTS is maintained with
+database triggers on component revisions. If FTS5 is unavailable, Prism logs a warning and falls
+back to `LIKE` search so the provider remains functional.
 
 ## Running locally
 
@@ -36,6 +41,11 @@ Preview SVGs are generated on import using KiCad tooling when `kicad-cli` is ava
 backend runtime. If preview generation fails, the import still succeeds and the provider UI shows
 placeholder artwork until previews can be regenerated.
 
+The provider list/search APIs intentionally return lightweight component summaries. The panel fetches
+the first 100 search matches and the first 500 category entries, then loads full asset and preview
+details only after a user opens a part. This keeps the KiCad panel responsive on large catalogs and
+avoids downloading thousands of asset records during search.
+
 If you keep KiCad's default Remote Symbol settings, the provider's rewritten payloads will match:
 - library prefix: `remote`
 - destination directory: `${KIPRJMOD}/RemoteLibrary`
@@ -43,6 +53,31 @@ If you keep KiCad's default Remote Symbol settings, the provider's rewritten pay
 If you change either of those in KiCad, set matching backend env vars:
 - `REMOTE_PROVIDER_LIBRARY_PREFIX`
 - `REMOTE_PROVIDER_DESTINATION_DIR`
+
+## KiCad DBL export
+
+The HTTP remote provider remains Prism's richer placement interface. For teams that want KiCad's built-in DBL flow, Prism can also materialize a CERN-style bundle from released/place-ready parts:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/catalog/exports/kicad-dbl
+```
+
+The export writes:
+
+- `Prism.sqlite`
+- `Prism_Linux.kicad_dbl`
+- `Prism_Windows.kicad_dbl`
+- `sym-lib-table`
+- `fp-lib-table`
+- `SchLib/*.kicad_sym`
+- `PcbLib/*.pretty/*.kicad_mod`
+
+The generated `.kicad_dbl` files use KiCad's SQLite ODBC connection strings:
+
+- Linux: `Driver={SQLite3};Database=${CWD}/Prism.sqlite;`
+- Windows: `Driver={SQLite3 ODBC Driver};Database=${CWD}/Prism.sqlite;`
+
+Each DBL row uses `Part Number Nocolon` as the key and `LibSymbol` / `LibFootprint` as KiCad references. Symbols are exported as one `.kicad_sym` file per DBL symbol-library entry, which keeps packed source imports compatible while matching KiCad v10's DBL library lookup model.
 
 In Docker Compose `.env` files, write the KiCad project variable as
 `REMOTE_PROVIDER_DESTINATION_DIR=$${KIPRJMOD}/RemoteLibrary`; otherwise Compose may interpolate

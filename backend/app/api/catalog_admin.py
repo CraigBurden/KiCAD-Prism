@@ -257,6 +257,15 @@ async def regenerate_component_previews(component_id: str, user: AuthenticatedUs
     return component
 
 
+@router.post("/exports/kicad-dbl")
+async def export_kicad_dbl_bundle(user: AuthenticatedUser = Depends(require_admin)):
+    _ = user
+    try:
+        return catalog_service.export_kicad_dbl_bundle()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 # ─── Phase 2: CSV Import Routes ──────────────────────────────────────────────
 
 @router.post("/components/import-csv")
