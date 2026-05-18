@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KiCAD Prism Remote Symbols</title>
+    <!-- Early interceptor for KiCad RPC messages -->
+    <script>
+      window.kiclient = window.kiclient || {};
+      window.kiclient._msgBacklog = window.kiclient._msgBacklog || [];
+      window.kiclient.postMessage = function(msg) {
+        window.kiclient._msgBacklog.push(msg);
+      };
+    </script>
+  </head>
+  <body>
+    <div id="panel-root"></div>
+    <script type="module" src="/src/panel/main.tsx"></script>
+  </body>
+</html>

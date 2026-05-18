@@ -4,6 +4,7 @@ gitpython
 pydantic
 pydantic-settings
 python-dotenv
-google-auth
 requests
+PyJWT[crypto]
 kiutils
+python-multipart

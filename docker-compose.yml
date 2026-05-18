@@ -1,6 +1,9 @@
 services:
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    platform: linux/amd64
     container_name: kicad-prism-backend
     restart: unless-stopped
     ports:
@@ -16,23 +19,46 @@ services:
       - KICAD_PROJECTS_ROOT=/app/projects
       # Friendly workspace name shown on login page
       - WORKSPACE_NAME=${WORKSPACE_NAME:-KiCAD Prism}
-      # Google OAuth Configuration (required for authentication)
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # OIDC/OAuth2 Configuration (required for authentication)
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_SCOPES=${OIDC_SCOPES:-openid profile email}
+      - OIDC_EMAIL_CLAIM=${OIDC_EMAIL_CLAIM:-email}
+      - OIDC_NAME_CLAIM=${OIDC_NAME_CLAIM:-name}
+      - OIDC_PICTURE_CLAIM=${OIDC_PICTURE_CLAIM:-picture}
+      - OIDC_PROVIDER_NAME=${OIDC_PROVIDER_NAME:-}
+      - OIDC_TOKEN_AUTH_METHOD=${OIDC_TOKEN_AUTH_METHOD:-client_secret_post}
+      - OAUTH_SERVICE_TOKEN_TTL_SECONDS=${OAUTH_SERVICE_TOKEN_TTL_SECONDS:-3600}
+      - OAUTH_EXTERNAL_JWT_ISSUER_URL=${OAUTH_EXTERNAL_JWT_ISSUER_URL:-}
+      - OAUTH_EXTERNAL_JWT_AUDIENCE=${OAUTH_EXTERNAL_JWT_AUDIENCE:-}
+      - OAUTH_EXTERNAL_JWT_ROLE_CLAIM=${OAUTH_EXTERNAL_JWT_ROLE_CLAIM:-prism_role}
+      - OAUTH_EXTERNAL_JWT_SCOPES_CLAIM=${OAUTH_EXTERNAL_JWT_SCOPES_CLAIM:-scope}
+      - OAUTH_EXTERNAL_JWT_CLIENT_ID_CLAIM=${OAUTH_EXTERNAL_JWT_CLIENT_ID_CLAIM:-client_id}
       - ALLOWED_USERS_STR=${ALLOWED_USERS_STR:-}
       - ALLOWED_DOMAINS_STR=${ALLOWED_DOMAINS_STR:-}
       - BOOTSTRAP_ADMIN_USERS_STR=${BOOTSTRAP_ADMIN_USERS_STR:-}
+      - DEFAULT_VIEWER_DOMAINS_STR=${DEFAULT_VIEWER_DOMAINS_STR:-}
       - ROLE_STORE_PATH=${ROLE_STORE_PATH:-}
       - SESSION_SECRET=${SESSION_SECRET:-}
       - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-12}
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
+      - CORS_ORIGINS_STR=${CORS_ORIGINS_STR:-http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8080,http://localhost:8080}
       # Set to false to disable authentication entirely
       - AUTH_ENABLED=${AUTH_ENABLED:-true}
       # Development mode (set to false for production/bundling)
       - DEV_MODE=false
       # GitHub Token for private repository access (optional)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-
+      - CATALOG_SQLITE_PATH=${CATALOG_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
+      - CATALOG_DBL_EXPORT_DIR=${CATALOG_DBL_EXPORT_DIR:-/app/projects/.kicad-prism/exports/kicad-dbl}
+      - REMOTE_PROVIDER_LIBRARY_PREFIX=${REMOTE_PROVIDER_LIBRARY_PREFIX:-remote}
+      - REMOTE_PROVIDER_DESTINATION_DIR=${REMOTE_PROVIDER_DESTINATION_DIR:-$${KIPRJMOD}/RemoteLibrary}
+      - REMOTE_PROVIDER_OAUTH_CLIENT_ID=${REMOTE_PROVIDER_OAUTH_CLIENT_ID:-kicad-prism-kicad}
+      - REMOTE_PROVIDER_ACCESS_TOKEN_TTL_SECONDS=${REMOTE_PROVIDER_ACCESS_TOKEN_TTL_SECONDS:-3600}
+      - REMOTE_PROVIDER_REFRESH_TOKEN_TTL_SECONDS=${REMOTE_PROVIDER_REFRESH_TOKEN_TTL_SECONDS:-604800}
+      - GIT_SCAN_KNOWN_HOSTS_ON_STARTUP=${GIT_SCAN_KNOWN_HOSTS_ON_STARTUP:-false}
+      - UVICORN_WORKERS=${UVICORN_WORKERS:-4}
   frontend:
     build: ./frontend
     container_name: kicad-prism-frontend

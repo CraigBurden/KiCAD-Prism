@@ -88,16 +88,25 @@ Guest mode:
 AUTH_ENABLED=false
 ```
 
-Google login + RBAC session auth:
+OIDC login + RBAC session auth:
 
 ```env
 AUTH_ENABLED=true
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-SESSION_SECRET=replace-with-a-long-random-secret
+OIDC_ISSUER_URL=https://accounts.google.com
+OIDC_CLIENT_ID=kicad-prism
+OIDC_CLIENT_SECRET=
+OIDC_SCOPES=openid email profile
+OIDC_PROVIDER_NAME=Google
+SESSION_SECRET=
 BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
 SESSION_COOKIE_SECURE=false
 ```
+
+Fill `OIDC_CLIENT_SECRET` with the value from your identity provider. Generate `SESSION_SECRET`
+locally with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`.
+
+Google Sign-In is configured through the same OIDC fields as any other provider. For Docker
+testing, the Google OAuth client must allow `http://127.0.0.1:8080/auth/callback` exactly.
 
 Start the stack:
 
@@ -134,17 +143,18 @@ npm run dev
 
 Frontend dev server runs on [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
-By default, local development usually runs without auth because `DEV_MODE=true` and no Google client ID is configured.
+By default, local development usually runs without auth because `DEV_MODE=true` and no OIDC client is configured.
 
 ## Authentication Model
 
 Current auth behavior is session-based:
 
 - frontend reads `/api/auth/config`
-- frontend redirects to Google OAuth and receives an auth code at `/auth/callback`
+- frontend redirects to the configured OIDC provider and receives an auth code at `/auth/callback`
 - `/auth/callback` exchanges that auth code with `/api/auth/login`
 - backend issues an `HttpOnly` signed session cookie
 - subsequent API calls resolve the current user and role from that cookie
+- machine clients can use OAuth2 `client_credentials` at `/api/oauth/token`
 
 RBAC roles:
 - `viewer`: read-only access
@@ -153,12 +163,13 @@ RBAC roles:
 
 Auth is effectively enabled only when all of the following are true:
 - `AUTH_ENABLED=true`
-- `GOOGLE_CLIENT_ID` is set
+- OIDC client settings are configured
 - `DEV_MODE=false`
 
 ## Project Documentation
 
 - Deployment and hosting: [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
+- OIDC/OAuth2 integration: [docs/OIDC_OAUTH_INTEGRATION.md](./docs/OIDC_OAUTH_INTEGRATION.md)
 - Repository layout expectations: [docs/KICAD-PRJ-REPO-STRUCTURE.md](./docs/KICAD-PRJ-REPO-STRUCTURE.md)
 - Path mapping and `.prism.json`: [docs/PATH-MAPPING.md](./docs/PATH-MAPPING.md)
 - Display names and project metadata: [docs/CUSTOM_PROJECT_NAMES.md](./docs/CUSTOM_PROJECT_NAMES.md)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { exchangeGoogleAuthCode } from "@/lib/auth";
+import { consumeExpectedAuthNonce, consumeExpectedAuthState, exchangeOidcAuthCode } from "@/lib/auth";
 import type { User } from "@/types/auth";
 
 interface AuthCallbackPageProps {
@@ -14,6 +14,7 @@ export function AuthCallbackPage({ onLoginSuccess }: AuthCallbackPageProps) {
     const run = async () => {
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get("code");
+      const state = urlParams.get("state");
       const oauthError = urlParams.get("error");
 
       if (oauthError) {
@@ -22,12 +23,23 @@ export function AuthCallbackPage({ onLoginSuccess }: AuthCallbackPageProps) {
       }
 
       if (!code) {
-        setError("No authorization code received from Google.");
+        setError("No authorization code received from the identity provider.");
+        return;
+      }
+
+      const expectedState = consumeExpectedAuthState();
+      const expectedNonce = consumeExpectedAuthNonce();
+      if (!expectedState || !state || state !== expectedState) {
+        setError("Authentication failed: invalid state.");
+        return;
+      }
+      if (!expectedNonce) {
+        setError("Authentication failed: missing nonce.");
         return;
       }
 
       try {
-        const user = await exchangeGoogleAuthCode(code);
+        const user = await exchangeOidcAuthCode(code, expectedNonce);
         window.history.replaceState(null, "", "/");
         onLoginSuccess(user);
       } catch (err) {
@@ -56,7 +68,7 @@ export function AuthCallbackPage({ onLoginSuccess }: AuthCallbackPageProps) {
             </button>
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">Exchanging Google authorization code.</p>
+          <p className="text-sm text-muted-foreground">Exchanging OIDC authorization code.</p>
         )}
       </div>
     </div>

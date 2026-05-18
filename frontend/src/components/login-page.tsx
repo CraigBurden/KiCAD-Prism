@@ -5,10 +5,11 @@ import prismLogoHorizontal from "@/assets/branding/kicad-prism/kicad-prism-logo-
 import prismLogoMark from "@/assets/branding/kicad-prism/kicad-prism-icon.svg";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { buildGoogleAuthUrl } from "@/lib/auth";
+import { buildOidcAuthUrl } from "@/lib/auth";
+import type { AuthConfig } from "@/types/auth";
 
 interface LoginPageProps {
-  googleClientId: string;
+  authConfig: AuthConfig;
   devMode?: boolean;
   workspaceName?: string;
   initialError?: string | null;
@@ -20,7 +21,7 @@ const RELEASE_CACHE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_GITHUB_REPO = "krishna-swaroop/KiCAD-Prism";
 
 export function LoginPage({
-  googleClientId,
+  authConfig,
   devMode = false,
   workspaceName = "KiCAD Prism",
   initialError = null,
@@ -82,7 +83,7 @@ export function LoginPage({
   const handleSignIn = () => {
     setIsLoading(true);
     setError(null);
-    window.location.href = buildGoogleAuthUrl(googleClientId);
+    window.location.href = buildOidcAuthUrl(authConfig);
   };
 
   const handleDevBypass = () => {
@@ -124,12 +125,16 @@ export function LoginPage({
             <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-border/80" />
             <CardHeader className="space-y-2 pb-7">
               <CardTitle className="text-2xl">Sign In</CardTitle>
-              <CardDescription>Sign in with your Google account.</CardDescription>
+              <CardDescription>
+                Sign in with {authConfig.oidc_provider_name || "your organization SSO"}.
+              </CardDescription>
             </CardHeader>
 
             <CardContent className="space-y-5 pb-7">
               <Button className="w-full" onClick={handleSignIn} disabled={isLoading}>
-                {isLoading ? "Redirecting to Google..." : "Continue with Google"}
+                {isLoading
+                  ? `Redirecting to ${authConfig.oidc_provider_name || "SSO"}...`
+                  : `Continue with ${authConfig.oidc_provider_name || "SSO"}`}
               </Button>
 
               {isLoading && (

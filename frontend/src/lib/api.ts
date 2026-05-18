@@ -20,8 +20,14 @@ export async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Pr
       : input instanceof URL
         ? input.toString()
         : input.url;
+  const headers = new Headers(init?.headers);
+  if (typeof init?.body === "string" && !headers.has("Content-Type") && !headers.has("content-type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const response = await fetch(input, {
     ...init,
+    headers,
     credentials: init?.credentials ?? "include",
   });
 
@@ -38,8 +44,19 @@ export async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Pr
 
 export async function readApiError(response: Response, fallback: string): Promise<string> {
   try {
-    const payload = (await response.json()) as ApiErrorPayload;
-    return payload.detail || payload.message || fallback;
+    const payload = await response.json();
+    if (payload.detail) {
+      if (typeof payload.detail === "string") {
+        return payload.detail;
+      }
+      if (Array.isArray(payload.detail)) {
+        // FastAPI validation errors
+        return payload.detail
+          .map((e: any) => `${e.loc?.slice(-1)?.[0] || "Field"}: ${e.msg}`)
+          .join(", ");
+      }
+    }
+    return payload.message || fallback;
   } catch {
     return fallback;
   }

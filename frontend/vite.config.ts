@@ -38,9 +38,6 @@ export default defineConfig({
           ) {
             return "markdown-runtime"
           }
-          if (id.includes("node_modules/@react-oauth/google")) {
-            return "auth-runtime"
-          }
           if (
             id.includes("node_modules/@radix-ui/") ||
             id.includes("node_modules/radix-ui/") ||

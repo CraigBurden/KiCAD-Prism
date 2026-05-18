@@ -16,7 +16,7 @@ import sqlite3
 import tempfile
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from app.services import project_service
@@ -29,7 +29,7 @@ COMMENTS_META = {
 
 def _utc_now_iso() -> str:
     """Return UTC timestamp in ISO-8601 format with Z suffix."""
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def get_project_comments_json_path(project_path: str) -> str:
@@ -116,7 +116,10 @@ class CommentsStoreService:
         conn = sqlite3.connect(self._db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
         conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA wal_autocheckpoint = 1000")
         return conn
 
     def _bootstrap_project_if_needed(self, conn: sqlite3.Connection, project_id: str, project_path: str) -> None:

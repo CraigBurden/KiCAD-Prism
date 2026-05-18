@@ -7,7 +7,14 @@ from app.api.diff import router as diff_router
 from app.api.folders import router as folders_router
 from app.api.settings import router as settings_router
 from app.api.workspace import router as workspace_router
+from app.api.remote_provider import router as remote_provider_router
+from app.api.provider_oauth import router as provider_oauth_router
+from app.api.catalog_admin import router as catalog_admin_router
+from app.api.oauth import router as oauth_router
+from app.api.service_clients import router as service_clients_router
 from app.services.comments_store_service import initialize_comments_store
+from app.services.component_catalog_service import catalog_service
+from app.services.workspace_service import workspace
 from app.core.config import settings
 import subprocess
 import os
@@ -88,8 +95,8 @@ def ensure_ssh_dir():
     try:
         ssh_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(ssh_dir, 0o700)
-        
-        scan_known_hosts()
+        if settings.GIT_SCAN_KNOWN_HOSTS_ON_STARTUP:
+            scan_known_hosts()
         
         logger.info("SSH directory configured correctly.")
     except OSError as error:
@@ -101,14 +108,19 @@ async def lifespan(app: FastAPI):
     configure_git()
     ensure_ssh_dir()
     initialize_comments_store()
-    yield
+    catalog_service.initialize()
+    workspace.initialize()
+    try:
+        yield
+    finally:
+        catalog_service.close()
 
 app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For development, allow all
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -122,3 +134,8 @@ app.include_router(diff_router, prefix="/api/projects", tags=["diff"])
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
+app.include_router(catalog_admin_router)
+app.include_router(oauth_router)
+app.include_router(service_clients_router)
+app.include_router(remote_provider_router, tags=["remote-provider"])
+app.include_router(provider_oauth_router, tags=["provider-oauth"])

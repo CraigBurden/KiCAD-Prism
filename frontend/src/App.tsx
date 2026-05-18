@@ -147,14 +147,14 @@ function App() {
     // If auth is enabled and no user, show login page
     if (authConfig.auth_enabled && !user) {
         // Fallback for missing client ID in config
-        if (!authConfig.google_client_id) {
-            return <FullScreenMessage message="Error: Missing Google Client ID in backend configuration." isError />;
+        if (!authConfig.oidc_authorization_endpoint || !authConfig.oidc_client_id) {
+            return <FullScreenMessage message="Error: Missing OIDC client configuration in backend configuration." isError />;
         }
 
         return (
             <Suspense fallback={<RouteFallback />}>
                 <LoginPage
-                    googleClientId={authConfig.google_client_id}
+                    authConfig={authConfig}
                     devMode={authConfig.dev_mode}
                     workspaceName={authConfig.workspace_name}
                     initialError={authError}

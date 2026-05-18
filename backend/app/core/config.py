@@ -17,18 +17,85 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
     # ===========================================
-    # Google OAuth Configuration
+    # OIDC / OAuth Configuration
     # ===========================================
-    GOOGLE_CLIENT_ID: str = Field(
+    OIDC_ISSUER_URL: str = Field(
         default="",
-        description="OAuth Client ID from Google Cloud Console. Leave empty to skip authentication."
+        description="OIDC issuer URL used for human SSO login."
     )
 
-    GOOGLE_CLIENT_SECRET: str = Field(
+    OIDC_CLIENT_ID: str = Field(
         default="",
-        description="OAuth Client Secret from Google Cloud Console. Required for auth code exchange."
+        description="OIDC client ID used by the Prism browser application."
     )
-    
+
+    OIDC_CLIENT_SECRET: str = Field(
+        default="",
+        description="OIDC client secret used for authorization code exchange."
+    )
+
+    OIDC_SCOPES: str = Field(
+        default="openid profile email",
+        description="Space-separated OIDC scopes requested for human login."
+    )
+
+    OIDC_EMAIL_CLAIM: str = Field(
+        default="email",
+        description="OIDC userinfo/id-token claim used as the Prism user email."
+    )
+
+    OIDC_NAME_CLAIM: str = Field(
+        default="name",
+        description="OIDC userinfo/id-token claim used as the display name."
+    )
+
+    OIDC_PICTURE_CLAIM: str = Field(
+        default="picture",
+        description="OIDC userinfo/id-token claim used as the avatar URL."
+    )
+
+    OIDC_PROVIDER_NAME: str = Field(
+        default="",
+        description="Human-readable OIDC provider name shown on the login page."
+    )
+
+    OIDC_TOKEN_AUTH_METHOD: str = Field(
+        default="client_secret_post",
+        description="OIDC token endpoint client authentication method: client_secret_post or client_secret_basic."
+    )
+
+    OAUTH_SERVICE_TOKEN_TTL_SECONDS: int = Field(
+        default=3600,
+        ge=300,
+        le=86400,
+        description="Lifetime for locally issued machine-to-machine OAuth2 access tokens."
+    )
+
+    OAUTH_EXTERNAL_JWT_ISSUER_URL: str = Field(
+        default="",
+        description="Optional external OAuth2/OIDC issuer whose bearer JWTs Prism should accept for API access."
+    )
+
+    OAUTH_EXTERNAL_JWT_AUDIENCE: str = Field(
+        default="",
+        description="Expected audience for externally issued API bearer JWTs."
+    )
+
+    OAUTH_EXTERNAL_JWT_ROLE_CLAIM: str = Field(
+        default="prism_role",
+        description="Claim used to map externally issued API JWTs to Prism roles."
+    )
+
+    OAUTH_EXTERNAL_JWT_SCOPES_CLAIM: str = Field(
+        default="scope",
+        description="Claim used to read OAuth scopes from externally issued API JWTs."
+    )
+
+    OAUTH_EXTERNAL_JWT_CLIENT_ID_CLAIM: str = Field(
+        default="client_id",
+        description="Claim used to identify an external machine client."
+    )
+
     # ===========================================
     # Authentication & Access Control
     # ===========================================
@@ -37,8 +104,8 @@ class Settings(BaseSettings):
         description="Display name shown to users when signing into this workspace."
     )
 
-    # Explicitly enable/disable authentication. 
-    # If not set, it's auto-determined by GOOGLE_CLIENT_ID and DEV_MODE.
+    # Explicitly enable/disable authentication.
+    # Effective auth still requires OIDC credentials and DEV_MODE=false.
     AUTH_ENABLED_OVERRIDE: bool = Field(
         default=True,
         alias="AUTH_ENABLED",
@@ -65,7 +132,7 @@ class Settings(BaseSettings):
 
     # Comma-separated list of email domains that receive implicit viewer access.
     DEFAULT_VIEWER_DOMAINS_STR: str = Field(
-        default="pixxel.co.in,spacepixxel.co.in",
+        default="",
         description=(
             "Comma-separated list of email domains that get viewer access when no "
             "explicit RBAC assignment exists"
@@ -97,13 +164,19 @@ class Settings(BaseSettings):
         default=False,
         description="Whether session cookie should be marked Secure"
     )
+
+    # Comma-separated browser origins allowed to make credentialed API requests.
+    CORS_ORIGINS_STR: str = Field(
+        default="http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8080,http://localhost:8080",
+        description="Comma-separated list of allowed CORS origins. Do not use '*' with credentials.",
+    )
     
     # ===========================================
     # Development Settings
     # ===========================================
     DEV_MODE: bool = Field(
         default=True,
-        description="Enable development mode. When True and GOOGLE_CLIENT_ID is empty, bypasses authentication."
+        description="Enable development mode. When True, bypasses authentication."
     )
     
     # ===========================================
@@ -121,6 +194,88 @@ class Settings(BaseSettings):
             "for project import and visualizer helpers. "
             "If empty, URL helpers derive host from the incoming request."
         ),
+    )
+
+    REMOTE_PROVIDER_LIBRARY_PREFIX: str = Field(
+        default="remote",
+        description="Library prefix assumed by the Prism remote-symbol provider when rewriting footprint links."
+    )
+
+    REMOTE_PROVIDER_DESTINATION_DIR: str = Field(
+        default="${KIPRJMOD}/RemoteLibrary",
+        description="Destination directory assumed by the Prism remote-symbol provider when rewriting model paths."
+    )
+
+    REMOTE_PROVIDER_OAUTH_CLIENT_ID: str = Field(
+        default="kicad-prism-kicad",
+        description="Public OAuth client_id advertised to KiCad for the remote provider."
+    )
+
+    REMOTE_PROVIDER_ACCESS_TOKEN_TTL_SECONDS: int = Field(
+        default=3600,
+        ge=300,
+        le=86400,
+        description="Lifetime for KiCad remote provider access tokens."
+    )
+
+    REMOTE_PROVIDER_REFRESH_TOKEN_TTL_SECONDS: int = Field(
+        default=604800,
+        ge=3600,
+        le=2592000,
+        description="Lifetime for KiCad remote provider refresh tokens."
+    )
+
+    MANUFACTURO_SQL_SERVER: str = Field(
+        default="",
+        description="Manufacturo SQL Server hostname."
+    )
+
+    MANUFACTURO_SQL_DATABASE: str = Field(
+        default="",
+        description="Manufacturo SQL Server database name."
+    )
+
+    MANUFACTURO_SQL_USERNAME: str = Field(
+        default="",
+        description="Manufacturo SQL Server username."
+    )
+
+    MANUFACTURO_SQL_PASSWORD: str = Field(
+        default="",
+        description="Manufacturo SQL Server password."
+    )
+
+    MANUFACTURO_SQL_DRIVER: str = Field(
+        default="ODBC Driver 18 for SQL Server",
+        description="ODBC driver name for Manufacturo SQL connectivity."
+    )
+
+    MANUFACTURO_SYNC_LIMIT: int = Field(
+        default=0,
+        ge=0,
+        le=100000,
+        description="Optional row limit for Manufacturo syncs. 0 means no explicit limit."
+    )
+
+    CATALOG_SQLITE_PATH: str = Field(
+        default="",
+        description=(
+            "SQLite database path for component catalog, remote-provider OAuth, "
+            "and local service-client metadata. Defaults under KICAD_PROJECTS_ROOT."
+        ),
+    )
+
+    CATALOG_DBL_EXPORT_DIR: str = Field(
+        default="",
+        description=(
+            "Output directory for generated KiCad DBL bundles. Defaults under "
+            "KICAD_PROJECTS_ROOT/.kicad-prism/exports/kicad-dbl."
+        ),
+    )
+
+    GIT_SCAN_KNOWN_HOSTS_ON_STARTUP: bool = Field(
+        default=False,
+        description="Run ssh-keyscan for common Git hosts during backend startup.",
     )
     
     # ===========================================
@@ -147,6 +302,27 @@ class Settings(BaseSettings):
         return [d.strip().lower() for d in self.DEFAULT_VIEWER_DOMAINS_STR.split(",") if d.strip()]
 
     @property
+    def CORS_ORIGINS(self) -> List[str]:
+        """Parse credentialed CORS origins from comma-separated string."""
+        return [origin.strip().rstrip("/") for origin in self.CORS_ORIGINS_STR.split(",") if origin.strip()]
+
+    @property
+    def EFFECTIVE_OIDC_ISSUER_URL(self) -> str:
+        return self.OIDC_ISSUER_URL.strip().rstrip("/")
+
+    @property
+    def EFFECTIVE_OIDC_CLIENT_ID(self) -> str:
+        return self.OIDC_CLIENT_ID.strip()
+
+    @property
+    def EFFECTIVE_OIDC_CLIENT_SECRET(self) -> str:
+        return self.OIDC_CLIENT_SECRET.strip()
+
+    @property
+    def EFFECTIVE_OIDC_SCOPES(self) -> str:
+        return self.OIDC_SCOPES.strip() or "openid profile email"
+
+    @property
     def KICAD_PROJECTS_ROOT(self) -> str:
         return os.environ.get(
             "KICAD_PROJECTS_ROOT",
@@ -164,14 +340,19 @@ class Settings(BaseSettings):
         """
         Authentication is enabled only if:
         1. AUTH_ENABLED env var is True (default), AND
-        2. Valid Google OAuth client credentials are configured, AND
-        3. DEV_MODE is False (unless GOOGLE_CLIENT_ID is set)
+        2. Valid OIDC/OAuth client credentials are configured, AND
+        3. DEV_MODE is False
         """
         # If explicitly disabled via env var, it's off.
         if not self.AUTH_ENABLED_OVERRIDE:
             return False
             
-        return bool(self.GOOGLE_CLIENT_ID) and bool(self.GOOGLE_CLIENT_SECRET) and not self.DEV_MODE
+        return (
+            bool(self.EFFECTIVE_OIDC_ISSUER_URL)
+            and bool(self.EFFECTIVE_OIDC_CLIENT_ID)
+            and bool(self.EFFECTIVE_OIDC_CLIENT_SECRET)
+            and not self.DEV_MODE
+        )
     
     class Config:
         env_file = ".env"

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:panel": "vite --config vite.config.panel.ts",
     "build": "npx tsc -b && vite build",
+    "build:panel": "vite build --config vite.config.panel.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },

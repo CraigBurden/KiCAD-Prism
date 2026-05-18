@@ -1,0 +1,24 @@
+.git
+.gitignore
+
+# Runtime data and generated local state
+data/
+**/.DS_Store
+**/__pycache__/
+**/*.pyc
+
+# Python local environments and caches
+backend/.venv/
+.venv/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Frontend dependency/build outputs
+frontend/node_modules/
+frontend/dist/
+backend/app/static/remote_provider/
+
+# Local reports and logs
+*.log
+*.tmp

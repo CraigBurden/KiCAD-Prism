@@ -11,6 +11,7 @@
 backend/**/*.pyc
 backend/.env
 backend/venv/
+backend/app/static/remote_provider/
 
 # Frontend
 frontend/node_modules/
@@ -24,6 +25,7 @@ frontend/.env.production.local
 frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
+dist/
 
 # Project Data
 # (The project database is currently outside the repo, but just in case)

@@ -1,7 +1,7 @@
 """
 Authentication API endpoints.
 
-Handles Google OAuth login and session management.
+Handles OIDC login and session management.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -10,15 +10,16 @@ from app.core.config import settings
 from app.core.roles import Role
 from app.core.security import AuthenticatedUser, get_current_user, guest_user
 from app.core.session import clear_session_cookie, create_session_token, set_session_cookie
-from app.services.google_auth_service import ResolvedSessionUser, authenticate_google_oauth_code
+from app.services.auth_service import ResolvedSessionUser, authenticate_oidc_auth_code, oidc_public_config
 
 router = APIRouter()
 
 
 class LoginRequest(BaseModel):
-    """Request body for Google auth code exchange."""
+    """Request body for OIDC auth code exchange."""
     code: str = Field(min_length=1)
     redirectUri: str = Field(min_length=1)
+    nonce: str = ""
 
 
 class UserSession(BaseModel):
@@ -33,7 +34,11 @@ class AuthConfig(BaseModel):
     """Authentication configuration exposed to frontend."""
     auth_enabled: bool
     dev_mode: bool
-    google_client_id: str
+    oidc_issuer_url: str = ""
+    oidc_authorization_endpoint: str = ""
+    oidc_client_id: str = ""
+    oidc_scopes: str = ""
+    oidc_provider_name: str = ""
     workspace_name: str
 
 
@@ -63,10 +68,15 @@ async def get_auth_config():
     This allows the frontend to know whether to show the login page
     or go directly to the gallery.
     """
+    oidc_config = oidc_public_config()
     return AuthConfig(
         auth_enabled=settings.AUTH_ENABLED,
         dev_mode=settings.DEV_MODE,
-        google_client_id=settings.GOOGLE_CLIENT_ID,
+        oidc_issuer_url=oidc_config["issuer_url"],
+        oidc_authorization_endpoint=oidc_config["authorization_endpoint"],
+        oidc_client_id=oidc_config["client_id"],
+        oidc_scopes=oidc_config["scopes"],
+        oidc_provider_name=oidc_config["provider_name"],
         workspace_name=settings.WORKSPACE_NAME,
     )
 
@@ -74,9 +84,10 @@ async def get_auth_config():
 @router.post("/login", response_model=UserSession)
 async def login(request: LoginRequest, response: Response):
     """
-    Authenticate user with Google OAuth authorization code.
+    Authenticate user with an OIDC authorization code.
     
-    Exchanges the code with Google, checks domain restrictions, and returns user session data.
+    Exchanges the code with the configured OIDC provider, checks access restrictions,
+    and returns user session data.
     """
     # If auth is disabled, this endpoint shouldn't normally be called,
     # but handle gracefully just in case
@@ -84,7 +95,11 @@ async def login(request: LoginRequest, response: Response):
         return _guest_user_session()
 
     _require_session_secret()
-    session_user = authenticate_google_oauth_code(code=request.code, redirect_uri=request.redirectUri)
+    session_user = authenticate_oidc_auth_code(
+        code=request.code,
+        redirect_uri=request.redirectUri,
+        expected_nonce=request.nonce,
+    )
 
     token = create_session_token(
         email=session_user.email,
