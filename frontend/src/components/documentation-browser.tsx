@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { Download, File, FileText, Folder, ChevronRight, ChevronDown, Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -116,10 +116,17 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
     const [loading, setLoading] = useState(true);
     const [viewingDoc, setViewingDoc] = useState<{ path: string; name: string; content: string } | null>(null);
 
+    const appendCommit = useCallback((url: string) => {
+        if (!commit) return url;
+        return `${url}${url.includes("?") ? "&" : "?"}commit=${encodeURIComponent(commit)}`;
+    }, [commit]);
+
     useEffect(() => {
         const fetchFiles = async () => {
+            setLoading(true);
+            setViewingDoc(null);
             try {
-                const response = await fetch(`/api/projects/${projectId}/docs`);
+                const response = await fetch(appendCommit(`/api/projects/${projectId}/docs`));
                 if (response.ok) {
                     const data = await response.json();
                     setFiles(data);
@@ -132,13 +139,11 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
         };
 
         fetchFiles();
-    }, [projectId]);
+    }, [projectId, appendCommit]);
 
     const handleView = async (path: string, name: string) => {
         try {
-            const url = commit
-                ? `/api/projects/${projectId}/docs/content?path=${encodeURIComponent(path)}&commit=${commit}`
-                : `/api/projects/${projectId}/docs/content?path=${encodeURIComponent(path)}`;
+            const url = appendCommit(`/api/projects/${projectId}/docs/content?path=${encodeURIComponent(path)}`);
             const response = await fetch(url);
             if (response.ok) {
                 const data = await response.json();
@@ -150,7 +155,7 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
     };
 
     const handleDownload = (path: string) => {
-        const url = `/api/projects/${projectId}/asset/docs/${path}`;
+        const url = appendCommit(`/api/projects/${projectId}/asset/docs/${path}`);
         window.open(url, '_blank');
     };
 
@@ -174,7 +179,7 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
                     <MarkdownContent
                         content={viewingDoc.content}
                         resolveImageSrc={(src) =>
-                            src?.startsWith('http') ? src : `/api/projects/${projectId}/asset/docs/${src}`
+                            src?.startsWith('http') ? src : appendCommit(`/api/projects/${projectId}/asset/docs/${src}`)
                         }
                     />
                 </Suspense>

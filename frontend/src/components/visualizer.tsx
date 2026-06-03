@@ -22,6 +22,7 @@ const Model3DViewer = lazy(() =>
 interface VisualizerProps {
     projectId: string;
     user: User | null;
+    commit?: string | null;
 }
 
 type VisualizerTab = "sch" | "pcb" | "3d" | "ibom";
@@ -50,12 +51,13 @@ type ViewerBlobSource = {
 const buildViewerKey = (
     kind: "schematic" | "pcb",
     projectId: string,
+    commit: string | null | undefined,
     sources: ViewerBlobSource[],
 ) => {
     const signature = sources
         .map(({ filename, content }) => `${filename}:${content.length}`)
         .join("|");
-    return `${kind}:${projectId}:${signature}`;
+    return `${kind}:${projectId}:${commit ?? "latest"}:${signature}`;
 };
 
 type EcadViewerHostProps = {
@@ -121,7 +123,7 @@ function EcadViewerHost({ viewerKey, sources, setViewerRef }: EcadViewerHostProp
     );
 }
 
-export function Visualizer({ projectId, user }: VisualizerProps) {
+export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [schematicViewerElement, setSchematicViewerElement] = useState<ECadViewerElement | null>(null);
     const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);
     const schematicViewerRef = useRef<ECadViewerElement | null>(null);
@@ -337,6 +339,21 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
         }
     };
 
+    const appendCommit = useCallback((url: string) => {
+        if (!commit) return url;
+        return `${url}${url.includes("?") ? "&" : "?"}commit=${encodeURIComponent(commit)}`;
+    }, [commit]);
+
+    useEffect(() => {
+        setModelUrl(null);
+        setIbomUrl(null);
+        setSchematicContent(null);
+        setPcbContent(null);
+        setSubsheets([]);
+        setSchematicContentLoaded(false);
+        setPcbContentLoaded(false);
+    }, [projectId, commit]);
+
     // Initial Data Fetch
     useEffect(() => {
         const controller = new AbortController();
@@ -349,10 +366,10 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
             try {
                 // Parallel fetch for main assets (excluding schematic and PCB content for now)
                 const [modelRes, ibomRes, commentsRes, filesRes] = await Promise.allSettled([
-                    fetch(`${baseUrl}/3d-model`, { signal }),
-                    fetch(`${baseUrl}/ibom`, { signal }),
+                    fetch(appendCommit(`${baseUrl}/3d-model`), { signal }),
+                    fetch(appendCommit(`${baseUrl}/ibom`), { signal }),
                     fetch(`/api/projects/${projectId}/comments`, { signal }),
-                    fetch(`${baseUrl}/files?type=design`, { signal })
+                    fetch(appendCommit(`${baseUrl}/files?type=design`), { signal })
                 ]);
 
                 // Handle 3D
@@ -366,7 +383,7 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
                             f.name.toLowerCase().endsWith(".glb")
                         );
                         if (glbFile) {
-                            glbUrl = `${baseUrl}/asset/Design-Outputs/${glbFile.path}`;
+                            glbUrl = appendCommit(`${baseUrl}/download?path=${encodeURIComponent(glbFile.path)}&type=design&inline=true`);
                         }
                     } catch (e) {
                         if (!isAbortError(e)) {
@@ -378,14 +395,14 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
                 if (glbUrl) {
                     setModelUrl(glbUrl);
                 } else if (modelRes.status === "fulfilled" && modelRes.value.ok) {
-                    setModelUrl(`${baseUrl}/3d-model`);
+                    setModelUrl(appendCommit(`${baseUrl}/3d-model`));
                 } else {
                     setModelUrl(null);
                 }
 
                 // Handle iBoM
                 if (ibomRes.status === "fulfilled" && ibomRes.value.ok) {
-                    setIbomUrl(`${baseUrl}/ibom`);
+                    setIbomUrl(appendCommit(`${baseUrl}/ibom`));
                 } else {
                     setIbomUrl(null);
                 }
@@ -428,7 +445,7 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
 
         void fetchData();
         return () => controller.abort();
-    }, [projectId]);
+    }, [projectId, appendCommit]);
 
     // Lazy load schematic content when schematic tab is first accessed
     useEffect(() => {
@@ -441,8 +458,8 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
                     const baseUrl = `/api/projects/${projectId}`;
 
                     const [schRes, subsheetsRes] = await Promise.allSettled([
-                        fetch(`${baseUrl}/schematic`, { signal }),
-                        fetch(`${baseUrl}/schematic/subsheets`, { signal })
+                        fetch(appendCommit(`${baseUrl}/schematic`), { signal }),
+                        fetch(appendCommit(`${baseUrl}/schematic/subsheets`), { signal })
                     ]);
 
                     // Handle Schematic
@@ -501,7 +518,7 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
             void loadSchematic();
             return () => controller.abort();
         }
-    }, [activeTab, schematicContentLoaded, projectId]);
+    }, [activeTab, schematicContentLoaded, projectId, appendCommit]);
 
     // Lazy load PCB content when PCB tab is first accessed
     useEffect(() => {
@@ -512,7 +529,7 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
             const loadPcb = async () => {
                 try {
                     const baseUrl = `/api/projects/${projectId}`;
-                    const pcbRes = await fetch(`${baseUrl}/pcb`, { signal });
+                    const pcbRes = await fetch(appendCommit(`${baseUrl}/pcb`), { signal });
 
                     if (pcbRes.ok) {
                         const pcbText = await pcbRes.text();
@@ -536,7 +553,7 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
             void loadPcb();
             return () => controller.abort();
         }
-    }, [activeTab, pcbContentLoaded, projectId]);
+    }, [activeTab, pcbContentLoaded, projectId, appendCommit]);
 
     // Reset lazy loading flags when project changes
     useEffect(() => {
@@ -869,8 +886,8 @@ export function Visualizer({ projectId, user }: VisualizerProps) {
             : []),
         [pcbContent],
     );
-    const schematicViewerKey = buildViewerKey("schematic", projectId, schematicSources);
-    const pcbViewerKey = buildViewerKey("pcb", projectId, pcbSources);
+    const schematicViewerKey = buildViewerKey("schematic", projectId, commit, schematicSources);
+    const pcbViewerKey = buildViewerKey("pcb", projectId, commit, pcbSources);
 
     // Tab Config
     const tabs: { id: VisualizerTab; label: string; icon: any }[] = [
