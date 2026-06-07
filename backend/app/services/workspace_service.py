@@ -152,6 +152,18 @@ class WorkspaceService:
                 tags        TEXT NOT NULL DEFAULT '[]',
                 scene_config TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS ws_jobs (
+                id         TEXT PRIMARY KEY,
+                kind       TEXT NOT NULL,
+                status     TEXT NOT NULL,
+                message    TEXT NOT NULL DEFAULT '',
+                percent    REAL NOT NULL DEFAULT 0,
+                payload    TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ws_jobs_kind_status ON ws_jobs(kind, status);
         """)
 
     # ------------------------------------------------------------------
@@ -365,6 +377,83 @@ class WorkspaceService:
     def delete_project(self, project_id: str) -> bool:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM ws_projects WHERE id=?", (project_id,))
+            conn.commit()
+        return cur.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # Job CRUD
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _job_payload(fields: Dict[str, Any]) -> str:
+        return json.dumps(fields, separators=(",", ":"), sort_keys=True)
+
+    @staticmethod
+    def _row_to_job(row: sqlite3.Row) -> Dict[str, Any]:
+        payload = json.loads(row["payload"] or "{}")
+        payload.update({
+            "job_id": row["id"],
+            "status": row["status"],
+            "message": row["message"],
+            "percent": row["percent"],
+            "type": payload.get("type") or row["kind"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        })
+        return payload
+
+    def create_job(self, job_id: str, kind: str, **fields: Any) -> None:
+        now = _utc_now_iso()
+        status = str(fields.pop("status", "running"))
+        message = str(fields.pop("message", ""))
+        percent = float(fields.pop("percent", 0) or 0)
+        fields.setdefault("type", kind)
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO ws_jobs
+                   (id,kind,status,message,percent,payload,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (job_id, kind, status, message, percent, self._job_payload(fields), now, now),
+            )
+            conn.commit()
+
+    def update_job(self, job_id: str, **fields: Any) -> bool:
+        with self._connect() as conn:
+            row = conn.execute("SELECT payload FROM ws_jobs WHERE id=?", (job_id,)).fetchone()
+            if not row:
+                return False
+            payload = json.loads(row["payload"] or "{}")
+            status = fields.pop("status", None)
+            message = fields.pop("message", None)
+            percent = fields.pop("percent", None)
+            payload.update(fields)
+            updates = ["payload=?", "updated_at=?"]
+            values: List[Any] = [self._job_payload(payload), _utc_now_iso()]
+            if status is not None:
+                updates.append("status=?")
+                values.append(str(status))
+            if message is not None:
+                updates.append("message=?")
+                values.append(str(message))
+            if percent is not None:
+                updates.append("percent=?")
+                values.append(float(percent or 0))
+            values.append(job_id)
+            cur = conn.execute(f"UPDATE ws_jobs SET {', '.join(updates)} WHERE id=?", values)
+            conn.commit()
+        return cur.rowcount > 0
+
+    def get_job(self, job_id: str, kind: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            if kind:
+                row = conn.execute("SELECT * FROM ws_jobs WHERE id=? AND kind=?", (job_id, kind)).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM ws_jobs WHERE id=?", (job_id,)).fetchone()
+        return self._row_to_job(row) if row else None
+
+    def delete_job(self, job_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM ws_jobs WHERE id=?", (job_id,))
             conn.commit()
         return cur.rowcount > 0
 

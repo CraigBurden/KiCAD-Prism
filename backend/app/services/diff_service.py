@@ -23,6 +23,22 @@ from app.services import bom_diff_service
 # Structure: { job_id: { ... } }
 diff_jobs: Dict[str, dict] = {}
 
+
+def _persist_job(job_id: str) -> None:
+    job = diff_jobs.get(job_id)
+    if job:
+        workspace.update_job(
+            job_id,
+            status=job.get("status", "running"),
+            message=job.get("message", ""),
+            percent=job.get("percent", 0),
+            **{
+                key: value
+                for key, value in job.items()
+                if key not in {"job_id", "status", "message", "percent"}
+            },
+        )
+
 # Configuration
 MAX_JOB_AGE_SECONDS = 3600 * 24  # 24 hours
 
@@ -133,22 +149,29 @@ def _find_kicad_pcb_file(directory: Path) -> Optional[Path]:
 
 def _cleanup_job(job_id: str):
     """Remove a job directory and entry."""
-    if job_id in diff_jobs:
-        job = diff_jobs[job_id]
-        if job.get('status') == 'running':
-            # Don't delete running jobs to avoid race conditions with tar/kicad-cli
-            job['status'] = 'failed'
-            job['error'] = 'Job cancelled by user'
-            return
+    job = diff_jobs.get(job_id) or workspace.get_job(job_id, "diff")
+    if not job:
+        return
+    if job.get('status') == 'running':
+        # Don't delete running jobs to avoid race conditions with tar/kicad-cli
+        job['status'] = 'failed'
+        job['error'] = 'Job cancelled by user'
+        if job_id in diff_jobs:
+            _persist_job(job_id)
+        else:
+            workspace.update_job(job_id, status='failed', error='Job cancelled by user')
+        return
 
-        output_dir = job.get('abs_output_path')
-        if output_dir and os.path.exists(output_dir):
-            try:
-                # Give background threads a moment to finish current syscalls
-                time.sleep(0.5) 
-                shutil.rmtree(output_dir)
-            except Exception as e:
-                print(f"Error cleaning up job {job_id}: {e}")
+    output_dir = job.get('abs_output_path')
+    if output_dir and os.path.exists(output_dir):
+        try:
+            # Give background threads a moment to finish current syscalls
+            time.sleep(0.5)
+            shutil.rmtree(output_dir)
+        except Exception as e:
+            print(f"Error cleaning up job {job_id}: {e}")
+    workspace.delete_job(job_id)
+    if job_id in diff_jobs:
         del diff_jobs[job_id]
 
 def delete_job(job_id: str):
@@ -251,6 +274,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
         
         job['logs'].append(f"Started diff job for {project_id}")
         job['logs'].append(f"Output directory: {job_dir}")
+        _persist_job(job_id)
         
         manifest = {
             "job_id": job_id,
@@ -276,9 +300,11 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
         c2_dir = job_dir / commit2
         
         job['logs'].append(f"Snapshotting commit {commit1}...")
+        _persist_job(job_id)
         _snapshot_commit(project_path, commit1, c1_dir)
         
         job['logs'].append(f"Snapshotting commit {commit2}...")
+        _persist_job(job_id)
         _snapshot_commit(project_path, commit2, c2_dir)
 
 
@@ -313,6 +339,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                 sch_out_dir.mkdir(exist_ok=True)
                 sch_dirs[commit] = sch_out_dir
                 job['logs'].append(f"Exporting Schematics for {commit}...")
+                _persist_job(job_id)
 
                 cmd = [
                     CLI_CMD, "sch", "export", "svg",
@@ -321,6 +348,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                     str(sch_file)
                 ]
                 job['logs'].append(f"SCH CMD: {' '.join(cmd)}")
+                _persist_job(job_id)
                 res = subprocess.run(cmd, capture_output=True, text=True)
 
                 if res.returncode == 0:
@@ -330,14 +358,17 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                         manifest["schematic"] = True
                 else:
                     job['logs'].append(f"SCH Export FAILED (Code {res.returncode})")
+                    _persist_job(job_id)
             else:
                 job['logs'].append(f"No root .kicad_sch resolved for {commit}")
+                _persist_job(job_id)
             
             # 3. Export PCB Layers
             if pcb_file:
                 pcb_out_dir = directory / "pcb"
                 pcb_out_dir.mkdir(exist_ok=True)
                 job['logs'].append(f"Exporting PCB Layers for {commit} from {pcb_file}...")
+                _persist_job(job_id)
                 
                 # We export standard layers in one shot using --mode-multi
                 all_layers = _get_pcb_layers(pcb_file)
@@ -352,6 +383,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                     str(pcb_file)
                 ]
                 job['logs'].append(f"PCB CMD: {' '.join(cmd)}")
+                _persist_job(job_id)
                 res = subprocess.run(cmd, capture_output=True, text=True)
                 
                 if res.returncode == 0:
@@ -359,6 +391,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                     # We normalize them to {layer_name}.svg for the frontend
                     found_layers = []
                     job['logs'].append(f"PCB Export success. Dir content: {list(pcb_out_dir.glob('*.svg'))}")
+                    _persist_job(job_id)
                     
                     for svg in list(pcb_out_dir.glob("*.svg")):
                         leaf = svg.name
@@ -388,11 +421,14 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                     if commit == commit1:
                         manifest["layers"] = sorted(list(set(found_layers)))
                         job['logs'].append(f"Populated manifest with {len(manifest['layers'])} layers")
+                        _persist_job(job_id)
                 else:
                     job['logs'].append(f"PCB Export FAILED (Code {res.returncode})")
                     job['logs'].append(f"STDERR: {res.stderr}")
+                    _persist_job(job_id)
             else:
                 job['logs'].append(f"No .kicad_pcb found for {commit}")
+                _persist_job(job_id)
 
         # Publish the union of emitted SVG filenames across both commits, so
         # sheets that exist in only one commit (added/removed) still appear.
@@ -404,6 +440,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
 
         # 4. BoM Diff
         job['logs'].append("Generating BoM Diff...")
+        _persist_job(job_id)
         try:
             config = get_config(c1_dir)
             bom_fields = config.get("bom", {}).get("fields", ["Reference", "Value", "Footprint", "Datasheet"])
@@ -428,8 +465,10 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                         bom_csvs[commit] = csv_path.read_text(encoding="utf-8")
                     else:
                         job['logs'].append(f"BoM export failed for {commit}: {res.stderr}")
+                        _persist_job(job_id)
                 else:
                     job['logs'].append(f"Skipping BoM export for {commit}: no root .kicad_sch resolved")
+                    _persist_job(job_id)
             
             if commit1 in bom_csvs and commit2 in bom_csvs:
                 old_bom = bom_diff_service.parse_bom_csv(bom_csvs[commit2])
@@ -439,9 +478,11 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
                 job['logs'].append("BoM Diff generated successfully.")
             else:
                 job['logs'].append("Skipping BoM Diff: Could not generate CSVs for both commits.")
+            _persist_job(job_id)
                 
         except Exception as e:
             job['logs'].append(f"Error generating BoM diff: {e}")
+            _persist_job(job_id)
 
         # Write manifest
         # Write logs and manifest
@@ -456,6 +497,7 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
         job['percent'] = 100
         job['logs'].append("Diff generation complete.")
         log_path.write_text("\n".join(job['logs']), encoding="utf-8")
+        _persist_job(job_id)
 
     except Exception as e:
         job['status'] = 'failed'
@@ -463,12 +505,14 @@ def _run_diff_generation(job_id: str, project_id: str, commit1: str, commit2: st
         job['logs'].append(f"Critical Error: {str(e)}")
         if 'job_dir' in locals() and job_dir.exists():
             (job_dir / "logs.txt").write_text("\n".join(job['logs']), encoding="utf-8")
+        _persist_job(job_id)
 
 
 def start_diff_job(project_id: str, commit1: str, commit2: str) -> str:
     """Start async diff job."""
     job_id = str(uuid.uuid4())
     diff_jobs[job_id] = {
+        "job_id": job_id,
         "status": "running",
         "message": "Initializing...",
         "percent": 0,
@@ -480,6 +524,18 @@ def start_diff_job(project_id: str, commit1: str, commit2: str) -> str:
         "error": None,
         "abs_output_path": None
     }
+    workspace.create_job(
+        job_id,
+        "diff",
+        status=diff_jobs[job_id]["status"],
+        message=diff_jobs[job_id]["message"],
+        percent=diff_jobs[job_id]["percent"],
+        **{
+            key: value
+            for key, value in diff_jobs[job_id].items()
+            if key not in {"job_id", "status", "message", "percent"}
+        },
+    )
     
     thread = threading.Thread(
         target=_run_diff_generation,
@@ -491,10 +547,10 @@ def start_diff_job(project_id: str, commit1: str, commit2: str) -> str:
     return job_id
 
 def get_job_status(job_id: str) -> Optional[dict]:
-    return diff_jobs.get(job_id)
+    return diff_jobs.get(job_id) or workspace.get_job(job_id, "diff")
 
 def get_manifest(job_id: str):
-    job = diff_jobs.get(job_id)
+    job = diff_jobs.get(job_id) or workspace.get_job(job_id, "diff")
     if not job or job['status'] != 'completed':
         return None
     
@@ -505,7 +561,7 @@ def get_manifest(job_id: str):
     return None
 
 def get_asset_path(job_id: str, asset_path: str) -> Optional[Path]:
-    job = diff_jobs.get(job_id)
+    job = diff_jobs.get(job_id) or workspace.get_job(job_id, "diff")
     if not job or job['status'] != 'completed':
         return None
         

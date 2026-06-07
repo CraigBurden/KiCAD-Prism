@@ -13,6 +13,7 @@ from git import Repo, RemoteProgress
 from pydantic import BaseModel
 
 from app.services import path_config_service
+from app.services.workspace_service import workspace
 
 class Project(BaseModel):
     id: str
@@ -346,6 +347,42 @@ def get_project_by_id(project_id: str) -> Optional[Project]:
 # Global job store: {job_id: {status: str, message: str, percent: float, project_id: str, error: str, logs: list[str], type: str}}
 jobs = {}
 
+
+def _persist_job(job_id: str) -> None:
+    job = jobs.get(job_id)
+    if job:
+        workspace.update_job(
+            job_id,
+            status=job.get("status", "running"),
+            message=job.get("message", ""),
+            percent=job.get("percent", 0),
+            **{
+                key: value
+                for key, value in job.items()
+                if key not in {"job_id", "status", "message", "percent"}
+            },
+        )
+
+
+def _workspace_row_to_project(row: dict) -> Project:
+    return Project(
+        id=row["id"],
+        name=row["name"],
+        display_name=row.get("display_name"),
+        description=row.get("description", ""),
+        path=row.get("path", ""),
+        last_modified=row.get("last_modified", ""),
+        registered_at=row.get("registered_at"),
+        thumbnail_url=f"/api/projects/{quote(row['id'])}/thumbnail" if row.get("thumbnail_rel") else None,
+        sub_path=row.get("relative_path") if row.get("relative_path") != "." else None,
+        parent_repo=row.get("parent_repo"),
+        repo_url=row.get("repo_url"),
+        import_type=row.get("import_type"),
+        parent_repo_path=row.get("parent_repo_path"),
+        folder_id=row.get("folder_id"),
+        portfolio=row.get("portfolio"),
+    )
+
 class CloneProgress(RemoteProgress):
     def __init__(self, job_id):
         super().__init__()
@@ -364,6 +401,7 @@ class CloneProgress(RemoteProgress):
             # Add to logs only if message makes sense
             if message:
                 job['logs'].append(f"[GIT] {message}")
+            _persist_job(self.job_id)
 
 def _run_clone_job(job_id: str, repo_url: str, selected_paths: Optional[List[str]] = None):
     job = jobs[job_id]
@@ -382,10 +420,12 @@ def _run_clone_job(job_id: str, repo_url: str, selected_paths: Optional[List[str
         job['status'] = 'failed'
         job['error'] = f"Monorepo '{project_name}' already exists"
         job['logs'].append(f"Error: Monorepo '{project_name}' already exists")
+        _persist_job(job_id)
         return
 
     try:
         job['logs'].append(f"Cloning {repo_url} into {target_path}...")
+        _persist_job(job_id)
         # Prevent git from asking for credentials (avoid hanging)
         env = os.environ.copy()
         env['GIT_TERMINAL_PROMPT'] = '0'
@@ -479,11 +519,13 @@ def _run_clone_job(job_id: str, repo_url: str, selected_paths: Optional[List[str
         job['status'] = 'completed'
         job['percent'] = 100
         job['logs'].append("Clone and registration successful.")
+        _persist_job(job_id)
         
     except Exception as e:
         job['status'] = 'failed'
         job['error'] = str(e)
         job['logs'].append(f"Error: {str(e)}")
+        _persist_job(job_id)
         # Cleanup
         if os.path.exists(target_path):
             try:
@@ -494,6 +536,7 @@ def _run_clone_job(job_id: str, repo_url: str, selected_paths: Optional[List[str
 def start_import_job(repo_url: str, selected_paths: Optional[List[str]] = None) -> str:
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
+        "job_id": job_id,
         "status": "running",
         "message": "Starting import...",
         "percent": 0,
@@ -503,6 +546,18 @@ def start_import_job(repo_url: str, selected_paths: Optional[List[str]] = None) 
         "logs": [],
         "type": "import"
     }
+    workspace.create_job(
+        job_id,
+        "legacy_import",
+        status=jobs[job_id]["status"],
+        message=jobs[job_id]["message"],
+        percent=jobs[job_id]["percent"],
+        **{
+            key: value
+            for key, value in jobs[job_id].items()
+            if key not in {"job_id", "status", "message", "percent"}
+        },
+    )
     
     thread = threading.Thread(target=_run_clone_job, args=(job_id, repo_url, selected_paths))
     thread.daemon = True
@@ -511,7 +566,7 @@ def start_import_job(repo_url: str, selected_paths: Optional[List[str]] = None) 
     return job_id
 
 def get_job_status(job_id: str):
-    return jobs.get(job_id)
+    return jobs.get(job_id) or workspace.get_job(job_id)
 
 # Workflow Jobs
 def _find_cli_path():
@@ -525,14 +580,15 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
     job = jobs[job_id]
     
     try:
-        projects = get_registered_projects()
-        project = next((p for p in projects if p.id == project_id), None)
+        row = workspace.get_project_by_id(project_id)
+        project = _workspace_row_to_project(row) if row else get_project_by_id(project_id)
         if not project:
             raise ValueError("Project not found")
 
         job['logs'].append(f"Starting workflow: {workflow_type}")
         cli_path = _find_cli_path()
         job['logs'].append(f"Using KiCAD CLI: {cli_path}")
+        _persist_job(job_id)
 
         # Find .kicad_pro file
         pro_file = None
@@ -585,6 +641,7 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
         ]
         
         job['logs'].append(f"Command: {' '.join(cmd)}")
+        _persist_job(job_id)
         
         process = subprocess.Popen(
             cmd,
@@ -600,6 +657,7 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
             line = line.strip()
             if line:
                 job['logs'].append(line)
+                _persist_job(job_id)
         
         return_code = process.wait()
         
@@ -607,26 +665,31 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
             job['percent'] = 100
             job['message'] = 'Processing outputs...'
             job['logs'].append("Job completed successfully.")
+            _persist_job(job_id)
             
             # --- Git Push Logic ---
             try:
                 job['logs'].append("Starting Git Sync...")
+                _persist_job(job_id)
                 repo = Repo(project.path)
                 
                 # Check for changes
                 if not repo.is_dirty(untracked_files=True):
                     job['logs'].append("No changes detected to commit.")
+                    _persist_job(job_id)
                 else:
                     # Add all changes
                     job['logs'].append("Staging files...")
                     repo.git.add('.')
                     job['logs'].append("Files staged.")
+                    _persist_job(job_id)
                     
                     # Commit
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     author_name = job.get('author', 'anonymous')
                     commit_message = f"Generated {workflow_type} outputs - {timestamp} by {author_name}"
                     job['logs'].append(f"Committing with message: '{commit_message}'")
+                    _persist_job(job_id)
                     
                     # Set local config for this commit to ensure it works even if global config is missing
                     # Or just use author argument in commit
@@ -635,9 +698,11 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
                         author="KiCAD Prism <prism@example.com>"
                     )
                     job['logs'].append("Commit created.")
+                    _persist_job(job_id)
                     
                     # Push
                     job['logs'].append("Pushing to remote...")
+                    _persist_job(job_id)
                     # Disable interactive prompt for push
                     env = os.environ.copy()
                     env['GIT_TERMINAL_PROMPT'] = '0'
@@ -651,29 +716,35 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
                             raise Exception(f"Push failed: {info.summary}")
                             
                     job['logs'].append("Successfully pushed to remote.")
+                    _persist_job(job_id)
                     
             except Exception as e:
                 job['logs'].append(f"Git Sync Warning: {str(e)}")
                 # We don't fail the job if push fails, just warn
+                _persist_job(job_id)
             # ----------------------
 
             job['status'] = 'completed'
             job['message'] = 'Workflow completed successfully'
+            _persist_job(job_id)
             
         else:
             job['status'] = 'failed'
             job['error'] = f"Process exited with code {return_code}"
             job['logs'].append(f"Job failed with exit code {return_code}")
+            _persist_job(job_id)
 
     except Exception as e:
         job['status'] = 'failed'
         job['error'] = str(e)
         job['logs'].append(f"Error: {str(e)}")
+        _persist_job(job_id)
 
 
 def start_workflow_job(project_id: str, workflow_type: str, author: str = "anonymous") -> str:
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
+        "job_id": job_id,
         "status": "running",
         "message": "Queued...",
         "percent": 0,
@@ -683,6 +754,18 @@ def start_workflow_job(project_id: str, workflow_type: str, author: str = "anony
         "type": workflow_type,
         "author": author
     }
+    workspace.create_job(
+        job_id,
+        "workflow",
+        status=jobs[job_id]["status"],
+        message=jobs[job_id]["message"],
+        percent=jobs[job_id]["percent"],
+        **{
+            key: value
+            for key, value in jobs[job_id].items()
+            if key not in {"job_id", "status", "message", "percent"}
+        },
+    )
     
     thread = threading.Thread(target=_run_workflow_job, args=(job_id, project_id, workflow_type))
     thread.daemon = True

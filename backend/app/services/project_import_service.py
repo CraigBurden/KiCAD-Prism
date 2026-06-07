@@ -40,6 +40,22 @@ class AnalysisResult:
 jobs: Dict[str, dict] = {}
 
 
+def _persist_job(job_id: str) -> None:
+    job = jobs.get(job_id)
+    if job:
+        workspace.update_job(
+            job_id,
+            status=job.get("status", "running"),
+            message=job.get("message", ""),
+            percent=job.get("percent", 0),
+            **{
+                key: value
+                for key, value in job.items()
+                if key not in {"job_id", "status", "message", "percent"}
+            },
+        )
+
+
 def has_ssh_key() -> bool:
     """Check if a default SSH key exists."""
     ssh_dir = Path.home() / ".ssh"
@@ -67,6 +83,7 @@ class CloneProgress(RemoteProgress):
             job['message'] = message or f"Cloning... {int(percent)}%"
             if message:
                 job['logs'].append(f"[GIT] {message}")
+            _persist_job(self.job_id)
 
 
 def is_excluded_directory(dir_name: str) -> bool:
@@ -140,10 +157,6 @@ def analyze_repository(repo_url: str) -> AnalysisResult:
     Analyze a repository to determine import type and discover projects.
     Performs a shallow clone to a temporary directory.
     """
-    # Error out if HTTPS is used while SSH key is present
-    if repo_url.startswith("https://") and has_ssh_key() and not os.environ.get('GITHUB_TOKEN'):
-        raise ValueError("HTTPS URL provided. Please use the SSH URL (git@github.com:...) when an SSH key is configured.")
-
     repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
     
     # Create temp directory for analysis
@@ -200,14 +213,7 @@ def _run_analyze_job(job_id: str, repo_url: str):
     
     try:
         job['logs'].append(f"Analyzing {repo_url}...")
-        
-        # Error out if HTTPS is used while SSH key is present
-        if repo_url.startswith("https://") and has_ssh_key() and not os.environ.get('GITHUB_TOKEN'):
-            error_msg = "HTTPS URL provided. Please use the SSH URL (git@github.com:...) for private repositories when an SSH key is configured."
-            job['logs'].append(f"Error: {error_msg}")
-            job['status'] = 'failed'
-            job['error'] = error_msg
-            return
+        _persist_job(job_id)
         
         repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
         temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
@@ -231,6 +237,7 @@ def _run_analyze_job(job_id: str, repo_url: str):
         )
         
         job['logs'].append("Discovering KiCAD projects from tree...")
+        _persist_job(job_id)
         projects = discover_projects_from_repo(repo)
         
         import_type = "type2"
@@ -263,11 +270,13 @@ def _run_analyze_job(job_id: str, repo_url: str):
         job['status'] = 'completed'
         job['percent'] = 100
         job['message'] = "Analysis complete."
+        _persist_job(job_id)
         
     except Exception as e:
         job['status'] = 'failed'
         job['error'] = str(e)
         job['logs'].append(f"Error: {str(e)}")
+        _persist_job(job_id)
 
 
 def cleanup_analysis_temp(analysis: AnalysisResult):
@@ -337,14 +346,6 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
     job = jobs[job_id]
     
     try:
-        # Error out if HTTPS is used while SSH key is present
-        if repo_url.startswith("https://") and has_ssh_key() and not os.environ.get('GITHUB_TOKEN'):
-            error_msg = "HTTPS URL provided. Please use the SSH URL (git@github.com:...) for private repositories when an SSH key is configured."
-            job['logs'].append(f"Error: {error_msg}")
-            job['status'] = 'failed'
-            job['error'] = error_msg
-            return
-
         # Extract repo name
         repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
         
@@ -363,16 +364,19 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
             job['status'] = 'failed'
             job['error'] = f"Repository '{repo_name}' is already imported"
             job['logs'].append(f"Error: Repository with URL {repo_url} already exists")
+            _persist_job(job_id)
             return
 
         if target_path.exists():
             # Stranded directory with no DB entry — remove and re-clone
             job['logs'].append(f"Removing stranded directory: {target_path}")
+            _persist_job(job_id)
             try:
                 shutil.rmtree(target_path)
             except Exception as e:
                 job['status'] = 'failed'
                 job['error'] = f"Failed to remove stranded directory: {e}"
+                _persist_job(job_id)
                 return
         
         # Ensure base directory exists
@@ -380,6 +384,7 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
         
         # Clone repository
         job['logs'].append(f"Cloning {repo_url}...")
+        _persist_job(job_id)
         env = os.environ.copy()
         env['GIT_TERMINAL_PROMPT'] = '0'
         # Trust On First Use (TOFU) for SSH
@@ -388,12 +393,12 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
         Repo.clone_from(
             repo_url,
             str(target_path),
-            filter='blob:none',
             progress=CloneProgress(job_id),
             env=env
         )
         
         job['logs'].append("Clone complete. Registering projects...")
+        _persist_job(job_id)
         
         # Register repository in workspace DB
         repo_id = workspace.register_repository(
@@ -422,6 +427,7 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
             if not selected_paths:
                 job['status'] = 'failed'
                 job['error'] = "No projects selected for Type-2 import"
+                _persist_job(job_id)
                 return
             
             for rel_path in selected_paths:
@@ -444,11 +450,13 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
         job['percent'] = 100
         job['message'] = f"Imported {len(imported_ids)} project(s)"
         job['logs'].append("Import completed successfully.")
+        _persist_job(job_id)
         
     except Exception as e:
         job['status'] = 'failed'
         job['error'] = str(e)
         job['logs'].append(f"Error: {str(e)}")
+        _persist_job(job_id)
         
         # Cleanup on failure
         if target_path.exists():
@@ -478,6 +486,18 @@ def start_import_job(repo_url: str, import_type: str,
         "repo_url": repo_url,
         "import_type": import_type
     }
+    workspace.create_job(
+        job_id,
+        "import",
+        status=jobs[job_id]["status"],
+        message=jobs[job_id]["message"],
+        percent=jobs[job_id]["percent"],
+        **{
+            key: value
+            for key, value in jobs[job_id].items()
+            if key not in {"job_id", "status", "message", "percent"}
+        },
+    )
     
     thread = threading.Thread(
         target=_run_import_job,
@@ -506,6 +526,18 @@ def start_analyze_job(repo_url: str) -> str:
         "type": "analyze",
         "repo_url": repo_url
     }
+    workspace.create_job(
+        job_id,
+        "analyze",
+        status=jobs[job_id]["status"],
+        message=jobs[job_id]["message"],
+        percent=jobs[job_id]["percent"],
+        **{
+            key: value
+            for key, value in jobs[job_id].items()
+            if key not in {"job_id", "status", "message", "percent"}
+        },
+    )
     
     thread = threading.Thread(
         target=_run_analyze_job,
@@ -525,7 +557,7 @@ def get_job_status(job_id: str) -> Optional[dict]:
         return job
     
     # Then check workflow jobs from project_service
-    return project_service.jobs.get(job_id)
+    return workspace.get_job(job_id) or project_service.jobs.get(job_id)
 
 
 def sync_project(project_id: str) -> dict:
