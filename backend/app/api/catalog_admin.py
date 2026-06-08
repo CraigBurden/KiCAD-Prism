@@ -1,14 +1,107 @@
 from __future__ import annotations
 
+import threading
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.core.security import AuthenticatedUser, require_admin
 from app.services.component_catalog_service import catalog_service
+from app.services.workspace_service import workspace
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"], dependencies=[Depends(require_admin)])
+
+
+def _update_validation_job(job_id: str, **fields: Any) -> None:
+    workspace.update_job(job_id, **fields)
+
+
+def _run_validation_job(job_id: str, component_ids: list[str] | None = None) -> None:
+    errors: list[dict[str, str]] = []
+    validated = 0
+    component_payload: dict[str, Any] | None = None
+    try:
+        if component_ids is None:
+            result = catalog_service.list_components(include_inactive=False, page=1, page_size=10000, lightweight=True)
+            ids = [str(component["id"]) for component in result["items"]]
+        else:
+            ids = component_ids
+
+        total = len(ids)
+        if total == 0:
+            _update_validation_job(
+                job_id,
+                status="completed",
+                message="No components to validate",
+                percent=100,
+                validated=0,
+                total=0,
+                errors=[],
+            )
+            return
+
+        _update_validation_job(job_id, message=f"Validating 0/{total} components", total=total)
+        for index, component_id in enumerate(ids, start=1):
+            _update_validation_job(
+                job_id,
+                message=f"Validating {index}/{total} components",
+                percent=((index - 1) / total) * 100,
+                current_component_id=component_id,
+                validated=validated,
+                errors=errors,
+            )
+            try:
+                result = catalog_service.validate_component_klc(component_id)
+                validated += 1
+                if total == 1:
+                    component_payload = result.get("component")
+            except ValueError as exc:
+                errors.append({"component_id": component_id, "error": str(exc)})
+
+        _update_validation_job(
+            job_id,
+            status="completed",
+            message=f"Validated {validated}/{total} components",
+            percent=100,
+            validated=validated,
+            total=total,
+            errors=errors,
+            component=component_payload,
+        )
+    except Exception as exc:
+        _update_validation_job(
+            job_id,
+            status="failed",
+            message="KLC validation failed",
+            percent=100,
+            error=str(exc),
+            validated=validated,
+            errors=errors,
+            component=component_payload,
+        )
+
+
+def _start_validation_job(component_ids: list[str] | None = None) -> str:
+    job_id = str(uuid.uuid4())
+    mode = "component" if component_ids and len(component_ids) == 1 else "catalog"
+    workspace.create_job(
+        job_id,
+        "catalog_validation",
+        status="running",
+        message="Queued KLC validation",
+        percent=0,
+        mode=mode,
+        component_ids=component_ids,
+        validated=0,
+        total=len(component_ids) if component_ids else None,
+        errors=[],
+    )
+    thread = threading.Thread(target=_run_validation_job, args=(job_id, component_ids), daemon=True)
+    thread.start()
+    return job_id
 
 
 class CreateManualComponentRequest(BaseModel):
@@ -62,6 +155,7 @@ async def list_catalog_components(
     source: str | None = Query(default=None),
     availability_state: str | None = Query(default=None),
     workflow_stage: str | None = Query(default=None),
+    validation_status: str | None = Query(default=None),
     category: str | None = Query(default=None),
     include_inactive: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
@@ -78,6 +172,7 @@ async def list_catalog_components(
             source=source,
             availability_state=availability_state,
             workflow_stage=workflow_stage,
+            validation_status=validation_status,
             category=category,
             include_inactive=include_inactive,
             page=page,
@@ -100,6 +195,12 @@ async def list_catalog_categories(user: AuthenticatedUser = Depends(require_admi
 async def workflow_summary(user: AuthenticatedUser = Depends(require_admin)):
     _ = user
     return catalog_service.workflow_summary()
+
+
+@router.get("/health")
+async def catalog_health(user: AuthenticatedUser = Depends(require_admin)):
+    _ = user
+    return catalog_service.catalog_health()
 
 
 @router.post("/components")
@@ -267,6 +368,57 @@ async def regenerate_component_previews(component_id: str, user: AuthenticatedUs
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return component
+
+
+@router.post("/components/{component_id}/validate")
+async def validate_component_klc(component_id: str, user: AuthenticatedUser = Depends(require_admin)):
+    _ = user
+    job_id = _start_validation_job([component_id])
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.get("/components/{component_id}/validation")
+async def get_component_validation(component_id: str, user: AuthenticatedUser = Depends(require_admin)):
+    _ = user
+    try:
+        return catalog_service.get_component_validation(component_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/validation/run")
+async def validate_catalog(user: AuthenticatedUser = Depends(require_admin)):
+    _ = user
+    job_id = _start_validation_job()
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.get("/validation/jobs/{job_id}")
+async def get_validation_job(job_id: str, user: AuthenticatedUser = Depends(require_admin)):
+    _ = user
+    job = workspace.get_job(job_id, "catalog_validation")
+    if not job:
+        raise HTTPException(status_code=404, detail="Validation job not found")
+    return job
+
+
+@router.get("/validation/runs/{run_id}")
+async def get_validation_run(run_id: str, user: AuthenticatedUser = Depends(require_admin)):
+    _ = user
+    run = catalog_service.get_validation_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Validation run not found")
+    return run
+
+
+@router.get("/validation/runs/{run_id}/{report_name}")
+async def get_validation_report(run_id: str, report_name: str, user: AuthenticatedUser = Depends(require_admin)):
+    _ = user
+    path = catalog_service.validation_report_path(run_id, report_name)
+    if not path:
+        raise HTTPException(status_code=404, detail="Validation report not found")
+    media_type = "application/json" if report_name.endswith(".json") else "application/xml" if report_name.endswith(".xml") else "text/plain"
+    return FileResponse(path, media_type=media_type, filename=path.name)
 
 
 @router.post("/exports/kicad-dbl")
