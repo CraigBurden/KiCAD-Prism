@@ -58,6 +58,9 @@ class SymbolLibrary:
     target_library: str
     path: Path
     text: str
+    version: str
+    generator: str
+    block_items: list[tuple[str, str]]
     blocks: dict[str, str]
     aliases: dict[str, str]
 
@@ -222,6 +225,7 @@ def _build_symbol_index(service: Any, symbols_root: Path) -> dict[str, SymbolLib
         target_library = _sanitize_name(raw_library, "Prism_Symbols")
         text = _read_text(symbol_file)
         blocks_list = service._extract_top_level_symbol_blocks(text)  # type: ignore[attr-defined]
+        version, generator = service._symbol_header(text)  # type: ignore[attr-defined]
         blocks = {name: block for name, block in blocks_list}
         aliases: dict[str, str | None] = {}
         for symbol_name in blocks:
@@ -232,10 +236,28 @@ def _build_symbol_index(service: Any, symbols_root: Path) -> dict[str, SymbolLib
             target_library=target_library,
             path=symbol_file,
             text=text,
+            version=version,
+            generator=generator,
+            block_items=blocks_list,
             blocks=blocks,
             aliases={key: value for key, value in aliases.items() if value},
         )
     return libraries
+
+
+def _symbol_payload_from_index(library: SymbolLibrary, selected_symbol: str) -> bytes:
+    base_block = library.blocks.get(selected_symbol)
+    if not base_block:
+        raise ValueError(f"Selected symbol was not found in {library.path.name}: {selected_symbol}")
+    escaped_name = re.escape(selected_symbol)
+    unit_pattern = re.compile(rf"^{escaped_name}_\d+_\d+$")
+    unit_blocks = [block for name, block in library.block_items if unit_pattern.match(name)]
+    all_blocks_text = "\n  ".join([base_block] + unit_blocks)
+    return (
+        f"(kicad_symbol_lib (version {library.version}) (generator {library.generator})\n"
+        f"  {all_blocks_text}\n"
+        f")\n"
+    ).encode("utf-8")
 
 
 def _build_footprint_index(footprints_root: Path) -> dict[str, dict[str, FootprintAsset | None]]:
@@ -501,6 +523,8 @@ def main() -> int:
     part_occurrences: dict[str, int] = {}
     seen_symbol_asset_ids: set[str] = set()
     seen_footprint_asset_ids: set[str] = set()
+    symbol_asset_cache: dict[tuple[str, str], dict[str, Any]] = {}
+    footprint_asset_cache: dict[tuple[str, str], dict[str, Any]] = {}
     fatal_error = False
 
     source_conn = sqlite3.connect(database_path)
@@ -592,23 +616,27 @@ def main() -> int:
                     linked_symbol = False
                     linked_footprint = False
                     if symbol_library and symbol_name:
-                        payload = service._single_symbol_payload(symbol_library.text, symbol_name)  # type: ignore[attr-defined]
-                        destination = service._symbol_destination(symbol_library.target_library, symbol_name)  # type: ignore[attr-defined]
-                        canonical = _write_or_copy(destination, None, payload, overwrite=args.overwrite_assets)
-                        asset = _register_asset(
-                            service,
-                            target_conn,
-                            asset_type="symbol",
-                            canonical_path=canonical,
-                            target_library=symbol_library.target_library,
-                            target_name=symbol_name,
-                            source_group=symbol_library.path.name,
-                            runtime_store_root=runtime_store_root,
-                        )
-                        if args.generate_previews:
-                            preview_asset = dict(asset)
-                            preview_asset["canonical_path"] = str(canonical)
-                            service._ensure_asset_preview(target_conn, preview_asset)  # type: ignore[attr-defined]
+                        symbol_key = (symbol_library.target_library, symbol_name)
+                        asset = symbol_asset_cache.get(symbol_key)
+                        if not asset:
+                            payload = _symbol_payload_from_index(symbol_library, symbol_name)
+                            destination = service._symbol_destination(symbol_library.target_library, symbol_name)  # type: ignore[attr-defined]
+                            canonical = _write_or_copy(destination, None, payload, overwrite=args.overwrite_assets)
+                            asset = _register_asset(
+                                service,
+                                target_conn,
+                                asset_type="symbol",
+                                canonical_path=canonical,
+                                target_library=symbol_library.target_library,
+                                target_name=symbol_name,
+                                source_group=symbol_library.path.name,
+                                runtime_store_root=runtime_store_root,
+                            )
+                            if args.generate_previews:
+                                preview_asset = dict(asset)
+                                preview_asset["canonical_path"] = str(canonical)
+                                service._ensure_asset_preview(target_conn, preview_asset)  # type: ignore[attr-defined]
+                            symbol_asset_cache[symbol_key] = asset
                         service._link_asset_to_revision(target_conn, revision_id, asset, required=True)  # type: ignore[attr-defined]
                         if str(asset["id"]) not in seen_symbol_asset_ids:
                             seen_symbol_asset_ids.add(str(asset["id"]))
@@ -617,22 +645,26 @@ def main() -> int:
                         linked_symbol = True
 
                     if footprint_asset:
-                        destination = service._footprint_destination(footprint_asset.target_library, footprint_asset.target_name)  # type: ignore[attr-defined]
-                        canonical = _write_or_copy(destination, footprint_asset.path, None, overwrite=args.overwrite_assets)
-                        asset = _register_asset(
-                            service,
-                            target_conn,
-                            asset_type="footprint",
-                            canonical_path=canonical,
-                            target_library=footprint_asset.target_library,
-                            target_name=footprint_asset.target_name,
-                            source_group=footprint_asset.path.parent.name,
-                            runtime_store_root=runtime_store_root,
-                        )
-                        if args.generate_previews:
-                            preview_asset = dict(asset)
-                            preview_asset["canonical_path"] = str(canonical)
-                            service._ensure_asset_preview(target_conn, preview_asset)  # type: ignore[attr-defined]
+                        footprint_key = (footprint_asset.target_library, footprint_asset.target_name)
+                        asset = footprint_asset_cache.get(footprint_key)
+                        if not asset:
+                            destination = service._footprint_destination(footprint_asset.target_library, footprint_asset.target_name)  # type: ignore[attr-defined]
+                            canonical = _write_or_copy(destination, footprint_asset.path, None, overwrite=args.overwrite_assets)
+                            asset = _register_asset(
+                                service,
+                                target_conn,
+                                asset_type="footprint",
+                                canonical_path=canonical,
+                                target_library=footprint_asset.target_library,
+                                target_name=footprint_asset.target_name,
+                                source_group=footprint_asset.path.parent.name,
+                                runtime_store_root=runtime_store_root,
+                            )
+                            if args.generate_previews:
+                                preview_asset = dict(asset)
+                                preview_asset["canonical_path"] = str(canonical)
+                                service._ensure_asset_preview(target_conn, preview_asset)  # type: ignore[attr-defined]
+                            footprint_asset_cache[footprint_key] = asset
                         service._link_asset_to_revision(target_conn, revision_id, asset, required=True)  # type: ignore[attr-defined]
                         if str(asset["id"]) not in seen_footprint_asset_ids:
                             seen_footprint_asset_ids.add(str(asset["id"]))
