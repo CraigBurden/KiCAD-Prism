@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from app.core.roles import Role, normalize_role
+from app.core.roles import Role, normalize_role, role_matches_allowed_role
 from app.services import project_service
 
 
@@ -135,7 +135,7 @@ def _is_folder_visible_to_role(folder: Folder, user_role: Optional[Role]) -> boo
         return True
     if not folder.allowed_roles:
         return True
-    return user_role in folder.allowed_roles
+    return role_matches_allowed_role(user_role, folder.allowed_roles)
 
 
 def _load_folders() -> Dict[str, Folder]:

@@ -8,11 +8,46 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.core.security import AuthenticatedUser, require_admin
+from app.core.security import AuthenticatedUser, require_catalog_reader, require_catalog_writer
 from app.services.component_catalog_service import catalog_service
 from app.services.workspace_service import workspace
 
-router = APIRouter(prefix="/api/catalog", tags=["catalog"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/api/catalog", tags=["catalog"])
+
+WORKFLOW_TRANSITIONS: dict[str, set[str]] = {
+    "open": {"in_progress", "archived"},
+    "in_progress": {"qa_review", "open", "archived"},
+    "qa_review": {"done", "in_progress", "archived"},
+    "done": {"released", "qa_review", "archived"},
+    "released": {"archived", "open"},
+    "archived": {"open"},
+}
+
+LEGACY_WORKFLOW_STAGE_MAP = {
+    "draft": "open",
+    "in_review": "qa_review",
+    "qa_approved": "done",
+    "deprecated": "archived",
+}
+
+
+def _normalize_workflow_stage(value: str) -> str:
+    normalized = value.strip().lower()
+    return LEGACY_WORKFLOW_STAGE_MAP.get(normalized, normalized)
+
+
+def _can_transition_workflow(user: AuthenticatedUser, current_stage: str, next_stage: str) -> bool:
+    if current_stage == next_stage:
+        return user.role in {"admin", "component_designer"} or (user.role == "component_qa" and current_stage == "qa_review")
+    if next_stage not in WORKFLOW_TRANSITIONS.get(current_stage, set()):
+        return False
+    if user.role == "admin":
+        return True
+    if user.role == "component_designer":
+        return not (current_stage == "qa_review" and next_stage == "done")
+    if user.role == "component_qa":
+        return current_stage == "qa_review" and next_stage in {"done", "in_progress", "archived"}
+    return False
 
 
 def _update_validation_job(job_id: str, **fields: Any) -> None:
@@ -104,6 +139,63 @@ def _start_validation_job(component_ids: list[str] | None = None) -> str:
     return job_id
 
 
+def _update_preview_job(job_id: str, **fields: Any) -> None:
+    workspace.update_job(job_id, **fields)
+
+
+def _run_preview_job(job_id: str) -> None:
+    try:
+        def update_progress(counts: dict[str, Any]) -> None:
+            total_assets = int(counts.get("total_assets") or 0)
+            scanned_assets = int(counts.get("scanned_assets") or 0)
+            percent = 100 if total_assets == 0 else (scanned_assets / total_assets) * 100
+            _update_preview_job(
+                job_id,
+                message=f"Generating previews {scanned_assets}/{total_assets}",
+                percent=percent,
+                **counts,
+            )
+
+        result = catalog_service.generate_missing_component_previews(progress_callback=update_progress)
+        _update_preview_job(
+            job_id,
+            status="completed",
+            message=(
+                f"Generated {result.get('generated', 0)} missing previews; "
+                f"{result.get('failed', 0)} failed"
+            ),
+            percent=100,
+            **result,
+        )
+    except Exception as exc:
+        _update_preview_job(
+            job_id,
+            status="failed",
+            message="Preview generation failed",
+            percent=100,
+            error=str(exc),
+        )
+
+
+def _start_preview_job() -> str:
+    job_id = str(uuid.uuid4())
+    workspace.create_job(
+        job_id,
+        "catalog_preview_generation",
+        status="running",
+        message="Queued preview generation",
+        percent=0,
+        scanned_assets=0,
+        generated=0,
+        skipped_ready=0,
+        failed=0,
+        errors=[],
+    )
+    thread = threading.Thread(target=_run_preview_job, args=(job_id,), daemon=True)
+    thread.start()
+    return job_id
+
+
 class CreateManualComponentRequest(BaseModel):
     value: str
     description: str
@@ -163,7 +255,7 @@ async def list_catalog_components(
     sort_by: str = Query(default=""),
     sort_dir: str = Query(default="asc"),
     lightweight: bool = Query(default=False),
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
 ):
     _ = user
     try:
@@ -186,19 +278,19 @@ async def list_catalog_components(
 
 
 @router.get("/categories")
-async def list_catalog_categories(user: AuthenticatedUser = Depends(require_admin)):
+async def list_catalog_categories(user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     return {"categories": catalog_service.list_categories()}
 
 
 @router.get("/workflow/summary")
-async def workflow_summary(user: AuthenticatedUser = Depends(require_admin)):
+async def workflow_summary(user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     return catalog_service.workflow_summary()
 
 
 @router.get("/health")
-async def catalog_health(user: AuthenticatedUser = Depends(require_admin)):
+async def catalog_health(user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     return catalog_service.catalog_health()
 
@@ -206,7 +298,7 @@ async def catalog_health(user: AuthenticatedUser = Depends(require_admin)):
 @router.post("/components")
 async def create_catalog_component(
     payload: CreateManualComponentRequest,
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     try:
@@ -216,7 +308,7 @@ async def create_catalog_component(
 
 
 @router.get("/components/{component_id}")
-async def get_catalog_component(component_id: str, user: AuthenticatedUser = Depends(require_admin)):
+async def get_catalog_component(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     component = catalog_service.get_component(component_id)
     if not component:
@@ -228,7 +320,7 @@ async def get_catalog_component(component_id: str, user: AuthenticatedUser = Dep
 async def update_catalog_component(
     component_id: str,
     payload: UpdateComponentMetadataRequest,
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     updates: dict[str, Any] = {
@@ -251,7 +343,7 @@ async def import_symbol_library(
     file: UploadFile = File(...),
     target_library: str = Form(default=""),
     selected_symbol: str = Form(default=""),
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     payload = await file.read()
@@ -276,7 +368,7 @@ async def import_footprint(
     file: UploadFile = File(...),
     target_library: str = Form(default=""),
     selected_footprint: str = Form(default=""),
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     payload = await file.read()
@@ -301,7 +393,7 @@ async def import_auxiliary_asset(
     asset_type: str,
     file: UploadFile = File(...),
     target_library: str = Form(default=""),
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     payload = await file.read()
@@ -324,7 +416,7 @@ async def import_auxiliary_asset(
 async def detach_component_asset(
     component_id: str,
     asset_type: str,
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     try:
@@ -334,7 +426,7 @@ async def detach_component_asset(
 
 
 @router.delete("/components/{component_id}")
-async def delete_catalog_component(component_id: str, user: AuthenticatedUser = Depends(require_admin)):
+async def delete_catalog_component(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
     if not catalog_service.delete_component(component_id):
         raise HTTPException(status_code=404, detail="Component not found")
@@ -345,11 +437,19 @@ async def delete_catalog_component(component_id: str, user: AuthenticatedUser = 
 async def transition_release_status(
     component_id: str,
     payload: ReleaseStatusRequest,
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
 ):
-    _ = user
     try:
         stage = payload.workflow_stage or payload.release_status
+        next_stage = _normalize_workflow_stage(stage)
+        component_before = catalog_service.get_component(component_id)
+        if not component_before:
+            raise HTTPException(status_code=404, detail="Component not found")
+        current_stage = _normalize_workflow_stage(
+            str(component_before.get("workflow_stage") or component_before.get("release_status") or "")
+        )
+        if not _can_transition_workflow(user, current_stage, next_stage):
+            raise HTTPException(status_code=403, detail="Catalog workflow transition not allowed for this role")
         component = catalog_service.set_release_status(component_id, stage)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -359,7 +459,7 @@ async def transition_release_status(
 
 
 @router.post("/components/{component_id}/previews/regenerate")
-async def regenerate_component_previews(component_id: str, user: AuthenticatedUser = Depends(require_admin)):
+async def regenerate_component_previews(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
     try:
         component = catalog_service.regenerate_component_previews(component_id)
@@ -371,14 +471,14 @@ async def regenerate_component_previews(component_id: str, user: AuthenticatedUs
 
 
 @router.post("/components/{component_id}/validate")
-async def validate_component_klc(component_id: str, user: AuthenticatedUser = Depends(require_admin)):
+async def validate_component_klc(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
     job_id = _start_validation_job([component_id])
     return {"job_id": job_id, "status": "queued"}
 
 
 @router.get("/components/{component_id}/validation")
-async def get_component_validation(component_id: str, user: AuthenticatedUser = Depends(require_admin)):
+async def get_component_validation(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     try:
         return catalog_service.get_component_validation(component_id)
@@ -387,14 +487,14 @@ async def get_component_validation(component_id: str, user: AuthenticatedUser = 
 
 
 @router.post("/validation/run")
-async def validate_catalog(user: AuthenticatedUser = Depends(require_admin)):
+async def validate_catalog(user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
     job_id = _start_validation_job()
     return {"job_id": job_id, "status": "queued"}
 
 
 @router.get("/validation/jobs/{job_id}")
-async def get_validation_job(job_id: str, user: AuthenticatedUser = Depends(require_admin)):
+async def get_validation_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     job = workspace.get_job(job_id, "catalog_validation")
     if not job:
@@ -403,7 +503,7 @@ async def get_validation_job(job_id: str, user: AuthenticatedUser = Depends(requ
 
 
 @router.get("/validation/runs/{run_id}")
-async def get_validation_run(run_id: str, user: AuthenticatedUser = Depends(require_admin)):
+async def get_validation_run(run_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     run = catalog_service.get_validation_run(run_id)
     if not run:
@@ -412,7 +512,7 @@ async def get_validation_run(run_id: str, user: AuthenticatedUser = Depends(requ
 
 
 @router.get("/validation/runs/{run_id}/{report_name}")
-async def get_validation_report(run_id: str, report_name: str, user: AuthenticatedUser = Depends(require_admin)):
+async def get_validation_report(run_id: str, report_name: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     path = catalog_service.validation_report_path(run_id, report_name)
     if not path:
@@ -421,8 +521,24 @@ async def get_validation_report(run_id: str, report_name: str, user: Authenticat
     return FileResponse(path, media_type=media_type, filename=path.name)
 
 
+@router.post("/previews/generate-missing")
+async def generate_missing_previews(user: AuthenticatedUser = Depends(require_catalog_writer)):
+    _ = user
+    job_id = _start_preview_job()
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.get("/previews/jobs/{job_id}")
+async def get_preview_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    _ = user
+    job = workspace.get_job(job_id, "catalog_preview_generation")
+    if not job:
+        raise HTTPException(status_code=404, detail="Preview generation job not found")
+    return job
+
+
 @router.post("/exports/kicad-dbl")
-async def export_kicad_dbl_bundle(user: AuthenticatedUser = Depends(require_admin)):
+async def export_kicad_dbl_bundle(user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
     try:
         return catalog_service.export_kicad_dbl_bundle()
@@ -435,7 +551,7 @@ async def export_kicad_dbl_bundle(user: AuthenticatedUser = Depends(require_admi
 @router.post("/components/import-csv")
 async def import_metadata_csv(
     file: UploadFile = File(...),
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     content = await file.read()
@@ -449,7 +565,7 @@ async def import_metadata_csv(
 @router.post("/stock/sync-csv")
 async def import_stock_csv(
     file: UploadFile = File(...),
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     content = await file.read()
@@ -465,7 +581,7 @@ async def import_stock_csv(
 @router.get("/assets/browse")
 async def browse_library_assets(
     asset_type: str = Query(...),
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     try:
@@ -486,7 +602,7 @@ async def link_library_asset(
     component_id: str,
     asset_type: str,
     payload: LinkAssetRequest,
-    user: AuthenticatedUser = Depends(require_admin),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     try:

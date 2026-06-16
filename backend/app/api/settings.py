@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel
 import logging
 
-from app.core.roles import Role, normalize_role
+from app.core.roles import ROLE_LABELS, Role, normalize_role
 from app.core.security import AuthenticatedUser, require_admin
 from app.services import access_service
 
@@ -135,7 +135,8 @@ async def upsert_access_user(
 ):
     normalized_role = normalize_role(request.role)
     if normalized_role is None:
-        raise HTTPException(status_code=400, detail="Invalid role. Must be admin, designer, or viewer.")
+        valid_roles = ", ".join(f"{role} ({label})" for role, label in ROLE_LABELS.items())
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {valid_roles}.")
 
     try:
         assignment = access_service.upsert_user_role(email=email, role=normalized_role, updated_by=user.email)

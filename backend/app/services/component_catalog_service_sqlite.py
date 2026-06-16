@@ -22,7 +22,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 from xml.etree import ElementTree
 
 from app.core.config import settings
@@ -2180,6 +2180,102 @@ class ComponentCatalogService:
                 file_path=result if status == PREVIEW_STATUS_READY else "",
                 generation_error="" if status == PREVIEW_STATUS_READY else result,
             )
+
+    def _has_ready_preview(self, conn: sqlite3.Connection, asset_id: str, kind: str) -> bool:
+        row = conn.execute(
+            """
+            SELECT file_path
+            FROM asset_previews
+            WHERE asset_id = ? AND kind = ? AND status = ?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (asset_id, kind, PREVIEW_STATUS_READY),
+        ).fetchone()
+        if not row:
+            return False
+        file_path = str(row["file_path"] or "")
+        return bool(file_path and Path(file_path).is_file())
+
+    def generate_missing_component_previews(
+        self,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        self.initialize()
+        counts: dict[str, Any] = {
+            "scanned_assets": 0,
+            "generated": 0,
+            "skipped_ready": 0,
+            "failed": 0,
+            "errors": [],
+        }
+        with self._connect() as conn:
+            rows = [
+                dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT c.id AS component_id, a.*, ra.required
+                    FROM components c
+                    JOIN component_revisions cr ON cr.id = c.current_revision_id
+                    JOIN revision_assets ra ON ra.revision_id = cr.id
+                    JOIN assets a ON a.id = ra.asset_id
+                    WHERE c.is_active = 1 AND a.asset_type IN ('symbol', 'footprint')
+                    ORDER BY c.updated_at DESC, a.asset_type, a.target_library, a.target_name
+                    """
+                ).fetchall()
+            ]
+            counts["total_assets"] = len(rows)
+            if progress_callback:
+                progress_callback(counts.copy())
+
+            for row in rows:
+                asset = dict(row)
+                component_id = str(asset.pop("component_id"))
+                asset_id = str(asset["id"])
+                kind = PREVIEW_KIND_SYMBOL if asset["asset_type"] == "symbol" else PREVIEW_KIND_FOOTPRINT
+                counts["scanned_assets"] += 1
+                try:
+                    if self._has_ready_preview(conn, asset_id, kind):
+                        counts["skipped_ready"] += 1
+                    else:
+                        self._ensure_asset_preview(conn, asset)
+                        preview = conn.execute(
+                            """
+                            SELECT status, generation_error
+                            FROM asset_previews
+                            WHERE asset_id = ? AND kind = ?
+                            ORDER BY updated_at DESC
+                            LIMIT 1
+                            """,
+                            (asset_id, kind),
+                        ).fetchone()
+                        if preview and str(preview["status"]) == PREVIEW_STATUS_READY:
+                            counts["generated"] += 1
+                        else:
+                            counts["failed"] += 1
+                            counts["errors"].append(
+                                {
+                                    "component_id": component_id,
+                                    "asset_id": asset_id,
+                                    "asset_type": str(asset["asset_type"]),
+                                    "error": str(preview["generation_error"] if preview else "Preview generation failed"),
+                                }
+                            )
+                    conn.commit()
+                except Exception as exc:
+                    conn.rollback()
+                    counts["failed"] += 1
+                    counts["errors"].append(
+                        {
+                            "component_id": component_id,
+                            "asset_id": asset_id,
+                            "asset_type": str(asset["asset_type"]),
+                            "error": str(exc),
+                        }
+                    )
+                if progress_callback:
+                    progress_callback(counts.copy())
+        return counts
 
     def _link_asset_to_revision(self, conn: sqlite3.Connection, revision_id: str, asset: dict[str, Any], *, required: bool) -> None:
         now = _utc_now_iso()

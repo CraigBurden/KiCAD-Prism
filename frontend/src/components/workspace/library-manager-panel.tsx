@@ -68,6 +68,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchApi, fetchJson } from "@/lib/api";
+import { allowedWorkflowTransitions, canWriteCatalog, workflowStage } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
@@ -131,6 +132,20 @@ type ValidationJob = {
   total?: number;
   errors?: Array<{ component_id: string; error: string }>;
   component?: CatalogComponent | null;
+  error?: string;
+};
+
+type PreviewJob = {
+  job_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  message?: string;
+  percent?: number;
+  scanned_assets?: number;
+  total_assets?: number;
+  generated?: number;
+  skipped_ready?: number;
+  failed?: number;
+  errors?: Array<{ component_id: string; asset_id: string; asset_type: string; error: string }>;
   error?: string;
 };
 
@@ -255,18 +270,6 @@ const WORKFLOW_META: Record<
 };
 
 const WORKFLOW_ORDER: WorkflowStage[] = ["open", "in_progress", "qa_review", "done", "released", "archived"];
-
-const WORKFLOW_TRANSITIONS: Record<WorkflowStage, WorkflowStage[]> = {
-  open: ["in_progress", "archived"],
-  in_progress: ["qa_review", "open", "archived"],
-  qa_review: ["done", "in_progress", "archived"],
-  done: ["released", "qa_review", "archived"],
-  released: ["archived"],
-  archived: ["open"],
-};
-
-const workflowStage = (component: CatalogComponent): WorkflowStage =>
-  component.workflow_stage ?? component.release_status;
 
 function AvailabilityBadge({ state }: { state: AvailabilityState }) {
   const meta = STATE_META[state] ?? STATE_META.metadata_only;
@@ -654,6 +657,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
   const [releaseSubmitting, setReleaseSubmitting] = useState(false);
   const [validationSubmitting, setValidationSubmitting] = useState(false);
   const [validationBulkSubmitting, setValidationBulkSubmitting] = useState(false);
+  const [previewBulkSubmitting, setPreviewBulkSubmitting] = useState(false);
   const [importSelection, setImportSelection] = useState<ImportSelection | null>(null);
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const [attachTargetLibrary, setAttachTargetLibrary] = useState("");
@@ -1124,6 +1128,41 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
     }
   };
 
+  const handleGenerateMissingPreviews = async () => {
+    setPreviewBulkSubmitting(true);
+    try {
+      const queued = await fetchJson<{ job_id: string }>("/api/catalog/previews/generate-missing", {
+        method: "POST",
+      });
+      toast.message("Preview generation started");
+      let job: PreviewJob | null = null;
+      for (let attempt = 0; attempt < 3600; attempt += 1) {
+        await sleep(2000);
+        job = await fetchJson<PreviewJob>(`/api/catalog/previews/jobs/${queued.job_id}`);
+        if (job.status === "completed" || job.status === "failed") break;
+      }
+      if (!job || job.status === "running" || job.status === "queued") {
+        throw new Error("Preview generation is still running. Refresh the catalog to check status.");
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || job.message || "Preview generation failed");
+      }
+      const generated = job.generated ?? 0;
+      const failedCount = job.failed ?? 0;
+      const skipped = job.skipped_ready ?? 0;
+      if (failedCount > 0) {
+        toast.warning(`Generated ${generated} previews; ${failedCount} failed; ${skipped} already ready`);
+      } else {
+        toast.success(`Generated ${generated} previews; ${skipped} already ready`);
+      }
+      setRefreshKey((key) => key + 1);
+    } catch (err) {
+      toast.error(getErrorMsg(err));
+    } finally {
+      setPreviewBulkSubmitting(false);
+    }
+  };
+
   const openValidationFindings = async (asset: CatalogAssetValidation) => {
     if (!asset.latest_run) return;
     const assetLabel = `${ASSET_LABELS[asset.asset_type] ?? asset.asset_type} · ${asset.target_name || asset.asset_name}`;
@@ -1198,7 +1237,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
     }
   };
 
-  const isAdmin = user?.role === "admin";
+  const canMutateCatalog = canWriteCatalog(user?.role);
   const activeFilterCount =
     (viewMode === "workflow" && filterState ? 1 : 0) +
     (viewMode === "table" && filterWorkflow ? 1 : 0) +
@@ -1257,7 +1296,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
           })}
         </ScrollArea>
 
-        {isAdmin && (
+        {canMutateCatalog && (
           <div className="p-2 border-t border-border/50">
             <Button
               size="sm"
@@ -1395,12 +1434,18 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
                 <CompactStat label="KLC Failed" value={health.validation.failed ?? 0} className="text-red-400" />
                 <CompactStat label="KLC Warnings" value={health.validation.warning ?? 0} className="text-amber-400" />
               </div>
-              {isAdmin && (
+              {canMutateCatalog && (
                 <div className="flex items-center gap-2">
                   {validationBulkSubmitting && (
                     <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                       <Loader2 className="h-3 w-3 animate-spin" />
                       Validating catalog…
+                    </span>
+                  )}
+                  {previewBulkSubmitting && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Generating previews…
                     </span>
                   )}
                   <DropdownMenu>
@@ -1410,13 +1455,20 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
                         Actions
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuContent align="end" className="w-56">
                       <DropdownMenuItem
                         disabled={validationBulkSubmitting || !health.enabled}
                         onSelect={() => void handleValidateCatalog()}
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" />
                         Validate All
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={previewBulkSubmitting}
+                        onSelect={() => void handleGenerateMissingPreviews()}
+                      >
+                        <PackageCheck className="h-3.5 w-3.5" />
+                        Generate Missing Previews
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -1559,7 +1611,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
                           ) : (
                             stageItems.map((comp) => {
                               const isSelected = selected?.id === comp.id;
-                              const nextStages = WORKFLOW_TRANSITIONS[workflowStage(comp)];
+                              const nextStages = allowedWorkflowTransitions(user?.role, comp);
                               return (
                                 <div
                                   key={comp.id}
@@ -1584,7 +1636,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
                                       </p>
                                     )}
                                   </button>
-                                  {isAdmin && nextStages.length > 0 && (
+                                  {nextStages.length > 0 && (
                                     <div className="mt-2 flex flex-wrap gap-1">
                                       {nextStages.map((next) => (
                                         <Button
@@ -1626,7 +1678,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
                 <p className="text-[11px] text-muted-foreground truncate">{selected.manufacturer} · {selected.mpn}</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                {isAdmin && (
+                {canMutateCatalog && (
                   <>
                     <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Edit" onClick={openEdit}>
                       <Edit2 className="h-3.5 w-3.5" />
@@ -1688,7 +1740,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
               <DetailSection
                 title="Previews"
                 actions={
-                  isAdmin ? (
+                  canMutateCatalog ? (
                     <Button
                       size="sm"
                       variant="outline"
@@ -1754,7 +1806,7 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
               </DetailSection>
 
               <DetailSection title="Assets">
-                {isAdmin ? (
+                {canMutateCatalog ? (
                   <div className="space-y-1.5">
                     {(["symbol", "footprint", "3dmodel", "spice"] as const).map((type) => {
                       const asset = selected.assets.find((a) => a.asset_type === type);
@@ -1770,19 +1822,19 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
                     })}
                   </div>
                 ) : (
-                  <p className="text-[11px] text-muted-foreground">Asset management requires admin access.</p>
+                  <p className="text-[11px] text-muted-foreground">Asset management requires catalog write access.</p>
                 )}
               </DetailSection>
 
               <DetailSection title="Workflow">
-                {isAdmin ? (
+                {allowedWorkflowTransitions(user?.role, selected).length > 0 ? (
                   <div className="space-y-3">
                     <p className="text-[11px] text-muted-foreground">
                       Current revision is in{" "}
                       <span className="font-medium text-foreground">{WORKFLOW_META[workflowStage(selected)].label}</span>.
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      {WORKFLOW_TRANSITIONS[workflowStage(selected)].map((next) => (
+                      {allowedWorkflowTransitions(user?.role, selected).map((next) => (
                         <Button
                           key={next}
                           size="sm"
@@ -1796,14 +1848,14 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-muted-foreground">Workflow changes require admin access.</p>
+                  <p className="text-[11px] text-muted-foreground">No workflow transitions are available for your role from this state.</p>
                 )}
               </DetailSection>
 
               <DetailSection
                 title="KLC Validation"
                 actions={
-                  isAdmin ? (
+                  canMutateCatalog ? (
                     <Button
                       size="sm"
                       variant="outline"
