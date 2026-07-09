@@ -59,7 +59,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [section, setSection] = useState<WorkspaceSection>("projects");
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [activeApp, setActiveApp] = useState<"index" | "library-manager">("index");
 
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -181,11 +180,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     }
   }, [projects, selectedProjectId]);
 
-  useEffect(() => {
-    if (section !== "apps") {
-      setActiveApp("index");
-    }
-  }, [section]);
 
   const handleCreateFolder = async (name: string) => {
     if (!canManageProjects) {
@@ -339,11 +333,14 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
           <main className="min-h-0 flex-1 overflow-hidden">
             {loading ? (
               <WorkspaceLoadingState />
-            ) : section === "apps" ? (
-              activeApp === "library-manager" ? (
-                canOpenLibrary ? <LibraryManagerPanel user={user} /> : <WorkspaceAppsPlaceholder canOpenLibraryManager={canOpenLibrary} onOpenLibraryManager={() => setActiveApp("library-manager")} />
+            ) : section === "library-manager" ? (
+              canOpenLibrary ? (
+                <LibraryManagerPanel user={user} />
               ) : (
-                <WorkspaceAppsPlaceholder canOpenLibraryManager={canOpenLibrary} onOpenLibraryManager={() => setActiveApp("library-manager")} />
+                <WorkspaceAppsPlaceholder
+                  canOpenLibraryManager={canOpenLibrary}
+                  onOpenLibraryManager={() => {}}
+                />
               )
             ) : (
               <div className="flex h-full min-h-0 flex-col p-6">
