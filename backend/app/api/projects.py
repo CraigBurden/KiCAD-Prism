@@ -635,6 +635,22 @@ async def get_project_thumbnail(project_id: str, user: AuthenticatedUser = Depen
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     return FileResponse(path, headers={"Cache-Control": "public, max-age=300"})
 
+@router.post("/{project_id}/thumbnail/regenerate", dependencies=[Depends(require_designer)])
+async def regenerate_project_thumbnail(project_id: str, user: AuthenticatedUser = Depends(require_designer)):
+    project = get_project_for_role_or_404(project_id, user.role)
+    
+    logs = []
+    success = project_import_service.generate_thumbnail_for_project(project.path, logs)
+    
+    if not success:
+        error_msg = logs[-1] if logs else "Failed to render PCB"
+        raise HTTPException(status_code=500, detail=f"Failed to generate thumbnail: {error_msg}")
+        
+    cached = project_import_service.resolve_cached_paths(project.path)
+    workspace.update_project(project_id, **cached)
+    
+    return {"status": "success", "message": "Thumbnail regenerated successfully"}
+
 @router.get("/{project_id}", response_model=project_service.Project)
 async def get_project_detail(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """Get detailed project information."""
