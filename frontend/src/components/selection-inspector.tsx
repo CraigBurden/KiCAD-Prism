@@ -1,0 +1,234 @@
+import {
+    ChevronRight,
+    CircuitBoard,
+    Cpu,
+    Database,
+    LibraryBig,
+    Network,
+    Waypoints,
+    X,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { contextLabel, selectionLabel } from "@/lib/prism-selection";
+import type {
+    PrismSelection,
+    PrismSemanticIndex,
+    SemanticComponent,
+    SemanticNet,
+    SemanticTerminal,
+} from "@/types/prism-selection";
+
+interface SelectionInspectorProps {
+    open: boolean;
+    selection: PrismSelection | null;
+    semanticIndex: PrismSemanticIndex | null;
+    onOpenChange: (open: boolean) => void;
+    onClear: () => void;
+}
+
+const atIndex = <T,>(items: T[], index: number | undefined): T | undefined =>
+    index === undefined ? undefined : items[index];
+
+function resolveComponent(selection: PrismSelection, index: PrismSemanticIndex | null): SemanticComponent | undefined {
+    if (!index || selection.kind === "net") return undefined;
+    if (selection.componentUid) {
+        const byUid = index.components.find((component) => component.componentUid === selection.componentUid);
+        if (byUid) return byUid;
+    }
+    return atIndex(index.components, index.indexes.componentByReference?.[selection.reference]);
+}
+
+function resolveNet(selection: PrismSelection, index: PrismSemanticIndex | null): SemanticNet | undefined {
+    if (!index || selection.kind === "component") return undefined;
+    if (selection.netUid) {
+        const byUid = index.nets.find((net) => net.netUid === selection.netUid);
+        if (byUid) return byUid;
+    }
+    return selection.netName ? atIndex(index.nets, index.indexes.netByName?.[selection.netName]) : undefined;
+}
+
+function resolveTerminal(selection: PrismSelection, index: PrismSemanticIndex | null): SemanticTerminal | undefined {
+    if (!index || selection.kind !== "terminal") return undefined;
+    if (selection.terminalUid) {
+        const byUid = index.terminals.find((terminal) => terminal.terminalUid === selection.terminalUid);
+        if (byUid) return byUid;
+    }
+    return atIndex(index.terminals, index.indexes.terminalByReferencePin?.[`${selection.reference}:${selection.pin}`]);
+}
+
+function PropertyRow({ label, value }: { label: string; value: string | number | undefined }) {
+    if (value === undefined || value === "") return null;
+    return (
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3 border-b py-2.5 last:border-b-0">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="break-words text-right font-medium">{value}</dd>
+        </div>
+    );
+}
+
+const resolvedItemType = (selection: PrismSelection): string => {
+    const raw = selection.anchor?.itemType?.trim();
+    if (raw && raw.toLocaleLowerCase() !== "unknown") return raw;
+    if (selection.kind === "component") {
+        if (selection.sourceContext === "SCH") return "Schematic symbol";
+        if (selection.sourceContext === "PCB") return "PCB footprint";
+        return "Component";
+    }
+    if (selection.kind === "terminal") {
+        return selection.sourceContext === "SCH" ? "Schematic pin" : "PCB pad";
+    }
+    if (selection.sourceContext === "SCH") return "Schematic net item";
+    if (selection.sourceContext === "PCB") return "PCB copper net";
+    return "Net geometry";
+};
+
+function IntegrationRow({ icon: Icon, title, description }: {
+    icon: typeof LibraryBig;
+    title: string;
+    description: string;
+}) {
+    return (
+        <div className="flex items-start gap-3 border-b py-3 last:border-b-0">
+            <div className="mt-0.5 border bg-muted/40 p-2">
+                <Icon className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{title}</span>
+                    <Badge variant="outline">Planned</Badge>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>
+            </div>
+        </div>
+    );
+}
+
+export function SelectionInspector({
+    open,
+    selection,
+    semanticIndex,
+    onOpenChange,
+    onClear,
+}: SelectionInspectorProps) {
+    if (!open || !selection) return null;
+    const component = resolveComponent(selection, semanticIndex);
+    const net = resolveNet(selection, semanticIndex);
+    const terminal = resolveTerminal(selection, semanticIndex);
+    const SelectionIcon = selection.kind === "component" ? Cpu : selection.kind === "terminal" ? Waypoints : Network;
+    const title = selectionLabel(selection);
+
+    return (
+        <aside className="relative z-30 flex h-full w-96 shrink-0 flex-col border-l bg-background shadow-lg" aria-label="Selection inspector">
+            <header className="shrink-0 border-b bg-card/70 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                    <nav aria-label="Selection breadcrumb" className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                        <span>Selection</span>
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate capitalize text-foreground">{selection.kind}</span>
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate font-mono text-foreground">{title}</span>
+                    </nav>
+                    <Button variant="ghost" size="icon-sm" aria-label="Close selection inspector" onClick={() => onOpenChange(false)}>
+                        <X className="h-4 w-4" />
+                    </Button>
+                </div>
+                <div className="mt-4 flex items-start gap-3">
+                    <div className="border bg-primary/10 p-2.5 text-primary">
+                        <SelectionIcon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant="secondary">{contextLabel(selection.sourceContext)}</Badge>
+                            <Badge variant="outline">{resolvedItemType(selection)}</Badge>
+                        </div>
+                        <h2 className="mt-2 truncate font-mono text-lg font-semibold" title={title}>{title}</h2>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            {selection.kind === "component" && "Component identity, sourcing, and library context"}
+                            {selection.kind === "terminal" && "Terminal identity and resolved connectivity"}
+                            {selection.kind === "net" && "Electrical connectivity across schematic, PCB, and 3D"}
+                        </p>
+                    </div>
+                </div>
+            </header>
+
+            <ScrollArea className="min-h-0 flex-1">
+                <div className="space-y-5 p-4 text-xs">
+                    <section>
+                        <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            <CircuitBoard className="h-3.5 w-3.5" /> Identity
+                        </h3>
+                        <dl>
+                            {selection.kind !== "net" && <PropertyRow label="Reference" value={selection.reference} />}
+                            {selection.kind === "terminal" && <PropertyRow label="Pin / pad" value={selection.pin} />}
+                            {selection.kind === "net" && <PropertyRow label="Net" value={selection.netName} />}
+                            <PropertyRow label="Item type" value={resolvedItemType(selection)} />
+                            <PropertyRow label="Component UID" value={selection.kind !== "net" ? selection.componentUid : undefined} />
+                            <PropertyRow label="Terminal UID" value={selection.kind === "terminal" ? selection.terminalUid : undefined} />
+                            <PropertyRow label="Net UID" value={selection.kind !== "component" ? selection.netUid : undefined} />
+                            <PropertyRow label="Source UUID" value={selection.uuid || selection.anchor?.uuid} />
+                            <PropertyRow label="Page" value={selection.anchor?.page} />
+                            <PropertyRow label="Layer" value={selection.anchor?.layer} />
+                        </dl>
+                    </section>
+
+                    {component && (
+                        <>
+                            <Separator />
+                            <section>
+                                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Component data</h3>
+                                <dl>
+                                    <PropertyRow label="Value" value={component.value} />
+                                    <PropertyRow label="Footprint" value={component.footprint} />
+                                    {Object.entries(component.fields || {})
+                                        .filter(([key, value]) => !["Reference", "Value", "Footprint"].includes(key) && !key.startsWith("_") && !key.startsWith("kicad_") && value !== "")
+                                        .map(([key, value]) => <PropertyRow key={key} label={key} value={String(value)} />)}
+                                </dl>
+                            </section>
+                            <Separator />
+                            <section>
+                                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Library & sourcing</h3>
+                                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                                    These stable component identities reserve the integration surface for project libraries and managed part data.
+                                </p>
+                                <div className="mt-2 border bg-card/40 px-3">
+                                    <IntegrationRow icon={LibraryBig} title="Library Manager" description="Open the selected symbol, footprint, and project overrides." />
+                                    <IntegrationRow icon={Database} title="Component database" description="Lifecycle, alternates, approved vendors, and organization metadata." />
+                                </div>
+                            </section>
+                        </>
+                    )}
+
+                    {(terminal || net) && (
+                        <>
+                            <Separator />
+                            <section>
+                                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Connectivity</h3>
+                                <dl>
+                                    <PropertyRow label="Net" value={terminal?.netName || net?.name} />
+                                    <PropertyRow label="Net class" value={net?.netClass} />
+                                    <PropertyRow label="Net code" value={net?.netCode} />
+                                    <PropertyRow label="Schematic pin UUID" value={terminal?.schematicPinUuid} />
+                                    <PropertyRow label="PCB pad UUID" value={terminal?.pcbPadUuid} />
+                                </dl>
+                            </section>
+                        </>
+                    )}
+
+                    {!semanticIndex && (
+                        <p className="border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
+                            Showing low-level viewer identity. Component, terminal, and connectivity metadata will fill in when the lightweight semantic index is ready.
+                        </p>
+                    )}
+                </div>
+            </ScrollArea>
+
+            <footer className="flex shrink-0 items-center justify-between gap-2 border-t bg-card/70 p-3">
+                <span className="text-xs text-muted-foreground">Esc clears selection</span>
+                <Button size="sm" variant="outline" onClick={onClear}>Clear</Button>
+            </footer>
+        </aside>
+    );
+}

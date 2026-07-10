@@ -1,4 +1,5 @@
-export type CrossProbeContext = "SCH" | "PCB";
+export type CrossProbeContext = "SCH" | "PCB" | "3D" | "BOM";
+export type EcadCrossProbeContext = Extract<CrossProbeContext, "SCH" | "PCB">;
 export type CrossProbeMode = "hover" | "select" | "focus";
 export type CrossProbeKind = "designator" | "net" | "crossIndex" | "uuid";
 export type CrossProbeFailureReason =
@@ -20,7 +21,14 @@ export interface CrossProbeRequest {
     page?: string;
     designator?: string;
     net?: string;
+    netCode?: number;
+    pin?: string;
     crossIndex?: string;
+    uuid?: string;
+    uuids?: string[];
+    componentUid?: string;
+    netUid?: string;
+    terminalUid?: string;
 }
 
 export interface CrossProbeTargetHint {
@@ -44,16 +52,42 @@ export interface KiCanvasSelectDetail {
     item: unknown;
     previous: unknown;
     sourceContext?: CrossProbeContext;
+    semantic?: EcadSemanticSelectionDetail;
+}
+
+export interface EcadSemanticSelectionDetail {
+    sourceContext: "SCH" | "PCB";
+    itemType: string;
+    uuid?: string;
+    crossIndex?: string;
+    reference?: string;
+    pin?: string;
+    net?: string;
+    netCode?: number;
+    sheet?: string;
+    page?: string;
+    layer?: string;
+    rawItem?: unknown;
 }
 
 export interface ECadViewerElement extends HTMLElement {
     setCommentMode(enabled: boolean): void;
     zoomToLocation(x: number, y: number): void;
     switchPage(pageId: string): void;
+    navigateSchematicPage?(direction: -1 | 1): boolean;
+    navigateSchematicParent?(): boolean;
+    getActiveSchematicPage?(): {
+        projectPath: string;
+        sheetPath: string;
+        filename: string;
+        name?: string;
+        page?: string;
+    } | null;
     getScreenLocation(x: number, y: number): { x: number; y: number } | null;
     setCrossProbeEnabled(enabled: boolean): void;
     isCrossProbeEnabled(): boolean;
     requestCrossProbe(request: CrossProbeRequest): CrossProbeResult;
+    clearCrossProbe?(): void;
 }
 
 declare global {
@@ -80,7 +114,8 @@ declare global {
                 React.HTMLAttributes<ECadViewerElement> & {
                     url?: string;
                     "show-header"?: boolean | "true" | "false";
-                    "header-sections"?: string;
+                "header-sections"?: string;
+                "show-selection-panel"?: string;
                 },
                 ECadViewerElement
             >;

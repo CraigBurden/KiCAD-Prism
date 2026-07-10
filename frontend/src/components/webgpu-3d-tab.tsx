@@ -1,0 +1,365 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Box, CheckCircle2, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+    Card,
+    CardAction,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
+import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import type { User } from "@/types/auth";
+import type { PrismSelection } from "@/types/prism-selection";
+import type {
+    PrismRendererSelection,
+    PrismSemanticViewerElement,
+    PrismSemanticViewerSelectionDetail,
+} from "@/types/prism-semantic-viewer";
+
+interface WebGpuGeneratorTag {
+    name: string;
+    version: string;
+    build: string;
+}
+
+interface WebGpu3dStatus {
+    schema: "prism.webgpu_3d_status_a0";
+    status: "ready" | "missing" | "invalid";
+    available: boolean;
+    sourceRevisionKey: string;
+    source_fingerprint: string;
+    build_fingerprint: string;
+    bundle_url?: string;
+    generated_at?: string;
+    commit?: string;
+    message?: string;
+    error?: string;
+    generator: WebGpuGeneratorTag;
+}
+
+interface WorkflowJob {
+    job_id: string;
+    status: "queued" | "running" | "completed" | "failed" | string;
+    message?: string;
+    percent?: number;
+    logs?: string[];
+    error?: string;
+}
+
+interface GenerateResponse {
+    job_id: string;
+}
+
+interface WebGpu3dTabProps {
+    projectId: string;
+    commit?: string | null;
+    user: User | null;
+    active: boolean;
+    selection: PrismSelection | null;
+    onSelection: (selection: PrismSelection) => void;
+    onClearSelection: () => void;
+}
+
+const selectionForRenderer = (selection: PrismSelection | null): PrismRendererSelection | null => {
+    if (!selection) return null;
+    if (selection.kind === "component") {
+        return { reference: selection.reference };
+    }
+    if (selection.kind === "terminal") {
+        return { reference: selection.reference, pin: selection.pin };
+    }
+    return {
+        netName: selection.netName,
+        netUid: selection.netUid,
+        netCode: selection.netCode,
+    };
+};
+
+export function WebGpu3dTab({
+    projectId,
+    commit,
+    user,
+    active,
+    selection,
+    onSelection,
+    onClearSelection,
+}: WebGpu3dTabProps) {
+    const viewerRef = useRef<PrismSemanticViewerElement | null>(null);
+    const selectionRef = useRef(selection);
+    selectionRef.current = selection;
+    const [viewerElement, setViewerElement] = useState<PrismSemanticViewerElement | null>(null);
+    const [status, setStatus] = useState<WebGpu3dStatus | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [viewerReady, setViewerReady] = useState(false);
+    const [job, setJob] = useState<WorkflowJob | null>(null);
+    const [jobId, setJobId] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [viewerRevision, setViewerRevision] = useState(0);
+    const canGenerate = user?.role === "admin" || user?.role === "designer";
+
+    const commitQuery = useMemo(
+        () => commit ? `?commit=${encodeURIComponent(commit)}` : "",
+        [commit],
+    );
+    const statusUrl = `/api/projects/${projectId}/webgpu-3d/status${commitQuery}`;
+
+    const refreshStatus = useCallback(async () => {
+        setLoading(true);
+        try {
+            const next = await fetchJson<WebGpu3dStatus>(
+                statusUrl,
+                undefined,
+                "Failed to load WebGPU 3D asset status",
+            );
+            setStatus(next);
+            setError(next.error ?? null);
+        } catch (nextError) {
+            setStatus(null);
+            setError(nextError instanceof Error ? nextError.message : "Failed to load WebGPU 3D status");
+        } finally {
+            setLoading(false);
+        }
+    }, [statusUrl]);
+
+    useEffect(() => {
+        setViewerReady(false);
+        setJob(null);
+        setJobId(null);
+        setError(null);
+        void refreshStatus();
+    }, [refreshStatus]);
+
+    useEffect(() => {
+        if (!jobId) return;
+        let cancelled = false;
+        let timer: number | null = null;
+
+        const poll = async () => {
+            try {
+                const next = await fetchJson<WorkflowJob>(
+                    `/api/projects/jobs/${jobId}`,
+                    undefined,
+                    "Failed to read WebGPU generation job",
+                );
+                if (cancelled) return;
+                setJob(next);
+                if (next.status === "completed") {
+                    setJobId(null);
+                    setViewerRevision((revision) => revision + 1);
+                    await refreshStatus();
+                    return;
+                }
+                if (next.status === "failed") {
+                    setJobId(null);
+                    setError(next.error || next.message || "WebGPU 3D generation failed");
+                    return;
+                }
+            } catch (nextError) {
+                if (!cancelled) {
+                    setJobId(null);
+                    setError(nextError instanceof Error ? nextError.message : "Failed to poll WebGPU generation");
+                }
+                return;
+            }
+            timer = window.setTimeout(poll, 1000);
+        };
+
+        timer = window.setTimeout(poll, 500);
+        return () => {
+            cancelled = true;
+            if (timer !== null) window.clearTimeout(timer);
+        };
+    }, [jobId, refreshStatus]);
+
+    const generate = useCallback(async (force: boolean) => {
+        if (!canGenerate || jobId) return;
+        setError(null);
+        setJob({
+            job_id: "pending",
+            status: "queued",
+            message: force ? "Queuing a forced rebuild" : "Queuing WebGPU 3D generation",
+            percent: 0,
+            logs: [],
+        });
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/webgpu-3d/generate`, {
+                method: "POST",
+                body: JSON.stringify({ commit: commit || undefined, force }),
+            });
+            if (!response.ok) {
+                throw new Error(await readApiError(response, "Failed to start WebGPU 3D generation"));
+            }
+            const payload = await response.json() as GenerateResponse;
+            setJobId(payload.job_id);
+        } catch (nextError) {
+            setJob(null);
+            setError(nextError instanceof Error ? nextError.message : "Failed to start WebGPU generation");
+        }
+    }, [canGenerate, commit, jobId, projectId]);
+
+    useEffect(() => {
+        if (!viewerReady) return;
+        viewerRef.current?.setSelection(selectionForRenderer(selection));
+    }, [selection, viewerReady]);
+
+    useEffect(() => {
+        if (!active || !viewerReady) return;
+        const frame = window.requestAnimationFrame(() => {
+            const viewer = viewerRef.current;
+            viewer?.resize();
+            viewer?.setSelection(selectionForRenderer(selectionRef.current));
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [active, viewerReady]);
+
+    const attachViewer = useCallback((node: PrismSemanticViewerElement | null) => {
+        viewerRef.current = node;
+        setViewerElement(node);
+    }, []);
+
+    useEffect(() => {
+        const node = viewerElement;
+        if (!node) return;
+
+        const handleReady = () => {
+            setViewerReady(true);
+            node.setSelection(selectionForRenderer(selectionRef.current));
+        };
+        const handleSelection = (event: Event) => {
+            const detail = (event as CustomEvent<PrismSemanticViewerSelectionDetail>).detail;
+            if (!detail?.selection) {
+                onClearSelection();
+                return;
+            }
+            onSelection({
+                ...detail.selection,
+                sourceContext: "3D",
+                sourceRevisionKey: status?.sourceRevisionKey,
+            });
+        };
+        const handleError = (event: Event) => {
+            const custom = event as CustomEvent<{ error?: Error }>;
+            setError(custom.detail?.error?.message || "The WebGPU renderer failed to load");
+        };
+        node.addEventListener("prism-semantic-viewer:ready", handleReady);
+        node.addEventListener("prism-semantic-viewer:selectionchange", handleSelection);
+        node.addEventListener("prism-semantic-viewer:error", handleError);
+        return () => {
+            node.removeEventListener("prism-semantic-viewer:ready", handleReady);
+            node.removeEventListener("prism-semantic-viewer:selectionchange", handleSelection);
+            node.removeEventListener("prism-semantic-viewer:error", handleError);
+        };
+    }, [onClearSelection, onSelection, status?.sourceRevisionKey, viewerElement]);
+
+    if (loading && !status) {
+        return (
+            <div className="flex h-full items-center justify-center bg-muted/20">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Checking revision-tagged 3D assets…
+                </div>
+            </div>
+        );
+    }
+
+    if (!status?.available || !status.bundle_url) {
+        return (
+            <div className="flex h-full items-center justify-center bg-muted/20 p-6">
+                <Card className="w-full max-w-2xl" size="sm">
+                    <CardHeader className="border-b">
+                        <CardTitle className="flex items-center gap-2">
+                            <Box className="h-4 w-4 text-primary" />
+                            WebGPU 3D assets are not ready
+                        </CardTitle>
+                        <CardDescription>
+                            Schematic and PCB viewing remain available. Generate this revision’s isolated 3D bundle when needed.
+                        </CardDescription>
+                        <CardAction>
+                            <Badge variant="outline">{status?.status || "unavailable"}</Badge>
+                        </CardAction>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        {status?.generator && (
+                            <div className="grid gap-1 rounded-none border bg-muted/30 p-3 text-xs sm:grid-cols-2">
+                                <span className="text-muted-foreground">Source revision</span>
+                                <span className="truncate font-mono">{status.sourceRevisionKey}</span>
+                                <span className="text-muted-foreground">Generator</span>
+                                <span>{status.generator.name} {status.generator.version}</span>
+                                <span className="text-muted-foreground">Generator build</span>
+                                <span className="truncate font-mono">{status.generator.build}</span>
+                            </div>
+                        )}
+                        {error && (
+                            <p className="border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                                {error}
+                            </p>
+                        )}
+                        {job && (
+                            <div className="space-y-2 border bg-muted/30 p-3">
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="font-medium">{job.message || job.status}</span>
+                                    <span className="text-muted-foreground">{job.percent ?? 0}%</span>
+                                </div>
+                                {job.logs && job.logs.length > 0 && (
+                                    <div className="max-h-48 overflow-auto font-mono text-xs text-muted-foreground">
+                                        {job.logs.slice(-80).map((line, index) => (
+                                            <div key={`${index}-${line}`} className="whitespace-pre-wrap break-words">{line}</div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                            <Button onClick={() => void generate(false)} disabled={!canGenerate || Boolean(jobId)}>
+                                {jobId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                                Generate 3D assets
+                            </Button>
+                            <Button variant="outline" onClick={() => void refreshStatus()} disabled={loading}>
+                                <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
+                                Refresh status
+                            </Button>
+                        </div>
+                        {!canGenerate && (
+                            <p className="text-xs text-muted-foreground">A designer or administrator can generate these assets.</p>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
+    return (
+        <div className="relative h-full min-h-0 overflow-hidden bg-muted/20">
+            <prism-semantic-viewer
+                key={`${status.sourceRevisionKey}-${status.generator.build}-${viewerRevision}`}
+                ref={attachViewer}
+                bundle-url={status.bundle_url}
+                project-name={projectId}
+                active={active ? "true" : undefined}
+                className="block h-full min-h-0 w-full"
+            />
+            <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
+                <Badge variant="secondary" className="pointer-events-auto gap-1 shadow-sm">
+                    <CheckCircle2 className="h-3 w-3" />
+                    {status.generator.version}
+                </Badge>
+                {canGenerate && (
+                    <Button
+                        className="pointer-events-auto shadow-sm"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void generate(true)}
+                        disabled={Boolean(jobId)}
+                    >
+                        {jobId ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-2 h-3.5 w-3.5" />}
+                        Regenerate
+                    </Button>
+                )}
+            </div>
+        </div>
+    );
+}

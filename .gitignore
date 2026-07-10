@@ -27,6 +27,12 @@ frontend/yarn-debug.log*
 frontend/yarn-error.log*
 dist/
 
+# Local Compose development overrides
+docker-compose.override.yml
+
+# Python packaging metadata
+*.egg-info/
+
 # Project Data
 # (The project database is currently outside the repo, but just in case)
 project-database/
@@ -35,4 +41,3 @@ data/
 # Deploy Data
 deploy/
 *.crt
-

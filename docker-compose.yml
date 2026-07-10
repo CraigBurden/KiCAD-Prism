@@ -69,10 +69,10 @@ services:
       - GIT_SCAN_KNOWN_HOSTS_ON_STARTUP=${GIT_SCAN_KNOWN_HOSTS_ON_STARTUP:-false}
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
     command: >
-      sh -c 'python3 -m uvicorn app.main:app           
-      --host 0.0.0.0 
-      --port 8000 
-      --workers $${UVICORN_WORKERS:-1} 
+      sh -c '/app/venv/bin/python -m uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers $${UVICORN_WORKERS:-1}
       --proxy-headers --forwarded-allow-ips="*"'
   frontend:
     build: ./frontend

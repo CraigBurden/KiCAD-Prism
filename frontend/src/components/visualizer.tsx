@@ -1,23 +1,24 @@
-import { lazy, Suspense, useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
-import { Cpu, Box, FileText, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check } from "lucide-react";
+import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
+import { Cpu, Box, FileText, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, PackageCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CommentOverlay } from "./comment-overlay";
 import { CommentForm } from "./comment-form";
 import { CommentPanel } from "./comment-panel";
+import { EngineeringBomTable } from "./engineering-bom-table";
+import { SelectionInspector } from "./selection-inspector";
+import { WebGpu3dTab } from "./webgpu-3d-tab";
 import { fetchApi } from "@/lib/api";
+import { crossProbeRequestForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
+import { usePrismCrossProbe } from "@/hooks/use-prism-cross-probe";
 import type { User } from "@/types/auth";
 import type { Comment, CommentContext } from "@/types/comments";
 import type {
-    CrossProbeContext,
     ECadViewerElement,
     KiCanvasSelectDetail,
 } from "@/types/ecad-viewer";
-
-const Model3DViewer = lazy(() =>
-    import("./model-3d-viewer").then((module) => ({ default: module.Model3DViewer }))
-);
+import type { PrismSelection, PrismSemanticIndex } from "@/types/prism-selection";
 
 interface VisualizerProps {
     projectId: string;
@@ -25,7 +26,7 @@ interface VisualizerProps {
     commit?: string | null;
 }
 
-type VisualizerTab = "sch" | "pcb" | "3d" | "ibom";
+type VisualizerTab = "sch" | "pcb" | "3d" | "bom" | "assembly";
 
 interface CommentsSourceUrls {
     project_id: string;
@@ -39,9 +40,6 @@ interface CommentsSourceUrls {
 
 const isAbortError = (error: unknown): boolean =>
     error instanceof DOMException && error.name === "AbortError";
-
-const CROSS_PROBE_MAX_RETRIES = 12;
-const CROSS_PROBE_RETRY_DELAY_MS = 120;
 
 type ViewerBlobSource = {
     filename: string;
@@ -118,6 +116,7 @@ function EcadViewerHost({ viewerKey, sources, setViewerRef }: EcadViewerHostProp
             style={{ width: "100%", height: "100%" }}
             show-header="true"
             header-sections="beginning,end"
+            show-selection-panel="false"
             key={viewerKey}
         />
     );
@@ -141,14 +140,18 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     }, []);
 
     const [activeTab, setActiveTab] = useState<VisualizerTab>("sch");
+    const [threeDActivated, setThreeDActivated] = useState(false);
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
     const [subsheets, setSubsheets] = useState<{ filename: string, content: string }[]>([]);
     const [pcbContent, setPcbContent] = useState<string | null>(null);
-    const [modelUrl, setModelUrl] = useState<string | null>(null);
     const [ibomUrl, setIbomUrl] = useState<string | null>(null);
     const [schematicContentLoaded, setSchematicContentLoaded] = useState(false);
     const [pcbContentLoaded, setPcbContentLoaded] = useState(false);
-    const [loading, setLoading] = useState(true);
+    const [semanticIndex, setSemanticIndex] = useState<PrismSemanticIndex | null>(null);
+    const [semanticIndexLoading, setSemanticIndexLoading] = useState(true);
+    const [semanticIndexError, setSemanticIndexError] = useState<string | null>(null);
+    const [semanticIndexRetryToken, setSemanticIndexRetryToken] = useState(0);
+    const [selectionInspectorOpen, setSelectionInspectorOpen] = useState(false);
 
     const [comments, setComments] = useState<Comment[]>([]);
     const [activePage, setActivePage] = useState<string>("root.kicad_sch");
@@ -165,18 +168,12 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [isUrlsPopoverOpen, setIsUrlsPopoverOpen] = useState(false);
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const canModifyComments = user?.role === "admin" || user?.role === "designer";
-    const lastCrossProbeRef = useRef<Record<CrossProbeContext, string | null>>({
-        SCH: null,
-        PCB: null,
-    });
-    const crossProbeRetryTimerRef = useRef<Record<CrossProbeContext, number | null>>({
-        SCH: null,
-        PCB: null,
-    });
-    const crossProbeRunIdRef = useRef<Record<CrossProbeContext, number>>({
-        SCH: 0,
-        PCB: 0,
-    });
+    const {
+        selection: globalSelection,
+        select: selectGlobal,
+        clear: clearGlobalSelection,
+        registerClient,
+    } = usePrismCrossProbe(semanticIndex);
     const activeCommentContext: CommentContext | null = activeTab === "sch" ? "SCH" : activeTab === "pcb" ? "PCB" : null;
 
     const applyCommentModeToViewer = useCallback((viewer: ECadViewerElement | null, enabled: boolean) => {
@@ -193,142 +190,6 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         }
     }, []);
 
-    const normalizeDesignator = useCallback((value: unknown): string | null => {
-        if (typeof value !== "string") return null;
-        const trimmed = value.trim();
-        if (!trimmed) return null;
-        return /^[A-Za-z]+\d+/.test(trimmed) ? trimmed : null;
-    }, []);
-
-    const extractDesignatorFromSelection = useCallback((item: unknown): string | null => {
-        const findDesignator = (value: unknown, depth = 0): string | null => {
-            if (!value || typeof value !== "object" || depth > 3) return null;
-            const entry = value as Record<string, unknown>;
-
-            const direct = [
-                entry.reference,
-                entry.Reference,
-                entry.designator,
-                entry.elementRef,
-                entry.ref,
-                entry.Ref,
-            ];
-            for (const candidate of direct) {
-                const designator = normalizeDesignator(candidate);
-                if (designator) return designator;
-            }
-
-            if (typeof entry.get_property_text === "function") {
-                try {
-                    const fromProperty = normalizeDesignator(
-                        (entry.get_property_text as (name: string) => unknown)("Reference")
-                    );
-                    if (fromProperty) return fromProperty;
-                } catch {
-                    // noop
-                }
-            }
-
-            const properties = entry.properties;
-            if (properties instanceof Map) {
-                const refProp = properties.get("Reference");
-                if (refProp && typeof refProp === "object") {
-                    const propEntry = refProp as Record<string, unknown>;
-                    const fromMap = normalizeDesignator(
-                        propEntry.shown_text ?? propEntry.text ?? propEntry.value
-                    );
-                    if (fromMap) return fromMap;
-                }
-            }
-
-            const defaultInstance = entry.default_instance;
-            if (defaultInstance && typeof defaultInstance === "object") {
-                const fromDefault = normalizeDesignator(
-                    (defaultInstance as Record<string, unknown>).reference
-                );
-                if (fromDefault) return fromDefault;
-            }
-
-            return (
-                findDesignator(entry.parent, depth + 1) ||
-                findDesignator(entry.item, depth + 1) ||
-                findDesignator(entry.context, depth + 1)
-            );
-        };
-
-        return findDesignator(item);
-    }, [normalizeDesignator]);
-
-    const getCrossProbeTargetContext = useCallback(
-        (sourceContext: CrossProbeContext): CrossProbeContext =>
-            sourceContext === "SCH" ? "PCB" : "SCH",
-        [],
-    );
-
-    const clearCrossProbeRetry = useCallback((targetContext: CrossProbeContext) => {
-        const timerId = crossProbeRetryTimerRef.current[targetContext];
-        if (timerId !== null) {
-            window.clearTimeout(timerId);
-            crossProbeRetryTimerRef.current[targetContext] = null;
-        }
-    }, []);
-
-    const runCrossProbe = useCallback(
-        function runCrossProbe(
-            targetViewer: ECadViewerElement | null,
-            sourceContext: "SCH" | "PCB",
-            designator: string,
-            attempts = 0,
-            runId?: number,
-        ) {
-            const targetContext = getCrossProbeTargetContext(sourceContext);
-
-            if (attempts === 0) {
-                clearCrossProbeRetry(targetContext);
-                crossProbeRunIdRef.current[targetContext] += 1;
-                runId = crossProbeRunIdRef.current[targetContext];
-            }
-
-            if (!targetViewer) {
-                clearCrossProbeRetry(targetContext);
-                return;
-            }
-
-            if (!runId || crossProbeRunIdRef.current[targetContext] !== runId) {
-                return;
-            }
-
-            const result = targetViewer.requestCrossProbe({
-                sourceContext,
-                targetContext,
-                mode: "select",
-                kind: "designator",
-                value: designator,
-                designator,
-            });
-
-            if (
-                !result.resolved &&
-                result.reason === "target-not-available" &&
-                attempts < CROSS_PROBE_MAX_RETRIES
-            ) {
-                crossProbeRetryTimerRef.current[targetContext] = window.setTimeout(() => {
-                    runCrossProbe(
-                        targetViewer,
-                        sourceContext,
-                        designator,
-                        attempts + 1,
-                        runId,
-                    );
-                }, CROSS_PROBE_RETRY_DELAY_MS);
-                return;
-            }
-
-            clearCrossProbeRetry(targetContext);
-        },
-        [clearCrossProbeRetry, getCrossProbeTargetContext],
-    );
-
     const copyToClipboard = async (label: string, value: string) => {
         try {
             await navigator.clipboard.writeText(value);
@@ -344,63 +205,20 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         return `${url}${url.includes("?") ? "&" : "?"}commit=${encodeURIComponent(commit)}`;
     }, [commit]);
 
-    useEffect(() => {
-        setModelUrl(null);
-        setIbomUrl(null);
-        setSchematicContent(null);
-        setPcbContent(null);
-        setSubsheets([]);
-        setSchematicContentLoaded(false);
-        setPcbContentLoaded(false);
-    }, [projectId, commit]);
-
     // Initial Data Fetch
     useEffect(() => {
         const controller = new AbortController();
         const signal = controller.signal;
 
         const fetchData = async () => {
-            setLoading(true);
             const baseUrl = `/api/projects/${projectId}`;
 
             try {
-                // Parallel fetch for main assets (excluding schematic and PCB content for now)
-                const [modelRes, ibomRes, commentsRes, filesRes] = await Promise.allSettled([
-                    fetch(appendCommit(`${baseUrl}/3d-model`), { signal }),
+                const [ibomRes, commentsRes] = await Promise.allSettled([
                     fetch(appendCommit(`${baseUrl}/ibom`), { signal }),
                     fetch(`/api/projects/${projectId}/comments`, { signal }),
-                    fetch(appendCommit(`${baseUrl}/files?type=design`), { signal })
                 ]);
 
-                // Handle 3D
-                let glbUrl = null;
-                if (filesRes.status === "fulfilled" && filesRes.value.ok) {
-                    try {
-                        const files = await filesRes.value.json();
-                        if (signal.aborted) return;
-                        const glbFile = files.find((f: any) =>
-                            f.path.toLowerCase().startsWith("3dmodel/") &&
-                            f.name.toLowerCase().endsWith(".glb")
-                        );
-                        if (glbFile) {
-                            glbUrl = appendCommit(`${baseUrl}/download?path=${encodeURIComponent(glbFile.path)}&type=design&inline=true`);
-                        }
-                    } catch (e) {
-                        if (!isAbortError(e)) {
-                            console.warn("Error parsing design files", e);
-                        }
-                    }
-                }
-
-                if (glbUrl) {
-                    setModelUrl(glbUrl);
-                } else if (modelRes.status === "fulfilled" && modelRes.value.ok) {
-                    setModelUrl(appendCommit(`${baseUrl}/3d-model`));
-                } else {
-                    setModelUrl(null);
-                }
-
-                // Handle iBoM
                 if (ibomRes.status === "fulfilled" && ibomRes.value.ok) {
                     setIbomUrl(appendCommit(`${baseUrl}/ibom`));
                 } else {
@@ -437,15 +255,43 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     console.error("Error loading visualizer data", err);
                 }
             } finally {
-                if (!signal.aborted) {
-                    setLoading(false);
-                }
+                // SCH/PCB source loading is intentionally independent of these helpers.
             }
         };
 
         void fetchData();
         return () => controller.abort();
     }, [projectId, appendCommit]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        setSemanticIndex(null);
+        setSemanticIndexLoading(true);
+        setSemanticIndexError(null);
+        fetch(appendCommit(`/api/projects/${projectId}/semantic-index`), {
+            signal: controller.signal,
+            credentials: "include",
+        })
+            .then(async (response) => {
+                if (!response.ok) {
+                    const payload = await response.json().catch(() => null) as { detail?: string } | null;
+                    throw new Error(payload?.detail || "Semantic index is unavailable");
+                }
+                return response.json() as Promise<PrismSemanticIndex>;
+            })
+            .then((payload) => {
+                if (!controller.signal.aborted) setSemanticIndex(payload);
+            })
+            .catch((error: unknown) => {
+                if (!isAbortError(error) && !controller.signal.aborted) {
+                    setSemanticIndexError(error instanceof Error ? error.message : "Semantic index is unavailable");
+                }
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setSemanticIndexLoading(false);
+            });
+        return () => controller.abort();
+    }, [appendCommit, projectId, semanticIndexRetryToken]);
 
     // Lazy load schematic content when schematic tab is first accessed
     useEffect(() => {
@@ -562,8 +408,12 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         setSchematicContent(null);
         setSubsheets([]);
         setPcbContent(null);
-        setModelUrl(null);
         setIbomUrl(null);
+        setSemanticIndex(null);
+        setSemanticIndexLoading(true);
+        setSemanticIndexError(null);
+        setSelectionInspectorOpen(false);
+        setThreeDActivated(false);
         setComments([]);
         setCommentsSourceUrls(null);
         setActivePage("root.kicad_sch");
@@ -578,18 +428,12 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         setShowPushDialog(false);
         setIsUrlsPopoverOpen(false);
         setCopiedField(null);
-        lastCrossProbeRef.current = { SCH: null, PCB: null };
-        clearCrossProbeRetry("SCH");
-        clearCrossProbeRetry("PCB");
-        crossProbeRunIdRef.current = { SCH: 0, PCB: 0 };
-    }, [projectId, clearCrossProbeRetry]);
+        clearGlobalSelection();
+    }, [clearGlobalSelection, commit, projectId]);
 
     useEffect(() => {
-        return () => {
-            clearCrossProbeRetry("SCH");
-            clearCrossProbeRetry("PCB");
-        };
-    }, [clearCrossProbeRetry]);
+        if (activeTab === "3d") setThreeDActivated(true);
+    }, [activeTab]);
 
     // Event Listeners for ecad-viewer
     useEffect(() => {
@@ -686,23 +530,22 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         const pcbViewer = pcbViewerElement;
         if (!schematicViewer && !pcbViewer) return;
 
-        const handleCrossProbeSelection = (
-            fallbackSourceContext: CrossProbeContext,
-            targetViewer: ECadViewerElement | null,
-            event: Event,
-        ) => {
+        const handleSelection = (fallbackSourceContext: "SCH" | "PCB", event: Event) => {
             const detail = (event as CustomEvent<KiCanvasSelectDetail>).detail;
-            const sourceContext = detail?.sourceContext ?? fallbackSourceContext;
-            const designator = extractDesignatorFromSelection(detail?.item);
-            if (!designator) return;
-            lastCrossProbeRef.current[sourceContext] = designator;
-            runCrossProbe(targetViewer, sourceContext, designator);
+            if (!detail?.item) {
+                clearGlobalSelection();
+                return;
+            }
+            const normalized = normalizeEcadSelection(
+                detail,
+                fallbackSourceContext,
+                semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
+            );
+            if (normalized) selectGlobal(normalized);
         };
 
-        const onSchematicSelect = (event: Event) =>
-            handleCrossProbeSelection("SCH", pcbViewerRef.current, event);
-        const onPcbSelect = (event: Event) =>
-            handleCrossProbeSelection("PCB", schematicViewerRef.current, event);
+        const onSchematicSelect = (event: Event) => handleSelection("SCH", event);
+        const onPcbSelect = (event: Event) => handleSelection("PCB", event);
 
         schematicViewer?.addEventListener("kicanvas:select", onSchematicSelect as EventListener);
         pcbViewer?.addEventListener("kicanvas:select", onPcbSelect as EventListener);
@@ -711,15 +554,114 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             schematicViewer?.removeEventListener("kicanvas:select", onSchematicSelect as EventListener);
             pcbViewer?.removeEventListener("kicanvas:select", onPcbSelect as EventListener);
         };
-    }, [schematicViewerElement, pcbViewerElement, extractDesignatorFromSelection, runCrossProbe]);
+    }, [clearGlobalSelection, commit, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey]);
 
     useEffect(() => {
-        if (activeTab === "pcb" && lastCrossProbeRef.current.SCH) {
-            runCrossProbe(pcbViewerRef.current, "SCH", lastCrossProbeRef.current.SCH);
-        } else if (activeTab === "sch" && lastCrossProbeRef.current.PCB) {
-            runCrossProbe(schematicViewerRef.current, "PCB", lastCrossProbeRef.current.PCB);
-        }
-    }, [activeTab, runCrossProbe, schematicViewerElement, pcbViewerElement]);
+        const applySelection = (
+            viewer: ECadViewerElement | null,
+            targetContext: "SCH" | "PCB",
+            selection: PrismSelection | null,
+        ) => {
+            if (!viewer) return;
+            if (!selection) {
+                viewer.clearCrossProbe?.();
+                return;
+            }
+            if (typeof viewer.requestCrossProbe !== "function") return;
+            const request = crossProbeRequestForSelection(selection, targetContext, semanticIndex);
+            const result = viewer.requestCrossProbe(request);
+            if (!result.resolved && selection.kind === "terminal") {
+                viewer.requestCrossProbe({
+                    sourceContext: selection.sourceContext,
+                    targetContext,
+                    mode: "select",
+                    kind: "designator",
+                    value: selection.reference,
+                    designator: selection.reference,
+                    pin: selection.pin,
+                });
+            }
+        };
+
+        const unregisterSchematic = registerClient({
+            id: "visualizer-schematic",
+            context: "SCH",
+            revisionKey: semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
+            isReady: () => Boolean(schematicViewerRef.current && schematicContent),
+            applySelection: (selection) => applySelection(schematicViewerRef.current, "SCH", selection),
+        });
+        const unregisterPcb = registerClient({
+            id: "visualizer-pcb",
+            context: "PCB",
+            revisionKey: semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
+            isReady: () => Boolean(pcbViewerRef.current && pcbContent),
+            applySelection: (selection) => applySelection(pcbViewerRef.current, "PCB", selection),
+        });
+        return () => {
+            unregisterSchematic();
+            unregisterPcb();
+        };
+    }, [commit, pcbContent, pcbViewerElement, registerClient, schematicContent, schematicViewerElement, semanticIndex]);
+
+    useEffect(() => {
+        if (globalSelection) setSelectionInspectorOpen(true);
+    }, [globalSelection]);
+
+    useEffect(() => {
+        const handleKeyboard = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || document.querySelector('[role="dialog"][data-state="open"]')) return;
+            const target = event.target;
+            if (
+                target instanceof HTMLInputElement
+                || target instanceof HTMLTextAreaElement
+                || (target instanceof HTMLElement && target.isContentEditable)
+            ) return;
+
+            if (event.key === "Escape") {
+                setCommentMode(false);
+                applyCommentModeToViewer(schematicViewerRef.current, false);
+                applyCommentModeToViewer(pcbViewerRef.current, false);
+                clearGlobalSelection();
+                setSelectionInspectorOpen(false);
+                return;
+            }
+            if (activeTab === "sch") {
+                const bracketDirection = event.key === "[" || event.code === "BracketLeft"
+                    ? -1
+                    : event.key === "]" || event.code === "BracketRight"
+                        ? 1
+                        : null;
+                if (bracketDirection) {
+                    const handled = schematicViewerRef.current?.navigateSchematicPage?.(
+                        bracketDirection,
+                    );
+                    if (handled) event.preventDefault();
+                    return;
+                }
+                if (event.altKey && (event.key === "Backspace" || event.key === "Delete")) {
+                    const handled = schematicViewerRef.current?.navigateSchematicParent?.();
+                    if (handled) event.preventDefault();
+                    return;
+                }
+            }
+            if (
+                event.key.toLocaleLowerCase() === "c"
+                && !event.metaKey
+                && !event.ctrlKey
+                && !event.altKey
+                && canModifyComments
+                && activeCommentContext
+            ) {
+                setCommentMode(true);
+                applyCommentModeToViewer(schematicViewerRef.current, true);
+                applyCommentModeToViewer(pcbViewerRef.current, true);
+            }
+        };
+        // Capture before the embedded canvas can consume bracket/backspace keys.
+        // ecad-viewer still receives every key Prism does not handle.
+        window.addEventListener("keydown", handleKeyboard, true);
+        return () => window.removeEventListener("keydown", handleKeyboard, true);
+    }, [activeCommentContext, activeTab, applyCommentModeToViewer, canModifyComments, clearGlobalSelection]);
 
     // Submit Comment
     const handleSubmitComment = async (content: string) => {
@@ -892,17 +834,16 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     // Tab Config
     const tabs: { id: VisualizerTab; label: string; icon: any }[] = [
         { id: "sch", label: "Schematic", icon: Cpu },
-        { id: "pcb", label: "PCB Layout", icon: CircuitBoard },
-        { id: "3d", label: "3D View", icon: Box },
-        { id: "ibom", label: "iBoM", icon: FileText },
+        { id: "pcb", label: "PCB", icon: CircuitBoard },
+        { id: "3d", label: "3D", icon: Box },
+        { id: "bom", label: "BOM", icon: FileText },
+        { id: "assembly", label: "Assembly Assistant", icon: PackageCheck },
     ];
 
-    if (loading) return <div className="flex justify-center items-center h-full">Loading Visualizer...</div>;
-
     return (
-        <div className="flex flex-col h-full bg-background relative selection-none">
+        <div className="relative flex h-full min-h-0 flex-col bg-background">
             {/* Toolbar */}
-            <div className="flex items-center gap-1 border-b px-2 py-1 bg-muted/20">
+            <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b bg-muted/20 px-2 py-1">
                 {tabs.map(tab => {
                     const Icon = tab.icon;
                     return (
@@ -910,6 +851,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                             key={tab.id}
                             variant={activeTab === tab.id ? "secondary" : "ghost"}
                             size="sm"
+                            data-visualizer-tab={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className="text-xs h-8"
                         >
@@ -989,7 +931,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                             size="sm"
                             onClick={toggleCommentMode}
                             disabled={!canModifyComments}
-                            className={`text-xs h-8 ${commentMode ? "bg-amber-600 text-white hover:bg-amber-700" : ""}`}
+                            className="h-8 text-xs"
                         >
                             <MessageSquarePlus className="w-3 h-3 mr-2" />
                             {commentMode ? "Commenting Mode" : "Add Comment"}
@@ -1025,8 +967,8 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             {/* Push Message Feedback */}
             {pushMessage && (
                 <div className={`px-4 py-2 text-sm border-b ${pushMessage.type === "success"
-                    ? "bg-green-500/10 border-green-500/20 text-green-500"
-                    : "bg-red-500/10 border-red-500/20 text-red-500"
+                    ? "border-primary/20 bg-primary/10 text-primary"
+                    : "border-destructive/20 bg-destructive/10 text-destructive"
                     }`}>
                     {pushMessage.text}
                     <button
@@ -1059,94 +1001,123 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             </Dialog>
 
             {/* Content Area */}
-            <div className="flex-1 relative overflow-hidden">
-                {/* Schematic View - always mounted but conditionally visible */}
-                <div className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
-                    {schematicContentLoaded ? (
-                        schematicSources.length > 0 ? (
-                            <EcadViewerHost
-                                viewerKey={schematicViewerKey}
-                                sources={schematicSources}
-                                setViewerRef={setSchematicViewerRef}
-                            />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+                <div className="relative min-w-0 flex-1 overflow-hidden">
+                    {/* Schematic View - always mounted after first visit */}
+                    <div aria-hidden={activeTab !== "sch"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
+                        {schematicContentLoaded ? (
+                            schematicSources.length > 0 ? (
+                                <EcadViewerHost
+                                    viewerKey={schematicViewerKey}
+                                    sources={schematicSources}
+                                    setViewerRef={setSchematicViewerRef}
+                                />
+                            ) : (
+                                <div className="flex h-full items-center justify-center text-muted-foreground">
+                                    <p>No schematic files found.</p>
+                                </div>
+                            )
                         ) : (
-                            <div className="flex items-center justify-center h-full text-muted-foreground">
-                                <p>No schematic files found.</p>
+                            <div className="flex h-full items-center justify-center text-muted-foreground">
+                                <p>Loading schematic…</p>
                             </div>
-                        )
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground">
-                            <p>Loading schematic...</p>
-                        </div>
-                    )}
-                </div>
-
-                {/* PCB View - always mounted but conditionally visible */}
-                <div className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
-                    {pcbContentLoaded ? (
-                        pcbSources.length > 0 ? (
-                            <EcadViewerHost
-                                viewerKey={pcbViewerKey}
-                                sources={pcbSources}
-                                setViewerRef={setPcbViewerRef}
-                            />
-                        ) : (
-                            <div className="flex items-center justify-center h-full text-muted-foreground">
-                                <p>No PCB files found.</p>
-                            </div>
-                        )
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground">
-                            <p>Loading PCB...</p>
-                        </div>
-                    )}
-                </div>
-
-                {/* Comment Overlay - only visible on sch/pcb tabs */}
-                {shouldShowOverlay ? (
-                    <CommentOverlay
-                        comments={overlayComments}
-                        viewerRef={activeTab === "sch" ? schematicViewerRef : pcbViewerRef}
-                        onPinClick={() => {
-                            setShowCommentPanel(true);
-                        }}
-                    />
-                ) : null}
-
-                {/* 3D View */}
-                {activeTab === "3d" && (
-                    <div className="absolute inset-0 z-20 bg-background">
-                        {modelUrl ? (
-                            <Suspense fallback={<div className="p-10">Loading 3D Viewer...</div>}>
-                                <Model3DViewer modelUrl={modelUrl} sceneKey={`project:${projectId}:tab:3d`} />
-                            </Suspense>
-                        ) : (
-                            <div className="p-10">No 3D Model</div>
                         )}
                     </div>
-                )}
 
-                {/* iBoM View */}
-                {activeTab === "ibom" && (
-                    <div className="absolute inset-0 z-20 bg-white">
-                        {ibomUrl ? <iframe src={ibomUrl} className="w-full h-full border-0" /> : <div className="p-10">No iBoM Found</div>}
+                    {/* PCB View - always mounted after first visit */}
+                    <div aria-hidden={activeTab !== "pcb"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
+                        {pcbContentLoaded ? (
+                            pcbSources.length > 0 ? (
+                                <EcadViewerHost
+                                    viewerKey={pcbViewerKey}
+                                    sources={pcbSources}
+                                    setViewerRef={setPcbViewerRef}
+                                />
+                            ) : (
+                                <div className="flex h-full items-center justify-center text-muted-foreground">
+                                    <p>No PCB files found.</p>
+                                </div>
+                            )
+                        ) : (
+                            <div className="flex h-full items-center justify-center text-muted-foreground">
+                                <p>Open the PCB tab to load the board source.</p>
+                            </div>
+                        )}
                     </div>
-                )}
 
-                {/* Sidebar Overlay */}
-                {showCommentPanel && (
-                    <div className="absolute top-0 right-0 bottom-0 z-50 animate-in slide-in-from-right">
-                        <CommentPanel
-                            comments={comments}
-                            onClose={() => setShowCommentPanel(false)}
-                            onResolve={handleResolveComment}
-                            onReply={handleReplyComment}
-                            onDelete={handleDeleteComment}
-                            onCommentClick={handleCommentNavigate}
-                            canModify={canModifyComments}
+                    {shouldShowOverlay ? (
+                        <CommentOverlay
+                            comments={overlayComments}
+                            viewerRef={activeTab === "sch" ? schematicViewerRef : pcbViewerRef}
+                            onPinClick={() => setShowCommentPanel(true)}
                         />
-                    </div>
-                )}
+                    ) : null}
+
+                    {threeDActivated && (
+                        <div aria-hidden={activeTab !== "3d"} className={`absolute inset-0 bg-background transition-opacity duration-200 ${activeTab === "3d" ? "visible z-20 pointer-events-auto opacity-100" : "invisible z-0 pointer-events-none opacity-0"}`}>
+                            <WebGpu3dTab
+                                projectId={projectId}
+                                commit={commit}
+                                user={user}
+                                active={activeTab === "3d"}
+                                selection={globalSelection}
+                                onSelection={selectGlobal}
+                                onClearSelection={clearGlobalSelection}
+                            />
+                        </div>
+                    )}
+
+                    {activeTab === "bom" && (
+                        <div className="absolute inset-0 z-20 bg-background">
+                            <EngineeringBomTable
+                                semanticIndex={semanticIndex}
+                                loading={semanticIndexLoading}
+                                error={semanticIndexError}
+                                selection={globalSelection}
+                                onSelection={selectGlobal}
+                                onRetry={() => setSemanticIndexRetryToken((token) => token + 1)}
+                            />
+                        </div>
+                    )}
+
+                    {activeTab === "assembly" && (
+                        <div className="absolute inset-0 z-20 bg-background">
+                            {ibomUrl ? (
+                                <iframe
+                                    title="Assembly Assistant"
+                                    src={ibomUrl}
+                                    className="h-full w-full border-0 bg-background"
+                                    sandbox="allow-scripts allow-same-origin allow-downloads"
+                                />
+                            ) : (
+                                <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
+                                    No interactive assembly HTML was found for this revision.
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {showCommentPanel && (
+                        <div className="absolute inset-y-0 right-0 z-50 animate-in slide-in-from-right">
+                            <CommentPanel
+                                comments={comments}
+                                onClose={() => setShowCommentPanel(false)}
+                                onResolve={handleResolveComment}
+                                onReply={handleReplyComment}
+                                onDelete={handleDeleteComment}
+                                onCommentClick={handleCommentNavigate}
+                                canModify={canModifyComments}
+                            />
+                        </div>
+                    )}
+                </div>
+                <SelectionInspector
+                    open={selectionInspectorOpen}
+                    selection={globalSelection}
+                    semanticIndex={semanticIndex}
+                    onOpenChange={setSelectionInspectorOpen}
+                    onClear={clearGlobalSelection}
+                />
             </div>
 
             {/* Modals */}

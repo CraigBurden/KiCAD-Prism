@@ -576,7 +576,13 @@ def _find_cli_path():
         return mac_path
     return "kicad-cli" # Fallback to PATH
 
-def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
+def _run_workflow_job(
+    job_id: str,
+    project_id: str,
+    workflow_type: str,
+    force: bool = False,
+    commit: str | None = None,
+):
     job = jobs[job_id]
     
     try:
@@ -586,6 +592,32 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
             raise ValueError("Project not found")
 
         job['logs'].append(f"Starting workflow: {workflow_type}")
+        if workflow_type == "webgpu_3d":
+            from app.services import semantic_visualizer_service
+
+            job['message'] = 'Generating WebGPU 3D assets...'
+            _persist_job(job_id)
+            if commit:
+                semantic_visualizer_service.build_visualizer_bundle_for_commit(
+                    project,
+                    commit,
+                    job,
+                    lambda: _persist_job(job_id),
+                    force=force,
+                )
+            else:
+                semantic_visualizer_service.build_visualizer_bundle(
+                    project,
+                    job,
+                    lambda: _persist_job(job_id),
+                    force=force,
+                )
+            job['status'] = 'completed'
+            job['percent'] = 100
+            job['message'] = 'WebGPU 3D assets are ready'
+            _persist_job(job_id)
+            return
+
         cli_path = _find_cli_path()
         job['logs'].append(f"Using KiCAD CLI: {cli_path}")
         _persist_job(job_id)
@@ -741,7 +773,13 @@ def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
         _persist_job(job_id)
 
 
-def start_workflow_job(project_id: str, workflow_type: str, author: str = "anonymous") -> str:
+def start_workflow_job(
+    project_id: str,
+    workflow_type: str,
+    author: str = "anonymous",
+    force: bool = False,
+    commit: str | None = None,
+) -> str:
     job_id = str(uuid.uuid4())
     jobs[job_id] = {
         "job_id": job_id,
@@ -752,7 +790,9 @@ def start_workflow_job(project_id: str, workflow_type: str, author: str = "anony
         "error": None,
         "logs": [],
         "type": workflow_type,
-        "author": author
+        "author": author,
+        "force": force,
+        "commit": commit,
     }
     workspace.create_job(
         job_id,
@@ -767,7 +807,10 @@ def start_workflow_job(project_id: str, workflow_type: str, author: str = "anony
         },
     )
     
-    thread = threading.Thread(target=_run_workflow_job, args=(job_id, project_id, workflow_type))
+    thread = threading.Thread(
+        target=_run_workflow_job,
+        args=(job_id, project_id, workflow_type, force, commit),
+    )
     thread.daemon = True
     thread.start()
     

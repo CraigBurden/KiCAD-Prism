@@ -21,6 +21,8 @@ from app.services import (
     project_import_service,
     project_properties_service,
     project_service,
+    semantic_index_service,
+    semantic_visualizer_service,
 )
 from app.services.workspace_service import workspace
 from app.services.comments_url_service import build_comments_source_urls, resolve_comments_base_url
@@ -572,7 +574,7 @@ async def get_job_status(job_id: str):
     """
     Get the status of an import job.
     """
-    status = project_import_service.get_job_status(job_id)
+    status = project_service.get_job_status(job_id) or project_import_service.get_job_status(job_id)
     if not status:
         raise HTTPException(status_code=404, detail="Job not found")
     return status
@@ -595,8 +597,10 @@ async def sync_project_endpoint(project_id: str, user: AuthenticatedUser = Depen
     return result
 
 class WorkflowRequest(BaseModel):
-    type: str # design, manufacturing, render
+    type: str # design, manufacturing, render, webgpu_3d
     author: Optional[str] = "anonymous"
+    force: bool = False
+    commit: Optional[str] = None
 
 @router.post("/{project_id}/workflows", dependencies=[Depends(require_designer)])
 async def trigger_workflow(
@@ -607,18 +611,139 @@ async def trigger_workflow(
     """
     Trigger a KiCAD workflow (jobset output).
     """
-    valid_types = ["design", "manufacturing", "render"]
+    valid_types = ["design", "manufacturing", "render", "webgpu_3d"]
     if request.type not in valid_types:
         raise HTTPException(status_code=400, detail="Invalid workflow type")
         
     try:
         _ = get_project_for_role_or_404(project_id, user.role)
-        job_id = project_service.start_workflow_job(project_id, request.type, request.author)
+        job_id = project_service.start_workflow_job(
+            project_id,
+            request.type,
+            request.author,
+            force=request.force,
+            commit=request.commit if request.type == "webgpu_3d" else None,
+        )
         return {"job_id": job_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{project_id}/semantic-index/status")
+async def get_semantic_index_status(
+    project_id: str,
+    commit: Optional[str] = Query(default=None),
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    project = get_project_for_role_or_404(project_id, user.role)
+    try:
+        return await asyncio.to_thread(semantic_index_service.get_status, project, commit)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/{project_id}/semantic-index")
+async def get_semantic_index(
+    project_id: str,
+    commit: Optional[str] = Query(default=None),
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    project = get_project_for_role_or_404(project_id, user.role)
+    try:
+        payload = await asyncio.to_thread(semantic_index_service.get_or_build, project, commit)
+        return Response(
+            content=json.dumps(payload),
+            media_type="application/json",
+            headers={
+                "Cache-Control": "private, max-age=300",
+                "ETag": f'"{payload.get("sourceRevisionKey", "")}-{semantic_index_service.generator_cache_tag()}"',
+            },
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@router.get("/{project_id}/webgpu-3d/status")
+async def get_webgpu_3d_status(
+    project_id: str,
+    commit: Optional[str] = Query(default=None),
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    project = get_project_for_role_or_404(project_id, user.role)
+    try:
+        return await asyncio.to_thread(semantic_visualizer_service.get_status, project, commit)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+class WebGpu3dGenerateRequest(BaseModel):
+    commit: Optional[str] = None
+    force: bool = False
+
+
+@router.post("/{project_id}/webgpu-3d/generate", dependencies=[Depends(require_designer)])
+async def generate_webgpu_3d(
+    project_id: str,
+    request: WebGpu3dGenerateRequest,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    _ = get_project_for_role_or_404(project_id, user.role)
+    job_id = project_service.start_workflow_job(
+        project_id,
+        "webgpu_3d",
+        user.name or "anonymous",
+        force=request.force,
+        commit=request.commit,
+    )
+    return {"job_id": job_id}
+
+
+@router.get("/{project_id}/webgpu-3d/manifest")
+async def get_webgpu_3d_manifest(
+    project_id: str,
+    commit: Optional[str] = Query(default=None),
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    project = get_project_for_role_or_404(project_id, user.role)
+    status = await asyncio.to_thread(semantic_visualizer_service.get_status, project, commit)
+    if not status.get("available"):
+        raise HTTPException(status_code=404, detail="WebGPU 3D assets are not available for this revision")
+    path = semantic_visualizer_service.bundle_path(
+        project_id,
+        status["source_fingerprint"],
+        status["build_fingerprint"],
+    )
+    return FileResponse(path, media_type="application/json", headers={"Cache-Control": "private, max-age=300"})
+
+
+@router.get("/{project_id}/webgpu-3d/assets/{source_revision_key}/{generator_build}/{asset_path:path}")
+async def get_webgpu_3d_asset(
+    project_id: str,
+    source_revision_key: str,
+    generator_build: str,
+    asset_path: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    _ = get_project_for_role_or_404(project_id, user.role)
+    try:
+        root = semantic_visualizer_service.bundle_dir(
+            project_id,
+            source_revision_key,
+            generator_build,
+        ).resolve()
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    candidate = (root / asset_path).resolve()
+    if candidate != root and root not in candidate.parents:
+        raise HTTPException(status_code=400, detail="Invalid WebGPU asset path")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="WebGPU asset not found")
+    media_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+    return FileResponse(candidate, media_type=media_type, headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
 
 @router.get("/{project_id}/branches")
