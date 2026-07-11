@@ -8,9 +8,9 @@ services:
     restart: unless-stopped
     volumes:
       # Mount projects directory for persistence
-      - ./data/projects:/app/projects
+      - /kicad-prism/data/projects:/app/projects
       # Mount SSH directory for Git persistence (GitLab/GitHub SSH)
-      - ./data/ssh:/root/.ssh:rw
+      - /kicad-prism/data/ssh:/root/.ssh:rw
     environment:
       - PYTHONUNBUFFERED=1
       # Root directory for storing projects
