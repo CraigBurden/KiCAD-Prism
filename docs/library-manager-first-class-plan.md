@@ -69,9 +69,13 @@ The first production foundation is implemented on `feature/library-manager-first
   when an import proposal is not accepted; the API filters usage to projects the
   caller can read.
 
-The next slice should deliver the signed local-folder companion, REST/SQL
-connector framework, durable resumable workers, and immutable object storage.
-The old monolithic Library Manager is no longer part of the primary navigation.
+The next slice delivers browser/server-root folder snapshots, a PostgreSQL-
+leased worker, and local content-addressed artifact storage. Prism remains a
+local deployment for small engineering teams (up to roughly 100 concurrent
+users); it does not require a desktop companion, Redis, S3, or autoscaling.
+REST/SQL imports are intentionally one-shot migration snapshots. PLM and
+database export remain a later design pass. The old monolithic Library Manager
+is no longer part of the primary navigation.
 
 ### Measured migration and read performance
 
@@ -122,17 +126,20 @@ by optional `Deprecated` or `Withdrawn` states.
 - Revision manifests contain the parent revision, actor, timestamp, change
   summary, source provenance, tool versions, and hashes for all associated
   content.
-- Preview changes create a revision when their bytes or generator version
-  changes. Validation reruns, review comments, and lifecycle transitions are
-  audit evidence rather than component-content revisions.
+- Preview regeneration never creates a component revision. Preview bytes and
+  generator identity are revision-bound derived evidence; validation reruns,
+  review comments, and lifecycle transitions are audit evidence rather than
+  component-content revisions.
 
 ### Local KiCad library import
 
-Ship a signed Prism Desktop Companion for Windows, macOS, and Linux. Its first
-release uses explicit one-time folder snapshots.
+Expose explicit one-time folder snapshots in the Prism Import Center. There is
+no separate desktop application.
 
-1. The user chooses a folder containing KiCad libraries.
-2. The companion scans and hashes files without modifying the folder.
+1. The user chooses a folder in the browser, or an administrator selects a
+   subdirectory beneath a configured read-only server import root.
+2. Prism uploads/copies and hashes files into an immutable staging snapshot
+   without modifying the source folder.
 3. Prism discovers packed `.kicad_sym`, unpacked `.kicad_symdir`, `.pretty`,
    STEP, WRL, SPICE, datasheets, and KiCad library tables.
 4. An import session presents component candidates, inferred relationships,
@@ -195,16 +202,18 @@ becomes this action.
 
 ### External systems and KiCad delivery
 
-Build a connector framework with snapshots/cursors, webhooks, idempotent replay,
-field transforms, authority rules, dry runs, secret rotation, retries, dead
-letters, and sync history.
+HTTP and SQL/ODBC sources are one-shot migration inputs. Prism captures the
+current metadata and KiCad assets, stages them for review, and becomes the
+system of record after acceptance. Continuous synchronization, webhooks, PLM
+authority rules, and database export are deferred until their product contract
+is agreed.
 
 The first delivery and integration paths are:
 
 1. KiCad HTTP Library metadata delivery plus matching immutable symbol,
    footprint, and model packages
-2. Generic REST and webhook connector
-3. SQL/ODBC read connector for existing database-library deployments
+2. Generic REST snapshot importer
+3. SQL/ODBC snapshot importer for existing database-library deployments
 4. Existing Prism Remote Symbol Provider backed by immutable releases
 5. KiCad DBL export as a compatibility path
 
@@ -218,7 +227,7 @@ Replace the monolithic manager with route-level workspaces:
 - **Import Center**: Folder, Project, All Projects, CSV, REST, and Database
   sources; quarantine; duplicates; bulk remediation
 - **Release Queue**: assigned reviews, visual diffs, findings, and approvals
-- **Connectors**: mappings, authority, synchronization, failures, credentials
+- **Migration sources**: reusable HTTP/SQL snapshot mappings and import history
 - **Administration**: policies, validation profiles, labels, and retention
 
 The project import UI must show scan progress, allow cancellation/resumption,
@@ -228,11 +237,21 @@ result sets use server pagination and virtualization.
 ## Architecture and contracts
 
 Use PostgreSQL for transactional catalog data, workflow, audit, permissions,
-connector state, and the denormalized search read model. Store immutable assets
-in S3-compatible object storage. Use background workers for extraction,
-parsing, previews, validation, packaging, and connector jobs; use Redis for job
-coordination, short-lived caching, and rate limiting. Retain SQLite only as a
-small local/development mode.
+job leases/checkpoints, import state, and the denormalized search read model.
+Store artifacts in a local content-addressed store on the deployment volume.
+A single worker service claims jobs with `FOR UPDATE SKIP LOCKED`, maintains a
+lease and checkpoint, and resumes abandoned work after lease expiry. The
+default worker runs at most two jobs concurrently and at most one KiCad-heavy
+process. No Redis, message broker, S3 service, dynamic scaling, or cloud control
+plane is required. Retain SQLite only as a compatibility/development mode for
+non-catalog features.
+
+Released source artifacts are retained indefinitely. Unreleased draft source
+artifacts may be archived after 90 days, derived previews are regenerable, and
+garbage collection always quarantines before deletion. Large STEP files are an
+explicit exception: when a newer component revision supplies a replacement
+STEP file, the older STEP bytes may be purged and the historical revision marks
+that asset unavailable rather than retaining or archiving it.
 
 Core public identities are:
 
@@ -276,14 +295,14 @@ KiCad delivery, and audit modules.
 - Introduce revision manifests, release records, optimistic concurrency,
   append-only audit events, and two-person approval.
 - Migrate existing component IDs, revisions, released pointers, and assets.
-- Move the production catalog to PostgreSQL and immutable object storage.
+- Move the production catalog to PostgreSQL and local content-addressed storage.
 - Make the current Remote Symbol Provider consume released manifests only.
 
 ### Phase 2: Import Center and project extraction
 
 - Implement durable import sessions, quarantine, duplicate resolution,
   sanitation, and reusable field mappings.
-- Add folder snapshots through the desktop companion.
+- Add browser-upload and configured read-only server-root folder snapshots.
 - Add selected-project and all-project extraction jobs.
 - Wire Visualizer **Import into Library**, **Open in Library**, and **Propose new
   revision** actions to the same import pipeline.
@@ -296,11 +315,11 @@ KiCad delivery, and audit modules.
 - Publish immutable `.kicad_symdir`, `.pretty`, model, and metadata packages.
 - Add caching, scoped tokens, ETags, and rate limits.
 
-### Phase 4: connector platform
+### Phase 4: migration sources and future integrations
 
-- Ship generic REST/webhook and SQL/ODBC connectors.
-- Add field-level authority and conflict resolution.
-- Publish a connector SDK and conformance tests for PLM-specific adapters.
+- Ship generic one-shot REST and SQL/ODBC snapshot importers.
+- Defer continuous PLM synchronization and database export until their product
+  and authority model is agreed.
 
 ## Acceptance and scale tests
 
@@ -318,7 +337,7 @@ KiCad delivery, and audit modules.
   deterministic for its captured project revisions.
 - Existing components are offered as matches and changed content creates a new
   revision proposal rather than a duplicate component.
-- Connector replay is idempotent and honors field authority.
+- Repeating an identical migration snapshot is idempotent.
 - KiCad delivery exposes only released, non-withdrawn revisions.
 - Search and filters remain below 250 ms p95 with 100,000 components and 100
   simulated concurrent designers.

@@ -67,6 +67,7 @@ import type {
   CatalogAuditEvent,
   CatalogAuditVerification,
   CatalogComponent,
+  CatalogComponentValidationEvidence,
   CatalogComponentUsage,
   CatalogReviewDecision,
   CatalogReleaseRecord,
@@ -245,8 +246,9 @@ const metadataFormFromComponent = (component: CatalogComponent): MetadataForm =>
   changeSummary: "Update component metadata",
 });
 
-function StatusBadge({ children, destructive = false }: { children: React.ReactNode; destructive?: boolean }) {
-  return <Badge variant={destructive ? "destructive" : "outline"}>{children}</Badge>;
+function StatusBadge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "success" | "warning" | "danger" }) {
+  const variant = tone === "success" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "destructive" : "outline";
+  return <Badge variant={variant}>{children}</Badge>;
 }
 
 function MetricCard({ label, value, detail }: { label: string; value: React.ReactNode; detail: string }) {
@@ -288,8 +290,8 @@ function PanelCard({
   className?: string;
 }) {
   return (
-    <Card className={className}>
-      <CardHeader className="border-b">
+    <Card className={cn("gap-0 py-0", className)}>
+      <CardHeader className="border-b p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <CardTitle>{title}</CardTitle>
@@ -298,7 +300,7 @@ function PanelCard({
           {action}
         </div>
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className="p-4">{children}</CardContent>
     </Card>
   );
 }
@@ -437,8 +439,8 @@ function AssetsPanel({
             <Button size="sm" variant="outline" disabled={Boolean(busyAction)} onClick={onRegeneratePreviews}>
               {busyAction === "previews" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Regenerate previews
             </Button>
-            <Button size="sm" disabled={Boolean(busyAction) || !component.validation.enabled} onClick={onValidate} title={component.validation.enabled ? "Run KiCad Library Convention validation" : "KLC validation is disabled"}>
-              {busyAction === "validation" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} Validate CAD
+            <Button size="sm" disabled={Boolean(busyAction) || !component.validation.enabled} onClick={onValidate} title={component.validation.enabled ? "Run KiCad Library Convention validation" : "Enable CATALOG_KLC_ENABLED to run validation"}>
+              {busyAction === "validation" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} Run KLC validation
             </Button>
           </div>
         ) : null}
@@ -451,7 +453,7 @@ function AssetsPanel({
             description={`${assets.length} immutable file${assets.length === 1 ? "" : "s"} attached to v${component.revision}.`}
             action={(
               <div className="flex items-center gap-2">
-                <StatusBadge destructive={(type === "symbol" || type === "footprint") && assets.length === 0}>{assets.length ? "Attached" : "Missing"}</StatusBadge>
+                <StatusBadge tone={assets.length ? "success" : type === "symbol" || type === "footprint" ? "danger" : "warning"}>{assets.length ? "Attached" : "Missing"}</StatusBadge>
                 {canMutate ? <Button size="sm" variant="outline" disabled={Boolean(busyAction)} onClick={() => onAttach(type)}><Upload className="h-3.5 w-3.5" />{assets.length && (type === "symbol" || type === "footprint") ? "Replace" : "Add"}</Button> : null}
               </div>
             )}
@@ -466,7 +468,7 @@ function AssetsPanel({
                         <p className="truncate text-xs text-muted-foreground">{asset.target_library ? `${asset.target_library}:` : ""}{asset.target_name}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        {asset.required ? <Badge variant="secondary">Required</Badge> : <Badge variant="outline">Optional</Badge>}
+                        {asset.required ? <Badge>Required</Badge> : <Badge variant="secondary">Optional</Badge>}
                         <Button size="icon-sm" variant="ghost" aria-label={`Download ${asset.name}`} title={downloadsAvailable ? "Download released asset" : "Downloads are available from the released revision"} disabled={!downloadsAvailable} onClick={() => onDownload(asset)}><Download className="h-3.5 w-3.5" /></Button>
                       </div>
                     </div>
@@ -868,6 +870,108 @@ function ReleaseRecordsPanel({
   );
 }
 
+function validationBadgeVariant(status: CatalogValidationStatus) {
+  if (status === "passed") return "success" as const;
+  if (status === "warning") return "warning" as const;
+  if (status === "failed") return "destructive" as const;
+  return "outline" as const;
+}
+
+function KlcValidationEvidence({ component, historical }: { component: CatalogComponent; historical: boolean }) {
+  const [evidence, setEvidence] = useState<CatalogComponentValidationEvidence | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (historical) {
+      setEvidence(null);
+      setError("");
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    void fetchJson<CatalogComponentValidationEvidence>(
+      `/api/catalog/components/${encodeURIComponent(component.id)}/validation`,
+      { signal: controller.signal },
+    ).then((response) => {
+      if (!controller.signal.aborted) setEvidence(response);
+    }).catch((reason: unknown) => {
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [component.id, historical]);
+
+  const status = evidence?.summary.status || component.validation.status;
+  const errorCount = evidence?.summary.error_count ?? component.validation.error_count;
+  const warningCount = evidence?.summary.warning_count ?? component.validation.warning_count;
+
+  const passed = status !== "failed" && errorCount === 0;
+  return (
+    <details className="group py-3 first:pt-0 last:pb-0">
+      <summary className="flex cursor-pointer list-none items-start gap-3 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {passed ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">KLC validation</p>
+          <p className="text-xs text-muted-foreground">{VALIDATION_LABELS[status]} · {errorCount} errors · {warningCount} warnings</p>
+        </div>
+        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+      </summary>
+
+      <div className="mt-3 space-y-3 border-t pt-3">
+        {historical ? (
+          <p className="border bg-muted/30 p-3 text-xs text-muted-foreground">Detailed KLC reports are currently available for the active revision. This historical revision retains its validation summary above.</p>
+        ) : loading ? (
+          <p className="inline-flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading validation evidence…</p>
+        ) : error ? (
+          <p className="border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">Could not load KLC results: {error}</p>
+        ) : evidence?.runs.length ? evidence.runs.map((run) => (
+          <article key={run.id} className="border bg-muted/20 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs font-medium">{humanize(run.asset_type)} · {run.checker_type}</p>
+                  <Badge variant={validationBadgeVariant(run.status)}>{VALIDATION_LABELS[run.status]}</Badge>
+                </div>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{run.tool_version || "KiCad Library Convention"} · {formatDate(run.finished_at || run.created_at)}</p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs"><a href={run.reports.json} download>JSON</a></Button>
+                <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs"><a href={run.reports.junit} download>JUnit</a></Button>
+                <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs"><a href={run.reports.stdout} download>Stdout</a></Button>
+                <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs"><a href={run.reports.stderr} download>Stderr</a></Button>
+              </div>
+            </div>
+            {run.findings?.length ? (
+              <div className="mt-3 max-h-64 overflow-y-auto border">
+                <div className="divide-y divide-border">
+                  {run.findings.map((finding) => (
+                    <div key={finding.id} className="flex items-start gap-2 p-2 text-xs">
+                      <Badge variant={finding.severity === "error" ? "destructive" : finding.severity === "warning" ? "warning" : "outline"}>{finding.severity}</Badge>
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words">{finding.message}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground">
+                          {finding.rule_code ? <span className="font-mono">{finding.rule_code}</span> : null}
+                          {finding.rule_url ? <a className="text-primary hover:underline" href={finding.rule_url} target="_blank" rel="noreferrer">Rule reference</a> : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : <p className="mt-3 text-xs text-muted-foreground">No normalized findings were recorded for this run. Download the reports for checker output.</p>}
+          </article>
+        )) : (
+          <p className="border border-dashed p-3 text-xs text-muted-foreground">No KLC run has been recorded for this revision yet. Run validation from the Assets tab.</p>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function ReleaseReviewPanel({
   component,
   currentComponent,
@@ -912,10 +1016,12 @@ function ReleaseReviewPanel({
         <PanelCard title="Release readiness" description="Evidence is evaluated against the exact revision under review.">
           <div className="divide-y divide-border">
             {checks.map((check) => (
-              <div key={check.label} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                {check.passed ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" /> : <XCircle className="mt-0.5 h-4 w-4 text-destructive" />}
-                <div><p className="text-sm font-medium">{check.label}</p><p className="text-xs text-muted-foreground">{check.detail}</p></div>
-              </div>
+              check.label === "KLC validation" ? <KlcValidationEvidence key={check.label} component={component} historical={historical} /> : (
+                <div key={check.label} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                  {check.passed ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-primary" /> : <XCircle className="mt-0.5 h-4 w-4 text-destructive" />}
+                  <div><p className="text-sm font-medium">{check.label}</p><p className="text-xs text-muted-foreground">{check.detail}</p></div>
+                </div>
+              )
             ))}
           </div>
         </PanelCard>
@@ -1944,9 +2050,9 @@ export function LibraryComponentWorkspace({
               <p className="mt-1 max-w-4xl text-sm text-muted-foreground">{activeComponent.description || `${activeComponent.manufacturer} ${activeComponent.mpn}` || "No description available."}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge>{WORKFLOW_LABELS[workflowStage(activeComponent)]}</StatusBadge>
-              <StatusBadge destructive={activeComponent.validation.status === "failed"}>{VALIDATION_LABELS[activeComponent.validation.status]}</StatusBadge>
-              <StatusBadge destructive={activeComponent.availability_state !== "place_ready"}>{AVAILABILITY_LABELS[activeComponent.availability_state]}</StatusBadge>
+              <StatusBadge tone={workflowStage(activeComponent) === "released" ? "success" : "neutral"}>{WORKFLOW_LABELS[workflowStage(activeComponent)]}</StatusBadge>
+              <StatusBadge tone={activeComponent.validation.status === "failed" ? "danger" : activeComponent.validation.status === "warning" ? "warning" : activeComponent.validation.status === "passed" ? "success" : "neutral"}>{VALIDATION_LABELS[activeComponent.validation.status]}</StatusBadge>
+              <StatusBadge tone={activeComponent.availability_state === "place_ready" ? "success" : activeComponent.availability_state === "files_partial" ? "warning" : "danger"}>{AVAILABILITY_LABELS[activeComponent.availability_state]}</StatusBadge>
               <Button size="sm" variant="outline" aria-label="Refresh component workspace" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-3 w-3" /> Refresh</Button>
             </div>
           </div>

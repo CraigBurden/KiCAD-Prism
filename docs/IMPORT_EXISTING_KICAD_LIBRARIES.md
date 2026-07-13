@@ -1,9 +1,41 @@
 # Import Existing KiCad Libraries
 
-This guide covers the current administrator CLI compatibility path for staging
-existing KiCad component libraries in Prism's PostgreSQL-backed catalog. It is
-non-destructive and creates draft data only. The planned signed desktop
-companion will expose this flow as a first-class local folder picker.
+This guide covers importing existing KiCad component libraries into Prism's
+PostgreSQL-backed catalog. Import is non-destructive and creates staged draft
+proposals only. The normal path is the **Library Manager -> Import Center ->
+Folder** workflow; the administrator CLI remains a compatibility and automation
+path.
+
+The browser workflow accepts a parent directory while preserving relative
+paths. Prism discovers symbols, footprints, and referenced 3D models beneath
+that directory and correlates them from KiCad library names and footprint model
+references. An administrator may also configure read-only server import roots
+for large local collections; Prism snapshots a selected subdirectory without
+modifying it. Neither mode requires a desktop companion or a pre-sanitized CSV.
+
+## Import Center workflow
+
+1. Open **Library Manager -> Import Center**.
+2. Select **Choose library folder** and choose the parent directory. The
+   browser preserves every relative path while Prism uploads files in small,
+   retryable requests.
+3. Prism freezes a manifest, then the PostgreSQL worker discovers symbol
+   definitions, `.pretty` footprints, footprint model references, SPICE links,
+   custom symbol fields, and duplicate identities.
+4. Review findings and asset choices. Accepting a proposal creates or updates a
+   draft component revision; it never releases the result automatically.
+
+For very large collections already visible to the Prism host, configure one or
+more read-only roots with `CATALOG_IMPORT_ROOTS`, for example:
+
+```env
+CATALOG_IMPORT_ROOTS=engineering=/imports/engineering,vendor=/imports/vendor
+```
+
+Mount those paths read-only into both `backend` and `catalog-worker`. The UI
+shows only configured root names and an optional subdirectory field; path
+traversal outside a root is rejected. Prism copies content into its immutable
+snapshot before parsing, so it never edits the source library.
 
 Prism uses two separate layers:
 

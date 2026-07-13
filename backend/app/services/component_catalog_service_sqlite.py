@@ -2421,7 +2421,7 @@ class ComponentCatalogService:
         selection: dict[str, Any] | None = None,
         actor: str = "",
     ) -> dict[str, Any]:
-        if scope not in {"component", "project", "all-projects"}:
+        if scope not in {"component", "project", "all-projects", "folder"}:
             raise ValueError("Unsupported project import scope")
         if scope in {"component", "project"} and not project_id:
             raise ValueError("project_id is required for this import scope")
@@ -2493,7 +2493,7 @@ class ComponentCatalogService:
         return [session for row in rows if (session := self.get_project_import_session(str(row["id"]))) is not None]
 
     def update_project_import_session(self, session_id: str, *, status: str, error_message: str = "") -> None:
-        if status not in {"queued", "scanning", "staged", "failed"}:
+        if status not in {"queued", "uploading", "scanning", "staged", "failed"}:
             raise ValueError("Unsupported project import session status")
         self.initialize()
         with self._connect() as conn:
@@ -2762,7 +2762,7 @@ class ComponentCatalogService:
         self.initialize()
         proposal = self.get_project_import_proposal(proposal_id)
         if not proposal:
-            raise ValueError("Project import proposal not found")
+            raise ValueError("Import proposal not found")
         if proposal["status"] != "candidate":
             raise ValueError("Project import proposal has already been resolved")
         source_metadata = dict(proposal["metadata"])
@@ -2849,7 +2849,13 @@ class ComponentCatalogService:
             ).fetchone()
             component_id = str(existing["id"]) if existing else str(uuid.uuid4())
             provenance = list(proposal["provenance"])
-            external_id = str(provenance[0].get("projectId") or "") if provenance else ""
+            provenance_source = str(provenance[0].get("source") or "project") if provenance else "project"
+            import_source = "folder_snapshot" if provenance_source == "folder_snapshot" else "project"
+            external_id = (
+                str(provenance[0].get("snapshotId") or provenance[0].get("projectId") or "")
+                if provenance
+                else ""
+            )
             current_revision = (
                 self._revision_row(conn, str(self._component_row(conn, component_id)["current_revision_id"]))
                 if existing
@@ -2872,9 +2878,9 @@ class ComponentCatalogService:
                     change_summary=change_summary,
                     finalize_revision=False,
                     source=SOURCE_EXTERNAL,
-                    external_source="project",
+                    external_source=import_source,
                     external_id=external_id,
-                    change_kind="project_import",
+                    change_kind="folder_import" if import_source == "folder_snapshot" else "project_import",
                 )
                 for asset_type, candidates in by_type.items():
                     for asset in candidates:
@@ -2901,7 +2907,7 @@ class ComponentCatalogService:
                             canonical_path=canonical_path,
                             target_library=target_library,
                             target_name=target_name,
-                            source_group=f"project-import:{proposal['session_id']}",
+                            source_group=f"{import_source}:{proposal['session_id']}",
                         )
                         self._link_asset_to_revision(
                             conn,
@@ -2916,7 +2922,7 @@ class ComponentCatalogService:
                     event_type="component.imported" if not existing else "revision.created",
                     actor=actor,
                     details={
-                        "change_kind": "project_import",
+                        "change_kind": "folder_import" if import_source == "folder_snapshot" else "project_import",
                         "change_summary": change_summary,
                         "proposal_id": proposal_id,
                         "provenance": provenance,
@@ -2958,6 +2964,91 @@ class ComponentCatalogService:
                 raise ValueError("Project import proposal was not found or has already been resolved")
             conn.commit()
         return self.get_project_import_proposal(proposal_id) or {}
+
+    def purge_superseded_step_files(self) -> dict[str, Any]:
+        """Purge obsolete STEP bytes while preserving immutable revision evidence.
+
+        The asset row, hash, revision link, and audit history remain intact. A file
+        is removed only when a newer current revision for that component has a
+        different 3D model and no component currently uses the old asset.
+        """
+        self.initialize()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                WITH current_models AS (
+                    SELECT revision.component_id, link.asset_id
+                    FROM components component
+                    JOIN component_revisions revision ON revision.id = component.current_revision_id
+                    JOIN revision_assets link ON link.revision_id = revision.id
+                    WHERE link.asset_type = '3dmodel'
+                ), superseded_models AS (
+                    SELECT DISTINCT revision.component_id, link.asset_id
+                    FROM component_revisions revision
+                    JOIN components component ON component.id = revision.component_id
+                    JOIN revision_assets link ON link.revision_id = revision.id
+                    JOIN current_models replacement
+                      ON replacement.component_id = revision.component_id
+                     AND replacement.asset_id <> link.asset_id
+                    WHERE revision.id <> component.current_revision_id
+                      AND link.asset_type = '3dmodel'
+                )
+                SELECT DISTINCT asset.id, asset.canonical_path
+                FROM superseded_models superseded
+                JOIN assets asset ON asset.id = superseded.asset_id
+                LEFT JOIN current_models active ON active.asset_id = superseded.asset_id
+                WHERE active.asset_id IS NULL
+                  AND (
+                    lower(asset.canonical_path) LIKE ?
+                    OR lower(asset.canonical_path) LIKE ?
+                  )
+                """,
+                ("%.step", "%.stp"),
+            ).fetchall()
+        purged: list[str] = []
+        for row in rows:
+            path = Path(str(row["canonical_path"] or "")).resolve()
+            try:
+                path.relative_to(self._store_root)
+            except ValueError:
+                continue
+            if path.suffix.lower() not in {".step", ".stp"}:
+                continue
+            if path.is_file():
+                path.unlink()
+                purged.append(str(row["id"]))
+        return {"purged": len(purged), "asset_ids": purged}
+
+    def cleanup_resolved_import_staging(self, *, older_than: str) -> dict[str, Any]:
+        """Remove regenerable staged copies after every proposal is resolved."""
+        self.initialize()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT session.id
+                FROM project_component_import_sessions session
+                WHERE session.updated_at < ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM project_component_import_proposals proposal
+                    WHERE proposal.session_id = session.id
+                      AND proposal.status IN ('candidate', 'accepting')
+                  )
+                """,
+                (older_than,),
+            ).fetchall()
+        removed: list[str] = []
+        imports_root = (self._store_root / "imports").resolve()
+        for row in rows:
+            session_id = str(row["id"])
+            path = (imports_root / session_id).resolve()
+            try:
+                path.relative_to(imports_root)
+            except ValueError:
+                continue
+            if path.is_dir():
+                shutil.rmtree(path)
+                removed.append(session_id)
+        return {"removed": len(removed), "session_ids": removed}
 
     def _component_summary_payload(
         self,

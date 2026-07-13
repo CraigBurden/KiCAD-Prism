@@ -49,6 +49,21 @@ export interface CatalogValidationRun {
     stdout: string;
     stderr: string;
   };
+  findings?: CatalogValidationFinding[];
+}
+
+export interface CatalogValidationFinding {
+  id: string;
+  run_id: string;
+  severity: "error" | "warning" | "info";
+  rule_code: string;
+  rule_url: string;
+  message: string;
+}
+
+export interface CatalogComponentValidationEvidence {
+  summary: CatalogValidationSummary;
+  runs: CatalogValidationRun[];
 }
 
 export interface CatalogAssetValidation {
@@ -300,12 +315,12 @@ export interface ProjectComponentImportProposal {
 
 export interface ProjectComponentImportSession {
   id: string;
-  scope: "component" | "project" | "all-projects";
+  scope: "component" | "project" | "all-projects" | "folder";
   project_id: string;
   project_ids: string[];
   project_revisions: Record<string, string>;
   source_revision: string;
-  status: "queued" | "scanning" | "staged" | "failed";
+  status: "queued" | "uploading" | "scanning" | "staged" | "failed";
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -316,6 +331,8 @@ export interface ProjectComponentImportSession {
     reference?: string;
     schematic_uuid?: string;
     pcb_footprint_uuid?: string;
+    snapshot_id?: string;
+    display_name?: string;
   };
 }
 

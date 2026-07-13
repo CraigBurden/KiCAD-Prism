@@ -80,12 +80,6 @@ export function LibraryComponentQuickView({
         <>
           <ScrollArea className="min-h-0 flex-1">
             <div className="space-y-5 p-4">
-              <section aria-labelledby="quick-visuals" className="space-y-3">
-                <h4 id="quick-visuals" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Visual inspection</h4>
-                <div><p className="mb-1.5 text-xs font-medium">Symbol</p><LibraryPreviewInspector previews={component.previews} kind="symbol" label={component.name} compact /></div>
-                <div><p className="mb-1.5 text-xs font-medium">Footprint</p><LibraryPreviewInspector previews={component.previews} kind="footprint" label={component.name} compact /></div>
-              </section>
-
               <section aria-labelledby="quick-parametrics">
                 <h4 id="quick-parametrics" className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Metadata</h4>
                 <DefinitionRow label="Value" value={component.value} />
@@ -96,11 +90,16 @@ export function LibraryComponentQuickView({
                 <DefinitionRow label="Datasheet" value={component.datasheet_url ? <a className="inline-flex items-center justify-end gap-1 text-primary hover:underline" href={component.datasheet_url} target="_blank" rel="noreferrer">Open datasheet <ExternalLink className="h-3 w-3" /></a> : ""} />
               </section>
 
-              <section aria-labelledby="quick-readiness">
+              <section aria-label="Component previews" className="space-y-3 border-t pt-5">
+                <div><p className="mb-1.5 text-xs font-medium">Symbol</p><LibraryPreviewInspector previews={component.previews} kind="symbol" label={component.name} compact /></div>
+                <div><p className="mb-1.5 text-xs font-medium">Footprint</p><LibraryPreviewInspector previews={component.previews} kind="footprint" label={component.name} compact /></div>
+              </section>
+
+              <section aria-labelledby="quick-readiness" className="border-t pt-5">
                 <h4 id="quick-readiness" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lifecycle & readiness</h4>
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant={component.workflow_stage === "released" ? "secondary" : "outline"}><PackageCheck className="h-3 w-3" /> {WORKFLOW_LABELS[component.workflow_stage]}</Badge>
-                  <Badge variant={component.validation.status === "failed" ? "destructive" : "outline"}><ShieldCheck className="h-3 w-3" /> {VALIDATION_LABELS[component.validation.status]}</Badge>
+                  <Badge variant={component.workflow_stage === "released" ? "success" : "secondary"}><PackageCheck className="h-3 w-3" /> {WORKFLOW_LABELS[component.workflow_stage]}</Badge>
+                  <Badge variant={component.validation.status === "failed" ? "destructive" : component.validation.status === "warning" ? "warning" : component.validation.status === "passed" ? "success" : "outline"}><ShieldCheck className="h-3 w-3" /> {VALIDATION_LABELS[component.validation.status]}</Badge>
                 </div>
                 <div className="mt-3 border p-3 text-xs">
                   <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Revision</span><span className="font-medium">v{component.revision}</span></div>

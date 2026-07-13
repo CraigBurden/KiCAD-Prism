@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -188,17 +189,86 @@ def _string(value: object) -> str:
     return str(value)
 
 
+def _balanced_s_expression_end(text: str, start: int) -> int | None:
+    """Find the end offset of a KiCad S-expression without parsing geometry."""
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
+def _schematic_instance_fields(project_file: Path) -> dict[str, dict[str, str]]:
+    """Read standard KiCad symbol properties omitted by kicad-monkey JSON.
+
+    KiCad stores `Datasheet`, `Description`, and the other standard fields on
+    each placed symbol.  kicad-monkey currently exports custom parameters but
+    not all of those properties.  This intentionally small overlay is keyed by
+    the source symbol UUID and leaves connectivity/rendering to kicad-monkey.
+    """
+
+    result: dict[str, dict[str, str]] = {}
+    symbol_start = re.compile(r"\(symbol(?=\s|\))")
+    property_pattern = re.compile(
+        r'\(property\s+"((?:\\.|[^"\\])*)"\s+"((?:\\.|[^"\\])*)"'
+    )
+    uuid_pattern = re.compile(r'\(uuid\s+"((?:\\.|[^"\\])*)"\)')
+    for schematic_path in sorted(project_file.parent.rglob("*.kicad_sch")):
+        text = schematic_path.read_text(encoding="utf-8", errors="ignore")
+        for match in symbol_start.finditer(text):
+            end = _balanced_s_expression_end(text, match.start())
+            if end is None:
+                continue
+            block = text[match.start():end]
+            # Library definitions have no lib_id.  Only placed instances carry
+            # the UUID/property values that belong to a BOM component.
+            if "(lib_id " not in block:
+                continue
+            uuid_match = uuid_pattern.search(block)
+            if not uuid_match:
+                continue
+            fields = {
+                key.replace(r'\"', '"').replace(r"\\", "\\"): value.replace(r'\"', '"').replace(r"\\", "\\")
+                for key, value in property_pattern.findall(block)
+                if key
+            }
+            if fields:
+                result.setdefault(uuid_match.group(1), fields)
+    return result
+
+
 def _canonical_fields(component: dict[str, Any]) -> dict[str, str]:
     parameters = {
         str(key): _string(value)
         for key, value in (component.get("parameters") or {}).items()
         if str(key)
     }
-    casefolded = {key.casefold(): value for key, value in parameters.items()}
+    casefolded = {
+        re.sub(r"[^a-z0-9]", "", key.casefold()): value
+        for key, value in parameters.items()
+    }
 
     def pick(name: str, *aliases: str) -> str:
         for candidate in (name, *aliases):
-            value = casefolded.get(candidate.casefold())
+            value = casefolded.get(re.sub(r"[^a-z0-9]", "", candidate.casefold()))
             if value is not None:
                 return value
         return ""
@@ -209,7 +279,7 @@ def _canonical_fields(component: dict[str, Any]) -> dict[str, str]:
         "Value": _string(component.get("value")) or pick("Value"),
         "DNP": dnp,
         "Description": _string(component.get("description")) or pick("Description"),
-        "Datasheet": pick("Datasheet", "Data Sheet"),
+        "Datasheet": pick("Datasheet", "Data Sheet", "Datasheet URL", "Datasheet Link"),
         "Manufacturer": pick("Manufacturer", "MFR", "Mfr"),
         "Manufacturer Part Number": pick("Manufacturer Part Number", "MPN", "Mfr Part", "Mfr Part Number"),
         "Vendor": pick("Vendor", "Supplier"),
@@ -265,6 +335,7 @@ def build_semantic_index(
 
     design = KiCadDesign.from_project_file(project_file)
     design_payload = design.to_json(include_indexes=True)
+    source_fields_by_uuid = _schematic_instance_fields(project_file)
 
     components: list[dict[str, Any]] = []
     nets: list[dict[str, Any]] = []
@@ -288,6 +359,10 @@ def build_semantic_index(
         if not reference:
             continue
         symbol_uuid = _string(raw.get("svg_id"))
+        raw = dict(raw)
+        parameters = dict(raw.get("parameters") or {})
+        parameters.update(source_fields_by_uuid.get(symbol_uuid, {}))
+        raw["parameters"] = parameters
         hierarchy = raw.get("hierarchy") or {}
         entry = {
             "componentUid": _stable_uid("cmp", reference, symbol_uuid),

@@ -28,6 +28,31 @@ def _field(fields: dict[str, Any], *names: str) -> str:
     return ""
 
 
+def _is_instance_context_field(name: object) -> bool:
+    """Return whether a KiCad field describes a placed instance, not the part.
+
+    A project import deliberately groups many placed symbols into one catalog
+    candidate.  UUIDs, sheet paths, and sheet names must therefore never become
+    catalog metadata or generate a provenance conflict merely because two
+    placements are different.
+    """
+
+    normalized = re.sub(r"[^a-z0-9]", "", str(name).casefold())
+    return normalized in {
+        "uuid",
+        "symboluuid",
+        "instanceuuid",
+        "kicadinstanceuuid",
+        "sheetname",
+        "sheetpath",
+        "sheetpathuuid",
+        "sheetpathuuids",
+        "kicadsheetpathnames",
+        "kicadsheetpathuuids",
+        "hierarchicalsheetpath",
+    }
+
+
 def _dedupe_key(component: dict[str, Any], *, project_id: str) -> str:
     fields = dict(component.get("fields") or {})
     manufacturer = _field(fields, "Manufacturer", "MFR")
@@ -38,7 +63,11 @@ def _dedupe_key(component: dict[str, Any], *, project_id: str) -> str:
         filtered_fields = {
             str(key): value
             for key, value in fields.items()
-            if _normalized(key) not in {"reference", "references"} and not str(key).startswith("_")
+            if (
+                _normalized(key) not in {"reference", "references"}
+                and not _is_instance_context_field(key)
+                and not str(key).startswith("_")
+            )
         }
         identity = [
             "project-content",
@@ -77,7 +106,11 @@ def _proposal(
     extraction_findings: list[dict[str, str]] | None = None,
     resolved: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    fields = dict(component.get("fields") or {})
+    fields = {
+        str(key): value
+        for key, value in (component.get("fields") or {}).items()
+        if not _is_instance_context_field(key) and not str(key).startswith("_")
+    }
     reference = str(component.get("reference") or "")
     footprint = str(component.get("footprint") or "")
     findings: list[dict[str, str]] = []
@@ -92,7 +125,7 @@ def _proposal(
     required_metadata = {
         "value": str(component.get("value") or fields.get("Value") or ""),
         "description": _field(fields, "Description"),
-        "datasheet": _field(fields, "Datasheet", "Data Sheet"),
+        "datasheet": _field(fields, "Datasheet", "Data Sheet", "Datasheet URL", "Datasheet Link"),
         "manufacturer": _field(fields, "Manufacturer", "MFR"),
         "manufacturer_part_number": _field(fields, "Manufacturer Part Number", "MPN", "Part Number"),
     }
@@ -225,7 +258,11 @@ def _merge_metadata(target: dict[str, Any], incoming: dict[str, Any]) -> list[di
     }
     for incoming_key, incoming_value in (incoming_metadata.get("fields") or {}).items():
         normalized_key = re.sub(r"[^a-z0-9]", "", str(incoming_key).casefold())
-        if normalized_key in excluded_fields or str(incoming_key).startswith("_"):
+        if (
+            normalized_key in excluded_fields
+            or _is_instance_context_field(incoming_key)
+            or str(incoming_key).startswith("_")
+        ):
             continue
         target_key = target_fields_by_name.get(normalized_key, incoming_key)
         target_value = target_fields.get(target_key)

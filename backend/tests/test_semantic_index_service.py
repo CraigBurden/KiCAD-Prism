@@ -102,6 +102,11 @@ class SemanticIndexServiceTests(unittest.TestCase):
             sys.modules,
             {"kicad_monkey": SimpleNamespace(KiCadDesign=FakeKiCadDesign)},
         ):
+            Path(temporary, "board.kicad_sch").write_text(
+                '(kicad_sch (symbol (lib_id "Acme:U12") (uuid "symbol-u12") '
+                '(property "Datasheet" "https://example.test/u12.pdf")))',
+                encoding="utf-8",
+            )
             payload = semantic_index_service.build_semantic_index(
                 Path(temporary) / "board.kicad_pro",
                 source_revision_key="revision-a",
@@ -111,6 +116,7 @@ class SemanticIndexServiceTests(unittest.TestCase):
         component = payload["components"][component_index]
         self.assertTrue(component["componentUid"].startswith("cmp:"))
         self.assertEqual(component["pcbRefs"][0]["footprintUuid"], "footprint-u12")
+        self.assertEqual(component["fields"]["Datasheet"], "https://example.test/u12.pdf")
         self.assertTrue(all(field in component["fields"] for field in semantic_index_service.REQUIRED_BOM_FIELDS))
 
         net_index = payload["indexes"]["netByName"]["VBUS"]
@@ -123,6 +129,17 @@ class SemanticIndexServiceTests(unittest.TestCase):
         terminal = payload["terminals"][terminal_index]
         self.assertEqual(terminal["schematicPinUuid"], "pin-u12-5")
         self.assertEqual(terminal["pcbPadUuid"], "pad-u12-5")
+
+    def test_canonical_fields_accepts_standard_and_custom_datasheet_spellings(self) -> None:
+        fields = semantic_index_service._canonical_fields(
+            {
+                "parameters": {
+                    "Datasheet Link": "",
+                    "Datasheet": "https://example.test/part.pdf",
+                }
+            }
+        )
+        self.assertEqual(fields["Datasheet"], "https://example.test/part.pdf")
 
 
 if __name__ == "__main__":

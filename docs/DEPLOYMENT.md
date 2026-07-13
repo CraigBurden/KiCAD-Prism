@@ -446,9 +446,37 @@ concurrent request handling:
 UVICORN_WORKERS=1
 ```
 
-SQLite uses one local database file with WAL enabled and automatic WAL checkpoints. Background import,
-workflow, and visual-diff job status is persisted in SQLite so polling remains reliable across
-multiple Uvicorn worker processes. Keep write-heavy catalog imports as explicit admin operations.
+Catalog imports, validation, and preview generation are executed by the
+`catalog-worker` service. Jobs, events, leases, retry counters, and resumable
+checkpoints live in PostgreSQL; the API never relies on an in-process daemon
+thread for catalog work. The default local-team profile runs two concurrent
+jobs while serializing KiCad-heavy work. Expired leases are reclaimable after a
+worker or host restart, and no Redis/message-broker service is required.
+
+Catalog files live on the same persistent deployment volume in a local
+content-addressed store. Mark-and-sweep maintenance quarantines unreferenced
+objects before deletion. Released source artifacts are retained, old draft
+source artifacts may be archived after 90 days, and derived previews can be
+regenerated. Replaced large STEP payloads may be purged instead of archived;
+historical revision metadata remains auditable and reports the payload as no
+longer available.
+
+Useful local-worker settings are:
+
+```env
+CATALOG_WORKER_CONCURRENCY=2
+CATALOG_WORKER_POLL_SECONDS=1
+CATALOG_JOB_LEASE_SECONDS=120
+CATALOG_ARTIFACT_ROOT=/app/projects/.kicad-prism/artifacts
+CATALOG_RETENTION_ENABLED=true
+CATALOG_IMPORT_ROOTS=engineering=/imports/engineering
+```
+
+If `CATALOG_IMPORT_ROOTS` is set, add each source as the same read-only volume
+on both `backend` (for validation and UI admission) and `catalog-worker` (for
+snapshot capture). Two job slots are sufficient for the target small-team
+deployment; a process-wide gate still permits only one KiCad-heavy operation at
+a time.
 
 Remote-symbol search uses SQLite FTS5 when available. The backend maintains the FTS index with
 SQLite triggers and falls back to `LIKE` search only if the runtime SQLite build does not include

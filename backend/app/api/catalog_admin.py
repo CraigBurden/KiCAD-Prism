@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import threading
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -9,10 +7,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.core.security import AuthenticatedUser, require_catalog_reader, require_catalog_writer
 from app.services.component_catalog_service import catalog_service
+from app.services.catalog_job_service import catalog_jobs
+from app.services.local_artifact_store import artifact_store
+from app.services.library_folder_import_service import configured_import_roots, resolve_server_import_path
 from app.services import semantic_visualizer_service
-from app.services.project_component_import_service import run_project_import_session
 from app.services.workspace_service import workspace
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
@@ -53,161 +54,19 @@ def _can_transition_workflow(user: AuthenticatedUser, current_stage: str, next_s
     return False
 
 
-def _update_validation_job(job_id: str, **fields: Any) -> None:
-    workspace.update_job(job_id, **fields)
-
-
-def _run_validation_job(job_id: str, component_ids: list[str] | None = None) -> None:
-    errors: list[dict[str, str]] = []
-    validated = 0
-    component_payload: dict[str, Any] | None = None
-    try:
-        if component_ids is None:
-            ids: list[str] = []
-            page = 1
-            while True:
-                result = catalog_service.list_components(
-                    include_inactive=False,
-                    page=page,
-                    page_size=10000,
-                    lightweight=True,
-                )
-                ids.extend(str(component["id"]) for component in result["items"])
-                if page >= int(result.get("pages") or 1):
-                    break
-                page += 1
-        else:
-            ids = component_ids
-
-        total = len(ids)
-        if total == 0:
-            _update_validation_job(
-                job_id,
-                status="completed",
-                message="No components to validate",
-                percent=100,
-                validated=0,
-                total=0,
-                errors=[],
-            )
-            return
-
-        _update_validation_job(job_id, message=f"Validating 0/{total} components", total=total)
-        for index, component_id in enumerate(ids, start=1):
-            _update_validation_job(
-                job_id,
-                message=f"Validating {index}/{total} components",
-                percent=((index - 1) / total) * 100,
-                current_component_id=component_id,
-                validated=validated,
-                errors=errors,
-            )
-            try:
-                result = catalog_service.validate_component_klc(component_id)
-                validated += 1
-                if total == 1:
-                    component_payload = result.get("component")
-            except ValueError as exc:
-                errors.append({"component_id": component_id, "error": str(exc)})
-
-        _update_validation_job(
-            job_id,
-            status="completed",
-            message=f"Validated {validated}/{total} components",
-            percent=100,
-            validated=validated,
-            total=total,
-            errors=errors,
-            component=component_payload,
-        )
-    except Exception as exc:
-        _update_validation_job(
-            job_id,
-            status="failed",
-            message="KLC validation failed",
-            percent=100,
-            error=str(exc),
-            validated=validated,
-            errors=errors,
-            component=component_payload,
-        )
-
-
-def _start_validation_job(component_ids: list[str] | None = None) -> str:
-    job_id = str(uuid.uuid4())
-    mode = "component" if component_ids and len(component_ids) == 1 else "catalog"
-    workspace.create_job(
-        job_id,
-        "catalog_validation",
-        status="running",
-        message="Queued KLC validation",
-        percent=0,
-        mode=mode,
-        component_ids=component_ids,
-        validated=0,
-        total=len(component_ids) if component_ids else None,
-        errors=[],
+def _enqueue_catalog_job(
+    job_type: str,
+    payload: dict[str, Any],
+    *,
+    actor: str,
+    idempotency_key: str = "",
+) -> dict[str, Any]:
+    return catalog_jobs.enqueue(
+        job_type,
+        payload,
+        created_by=actor,
+        idempotency_key=idempotency_key,
     )
-    thread = threading.Thread(target=_run_validation_job, args=(job_id, component_ids), daemon=True)
-    thread.start()
-    return job_id
-
-
-def _update_preview_job(job_id: str, **fields: Any) -> None:
-    workspace.update_job(job_id, **fields)
-
-
-def _run_preview_job(job_id: str) -> None:
-    try:
-        def update_progress(counts: dict[str, Any]) -> None:
-            total_assets = int(counts.get("total_assets") or 0)
-            scanned_assets = int(counts.get("scanned_assets") or 0)
-            percent = 100 if total_assets == 0 else (scanned_assets / total_assets) * 100
-            _update_preview_job(
-                job_id,
-                message=f"Generating previews {scanned_assets}/{total_assets}",
-                percent=percent,
-                **counts,
-            )
-
-        result = catalog_service.generate_missing_component_previews(progress_callback=update_progress)
-        _update_preview_job(
-            job_id,
-            status="completed",
-            message=(
-                f"Generated {result.get('generated', 0)} missing previews; "
-                f"{result.get('failed', 0)} failed"
-            ),
-            percent=100,
-            **result,
-        )
-    except Exception as exc:
-        _update_preview_job(
-            job_id,
-            status="failed",
-            message="Preview generation failed",
-            percent=100,
-            error=str(exc),
-        )
-
-
-def _start_preview_job() -> str:
-    job_id = str(uuid.uuid4())
-    workspace.create_job(
-        job_id,
-        "catalog_preview_generation",
-        status="running",
-        message="Queued preview generation",
-        percent=0,
-        scanned_assets=0,
-        generated=0,
-        skipped_ready=0,
-        failed=0,
-        errors=[],
-    )
-    thread = threading.Thread(target=_run_preview_job, args=(job_id,), daemon=True)
-    thread.start()
-    return job_id
 
 
 class CreateManualComponentRequest(BaseModel):
@@ -276,6 +135,16 @@ class ProjectImportRequest(BaseModel):
     project_id: str = ""
     source_revision: str = ""
     selection: ProjectComponentSelectionRequest | None = None
+
+
+class FolderSnapshotRequest(BaseModel):
+    display_name: str = "KiCad libraries"
+
+
+class ServerFolderImportRequest(BaseModel):
+    root_name: str
+    subpath: str = ""
+    display_name: str = ""
 
 
 class AcceptProjectImportProposalRequest(BaseModel):
@@ -391,9 +260,125 @@ def create_project_import_session(
             selection=payload.selection.model_dump(exclude_none=True) if payload.selection else None,
             actor=user.email,
         )
-        thread = threading.Thread(target=run_project_import_session, args=(str(session["id"]),), daemon=True)
-        thread.start()
-        return session
+        job = _enqueue_catalog_job(
+            "project_component_import",
+            {"session_id": str(session["id"])},
+            actor=user.email,
+            idempotency_key=f"project-import:{session['id']}",
+        )
+        return {**session, "job_id": job["id"]}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _folder_snapshot_for_user(snapshot_id: str, user: AuthenticatedUser) -> dict[str, Any]:
+    snapshot = artifact_store.get_snapshot(snapshot_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Folder snapshot not found")
+    if user.role != "admin" and str(snapshot.get("created_by") or "") != user.email:
+        raise HTTPException(status_code=403, detail="Folder snapshot access denied")
+    return snapshot
+
+
+@router.get("/import-sources/folder-roots")
+def list_folder_import_roots(user: AuthenticatedUser = Depends(require_catalog_writer)):
+    _ = user
+    return {
+        "items": [
+            {"name": name, "path_hint": path.name}
+            for name, path in configured_import_roots().items()
+        ]
+    }
+
+
+@router.post("/import-snapshots/folders", status_code=201)
+def create_folder_snapshot(
+    payload: FolderSnapshotRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    return artifact_store.create_snapshot(
+        source_type="browser",
+        display_name=payload.display_name,
+        created_by=user.email,
+    )
+
+
+@router.post("/import-snapshots/folders/{snapshot_id}/files", status_code=201)
+async def upload_folder_snapshot_file(
+    snapshot_id: str,
+    relative_path: str = Form(...),
+    file: UploadFile = File(...),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    _folder_snapshot_for_user(snapshot_id, user)
+    try:
+        artifact = artifact_store.put_stream(
+            file.file,
+            media_type=file.content_type or "application/octet-stream",
+            artifact_kind="source",
+            max_bytes=settings.CATALOG_IMPORT_MAX_FILE_BYTES,
+        )
+        artifact_store.add_snapshot_file(snapshot_id, relative_path, artifact)
+        return {"relative_path": relative_path, "sha256": artifact.sha256, "size_bytes": artifact.size_bytes}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        await file.close()
+
+
+@router.post("/import-snapshots/folders/{snapshot_id}/complete", status_code=202)
+def complete_folder_snapshot(
+    snapshot_id: str,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    _folder_snapshot_for_user(snapshot_id, user)
+    try:
+        snapshot = artifact_store.complete_snapshot(snapshot_id)
+        session = catalog_service.create_project_import_session(
+            scope="folder",
+            selection={"snapshot_id": snapshot_id, "display_name": snapshot.get("display_name")},
+            actor=user.email,
+        )
+        job = _enqueue_catalog_job(
+            "folder_library_import",
+            {"session_id": session["id"], "snapshot_id": snapshot_id},
+            actor=user.email,
+            idempotency_key=f"folder-import:{snapshot_id}",
+        )
+        return {**session, "job_id": job["id"]}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/import-snapshots/folders/server", status_code=202)
+def create_server_folder_snapshot(
+    payload: ServerFolderImportRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    try:
+        source = resolve_server_import_path(payload.root_name, payload.subpath)
+        snapshot = artifact_store.create_snapshot(
+            source_type="server",
+            display_name=payload.display_name.strip() or source.name,
+            source_locator=f"{payload.root_name}:{payload.subpath}",
+            created_by=user.email,
+        )
+        session = catalog_service.create_project_import_session(
+            scope="folder",
+            selection={"snapshot_id": snapshot["id"], "display_name": snapshot["display_name"]},
+            actor=user.email,
+        )
+        job = _enqueue_catalog_job(
+            "folder_library_import",
+            {
+                "session_id": session["id"],
+                "snapshot_id": snapshot["id"],
+                "server_source": {"root_name": payload.root_name, "subpath": payload.subpath},
+            },
+            actor=user.email,
+            idempotency_key=f"server-folder-import:{snapshot['id']}",
+        )
+        return {**session, "job_id": job["id"]}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -409,6 +394,16 @@ def get_project_import_session(
     if user.role != "admin" and str(session.get("created_by") or "") != user.email:
         raise HTTPException(status_code=403, detail="Import session access denied")
     return session
+
+
+@router.get("/jobs/{job_id}")
+def get_catalog_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    job = catalog_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Catalog job not found")
+    if user.role != "admin" and str(job.get("created_by") or "") != user.email:
+        raise HTTPException(status_code=403, detail="Catalog job access denied")
+    return {**job, "events": catalog_jobs.events(job_id)}
 
 
 @router.get("/import-sessions")
@@ -769,9 +764,12 @@ def regenerate_component_previews(component_id: str, user: AuthenticatedUser = D
 
 @router.post("/components/{component_id}/validate")
 def validate_component_klc(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _ = user
-    job_id = _start_validation_job([component_id])
-    return {"job_id": job_id, "status": "queued"}
+    job = _enqueue_catalog_job(
+        "catalog_validation",
+        {"component_ids": [component_id]},
+        actor=user.email,
+    )
+    return {"job_id": job["id"], "status": job["status"]}
 
 
 @router.get("/components/{component_id}/validation")
@@ -785,15 +783,14 @@ def get_component_validation(component_id: str, user: AuthenticatedUser = Depend
 
 @router.post("/validation/run")
 def validate_catalog(user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _ = user
-    job_id = _start_validation_job()
-    return {"job_id": job_id, "status": "queued"}
+    job = _enqueue_catalog_job("catalog_validation", {"component_ids": None}, actor=user.email)
+    return {"job_id": job["id"], "status": job["status"]}
 
 
 @router.get("/validation/jobs/{job_id}")
 def get_validation_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
-    job = workspace.get_job(job_id, "catalog_validation")
+    job = catalog_jobs.get(job_id, "catalog_validation")
     if not job:
         raise HTTPException(status_code=404, detail="Validation job not found")
     return job
@@ -820,18 +817,25 @@ def get_validation_report(run_id: str, report_name: str, user: AuthenticatedUser
 
 @router.post("/previews/generate-missing")
 def generate_missing_previews(user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _ = user
-    job_id = _start_preview_job()
-    return {"job_id": job_id, "status": "queued"}
+    job = _enqueue_catalog_job("catalog_preview_generation", {}, actor=user.email)
+    return {"job_id": job["id"], "status": job["status"]}
 
 
 @router.get("/previews/jobs/{job_id}")
 def get_preview_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
-    job = workspace.get_job(job_id, "catalog_preview_generation")
+    job = catalog_jobs.get(job_id, "catalog_preview_generation")
     if not job:
         raise HTTPException(status_code=404, detail="Preview generation job not found")
     return job
+
+
+@router.post("/artifacts/maintenance", status_code=202)
+def run_artifact_maintenance(user: AuthenticatedUser = Depends(require_catalog_writer)):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    job = _enqueue_catalog_job("artifact_maintenance", {}, actor=user.email)
+    return {"job_id": job["id"], "status": job["status"]}
 
 
 @router.post("/exports/kicad-dbl")

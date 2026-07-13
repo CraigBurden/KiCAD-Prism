@@ -455,12 +455,12 @@ export function LibraryCatalogWorkspace({
           <div className={cn("flex min-h-0 flex-1 flex-col border transition-opacity", loading && "pointer-events-none opacity-60")} aria-busy={loading}>
             <div className="hidden shrink-0 grid-cols-12 gap-3 border-b bg-muted/30 px-3 py-2 lg:grid">
               <span className="col-span-3"><SortControl label="Component / MPN" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="col-span-2"><SortControl label="Manufacturer" sortKey="manufacturer" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="col-span-2"><SortControl label="Category / Package" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="col-span-1"><SortControl label="CAD" sortKey="availability_state" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="col-span-1"><SortControl label="Workflow" sortKey="workflow_stage" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className="col-span-1 text-xs font-medium text-muted-foreground">Validation</span>
-              <span className="col-span-2"><SortControl label="Revision / Updated" sortKey="updated_at" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className={cn("col-span-2", selectedComponentId && "hidden")}><SortControl label="Manufacturer" sortKey="manufacturer" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className={cn("col-span-2", selectedComponentId && "hidden")}><SortControl label="Category / Package" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className={selectedComponentId ? "col-span-2" : "col-span-1"}><SortControl label="CAD" sortKey="availability_state" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className={selectedComponentId ? "col-span-2" : "col-span-1"}><SortControl label="Workflow" sortKey="workflow_stage" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className={cn("text-xs font-medium text-muted-foreground", selectedComponentId ? "col-span-2" : "col-span-1")}>Validation</span>
+              <span className={selectedComponentId ? "col-span-3" : "col-span-2"}><SortControl label="Revision / Updated" sortKey="updated_at" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
             </div>
             <div
               ref={catalogViewportRef}
@@ -478,12 +478,12 @@ export function LibraryCatalogWorkspace({
                   aria-pressed={selectedComponentId === component.id}
                 >
                   <div className="col-span-3 min-w-0"><p className="truncate text-sm font-medium">{component.name}</p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
-                  <div className="col-span-2 min-w-0"><p className="truncate text-xs">{component.manufacturer || "—"}</p><p className="truncate text-xs text-muted-foreground">{component.vendor || component.source}</p></div>
-                  <div className="col-span-2 min-w-0"><p className="truncate text-xs">{component.category || "Uncategorized"}</p><p className="truncate text-xs text-muted-foreground">{component.package_name || "No package"}</p></div>
-                  <div className="col-span-1"><AvailabilityBadge state={component.availability_state} /></div>
-                  <div className="col-span-1"><Badge variant="outline">{WORKFLOW_LABELS[component.workflow_stage]}</Badge></div>
-                  <div className="col-span-1"><ValidationBadge status={component.validation.status} /></div>
-                  <div className="col-span-2 min-w-0"><p className="text-xs font-medium">v{component.revision}</p><p className="truncate text-xs text-muted-foreground" title={component.created_by}>{formatDate(component.revision_updated_at)} · {component.created_by || "Unknown author"}</p></div>
+                  <div className={cn("col-span-2 min-w-0", selectedComponentId && "hidden")}><p className="truncate text-xs">{component.manufacturer || "—"}</p><p className="truncate text-xs text-muted-foreground">{component.vendor || component.source}</p></div>
+                  <div className={cn("col-span-2 min-w-0", selectedComponentId && "hidden")}><p className="truncate text-xs">{component.category || "Uncategorized"}</p><p className="truncate text-xs text-muted-foreground">{component.package_name || "No package"}</p></div>
+                  <div className={selectedComponentId ? "col-span-2" : "col-span-1"}><AvailabilityBadge state={component.availability_state} /></div>
+                  <div className={selectedComponentId ? "col-span-2" : "col-span-1"}><Badge variant="outline">{WORKFLOW_LABELS[component.workflow_stage]}</Badge></div>
+                  <div className={selectedComponentId ? "col-span-2" : "col-span-1"}><ValidationBadge status={component.validation.status} /></div>
+                  <div className={cn("min-w-0", selectedComponentId ? "col-span-3" : "col-span-2")}><p className="text-xs font-medium">v{component.revision}</p><p className="truncate text-xs text-muted-foreground" title={component.created_by}>{formatDate(component.revision_updated_at)} · {component.created_by || "Unknown author"}</p></div>
                 </button>
               ))}
               </div>

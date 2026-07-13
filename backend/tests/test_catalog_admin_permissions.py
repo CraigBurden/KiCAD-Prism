@@ -12,6 +12,7 @@ from app.api import catalog_admin  # noqa: E402
 from app.api.catalog_admin import _can_transition_workflow  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.services.component_catalog_service import ComponentCatalogService  # noqa: E402
+from app.services import catalog_worker_tasks  # noqa: E402
 
 
 class CatalogAdminPermissionTests(unittest.TestCase):
@@ -33,21 +34,24 @@ class CatalogAdminPermissionTests(unittest.TestCase):
     def test_single_component_validation_job_returns_updated_component(self) -> None:
         updates: list[dict[str, object]] = []
 
-        def record_update(_job_id: str, **fields: object) -> None:
+        def record_update(**fields: object) -> bool:
             updates.append(fields)
+            return True
 
         with (
-            patch.object(catalog_admin.workspace, "update_job", side_effect=record_update),
             patch.object(
-                catalog_admin.catalog_service,
+                catalog_worker_tasks.catalog_service,
                 "validate_component_klc",
                 return_value={"component": {"id": "cmp-1", "validation": {"status": "passed"}}},
             ),
         ):
-            catalog_admin._run_validation_job("job-1", ["cmp-1"])
+            result = catalog_worker_tasks.run_validation(
+                {"payload": {"component_ids": ["cmp-1"]}, "checkpoint": {}, "result": {}},
+                record_update,
+            )
 
-        self.assertEqual(updates[-1]["status"], "completed")
-        self.assertEqual(updates[-1]["component"], {"id": "cmp-1", "validation": {"status": "passed"}})
+        self.assertEqual(updates[-1]["progress"], 100)
+        self.assertEqual(result["component"], {"id": "cmp-1", "validation": {"status": "passed"}})
 
     def test_catalog_validation_job_paginates_every_component(self) -> None:
         updates: list[dict[str, object]] = []
@@ -65,17 +69,19 @@ class CatalogAdminPermissionTests(unittest.TestCase):
             return {"component": {"id": component_id}}
 
         with (
-            patch.object(catalog_admin.workspace, "update_job", side_effect=lambda _job_id, **fields: updates.append(fields)),
-            patch.object(catalog_admin.catalog_service, "list_components", side_effect=list_page),
-            patch.object(catalog_admin.catalog_service, "validate_component_klc", side_effect=validate),
+            patch.object(catalog_worker_tasks.catalog_service, "list_components", side_effect=list_page),
+            patch.object(catalog_worker_tasks.catalog_service, "validate_component_klc", side_effect=validate),
         ):
-            catalog_admin._run_validation_job("job-all")
+            result = catalog_worker_tasks.run_validation(
+                {"payload": {"component_ids": None}, "checkpoint": {}, "result": {}},
+                lambda **fields: updates.append(fields) or True,
+            )
 
         self.assertEqual(requested_pages, [1, 2])
         self.assertEqual(validated_ids, ["cmp-1", "cmp-2", "cmp-3"])
-        self.assertEqual(updates[-1]["status"], "completed")
-        self.assertEqual(updates[-1]["validated"], 3)
-        self.assertEqual(updates[-1]["total"], 3)
+        self.assertEqual(updates[-1]["progress"], 100)
+        self.assertEqual(result["validated"], 3)
+        self.assertEqual(result["total"], 3)
 
     def test_generate_missing_previews_skips_ready_and_retries_failed_assets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
