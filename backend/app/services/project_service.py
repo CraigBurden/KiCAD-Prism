@@ -328,8 +328,17 @@ def get_registered_projects() -> List[Project]:
 
 def get_project_by_id(project_id: str) -> Optional[Project]:
     """
-    Efficiently get a single project by its ID without scanning all projects if possible.
+    Resolve a project from the authoritative workspace registry.
+
+    The JSON registry remains a compatibility fallback for older local installs,
+    but current `prj_*` identities are owned by the workspace database. This is
+    especially important in separate worker processes, whose legacy in-memory
+    registry cache may be empty even though the API can see the project.
     """
+    workspace_row = workspace.get_project_by_id(project_id)
+    if workspace_row:
+        return _workspace_row_to_project(workspace_row)
+
     # Try cache first
     global _projects_cache, _projects_cache_time
     current_time = time.time()

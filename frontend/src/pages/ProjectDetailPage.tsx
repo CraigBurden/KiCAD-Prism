@@ -513,7 +513,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </nav>
                 </aside>
 
-                <main className="flex-1 overflow-auto p-6">
+                <main className={cn("min-h-0 min-w-0 flex-1", activeSection === "visualizers" ? "overflow-hidden" : "overflow-auto p-6")}>
                     {activeSection === "overview" && (
                         <div className="space-y-6">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -581,7 +581,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                 activeSection !== "visualizers" && "hidden" // Hide if not active
                             )}
                         >
-                            <h2 className="text-2xl font-bold mb-6">Visualizers</h2>
                             <div className="flex-1 min-h-0">
                                 {projectId && (
                                     <Suspense fallback={<div className="text-sm text-muted-foreground">Loading visualizers...</div>}>

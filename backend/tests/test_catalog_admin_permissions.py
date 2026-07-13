@@ -12,6 +12,7 @@ from app.api import catalog_admin  # noqa: E402
 from app.api.catalog_admin import _can_transition_workflow  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.services.component_catalog_service import ComponentCatalogService  # noqa: E402
+from app.services import catalog_worker_tasks  # noqa: E402
 
 
 class CatalogAdminPermissionTests(unittest.TestCase):
@@ -33,21 +34,54 @@ class CatalogAdminPermissionTests(unittest.TestCase):
     def test_single_component_validation_job_returns_updated_component(self) -> None:
         updates: list[dict[str, object]] = []
 
-        def record_update(_job_id: str, **fields: object) -> None:
+        def record_update(**fields: object) -> bool:
             updates.append(fields)
+            return True
 
         with (
-            patch.object(catalog_admin.workspace, "update_job", side_effect=record_update),
             patch.object(
-                catalog_admin.catalog_service,
+                catalog_worker_tasks.catalog_service,
                 "validate_component_klc",
                 return_value={"component": {"id": "cmp-1", "validation": {"status": "passed"}}},
             ),
         ):
-            catalog_admin._run_validation_job("job-1", ["cmp-1"])
+            result = catalog_worker_tasks.run_validation(
+                {"payload": {"component_ids": ["cmp-1"]}, "checkpoint": {}, "result": {}},
+                record_update,
+            )
 
-        self.assertEqual(updates[-1]["status"], "completed")
-        self.assertEqual(updates[-1]["component"], {"id": "cmp-1", "validation": {"status": "passed"}})
+        self.assertEqual(updates[-1]["progress"], 100)
+        self.assertEqual(result["component"], {"id": "cmp-1", "validation": {"status": "passed"}})
+
+    def test_catalog_validation_job_paginates_every_component(self) -> None:
+        updates: list[dict[str, object]] = []
+        requested_pages: list[int] = []
+        validated_ids: list[str] = []
+
+        def list_page(**kwargs: object) -> dict[str, object]:
+            page = int(kwargs["page"])
+            requested_pages.append(page)
+            items = [{"id": "cmp-1"}, {"id": "cmp-2"}] if page == 1 else [{"id": "cmp-3"}]
+            return {"items": items, "page": page, "page_size": 10000, "pages": 2, "total": 3}
+
+        def validate(component_id: str) -> dict[str, object]:
+            validated_ids.append(component_id)
+            return {"component": {"id": component_id}}
+
+        with (
+            patch.object(catalog_worker_tasks.catalog_service, "list_components", side_effect=list_page),
+            patch.object(catalog_worker_tasks.catalog_service, "validate_component_klc", side_effect=validate),
+        ):
+            result = catalog_worker_tasks.run_validation(
+                {"payload": {"component_ids": None}, "checkpoint": {}, "result": {}},
+                lambda **fields: updates.append(fields) or True,
+            )
+
+        self.assertEqual(requested_pages, [1, 2])
+        self.assertEqual(validated_ids, ["cmp-1", "cmp-2", "cmp-3"])
+        self.assertEqual(updates[-1]["progress"], 100)
+        self.assertEqual(result["validated"], 3)
+        self.assertEqual(result["total"], 3)
 
     def test_generate_missing_previews_skips_ready_and_retries_failed_assets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -72,9 +106,6 @@ class CatalogAdminPermissionTests(unittest.TestCase):
             footprint_path = service.store_root / "footprints" / "SharedFootprints.pretty" / "R_10K.kicad_mod"
             footprint_path.parent.mkdir(parents=True, exist_ok=True)
             footprint_path.write_text('(footprint "R_10K")', encoding="utf-8")
-            ready_preview = root / "ready.svg"
-            ready_preview.write_text("<svg />", encoding="utf-8")
-
             with service._connect() as conn:  # type: ignore[attr-defined]
                 symbol_asset = service._register_asset(  # type: ignore[attr-defined]
                     conn,
@@ -92,32 +123,35 @@ class CatalogAdminPermissionTests(unittest.TestCase):
                 )
                 service._link_asset_to_revision(conn, component["revision_id"], symbol_asset, required=True)  # type: ignore[attr-defined]
                 service._link_asset_to_revision(conn, component["revision_id"], footprint_asset, required=True)  # type: ignore[attr-defined]
-                service._upsert_asset_preview(  # type: ignore[attr-defined]
+                ready_preview = service._store_preview_version(  # type: ignore[attr-defined]
                     conn,
-                    asset_id=symbol_asset["id"],
+                    asset=symbol_asset,
                     kind="symbol",
-                    status="ready",
-                    file_path=str(ready_preview),
+                    payload=b"<svg>ready symbol</svg>",
                 )
-                service._upsert_asset_preview(  # type: ignore[attr-defined]
-                    conn,
-                    asset_id=footprint_asset["id"],
-                    kind="footprint",
-                    status="failed",
-                    generation_error="previous failure",
+                conn.execute(
+                    """
+                    INSERT INTO revision_previews (revision_id, asset_id, kind, preview_id, created_at)
+                    VALUES (?, ?, 'symbol', ?, ?)
+                    """,
+                    (
+                        component["revision_id"],
+                        symbol_asset["id"],
+                        ready_preview["id"],
+                        ready_preview["created_at"],
+                    ),
                 )
                 conn.commit()
 
             generated_assets: list[str] = []
 
-            def fake_ensure_preview(_conn: object, asset: dict[str, object]) -> None:
+            def fake_ensure_preview(_conn: object, asset: dict[str, object]) -> dict[str, object]:
                 generated_assets.append(str(asset["id"]))
-                service._upsert_asset_preview(  # type: ignore[attr-defined]
+                return service._store_preview_version(  # type: ignore[attr-defined, no-any-return]
                     _conn,  # type: ignore[arg-type]
-                    asset_id=str(asset["id"]),
-                    kind=str(asset["asset_type"]),
-                    status="ready",
-                    file_path=str(root / f"{asset['id']}.svg"),
+                    asset=asset,
+                    kind="footprint",
+                    payload=b"<svg>generated footprint</svg>",
                 )
 
             with patch.object(service, "_ensure_asset_preview", side_effect=fake_ensure_preview):

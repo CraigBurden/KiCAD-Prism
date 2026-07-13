@@ -260,9 +260,101 @@ class Settings(BaseSettings):
     CATALOG_SQLITE_PATH: str = Field(
         default="",
         description=(
-            "SQLite database path for component catalog, remote-provider OAuth, "
-            "and local service-client metadata. Defaults under KICAD_PROJECTS_ROOT."
+            "Legacy/local-development SQLite component catalog path. In PostgreSQL "
+            "deployments this is only the verified one-time migration source."
         ),
+    )
+
+    PRISM_STATE_SQLITE_PATH: str = Field(
+        default="",
+        description=(
+            "SQLite path for the local project/folder/job workspace registry. Defaults "
+            "to CATALOG_SQLITE_PATH during the PostgreSQL catalog transition."
+        ),
+    )
+
+    CATALOG_DATABASE_URL: str = Field(
+        default="",
+        description=(
+            "Authoritative PostgreSQL URL for the component library. When set, the "
+            "catalog service uses PostgreSQL and CATALOG_SQLITE_PATH is treated only "
+            "as a legacy migration source."
+        ),
+    )
+
+    CATALOG_DATABASE_POOL_MIN_SIZE: int = Field(
+        default=1,
+        ge=0,
+        le=20,
+        description="Minimum PostgreSQL connections retained per backend worker.",
+    )
+
+    CATALOG_DATABASE_POOL_MAX_SIZE: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum PostgreSQL connections retained per backend worker.",
+    )
+
+    CATALOG_WORKER_CONCURRENCY: int = Field(
+        default=2,
+        ge=1,
+        le=8,
+        description="Maximum catalog jobs executed concurrently by the local worker.",
+    )
+
+    CATALOG_WORKER_POLL_SECONDS: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=30.0,
+        description="PostgreSQL catalog job polling interval.",
+    )
+
+    CATALOG_JOB_LEASE_SECONDS: int = Field(
+        default=120,
+        ge=30,
+        le=3600,
+        description="Duration of a catalog worker lease before an abandoned job is reclaimable.",
+    )
+
+    CATALOG_ARTIFACT_ROOT: str = Field(
+        default="",
+        description=(
+            "Local content-addressed artifact root. Defaults to "
+            "KICAD_PROJECTS_ROOT/.kicad-prism/artifacts."
+        ),
+    )
+
+    CATALOG_RETENTION_ENABLED: bool = Field(
+        default=True,
+        description="Run the local archive/quarantine/GC policy once per day.",
+    )
+
+    CATALOG_IMPORT_ROOTS: str = Field(
+        default="",
+        description=(
+            "Comma-separated name=/absolute/read-only/path entries exposed as folder "
+            "snapshot sources in the Import Center."
+        ),
+    )
+
+    CATALOG_IMPORT_MAX_FILES: int = Field(
+        default=100000,
+        ge=1,
+        le=1000000,
+        description="Maximum files in one immutable folder snapshot.",
+    )
+
+    CATALOG_IMPORT_MAX_FILE_BYTES: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        ge=1024,
+        description="Maximum size of one folder snapshot file.",
+    )
+
+    CATALOG_IMPORT_MAX_SNAPSHOT_BYTES: int = Field(
+        default=200 * 1024 * 1024 * 1024,
+        ge=1024,
+        description="Maximum aggregate size of one folder snapshot.",
     )
 
     CATALOG_DBL_EXPORT_DIR: str = Field(

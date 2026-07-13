@@ -1,6 +1,41 @@
 # Import Existing KiCad Libraries
 
-This guide covers migrating existing KiCad component libraries into Prism's SQLite-backed component catalog.
+This guide covers importing existing KiCad component libraries into Prism's
+PostgreSQL-backed catalog. Import is non-destructive and creates staged draft
+proposals only. The normal path is the **Library Manager -> Import Center ->
+Folder** workflow; the administrator CLI remains a compatibility and automation
+path.
+
+The browser workflow accepts a parent directory while preserving relative
+paths. Prism discovers symbols, footprints, and referenced 3D models beneath
+that directory and correlates them from KiCad library names and footprint model
+references. An administrator may also configure read-only server import roots
+for large local collections; Prism snapshots a selected subdirectory without
+modifying it. Neither mode requires a desktop companion or a pre-sanitized CSV.
+
+## Import Center workflow
+
+1. Open **Library Manager -> Import Center**.
+2. Select **Choose library folder** and choose the parent directory. The
+   browser preserves every relative path while Prism uploads files in small,
+   retryable requests.
+3. Prism freezes a manifest, then the PostgreSQL worker discovers symbol
+   definitions, `.pretty` footprints, footprint model references, SPICE links,
+   custom symbol fields, and duplicate identities.
+4. Review findings and asset choices. Accepting a proposal creates or updates a
+   draft component revision; it never releases the result automatically.
+
+For very large collections already visible to the Prism host, configure one or
+more read-only roots with `CATALOG_IMPORT_ROOTS`, for example:
+
+```env
+CATALOG_IMPORT_ROOTS=engineering=/imports/engineering,vendor=/imports/vendor
+```
+
+Mount those paths read-only into both `backend` and `catalog-worker`. The UI
+shows only configured root names and an optional subdirectory field; path
+traversal outside a root is rejected. Prism copies content into its immutable
+snapshot before parsing, so it never edits the source library.
 
 Prism uses two separate layers:
 
@@ -86,7 +121,7 @@ Use `scripts/import_kicad_library_assets.py` for the normal migration workflow. 
 
 - normalize and split packed symbols
 - copy footprints, STEP models, and SPICE files into canonical storage
-- register reusable asset rows in SQLite
+- register reusable asset rows in the configured PostgreSQL catalog
 - generate asset-scoped symbol and footprint previews
 - generate a component metadata CSV with asset-link columns
 
@@ -122,7 +157,7 @@ docker compose run --rm \
 
 As the script processes your files, it will explicitly output the current progress (e.g. `Processing symbol library: MyLib.kicad_sym ...` and `-> Extracting symbol: Resistor_10k`) so you can directly monitor the operation.
 
-For a host-side dry run without touching SQLite:
+For a host-side dry run without touching the catalog:
 
 ```bash
 python3 scripts/import_kicad_library_assets.py \
@@ -138,8 +173,8 @@ python3 scripts/import_kicad_library_assets.py \
 Useful options:
 
 - `--store-root path`: Prism canonical store root. In Docker this is normally `/app/projects/.kicad-prism/components`.
-- `--database-url path`: explicit SQLite catalog path. Normally omit this in Docker and let backend settings use `CATALOG_SQLITE_PATH`.
-- `--no-index-db`: write canonical files only; do not create SQLite asset rows.
+- `--database-url URL`: explicit PostgreSQL catalog URL. Normally omit this in Docker and let backend settings use `CATALOG_DATABASE_URL`. Filesystem paths remain supported only for local SQLite compatibility.
+- `--no-index-db`: write canonical files only; do not create catalog asset rows.
 - `--no-previews`: skip preview generation.
 - `--skip-symbol-upgrade`: do not run `kicad-cli sym upgrade` before splitting symbols.
 - `--overwrite`: overwrite conflicting canonical files instead of writing suffixed names.
@@ -153,7 +188,8 @@ Use `--csv-store-root /app/projects/.kicad-prism/components` when the generated 
 
 ## Generated CSV Contract
 
-The generated CSV is intended for the Library Manager Import Dialog.
+The generated CSV is accepted by the authenticated administrator compatibility
+endpoint `POST /api/catalog/components/import-csv`.
 
 Required metadata columns:
 
@@ -189,7 +225,7 @@ Optional asset-link columns:
 - `model_3d_file_path`
 - `spice_file_path`
 
-CSV behavior in the Library Manager:
+CSV import behavior:
 
 - Rows are upserted by `manufacturer_part_number`.
 - Rows with no asset columns become metadata-only components.
@@ -202,13 +238,17 @@ The script fills missing required metadata from symbol properties where possible
 
 ## Database Object Structure
 
-It's important to understand *how* Prism stores component data to see why we use both a Python ingestion script and a UI-based CSV import step. In the PostgreSQL database, physical files and the components themselves exist separately:
+It's important to understand *how* Prism stores component data to see why the
+compatibility path uses both an ingestion script and a CSV admission step. In
+PostgreSQL, physical files and the components themselves exist separately:
 
 1. **Assets (`assets` table):** This contains canonical representations of reusable physical files (symbols, footprints, 3D models). To prevent data duplication, different components can safely reference the exact same asset row without redefining it. The Python script physically splits and copies your files into the V10 KiCAD standard, indexing them into the `assets` table. It does *not* create user-facing components.
 2. **Components (`components` & `component_revisions` tables):** This is the user-facing metadata element containing attributes like `Manufacturer`, `Part Number`, `Value`, and descriptive keywords.
 3. **Links (`revision_assets` table):** This associates physical files (Assets) to the unified logical entity (Component).
 
-By generating a CSV out of your symbols, the Python script prepares the bridge. When you upload that CSV via the **Import Components Dialog Box** inside the Prism Workspace, the backend performs upserts into the `components` structure and builds the proper linkage entries to your previously uploaded backend `assets`.
+By generating a CSV out of your symbols, the Python script prepares the bridge.
+The authenticated CSV endpoint creates one finalized draft revision per row and
+builds the proper asset links before calculating its immutable manifest.
 
 ## Typical Migration Workflow
 
@@ -217,11 +257,12 @@ By generating a CSV out of your symbols, the Python script prepares the bridge. 
 3. Review the JSON report for errors and placeholder counts.
 4. Review the generated CSV and correct metadata placeholders.
 5. Open KiCAD Prism.
-6. Go to `Apps & Integrations` -> `Library Manager`.
-7. Use the Import Dialog to upload the generated CSV.
-8. Verify imported components in the Library Manager.
-9. Release only the components that are QA-approved and place-ready.
-10. Open the KiCad Remote Symbols panel and confirm released components appear.
+6. Upload the generated CSV through an authenticated administrator client to
+   `POST /api/catalog/components/import-csv`.
+7. Verify the resulting drafts in the Library Manager Catalog and Component
+   workspaces.
+8. Release only the components that are QA-approved and place-ready.
+9. Open the KiCad Remote Symbols panel and confirm released components appear.
 
 ## Troubleshooting
 

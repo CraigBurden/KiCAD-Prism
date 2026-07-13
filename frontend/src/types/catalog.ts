@@ -12,11 +12,17 @@ export interface CatalogAsset {
   target_name: string;
   content_type: string;
   required: boolean;
+  sha256?: string;
+  size_bytes?: number;
+  source_group?: string;
 }
 
 export interface CatalogPreview {
   id: string;
   kind: "symbol" | "footprint";
+  preview_key: string;
+  unit: number;
+  unit_label: string;
   status: "ready" | "failed";
   content_type: string;
   file_path: string;
@@ -43,6 +49,21 @@ export interface CatalogValidationRun {
     stdout: string;
     stderr: string;
   };
+  findings?: CatalogValidationFinding[];
+}
+
+export interface CatalogValidationFinding {
+  id: string;
+  run_id: string;
+  severity: "error" | "warning" | "info";
+  rule_code: string;
+  rule_url: string;
+  message: string;
+}
+
+export interface CatalogComponentValidationEvidence {
+  summary: CatalogValidationSummary;
+  runs: CatalogValidationRun[];
 }
 
 export interface CatalogAssetValidation {
@@ -74,6 +95,11 @@ export interface CatalogComponent {
   external_workflow_source: string;
   external_workflow_id: string;
   external_workflow_url: string;
+  external_url?: string;
+  external_payload?: Record<string, unknown>;
+  external_updated_at?: string;
+  sync_status?: string;
+  sync_error?: string;
   source: ComponentSource;
   name: string;
   value: string;
@@ -106,7 +132,21 @@ export interface CatalogComponent {
   last_synced_at: string;
   is_active: boolean;
   revision_id: string;
+  revision: number;
   version: string;
+  parent_revision_id: string;
+  change_kind: string;
+  change_summary: string;
+  created_by: string;
+  manifest_hash: string;
+  component_created_at?: string;
+  component_updated_at?: string;
+  revision_created_at?: string;
+  revision_updated_at?: string;
+  current_revision_id?: string;
+  released_revision_id?: string;
+  is_historical_revision?: boolean;
+  extra_fields: Record<string, string>;
   summary: string;
   library_name: string;
   symbol_name: string;
@@ -115,6 +155,185 @@ export interface CatalogComponent {
   assets: CatalogAsset[];
   previews: CatalogPreview[];
   validation: CatalogValidationSummary;
+  released_view?: boolean;
+}
+
+export interface CatalogRevisionSummary {
+  id: string;
+  component_id: string;
+  version: number;
+  parent_revision_id: string;
+  change_kind: string;
+  change_summary: string;
+  created_by: string;
+  manifest_hash: string;
+  release_status: ReleaseStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CatalogRevisionDiffAsset {
+  assetId: string;
+  assetType: CatalogAsset["asset_type"];
+  targetLibrary: string;
+  targetName: string;
+  sha256: string;
+  sizeBytes: number;
+  previewId: string;
+  previewStatus: string;
+  previews: Array<{
+    previewId: string;
+    previewStatus: string;
+    previewSha256: string;
+    previewGeneratorFingerprint: string;
+    unit: number;
+    unitLabel: string;
+  }>;
+}
+
+export interface CatalogRevisionDiff {
+  componentId: string;
+  before: {
+    revisionId: string;
+    version: number;
+    manifestHash: string;
+  };
+  after: {
+    revisionId: string;
+    version: number;
+    manifestHash: string;
+  };
+  summary: {
+    metadataChanges: number;
+    assetChanges: number;
+  };
+  metadataChanges: Array<{
+    field: string;
+    before: string;
+    after: string;
+    status: "added" | "removed" | "modified" | "unchanged";
+  }>;
+  assetChanges: Array<{
+    key: string;
+    before: CatalogRevisionDiffAsset | null;
+    after: CatalogRevisionDiffAsset | null;
+    status: "added" | "removed" | "modified" | "unchanged";
+  }>;
+}
+
+export interface CatalogAuditEvent {
+  id: string;
+  component_id: string;
+  revision_id: string;
+  event_type: string;
+  actor: string;
+  details: Record<string, unknown>;
+  previous_hash: string;
+  event_hash: string;
+  created_at: string;
+  sequence?: number;
+}
+
+export interface CatalogAuditVerification {
+  valid: boolean;
+  event_count: number;
+  verified_count: number;
+  first_invalid_event_id: string;
+  head_hash: string;
+}
+
+export interface CatalogComponentUsage {
+  id: string;
+  component_id: string;
+  project_id: string;
+  source_revision: string;
+  references: string[];
+  details?: Array<Record<string, unknown>>;
+  is_current?: boolean;
+  source: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface CatalogReviewDecision {
+  id: string;
+  component_id: string;
+  revision_id: string;
+  reviewer: string;
+  reviewer_role?: string;
+  decision: "approved" | "changes_requested" | "emergency_override" | "released" | "archived" | string;
+  note: string;
+  manifest_hash?: string;
+  validation?: Record<string, unknown>;
+  policy?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface CatalogReleaseRecord {
+  id: string;
+  component_id: string;
+  revision_id: string;
+  release_label: string;
+  manifest_hash: string;
+  released_by: string;
+  approval_decision_id: string;
+  validation: Partial<CatalogValidationSummary> & Record<string, unknown>;
+  policy: {
+    two_person_approval?: boolean;
+    klc_release_gate?: "off" | "warn" | "block" | string;
+    [key: string]: unknown;
+  };
+  created_at: string;
+}
+
+export interface ProjectComponentImportProposal {
+  id: string;
+  session_id: string;
+  dedupe_key: string;
+  component_uid: string;
+  reference: string;
+  status: "candidate" | "accepted" | "rejected";
+  accepted_component_id: string;
+  metadata: Record<string, unknown>;
+  assets: Array<{
+    asset_type: "symbol" | "footprint" | "3dmodel" | "spice";
+    filename: string;
+    sha256: string;
+    size_bytes: number;
+    target_library: string;
+    target_name: string;
+    source_path: string;
+  }>;
+  provenance: Array<{
+    projectId: string;
+    sourceRevision: string;
+    reference: string;
+    componentUid: string;
+  }>;
+  findings: Array<{ code: string; severity: "warning" | "error"; message: string }>;
+}
+
+export interface ProjectComponentImportSession {
+  id: string;
+  scope: "component" | "project" | "all-projects" | "folder";
+  project_id: string;
+  project_ids: string[];
+  project_revisions: Record<string, string>;
+  source_revision: string;
+  status: "queued" | "uploading" | "scanning" | "staged" | "failed";
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  error_message: string;
+  proposal_count: number;
+  selection: {
+    component_uid?: string;
+    reference?: string;
+    schematic_uuid?: string;
+    pcb_footprint_uuid?: string;
+    snapshot_id?: string;
+    display_name?: string;
+  };
 }
 
 export interface PaginatedComponents {
@@ -123,6 +342,14 @@ export interface PaginatedComponents {
   page: number;
   page_size: number;
   pages: number;
+}
+
+export interface CatalogReleaseQueueResponse extends PaginatedComponents {
+  summary: {
+    qa_review: number;
+    done: number;
+    blocked: number;
+  };
 }
 
 export interface SelectionRequiredResponse {
