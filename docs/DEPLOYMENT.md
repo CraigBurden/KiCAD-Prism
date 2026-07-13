@@ -4,12 +4,14 @@ This document covers the current KiCAD Prism deployment model for Docker hosting
 
 ## Runtime Overview
 
-KiCAD Prism runs as two services:
+KiCAD Prism runs as three long-lived services plus one migration job:
 
+- `postgres`: PostgreSQL 17 catalog, revision, workflow, release, audit, usage, and KiCad provider state
 - `backend`: FastAPI API server on port `8000`
 - `frontend`: production Vite bundle served by Nginx on port `8080`
+- `catalog-migrate`: one-shot, verified legacy SQLite catalog migration that must finish before the backend starts
 
-In Docker, the frontend proxies `/api/*`, `/oauth/*`, `/.well-known/kicad-remote-provider`, and `/remote-provider/*` requests to the backend over the Compose network. The backend stores component metadata, release workflow state, KiCad OAuth state, and local service-client metadata in SQLite under the mounted project data directory. KiCad symbol, footprint, 3D model, SPICE, preview, DBL export, and revision files are stored on disk under the same project data directory.
+In Docker, the frontend proxies `/api/*`, `/oauth/*`, `/.well-known/kicad-remote-provider`, and `/remote-provider/*` requests to the backend over the Compose network. PostgreSQL is authoritative for component metadata, immutable revisions, release workflow, audit evidence, component usage, and KiCad remote-provider catalog/OAuth records. The smaller workspace/project/job registry remains in SQLite under the mounted project data directory. KiCad symbol, footprint, 3D model, SPICE, preview, DBL export, and content-addressed revision files remain on the shared project volume.
 
 Default local endpoints:
 - UI: [http://127.0.0.1:8080](http://127.0.0.1:8080)
@@ -55,7 +57,9 @@ BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
 DEFAULT_VIEWER_DOMAINS_STR=
 GITHUB_TOKEN=
 DEV_MODE=false
+CATALOG_DATABASE_URL=
 CATALOG_SQLITE_PATH=
+PRISM_STATE_SQLITE_PATH=
 CATALOG_DBL_EXPORT_DIR=
 CATALOG_KLC_ENABLED=false
 CATALOG_KLC_RELEASE_GATE=warn
@@ -73,7 +77,16 @@ PY
 Important:
 - `SESSION_SECRET` is required whenever auth is effectively enabled.
 - `DEFAULT_VIEWER_DOMAINS_STR` can stay empty. Set it only if every user from one or more trusted email domains should get implicit viewer access.
-- `CATALOG_SQLITE_PATH` can stay empty for the bundled Compose stack. Docker defaults to `/app/projects/.kicad-prism/prism.sqlite3`.
+- `CATALOG_DATABASE_URL` can stay empty for the bundled Compose stack, which supplies its private PostgreSQL service. Use an explicit TLS-enabled URL for managed production PostgreSQL.
+- `CATALOG_SQLITE_PATH` is the one-time legacy catalog migration source. Docker defaults to `/app/projects/.kicad-prism/prism.sqlite3`.
+- `PRISM_STATE_SQLITE_PATH` retains the local project/folder/job registry independently from PostgreSQL and defaults to the same `prism.sqlite3` path during migration.
+
+For an upgrade, stop every legacy SQLite writer for the complete catalog
+migration window. The cutover job verifies the live source fingerprint and
+database/WAL file state again immediately before committing PostgreSQL, and
+fails closed if either changed. Fresh empty initialization is an explicit,
+guarded Compose opt-in and is rejected when legacy component files or backups
+exist.
 - `CATALOG_DBL_EXPORT_DIR` can stay empty for the bundled Compose stack. Docker defaults to `/app/projects/.kicad-prism/exports/kicad-dbl`.
 - `CATALOG_KLC_ENABLED=false` keeps KiCad Library Convention checks optional. Set it to `true` to enable Library Manager health validation.
 - `CATALOG_KLC_RELEASE_GATE=warn` surfaces validation issues without blocking release. Use `block` only if your team wants KLC errors or missing KLC reports to prevent release.
@@ -85,6 +98,11 @@ Important:
 ```bash
 docker compose up --build -d
 ```
+
+Compose waits for PostgreSQL and the verified one-shot `catalog-migrate` job
+before starting the API. Inspect
+`data/projects/.kicad-prism/catalog-postgres-migration-report.json` after the
+first upgrade; a migration failure intentionally prevents backend startup.
 
 Open the UI at [http://127.0.0.1:8080](http://127.0.0.1:8080).
 
@@ -100,9 +118,12 @@ Current Compose mounts:
 
 - `./data/projects` -> `/app/projects`
 - `./data/ssh` -> `/root/.ssh`
+- named volume `prism-postgres-data` -> PostgreSQL data directory
 
 Persisted data includes:
-- SQLite workspace/project/folder metadata, background job state, component catalog, KiCad OAuth state, and service-client metadata at `data/projects/.kicad-prism/prism.sqlite3`
+- PostgreSQL component catalog, revision, release, audit, usage, import, validation, and KiCad provider state in `prism-postgres-data`
+- SQLite workspace/project/folder metadata and background job state at `data/projects/.kicad-prism/prism.sqlite3`
+- the verified SQLite-to-PostgreSQL cutover report at `data/projects/.kicad-prism/catalog-postgres-migration-report.json`
 - imported repositories
 - canonical KiCad component library files under `data/projects/.kicad-prism/components`
 - generated CERN-style DBL bundles under `data/projects/.kicad-prism/exports/kicad-dbl`
@@ -232,9 +253,11 @@ SESSION_COOKIE_SECURE=true
 
 ## Reverse Proxy for Office/VPN Hosting
 
-For an internal workstation deployment such as `http://kicad-prism.example.internal`, keep the SQLite
-database and `.kicad-prism/components` asset directory on the workstation's local SSD/NVMe. Do not
-place either path on NFS/SMB/network storage; SQLite WAL mode is designed for local filesystems.
+For an internal workstation deployment such as `http://kicad-prism.example.internal`, keep the
+PostgreSQL data volume, the workspace SQLite database, and `.kicad-prism/components` asset directory
+on the workstation's local SSD/NVMe. Do not place the SQLite workspace database on NFS/SMB/network
+storage; SQLite WAL mode is designed for local filesystems. Back up PostgreSQL and the component
+asset tree as one release-data set so database manifests never outlive their referenced files.
 
 If the external reverse proxy points at the frontend container, the bundled frontend Nginx config
 already forwards KiCad/API paths to the backend. If the external reverse proxy routes directly to

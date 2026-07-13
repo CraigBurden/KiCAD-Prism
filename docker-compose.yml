@@ -1,4 +1,49 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: kicad-prism-postgres
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-kicad_prism}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kicad-prism-local}
+    volumes:
+      - prism-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  catalog-migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    platform: linux/amd64
+    container_name: kicad-prism-catalog-migrate
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data/projects:/app/projects
+    environment:
+      - KICAD_PROJECTS_ROOT=/app/projects
+      - CATALOG_SQLITE_PATH=${CATALOG_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
+      - CATALOG_DATABASE_URL=${CATALOG_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
+      - CATALOG_DATABASE_POOL_MIN_SIZE=1
+      - CATALOG_DATABASE_POOL_MAX_SIZE=2
+    command:
+      - /app/venv/bin/python
+      - /app/scripts/migrate_catalog_sqlite_to_postgres.py
+      - --if-needed
+      # Fresh installations may create an empty catalog only when the migration
+      # command finds no legacy SQLite rows, component files, or catalog backups.
+      - --initialize-empty
+      - --report
+      - /app/projects/.kicad-prism/catalog-postgres-migration-report.json
+
   backend:
     build:
       context: .
@@ -6,6 +51,11 @@ services:
     platform: linux/amd64
     container_name: kicad-prism-backend
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      catalog-migrate:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
     volumes:
@@ -51,6 +101,10 @@ services:
       # GitHub Token for private repository access (optional)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - CATALOG_SQLITE_PATH=${CATALOG_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
+      - PRISM_STATE_SQLITE_PATH=${PRISM_STATE_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
+      - CATALOG_DATABASE_URL=${CATALOG_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
+      - CATALOG_DATABASE_POOL_MIN_SIZE=${CATALOG_DATABASE_POOL_MIN_SIZE:-1}
+      - CATALOG_DATABASE_POOL_MAX_SIZE=${CATALOG_DATABASE_POOL_MAX_SIZE:-10}
       - CATALOG_DBL_EXPORT_DIR=${CATALOG_DBL_EXPORT_DIR:-/app/projects/.kicad-prism/exports/kicad-dbl}
       - CATALOG_KLC_ENABLED=${CATALOG_KLC_ENABLED:-false}
       - CATALOG_KLC_UTILS_PATH=${CATALOG_KLC_UTILS_PATH:-/opt/kicad-library-utils}
@@ -82,3 +136,6 @@ services:
       - "8080:80"
     depends_on:
       - backend
+
+volumes:
+  prism-postgres-data:

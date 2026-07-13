@@ -4,6 +4,7 @@ import {
     Cpu,
     Database,
     LibraryBig,
+    LoaderCircle,
     Network,
     Waypoints,
     X,
@@ -27,6 +28,9 @@ interface SelectionInspectorProps {
     semanticIndex: PrismSemanticIndex | null;
     onOpenChange: (open: boolean) => void;
     onClear: () => void;
+    onImportComponent?: () => void;
+    canImportComponent?: boolean;
+    importingComponent?: boolean;
 }
 
 const atIndex = <T,>(items: T[], index: number | undefined): T | undefined =>
@@ -106,12 +110,39 @@ function IntegrationRow({ icon: Icon, title, description }: {
     );
 }
 
+function LibraryImportRow({ onImport, disabled, loading }: {
+    onImport: () => void;
+    disabled: boolean;
+    loading: boolean;
+}) {
+    return (
+        <div className="flex items-start gap-3 border-b py-3 last:border-b-0">
+            <div className="mt-0.5 border bg-muted/40 p-2">
+                <LibraryBig className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="min-w-0 flex-1">
+                <span className="text-sm font-medium">Library Manager</span>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Stage this component's symbol, footprint, 3D model, and project metadata for review.
+                </p>
+                <Button className="mt-2" size="sm" variant="outline" onClick={onImport} disabled={disabled || loading}>
+                    {loading && <LoaderCircle className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                    {loading ? "Staging…" : "Import into Library"}
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 export function SelectionInspector({
     open,
     selection,
     semanticIndex,
     onOpenChange,
     onClear,
+    onImportComponent,
+    canImportComponent = false,
+    importingComponent = false,
 }: SelectionInspectorProps) {
     if (!open || !selection) return null;
     const component = resolveComponent(selection, semanticIndex);
@@ -187,14 +218,27 @@ export function SelectionInspector({
                                         .map(([key, value]) => <PropertyRow key={key} label={key} value={String(value)} />)}
                                 </dl>
                             </section>
+                        </>
+                    )}
+
+                    {selection.kind !== "net" && (
+                        <>
                             <Separator />
                             <section>
                                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Library & sourcing</h3>
                                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                                    These stable component identities reserve the integration surface for project libraries and managed part data.
+                                    Stage this project component with commit-pinned provenance before release review.
                                 </p>
                                 <div className="mt-2 border bg-card/40 px-3">
-                                    <IntegrationRow icon={LibraryBig} title="Library Manager" description="Open the selected symbol, footprint, and project overrides." />
+                                    {onImportComponent ? (
+                                        <LibraryImportRow
+                                            onImport={onImportComponent}
+                                            disabled={!canImportComponent}
+                                            loading={importingComponent}
+                                        />
+                                    ) : (
+                                        <IntegrationRow icon={LibraryBig} title="Library Manager" description="Open the selected symbol, footprint, and project overrides." />
+                                    )}
                                     <IntegrationRow icon={Database} title="Component database" description="Lifecycle, alternates, approved vendors, and organization metadata." />
                                 </div>
                             </section>

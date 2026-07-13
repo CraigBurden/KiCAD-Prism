@@ -260,9 +260,40 @@ class Settings(BaseSettings):
     CATALOG_SQLITE_PATH: str = Field(
         default="",
         description=(
-            "SQLite database path for component catalog, remote-provider OAuth, "
-            "and local service-client metadata. Defaults under KICAD_PROJECTS_ROOT."
+            "Legacy/local-development SQLite component catalog path. In PostgreSQL "
+            "deployments this is only the verified one-time migration source."
         ),
+    )
+
+    PRISM_STATE_SQLITE_PATH: str = Field(
+        default="",
+        description=(
+            "SQLite path for the local project/folder/job workspace registry. Defaults "
+            "to CATALOG_SQLITE_PATH during the PostgreSQL catalog transition."
+        ),
+    )
+
+    CATALOG_DATABASE_URL: str = Field(
+        default="",
+        description=(
+            "Authoritative PostgreSQL URL for the component library. When set, the "
+            "catalog service uses PostgreSQL and CATALOG_SQLITE_PATH is treated only "
+            "as a legacy migration source."
+        ),
+    )
+
+    CATALOG_DATABASE_POOL_MIN_SIZE: int = Field(
+        default=1,
+        ge=0,
+        le=20,
+        description="Minimum PostgreSQL connections retained per backend worker.",
+    )
+
+    CATALOG_DATABASE_POOL_MAX_SIZE: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum PostgreSQL connections retained per backend worker.",
     )
 
     CATALOG_DBL_EXPORT_DIR: str = Field(

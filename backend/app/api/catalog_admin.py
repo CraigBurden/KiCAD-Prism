@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import threading
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.security import AuthenticatedUser, require_catalog_reader, require_catalog_writer
 from app.services.component_catalog_service import catalog_service
+from app.services import semantic_visualizer_service
+from app.services.project_component_import_service import run_project_import_session
 from app.services.workspace_service import workspace
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
@@ -60,8 +63,19 @@ def _run_validation_job(job_id: str, component_ids: list[str] | None = None) -> 
     component_payload: dict[str, Any] | None = None
     try:
         if component_ids is None:
-            result = catalog_service.list_components(include_inactive=False, page=1, page_size=10000, lightweight=True)
-            ids = [str(component["id"]) for component in result["items"]]
+            ids: list[str] = []
+            page = 1
+            while True:
+                result = catalog_service.list_components(
+                    include_inactive=False,
+                    page=page,
+                    page_size=10000,
+                    lightweight=True,
+                )
+                ids.extend(str(component["id"]) for component in result["items"])
+                if page >= int(result.get("pages") or 1):
+                    break
+                page += 1
         else:
             ids = component_ids
 
@@ -214,6 +228,8 @@ class CreateManualComponentRequest(BaseModel):
     power_dissipation_w: str = ""
     rate: str = ""
     sap_code: str = ""
+    change_summary: str = "Create component"
+    extra_fields: dict[str, str] = Field(default_factory=dict)
 
 
 class UpdateComponentMetadataRequest(BaseModel):
@@ -234,15 +250,42 @@ class UpdateComponentMetadataRequest(BaseModel):
     power_dissipation_w: str | None = None
     rate: str | None = None
     sap_code: str | None = None
+    expected_revision_id: str = Field(min_length=1)
+    change_summary: str = "Update component metadata"
+    extra_fields: dict[str, str] | None = None
 
 
 class ReleaseStatusRequest(BaseModel):
     release_status: str = ""
     workflow_stage: str = ""
+    self_approval_override_reason: str = ""
+    review_note: str = ""
+    expected_revision_id: str = ""
+    expected_manifest_hash: str = ""
+
+
+class ProjectComponentSelectionRequest(BaseModel):
+    component_uid: str = ""
+    reference: str = ""
+    schematic_uuid: str = ""
+    pcb_footprint_uuid: str = ""
+
+
+class ProjectImportRequest(BaseModel):
+    scope: str
+    project_id: str = ""
+    source_revision: str = ""
+    selection: ProjectComponentSelectionRequest | None = None
+
+
+class AcceptProjectImportProposalRequest(BaseModel):
+    metadata_overrides: dict[str, Any] = Field(default_factory=dict)
+    asset_selections: dict[str, list[str]] = Field(default_factory=dict)
+    change_summary: str = "Import component from project"
 
 
 @router.get("/components")
-async def list_catalog_components(
+def list_catalog_components(
     q: str = Query(default=""),
     source: str | None = Query(default=None),
     availability_state: str | None = Query(default=None),
@@ -278,37 +321,177 @@ async def list_catalog_components(
 
 
 @router.get("/categories")
-async def list_catalog_categories(user: AuthenticatedUser = Depends(require_catalog_reader)):
+def list_catalog_categories(user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     return {"categories": catalog_service.list_categories()}
 
 
 @router.get("/workflow/summary")
-async def workflow_summary(user: AuthenticatedUser = Depends(require_catalog_reader)):
+def workflow_summary(user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     return catalog_service.workflow_summary()
 
 
+@router.get("/release-queue")
+def release_queue(
+    q: str = Query(default=""),
+    workflow_stage: str = Query(default="all", pattern="^(all|qa_review|done)$"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    _ = user
+    stages = "qa_review,done" if workflow_stage == "all" else workflow_stage
+    try:
+        result = catalog_service.list_components(
+            query=q,
+            workflow_stage=stages,
+            include_inactive=False,
+            page=page,
+            page_size=page_size,
+            sort_by="updated_at",
+            sort_dir="desc",
+            lightweight=False,
+        )
+        return {**result, "summary": catalog_service.release_queue_summary()}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/health")
-async def catalog_health(user: AuthenticatedUser = Depends(require_catalog_reader)):
+def catalog_health(user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     return catalog_service.catalog_health()
 
 
+@router.post("/import-sessions/projects", status_code=202)
+def create_project_import_session(
+    payload: ProjectImportRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    visible_projects = {str(project["id"]) for project in workspace.get_all_projects(user.role)}
+    if payload.scope in {"component", "project"} and payload.project_id not in visible_projects:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        selected_project_ids = sorted(visible_projects) if payload.scope == "all-projects" else [payload.project_id]
+        project_revisions: dict[str, str] = {}
+        for project_id in selected_project_ids:
+            project = workspace.get_project_by_id(project_id)
+            if not project:
+                continue
+            repo_root = semantic_visualizer_service._repo_root(Path(str(project["path"])))
+            requested_ref = payload.source_revision if project_id == payload.project_id and payload.source_revision else "HEAD"
+            project_revisions[project_id] = semantic_visualizer_service._resolve_commit(repo_root, requested_ref)
+        session = catalog_service.create_project_import_session(
+            scope=payload.scope,
+            project_id=payload.project_id,
+            project_ids=selected_project_ids,
+            project_revisions=project_revisions,
+            source_revision=project_revisions.get(payload.project_id, payload.source_revision),
+            selection=payload.selection.model_dump(exclude_none=True) if payload.selection else None,
+            actor=user.email,
+        )
+        thread = threading.Thread(target=run_project_import_session, args=(str(session["id"]),), daemon=True)
+        thread.start()
+        return session
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/import-sessions/{session_id}")
+def get_project_import_session(
+    session_id: str,
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    session = catalog_service.get_project_import_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Import session not found")
+    if user.role != "admin" and str(session.get("created_by") or "") != user.email:
+        raise HTTPException(status_code=403, detail="Import session access denied")
+    return session
+
+
+@router.get("/import-sessions")
+def list_project_import_sessions(user: AuthenticatedUser = Depends(require_catalog_reader)):
+    return {
+        "items": catalog_service.list_project_import_sessions(
+            created_by=user.email,
+            include_all=user.role == "admin",
+        )
+    }
+
+
+@router.get("/import-sessions/{session_id}/proposals")
+def list_project_import_proposals(
+    session_id: str,
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    session = catalog_service.get_project_import_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Import session not found")
+    if user.role != "admin" and str(session.get("created_by") or "") != user.email:
+        raise HTTPException(status_code=403, detail="Import session access denied")
+    return {"items": catalog_service.list_project_import_proposals(session_id)}
+
+
+def _project_import_proposal_for_user(proposal_id: str, user: AuthenticatedUser) -> dict[str, Any]:
+    proposal = catalog_service.get_project_import_proposal(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Import proposal not found")
+    session = catalog_service.get_project_import_session(str(proposal["session_id"]))
+    if not session:
+        raise HTTPException(status_code=404, detail="Import session not found")
+    if user.role != "admin" and str(session.get("created_by") or "") != user.email:
+        raise HTTPException(status_code=403, detail="Import proposal access denied")
+    return proposal
+
+
+@router.post("/import-proposals/{proposal_id}/accept")
+def accept_project_import_proposal(
+    proposal_id: str,
+    payload: AcceptProjectImportProposalRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    _project_import_proposal_for_user(proposal_id, user)
+    try:
+        return catalog_service.accept_project_import_proposal(
+            proposal_id,
+            metadata_overrides=payload.metadata_overrides,
+            asset_selections=payload.asset_selections,
+            actor=user.email,
+            change_summary=payload.change_summary,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/import-proposals/{proposal_id}/reject")
+def reject_project_import_proposal(
+    proposal_id: str,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    _project_import_proposal_for_user(proposal_id, user)
+    try:
+        return catalog_service.reject_project_import_proposal(proposal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/components")
-async def create_catalog_component(
+def create_catalog_component(
     payload: CreateManualComponentRequest,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    _ = user
     try:
-        return catalog_service.create_manual_component(**payload.model_dump())
+        data = payload.model_dump()
+        change_summary = str(data.pop("change_summary"))
+        return catalog_service.create_manual_component(actor=user.email, change_summary=change_summary, **data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}")
-async def get_catalog_component(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_catalog_component(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     component = catalog_service.get_component(component_id)
     if not component:
@@ -316,22 +499,127 @@ async def get_catalog_component(component_id: str, user: AuthenticatedUser = Dep
     return component
 
 
+@router.get("/components/{component_id}/revisions")
+def list_component_revisions(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    _ = user
+    try:
+        return {"items": catalog_service.list_component_revisions(component_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/components/{component_id}/revisions/compare")
+def compare_component_revisions(
+    component_id: str,
+    before: str = Query(...),
+    after: str = Query(...),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    _ = user
+    try:
+        return catalog_service.compare_component_revisions(component_id, before, after)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/components/{component_id}/revisions/{revision_id}")
+def get_component_revision(
+    component_id: str,
+    revision_id: str,
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    _ = user
+    revision = catalog_service.get_component_revision(component_id, revision_id)
+    if not revision:
+        raise HTTPException(status_code=404, detail="Component revision not found")
+    return revision
+
+
+@router.get("/components/{component_id}/audit")
+def list_component_audit(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    _ = user
+    try:
+        return {"items": catalog_service.list_component_audit_events(component_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/components/{component_id}/audit/verify")
+def verify_component_audit(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    _ = user
+    try:
+        return catalog_service.verify_component_audit_chain(component_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/components/{component_id}/usage")
+def list_component_usage(
+    component_id: str,
+    mode: str = Query(default="current", pattern="^(current|history)$"),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    try:
+        visible_projects = {str(project["id"]) for project in workspace.get_all_projects(user.role)}
+        items = catalog_service.list_component_usage(component_id, include_history=mode == "history")
+        return {"items": [item for item in items if str(item.get("project_id") or "") in visible_projects]}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/components/{component_id}/reviews")
+def list_component_reviews(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    _ = user
+    try:
+        return {"items": catalog_service.list_component_review_decisions(component_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/components/{component_id}/releases")
+def list_component_releases(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    _ = user
+    try:
+        return {"items": catalog_service.list_component_release_records(component_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/previews/{preview_id}")
+def get_catalog_preview(preview_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    _ = user
+    preview = catalog_service.catalog_preview_path(preview_id)
+    if not preview:
+        raise HTTPException(status_code=404, detail="Preview not found")
+    path, content_type = preview
+    return FileResponse(path, media_type=content_type, headers={"Cache-Control": "private, max-age=300"})
+
+
 @router.patch("/components/{component_id}")
-async def update_catalog_component(
+def update_catalog_component(
     component_id: str,
     payload: UpdateComponentMetadataRequest,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    _ = user
+    request_data = payload.model_dump()
+    expected_revision_id = str(request_data.pop("expected_revision_id") or "")
+    change_summary = str(request_data.pop("change_summary") or "Update component metadata")
     updates: dict[str, Any] = {
         key: value
-        for key, value in payload.model_dump().items()
+        for key, value in request_data.items()
         if value is not None
     }
     try:
-        component = catalog_service.update_component_metadata(component_id, updates)
+        component = catalog_service.update_component_metadata(
+            component_id,
+            updates,
+            actor=user.email,
+            change_summary=change_summary,
+            expected_revision_id=expected_revision_id,
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        status_code = 409 if "revision conflict" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return component
@@ -345,7 +633,6 @@ async def import_symbol_library(
     selected_symbol: str = Form(default=""),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    _ = user
     payload = await file.read()
     if not payload:
         raise HTTPException(status_code=400, detail="Uploaded symbol library was empty")
@@ -357,6 +644,7 @@ async def import_symbol_library(
             payload=payload,
             target_library=target_library or component_id,
             selected_symbol=selected_symbol,
+            actor=user.email,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -370,7 +658,6 @@ async def import_footprint(
     selected_footprint: str = Form(default=""),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    _ = user
     payload = await file.read()
     if not payload:
         raise HTTPException(status_code=400, detail="Uploaded footprint payload was empty")
@@ -382,6 +669,7 @@ async def import_footprint(
             payload=payload,
             target_library=target_library or "Prism_Footprints",
             selected_footprint=selected_footprint,
+            actor=user.email,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -395,7 +683,6 @@ async def import_auxiliary_asset(
     target_library: str = Form(default=""),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    _ = user
     payload = await file.read()
     if not payload:
         raise HTTPException(status_code=400, detail="Uploaded asset payload was empty")
@@ -407,34 +694,33 @@ async def import_auxiliary_asset(
             upload_name=file.filename or f"{asset_type}.bin",
             payload=payload,
             target_library=target_library or "Prism_Assets",
+            actor=user.email,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/components/{component_id}/assets/{asset_type}")
-async def detach_component_asset(
+def detach_component_asset(
     component_id: str,
     asset_type: str,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    _ = user
     try:
-        return catalog_service.detach_asset(component_id, asset_type)
+        return catalog_service.detach_asset(component_id, asset_type, actor=user.email)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/components/{component_id}")
-async def delete_catalog_component(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _ = user
-    if not catalog_service.delete_component(component_id):
+def delete_catalog_component(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
+    if not catalog_service.delete_component(component_id, actor=user.email):
         raise HTTPException(status_code=404, detail="Component not found")
     return {"ok": True}
 
 
 @router.post("/components/{component_id}/release")
-async def transition_release_status(
+def transition_release_status(
     component_id: str,
     payload: ReleaseStatusRequest,
     user: AuthenticatedUser = Depends(require_catalog_reader),
@@ -450,7 +736,19 @@ async def transition_release_status(
         )
         if not _can_transition_workflow(user, current_stage, next_stage):
             raise HTTPException(status_code=403, detail="Catalog workflow transition not allowed for this role")
-        component = catalog_service.set_release_status(component_id, stage)
+        override_reason = payload.self_approval_override_reason.strip()
+        if override_reason and user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only administrators may override two-person approval")
+        component = catalog_service.set_release_status(
+            component_id,
+            stage,
+            actor=user.email,
+            self_approval_override_reason=override_reason,
+            review_note=payload.review_note,
+            actor_role=user.role,
+            expected_revision_id=payload.expected_revision_id,
+            expected_manifest_hash=payload.expected_manifest_hash,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not component:
@@ -459,10 +757,9 @@ async def transition_release_status(
 
 
 @router.post("/components/{component_id}/previews/regenerate")
-async def regenerate_component_previews(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _ = user
+def regenerate_component_previews(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
     try:
-        component = catalog_service.regenerate_component_previews(component_id)
+        component = catalog_service.regenerate_component_previews(component_id, actor=user.email)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not component:
@@ -471,14 +768,14 @@ async def regenerate_component_previews(component_id: str, user: AuthenticatedUs
 
 
 @router.post("/components/{component_id}/validate")
-async def validate_component_klc(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
+def validate_component_klc(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
     job_id = _start_validation_job([component_id])
     return {"job_id": job_id, "status": "queued"}
 
 
 @router.get("/components/{component_id}/validation")
-async def get_component_validation(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_component_validation(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     try:
         return catalog_service.get_component_validation(component_id)
@@ -487,14 +784,14 @@ async def get_component_validation(component_id: str, user: AuthenticatedUser = 
 
 
 @router.post("/validation/run")
-async def validate_catalog(user: AuthenticatedUser = Depends(require_catalog_writer)):
+def validate_catalog(user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
     job_id = _start_validation_job()
     return {"job_id": job_id, "status": "queued"}
 
 
 @router.get("/validation/jobs/{job_id}")
-async def get_validation_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_validation_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     job = workspace.get_job(job_id, "catalog_validation")
     if not job:
@@ -503,7 +800,7 @@ async def get_validation_job(job_id: str, user: AuthenticatedUser = Depends(requ
 
 
 @router.get("/validation/runs/{run_id}")
-async def get_validation_run(run_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_validation_run(run_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     run = catalog_service.get_validation_run(run_id)
     if not run:
@@ -512,7 +809,7 @@ async def get_validation_run(run_id: str, user: AuthenticatedUser = Depends(requ
 
 
 @router.get("/validation/runs/{run_id}/{report_name}")
-async def get_validation_report(run_id: str, report_name: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_validation_report(run_id: str, report_name: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     path = catalog_service.validation_report_path(run_id, report_name)
     if not path:
@@ -522,14 +819,14 @@ async def get_validation_report(run_id: str, report_name: str, user: Authenticat
 
 
 @router.post("/previews/generate-missing")
-async def generate_missing_previews(user: AuthenticatedUser = Depends(require_catalog_writer)):
+def generate_missing_previews(user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
     job_id = _start_preview_job()
     return {"job_id": job_id, "status": "queued"}
 
 
 @router.get("/previews/jobs/{job_id}")
-async def get_preview_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_preview_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
     _ = user
     job = workspace.get_job(job_id, "catalog_preview_generation")
     if not job:
@@ -538,7 +835,7 @@ async def get_preview_job(job_id: str, user: AuthenticatedUser = Depends(require
 
 
 @router.post("/exports/kicad-dbl")
-async def export_kicad_dbl_bundle(user: AuthenticatedUser = Depends(require_catalog_writer)):
+def export_kicad_dbl_bundle(user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
     try:
         return catalog_service.export_kicad_dbl_bundle()
@@ -579,7 +876,7 @@ async def import_stock_csv(
 # ─── Phase 2: Asset Browsing/Linking Routes ──────────────────────────────────
 
 @router.get("/assets/browse")
-async def browse_library_assets(
+def browse_library_assets(
     asset_type: str = Query(...),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
@@ -598,7 +895,7 @@ class LinkAssetRequest(BaseModel):
 
 
 @router.post("/components/{component_id}/assets/{asset_type}/link")
-async def link_library_asset(
+def link_library_asset(
     component_id: str,
     asset_type: str,
     payload: LinkAssetRequest,
@@ -612,6 +909,7 @@ async def link_library_asset(
             file_path_rel=payload.file_path,
             target_library=payload.target_library,
             target_name=payload.target_name,
+            actor=user.email,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -59,7 +59,7 @@ class WorkspaceService:
     # ------------------------------------------------------------------
 
     def _resolve_db_path(self) -> Path:
-        configured = settings.CATALOG_SQLITE_PATH
+        configured = settings.PRISM_STATE_SQLITE_PATH or settings.CATALOG_SQLITE_PATH
         if configured:
             raw = configured.removeprefix("sqlite:///") if configured.startswith("sqlite:///") else configured
             return Path(raw).expanduser().resolve()

@@ -13,7 +13,7 @@ import { fetchApi, readApiError } from "@/lib/api";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
 import { WorkspaceListView } from "./workspace/workspace-list-view";
-import { LibraryManagerPanel } from "./workspace/library-manager-panel";
+import { LibraryManagerWorkspace } from "./workspace/library-manager-workspace";
 import { WorkspaceAppsPlaceholder } from "./workspace/workspace-apps-placeholder";
 import { WorkspaceLoadingState } from "./workspace/workspace-loading-state";
 import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-properties-sheet";
@@ -57,7 +57,8 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const { projects, folders, loading, error, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProject, deleteProject } =
     useWorkspaceData();
 
-  const [section, setSection] = useState<WorkspaceSection>("projects");
+  const requestedSection = searchParams.get("section") === "library-manager" ? "library-manager" : "projects";
+  const [section, setSection] = useState<WorkspaceSection>(requestedSection);
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -105,6 +106,25 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     },
     [setSearchParams]
   );
+
+  const handleSectionChange = useCallback((nextSection: WorkspaceSection) => {
+    setSection(nextSection);
+    setSearchParams((currentParams) => {
+      const next = new URLSearchParams(currentParams);
+      if (nextSection === "library-manager") {
+        next.set("section", nextSection);
+      } else {
+        next.delete("section");
+        next.delete("libraryView");
+        next.delete("session");
+      }
+      return next;
+    });
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    setSection(requestedSection);
+  }, [requestedSection]);
 
   useEffect(() => {
     if (!loading && folderFromUrl && !folderById.has(folderFromUrl)) {
@@ -327,7 +347,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
           section={section}
           isCollapsed={isSidebarCollapsed}
           onToggle={() => setIsSidebarCollapsed((previous) => !previous)}
-          onSectionChange={setSection}
+          onSectionChange={handleSectionChange}
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -362,7 +382,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
               <WorkspaceLoadingState />
             ) : section === "library-manager" ? (
               canOpenLibrary ? (
-                <LibraryManagerPanel user={user} />
+                <LibraryManagerWorkspace user={user} projects={projects} />
               ) : (
                 <WorkspaceAppsPlaceholder
                   canOpenLibraryManager={canOpenLibrary}

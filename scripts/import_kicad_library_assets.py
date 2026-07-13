@@ -31,7 +31,7 @@ STEP_EXTENSIONS = {".step", ".stp"}
 SPICE_EXTENSIONS = {".lib", ".mod", ".mdl", ".cir", ".sub", ".subckt", ".spice"}
 
 
-def _load_catalog_runtime() -> None:
+def _load_catalog_runtime(database_url: str = "") -> None:
     global ComponentCatalogService
     global _discover_footprint_name_in_text
     global _discover_symbol_names_in_text
@@ -44,6 +44,7 @@ def _load_catalog_runtime() -> None:
             _discover_symbol_names_in_text as loaded_discover_symbol_names,
             _sanitize_name as loaded_sanitize_name,
         )
+        from app.core.config import settings  # noqa: PLC0415
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "Backend Python dependencies are not available. Run this with the backend virtualenv "
@@ -52,7 +53,23 @@ def _load_catalog_runtime() -> None:
             "KiCAD-Prism-remote-datasource/scripts/import_kicad_library_assets.py --help"
         ) from exc
 
-    ComponentCatalogService = LoadedComponentCatalogService
+    selected_database_url = (
+        database_url.strip()
+        or settings.CATALOG_DATABASE_URL.strip()
+        or settings.CATALOG_SQLITE_PATH.strip()
+    )
+    if selected_database_url.startswith(("postgresql://", "postgresql+psycopg://")):
+        try:
+            from app.services.component_catalog_service_postgres import (  # noqa: PLC0415
+                ComponentCatalogPostgresService,
+            )
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "PostgreSQL catalog indexing requires the backend environment with psycopg installed"
+            ) from exc
+        ComponentCatalogService = ComponentCatalogPostgresService
+    else:
+        ComponentCatalogService = LoadedComponentCatalogService
     _discover_footprint_name_in_text = loaded_discover_footprint_name
     _discover_symbol_names_in_text = loaded_discover_symbol_names
     _sanitize_name = loaded_sanitize_name
@@ -673,10 +690,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--database-url",
-        default=os.environ.get("CATALOG_SQLITE_PATH", ""),
-        help="SQLite catalog path used to index reusable asset rows. Defaults to CATALOG_SQLITE_PATH.",
+        default=os.environ.get("CATALOG_DATABASE_URL", "") or os.environ.get("CATALOG_SQLITE_PATH", ""),
+        help=(
+            "Catalog database used to index reusable asset rows. PostgreSQL URLs use the "
+            "production catalog; filesystem paths retain local SQLite compatibility. Defaults "
+            "to CATALOG_DATABASE_URL, then CATALOG_SQLITE_PATH."
+        ),
     )
-    parser.add_argument("--no-index-db", action="store_true", help="Only write files; do not create/update SQLite catalog asset rows.")
+    parser.add_argument("--no-index-db", action="store_true", help="Only write files; do not create/update catalog asset rows.")
     parser.add_argument("--no-previews", action="store_true", help="Skip symbol/footprint preview generation.")
     parser.add_argument("--skip-symbol-upgrade", action="store_true", help="Do not run kicad-cli sym upgrade before splitting symbols.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite conflicting canonical files instead of writing suffixed names.")
@@ -718,7 +739,7 @@ def main() -> int:
         return 2
 
     try:
-        _load_catalog_runtime()
+        _load_catalog_runtime(args.database_url)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -798,6 +819,7 @@ def main() -> int:
     finally:
         if conn_context is not None:
             conn_context.__exit__(None, None, None)
+        service.close()
 
     report = asdict(stats)
     report["source_root"] = str(source_root)

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
+import { toast } from "sonner";
 import { Cpu, Box, FileText, MessageSquarePlus, MessageSquare, GitBranch, CircuitBoard, Link2, Copy, Check, PackageCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -9,7 +10,8 @@ import { CommentPanel } from "./comment-panel";
 import { EngineeringBomTable } from "./engineering-bom-table";
 import { SelectionInspector } from "./selection-inspector";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
-import { fetchApi } from "@/lib/api";
+import { fetchApi, readApiError } from "@/lib/api";
+import { canWriteCatalog } from "@/lib/roles";
 import { crossProbeRequestForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
 import { usePrismCrossProbe } from "@/hooks/use-prism-cross-probe";
 import type { User } from "@/types/auth";
@@ -152,6 +154,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [semanticIndexError, setSemanticIndexError] = useState<string | null>(null);
     const [semanticIndexRetryToken, setSemanticIndexRetryToken] = useState(0);
     const [selectionInspectorOpen, setSelectionInspectorOpen] = useState(false);
+    const [componentImportPending, setComponentImportPending] = useState(false);
 
     const [comments, setComments] = useState<Comment[]>([]);
     const [activePage, setActivePage] = useState<string>("root.kicad_sch");
@@ -175,6 +178,45 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         registerClient,
     } = usePrismCrossProbe(semanticIndex);
     const activeCommentContext: CommentContext | null = activeTab === "sch" ? "SCH" : activeTab === "pcb" ? "PCB" : null;
+    const canImportLibraryComponent = canWriteCatalog(user?.role);
+
+    const handleImportSelectedComponent = useCallback(async () => {
+        if (!globalSelection || globalSelection.kind === "net" || componentImportPending) return;
+        setComponentImportPending(true);
+        try {
+            const isComponent = globalSelection.kind === "component";
+            const response = await fetchApi("/api/catalog/import-sessions/projects", {
+                method: "POST",
+                body: JSON.stringify({
+                    scope: "component",
+                    project_id: projectId,
+                    source_revision: commit || "",
+                    selection: {
+                        component_uid: globalSelection.componentUid || "",
+                        reference: globalSelection.reference,
+                        schematic_uuid: isComponent && globalSelection.sourceContext === "SCH"
+                            ? globalSelection.uuid || globalSelection.anchor?.uuid || ""
+                            : "",
+                        pcb_footprint_uuid: isComponent && globalSelection.sourceContext === "PCB"
+                            ? globalSelection.uuid || globalSelection.anchor?.uuid || ""
+                            : "",
+                    },
+                }),
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to stage component import"));
+            const session = await response.json() as { id: string };
+            toast.success(`${globalSelection.reference} queued for Library Manager import`, {
+                action: {
+                    label: "Open Import Center",
+                    onClick: () => window.location.assign(`/?section=library-manager&libraryView=imports&session=${encodeURIComponent(session.id)}`),
+                },
+            });
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to stage component import");
+        } finally {
+            setComponentImportPending(false);
+        }
+    }, [commit, componentImportPending, globalSelection, projectId]);
 
     const applyCommentModeToViewer = useCallback((viewer: ECadViewerElement | null, enabled: boolean) => {
         if (!viewer) return;
@@ -1117,6 +1159,9 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     semanticIndex={semanticIndex}
                     onOpenChange={setSelectionInspectorOpen}
                     onClear={clearGlobalSelection}
+                    onImportComponent={globalSelection?.kind === "net" ? undefined : handleImportSelectedComponent}
+                    canImportComponent={canImportLibraryComponent}
+                    importingComponent={componentImportPending}
                 />
             </div>
 

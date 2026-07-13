@@ -92,6 +92,7 @@ const CATALOG_PAGE_SIZE = 100;
 
 interface LibraryManagerPanelProps {
   user: User | null;
+  onOpenComponent?: (componentId: string) => void;
 }
 
 type SortKey = "name" | "manufacturer" | "category" | "package_name" | "availability_state" | "workflow_stage";
@@ -605,7 +606,7 @@ function FilePicker({
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
-export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
+export function LibraryManagerPanel({ user, onOpenComponent }: LibraryManagerPanelProps) {
   // ── data state ──
   const [components, setComponents] = useState<CatalogComponent[]>([]);
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
@@ -894,6 +895,8 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
       if (editForm.powerDissipationW !== undefined) body.power_dissipation_w = editForm.powerDissipationW;
       if (editForm.rate !== undefined) body.rate = editForm.rate;
       if (editForm.sapCode !== undefined) body.sap_code = editForm.sapCode;
+      body.expected_revision_id = selected.revision_id;
+      body.change_summary = "Update component metadata from Library Manager";
 
       const updated = await fetchJson<CatalogComponent>(`/api/catalog/components/${selected.id}`, {
         method: "PATCH",
@@ -1703,6 +1706,11 @@ export function LibraryManagerPanel({ user }: LibraryManagerPanelProps) {
               <AvailabilityBadge state={selected.availability_state} />
               <ReleaseBadge status={workflowStage(selected)} />
               <ValidationBadge status={selected.validation.status} />
+              {onOpenComponent ? (
+                <Button size="sm" variant="outline" className="ml-auto h-7 px-2 text-[11px]" onClick={() => onOpenComponent(selected.id)}>
+                  Open workspace <ExternalLink className="ml-1 h-3 w-3" />
+                </Button>
+              ) : null}
             </div>
           </div>
 
