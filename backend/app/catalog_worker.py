@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from app.core.config import settings
 from app.services.catalog_job_service import catalog_jobs
 from app.services.catalog_worker_tasks import KICAD_HEAVY_JOB_TYPES, execute_job
+from app.services.component_catalog_service import catalog_service
 from app.services.local_artifact_store import artifact_store
 
 
@@ -53,6 +54,7 @@ def main() -> None:
     worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
+    catalog_service.initialize()
     catalog_jobs.initialize()
     artifact_store.initialize()
     futures: set[Future[None]] = set()

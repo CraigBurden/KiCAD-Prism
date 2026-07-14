@@ -1,22 +1,12 @@
 from __future__ import annotations
 
 import json
-import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from app.core.config import settings
-
-
-def _dsn() -> str:
-    value = settings.CATALOG_DATABASE_URL.strip().replace(
-        "postgresql+psycopg://", "postgresql://", 1
-    )
-    if not value:
-        raise RuntimeError("CATALOG_DATABASE_URL is required for durable catalog jobs")
-    return value
+from app.services.postgres_database import database
 
 
 def _json(value: Any) -> str:
@@ -44,44 +34,19 @@ class CatalogJobService:
 
     def __init__(self) -> None:
         self._initialized = False
-        self._pool: Any = None
-        self._pool_lock = threading.Lock()
-
-    def _ensure_pool(self) -> Any:
-        if self._pool is not None:
-            return self._pool
-        with self._pool_lock:
-            if self._pool is not None:
-                return self._pool
-            try:
-                from psycopg.rows import dict_row
-                from psycopg_pool import ConnectionPool
-            except ImportError as exc:  # pragma: no cover - deployment dependency guard
-                raise RuntimeError("Durable catalog jobs require psycopg and psycopg-pool") from exc
-            pool = ConnectionPool(
-                conninfo=_dsn(),
-                min_size=1,
-                max_size=min(2, settings.CATALOG_DATABASE_POOL_MAX_SIZE),
-                kwargs={"row_factory": dict_row, "autocommit": False},
-                open=False,
-                name="prism-catalog-jobs",
-            )
-            pool.open(wait=True)
-            self._pool = pool
-        return self._pool
 
     @contextmanager
     def _connect(self):
-        try:
-            with self._ensure_pool().connection() as connection:
-                yield connection
-        except ImportError as exc:  # pragma: no cover - deployment dependency guard
-            raise RuntimeError("Durable catalog jobs require psycopg and psycopg-pool") from exc
+        with database.connection() as connection:
+            connection.execute("SET search_path TO operations, catalog, public")
+            yield connection
 
     def initialize(self) -> None:
         if self._initialized:
             return
         with self._connect() as conn:
+            conn.execute("CREATE SCHEMA IF NOT EXISTS operations")
+            conn.execute("SET search_path TO operations, catalog, public")
             conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-catalog-jobs-schema",))
             conn.execute(
                 """

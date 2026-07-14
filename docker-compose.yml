@@ -16,34 +16,6 @@ services:
       timeout: 5s
       retries: 20
 
-  catalog-migrate:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    platform: linux/amd64
-    container_name: kicad-prism-catalog-migrate
-    restart: "no"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - ./data/projects:/app/projects
-    environment:
-      - KICAD_PROJECTS_ROOT=/app/projects
-      - CATALOG_SQLITE_PATH=${CATALOG_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
-      - CATALOG_DATABASE_URL=${CATALOG_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
-      - CATALOG_DATABASE_POOL_MIN_SIZE=1
-      - CATALOG_DATABASE_POOL_MAX_SIZE=2
-    command:
-      - /app/venv/bin/python
-      - /app/scripts/migrate_catalog_sqlite_to_postgres.py
-      - --if-needed
-      # Fresh installations may create an empty catalog only when the migration
-      # command finds no legacy SQLite rows, component files, or catalog backups.
-      - --initialize-empty
-      - --report
-      - /app/projects/.kicad-prism/catalog-postgres-migration-report.json
-
   backend:
     build:
       context: .
@@ -54,8 +26,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      catalog-migrate:
-        condition: service_completed_successfully
     ports:
       - "8000:8000"
     volumes:
@@ -89,7 +59,6 @@ services:
       - ALLOWED_DOMAINS_STR=${ALLOWED_DOMAINS_STR:-}
       - BOOTSTRAP_ADMIN_USERS_STR=${BOOTSTRAP_ADMIN_USERS_STR:-}
       - DEFAULT_VIEWER_DOMAINS_STR=${DEFAULT_VIEWER_DOMAINS_STR:-}
-      - ROLE_STORE_PATH=${ROLE_STORE_PATH:-}
       - SESSION_SECRET=${SESSION_SECRET:-}
       - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-12}
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
@@ -100,11 +69,9 @@ services:
       - DEV_MODE=false
       # GitHub Token for private repository access (optional)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-      - CATALOG_SQLITE_PATH=${CATALOG_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
-      - PRISM_STATE_SQLITE_PATH=${PRISM_STATE_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
-      - CATALOG_DATABASE_URL=${CATALOG_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
-      - CATALOG_DATABASE_POOL_MIN_SIZE=${CATALOG_DATABASE_POOL_MIN_SIZE:-1}
-      - CATALOG_DATABASE_POOL_MAX_SIZE=${CATALOG_DATABASE_POOL_MAX_SIZE:-10}
+      - PRISM_DATABASE_URL=${PRISM_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
+      - PRISM_DATABASE_POOL_MIN_SIZE=${PRISM_DATABASE_POOL_MIN_SIZE:-1}
+      - PRISM_DATABASE_POOL_MAX_SIZE=${PRISM_DATABASE_POOL_MAX_SIZE:-10}
       - CATALOG_ARTIFACT_ROOT=${CATALOG_ARTIFACT_ROOT:-/app/projects/.kicad-prism/artifacts}
       - CATALOG_IMPORT_ROOTS=${CATALOG_IMPORT_ROOTS:-}
       - CATALOG_RETENTION_ENABLED=${CATALOG_RETENTION_ENABLED:-true}
@@ -145,18 +112,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      catalog-migrate:
-        condition: service_completed_successfully
     volumes:
       - ./data/projects:/app/projects
     environment:
       - PYTHONUNBUFFERED=1
       - KICAD_PROJECTS_ROOT=/app/projects
-      - CATALOG_SQLITE_PATH=${CATALOG_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
-      - PRISM_STATE_SQLITE_PATH=${PRISM_STATE_SQLITE_PATH:-/app/projects/.kicad-prism/prism.sqlite3}
-      - CATALOG_DATABASE_URL=${CATALOG_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
-      - CATALOG_DATABASE_POOL_MIN_SIZE=${CATALOG_DATABASE_POOL_MIN_SIZE:-1}
-      - CATALOG_DATABASE_POOL_MAX_SIZE=${CATALOG_WORKER_DATABASE_POOL_MAX_SIZE:-4}
+      - PRISM_DATABASE_URL=${PRISM_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
+      - PRISM_DATABASE_POOL_MIN_SIZE=${PRISM_DATABASE_POOL_MIN_SIZE:-1}
+      - PRISM_DATABASE_POOL_MAX_SIZE=${CATALOG_WORKER_DATABASE_POOL_MAX_SIZE:-4}
       - CATALOG_WORKER_CONCURRENCY=${CATALOG_WORKER_CONCURRENCY:-2}
       - CATALOG_WORKER_POLL_SECONDS=${CATALOG_WORKER_POLL_SECONDS:-1}
       - CATALOG_JOB_LEASE_SECONDS=${CATALOG_JOB_LEASE_SECONDS:-120}

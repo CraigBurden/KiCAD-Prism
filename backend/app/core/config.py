@@ -139,12 +139,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Path to persistent role assignment JSON file.
-    ROLE_STORE_PATH: str = Field(
-        default="",
-        description="Path to persistent RBAC role store JSON"
-    )
-
     # Session signing secret for HttpOnly cookie authentication.
     SESSION_SECRET: str = Field(
         default="",
@@ -257,39 +251,22 @@ class Settings(BaseSettings):
         description="Optional row limit for Manufacturo syncs. 0 means no explicit limit."
     )
 
-    CATALOG_SQLITE_PATH: str = Field(
+    PRISM_DATABASE_URL: str = Field(
         default="",
         description=(
-            "Legacy/local-development SQLite component catalog path. In PostgreSQL "
-            "deployments this is only the verified one-time migration source."
+            "Authoritative PostgreSQL URL for workspace, comments, catalog, jobs, "
+            "and artifact metadata."
         ),
     )
 
-    PRISM_STATE_SQLITE_PATH: str = Field(
-        default="",
-        description=(
-            "SQLite path for the local project/folder/job workspace registry. Defaults "
-            "to CATALOG_SQLITE_PATH during the PostgreSQL catalog transition."
-        ),
-    )
-
-    CATALOG_DATABASE_URL: str = Field(
-        default="",
-        description=(
-            "Authoritative PostgreSQL URL for the component library. When set, the "
-            "catalog service uses PostgreSQL and CATALOG_SQLITE_PATH is treated only "
-            "as a legacy migration source."
-        ),
-    )
-
-    CATALOG_DATABASE_POOL_MIN_SIZE: int = Field(
+    PRISM_DATABASE_POOL_MIN_SIZE: int = Field(
         default=1,
         ge=0,
         le=20,
         description="Minimum PostgreSQL connections retained per backend worker.",
     )
 
-    CATALOG_DATABASE_POOL_MAX_SIZE: int = Field(
+    PRISM_DATABASE_POOL_MAX_SIZE: int = Field(
         default=10,
         ge=1,
         le=100,
@@ -468,12 +445,6 @@ class Settings(BaseSettings):
             os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")),
         )
 
-    @property
-    def RESOLVED_ROLE_STORE_PATH(self) -> str:
-        if self.ROLE_STORE_PATH.strip():
-            return os.path.abspath(os.path.expanduser(self.ROLE_STORE_PATH.strip()))
-        return os.path.join(self.KICAD_PROJECTS_ROOT, ".rbac_roles.json")
-    
     @property
     def AUTH_ENABLED(self) -> bool:
         """

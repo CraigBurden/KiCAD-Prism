@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import shutil
-import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from app.core.config import settings
+from app.services.postgres_database import database
 
 
 @dataclass(frozen=True)
@@ -34,38 +34,11 @@ class LocalArtifactStore:
         self.staging = self.root / "staging"
         self.quarantine = self.root / "quarantine"
         self._initialized = False
-        self._pool: Any = None
-        self._pool_lock = threading.Lock()
-
-    def _ensure_pool(self) -> Any:
-        if self._pool is not None:
-            return self._pool
-        with self._pool_lock:
-            if self._pool is not None:
-                return self._pool
-            try:
-                from psycopg.rows import dict_row
-                from psycopg_pool import ConnectionPool
-            except ImportError as exc:  # pragma: no cover
-                raise RuntimeError("Artifact metadata requires psycopg and psycopg-pool") from exc
-            dsn = settings.CATALOG_DATABASE_URL.strip().replace("postgresql+psycopg://", "postgresql://", 1)
-            if not dsn:
-                raise RuntimeError("CATALOG_DATABASE_URL is required for artifact metadata")
-            pool = ConnectionPool(
-                conninfo=dsn,
-                min_size=1,
-                max_size=min(2, settings.CATALOG_DATABASE_POOL_MAX_SIZE),
-                kwargs={"row_factory": dict_row, "autocommit": False},
-                open=False,
-                name="prism-catalog-artifacts",
-            )
-            pool.open(wait=True)
-            self._pool = pool
-        return self._pool
 
     @contextmanager
     def _connect(self):
-        with self._ensure_pool().connection() as connection:
+        with database.connection() as connection:
+            connection.execute("SET search_path TO operations, catalog, public")
             yield connection
 
     def initialize(self) -> None:
@@ -74,6 +47,8 @@ class LocalArtifactStore:
         for directory in (self.objects, self.archive, self.staging, self.quarantine):
             directory.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
+            conn.execute("CREATE SCHEMA IF NOT EXISTS operations")
+            conn.execute("SET search_path TO operations, catalog, public")
             conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-artifacts-schema",))
             conn.execute(
                 """

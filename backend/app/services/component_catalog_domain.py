@@ -12,7 +12,6 @@ import mimetypes
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -32,7 +31,6 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 DEFAULT_STORE_DIRNAME = ".kicad-prism"
-CATALOG_DB_FILENAME = "prism.sqlite3"
 DBL_EXPORT_DIRNAME = "kicad-dbl"
 KLC_VALIDATION_DIRNAME = "klc"
 
@@ -453,7 +451,7 @@ def _dbl_symbol_library_name(part_number: str, symbol_asset: dict[str, Any] | No
     return _sanitize_name(raw, "Prism_Symbol")
 
 
-class ComponentCatalogService:
+class ComponentCatalogDomainService:
     def __init__(self, store_root: Path | None = None, database_url: str | None = None) -> None:
         prism_root = Path(settings.KICAD_PROJECTS_ROOT) / DEFAULT_STORE_DIRNAME
         self._store_root = Path(store_root or prism_root / "components").resolve()
@@ -471,12 +469,8 @@ class ComponentCatalogService:
         self._fts_available = False
 
     def _database_path(self, database_url: str | None) -> Path:
-        configured = database_url or settings.CATALOG_SQLITE_PATH
-        if configured:
-            if configured.startswith("sqlite:///"):
-                configured = configured.removeprefix("sqlite:///")
-            return Path(configured).expanduser().resolve()
-        return (Path(settings.KICAD_PROJECTS_ROOT) / DEFAULT_STORE_DIRNAME / CATALOG_DB_FILENAME).resolve()
+        _ = database_url
+        return Path("/dev/null")
 
     @property
     def store_root(self) -> Path:
@@ -495,19 +489,7 @@ class ComponentCatalogService:
         return self._validation_root
 
     def initialize(self) -> None:
-        with self._lock:
-            if self._initialized:
-                return
-            self._ensure_storage_dirs()
-            self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            with self._connect() as conn:
-                self._create_schema(conn)
-                self._migrate_revision_schema(conn)
-                self._migrate_workflow_stages(conn)
-                self._ensure_metadata_schema(conn)
-                self._ensure_search_index(conn)
-                conn.commit()
-            self._initialized = True
+        raise NotImplementedError("Use ComponentCatalogPostgresService")
 
     def close(self) -> None:
         with self._lock:
@@ -528,22 +510,11 @@ class ComponentCatalogService:
             path.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self._db_path, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA busy_timeout = 5000")
-        conn.execute("PRAGMA temp_store = MEMORY")
-        conn.execute("PRAGMA cache_size = -64000")
-        conn.execute("PRAGMA wal_autocheckpoint = 1000")
-        try:
-            yield conn
-        finally:
-            conn.close()
+    def _connect(self) -> Iterator[Any]:
+        raise NotImplementedError("Catalog persistence must provide a PostgreSQL connection")
+        yield  # pragma: no cover
 
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
+    def _create_schema(self, conn: Any) -> None:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS components (
@@ -864,7 +835,7 @@ class ComponentCatalogService:
             """
         )
 
-    def _ensure_metadata_schema(self, conn: sqlite3.Connection) -> None:
+    def _ensure_metadata_schema(self, conn: Any) -> None:
         """Create the metadata-editing registry and durable batch tables.
 
         The DDL intentionally stays in the catalog domain layer so SQLite-backed
@@ -959,11 +930,12 @@ class ComponentCatalogService:
             field_id = f"builtin:{field['key']}"
             conn.execute(
                 """
-                INSERT OR IGNORE INTO catalog_field_definitions (
+                INSERT INTO catalog_field_definitions (
                     id, field_key, label, description, field_group, field_type, unit,
                     enum_values_json, storage_kind, storage_key, built_in, required,
                     display_order, archived, created_by, updated_by, created_at, updated_at
-                ) VALUES (?, ?, ?, '', ?, ?, ?, '[]', 'column', ?, 1, ?, ?, 0, 'system', 'system', ?, ?)
+                ) VALUES (%s, %s, %s, '', %s, %s, %s, '[]', 'column', %s, 1, %s, %s, 0, 'system', 'system', %s, %s)
+                ON CONFLICT DO NOTHING
                 """,
                 (
                     field_id,
@@ -989,7 +961,7 @@ class ComponentCatalogService:
 
     def _ensure_extra_field_definitions(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         storage_keys: Iterable[str],
         *,
         actor: str,
@@ -1019,405 +991,23 @@ class ComponentCatalogService:
             field_id = f"discovered:{hashlib.sha256(raw_key.encode('utf-8')).hexdigest()[:24]}"
             conn.execute(
                 """
-                INSERT OR IGNORE INTO catalog_field_definitions (
+                INSERT INTO catalog_field_definitions (
                     id, field_key, label, description, field_group, field_type, unit,
                     enum_values_json, storage_kind, storage_key, built_in, required,
                     display_order, archived, created_by, updated_by, created_at, updated_at
-                ) VALUES (?, ?, ?, 'Discovered from existing KiCad component metadata', 'custom',
-                          'text', '', '[]', 'extra', ?, 0, 0, ?, 0, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, 'Discovered from existing KiCad component metadata', 'custom',
+                          'text', '', '[]', 'extra', %s, 0, 0, %s, 0, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
                 """,
                 (field_id, field_key, raw_key, raw_key, next_order, actor, actor, now, now),
             )
-            row = conn.execute("SELECT * FROM catalog_field_definitions WHERE id = ?", (field_id,)).fetchone()
+            row = conn.execute("SELECT * FROM catalog_field_definitions WHERE id = %s", (field_id,)).fetchone()
             if row:
                 payload = self._metadata_field_payload(dict(row))
                 self._append_field_event(conn, field_id, "created", actor, None, payload)
                 existing_storage[raw_key] = dict(row)
                 used_keys.add(field_key)
                 next_order += 1
-
-    def _migrate_revision_schema(self, conn: sqlite3.Connection) -> None:
-        component_columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(components)").fetchall()
-        }
-        component_additions = {
-            "external_url": "TEXT NOT NULL DEFAULT ''",
-            "external_payload_json": "TEXT NOT NULL DEFAULT '{}'",
-            "external_updated_at": "TEXT",
-            "sync_status": "TEXT NOT NULL DEFAULT ''",
-            "sync_error": "TEXT NOT NULL DEFAULT ''",
-        }
-        for name, declaration in component_additions.items():
-            if name not in component_columns:
-                conn.execute(f"ALTER TABLE components ADD COLUMN {name} {declaration}")
-        columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(component_revisions)").fetchall()}
-        additions = {
-            "parent_revision_id": "TEXT NOT NULL DEFAULT ''",
-            "change_kind": "TEXT NOT NULL DEFAULT 'create'",
-            "change_summary": "TEXT NOT NULL DEFAULT ''",
-            "created_by": "TEXT NOT NULL DEFAULT ''",
-            "manifest_hash": "TEXT NOT NULL DEFAULT ''",
-            "manifest_schema": f"TEXT NOT NULL DEFAULT '{REVISION_MANIFEST_A0}'",
-            "extra_fields": "TEXT NOT NULL DEFAULT '{}'",
-        }
-        for name, declaration in additions.items():
-            if name not in columns:
-                conn.execute(f"ALTER TABLE component_revisions ADD COLUMN {name} {declaration}")
-        import_columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(project_component_import_sessions)").fetchall()
-        }
-        if "project_ids_json" not in import_columns:
-            conn.execute(
-                "ALTER TABLE project_component_import_sessions ADD COLUMN project_ids_json TEXT NOT NULL DEFAULT '[]'"
-            )
-        if "project_revisions_json" not in import_columns:
-            conn.execute(
-                "ALTER TABLE project_component_import_sessions ADD COLUMN project_revisions_json TEXT NOT NULL DEFAULT '{}'"
-            )
-        if "error_message" not in import_columns:
-            conn.execute(
-                "ALTER TABLE project_component_import_sessions ADD COLUMN error_message TEXT NOT NULL DEFAULT ''"
-            )
-        proposal_columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(project_component_import_proposals)").fetchall()
-        }
-        if "assets_json" not in proposal_columns:
-            conn.execute(
-                "ALTER TABLE project_component_import_proposals ADD COLUMN assets_json TEXT NOT NULL DEFAULT '[]'"
-            )
-        if "accepted_component_id" not in proposal_columns:
-            conn.execute(
-                "ALTER TABLE project_component_import_proposals ADD COLUMN accepted_component_id TEXT NOT NULL DEFAULT ''"
-            )
-        audit_columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(catalog_audit_events)").fetchall()
-        }
-        if "sequence" not in audit_columns:
-            conn.execute("ALTER TABLE catalog_audit_events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0")
-        review_columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(component_review_decisions)").fetchall()
-        }
-        review_additions = {
-            "reviewer_role": "TEXT NOT NULL DEFAULT ''",
-            "manifest_hash": "TEXT NOT NULL DEFAULT ''",
-            "validation_json": "TEXT NOT NULL DEFAULT '{}'",
-            "policy_json": "TEXT NOT NULL DEFAULT '{}'",
-        }
-        for name, declaration in review_additions.items():
-            if name not in review_columns:
-                conn.execute(f"ALTER TABLE component_review_decisions ADD COLUMN {name} {declaration}")
-        usage_columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(component_usage)").fetchall()
-        }
-        usage_additions = {
-            "details_json": "TEXT NOT NULL DEFAULT '[]'",
-            "is_current": "INTEGER NOT NULL DEFAULT 1",
-        }
-        for name, declaration in usage_additions.items():
-            if name not in usage_columns:
-                conn.execute(f"ALTER TABLE component_usage ADD COLUMN {name} {declaration}")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_component_usage_current "
-            "ON component_usage(component_id, is_current, last_seen_at DESC)"
-        )
-
-        # Older catalogs predate monotonic audit sequencing. Reconstruct each chain by
-        # following its hashes where possible, then place any legacy orphaned events in
-        # deterministic timestamp order. Sequence is deliberately excluded from the
-        # event hash so this migration does not rewrite signed history.
-        component_ids = conn.execute(
-            """
-            SELECT component_id
-            FROM catalog_audit_events
-            GROUP BY component_id
-            HAVING MIN(sequence) <= 0
-            ORDER BY component_id
-            """
-        ).fetchall()
-        for component_row in component_ids:
-            component_id = str(component_row["component_id"])
-            rows = [
-                dict(row)
-                for row in conn.execute(
-                    "SELECT id, previous_hash, event_hash, created_at FROM catalog_audit_events WHERE component_id = ?",
-                    (component_id,),
-                ).fetchall()
-            ]
-            by_previous: dict[str, list[dict[str, Any]]] = {}
-            for row in rows:
-                by_previous.setdefault(str(row["previous_hash"]), []).append(row)
-            ordered: list[dict[str, Any]] = []
-            seen_ids: set[str] = set()
-            previous_hash = ""
-            while True:
-                candidates = sorted(
-                    (row for row in by_previous.get(previous_hash, []) if str(row["id"]) not in seen_ids),
-                    key=lambda row: (str(row["created_at"]), str(row["id"])),
-                )
-                if not candidates:
-                    break
-                row = candidates[0]
-                ordered.append(row)
-                seen_ids.add(str(row["id"]))
-                previous_hash = str(row["event_hash"])
-            ordered.extend(
-                sorted(
-                    (row for row in rows if str(row["id"]) not in seen_ids),
-                    key=lambda row: (str(row["created_at"]), str(row["id"])),
-                )
-            )
-            for sequence, row in enumerate(ordered, start=1):
-                conn.execute(
-                    "UPDATE catalog_audit_events SET sequence = ? WHERE id = ?",
-                    (sequence, str(row["id"])),
-                )
-            if ordered:
-                conn.execute(
-                    "INSERT OR IGNORE INTO catalog_meta (key, value) VALUES (?, ?)",
-                    (f"audit_head:{component_id}", str(ordered[-1]["event_hash"])),
-                )
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_component_sequence ON catalog_audit_events(component_id, sequence)"
-        )
-        audit_heads = conn.execute(
-            """
-            SELECT event.component_id, event.event_hash
-            FROM catalog_audit_events event
-            WHERE event.sequence = (
-                SELECT MAX(latest.sequence)
-                FROM catalog_audit_events latest
-                WHERE latest.component_id = event.component_id
-            )
-            """
-        ).fetchall()
-        for head in audit_heads:
-            conn.execute(
-                "INSERT OR IGNORE INTO catalog_meta (key, value) VALUES (?, ?)",
-                (f"audit_head:{head['component_id']}", str(head["event_hash"])),
-            )
-        revision_asset_pk = [
-            str(row["name"])
-            for row in sorted(
-                conn.execute("PRAGMA table_info(revision_assets)").fetchall(),
-                key=lambda row: int(row["pk"] or 0),
-            )
-            if int(row["pk"] or 0) > 0
-        ]
-        if revision_asset_pk == ["revision_id", "asset_type"]:
-            conn.executescript(
-                """
-                ALTER TABLE revision_assets RENAME TO revision_assets_legacy;
-                CREATE TABLE revision_assets (
-                    revision_id TEXT NOT NULL REFERENCES component_revisions(id) ON DELETE CASCADE,
-                    asset_type TEXT NOT NULL,
-                    asset_id TEXT NOT NULL REFERENCES assets(id),
-                    required INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY(revision_id, asset_id)
-                );
-                INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
-                SELECT revision_id, asset_type, asset_id, required, created_at, updated_at
-                FROM revision_assets_legacy;
-                DROP TABLE revision_assets_legacy;
-                CREATE INDEX IF NOT EXISTS idx_revision_assets_revision ON revision_assets(revision_id);
-                CREATE INDEX IF NOT EXISTS idx_revision_assets_type ON revision_assets(revision_id, asset_type);
-                """
-            )
-        self._backfill_legacy_preview_versions(conn)
-        empty_manifests = conn.execute(
-            "SELECT id FROM component_revisions WHERE manifest_hash = '' ORDER BY component_id, version"
-        ).fetchall()
-        for row in empty_manifests:
-            revision_id = str(row["id"])
-            conn.execute(
-                "UPDATE component_revisions SET manifest_hash = ? WHERE id = ?",
-                (self._revision_manifest_hash(conn, revision_id), revision_id),
-            )
-        unaudited = conn.execute(
-            """
-            SELECT c.id, c.current_revision_id
-            FROM components c
-            WHERE NOT EXISTS (
-                SELECT 1 FROM catalog_audit_events event WHERE event.component_id = c.id
-            )
-            """
-        ).fetchall()
-        for row in unaudited:
-            self._append_audit_event(
-                conn,
-                component_id=str(row["id"]),
-                revision_id=str(row["current_revision_id"] or ""),
-                event_type="audit.migrated",
-                details={"reason": "Initialize immutable revision audit history"},
-            )
-
-    def _backfill_legacy_preview_versions(self, conn: sqlite3.Connection) -> None:
-        """Freeze the one mutable legacy preview for every revision using its asset."""
-
-        rows = [dict(row) for row in conn.execute("SELECT * FROM asset_previews ORDER BY id").fetchall()]
-        for row in rows:
-            preview_id = str(row["id"])
-            file_path = str(row.get("file_path") or "")
-            status = str(row.get("status") or PREVIEW_STATUS_FAILED)
-            sha256 = ""
-            size_bytes = 0
-            if status == PREVIEW_STATUS_READY:
-                path = Path(file_path).resolve()
-                if not path.is_file():
-                    raise RuntimeError(f"Ready legacy preview is missing: {path}")
-                try:
-                    path.relative_to((self._store_root / "previews").resolve())
-                except ValueError as exc:
-                    raise RuntimeError(f"Legacy preview is outside the preview store: {path}") from exc
-                sha256 = _sha256_file(path)
-                size_bytes = path.stat().st_size
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO asset_preview_versions (
-                    id, asset_id, kind, status, content_type, file_path, sha256, size_bytes,
-                    generator_name, generator_version, pipeline_version, generator_fingerprint,
-                    generation_error, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'legacy', 'unknown', 'legacy-a0', ?, ?, ?)
-                """,
-                (
-                    preview_id,
-                    str(row["asset_id"]),
-                    str(row["kind"]),
-                    status,
-                    str(row.get("content_type") or "image/svg+xml"),
-                    file_path,
-                    sha256,
-                    size_bytes,
-                    f"legacy:{preview_id}",
-                    str(row.get("generation_error") or ""),
-                    str(row.get("created_at") or _utc_now_iso()),
-                ),
-            )
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO revision_previews (
-                    revision_id, asset_id, kind, preview_id, created_at
-                )
-                SELECT revision_id, ?, ?, ?, ?
-                FROM revision_assets
-                WHERE asset_id = ?
-                """,
-                (
-                    str(row["asset_id"]),
-                    str(row["kind"]),
-                    preview_id,
-                    str(row.get("created_at") or _utc_now_iso()),
-                    str(row["asset_id"]),
-                ),
-            )
-
-    def _ensure_search_index(self, conn: sqlite3.Connection) -> None:
-        try:
-            conn.executescript(
-                """
-                CREATE VIRTUAL TABLE IF NOT EXISTS component_revisions_fts USING fts5(
-                    name,
-                    value,
-                    description,
-                    manufacturer,
-                    mpn,
-                    category,
-                    package_name,
-                    vendor,
-                    vendor_part_number,
-                    sap_code,
-                    search_document,
-                    content='component_revisions',
-                    content_rowid='rowid',
-                    tokenize='unicode61'
-                );
-
-                CREATE TRIGGER IF NOT EXISTS component_revisions_fts_ai
-                AFTER INSERT ON component_revisions BEGIN
-                    INSERT INTO component_revisions_fts(
-                        rowid, name, value, description, manufacturer, mpn, category,
-                        package_name, vendor, vendor_part_number, sap_code, search_document
-                    )
-                    VALUES (
-                        new.rowid, new.name, new.value, new.description, new.manufacturer, new.mpn,
-                        new.category, new.package_name, new.vendor, new.vendor_part_number,
-                        new.sap_code, new.search_document
-                    );
-                END;
-
-                CREATE TRIGGER IF NOT EXISTS component_revisions_fts_ad
-                AFTER DELETE ON component_revisions BEGIN
-                    INSERT INTO component_revisions_fts(
-                        component_revisions_fts, rowid, name, value, description, manufacturer,
-                        mpn, category, package_name, vendor, vendor_part_number, sap_code,
-                        search_document
-                    )
-                    VALUES (
-                        'delete', old.rowid, old.name, old.value, old.description, old.manufacturer,
-                        old.mpn, old.category, old.package_name, old.vendor, old.vendor_part_number,
-                        old.sap_code, old.search_document
-                    );
-                END;
-
-                CREATE TRIGGER IF NOT EXISTS component_revisions_fts_au
-                AFTER UPDATE ON component_revisions BEGIN
-                    INSERT INTO component_revisions_fts(
-                        component_revisions_fts, rowid, name, value, description, manufacturer,
-                        mpn, category, package_name, vendor, vendor_part_number, sap_code,
-                        search_document
-                    )
-                    VALUES (
-                        'delete', old.rowid, old.name, old.value, old.description, old.manufacturer,
-                        old.mpn, old.category, old.package_name, old.vendor, old.vendor_part_number,
-                        old.sap_code, old.search_document
-                    );
-                    INSERT INTO component_revisions_fts(
-                        rowid, name, value, description, manufacturer, mpn, category,
-                        package_name, vendor, vendor_part_number, sap_code, search_document
-                    )
-                    VALUES (
-                        new.rowid, new.name, new.value, new.description, new.manufacturer, new.mpn,
-                        new.category, new.package_name, new.vendor, new.vendor_part_number,
-                        new.sap_code, new.search_document
-                    );
-                END;
-                """
-            )
-            signature_row = conn.execute(
-                "SELECT COUNT(1) AS count, COALESCE(MAX(updated_at), '') AS updated_at FROM component_revisions"
-            ).fetchone()
-            signature = f"{int(signature_row['count'])}:{signature_row['updated_at']}"
-            stored = conn.execute("SELECT value FROM catalog_meta WHERE key = 'component_revisions_fts_signature'").fetchone()
-            if not stored or str(stored["value"]) != signature:
-                conn.execute("INSERT INTO component_revisions_fts(component_revisions_fts) VALUES ('rebuild')")
-                conn.execute(
-                    """
-                    INSERT INTO catalog_meta(key, value)
-                    VALUES ('component_revisions_fts_signature', ?)
-                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                    """,
-                    (signature,),
-                )
-            self._fts_available = True
-        except sqlite3.OperationalError as exc:
-            self._fts_available = False
-            logger.warning("SQLite FTS5 is unavailable; falling back to LIKE catalog search: %s", exc)
-
-    def _migrate_workflow_stages(self, conn: sqlite3.Connection) -> None:
-        for old_stage, new_stage in LEGACY_WORKFLOW_STAGE_MAP.items():
-            if old_stage == new_stage:
-                continue
-            conn.execute(
-                "UPDATE component_revisions SET release_status = ? WHERE release_status = ?",
-                (new_stage, old_stage),
-            )
 
     def _resolve_kicad_cli(self) -> str | None:
         if self._kicad_cli and Path(self._kicad_cli).exists():
@@ -1567,21 +1157,21 @@ class ComponentCatalogService:
         }
         return normalized
 
-    def _unique_slug(self, conn: sqlite3.Connection, base: str) -> str:
+    def _unique_slug(self, conn: Any, base: str) -> str:
         slug = _slugify(base or "component")
         candidate = slug
         counter = 2
-        while conn.execute("SELECT 1 FROM components WHERE slug = ?", (candidate,)).fetchone():
+        while conn.execute("SELECT 1 FROM components WHERE slug = %s", (candidate,)).fetchone():
             candidate = f"{slug}-{counter}"
             counter += 1
         return candidate
 
-    def _lock_component_identity(self, conn: sqlite3.Connection, manufacturer: str, mpn: str) -> None:
+    def _lock_component_identity(self, conn: Any, manufacturer: str, mpn: str) -> None:
         # SQLite serializes writes at the database level. PostgreSQL overrides this
         # with a transaction-scoped advisory lock for the normalized identity.
         _ = (conn, manufacturer, mpn)
 
-    def _lock_component_for_mutation(self, conn: sqlite3.Connection, component_id: str) -> None:
+    def _lock_component_for_mutation(self, conn: Any, component_id: str) -> None:
         # SQLite serializes writers at the database level. PostgreSQL overrides this
         # hook with a row lock so every mutation reloads and validates the component
         # head from one serial transaction.
@@ -1589,7 +1179,7 @@ class ComponentCatalogService:
 
     def _assert_component_identity_available(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         manufacturer: str,
         mpn: str,
@@ -1604,9 +1194,9 @@ class ComponentCatalogService:
             FROM components component
             JOIN component_revisions revision ON revision.id = component.current_revision_id
             WHERE component.is_active = 1
-              AND lower(trim(revision.manufacturer)) = lower(trim(?))
-              AND lower(trim(revision.mpn)) = lower(trim(?))
-              AND component.id <> ?
+              AND lower(trim(revision.manufacturer)) = lower(trim(%s))
+              AND lower(trim(revision.mpn)) = lower(trim(%s))
+              AND component.id <> %s
             LIMIT 1
             """,
             (manufacturer, mpn, component_id),
@@ -1616,17 +1206,17 @@ class ComponentCatalogService:
                 "A component with this manufacturer and manufacturer part number already exists"
             )
 
-    def _component_row(self, conn: sqlite3.Connection, component_id: str) -> dict[str, Any] | None:
-        row = conn.execute("SELECT * FROM components WHERE id = ?", (component_id,)).fetchone()
+    def _component_row(self, conn: Any, component_id: str) -> dict[str, Any] | None:
+        row = conn.execute("SELECT * FROM components WHERE id = %s", (component_id,)).fetchone()
         return dict(row) if row else None
 
-    def _revision_row(self, conn: sqlite3.Connection, revision_id: str) -> dict[str, Any] | None:
-        row = conn.execute("SELECT * FROM component_revisions WHERE id = ?", (revision_id,)).fetchone()
+    def _revision_row(self, conn: Any, revision_id: str) -> dict[str, Any] | None:
+        row = conn.execute("SELECT * FROM component_revisions WHERE id = %s", (revision_id,)).fetchone()
         return dict(row) if row else None
 
     def _active_revision_row(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         component_id: str,
         *,
         released: bool = False,
@@ -1641,7 +1231,7 @@ class ComponentCatalogService:
 
     def _append_audit_event(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         component_id: str,
         revision_id: str,
@@ -1650,7 +1240,7 @@ class ComponentCatalogService:
         details: dict[str, Any] | None = None,
     ) -> None:
         previous = conn.execute(
-            "SELECT sequence, event_hash FROM catalog_audit_events WHERE component_id = ? ORDER BY sequence DESC LIMIT 1",
+            "SELECT sequence, event_hash FROM catalog_audit_events WHERE component_id = %s ORDER BY sequence DESC LIMIT 1",
             (component_id,),
         ).fetchone()
         previous_hash = str(previous["event_hash"]) if previous else ""
@@ -1678,7 +1268,7 @@ class ComponentCatalogService:
             INSERT INTO catalog_audit_events (
                 id, component_id, sequence, revision_id, event_type, actor, details_json,
                 previous_hash, event_hash, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 event_id,
@@ -1694,11 +1284,12 @@ class ComponentCatalogService:
             ),
         )
         conn.execute(
-            "INSERT OR REPLACE INTO catalog_meta (key, value) VALUES (?, ?)",
+            "INSERT INTO catalog_meta (key, value) VALUES (%s, %s) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
             (f"audit_head:{component_id}", event_hash),
         )
 
-    def _revision_manifest_hash(self, conn: sqlite3.Connection, revision_id: str) -> str:
+    def _revision_manifest_hash(self, conn: Any, revision_id: str) -> str:
         revision = self._revision_row(conn, revision_id)
         if not revision:
             return ""
@@ -1753,7 +1344,7 @@ class ComponentCatalogService:
 
     def _finalize_revision(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         component_id: str,
         revision_id: str,
@@ -1764,7 +1355,7 @@ class ComponentCatalogService:
         self._refresh_revision_preview_outputs_in_conn(conn, revision_id)
         manifest_hash = self._revision_manifest_hash(conn, revision_id)
         conn.execute(
-            "UPDATE component_revisions SET manifest_hash = ?, updated_at = ? WHERE id = ?",
+            "UPDATE component_revisions SET manifest_hash = %s, updated_at = %s WHERE id = %s",
             (manifest_hash, _utc_now_iso(), revision_id),
         )
         self._append_audit_event(
@@ -1778,7 +1369,7 @@ class ComponentCatalogService:
 
     def _clone_revision(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         component_id: str,
         *,
         actor: str = "",
@@ -1795,7 +1386,7 @@ class ComponentCatalogService:
         now = _utc_now_iso()
         next_version = int(
             conn.execute(
-                "SELECT COALESCE(MAX(version), 0) AS max_version FROM component_revisions WHERE component_id = ?",
+                "SELECT COALESCE(MAX(version), 0) AS max_version FROM component_revisions WHERE component_id = %s",
                 (component_id,),
             ).fetchone()["max_version"]
         ) + 1
@@ -1810,55 +1401,55 @@ class ComponentCatalogService:
                 summary, keywords, extra_fields, search_document, created_at, updated_at
             )
             SELECT
-                ?, component_id, ?, id, ?, ?, ?, '', ?, 'open', name, value, description, datasheet_url,
+                %s, component_id, %s, id, %s, %s, %s, '', %s, 'open', name, value, description, datasheet_url,
                 manufacturer, mpn, category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
-                summary, keywords, extra_fields, search_document, ?, ?
+                summary, keywords, extra_fields, search_document, %s, %s
             FROM component_revisions
-            WHERE id = ?
+            WHERE id = %s
             """,
             (revision_id, next_version, change_kind, change_summary, actor, REVISION_MANIFEST_A2, now, now, current["id"]),
         )
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
-            SELECT ?, asset_type, asset_id, required, ?, ?
+            SELECT %s, asset_type, asset_id, required, %s, %s
             FROM revision_assets
-            WHERE revision_id = ?
+            WHERE revision_id = %s
             """,
             (revision_id, now, now, current["id"]),
         )
         conn.execute(
             """
             INSERT INTO revision_previews (revision_id, asset_id, kind, preview_id, created_at)
-            SELECT ?, asset_id, kind, preview_id, ?
+            SELECT %s, asset_id, kind, preview_id, %s
             FROM revision_previews
-            WHERE revision_id = ?
+            WHERE revision_id = %s
             """,
             (revision_id, now, current["id"]),
         )
         conn.execute(
             """
             INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
-            SELECT ?, asset_id, kind, preview_id, ?
+            SELECT %s, asset_id, kind, preview_id, %s
             FROM revision_preview_outputs
-            WHERE revision_id = ?
+            WHERE revision_id = %s
             """,
             (revision_id, now, current["id"]),
         )
         conn.execute(
-            "UPDATE components SET current_revision_id = ?, updated_at = ? WHERE id = ?",
+            "UPDATE components SET current_revision_id = %s, updated_at = %s WHERE id = %s",
             (revision_id, now, component_id),
         )
         return self._revision_row(conn, revision_id) or {}
 
-    def _load_assets_for_revision(self, conn: sqlite3.Connection, revision_id: str) -> list[dict[str, Any]]:
+    def _load_assets_for_revision(self, conn: Any, revision_id: str) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT a.*, ra.required
             FROM revision_assets ra
             JOIN assets a ON a.id = ra.asset_id
-            WHERE ra.revision_id = ?
+            WHERE ra.revision_id = %s
             ORDER BY CASE a.asset_type
                 WHEN 'symbol' THEN 1
                 WHEN 'footprint' THEN 2
@@ -1871,23 +1462,23 @@ class ComponentCatalogService:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def _load_previews_for_assets(self, conn: sqlite3.Connection, asset_ids: list[str]) -> list[dict[str, Any]]:
+    def _load_previews_for_assets(self, conn: Any, asset_ids: list[str]) -> list[dict[str, Any]]:
         if not asset_ids:
             return []
-        placeholders = ",".join("?" for _ in asset_ids)
+        placeholders = ",".join("%s" for _ in asset_ids)
         rows = conn.execute(
             f"SELECT * FROM asset_previews WHERE asset_id IN ({placeholders}) ORDER BY kind, updated_at DESC",
             tuple(asset_ids),
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def _load_previews_for_revision(self, conn: sqlite3.Connection, revision_id: str) -> list[dict[str, Any]]:
+    def _load_previews_for_revision(self, conn: Any, revision_id: str) -> list[dict[str, Any]]:
         output_rows = conn.execute(
             """
             SELECT preview.*
             FROM revision_preview_outputs link
             JOIN asset_preview_versions preview ON preview.id = link.preview_id
-            WHERE link.revision_id = ?
+            WHERE link.revision_id = %s
             """,
             (revision_id,),
         ).fetchall()
@@ -1896,7 +1487,7 @@ class ComponentCatalogService:
             SELECT preview.*
             FROM revision_previews link
             JOIN asset_preview_versions preview ON preview.id = link.preview_id
-            WHERE link.revision_id = ?
+            WHERE link.revision_id = %s
             """,
             (revision_id,),
         ).fetchall()
@@ -1915,23 +1506,23 @@ class ComponentCatalogService:
         })
         return sorted(previews.values(), key=lambda row: (str(row["kind"]), str(row["asset_id"]), str(row["created_at"]), str(row["id"])))
 
-    def _load_preview_evidence_for_revision(self, conn: sqlite3.Connection, revision_id: str) -> list[dict[str, Any]]:
+    def _load_preview_evidence_for_revision(self, conn: Any, revision_id: str) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT preview.*
             FROM revision_previews link
             JOIN asset_preview_versions preview ON preview.id = link.preview_id
-            WHERE link.revision_id = ?
+            WHERE link.revision_id = %s
             ORDER BY preview.kind, preview.asset_id, preview.created_at, preview.id
             """,
             (revision_id,),
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def _load_previews_for_revisions(self, conn: sqlite3.Connection, revision_ids: list[str]) -> list[dict[str, Any]]:
+    def _load_previews_for_revisions(self, conn: Any, revision_ids: list[str]) -> list[dict[str, Any]]:
         if not revision_ids:
             return []
-        placeholders = ",".join("?" for _ in revision_ids)
+        placeholders = ",".join("%s" for _ in revision_ids)
         output_rows = conn.execute(
             f"""
             SELECT preview.*, link.revision_id
@@ -1962,18 +1553,18 @@ class ComponentCatalogService:
 
     def _latest_validation_runs_for_assets(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         revision_id: str,
         asset_ids: list[str],
     ) -> dict[str, dict[str, Any]]:
         if not asset_ids:
             return {}
-        placeholders = ",".join("?" for _ in asset_ids)
+        placeholders = ",".join("%s" for _ in asset_ids)
         rows = conn.execute(
             f"""
             SELECT *
             FROM asset_validation_runs
-            WHERE revision_id = ? AND asset_id IN ({placeholders})
+            WHERE revision_id = %s AND asset_id IN ({placeholders})
             ORDER BY asset_id, finished_at DESC, created_at DESC
             """,
             (revision_id, *asset_ids),
@@ -1985,14 +1576,14 @@ class ComponentCatalogService:
                 latest[asset_id] = dict(row)
         missing_asset_ids = [asset_id for asset_id in asset_ids if asset_id not in latest]
         if missing_asset_ids:
-            inherited_placeholders = ",".join("?" for _ in missing_asset_ids)
+            inherited_placeholders = ",".join("%s" for _ in missing_asset_ids)
             inherited_rows = conn.execute(
                 f"""
                 SELECT run.*, run.revision_id AS inherited_from_revision_id,
                        link.revision_id AS inherited_for_revision_id
                 FROM revision_validation_evidence_links link
                 JOIN asset_validation_runs run ON run.id = link.source_run_id
-                WHERE link.revision_id = ? AND link.asset_id IN ({inherited_placeholders})
+                WHERE link.revision_id = %s AND link.asset_id IN ({inherited_placeholders})
                 """,
                 (revision_id, *missing_asset_ids),
             ).fetchall()
@@ -2000,7 +1591,7 @@ class ComponentCatalogService:
                 latest[str(row["asset_id"])] = dict(row)
         return latest
 
-    def _validation_run_payload(self, row: dict[str, Any], *, include_findings: bool = False, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    def _validation_run_payload(self, row: dict[str, Any], *, include_findings: bool = False, conn: Any | None = None) -> dict[str, Any]:
         run_id = str(row["id"])
         payload = {
             "id": run_id,
@@ -2030,12 +1621,12 @@ class ComponentCatalogService:
             payload["findings"] = self._validation_findings_payload(conn, run_id)
         return payload
 
-    def _validation_findings_payload(self, conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
+    def _validation_findings_payload(self, conn: Any, run_id: str) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT *
             FROM asset_validation_findings
-            WHERE run_id = ?
+            WHERE run_id = %s
             ORDER BY CASE severity WHEN 'error' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END, rule_code, message
             """,
             (run_id,),
@@ -2057,7 +1648,7 @@ class ComponentCatalogService:
 
     def _component_validation_summary(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         revision_id: str,
         assets: list[dict[str, Any]],
         *,
@@ -2139,7 +1730,7 @@ class ComponentCatalogService:
 
     def _component_payload(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         component_row: dict[str, Any],
         revision_row: dict[str, Any],
         *,
@@ -2277,7 +1868,7 @@ class ComponentCatalogService:
                 SELECT id, component_id, version, parent_revision_id, change_kind, change_summary,
                        created_by, manifest_hash, release_status, created_at, updated_at
                 FROM component_revisions
-                WHERE component_id = ?
+                WHERE component_id = %s
                 ORDER BY version DESC
                 """,
                 (component_id,),
@@ -2294,7 +1885,7 @@ class ComponentCatalogService:
                 SELECT id, component_id, sequence, revision_id, event_type, actor, details_json,
                        previous_hash, event_hash, created_at
                 FROM catalog_audit_events
-                WHERE component_id = ?
+                WHERE component_id = %s
                 ORDER BY sequence DESC
                 """,
                 (component_id,),
@@ -2314,7 +1905,7 @@ class ComponentCatalogService:
                 SELECT id, component_id, sequence, revision_id, event_type, actor, details_json,
                        previous_hash, event_hash, created_at
                 FROM catalog_audit_events
-                WHERE component_id = ?
+                WHERE component_id = %s
                 ORDER BY sequence
                 """,
                 (component_id,),
@@ -2376,7 +1967,7 @@ class ComponentCatalogService:
                 previous_hash = expected_hash
 
             anchor = conn.execute(
-                "SELECT value FROM catalog_meta WHERE key = ?",
+                "SELECT value FROM catalog_meta WHERE key = %s",
                 (f"audit_head:{component_id}",),
             ).fetchone()
             anchored_head = str(anchor["value"]) if anchor else ""
@@ -2393,7 +1984,7 @@ class ComponentCatalogService:
                 }
 
             revisions = conn.execute(
-                "SELECT id, manifest_hash FROM component_revisions WHERE component_id = ? ORDER BY version",
+                "SELECT id, manifest_hash FROM component_revisions WHERE component_id = %s ORDER BY version",
                 (component_id,),
             ).fetchall()
             for revision in revisions:
@@ -2417,7 +2008,7 @@ class ComponentCatalogService:
                 FROM revision_assets link
                 JOIN component_revisions revision ON revision.id = link.revision_id
                 JOIN assets asset ON asset.id = link.asset_id
-                WHERE revision.component_id = ?
+                WHERE revision.component_id = %s
                 """,
                 (component_id,),
             ).fetchall()
@@ -2582,7 +2173,7 @@ class ComponentCatalogService:
                 """
                 SELECT *
                 FROM component_usage
-                WHERE component_id = ? AND (? = 1 OR is_current = 1)
+                WHERE component_id = %s AND (%s = 1 OR is_current = 1)
                 ORDER BY last_seen_at DESC, project_id, source_revision
                 """,
                 (component_id, 1 if include_history else 0),
@@ -2603,7 +2194,7 @@ class ComponentCatalogService:
             if not self._component_row(conn, component_id):
                 raise ValueError("Component not found")
             rows = conn.execute(
-                "SELECT * FROM component_review_decisions WHERE component_id = ? ORDER BY created_at DESC, id DESC",
+                "SELECT * FROM component_review_decisions WHERE component_id = %s ORDER BY created_at DESC, id DESC",
                 (component_id,),
             ).fetchall()
             return [
@@ -2621,7 +2212,7 @@ class ComponentCatalogService:
             if not self._component_row(conn, component_id):
                 raise ValueError("Component not found")
             rows = conn.execute(
-                "SELECT * FROM component_release_records WHERE component_id = ? ORDER BY created_at DESC, id DESC",
+                "SELECT * FROM component_release_records WHERE component_id = %s ORDER BY created_at DESC, id DESC",
                 (component_id,),
             ).fetchall()
             return [
@@ -2637,12 +2228,12 @@ class ComponentCatalogService:
         self.initialize()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT file_path, content_type FROM asset_preview_versions WHERE id = ? AND status = ?",
+                "SELECT file_path, content_type FROM asset_preview_versions WHERE id = %s AND status = %s",
                 (preview_id, PREVIEW_STATUS_READY),
             ).fetchone()
             if not row:
                 row = conn.execute(
-                    "SELECT file_path, content_type FROM asset_previews WHERE id = ? AND status = ?",
+                    "SELECT file_path, content_type FROM asset_previews WHERE id = %s AND status = %s",
                     (preview_id, PREVIEW_STATUS_READY),
                 ).fetchone()
         if not row:
@@ -2681,7 +2272,7 @@ class ComponentCatalogService:
                     id, scope, project_id, project_ids_json, project_revisions_json,
                     source_revision, selection_json, status,
                     created_by, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'queued', %s, %s, %s)
                 """,
                 (
                     session_id,
@@ -2703,7 +2294,7 @@ class ComponentCatalogService:
         self.initialize()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM project_component_import_sessions WHERE id = ?",
+                "SELECT * FROM project_component_import_sessions WHERE id = %s",
                 (session_id,),
             ).fetchone()
             if not row:
@@ -2713,7 +2304,7 @@ class ComponentCatalogService:
             payload["project_ids"] = _json_loads(payload.pop("project_ids_json"), [])
             payload["project_revisions"] = _json_loads(payload.pop("project_revisions_json"), {})
             count = conn.execute(
-                "SELECT COUNT(1) AS count FROM project_component_import_proposals WHERE session_id = ?",
+                "SELECT COUNT(1) AS count FROM project_component_import_proposals WHERE session_id = %s",
                 (session_id,),
             ).fetchone()
             payload["proposal_count"] = int(count["count"] if count else 0)
@@ -2730,7 +2321,7 @@ class ComponentCatalogService:
                 rows = conn.execute(
                     """
                     SELECT id FROM project_component_import_sessions
-                    WHERE created_by = ? ORDER BY created_at DESC LIMIT 100
+                    WHERE created_by = %s ORDER BY created_at DESC LIMIT 100
                     """,
                     (created_by,),
                 ).fetchall()
@@ -2742,7 +2333,7 @@ class ComponentCatalogService:
         self.initialize()
         with self._connect() as conn:
             result = conn.execute(
-                "UPDATE project_component_import_sessions SET status = ?, error_message = ?, updated_at = ? WHERE id = ?",
+                "UPDATE project_component_import_sessions SET status = %s, error_message = %s, updated_at = %s WHERE id = %s",
                 (status, error_message, _utc_now_iso(), session_id),
             )
             if result.rowcount == 0:
@@ -2754,18 +2345,18 @@ class ComponentCatalogService:
         now = _utc_now_iso()
         with self._connect() as conn:
             if not conn.execute(
-                "SELECT 1 FROM project_component_import_sessions WHERE id = ?",
+                "SELECT 1 FROM project_component_import_sessions WHERE id = %s",
                 (session_id,),
             ).fetchone():
                 raise ValueError("Project import session not found")
-            conn.execute("DELETE FROM project_component_import_proposals WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM project_component_import_proposals WHERE session_id = %s", (session_id,))
             for proposal in proposals:
                 conn.execute(
                     """
                     INSERT INTO project_component_import_proposals (
                         id, session_id, dedupe_key, component_uid, reference, metadata_json, assets_json,
                         provenance_json, findings_json, status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate', ?, ?)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'candidate', %s, %s)
                     """,
                     (
                         str(uuid.uuid4()),
@@ -2782,7 +2373,7 @@ class ComponentCatalogService:
                     ),
                 )
             conn.execute(
-                "UPDATE project_component_import_sessions SET status = 'staged', updated_at = ? WHERE id = ?",
+                "UPDATE project_component_import_sessions SET status = 'staged', updated_at = %s WHERE id = %s",
                 (now, session_id),
             )
             conn.commit()
@@ -2791,7 +2382,7 @@ class ComponentCatalogService:
         self.initialize()
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM project_component_import_proposals WHERE session_id = ? ORDER BY reference, id",
+                "SELECT * FROM project_component_import_proposals WHERE session_id = %s ORDER BY reference, id",
                 (session_id,),
             ).fetchall()
             proposals: list[dict[str, Any]] = []
@@ -2808,7 +2399,7 @@ class ComponentCatalogService:
         self.initialize()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM project_component_import_proposals WHERE id = ?",
+                "SELECT * FROM project_component_import_proposals WHERE id = %s",
                 (proposal_id,),
             ).fetchone()
             if not row:
@@ -2822,7 +2413,7 @@ class ComponentCatalogService:
 
     def _record_component_usage(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         component_id: str,
         provenance: list[dict[str, Any]],
@@ -2846,8 +2437,8 @@ class ComponentCatalogService:
             conn.execute(
                 """
                 UPDATE component_usage
-                SET is_current = 0, last_seen_at = ?
-                WHERE component_id = ? AND project_id = ? AND source_revision <> ? AND is_current = 1
+                SET is_current = 0, last_seen_at = %s
+                WHERE component_id = %s AND project_id = %s AND source_revision <> %s AND is_current = 1
                 """,
                 (observed_at, component_id, project_id, source_revision),
             )
@@ -2863,7 +2454,7 @@ class ComponentCatalogService:
                 INSERT INTO component_usage (
                     id, component_id, project_id, source_revision, references_json, details_json,
                     source, is_current, first_seen_at, last_seen_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
                 ON CONFLICT(component_id, project_id, source_revision)
                 DO UPDATE SET references_json = excluded.references_json,
                               details_json = excluded.details_json,
@@ -2904,8 +2495,8 @@ class ComponentCatalogService:
                     FROM components component
                     JOIN component_revisions revision ON revision.id = component.current_revision_id
                     WHERE component.is_active = 1
-                      AND lower(revision.manufacturer) = lower(?)
-                      AND lower(revision.mpn) = lower(?)
+                      AND lower(revision.manufacturer) = lower(%s)
+                      AND lower(revision.mpn) = lower(%s)
                     ORDER BY component.created_at
                     LIMIT 1
                     """,
@@ -2962,7 +2553,7 @@ class ComponentCatalogService:
 
     def _revision_matches_import(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         revision: dict[str, Any],
         metadata: dict[str, Any],
         selected_assets: dict[str, list[dict[str, Any]]],
@@ -3107,8 +2698,8 @@ class ComponentCatalogService:
             claimed = conn.execute(
                 """
                 UPDATE project_component_import_proposals
-                SET status = 'accepting', updated_at = ?
-                WHERE id = ? AND status = 'candidate'
+                SET status = 'accepting', updated_at = %s
+                WHERE id = %s AND status = 'candidate'
                 """,
                 (now, proposal_id),
             )
@@ -3120,7 +2711,7 @@ class ComponentCatalogService:
                 SELECT c.id
                 FROM components c
                 JOIN component_revisions revision ON revision.id = c.current_revision_id
-                WHERE c.is_active = 1 AND lower(revision.manufacturer) = lower(?) AND lower(revision.mpn) = lower(?)
+                WHERE c.is_active = 1 AND lower(revision.manufacturer) = lower(%s) AND lower(revision.mpn) = lower(%s)
                 ORDER BY c.created_at
                 LIMIT 1
                 """,
@@ -3217,8 +2808,8 @@ class ComponentCatalogService:
             conn.execute(
                 """
                 UPDATE project_component_import_proposals
-                SET status = 'accepted', accepted_component_id = ?, updated_at = ?
-                WHERE id = ? AND status = 'accepting'
+                SET status = 'accepted', accepted_component_id = %s, updated_at = %s
+                WHERE id = %s AND status = 'accepting'
                 """,
                 (component_id, now, proposal_id),
             )
@@ -3234,8 +2825,8 @@ class ComponentCatalogService:
             result = conn.execute(
                 """
                 UPDATE project_component_import_proposals
-                SET status = 'rejected', updated_at = ?
-                WHERE id = ? AND status = 'candidate'
+                SET status = 'rejected', updated_at = %s
+                WHERE id = %s AND status = 'candidate'
                 """,
                 (_utc_now_iso(), proposal_id),
             )
@@ -3278,8 +2869,8 @@ class ComponentCatalogService:
                 LEFT JOIN current_models active ON active.asset_id = superseded.asset_id
                 WHERE active.asset_id IS NULL
                   AND (
-                    lower(asset.canonical_path) LIKE ?
-                    OR lower(asset.canonical_path) LIKE ?
+                    lower(asset.canonical_path) LIKE %s
+                    OR lower(asset.canonical_path) LIKE %s
                   )
                 """,
                 ("%.step", "%.stp"),
@@ -3306,7 +2897,7 @@ class ComponentCatalogService:
                 """
                 SELECT session.id
                 FROM project_component_import_sessions session
-                WHERE session.updated_at < ?
+                WHERE session.updated_at < %s
                   AND NOT EXISTS (
                     SELECT 1 FROM project_component_import_proposals proposal
                     WHERE proposal.session_id = session.id
@@ -3410,10 +3001,10 @@ class ComponentCatalogService:
         if not include_inactive:
             filters.append("c.is_active = 1")
         if source:
-            filters.append("c.source = ?")
+            filters.append("c.source = %s")
             params.append(source)
         if category is not None:
-            filters.append(f"{revision_ref}.category = ?")
+            filters.append(f"{revision_ref}.category = %s")
             params.append(category)
         requested_workflow_stages = _dedupe(
             [
@@ -3428,7 +3019,7 @@ class ComponentCatalogService:
             ]
             if unsupported_stages:
                 raise ValueError("Unsupported workflow stage")
-            placeholders = ",".join("?" for _ in requested_workflow_stages)
+            placeholders = ",".join("%s" for _ in requested_workflow_stages)
             filters.append(f"{revision_ref}.release_status IN ({placeholders})")
             params.extend(requested_workflow_stages)
         if availability_state:
@@ -3511,14 +3102,14 @@ class ComponentCatalogService:
             filters.append(
                 f"({revision_ref}.rowid IN ("
                 "SELECT rowid FROM component_revisions_fts "
-                "WHERE component_revisions_fts MATCH ?"
-                f") OR LOWER({revision_ref}.created_by) LIKE LOWER(?))"
+                "WHERE component_revisions_fts MATCH %s"
+                f") OR LOWER({revision_ref}.created_by) LIKE LOWER(%s))"
             )
             params.extend([fts_query, f"%{query_text}%"])
         elif query_text:
             filters.append(
-                f"(LOWER({revision_ref}.search_document) LIKE LOWER(?) "
-                f"OR LOWER({revision_ref}.created_by) LIKE LOWER(?))"
+                f"(LOWER({revision_ref}.search_document) LIKE LOWER(%s) "
+                f"OR LOWER({revision_ref}.created_by) LIKE LOWER(%s))"
             )
             params.extend([f"%{query_text}%", f"%{query_text}%"])
         where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
@@ -3551,9 +3142,9 @@ class ComponentCatalogService:
         elif query_text:
             order_sql = (
                 f"ORDER BY CASE "
-                f"WHEN LOWER({revision_ref}.mpn) = LOWER(?) THEN 0 "
-                f"WHEN LOWER({revision_ref}.mpn) LIKE LOWER(?) THEN 1 "
-                f"WHEN LOWER({revision_ref}.name) LIKE LOWER(?) THEN 2 "
+                f"WHEN LOWER({revision_ref}.mpn) = LOWER(%s) THEN 0 "
+                f"WHEN LOWER({revision_ref}.mpn) LIKE LOWER(%s) THEN 1 "
+                f"WHEN LOWER({revision_ref}.name) LIKE LOWER(%s) THEN 2 "
                 f"ELSE 3 END, {revision_ref}.updated_at DESC"
             )
             order_params: list[Any] = [query_text, f"{query_text}%", f"{query_text}%"]
@@ -3580,7 +3171,7 @@ class ComponentCatalogService:
                 JOIN component_revisions {revision_ref} ON {revision_ref}.id = c.{revision_join_column}
                 {where_sql}
                 {order_sql}
-                LIMIT ? OFFSET ?
+                LIMIT %s OFFSET %s
                 """,
                 tuple(params + order_params + [page_size, offset]),
             ).fetchall()
@@ -3593,7 +3184,7 @@ class ComponentCatalogService:
             revision_ids = [revision_id for _, revision_id in row_pairs]
             revisions_by_id: dict[str, dict[str, Any]] = {}
             if revision_ids:
-                placeholders = ",".join("?" for _ in revision_ids)
+                placeholders = ",".join("%s" for _ in revision_ids)
                 revision_rows = conn.execute(
                     f"SELECT * FROM component_revisions WHERE id IN ({placeholders})",
                     tuple(revision_ids),
@@ -3610,7 +3201,7 @@ class ComponentCatalogService:
             assets_by_revision: dict[str, list[dict[str, Any]]] = {}
             all_asset_ids: list[str] = []
             if revision_ids:
-                placeholders = ",".join("?" for _ in revision_ids)
+                placeholders = ",".join("%s" for _ in revision_ids)
                 all_assets_rows = [
                     dict(r) for r in conn.execute(
                         f"""
@@ -3638,7 +3229,7 @@ class ComponentCatalogService:
                     preview_revision_id = str(preview_row.pop("revision_id"))
                     previews_by_revision.setdefault(preview_revision_id, []).append(preview_row)
                 if revision_ids:
-                    placeholders = ",".join("?" for _ in revision_ids)
+                    placeholders = ",".join("%s" for _ in revision_ids)
                     validation_rows = conn.execute(
                         f"""
                         SELECT *
@@ -3827,7 +3418,7 @@ class ComponentCatalogService:
 
     def _upsert_component_metadata_row(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         component_id: str,
         metadata: dict[str, Any],
@@ -3865,12 +3456,12 @@ class ComponentCatalogService:
             conn.execute(
                 """
                 UPDATE component_revisions
-                SET name = ?, value = ?, description = ?, datasheet_url = ?, manufacturer = ?, mpn = ?,
-                    category = ?, package_name = ?, vendor = ?, vendor_part_number = ?, mass_g = ?,
-                    rqjc_c_w = ?, rqjc_top_c_w = ?, temp_max_c = ?, temp_min_c = ?,
-                    power_dissipation_w = ?, rate = ?, sap_code = ?, summary = ?, keywords = ?, extra_fields = ?,
-                    search_document = ?, updated_at = ?
-                WHERE id = ?
+                SET name = %s, value = %s, description = %s, datasheet_url = %s, manufacturer = %s, mpn = %s,
+                    category = %s, package_name = %s, vendor = %s, vendor_part_number = %s, mass_g = %s,
+                    rqjc_c_w = %s, rqjc_top_c_w = %s, temp_max_c = %s, temp_min_c = %s,
+                    power_dissipation_w = %s, rate = %s, sap_code = %s, summary = %s, keywords = %s, extra_fields = %s,
+                    search_document = %s, updated_at = %s
+                WHERE id = %s
                 """,
                 (
                     metadata["name"],
@@ -3899,7 +3490,7 @@ class ComponentCatalogService:
                     revision["id"],
                 ),
             )
-            conn.execute("UPDATE components SET updated_at = ? WHERE id = ?", (now, existing_component_id))
+            conn.execute("UPDATE components SET updated_at = %s WHERE id = %s", (now, existing_component_id))
             if finalize_revision:
                 self._finalize_revision(
                     conn,
@@ -3920,7 +3511,7 @@ class ComponentCatalogService:
                 serial_number, lot_number, pedigree, last_synced_at, is_active, current_revision_id,
                 released_revision_id, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, 0, '', '', '', '', '', NULL, 1, ?, '', ?, ?)
+            VALUES (%s, %s, %s, %s, %s, 0, '', '', '', '', '', NULL, 1, %s, '', %s, %s)
             """,
             (component_id, slug, source, external_source, external_id, revision_id, now, now),
         )
@@ -3934,7 +3525,7 @@ class ComponentCatalogService:
                 summary, keywords, extra_fields, search_document, created_at, updated_at
             )
             VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             """,
             (
@@ -4106,7 +3697,7 @@ class ComponentCatalogService:
 
     def _append_field_event(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         field_id: str,
         event_type: str,
         actor: str,
@@ -4115,7 +3706,7 @@ class ComponentCatalogService:
     ) -> None:
         conn.execute(
             "INSERT INTO catalog_field_definition_events "
-            "(id, field_id, event_type, actor, before_json, after_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(id, field_id, event_type, actor, before_json, after_json, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (
                 str(uuid.uuid4()), field_id, event_type, actor,
                 json.dumps(before or {}, sort_keys=True, separators=(",", ":")),
@@ -4138,7 +3729,7 @@ class ComponentCatalogService:
         now = _utc_now_iso()
         field_id = str(uuid.uuid4())
         with self._connect() as conn:
-            exists = conn.execute("SELECT 1 FROM catalog_field_definitions WHERE field_key = ?", (field_key,)).fetchone()
+            exists = conn.execute("SELECT 1 FROM catalog_field_definitions WHERE field_key = %s", (field_key,)).fetchone()
             if exists:
                 raise ValueError(f"Metadata field '{field_key}' already exists")
             order_row = conn.execute("SELECT COALESCE(MAX(display_order), -1) AS value FROM catalog_field_definitions").fetchone()
@@ -4148,7 +3739,7 @@ class ComponentCatalogService:
                     id, field_key, label, description, field_group, field_type, unit,
                     enum_values_json, storage_kind, storage_key, built_in, required,
                     display_order, archived, created_by, updated_by, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'custom', ?, ?, ?, 'extra', ?, 0, ?, ?, 0, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, 'custom', %s, %s, %s, 'extra', %s, 0, %s, %s, 0, %s, %s, %s, %s)
                 """,
                 (
                     field_id, field_key, str(payload.get("label") or field_key).strip(),
@@ -4158,7 +3749,7 @@ class ComponentCatalogService:
                     actor, actor, now, now,
                 ),
             )
-            row = dict(conn.execute("SELECT * FROM catalog_field_definitions WHERE id = ?", (field_id,)).fetchone())
+            row = dict(conn.execute("SELECT * FROM catalog_field_definitions WHERE id = %s", (field_id,)).fetchone())
             after = self._metadata_field_payload(row)
             self._append_field_event(conn, field_id, "created", actor, None, after)
             conn.commit()
@@ -4167,7 +3758,7 @@ class ComponentCatalogService:
     def update_metadata_field(self, field_id: str, payload: dict[str, Any], *, actor: str) -> dict[str, Any]:
         self.initialize()
         with self._connect() as conn:
-            raw = conn.execute("SELECT * FROM catalog_field_definitions WHERE id = ?", (field_id,)).fetchone()
+            raw = conn.execute("SELECT * FROM catalog_field_definitions WHERE id = %s", (field_id,)).fetchone()
             if not raw:
                 raise ValueError("Metadata field not found")
             before = self._metadata_field_payload(dict(raw))
@@ -4200,9 +3791,9 @@ class ComponentCatalogService:
             display_order = before["display_order"] if payload.get("display_order") is None else int(payload["display_order"])
             conn.execute(
                 """
-                UPDATE catalog_field_definitions SET label = ?, description = ?, field_type = ?, unit = ?,
-                    enum_values_json = ?, required = ?, display_order = ?, updated_by = ?, updated_at = ?
-                WHERE id = ?
+                UPDATE catalog_field_definitions SET label = %s, description = %s, field_type = %s, unit = %s,
+                    enum_values_json = %s, required = %s, display_order = %s, updated_by = %s, updated_at = %s
+                WHERE id = %s
                 """,
                 (
                     str(payload.get("label", before["label"])).strip() or before["label"],
@@ -4212,7 +3803,7 @@ class ComponentCatalogService:
                     display_order, actor, now, field_id,
                 ),
             )
-            after = self._metadata_field_payload(dict(conn.execute("SELECT * FROM catalog_field_definitions WHERE id = ?", (field_id,)).fetchone()))
+            after = self._metadata_field_payload(dict(conn.execute("SELECT * FROM catalog_field_definitions WHERE id = %s", (field_id,)).fetchone()))
             self._append_field_event(conn, field_id, "updated", actor, before, after)
             conn.commit()
         return after
@@ -4220,17 +3811,17 @@ class ComponentCatalogService:
     def set_metadata_field_archived(self, field_id: str, archived: bool, *, actor: str) -> dict[str, Any]:
         self.initialize()
         with self._connect() as conn:
-            raw = conn.execute("SELECT * FROM catalog_field_definitions WHERE id = ?", (field_id,)).fetchone()
+            raw = conn.execute("SELECT * FROM catalog_field_definitions WHERE id = %s", (field_id,)).fetchone()
             if not raw:
                 raise ValueError("Metadata field not found")
             before = self._metadata_field_payload(dict(raw))
             if before["built_in"]:
                 raise ValueError("Built-in fields cannot be archived")
             conn.execute(
-                "UPDATE catalog_field_definitions SET archived = ?, updated_by = ?, updated_at = ? WHERE id = ?",
+                "UPDATE catalog_field_definitions SET archived = %s, updated_by = %s, updated_at = %s WHERE id = %s",
                 (int(archived), actor, _utc_now_iso(), field_id),
             )
-            after = self._metadata_field_payload(dict(conn.execute("SELECT * FROM catalog_field_definitions WHERE id = ?", (field_id,)).fetchone()))
+            after = self._metadata_field_payload(dict(conn.execute("SELECT * FROM catalog_field_definitions WHERE id = %s", (field_id,)).fetchone()))
             self._append_field_event(conn, field_id, "archived" if archived else "restored", actor, before, after)
             conn.commit()
         return after
@@ -4238,7 +3829,7 @@ class ComponentCatalogService:
     def get_metadata_grid_preferences(self, user_email: str) -> dict[str, Any]:
         self.initialize()
         with self._connect() as conn:
-            row = conn.execute("SELECT layout_json FROM catalog_grid_preferences WHERE user_email = ?", (user_email.casefold(),)).fetchone()
+            row = conn.execute("SELECT layout_json FROM catalog_grid_preferences WHERE user_email = %s", (user_email.casefold(),)).fetchone()
         return _json_loads(row["layout_json"], {}) if row else {}
 
     def save_metadata_grid_preferences(self, user_email: str, layout: dict[str, Any]) -> dict[str, Any]:
@@ -4253,7 +3844,7 @@ class ComponentCatalogService:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO catalog_grid_preferences (user_email, layout_json, updated_at) VALUES (?, ?, ?)
+                INSERT INTO catalog_grid_preferences (user_email, layout_json, updated_at) VALUES (%s, %s, %s)
                 ON CONFLICT(user_email) DO UPDATE SET layout_json = excluded.layout_json, updated_at = excluded.updated_at
                 """,
                 (user_email.casefold(), json.dumps(normalized, separators=(",", ":")), now),
@@ -4285,15 +3876,15 @@ class ComponentCatalogService:
             return "Choose a configured enum value"
         return ""
 
-    def _metadata_batch_payload(self, conn: sqlite3.Connection, batch_id: str) -> dict[str, Any] | None:
-        batch = conn.execute("SELECT * FROM catalog_metadata_batches WHERE id = ?", (batch_id,)).fetchone()
+    def _metadata_batch_payload(self, conn: Any, batch_id: str) -> dict[str, Any] | None:
+        batch = conn.execute("SELECT * FROM catalog_metadata_batches WHERE id = %s", (batch_id,)).fetchone()
         if not batch:
             return None
         items = conn.execute(
             "SELECT item.*, cr.name, cr.mpn FROM catalog_metadata_batch_items item "
             "JOIN components c ON c.id = item.component_id "
             "JOIN component_revisions cr ON cr.id = c.current_revision_id "
-            "WHERE item.batch_id = ? ORDER BY cr.manufacturer, cr.mpn, item.id",
+            "WHERE item.batch_id = %s ORDER BY cr.manufacturer, cr.mpn, item.id",
             (batch_id,),
         ).fetchall()
         return {
@@ -4347,7 +3938,7 @@ class ComponentCatalogService:
                 component = conn.execute(
                     "SELECT cr.manufacturer, cr.mpn FROM components c "
                     "JOIN component_revisions cr ON cr.id = c.current_revision_id "
-                    "WHERE c.id = ? AND c.is_active = 1",
+                    "WHERE c.id = %s AND c.is_active = 1",
                     (component_id,),
                 ).fetchone()
                 if not component:
@@ -4364,7 +3955,7 @@ class ComponentCatalogService:
                 INSERT INTO catalog_metadata_batches (
                     id, source, status, schema_version, change_summary, unknown_fields_json, created_by,
                     total_items, valid_items, applied_items, failed_items, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 0, 0, %s, %s)
                 """,
                 (
                     batch_id, source, "needs_fields" if proposed_fields else "ready", METADATA_SCHEMA_VERSION,
@@ -4376,7 +3967,7 @@ class ComponentCatalogService:
                 component_id = str(raw_item.get("component_id") or "")
                 expected_revision_id = str(raw_item.get("expected_revision_id") or "")
                 component = conn.execute(
-                    "SELECT c.is_active, cr.* FROM components c JOIN component_revisions cr ON cr.id = c.current_revision_id WHERE c.id = ?",
+                    "SELECT c.is_active, cr.* FROM components c JOIN component_revisions cr ON cr.id = c.current_revision_id WHERE c.id = %s",
                     (component_id,),
                 ).fetchone()
                 errors: list[str] = []
@@ -4434,7 +4025,7 @@ class ComponentCatalogService:
                     INSERT INTO catalog_metadata_batch_items (
                         id, batch_id, component_id, expected_revision_id, patch_json, diff_json,
                         validation_status, error_message, applied_revision_id, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '', %s, %s)
                     """,
                     (
                         str(uuid.uuid4()), batch_id, component_id, expected_revision_id,
@@ -4442,14 +4033,14 @@ class ComponentCatalogService:
                         json.dumps(diff, separators=(",", ":")), status, "; ".join(errors), now, now,
                     ),
                 )
-            conn.execute("UPDATE catalog_metadata_batches SET valid_items = ? WHERE id = ?", (valid_count, batch_id))
+            conn.execute("UPDATE catalog_metadata_batches SET valid_items = %s WHERE id = %s", (valid_count, batch_id))
             conn.commit()
             return self._metadata_batch_payload(conn, batch_id) or {}
 
     def approve_metadata_batch_fields(self, batch_id: str, *, actor: str) -> dict[str, Any]:
         self.initialize()
         with self._connect() as conn:
-            batch = conn.execute("SELECT * FROM catalog_metadata_batches WHERE id = ?", (batch_id,)).fetchone()
+            batch = conn.execute("SELECT * FROM catalog_metadata_batches WHERE id = %s", (batch_id,)).fetchone()
             if not batch:
                 raise ValueError("Metadata batch not found")
             proposals = _json_loads(batch["unknown_fields_json"], [])
@@ -4461,32 +4052,32 @@ class ComponentCatalogService:
                     raise
         with self._connect() as conn:
             conn.execute(
-                "UPDATE catalog_metadata_batches SET status = 'ready', unknown_fields_json = '[]', updated_at = ? WHERE id = ?",
+                "UPDATE catalog_metadata_batches SET status = 'ready', unknown_fields_json = '[]', updated_at = %s WHERE id = %s",
                 (_utc_now_iso(), batch_id),
             )
             conn.commit()
             return self._metadata_batch_payload(conn, batch_id) or {}
 
-    def _inherit_validation_evidence(self, conn: sqlite3.Connection, parent_revision_id: str, revision_id: str) -> None:
+    def _inherit_validation_evidence(self, conn: Any, parent_revision_id: str, revision_id: str) -> None:
         assets = conn.execute(
-            "SELECT asset_id FROM revision_assets WHERE revision_id = ? AND asset_type IN ('symbol', 'footprint')",
+            "SELECT asset_id FROM revision_assets WHERE revision_id = %s AND asset_type IN ('symbol', 'footprint')",
             (parent_revision_id,),
         ).fetchall()
         for asset in assets:
             run = conn.execute(
-                "SELECT id FROM asset_validation_runs WHERE revision_id = ? AND asset_id = ? ORDER BY finished_at DESC, created_at DESC LIMIT 1",
+                "SELECT id FROM asset_validation_runs WHERE revision_id = %s AND asset_id = %s ORDER BY finished_at DESC, created_at DESC LIMIT 1",
                 (parent_revision_id, asset["asset_id"]),
             ).fetchone()
             if not run:
                 run = conn.execute(
-                    "SELECT source_run_id AS id FROM revision_validation_evidence_links WHERE revision_id = ? AND asset_id = ?",
+                    "SELECT source_run_id AS id FROM revision_validation_evidence_links WHERE revision_id = %s AND asset_id = %s",
                     (parent_revision_id, asset["asset_id"]),
                 ).fetchone()
             if run:
                 conn.execute(
                     """
                     INSERT INTO revision_validation_evidence_links (revision_id, asset_id, source_run_id, created_at)
-                    VALUES (?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s)
                     ON CONFLICT(revision_id, asset_id) DO UPDATE SET
                         source_run_id = excluded.source_run_id, created_at = excluded.created_at
                     """,
@@ -4498,7 +4089,7 @@ class ComponentCatalogService:
         with self._connect() as conn:
             item = conn.execute(
                 "SELECT item.*, batch.change_summary, batch.id AS metadata_batch_id FROM catalog_metadata_batch_items item "
-                "JOIN catalog_metadata_batches batch ON batch.id = item.batch_id WHERE item.id = ?",
+                "JOIN catalog_metadata_batches batch ON batch.id = item.batch_id WHERE item.id = %s",
                 (item_id,),
             ).fetchone()
             if not item:
@@ -4540,7 +4131,7 @@ class ComponentCatalogService:
                 finalize_revision=False,
                 change_kind="metadata_bulk",
             )
-            conn.execute("UPDATE component_revisions SET release_status = 'qa_review' WHERE id = ?", (revision_id,))
+            conn.execute("UPDATE component_revisions SET release_status = 'qa_review' WHERE id = %s", (revision_id,))
             self._inherit_validation_evidence(conn, parent_revision_id, revision_id)
             self._finalize_revision(
                 conn,
@@ -4555,7 +4146,7 @@ class ComponentCatalogService:
                 },
             )
             conn.execute(
-                "UPDATE catalog_metadata_batch_items SET validation_status = 'applied', applied_revision_id = ?, updated_at = ? WHERE id = ?",
+                "UPDATE catalog_metadata_batch_items SET validation_status = 'applied', applied_revision_id = %s, updated_at = %s WHERE id = %s",
                 (revision_id, _utc_now_iso(), item_id),
             )
             conn.commit()
@@ -4571,13 +4162,13 @@ class ComponentCatalogService:
     ) -> dict[str, Any]:
         self.initialize()
         with self._connect() as conn:
-            batch = conn.execute("SELECT * FROM catalog_metadata_batches WHERE id = ?", (batch_id,)).fetchone()
+            batch = conn.execute("SELECT * FROM catalog_metadata_batches WHERE id = %s", (batch_id,)).fetchone()
             if not batch:
                 raise ValueError("Metadata batch not found")
             if str(batch["status"]) == "needs_fields":
                 raise ValueError("Unknown CSV fields must be approved before applying")
             rows = conn.execute(
-                "SELECT id FROM catalog_metadata_batch_items WHERE batch_id = ? AND validation_status = 'valid' ORDER BY id",
+                "SELECT id FROM catalog_metadata_batch_items WHERE batch_id = %s AND validation_status = 'valid' ORDER BY id",
                 (batch_id,),
             ).fetchall()
         selected = set(item_ids or [])
@@ -4596,7 +4187,7 @@ class ComponentCatalogService:
                 errors.append({"item_id": item_id, "error": str(exc)})
                 with self._connect() as conn:
                     conn.execute(
-                        "UPDATE catalog_metadata_batch_items SET validation_status = 'conflict', error_message = ?, updated_at = ? WHERE id = ?",
+                        "UPDATE catalog_metadata_batch_items SET validation_status = 'conflict', error_message = %s, updated_at = %s WHERE id = %s",
                         (str(exc), _utc_now_iso(), item_id),
                     )
                     conn.commit()
@@ -4607,7 +4198,7 @@ class ComponentCatalogService:
                 "SELECT SUM(CASE WHEN validation_status = 'applied' THEN 1 ELSE 0 END) AS applied, "
                 "SUM(CASE WHEN validation_status IN ('invalid', 'conflict') THEN 1 ELSE 0 END) AS failed, "
                 "SUM(CASE WHEN validation_status = 'valid' THEN 1 ELSE 0 END) AS remaining "
-                "FROM catalog_metadata_batch_items WHERE batch_id = ?",
+                "FROM catalog_metadata_batch_items WHERE batch_id = %s",
                 (batch_id,),
             ).fetchone()
             total_applied = int(totals["applied"] or 0)
@@ -4615,7 +4206,7 @@ class ComponentCatalogService:
             remaining = int(totals["remaining"] or 0)
             status = "completed" if total_failed == 0 and remaining == 0 else "partial"
             conn.execute(
-                "UPDATE catalog_metadata_batches SET status = ?, valid_items = ?, applied_items = ?, failed_items = ?, updated_at = ? WHERE id = ?",
+                "UPDATE catalog_metadata_batches SET status = %s, valid_items = %s, applied_items = %s, failed_items = %s, updated_at = %s WHERE id = %s",
                 (status, remaining, total_applied, total_failed, _utc_now_iso(), batch_id),
             )
             conn.commit()
@@ -4826,7 +4417,7 @@ class ComponentCatalogService:
                     SELECT c.id
                     FROM components c
                     JOIN component_revisions cr ON cr.id = c.current_revision_id
-                    WHERE cr.mpn = ?
+                    WHERE cr.mpn = %s
                     LIMIT 1
                     """,
                     (mpn,),
@@ -4927,7 +4518,7 @@ class ComponentCatalogService:
                     SELECT c.id
                     FROM components c
                     JOIN component_revisions cr ON cr.id = c.current_revision_id
-                    WHERE cr.mpn = ?
+                    WHERE cr.mpn = %s
                     LIMIT 1
                     """,
                     (mpn,),
@@ -4939,9 +4530,9 @@ class ComponentCatalogService:
                 conn.execute(
                     """
                     UPDATE components
-                    SET stock_quantity = ?, stock_uom = ?, inventory_status = ?, serial_number = ?,
-                        lot_number = ?, pedigree = ?, last_synced_at = ?, updated_at = ?
-                    WHERE id = ?
+                    SET stock_quantity = %s, stock_uom = %s, inventory_status = %s, serial_number = %s,
+                        lot_number = %s, pedigree = %s, last_synced_at = %s, updated_at = %s
+                    WHERE id = %s
                     """,
                     (
                         float(row.get("stock_quantity") or 0),
@@ -4974,7 +4565,7 @@ class ComponentCatalogService:
 
     def _attach_asset_revision(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         component_id: str,
         asset: dict[str, Any],
@@ -4986,20 +4577,20 @@ class ComponentCatalogService:
         if not current:
             raise ValueError("Component not found")
         existing = conn.execute(
-            "SELECT asset_id, required FROM revision_assets WHERE revision_id = ? AND asset_type = ? AND asset_id = ?",
+            "SELECT asset_id, required FROM revision_assets WHERE revision_id = %s AND asset_type = %s AND asset_id = %s",
             (current["id"], asset["asset_type"], asset["id"]),
         ).fetchone()
         preview_changed = False
         if str(asset["asset_type"]) in PLACE_REQUIRED_ASSET_TYPES:
             kind = PREVIEW_KIND_SYMBOL if str(asset["asset_type"]) == "symbol" else PREVIEW_KIND_FOOTPRINT
             current_previews = conn.execute(
-                "SELECT kind, preview_id FROM revision_preview_outputs WHERE revision_id = ? AND asset_id = ? AND (kind = ? OR kind LIKE ?)",
+                "SELECT kind, preview_id FROM revision_preview_outputs WHERE revision_id = %s AND asset_id = %s AND (kind = %s OR kind LIKE %s)",
                 (str(current["id"]), str(asset["id"]), kind, f"{kind}:unit%"),
             ).fetchall()
             latest_preview_rows = conn.execute(
                 """
                 SELECT id, kind FROM asset_preview_versions
-                WHERE asset_id = ? AND (kind = ? OR kind LIKE ?) AND status = 'ready'
+                WHERE asset_id = %s AND (kind = %s OR kind LIKE %s) AND status = 'ready'
                 ORDER BY kind, created_at DESC, id DESC
                 """,
                 (str(asset["id"]), kind, f"{kind}:unit%"),
@@ -5152,16 +4743,16 @@ class ComponentCatalogService:
         safe_name = _sanitize_name(Path(upload_name).name, f"{asset_type}.bin")
         return self._asset_root(asset_type) / safe_library / safe_name
 
-    def _asset_by_key(self, conn: sqlite3.Connection, asset_type: str, canonical_path: str, target_name: str) -> dict[str, Any] | None:
+    def _asset_by_key(self, conn: Any, asset_type: str, canonical_path: str, target_name: str) -> dict[str, Any] | None:
         row = conn.execute(
-            "SELECT * FROM assets WHERE asset_type = ? AND canonical_path = ? AND target_name = ?",
+            "SELECT * FROM assets WHERE asset_type = %s AND canonical_path = %s AND target_name = %s",
             (asset_type, canonical_path, target_name),
         ).fetchone()
         return dict(row) if row else None
 
     def _asset_by_signature(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         asset_type: str,
         sha256: str,
         target_library: str,
@@ -5170,7 +4761,7 @@ class ComponentCatalogService:
         row = conn.execute(
             """
             SELECT * FROM assets
-            WHERE asset_type = ? AND sha256 = ? AND target_library = ? AND target_name = ?
+            WHERE asset_type = %s AND sha256 = %s AND target_library = %s AND target_name = %s
             LIMIT 1
             """,
             (asset_type, sha256, target_library, target_name),
@@ -5179,7 +4770,7 @@ class ComponentCatalogService:
 
     def _register_asset(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         asset_type: str,
         canonical_path: Path,
@@ -5223,8 +4814,8 @@ class ComponentCatalogService:
                 conn.execute(
                     """
                     UPDATE assets
-                    SET name = ?, canonical_path = ?, size_bytes = ?, content_type = ?, updated_at = ?
-                    WHERE id = ?
+                    SET name = %s, canonical_path = %s, size_bytes = %s, content_type = %s, updated_at = %s
+                    WHERE id = %s
                     """,
                     (
                         canonical_path.name,
@@ -5253,7 +4844,7 @@ class ComponentCatalogService:
                 id, asset_type, name, canonical_path, target_library, target_name, source_group,
                 sha256, size_bytes, content_type, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 asset_id,
@@ -5270,7 +4861,7 @@ class ComponentCatalogService:
                 now,
             ),
         )
-        row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        row = conn.execute("SELECT * FROM assets WHERE id = %s", (asset_id,)).fetchone()
         return dict(row)
 
     def _generate_symbol_preview(self, asset: dict[str, Any]) -> tuple[str, bytes | str]:
@@ -5339,7 +4930,7 @@ class ComponentCatalogService:
 
     def _store_preview_version(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         asset: dict[str, Any],
         kind: str,
@@ -5350,7 +4941,7 @@ class ComponentCatalogService:
         existing = conn.execute(
             """
             SELECT * FROM asset_preview_versions
-            WHERE asset_id = ? AND kind = ? AND sha256 = ? AND generator_fingerprint = ?
+            WHERE asset_id = %s AND kind = %s AND sha256 = %s AND generator_fingerprint = %s
             """,
             (str(asset["id"]), kind, sha256, identity["generator_fingerprint"]),
         ).fetchone()
@@ -5376,7 +4967,7 @@ class ComponentCatalogService:
                 id, asset_id, kind, status, content_type, file_path, sha256, size_bytes,
                 generator_name, generator_version, pipeline_version, generator_fingerprint,
                 generation_error, created_at
-            ) VALUES (?, ?, ?, 'ready', 'image/svg+xml', ?, ?, ?, ?, ?, ?, ?, '', ?)
+            ) VALUES (%s, %s, %s, 'ready', 'image/svg+xml', %s, %s, %s, %s, %s, %s, %s, '', %s)
             """,
             (
                 preview_id,
@@ -5392,10 +4983,10 @@ class ComponentCatalogService:
                 now,
             ),
         )
-        row = conn.execute("SELECT * FROM asset_preview_versions WHERE id = ?", (preview_id,)).fetchone()
+        row = conn.execute("SELECT * FROM asset_preview_versions WHERE id = %s", (preview_id,)).fetchone()
         return dict(row)
 
-    def _ensure_asset_previews(self, conn: sqlite3.Connection, asset: dict[str, Any]) -> list[dict[str, Any]]:
+    def _ensure_asset_previews(self, conn: Any, asset: dict[str, Any]) -> list[dict[str, Any]]:
         compatibility_override = self.__dict__.get("_ensure_asset_preview")
         if callable(compatibility_override):
             preview = compatibility_override(conn, asset)
@@ -5433,18 +5024,18 @@ class ComponentCatalogService:
             }]
         return [self._store_preview_version(conn, asset=asset, kind=kind, payload=result)]
 
-    def _ensure_asset_preview(self, conn: sqlite3.Connection, asset: dict[str, Any]) -> dict[str, Any]:
+    def _ensure_asset_preview(self, conn: Any, asset: dict[str, Any]) -> dict[str, Any]:
         """Compatibility wrapper returning the first generated preview."""
         previews = self._ensure_asset_previews(conn, asset)
         return previews[0] if previews else {}
 
-    def _has_ready_preview(self, conn: sqlite3.Connection, asset_id: str, kind: str) -> bool:
+    def _has_ready_preview(self, conn: Any, asset_id: str, kind: str) -> bool:
         generator_fingerprint = self._preview_generator_identity(kind)["generator_fingerprint"]
         row = conn.execute(
             """
             SELECT file_path, sha256
             FROM asset_preview_versions
-            WHERE asset_id = ? AND kind = ? AND status = ? AND generator_fingerprint = ?
+            WHERE asset_id = %s AND kind = %s AND status = %s AND generator_fingerprint = %s
             ORDER BY created_at DESC
             LIMIT 1
             """,
@@ -5461,7 +5052,7 @@ class ComponentCatalogService:
 
     def _refresh_revision_preview_outputs_in_conn(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         revision_id: str,
         *,
         only_missing: bool = False,
@@ -5511,7 +5102,7 @@ class ComponentCatalogService:
             if preview_set_changed:
                 changed_assets.add(str(asset["id"]))
                 conn.execute(
-                    "DELETE FROM revision_preview_outputs WHERE revision_id = ? AND asset_id = ? AND (kind = ? OR kind LIKE ?)",
+                    "DELETE FROM revision_preview_outputs WHERE revision_id = %s AND asset_id = %s AND (kind = %s OR kind LIKE %s)",
                     (revision_id, str(asset["id"]), kind, f"{kind}:unit%"),
                 )
                 now = _utc_now_iso()
@@ -5519,7 +5110,7 @@ class ComponentCatalogService:
                     conn.execute(
                         """
                         INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
-                        VALUES (?, ?, ?, ?, ?)
+                        VALUES (%s, %s, %s, %s, %s)
                         ON CONFLICT (revision_id, asset_id, kind)
                         DO UPDATE SET preview_id = excluded.preview_id, generated_at = excluded.generated_at
                         """,
@@ -5536,7 +5127,7 @@ class ComponentCatalogService:
 
     def _regenerate_component_previews_in_conn(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         component_id: str,
         *,
         actor: str,
@@ -5617,22 +5208,22 @@ class ComponentCatalogService:
                     progress_callback(counts.copy())
         return counts
 
-    def _link_asset_to_revision(self, conn: sqlite3.Connection, revision_id: str, asset: dict[str, Any], *, required: bool) -> None:
+    def _link_asset_to_revision(self, conn: Any, revision_id: str, asset: dict[str, Any], *, required: bool) -> None:
         now = _utc_now_iso()
         if str(asset["asset_type"]) in PLACE_REQUIRED_ASSET_TYPES:
             kind = PREVIEW_KIND_SYMBOL if str(asset["asset_type"]) == "symbol" else PREVIEW_KIND_FOOTPRINT
             conn.execute(
-                "DELETE FROM revision_preview_outputs WHERE revision_id = ? AND (kind = ? OR kind LIKE ?) AND asset_id <> ?",
+                "DELETE FROM revision_preview_outputs WHERE revision_id = %s AND (kind = %s OR kind LIKE %s) AND asset_id <> %s",
                 (revision_id, kind, f"{kind}:unit%", asset["id"]),
             )
             conn.execute(
-                "DELETE FROM revision_assets WHERE revision_id = ? AND asset_type = ? AND asset_id <> ?",
+                "DELETE FROM revision_assets WHERE revision_id = %s AND asset_type = %s AND asset_id <> %s",
                 (revision_id, asset["asset_type"], asset["id"]),
             )
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (revision_id, asset_id)
             DO UPDATE SET required = excluded.required, updated_at = excluded.updated_at
             """,
@@ -5642,7 +5233,7 @@ class ComponentCatalogService:
             preview_rows = conn.execute(
                 """
                 SELECT id, kind FROM asset_preview_versions
-                WHERE asset_id = ? AND (kind = ? OR kind LIKE ?) AND status = 'ready'
+                WHERE asset_id = %s AND (kind = %s OR kind LIKE %s) AND status = 'ready'
                 ORDER BY created_at DESC, id DESC
                 """,
                 (str(asset["id"]), kind, f"{kind}:unit%"),
@@ -5654,7 +5245,7 @@ class ComponentCatalogService:
                 conn.execute(
                     """
                     INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (revision_id, asset_id, kind)
                     DO UPDATE SET preview_id = excluded.preview_id, generated_at = excluded.generated_at
                     """,
@@ -5663,7 +5254,7 @@ class ComponentCatalogService:
 
     def _resolve_existing_asset(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         asset_type: str,
         file_path: str,
@@ -5919,7 +5510,7 @@ class ComponentCatalogService:
             if not current:
                 raise ValueError("Component not found")
             existing = conn.execute(
-                "SELECT 1 FROM revision_assets WHERE revision_id = ? AND asset_type = ?",
+                "SELECT 1 FROM revision_assets WHERE revision_id = %s AND asset_type = %s",
                 (current["id"], asset_type),
             ).fetchone()
             if not existing:
@@ -5934,13 +5525,13 @@ class ComponentCatalogService:
             conn.execute(
                 """
                 DELETE FROM revision_previews
-                WHERE revision_id = ? AND asset_id IN (
-                    SELECT asset_id FROM revision_assets WHERE revision_id = ? AND asset_type = ?
+                WHERE revision_id = %s AND asset_id IN (
+                    SELECT asset_id FROM revision_assets WHERE revision_id = %s AND asset_type = %s
                 )
                 """,
                 (revision["id"], revision["id"], asset_type),
             )
-            conn.execute("DELETE FROM revision_assets WHERE revision_id = ? AND asset_type = ?", (revision["id"], asset_type))
+            conn.execute("DELETE FROM revision_assets WHERE revision_id = %s AND asset_type = %s", (revision["id"], asset_type))
             self._finalize_revision(
                 conn,
                 component_id=component_id,
@@ -6069,7 +5660,7 @@ class ComponentCatalogService:
 
     def _store_validation_run(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         run_id: str,
         component_id: str,
@@ -6090,7 +5681,7 @@ class ComponentCatalogService:
     ) -> dict[str, Any]:
         error_count = sum(1 for finding in findings if finding["severity"] == VALIDATION_SEVERITY_ERROR)
         warning_count = sum(1 for finding in findings if finding["severity"] == VALIDATION_SEVERITY_WARNING)
-        conn.execute("DELETE FROM asset_validation_findings WHERE run_id = ?", (run_id,))
+        conn.execute("DELETE FROM asset_validation_findings WHERE run_id = %s", (run_id,))
         conn.execute(
             """
             INSERT INTO asset_validation_runs (
@@ -6098,7 +5689,7 @@ class ComponentCatalogService:
                 error_count, warning_count, exit_code, tool_version, report_dir, stdout_path,
                 stderr_path, junit_path, json_path, raw_output, created_at, finished_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 run_id,
@@ -6128,7 +5719,7 @@ class ComponentCatalogService:
                 INSERT INTO asset_validation_findings (
                     id, run_id, severity, rule_code, rule_url, message, details_json, object_name, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     str(uuid.uuid4()),
@@ -6142,12 +5733,12 @@ class ComponentCatalogService:
                     finished_at,
                 ),
             )
-        row = conn.execute("SELECT * FROM asset_validation_runs WHERE id = ?", (run_id,)).fetchone()
+        row = conn.execute("SELECT * FROM asset_validation_runs WHERE id = %s", (run_id,)).fetchone()
         return self._validation_run_payload(dict(row), include_findings=True, conn=conn) if row else {}
 
     def _run_klc_for_asset(
         self,
-        conn: sqlite3.Connection,
+        conn: Any,
         *,
         component_id: str,
         revision_id: str,
@@ -6312,7 +5903,7 @@ class ComponentCatalogService:
             }
             runs = []
             if run_ids:
-                placeholders = ",".join("?" for _ in run_ids)
+                placeholders = ",".join("%s" for _ in run_ids)
                 rows = conn.execute(
                     f"SELECT * FROM asset_validation_runs WHERE id IN ({placeholders})",
                     tuple(run_ids),
@@ -6329,7 +5920,7 @@ class ComponentCatalogService:
     def get_validation_run(self, run_id: str) -> dict[str, Any] | None:
         self.initialize()
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM asset_validation_runs WHERE id = ?", (run_id,)).fetchone()
+            row = conn.execute("SELECT * FROM asset_validation_runs WHERE id = %s", (run_id,)).fetchone()
             if not row:
                 return None
             return self._validation_run_payload(dict(row), include_findings=True, conn=conn)
@@ -6346,7 +5937,7 @@ class ComponentCatalogService:
             return None
         self.initialize()
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM asset_validation_runs WHERE id = ?", (run_id,)).fetchone()
+            row = conn.execute("SELECT * FROM asset_validation_runs WHERE id = %s", (run_id,)).fetchone()
             if not row:
                 return None
             path = Path(str(row[column])).resolve()
@@ -6500,7 +6091,7 @@ class ComponentCatalogService:
                     """
                     SELECT *
                     FROM component_review_decisions
-                    WHERE component_id = ? AND revision_id = ? AND manifest_hash = ?
+                    WHERE component_id = %s AND revision_id = %s AND manifest_hash = %s
                       AND decision IN ('approved', 'emergency_override')
                     ORDER BY created_at DESC, id DESC
                     LIMIT 1
@@ -6512,24 +6103,24 @@ class ComponentCatalogService:
 
             now = _utc_now_iso()
             conn.execute(
-                "UPDATE component_revisions SET release_status = ?, updated_at = ? WHERE id = ?",
+                "UPDATE component_revisions SET release_status = %s, updated_at = %s WHERE id = %s",
                 (release_status, now, revision["id"]),
             )
             if release_status == "released":
                 conn.execute(
-                    "UPDATE components SET released_revision_id = ?, updated_at = ? WHERE id = ?",
+                    "UPDATE components SET released_revision_id = %s, updated_at = %s WHERE id = %s",
                     (revision["id"], now, component_id),
                 )
             elif release_status == "archived":
                 if str(component.get("released_revision_id") or "") == str(revision["id"]):
                     conn.execute(
-                        "UPDATE components SET released_revision_id = '', updated_at = ? WHERE id = ?",
+                        "UPDATE components SET released_revision_id = '', updated_at = %s WHERE id = %s",
                         (now, component_id),
                     )
                 else:
-                    conn.execute("UPDATE components SET updated_at = ? WHERE id = ?", (now, component_id))
+                    conn.execute("UPDATE components SET updated_at = %s WHERE id = %s", (now, component_id))
             else:
-                conn.execute("UPDATE components SET updated_at = ? WHERE id = ?", (now, component_id))
+                conn.execute("UPDATE components SET updated_at = %s WHERE id = %s", (now, component_id))
             if release_status != current_status:
                 decision = ""
                 if current_status == "qa_review" and release_status == "done":
@@ -6546,7 +6137,7 @@ class ComponentCatalogService:
                         INSERT INTO component_review_decisions (
                             id, component_id, revision_id, reviewer, reviewer_role, decision, note,
                             manifest_hash, validation_json, policy_json, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             str(uuid.uuid4()),
@@ -6568,7 +6159,7 @@ class ComponentCatalogService:
                         INSERT INTO component_release_records (
                             id, component_id, revision_id, release_label, manifest_hash, released_by,
                             approval_decision_id, validation_json, policy_json, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT(component_id, revision_id, manifest_hash) DO NOTHING
                         """,
                         (
@@ -6609,7 +6200,7 @@ class ComponentCatalogService:
             if not bool(component["is_active"]):
                 return True
             result = conn.execute(
-                "UPDATE components SET is_active = 0, updated_at = ? WHERE id = ?",
+                "UPDATE components SET is_active = 0, updated_at = %s WHERE id = %s",
                 (_utc_now_iso(), component_id),
             )
             self._append_audit_event(
@@ -6722,13 +6313,13 @@ class ComponentCatalogService:
     def get_asset_by_id(self, asset_id: str, *, revision_id: str = "") -> dict[str, Any] | None:
         self.initialize()
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
+            row = conn.execute("SELECT * FROM assets WHERE id = %s", (asset_id,)).fetchone()
             if not row:
                 return None
             asset = dict(row)
             effective_revision_id = revision_id
             if not effective_revision_id:
-                link = conn.execute("SELECT revision_id FROM revision_assets WHERE asset_id = ? ORDER BY updated_at DESC LIMIT 1", (asset_id,)).fetchone()
+                link = conn.execute("SELECT revision_id FROM revision_assets WHERE asset_id = %s ORDER BY updated_at DESC LIMIT 1", (asset_id,)).fetchone()
                 effective_revision_id = str(link["revision_id"]) if link else ""
             assets_for_revision = self._load_assets_for_revision(conn, effective_revision_id) if effective_revision_id else [asset]
             component = None
@@ -6743,9 +6334,9 @@ class ComponentCatalogService:
     def get_preview(self, preview_id: str) -> CatalogPreview | None:
         self.initialize()
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM asset_preview_versions WHERE id = ?", (preview_id,)).fetchone()
+            row = conn.execute("SELECT * FROM asset_preview_versions WHERE id = %s", (preview_id,)).fetchone()
             if not row:
-                row = conn.execute("SELECT * FROM asset_previews WHERE id = ?", (preview_id,)).fetchone()
+                row = conn.execute("SELECT * FROM asset_previews WHERE id = %s", (preview_id,)).fetchone()
         if not row:
             return None
         return CatalogPreview(
@@ -6780,7 +6371,7 @@ class ComponentCatalogService:
             conn.execute(
                 """
                 INSERT INTO oauth_auth_codes (code, grant_json, exp)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
                 ON CONFLICT (code) DO UPDATE SET grant_json = excluded.grant_json, exp = excluded.exp
                 """,
                 (code, json.dumps(grant, separators=(",", ":")), exp),
@@ -6791,9 +6382,9 @@ class ComponentCatalogService:
         self.initialize()
         now = int(time.time())
         with self._connect() as conn:
-            row = conn.execute("SELECT grant_json, exp FROM oauth_auth_codes WHERE code = ?", (code,)).fetchone()
-            conn.execute("DELETE FROM oauth_auth_codes WHERE code = ?", (code,))
-            conn.execute("DELETE FROM oauth_auth_codes WHERE exp <= ?", (now,))
+            row = conn.execute("SELECT grant_json, exp FROM oauth_auth_codes WHERE code = %s", (code,)).fetchone()
+            conn.execute("DELETE FROM oauth_auth_codes WHERE code = %s", (code,))
+            conn.execute("DELETE FROM oauth_auth_codes WHERE exp <= %s", (now,))
             conn.commit()
         if not row or int(row["exp"]) <= now:
             return None
@@ -6805,7 +6396,7 @@ class ComponentCatalogService:
             conn.execute(
                 """
                 INSERT INTO oauth_revoked_tokens (jti, exp)
-                VALUES (?, ?)
+                VALUES (%s, %s)
                 ON CONFLICT (jti) DO UPDATE SET exp = excluded.exp
                 """,
                 (jti, exp),
@@ -6816,8 +6407,8 @@ class ComponentCatalogService:
         self.initialize()
         now = int(time.time())
         with self._connect() as conn:
-            conn.execute("DELETE FROM oauth_revoked_tokens WHERE exp <= ?", (now,))
-            row = conn.execute("SELECT 1 FROM oauth_revoked_tokens WHERE jti = ?", (jti,)).fetchone()
+            conn.execute("DELETE FROM oauth_revoked_tokens WHERE exp <= %s", (now,))
+            row = conn.execute("SELECT 1 FROM oauth_revoked_tokens WHERE jti = %s", (jti,)).fetchone()
             conn.commit()
         return bool(row)
 
@@ -6865,7 +6456,7 @@ class ComponentCatalogService:
         component: dict[str, Any],
         part_number: str,
         export_root: Path,
-        conn: sqlite3.Connection,
+        conn: Any,
     ) -> None:
         assets = self._load_assets_for_revision(conn, component["revision_id"])
         for raw_asset in assets:
@@ -6899,6 +6490,10 @@ class ComponentCatalogService:
         (export_root / filename).write_text(json.dumps(payload, indent=4) + "\n", encoding="utf-8")
 
     def export_kicad_dbl_bundle(self) -> dict[str, Any]:
+        # The generated KiCad database-library bundle intentionally uses SQLite as
+        # an interchange artifact. Prism's runtime state is PostgreSQL-only.
+        import sqlite3 as sqlite_export
+
         self.initialize()
         export_root = self._export_root
         if export_root.exists():
@@ -6930,7 +6525,7 @@ class ComponentCatalogService:
                 grouped_rows.setdefault(category, []).append(self._dbl_row_for_component(component, part_number, custom_fields))
                 self._collect_dbl_assets(component, part_number, export_root, catalog_conn)
 
-        with sqlite3.connect(db_path) as dbl_conn:
+        with sqlite_export.connect(db_path) as dbl_conn:
             for category, rows in sorted(grouped_rows.items()):
                 table = _quote_identifier(category)
                 columns_sql = ", ".join(f"{_quote_identifier(column)} TEXT NOT NULL DEFAULT ''" for column in effective_columns)
@@ -7010,6 +6605,3 @@ class ComponentCatalogService:
             "sym_lib_table": str(export_root / "sym-lib-table"),
             "fp_lib_table": str(export_root / "fp-lib-table"),
         }
-
-
-catalog_service = ComponentCatalogService()

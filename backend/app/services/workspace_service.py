@@ -1,10 +1,4 @@
-"""
-Workspace Service for KiCAD Prism.
-
-SQLite-backed project registry and folder tree, replacing the old
-JSON-file persistence in project_service.py and folder_service.py.
-Tables live inside the shared prism.sqlite3 (WAL mode).
-"""
+"""PostgreSQL-backed project registry, folder tree, and workspace jobs."""
 
 from __future__ import annotations
 
@@ -12,7 +6,6 @@ import hashlib
 import json
 import logging
 import os
-import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager
@@ -22,12 +15,9 @@ from typing import Any, Dict, Iterator, List, Optional
 
 from app.core.config import settings
 from app.core.roles import Role, role_matches_allowed_role
+from app.services.postgres_database import database
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_STORE_DIRNAME = ".kicad-prism"
-_CATALOG_DB_FILENAME = "prism.sqlite3"
-
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -47,10 +37,9 @@ def _hash_file(path: Path) -> Optional[str]:
 
 
 class WorkspaceService:
-    """SQLite-backed workspace persistence."""
+    """Native PostgreSQL workspace persistence."""
 
     def __init__(self) -> None:
-        self._db_path = self._resolve_db_path()
         self._lock = threading.Lock()
         self._initialized = False
 
@@ -58,58 +47,43 @@ class WorkspaceService:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def _resolve_db_path(self) -> Path:
-        configured = settings.PRISM_STATE_SQLITE_PATH or settings.CATALOG_SQLITE_PATH
-        if configured:
-            raw = configured.removeprefix("sqlite:///") if configured.startswith("sqlite:///") else configured
-            return Path(raw).expanduser().resolve()
-        return (Path(settings.KICAD_PROJECTS_ROOT) / _DEFAULT_STORE_DIRNAME / _CATALOG_DB_FILENAME).resolve()
-
     def initialize(self) -> None:
         with self._lock:
             if self._initialized:
                 return
-            self._db_path.parent.mkdir(parents=True, exist_ok=True)
             with self._connect() as conn:
+                conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
                 self._create_schema(conn)
                 conn.commit()
             self._initialized = True
-            logger.info("Workspace service initialized (db=%s)", self._db_path)
+            logger.info("Workspace service initialized in PostgreSQL schema workspace")
 
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(str(self._db_path), timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA busy_timeout = 5000")
-        conn.execute("PRAGMA temp_store = MEMORY")
-        conn.execute("PRAGMA cache_size = -64000")
-        conn.execute("PRAGMA wal_autocheckpoint = 1000")
-        try:
+    def _connect(self) -> Iterator[Any]:
+        with database.connection() as conn:
+            conn.execute("SET search_path TO workspace, public")
             yield conn
-        finally:
-            conn.close()
 
     # ------------------------------------------------------------------
     # Schema
     # ------------------------------------------------------------------
 
-    def _create_schema(self, conn: sqlite3.Connection) -> None:
-        conn.executescript("""
+    def _create_schema(self, conn: Any) -> None:
+        conn.execute("CREATE SCHEMA IF NOT EXISTS workspace")
+        conn.execute("SET search_path TO workspace, public")
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS ws_repositories (
                 id          TEXT PRIMARY KEY,
                 name        TEXT NOT NULL,
                 url         TEXT NOT NULL UNIQUE,
                 clone_path  TEXT NOT NULL UNIQUE,
                 import_type TEXT NOT NULL DEFAULT 'single',
-                cloned_at   TEXT NOT NULL,
-                last_synced_at TEXT
+                cloned_at   TIMESTAMPTZ NOT NULL,
+                last_synced_at TIMESTAMPTZ
             );
 
             CREATE TABLE IF NOT EXISTS ws_folders (
@@ -117,9 +91,9 @@ class WorkspaceService:
                 name            TEXT NOT NULL,
                 parent_id       TEXT REFERENCES ws_folders(id) ON DELETE CASCADE,
                 visibility_mode TEXT,
-                allowed_roles   TEXT NOT NULL DEFAULT '[]',
-                created_at      TEXT NOT NULL,
-                updated_at      TEXT NOT NULL,
+                allowed_roles   JSONB NOT NULL DEFAULT '[]'::jsonb,
+                created_at      TIMESTAMPTZ NOT NULL,
+                updated_at      TIMESTAMPTZ NOT NULL,
                 UNIQUE(parent_id, name)
             );
             CREATE INDEX IF NOT EXISTS idx_ws_folders_parent ON ws_folders(parent_id);
@@ -136,10 +110,10 @@ class WorkspaceService:
                 pcb_rel         TEXT,
                 thumbnail_rel   TEXT,
                 jobset_rel      TEXT,
-                has_3d_model    INTEGER NOT NULL DEFAULT 0,
-                has_ibom        INTEGER NOT NULL DEFAULT 0,
-                registered_at   TEXT NOT NULL,
-                last_modified   TEXT NOT NULL,
+                has_3d_model    BOOLEAN NOT NULL DEFAULT FALSE,
+                has_ibom        BOOLEAN NOT NULL DEFAULT FALSE,
+                registered_at   TIMESTAMPTZ NOT NULL,
+                last_modified   TIMESTAMPTZ NOT NULL,
                 prism_json_hash TEXT,
                 UNIQUE(repo_id, relative_path)
             );
@@ -149,8 +123,8 @@ class WorkspaceService:
             CREATE TABLE IF NOT EXISTS ws_project_portfolio (
                 project_id  TEXT PRIMARY KEY REFERENCES ws_projects(id) ON DELETE CASCADE,
                 model_rel   TEXT,
-                tags        TEXT NOT NULL DEFAULT '[]',
-                scene_config TEXT
+                tags        JSONB NOT NULL DEFAULT '[]'::jsonb,
+                scene_config JSONB
             );
 
             CREATE TABLE IF NOT EXISTS ws_jobs (
@@ -159,12 +133,12 @@ class WorkspaceService:
                 status     TEXT NOT NULL,
                 message    TEXT NOT NULL DEFAULT '',
                 percent    REAL NOT NULL DEFAULT 0,
-                payload    TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_ws_jobs_kind_status ON ws_jobs(kind, status);
-        """)
+        """, prepare=False)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -188,7 +162,7 @@ class WorkspaceService:
             return absolute_path
 
     @staticmethod
-    def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    def _row_to_dict(row: Any) -> Dict[str, Any]:
         return dict(row)
 
     @staticmethod
@@ -197,7 +171,8 @@ class WorkspaceService:
             return True
         if row.get("visibility_mode") != "roles":
             return True
-        allowed = json.loads(row.get("allowed_roles") or "[]")
+        raw_allowed = row.get("allowed_roles") or []
+        allowed = json.loads(raw_allowed) if isinstance(raw_allowed, str) else raw_allowed
         if not allowed:
             return True
         return role_matches_allowed_role(user_role, allowed)
@@ -218,7 +193,7 @@ class WorkspaceService:
         rel = self._rel_clone_path(clone_path_abs)
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO ws_repositories (id,name,url,clone_path,import_type,cloned_at) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO ws_repositories (id,name,url,clone_path,import_type,cloned_at) VALUES (%s,%s,%s,%s,%s,%s)",
                 (repo_id, name, url, rel, import_type, now),
             )
             conn.commit()
@@ -227,30 +202,30 @@ class WorkspaceService:
 
     def get_repository_by_url(self, url: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM ws_repositories WHERE url=?", (url,)).fetchone()
+            row = conn.execute("SELECT * FROM ws_repositories WHERE url=%s", (url,)).fetchone()
         return self._row_to_dict(row) if row else None
 
     def get_repository(self, repo_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM ws_repositories WHERE id=?", (repo_id,)).fetchone()
+            row = conn.execute("SELECT * FROM ws_repositories WHERE id=%s", (repo_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
     def get_repositories(self, import_type: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             if import_type:
-                rows = conn.execute("SELECT * FROM ws_repositories WHERE import_type=? ORDER BY name", (import_type,)).fetchall()
+                rows = conn.execute("SELECT * FROM ws_repositories WHERE import_type=%s ORDER BY name", (import_type,)).fetchall()
             else:
                 rows = conn.execute("SELECT * FROM ws_repositories ORDER BY name").fetchall()
         return [self._row_to_dict(r) for r in rows]
 
     def update_repository_synced(self, repo_id: str) -> None:
         with self._connect() as conn:
-            conn.execute("UPDATE ws_repositories SET last_synced_at=? WHERE id=?", (_utc_now_iso(), repo_id))
+            conn.execute("UPDATE ws_repositories SET last_synced_at=%s WHERE id=%s", (_utc_now_iso(), repo_id))
             conn.commit()
 
     def delete_repository(self, repo_id: str) -> bool:
         with self._connect() as conn:
-            cur = conn.execute("DELETE FROM ws_repositories WHERE id=?", (repo_id,))
+            cur = conn.execute("DELETE FROM ws_repositories WHERE id=%s", (repo_id,))
             conn.commit()
         return cur.rowcount > 0
 
@@ -282,18 +257,18 @@ class WorkspaceService:
                    (id,repo_id,name,display_name,description,relative_path,folder_id,
                     schematic_rel,pcb_rel,thumbnail_rel,jobset_rel,
                     has_3d_model,has_ibom,registered_at,last_modified,prism_json_hash)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     project_id, repo_id, name, display_name, description, relative_path, folder_id,
                     schematic_rel, pcb_rel, thumbnail_rel, jobset_rel,
-                    int(has_3d_model), int(has_ibom), now, now, prism_json_hash,
+                    has_3d_model, has_ibom, now, now, prism_json_hash,
                 ),
             )
             conn.commit()
         logger.info("Registered project %s (%s)", name, project_id)
         return project_id
 
-    def _project_row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
+    def _project_row_to_dict(self, row: Any) -> Dict[str, Any]:
         d = self._row_to_dict(row)
         # Resolve absolute path from repo clone_path + relative_path
         repo_clone = d.pop("repo_clone_path", None) or ""
@@ -332,7 +307,7 @@ class WorkspaceService:
                           r.name AS parent_repo, r.import_type
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
-                   WHERE p.id=?""",
+                   WHERE p.id=%s""",
                 (project_id,),
             ).fetchone()
         return self._project_row_to_dict(row) if row else None
@@ -344,7 +319,7 @@ class WorkspaceService:
                           r.name AS parent_repo, r.import_type
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
-                   WHERE p.repo_id=? ORDER BY p.name""",
+                   WHERE p.repo_id=%s ORDER BY p.name""",
                 (repo_id,),
             ).fetchall()
         return [self._project_row_to_dict(r) for r in rows]
@@ -361,13 +336,13 @@ class WorkspaceService:
         if not fields:
             return False
         if "has_3d_model" in fields:
-            fields["has_3d_model"] = int(fields["has_3d_model"])
+            fields["has_3d_model"] = bool(fields["has_3d_model"])
         if "has_ibom" in fields:
-            fields["has_ibom"] = int(fields["has_ibom"])
-        sets = ", ".join(f"{k}=?" for k in fields)
+            fields["has_ibom"] = bool(fields["has_ibom"])
+        sets = ", ".join(f"{k}=%s" for k in fields)
         vals = list(fields.values()) + [project_id]
         with self._connect() as conn:
-            cur = conn.execute(f"UPDATE ws_projects SET {sets} WHERE id=?", vals)
+            cur = conn.execute(f"UPDATE ws_projects SET {sets} WHERE id=%s", vals)
             conn.commit()
         return cur.rowcount > 0
 
@@ -376,7 +351,7 @@ class WorkspaceService:
 
     def delete_project(self, project_id: str) -> bool:
         with self._connect() as conn:
-            cur = conn.execute("DELETE FROM ws_projects WHERE id=?", (project_id,))
+            cur = conn.execute("DELETE FROM ws_projects WHERE id=%s", (project_id,))
             conn.commit()
         return cur.rowcount > 0
 
@@ -389,8 +364,9 @@ class WorkspaceService:
         return json.dumps(fields, separators=(",", ":"), sort_keys=True)
 
     @staticmethod
-    def _row_to_job(row: sqlite3.Row) -> Dict[str, Any]:
-        payload = json.loads(row["payload"] or "{}")
+    def _row_to_job(row: Any) -> Dict[str, Any]:
+        raw_payload = row["payload"] or {}
+        payload = json.loads(raw_payload) if isinstance(raw_payload, str) else dict(raw_payload)
         payload.update({
             "job_id": row["id"],
             "status": row["status"],
@@ -410,50 +386,55 @@ class WorkspaceService:
         fields.setdefault("type", kind)
         with self._connect() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO ws_jobs
+                """INSERT INTO ws_jobs
                    (id,kind,status,message,percent,payload,created_at,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (id) DO UPDATE SET
+                     kind=EXCLUDED.kind, status=EXCLUDED.status,
+                     message=EXCLUDED.message, percent=EXCLUDED.percent,
+                     payload=EXCLUDED.payload, updated_at=EXCLUDED.updated_at""",
                 (job_id, kind, status, message, percent, self._job_payload(fields), now, now),
             )
             conn.commit()
 
     def update_job(self, job_id: str, **fields: Any) -> bool:
         with self._connect() as conn:
-            row = conn.execute("SELECT payload FROM ws_jobs WHERE id=?", (job_id,)).fetchone()
+            row = conn.execute("SELECT payload FROM ws_jobs WHERE id=%s", (job_id,)).fetchone()
             if not row:
                 return False
-            payload = json.loads(row["payload"] or "{}")
+            raw_payload = row["payload"] or {}
+            payload = json.loads(raw_payload) if isinstance(raw_payload, str) else dict(raw_payload)
             status = fields.pop("status", None)
             message = fields.pop("message", None)
             percent = fields.pop("percent", None)
             payload.update(fields)
-            updates = ["payload=?", "updated_at=?"]
+            updates = ["payload=%s", "updated_at=%s"]
             values: List[Any] = [self._job_payload(payload), _utc_now_iso()]
             if status is not None:
-                updates.append("status=?")
+                updates.append("status=%s")
                 values.append(str(status))
             if message is not None:
-                updates.append("message=?")
+                updates.append("message=%s")
                 values.append(str(message))
             if percent is not None:
-                updates.append("percent=?")
+                updates.append("percent=%s")
                 values.append(float(percent or 0))
             values.append(job_id)
-            cur = conn.execute(f"UPDATE ws_jobs SET {', '.join(updates)} WHERE id=?", values)
+            cur = conn.execute(f"UPDATE ws_jobs SET {', '.join(updates)} WHERE id=%s", values)
             conn.commit()
         return cur.rowcount > 0
 
     def get_job(self, job_id: str, kind: Optional[str] = None) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
             if kind:
-                row = conn.execute("SELECT * FROM ws_jobs WHERE id=? AND kind=?", (job_id, kind)).fetchone()
+                row = conn.execute("SELECT * FROM ws_jobs WHERE id=%s AND kind=%s", (job_id, kind)).fetchone()
             else:
-                row = conn.execute("SELECT * FROM ws_jobs WHERE id=?", (job_id,)).fetchone()
+                row = conn.execute("SELECT * FROM ws_jobs WHERE id=%s", (job_id,)).fetchone()
         return self._row_to_job(row) if row else None
 
     def delete_job(self, job_id: str) -> bool:
         with self._connect() as conn:
-            cur = conn.execute("DELETE FROM ws_jobs WHERE id=?", (job_id,))
+            cur = conn.execute("DELETE FROM ws_jobs WHERE id=%s", (job_id,))
             conn.commit()
         return cur.rowcount > 0
 
@@ -467,8 +448,8 @@ class WorkspaceService:
                    FROM ws_projects p
                    JOIN ws_repositories r ON r.id = p.repo_id
                    LEFT JOIN ws_folders f ON f.id = p.folder_id
-                   WHERE p.name LIKE ? OR p.description LIKE ? OR r.name LIKE ?
-                   ORDER BY p.name LIMIT ?""",
+                   WHERE p.name ILIKE %s OR p.description ILIKE %s OR r.name ILIKE %s
+                   ORDER BY p.name LIMIT %s""",
                 (like, like, like, limit),
             ).fetchall()
         results = []
@@ -489,7 +470,7 @@ class WorkspaceService:
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO ws_project_portfolio (project_id,model_rel,tags,scene_config)
-                   VALUES (?,?,?,?)
+                   VALUES (%s,%s,%s,%s)
                    ON CONFLICT(project_id) DO UPDATE SET
                      model_rel=excluded.model_rel, tags=excluded.tags, scene_config=excluded.scene_config""",
                 (project_id, model_rel, tags_json, scene_config),
@@ -498,11 +479,12 @@ class WorkspaceService:
 
     def get_portfolio(self, project_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM ws_project_portfolio WHERE project_id=?", (project_id,)).fetchone()
+            row = conn.execute("SELECT * FROM ws_project_portfolio WHERE project_id=%s", (project_id,)).fetchone()
         if not row:
             return None
         d = self._row_to_dict(row)
-        d["tags"] = json.loads(d.get("tags") or "[]")
+        raw_tags = d.get("tags") or []
+        d["tags"] = json.loads(raw_tags) if isinstance(raw_tags, str) else raw_tags
         return d
 
     # ------------------------------------------------------------------
@@ -521,35 +503,38 @@ class WorkspaceService:
         roles_json = json.dumps(allowed_roles or [])
         with self._connect() as conn:
             if parent_id is not None:
-                parent = conn.execute("SELECT id FROM ws_folders WHERE id=?", (parent_id,)).fetchone()
+                parent = conn.execute("SELECT id FROM ws_folders WHERE id=%s", (parent_id,)).fetchone()
                 if not parent:
                     raise ValueError("Parent folder not found")
             try:
                 conn.execute(
                     """INSERT INTO ws_folders (id,name,parent_id,visibility_mode,allowed_roles,created_at,updated_at)
-                       VALUES (?,?,?,?,?,?,?)""",
+                       VALUES (%s,%s,%s,%s,%s,%s,%s)""",
                     (folder_id, name, parent_id, visibility_mode, roles_json, now, now),
                 )
                 conn.commit()
-            except sqlite3.IntegrityError:
+            except Exception as error:
+                if getattr(error, "sqlstate", None) != "23505":
+                    raise
                 raise ValueError("A folder with this name already exists in this location")
         return {"id": folder_id, "name": name, "parent_id": parent_id, "visibility_mode": visibility_mode,
                 "allowed_roles": allowed_roles or [], "created_at": now, "updated_at": now}
 
     def get_folder(self, folder_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM ws_folders WHERE id=?", (folder_id,)).fetchone()
+            row = conn.execute("SELECT * FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
         if not row:
             return None
         d = self._row_to_dict(row)
-        d["allowed_roles"] = json.loads(d.get("allowed_roles") or "[]")
+        raw_roles = d.get("allowed_roles") or []
+        d["allowed_roles"] = json.loads(raw_roles) if isinstance(raw_roles, str) else raw_roles
         return d
 
     _UNSET = object()
 
     def update_folder(self, folder_id: str, name: Optional[str] = None, parent_id: object = None, _use_parent: bool = False) -> Dict[str, Any]:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM ws_folders WHERE id=?", (folder_id,)).fetchone()
+            row = conn.execute("SELECT * FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
             if not row:
                 raise ValueError("Folder not found")
             folder = self._row_to_dict(row)
@@ -560,7 +545,7 @@ class WorkspaceService:
             if target_parent == folder_id:
                 raise ValueError("Folder cannot be its own parent")
             if target_parent is not None:
-                p = conn.execute("SELECT id FROM ws_folders WHERE id=?", (target_parent,)).fetchone()
+                p = conn.execute("SELECT id FROM ws_folders WHERE id=%s", (target_parent,)).fetchone()
                 if not p:
                     raise ValueError("Parent folder not found")
                 # Prevent cycles
@@ -570,32 +555,35 @@ class WorkspaceService:
                     if current in visited:
                         raise ValueError("Cannot move a folder into itself or its descendants")
                     visited.add(current)
-                    anc = conn.execute("SELECT parent_id FROM ws_folders WHERE id=?", (current,)).fetchone()
+                    anc = conn.execute("SELECT parent_id FROM ws_folders WHERE id=%s", (current,)).fetchone()
                     current = anc["parent_id"] if anc else None
             now = _utc_now_iso()
             try:
                 conn.execute(
-                    "UPDATE ws_folders SET name=?, parent_id=?, updated_at=? WHERE id=?",
+                    "UPDATE ws_folders SET name=%s, parent_id=%s, updated_at=%s WHERE id=%s",
                     (target_name, target_parent, now, folder_id),
                 )
                 conn.commit()
-            except sqlite3.IntegrityError:
+            except Exception as error:
+                if getattr(error, "sqlstate", None) != "23505":
+                    raise
                 raise ValueError("A folder with this name already exists in this location")
         folder["name"] = target_name
         folder["parent_id"] = target_parent
         folder["updated_at"] = now
-        folder["allowed_roles"] = json.loads(folder.get("allowed_roles") or "[]")
+        raw_roles = folder.get("allowed_roles") or []
+        folder["allowed_roles"] = json.loads(raw_roles) if isinstance(raw_roles, str) else raw_roles
         return folder
 
 
 
     def delete_folder(self, folder_id: str, cascade: bool = True) -> bool:
         with self._connect() as conn:
-            row = conn.execute("SELECT id FROM ws_folders WHERE id=?", (folder_id,)).fetchone()
+            row = conn.execute("SELECT id FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
             if not row:
                 return False
             if not cascade:
-                children = conn.execute("SELECT id FROM ws_folders WHERE parent_id=?", (folder_id,)).fetchall()
+                children = conn.execute("SELECT id FROM ws_folders WHERE parent_id=%s", (folder_id,)).fetchall()
                 if children:
                     raise ValueError("Folder has subfolders. Use cascade delete or move subfolders first.")
             # Move projects in deleted folder(s) to root (folder_id=NULL)
@@ -605,15 +593,15 @@ class WorkspaceService:
                 queue = [folder_id]
                 while queue:
                     fid = queue.pop()
-                    kids = conn.execute("SELECT id FROM ws_folders WHERE parent_id=?", (fid,)).fetchall()
+                    kids = conn.execute("SELECT id FROM ws_folders WHERE parent_id=%s", (fid,)).fetchall()
                     for k in kids:
                         desc_ids.append(k["id"])
                         queue.append(k["id"])
-                placeholders = ",".join("?" * len(desc_ids))
+                placeholders = ",".join(["%s"] * len(desc_ids))
                 conn.execute(f"UPDATE ws_projects SET folder_id=NULL WHERE folder_id IN ({placeholders})", desc_ids)
             else:
-                conn.execute("UPDATE ws_projects SET folder_id=NULL WHERE folder_id=?", (folder_id,))
-            conn.execute("DELETE FROM ws_folders WHERE id=?", (folder_id,))
+                conn.execute("UPDATE ws_projects SET folder_id=NULL WHERE folder_id=%s", (folder_id,))
+            conn.execute("DELETE FROM ws_folders WHERE id=%s", (folder_id,))
             conn.commit()
         return True
 
@@ -626,7 +614,8 @@ class WorkspaceService:
         count_map = {r["folder_id"]: r["cnt"] for r in counts}
         folder_list = [self._row_to_dict(f) for f in folders]
         for f in folder_list:
-            f["allowed_roles"] = json.loads(f.get("allowed_roles") or "[]")
+            raw_roles = f.get("allowed_roles") or []
+            f["allowed_roles"] = json.loads(raw_roles) if isinstance(raw_roles, str) else raw_roles
         # Filter by role
         if user_role is not None:
             folder_list = [f for f in folder_list if self._is_folder_visible(f, user_role)]
@@ -663,28 +652,30 @@ class WorkspaceService:
     def get_folder_contents(self, folder_id: Optional[str], user_role: Optional[Role] = None) -> Dict[str, Any]:
         with self._connect() as conn:
             if folder_id is not None:
-                row = conn.execute("SELECT * FROM ws_folders WHERE id=?", (folder_id,)).fetchone()
+                row = conn.execute("SELECT * FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
                 if not row:
                     raise ValueError("Folder not found")
                 fd = self._row_to_dict(row)
-                fd["allowed_roles"] = json.loads(fd.get("allowed_roles") or "[]")
+                raw_roles = fd.get("allowed_roles") or []
+                fd["allowed_roles"] = json.loads(raw_roles) if isinstance(raw_roles, str) else raw_roles
                 if not self._is_folder_visible(fd, user_role):
                     raise ValueError("Folder not found")
             child_folders = conn.execute(
-                "SELECT * FROM ws_folders WHERE parent_id IS ? ORDER BY name",
+                "SELECT * FROM ws_folders WHERE parent_id IS NOT DISTINCT FROM %s ORDER BY name",
                 (folder_id,),
             ).fetchall()
             projects = conn.execute(
                 """SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
                           r.name AS parent_repo, r.import_type
                    FROM ws_projects p JOIN ws_repositories r ON r.id=p.repo_id
-                   WHERE p.folder_id IS ? ORDER BY p.name""",
+                   WHERE p.folder_id IS NOT DISTINCT FROM %s ORDER BY p.name""",
                 (folder_id,),
             ).fetchall()
         cf_list = []
         for f in child_folders:
             fd = self._row_to_dict(f)
-            fd["allowed_roles"] = json.loads(fd.get("allowed_roles") or "[]")
+            raw_roles = fd.get("allowed_roles") or []
+            fd["allowed_roles"] = json.loads(raw_roles) if isinstance(raw_roles, str) else raw_roles
             if user_role is not None and not self._is_folder_visible(fd, user_role):
                 continue
             cf_list.append(fd)

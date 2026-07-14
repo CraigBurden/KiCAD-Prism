@@ -34,11 +34,13 @@ def _load_catalog_runtime() -> None:
     global _utc_now_iso
 
     try:
-        from app.services.component_catalog_service_sqlite import (  # noqa: PLC0415
-            ComponentCatalogService as LoadedComponentCatalogService,
+        from app.services.component_catalog_domain import (  # noqa: PLC0415
             _discover_footprint_name_in_text as loaded_discover_footprint_name,
             _sanitize_name as loaded_sanitize_name,
             _utc_now_iso as loaded_utc_now_iso,
+        )
+        from app.services.component_catalog_service_postgres import (  # noqa: PLC0415
+            ComponentCatalogPostgresService,
         )
     except ModuleNotFoundError as exc:
         raise RuntimeError(
@@ -46,7 +48,7 @@ def _load_catalog_runtime() -> None:
             "or inside the backend container."
         ) from exc
 
-    ComponentCatalogService = LoadedComponentCatalogService
+    ComponentCatalogService = ComponentCatalogPostgresService
     _discover_footprint_name_in_text = loaded_discover_footprint_name
     _sanitize_name = loaded_sanitize_name
     _utc_now_iso = loaded_utc_now_iso
@@ -471,7 +473,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--include-table", action="append", default=[], help="Import only this source table. Can be repeated.")
     parser.add_argument("--store-root", type=Path, default=None, help="Local Prism canonical component store root.")
     parser.add_argument("--runtime-store-root", type=Path, default=None, help="Canonical store root to write into DB paths, e.g. /app/projects/.kicad-prism/components.")
-    parser.add_argument("--database-url", default=os.environ.get("CATALOG_SQLITE_PATH", ""), help="Target Prism catalog SQLite path.")
+    parser.add_argument("--database-url", default=os.environ.get("PRISM_DATABASE_URL", ""), help="Target Prism PostgreSQL URL.")
     parser.add_argument("--replace-catalog", action="store_true", help="Delete existing Prism catalog component/asset rows before importing.")
     parser.add_argument("--overwrite-assets", action="store_true", help="Overwrite canonical asset files when content differs.")
     parser.add_argument("--allow-missing-assets", action="store_true", help="Create metadata rows even when symbol or footprint refs cannot be resolved.")

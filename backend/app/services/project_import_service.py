@@ -416,13 +416,14 @@ def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[s
 
 
 
-def _run_import_job(job_id: str, repo_url: str, import_type: str, 
+def _run_import_job(job_id: str, repo_url: str, import_type: str,
                     selected_paths: Optional[List[str]] = None):
     """
     Background job: Clone repository and register projects.
     """
     job = jobs[job_id]
     
+    cloned_in_job = False
     try:
         # Extract repo name
         repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
@@ -445,15 +446,23 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
             _persist_job(job_id)
             return
 
+        adopted_checkout = False
         if target_path.exists():
-            # Stranded directory with no DB entry — remove and re-clone
-            job['logs'].append(f"Removing stranded directory: {target_path}")
-            _persist_job(job_id)
             try:
-                shutil.rmtree(target_path)
-            except Exception as e:
+                existing_checkout = Repo(str(target_path))
+                remotes = [remote.url for remote in existing_checkout.remotes]
+                normalize = lambda value: value.strip().rstrip('/').removesuffix('.git').casefold()
+                if normalize(repo_url) not in {normalize(value) for value in remotes}:
+                    raise ValueError(
+                        f"Existing checkout at {target_path} belongs to a different remote"
+                    )
+                adopted_checkout = True
+                job['logs'].append(f"Adopting existing checkout: {target_path}")
+                _persist_job(job_id)
+            except Exception as error:
                 job['status'] = 'failed'
-                job['error'] = f"Failed to remove stranded directory: {e}"
+                job['error'] = str(error)
+                job['logs'].append(f"Cannot adopt existing checkout: {error}")
                 _persist_job(job_id)
                 return
         
@@ -461,21 +470,23 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
         base_path.mkdir(parents=True, exist_ok=True)
         
         # Clone repository
-        job['logs'].append(f"Cloning {repo_url}...")
-        _persist_job(job_id)
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
-        Repo.clone_from(
-            repo_url,
-            str(target_path),
-            progress=CloneProgress(job_id),
-            env=env
-        )
-        
-        job['logs'].append("Clone complete. Registering projects...")
+        if not adopted_checkout:
+            job['logs'].append(f"Cloning {repo_url}...")
+            _persist_job(job_id)
+            env = os.environ.copy()
+            env['GIT_TERMINAL_PROMPT'] = '0'
+            # Trust On First Use (TOFU) for SSH
+            env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
+
+            Repo.clone_from(
+                repo_url,
+                str(target_path),
+                progress=CloneProgress(job_id),
+                env=env
+            )
+            cloned_in_job = True
+
+        job['logs'].append("Checkout ready. Registering projects...")
         _persist_job(job_id)
         
         # Register repository in workspace DB
@@ -541,7 +552,7 @@ def _run_import_job(job_id: str, repo_url: str, import_type: str,
         _persist_job(job_id)
         
         # Cleanup on failure
-        if target_path.exists():
+        if cloned_in_job and target_path.exists():
             try:
                 shutil.rmtree(target_path)
             except:

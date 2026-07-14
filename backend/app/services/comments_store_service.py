@@ -2,7 +2,7 @@
 Comments storage service.
 
 Design:
-- SQLite is the single source of truth for comments/replies.
+- PostgreSQL is the single source of truth for comments/replies.
 - Per-project isolation is enforced via project_id on every row.
 - Existing .comments/comments.json is imported once per project on first access.
 - comments.json is exported from DB when users press "Push Comments".
@@ -12,14 +12,15 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import tempfile
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from app.services import project_service
+from app.services.postgres_database import database
 
 COMMENTS_META = {
     "version": "1.0",
@@ -32,26 +33,19 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _iso_timestamp(value) -> str:
+    return value.isoformat().replace("+00:00", "Z") if hasattr(value, "isoformat") else str(value)
+
+
 def get_project_comments_json_path(project_path: str) -> str:
     """Return canonical comments.json path for a project."""
     return os.path.join(project_path, ".comments", "comments.json")
 
 
 class CommentsStoreService:
-    """SQLite-backed comments service."""
+    """PostgreSQL-backed comments service."""
 
     def __init__(self) -> None:
-        configured = os.environ.get("KICAD_COMMENTS_DB_PATH", "").strip()
-
-        if configured:
-            self._db_path = os.path.abspath(os.path.expanduser(configured))
-        else:
-            self._db_path = os.path.join(
-                project_service.PROJECTS_ROOT,
-                ".kicad-prism",
-                "comments.sqlite3",
-            )
-
         self._init_lock = threading.Lock()
         self._initialized = False
 
@@ -64,18 +58,17 @@ class CommentsStoreService:
             if self._initialized:
                 return
 
-            os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-
             with self._connect() as conn:
-                conn.execute("PRAGMA journal_mode = WAL")
-                conn.execute("PRAGMA busy_timeout = 5000")
-                conn.executescript(
+                conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
+                conn.execute("CREATE SCHEMA IF NOT EXISTS comments")
+                conn.execute("SET search_path TO comments, public")
+                conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS comments (
                         id TEXT PRIMARY KEY,
                         project_id TEXT NOT NULL,
                         author TEXT NOT NULL,
-                        timestamp TEXT NOT NULL,
+                        timestamp TIMESTAMPTZ NOT NULL,
                         status TEXT NOT NULL,
                         context TEXT NOT NULL,
                         location_x REAL NOT NULL,
@@ -90,16 +83,16 @@ class CommentsStoreService:
                         comment_id TEXT NOT NULL,
                         project_id TEXT NOT NULL,
                         author TEXT NOT NULL,
-                        timestamp TEXT NOT NULL,
+                        timestamp TIMESTAMPTZ NOT NULL,
                         content TEXT NOT NULL,
                         FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE CASCADE
                     );
 
                     CREATE TABLE IF NOT EXISTS project_comment_state (
                         project_id TEXT PRIMARY KEY,
-                        imported_from_json INTEGER NOT NULL DEFAULT 0,
-                        imported_at TEXT,
-                        last_exported_at TEXT,
+                        imported_from_json BOOLEAN NOT NULL DEFAULT FALSE,
+                        imported_at TIMESTAMPTZ,
+                        last_exported_at TIMESTAMPTZ,
                         last_export_commit TEXT
                     );
 
@@ -107,32 +100,31 @@ class CommentsStoreService:
                         ON comments(project_id, timestamp, id);
                     CREATE INDEX IF NOT EXISTS idx_replies_project_comment
                         ON comment_replies(project_id, comment_id, timestamp, id);
-                    """
+                    """,
+                    prepare=False,
                 )
+                conn.commit()
 
             self._initialized = True
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA busy_timeout = 5000")
-        conn.execute("PRAGMA wal_autocheckpoint = 1000")
-        return conn
+    @contextmanager
+    def _connect(self):
+        with database.connection() as conn:
+            conn.execute("SET search_path TO comments, public")
+            yield conn
 
-    def _bootstrap_project_if_needed(self, conn: sqlite3.Connection, project_id: str, project_path: str) -> None:
+    def _bootstrap_project_if_needed(self, conn, project_id: str, project_path: str) -> None:
         conn.execute(
             """
-            INSERT OR IGNORE INTO project_comment_state(project_id, imported_from_json)
-            VALUES(?, 0)
+            INSERT INTO project_comment_state(project_id, imported_from_json)
+            VALUES(%s, FALSE)
+            ON CONFLICT (project_id) DO NOTHING
             """,
             (project_id,),
         )
 
         state_row = conn.execute(
-            "SELECT imported_from_json FROM project_comment_state WHERE project_id = ?",
+            "SELECT imported_from_json FROM project_comment_state WHERE project_id = %s",
             (project_id,),
         ).fetchone()
 
@@ -141,7 +133,7 @@ class CommentsStoreService:
             return
 
         existing_count = conn.execute(
-            "SELECT COUNT(1) AS count FROM comments WHERE project_id = ?",
+            "SELECT COUNT(1) AS count FROM comments WHERE project_id = %s",
             (project_id,),
         ).fetchone()["count"]
 
@@ -153,9 +145,9 @@ class CommentsStoreService:
         conn.execute(
             """
             UPDATE project_comment_state
-            SET imported_from_json = 1,
-                imported_at = ?
-            WHERE project_id = ?
+            SET imported_from_json = TRUE,
+                imported_at = %s
+            WHERE project_id = %s
             """,
             (_utc_now_iso(), project_id),
         )
@@ -180,7 +172,7 @@ class CommentsStoreService:
 
         return payload
 
-    def _import_comments_payload(self, conn: sqlite3.Connection, project_id: str, payload: Dict) -> None:
+    def _import_comments_payload(self, conn, project_id: str, payload: Dict) -> None:
         comments = payload.get("comments", [])
 
         for raw_comment in comments:
@@ -216,11 +208,12 @@ class CommentsStoreService:
 
             conn.execute(
                 """
-                INSERT OR IGNORE INTO comments(
+                INSERT INTO comments(
                     id, project_id, author, timestamp, status, context,
                     location_x, location_y, location_layer, location_page, content
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
                 """,
                 (
                     comment_id,
@@ -252,10 +245,11 @@ class CommentsStoreService:
 
                 conn.execute(
                     """
-                    INSERT OR IGNORE INTO comment_replies(
+                    INSERT INTO comment_replies(
                         id, comment_id, project_id, author, timestamp, content
                     )
-                    VALUES(?, ?, ?, ?, ?, ?)
+                    VALUES(%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO NOTHING
                     """,
                     (
                         reply_id,
@@ -267,13 +261,13 @@ class CommentsStoreService:
                     ),
                 )
 
-    def _build_snapshot(self, conn: sqlite3.Connection, project_id: str) -> Dict:
+    def _build_snapshot(self, conn, project_id: str) -> Dict:
         comment_rows = conn.execute(
             """
             SELECT id, author, timestamp, status, context,
                    location_x, location_y, location_layer, location_page, content
             FROM comments
-            WHERE project_id = ?
+            WHERE project_id = %s
             ORDER BY timestamp ASC, id ASC
             """,
             (project_id,),
@@ -283,7 +277,7 @@ class CommentsStoreService:
             """
             SELECT id, comment_id, author, timestamp, content
             FROM comment_replies
-            WHERE project_id = ?
+            WHERE project_id = %s
             ORDER BY timestamp ASC, id ASC
             """,
             (project_id,),
@@ -295,7 +289,7 @@ class CommentsStoreService:
             replies_by_comment.setdefault(row["comment_id"], []).append(
                 {
                     "author": row["author"],
-                    "timestamp": row["timestamp"],
+                    "timestamp": _iso_timestamp(row["timestamp"]),
                     "content": row["content"],
                 }
             )
@@ -306,7 +300,7 @@ class CommentsStoreService:
                 {
                     "id": row["id"],
                     "author": row["author"],
-                    "timestamp": row["timestamp"],
+                    "timestamp": _iso_timestamp(row["timestamp"]),
                     "status": row["status"],
                     "context": row["context"],
                     "location": {
@@ -325,13 +319,13 @@ class CommentsStoreService:
             "comments": comments,
         }
 
-    def _get_comment_with_replies(self, conn: sqlite3.Connection, project_id: str, comment_id: str) -> Optional[Dict]:
+    def _get_comment_with_replies(self, conn, project_id: str, comment_id: str) -> Optional[Dict]:
         row = conn.execute(
             """
             SELECT id, author, timestamp, status, context,
                    location_x, location_y, location_layer, location_page, content
             FROM comments
-            WHERE project_id = ? AND id = ?
+            WHERE project_id = %s AND id = %s
             """,
             (project_id, comment_id),
         ).fetchone()
@@ -343,7 +337,7 @@ class CommentsStoreService:
             """
             SELECT author, timestamp, content
             FROM comment_replies
-            WHERE project_id = ? AND comment_id = ?
+            WHERE project_id = %s AND comment_id = %s
             ORDER BY timestamp ASC, id ASC
             """,
             (project_id, comment_id),
@@ -352,7 +346,7 @@ class CommentsStoreService:
         return {
             "id": row["id"],
             "author": row["author"],
-            "timestamp": row["timestamp"],
+            "timestamp": _iso_timestamp(row["timestamp"]),
             "status": row["status"],
             "context": row["context"],
             "location": {
@@ -365,7 +359,7 @@ class CommentsStoreService:
             "replies": [
                 {
                     "author": reply["author"],
-                    "timestamp": reply["timestamp"],
+                    "timestamp": _iso_timestamp(reply["timestamp"]),
                     "content": reply["content"],
                 }
                 for reply in reply_rows
@@ -375,7 +369,7 @@ class CommentsStoreService:
     def get_comments_file(self, project_id: str, project_path: str) -> Dict:
         self.initialize()
         with self._connect() as conn:
-            with conn:
+            with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 return self._build_snapshot(conn, project_id)
 
@@ -393,7 +387,7 @@ class CommentsStoreService:
         timestamp = _utc_now_iso()
 
         with self._connect() as conn:
-            with conn:
+            with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
 
                 comment_id = f"c_{uuid.uuid4().hex[:8]}"
@@ -403,7 +397,7 @@ class CommentsStoreService:
                         id, project_id, author, timestamp, status, context,
                         location_x, location_y, location_layer, location_page, content
                     )
-                    VALUES(?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?)
+                    VALUES(%s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         comment_id,
@@ -435,14 +429,14 @@ class CommentsStoreService:
         self.initialize()
 
         with self._connect() as conn:
-            with conn:
+            with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
 
                 cur = conn.execute(
                     """
                     UPDATE comments
-                    SET status = ?
-                    WHERE project_id = ? AND id = ?
+                    SET status = %s
+                    WHERE project_id = %s AND id = %s
                     """,
                     (status, project_id, comment_id),
                 )
@@ -465,11 +459,11 @@ class CommentsStoreService:
         reply_id = f"r_{uuid.uuid4().hex[:8]}"
 
         with self._connect() as conn:
-            with conn:
+            with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
 
                 exists = conn.execute(
-                    "SELECT 1 FROM comments WHERE project_id = ? AND id = ?",
+                    "SELECT 1 FROM comments WHERE project_id = %s AND id = %s",
                     (project_id, comment_id),
                 ).fetchone()
 
@@ -479,7 +473,7 @@ class CommentsStoreService:
                 conn.execute(
                     """
                     INSERT INTO comment_replies(id, comment_id, project_id, author, timestamp, content)
-                    VALUES(?, ?, ?, ?, ?, ?)
+                    VALUES(%s, %s, %s, %s, %s, %s)
                     """,
                     (reply_id, comment_id, project_id, author, timestamp, content),
                 )
@@ -501,11 +495,11 @@ class CommentsStoreService:
         self.initialize()
 
         with self._connect() as conn:
-            with conn:
+            with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
 
                 cur = conn.execute(
-                    "DELETE FROM comments WHERE project_id = ? AND id = ?",
+                    "DELETE FROM comments WHERE project_id = %s AND id = %s",
                     (project_id, comment_id),
                 )
                 return cur.rowcount > 0
@@ -514,7 +508,7 @@ class CommentsStoreService:
         self.initialize()
 
         with self._connect() as conn:
-            with conn:
+            with conn.transaction():
                 self._bootstrap_project_if_needed(conn, project_id, project_path)
                 snapshot = self._build_snapshot(conn, project_id)
 
@@ -539,8 +533,8 @@ class CommentsStoreService:
                 conn.execute(
                     """
                     UPDATE project_comment_state
-                    SET last_exported_at = ?
-                    WHERE project_id = ?
+                    SET last_exported_at = %s
+                    WHERE project_id = %s
                     """,
                     (_utc_now_iso(), project_id),
                 )
@@ -553,20 +547,21 @@ class CommentsStoreService:
 
         self.initialize()
         with self._connect() as conn:
-            with conn:
+            with conn.transaction():
                 conn.execute(
                     """
-                    INSERT OR IGNORE INTO project_comment_state(project_id, imported_from_json)
-                    VALUES(?, 1)
+                    INSERT INTO project_comment_state(project_id, imported_from_json)
+                    VALUES(%s, TRUE)
+                    ON CONFLICT (project_id) DO NOTHING
                     """,
                     (project_id,),
                 )
                 conn.execute(
                     """
                     UPDATE project_comment_state
-                    SET last_exported_at = ?,
-                        last_export_commit = ?
-                    WHERE project_id = ?
+                    SET last_exported_at = %s,
+                        last_export_commit = %s
+                    WHERE project_id = %s
                     """,
                     (_utc_now_iso(), commit_sha, project_id),
                 )
