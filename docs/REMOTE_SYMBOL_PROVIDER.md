@@ -1,156 +1,134 @@
 # KiCAD Prism Remote Symbol Provider
 
-Prism includes a KiCad remote-symbol provider backed by the SQLite component catalog.
+Prism exposes a KiCad-compatible remote symbol provider backed by the PostgreSQL component catalog and on-disk KiCad assets.
 
-What is included:
-- a SQLite-backed component catalog managed through the Library Manager
-- canonical KiCad-style asset storage under `.kicad-prism/components/`
-- CERN-style KiCad DBL export under `.kicad-prism/exports/kicad-dbl/`
-- optional KiCad Library Convention validation reports under `.kicad-prism/validation/klc/`
-- provider discovery at `/.well-known/kicad-remote-provider`
-- a same-origin provider webview page at `/remote-provider/panel`
-- KiCad-compatible OAuth endpoints for `REMOTE_LOGIN`
-- manifest-based placement with signed asset URLs
-- inline payload fallback for provider/UI validation
-- a KiCad `datasource` ZIP builder at `scripts/build_datasource_package.py`
+## What you get
 
-## Catalog storage layout
+- Provider discovery at `/.well-known/kicad-remote-provider`
+- Same-origin provider webview at `/remote-provider/panel`
+- KiCad-compatible OAuth for `REMOTE_LOGIN` (authorization code + PKCE)
+- Manifest-based placement with short-lived signed asset URLs
+- Inline payload fallback for provider/UI validation
+- Optional CERN-style KiCad DBL export
+- Datasource ZIP builder: `scripts/build_datasource_package.py`
 
-Prism stores catalog metadata, release workflow state, OAuth state, and local service-client metadata in `prism.sqlite3`. It stores active KiCad assets in KiCad-style directories:
+## Storage model
+
+| Layer | Location |
+|-------|----------|
+| Metadata, revisions, workflow, OAuth | PostgreSQL `catalog` (+ related) schemas |
+| Canonical KiCad files | `data/projects/.kicad-prism/components/` |
+| Content-addressed artifacts | `data/projects/.kicad-prism/artifacts/` |
+| DBL export bundles | `data/projects/.kicad-prism/exports/kicad-dbl/` |
+| KLC reports | `data/projects/.kicad-prism/validation/klc/` |
+
+Canonical disk layout:
+
 - `symbols/<library>/*.kicad_sym`
 - `footprints/<library>.pretty/*.kicad_mod`
 - `3dmodels/<library>/*.step`
 - `spice/<library>/*`
 - `previews/symbols/*.svg`
 - `previews/footprints/*.svg`
-- `revisions/<revision-id>/...`
-- `validation/klc/<run-id>/{stdout.txt,stderr.txt,report.junit.xml,report.json}`
 
-The SQLite catalog indexes those canonical files and tracks active revisions, preview status, and
-remote-provider metadata.
+Search uses PostgreSQL-backed catalog queries (not SQLite FTS). Only released / place-ready parts with symbol and footprint assets are exposed to KiCad.
 
-KLC validation is optional and controlled with `CATALOG_KLC_ENABLED`. It is a Library Manager
-health signal only; the remote provider still exposes only released/place-ready components. If
-`CATALOG_KLC_RELEASE_GATE=block`, Library Manager release transitions require current symbol and
-footprint assets to have non-failing KLC validation reports before release.
+## HTTPS requirement
 
-Search is backed by SQLite FTS5 when the runtime SQLite build supports it. FTS is maintained with
-database triggers on component revisions. If FTS5 is unavailable, Prism logs a warning and falls
-back to `LIKE` search so the provider remains functional.
+For any non-loopback deployment used by desktop KiCad, serve Prism over HTTPS and ensure every workstation trusts the certificate chain. Metadata, panel, OAuth, and asset URLs are absolute and must match the public origin.
 
-## Running locally
+Full guide: [HTTPS and TLS](HTTPS_AND_TLS.md).
 
-1. Start the Prism backend.
-2. Open `http://127.0.0.1:8000/.well-known/kicad-remote-provider` and confirm metadata loads.
-3. Open `http://127.0.0.1:8000/remote-provider/panel` and confirm the seeded catalog renders.
+User placement steps: [user-flows/04-kicad-remote-symbols.md](user-flows/04-kicad-remote-symbols.md).
 
-Preview SVGs are generated on import using KiCad tooling when `kicad-cli` is available in the
-backend runtime. If preview generation fails, the import still succeeds and the provider UI shows
-placeholder artwork until previews can be regenerated.
+## Local HTTP smoke test
 
-The provider list/search APIs intentionally return lightweight component summaries. The panel fetches
-the first 50 server-ranked search matches and the first 500 category entries, then loads full asset and preview
-details only after a user opens a part. This keeps the KiCad panel responsive on large catalogs and
-avoids downloading thousands of asset records during search.
+1. Start Prism (`docker compose up --build -d`).
+2. Open `http://127.0.0.1:8080/.well-known/kicad-remote-provider` (through the frontend proxy) **or** `http://127.0.0.1:8000/.well-known/kicad-remote-provider`.
+3. Open `/remote-provider/panel` and confirm the UI loads.
+4. Provider metadata includes `"allow_insecure_localhost": true` for loopback development.
 
-Preview SVG responses include cache headers and can be reused by the KiCad WebView until previews
-are regenerated.
+Prefer testing through the same origin KiCad will use in production (the frontend/proxy origin), not the raw backend port, once you move past localhost.
 
-If you keep KiCad's default Remote Symbol settings, the provider's rewritten payloads will match:
+## Authentication
+
+Prism advertises `auth.type = oauth2` when all of the following are true:
+
+- `AUTH_ENABLED=true`
+- `DEV_MODE=false`
+- OIDC settings configured (`OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`)
+- `SESSION_SECRET` set
+
+Register the KiCad remote-provider callback separately from the web UI callback:
+
+| Client | Redirect URI |
+|--------|--------------|
+| Web UI | `https://<host>/auth/callback` |
+| KiCad provider | `https://<host>/oauth/oidc/callback` |
+
+Provider OAuth metadata endpoints:
+
+- `/oauth/.well-known/oauth-authorization-server`
+- `/oauth/.well-known/openid-configuration`
+
+KiCad tokens are limited to `remote_symbols.read` and cannot call Prism admin or Library Manager mutation APIs.
+
+`SESSION_SECRET` also signs provider access/refresh/bootstrap tokens and catalog asset URL signatures.
+
+## KiCad defaults and env overrides
+
+KiCad defaults Prism expects:
+
 - library prefix: `remote`
 - destination directory: `${KIPRJMOD}/RemoteLibrary`
 
-If you change either of those in KiCad, set matching backend env vars:
-- `REMOTE_PROVIDER_LIBRARY_PREFIX`
-- `REMOTE_PROVIDER_DESTINATION_DIR`
+Overrides:
 
-## KiCad DBL export
-
-The HTTP remote provider remains Prism's richer placement interface. For teams that want KiCad's built-in DBL flow, Prism can also materialize a CERN-style bundle from released/place-ready parts:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/catalog/exports/kicad-dbl
+```env
+REMOTE_PROVIDER_LIBRARY_PREFIX=remote
+REMOTE_PROVIDER_DESTINATION_DIR=$${KIPRJMOD}/RemoteLibrary
+REMOTE_PROVIDER_OAUTH_CLIENT_ID=kicad-prism-kicad
 ```
 
-The export writes:
+In Compose `.env` files, write `$${KIPRJMOD}` so Compose does not interpolate it to empty.
 
-- `Prism.sqlite`
-- `Prism_Linux.kicad_dbl`
-- `Prism_Windows.kicad_dbl`
-- `sym-lib-table`
-- `fp-lib-table`
-- `SchLib/*.kicad_sym`
-- `PcbLib/*.pretty/*.kicad_mod`
-
-The generated `.kicad_dbl` files use KiCad's SQLite ODBC connection strings:
-
-- Linux: `Driver={SQLite3};Database=${CWD}/Prism.sqlite;`
-- Windows: `Driver={SQLite3 ODBC Driver};Database=${CWD}/Prism.sqlite;`
-
-Each DBL row uses `Part Number Nocolon` as the key and `LibSymbol` / `LibFootprint` as KiCad references. Symbols are exported as one `.kicad_sym` file per DBL symbol-library entry, which keeps packed source imports compatible while matching KiCad v10's DBL library lookup model.
-
-In Docker Compose `.env` files, write the KiCad project variable as
-`REMOTE_PROVIDER_DESTINATION_DIR=$${KIPRJMOD}/RemoteLibrary`; otherwise Compose may interpolate
-`${KIPRJMOD}` to an empty string before the backend sees it.
-
-## Enabling authentication
-
-Prism will advertise `auth.type = oauth2` only when all of the following are true:
-- `AUTH_ENABLED=true`
-- `DEV_MODE=false`
-- generic OIDC settings are configured: `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
-- `SESSION_SECRET` is set
-
-Local test setup:
-- set the OIDC redirect URI to `http://127.0.0.1:8000/oauth/oidc/callback`
-- if using Google Sign-In, also register the normal Prism web login redirect URI:
-  `http://127.0.0.1:8080/auth/callback` for Docker frontend testing
-- run the backend on `http://127.0.0.1:8000`
-- open `http://127.0.0.1:8000/.well-known/kicad-remote-provider` and confirm:
-  - `"auth": { "type": "oauth2", ... }`
-  - `"session_bootstrap_url"` is present
-
-Prism exposes both metadata endpoints for the provider OAuth server:
-- `http://127.0.0.1:8000/oauth/.well-known/oauth-authorization-server`
-- `http://127.0.0.1:8000/oauth/.well-known/openid-configuration`
-
-KiCad should use the authorization-server metadata URL from the provider metadata document.
-The provider OAuth server accepts only the KiCad remote-symbol client ID, loopback redirect URIs,
-authorization-code + PKCE with S256, and the `remote_symbols.read` scope. This keeps KiCad panel
-tokens limited to remote-symbol read/search/placement APIs and prevents them from being reused for
-Prism admin or Library Manager mutation APIs.
-
-`SESSION_SECRET` also signs remote-provider access, refresh, bootstrap, and catalog asset URL
-tokens. Missing secrets fail closed instead of falling back to a development secret.
-
-## Building the datasource ZIP
+## Build the datasource ZIP
 
 ```bash
-cd backend/..
-python3 scripts/build_datasource_package.py --base-url http://127.0.0.1:8000
+python3 scripts/build_datasource_package.py --base-url https://prism.example.com
 ```
 
-This writes `dist/kicad-prism-remote-symbols.zip`.
+Output: `dist/kicad-prism-remote-symbols.zip`.
 
-## Installing in KiCad
-
-1. Open PCM and install the generated ZIP from file.
-2. Open eeschema Remote Symbol Settings.
-3. Add `http://127.0.0.1:8000` as the provider metadata URL if KiCad does not auto-register it.
-4. Open the Remote Symbols panel and test placement with the seeded parts.
+Install from file in KiCad PCM, or add `https://prism.example.com` under Remote Symbol Settings if auto-registration does not occur.
 
 ## Manual authentication test
 
-1. Set the backend env for real auth and restart Prism.
-2. In KiCad, add `http://127.0.0.1:8000` as the provider metadata URL.
-3. Open the Remote Symbols panel.
-4. Confirm the provider page shows a sign-in prompt instead of the catalog.
-5. Click the sign-in button in the provider page.
-6. Complete the configured OIDC/SSO flow in the system browser.
-7. Return to KiCad and confirm the provider reloads with the seeded catalog visible.
-8. Place a seeded part through the normal `Place` button and confirm the project `RemoteLibrary` updates as before.
+1. Enable real auth and HTTPS as documented.
+2. Add the provider base URL in KiCad.
+3. Open Remote Symbols; confirm sign-in prompt.
+4. Complete SSO in the system browser.
+5. Confirm catalog reload.
+6. Place a released part; confirm project `RemoteLibrary` updates.
 
-## Current Phase 1 limits
+## DBL export (optional)
 
-- KiCad remote-provider OAuth is intended only for KiCad/panel access, not general Prism admin APIs.
-- Machine-to-machine PLM access should use `/api/oauth/token` with service-client credentials or an external OAuth2 JWT accepted through the configured issuer.
+```bash
+curl -X POST https://prism.example.com/api/catalog/exports/kicad-dbl
+```
+
+Writes `Prism.sqlite`, platform `.kicad_dbl` files, lib tables, `SchLib/`, and `PcbLib/`.
+
+## Operational limits
+
+- Provider OAuth is for KiCad/panel access only.
+- Machine PLM access should use `/api/oauth/token` service clients or external JWTs.
+- Signed asset URLs are capability-bearing until expiry; keep Prism on trusted networks.
+- Connectors / live PLM sync UI is not implemented.
+
+## Related
+
+- [HTTPS and TLS](HTTPS_AND_TLS.md)
+- [Deployment](DEPLOYMENT.md)
+- [OIDC and OAuth](OIDC_OAUTH_INTEGRATION.md)
+- [Library Manager flow](user-flows/03-library-manager.md)

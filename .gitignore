@@ -38,6 +38,10 @@ docker-compose.override.yml
 project-database/
 data/
 
-# Deploy Data
-deploy/
+# Deploy: track Caddy/Nginx examples; ignore private certificate material
+deploy/certs/*
+!deploy/certs/README.md
+!deploy/certs/.gitignore
+*.key
+*.pem
 *.crt

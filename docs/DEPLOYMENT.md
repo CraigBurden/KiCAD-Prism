@@ -1,316 +1,336 @@
 # Deployment Guide
 
-This document covers the current KiCAD Prism deployment model for Docker hosting and local development.
+This guide covers hosting KiCAD Prism with Docker Compose, configuring authentication, persisting data, and operating the stack.
 
-## Runtime Overview
+For HTTPS, internal CA trust, and KiCad Remote Symbols TLS requirements, read **[HTTPS and TLS](HTTPS_AND_TLS.md)** before exposing Prism beyond localhost.
 
-KiCAD Prism runs as three long-lived services plus one migration job:
+## Runtime overview
 
-- `postgres`: PostgreSQL 17 catalog, revision, workflow, release, audit, usage, and KiCad provider state
-- `backend`: FastAPI API server on port `8000`
-- `frontend`: production Vite bundle served by Nginx on port `8080`
-- `catalog-migrate`: one-shot, verified legacy SQLite catalog migration that must finish before the backend starts
+Compose services:
 
-In Docker, the frontend proxies `/api/*`, `/oauth/*`, `/.well-known/kicad-remote-provider`, and `/remote-provider/*` requests to the backend over the Compose network. PostgreSQL is authoritative for component metadata, immutable revisions, release workflow, audit evidence, component usage, and KiCad remote-provider catalog/OAuth records. The smaller workspace/project/job registry remains in SQLite under the mounted project data directory. KiCad symbol, footprint, 3D model, SPICE, preview, DBL export, and content-addressed revision files remain on the shared project volume.
+| Service | Role |
+|---------|------|
+| `postgres` | PostgreSQL 17 for `workspace`, `comments`, `catalog`, and `operations` schemas |
+| `backend` | FastAPI API on port `8000` |
+| `catalog-worker` | Background catalog import, validation, preview, retention jobs |
+| `frontend` | Production Vite bundle served by Nginx on port `8080` |
 
-Default local endpoints:
+Optional overlay:
+
+| File | Role |
+|------|------|
+| `docker-compose.proxy.yml` | Caddy TLS terminator on ports `80`/`443` |
+
+In Docker, the frontend proxies these paths to the backend over the Compose network:
+
+- `/api/*`
+- `/oauth/*`
+- `/.well-known/kicad-remote-provider`
+- `/remote-provider/*`
+
+Default local endpoints (HTTP):
+
 - UI: [http://127.0.0.1:8080](http://127.0.0.1:8080)
 - API: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
-## Docker Hosting
+## Prerequisites
 
-### Prerequisites
+- Docker Engine or Docker Desktop with Compose
+- Disk for Git clones, catalog assets, and workflow outputs
+- For HTTPS: a DNS name and either a public ACME path or an internal PKI (see [HTTPS and TLS](HTTPS_AND_TLS.md))
 
-- Docker Engine or Docker Desktop
-- Docker Compose support
-- enough disk space for imported repositories and generated outputs
+## Docker hosting (HTTP local / lab)
 
-### 1. Clone the repository
+### 1. Clone
 
 ```bash
 git clone https://github.com/krishna-swaroop/KiCAD-Prism.git
 cd KiCAD-Prism
 ```
 
-### 2. Create the root `.env`
-
-Docker Compose reads the repository root `.env` automatically.
+### 2. Create root `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Baseline authenticated configuration:
+Generate a session secret:
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+```
+
+#### Guest mode (no SSO)
+
+```env
+WORKSPACE_NAME=KiCAD Prism
+AUTH_ENABLED=false
+DEV_MODE=false
+SESSION_COOKIE_SECURE=false
+```
+
+Guest mode grants full access to every visitor. Use only on trusted local machines.
+
+#### OIDC mode (shared host)
 
 ```env
 WORKSPACE_NAME=KiCAD Prism
 AUTH_ENABLED=true
+DEV_MODE=false
 OIDC_ISSUER_URL=https://sso.example.com/realms/engineering
 OIDC_CLIENT_ID=kicad-prism
 OIDC_CLIENT_SECRET=
+OIDC_SCOPES=openid email profile
+OIDC_PROVIDER_NAME=SSO
 SESSION_SECRET=
 SESSION_TTL_HOURS=12
 SESSION_COOKIE_SECURE=false
-ALLOWED_USERS_STR=
-ALLOWED_DOMAINS_STR=
+CORS_ORIGINS_STR=http://127.0.0.1:8080
 BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
 DEFAULT_VIEWER_DOMAINS_STR=
-GITHUB_TOKEN=
-DEV_MODE=false
-CATALOG_DATABASE_URL=
-CATALOG_SQLITE_PATH=
-PRISM_STATE_SQLITE_PATH=
-CATALOG_DBL_EXPORT_DIR=
-CATALOG_KLC_ENABLED=false
-CATALOG_KLC_RELEASE_GATE=warn
-```
-
-Generate a session secret with:
-
-```bash
-python3 - <<'PY'
-import secrets
-print(secrets.token_urlsafe(48))
-PY
+POSTGRES_PASSWORD=<strong-local-password>
 ```
 
 Important:
-- `SESSION_SECRET` is required whenever auth is effectively enabled.
-- `DEFAULT_VIEWER_DOMAINS_STR` can stay empty. Set it only if every user from one or more trusted email domains should get implicit viewer access.
-- `CATALOG_DATABASE_URL` can stay empty for the bundled Compose stack, which supplies its private PostgreSQL service. Use an explicit TLS-enabled URL for managed production PostgreSQL.
-- `CATALOG_SQLITE_PATH` is the one-time legacy catalog migration source. Docker defaults to `/app/projects/.kicad-prism/prism.sqlite3`.
-- `PRISM_STATE_SQLITE_PATH` retains the local project/folder/job registry independently from PostgreSQL and defaults to the same `prism.sqlite3` path during migration.
 
-For an upgrade, stop every legacy SQLite writer for the complete catalog
-migration window. The cutover job verifies the live source fingerprint and
-database/WAL file state again immediately before committing PostgreSQL, and
-fails closed if either changed. Fresh empty initialization is an explicit,
-guarded Compose opt-in and is rejected when legacy component files or backups
-exist.
-- `CATALOG_DBL_EXPORT_DIR` can stay empty for the bundled Compose stack. Docker defaults to `/app/projects/.kicad-prism/exports/kicad-dbl`.
-- `CATALOG_KLC_ENABLED=false` keeps KiCad Library Convention checks optional. Set it to `true` to enable Library Manager health validation.
-- `CATALOG_KLC_RELEASE_GATE=warn` surfaces validation issues without blocking release. Use `block` only if your team wants KLC errors or missing KLC reports to prevent release.
-- `SESSION_COOKIE_SECURE=true` should be used only behind HTTPS.
-- `DEV_MODE` should stay `false` in Docker hosting.
+- `SESSION_SECRET` is required whenever auth is effectively enabled (`AUTH_ENABLED=true`, OIDC configured, `DEV_MODE=false`).
+- `SESSION_COOKIE_SECURE=true` only when the site is served over HTTPS.
+- `PRISM_DATABASE_URL` can stay empty for the bundled Compose Postgres service.
+- `DEV_MODE` must stay `false` in Docker hosting.
+- Change the default Postgres password before any non-local deployment.
 
-### 3. Start the stack
+Google Sign-In example issuer: `OIDC_ISSUER_URL=https://accounts.google.com`. For local Docker, register redirect URI exactly `http://127.0.0.1:8080/auth/callback` (Google treats `localhost` and `127.0.0.1` as different).
+
+### 3. Start
 
 ```bash
 docker compose up --build -d
 ```
 
-Compose waits for PostgreSQL and the verified one-shot `catalog-migrate` job
-before starting the API. Inspect
-`data/projects/.kicad-prism/catalog-postgres-migration-report.json` after the
-first upgrade; a migration failure intentionally prevents backend startup.
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
 
-Open the UI at [http://127.0.0.1:8080](http://127.0.0.1:8080).
-
-### 4. Stop the stack
+### 4. Stop
 
 ```bash
 docker compose down
 ```
 
-## Docker Volumes and Persistence
+Data in `./data/projects`, `./data/ssh`, and the `prism-postgres-data` volume is retained.
 
-Current Compose mounts:
+## Production HTTPS hosting
 
-- `./data/projects` -> `/app/projects`
-- `./data/ssh` -> `/root/.ssh`
-- named volume `prism-postgres-data` -> PostgreSQL data directory
+Do not expose the Remote Symbol Provider on plain HTTP outside loopback.
 
-Persisted data includes:
-- PostgreSQL component catalog, revision, release, audit, usage, import, validation, and KiCad provider state in `prism-postgres-data`
-- SQLite workspace/project/folder metadata and background job state at `data/projects/.kicad-prism/prism.sqlite3`
-- the verified SQLite-to-PostgreSQL cutover report at `data/projects/.kicad-prism/catalog-postgres-migration-report.json`
-- imported repositories
-- canonical KiCad component library files under `data/projects/.kicad-prism/components`
-- generated CERN-style DBL bundles under `data/projects/.kicad-prism/exports/kicad-dbl`
-- generated symbol and footprint previews
-- `.rbac_roles.json`
-- exported comments JSON inside repos when generated
-- SSH keys and `known_hosts`
+Recommended path:
 
-The backend creates `data/projects/.kicad-prism` automatically during startup. The catalog initializer also creates the canonical component subdirectories:
+1. Configure OIDC + `SESSION_COOKIE_SECURE=true` + HTTPS `CORS_ORIGINS_STR`.
+2. Put Caddy or Nginx in front of the frontend container.
+3. Preserve `Host` and set `X-Forwarded-Proto: https`.
+4. Trust internal CAs on every KiCad workstation if using private PKI.
+5. Verify `/.well-known/kicad-remote-provider` advertises `https://` absolute URLs.
 
-- `symbols/`
-- `footprints/`
-- `3dmodels/`
-- `spice/`
-- `previews/symbols/`
-- `previews/footprints/`
-- `revisions/`
+Full walkthrough, internal CA trust steps, and failure modes: **[HTTPS and TLS](HTTPS_AND_TLS.md)**.
 
-You do not need to create these directories manually for a normal deployment.
+Quick start with the bundled Caddy overlay (public ACME):
 
-## Authentication Modes
+```bash
+# Edit deploy/Caddyfile domain first
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up --build -d
+```
 
-### Guest Mode
+## Volumes and persistence
+
+Compose mounts:
+
+| Host / volume | Container path | Contents |
+|---------------|----------------|----------|
+| `./data/projects` | `/app/projects` | Git clones, `.kicad-prism` assets/artifacts |
+| `./data/ssh` | `/root/.ssh` | SSH keys, `known_hosts` |
+| `prism-postgres-data` | Postgres data dir | Workspace, comments, catalog, jobs |
+
+Persisted application data includes:
+
+- PostgreSQL state for projects/folders/roles, comments, catalog, jobs, provider OAuth
+- Imported repositories under `data/projects/`
+- Canonical component libraries under `data/projects/.kicad-prism/components/`
+- Content-addressed artifacts under `data/projects/.kicad-prism/artifacts/`
+- DBL exports under `data/projects/.kicad-prism/exports/kicad-dbl/`
+- KLC validation reports under `data/projects/.kicad-prism/validation/klc/`
+- SSH material under `data/ssh/`
+
+Keep PostgreSQL and the `.kicad-prism` asset tree backed up together. Database rows that reference missing files are not restorable as placeable components.
+
+Do not place the project data directory on NFS/SMB if you can avoid it. Prefer local SSD/NVMe for the workstation/VPN deployment profile.
+
+## Authentication modes
+
+### Guest
 
 ```env
 AUTH_ENABLED=false
-OIDC_CLIENT_ID=
-SESSION_SECRET=
-DEV_MODE=false
 ```
 
-Behavior:
-- login wall is disabled
-- backend serves a guest admin session
-- all visitors have full admin/designer/viewer access while auth is disabled
+No login wall. Everyone is effectively an admin. Local lab only.
 
-### OIDC Login + Session Auth
+### OIDC + session cookie
 
 ```env
 AUTH_ENABLED=true
-OIDC_ISSUER_URL=https://sso.example.com/realms/engineering
-OIDC_CLIENT_ID=kicad-prism
-OIDC_CLIENT_SECRET=
-OIDC_SCOPES=openid email profile
-OIDC_EMAIL_CLAIM=email
-OIDC_NAME_CLAIM=name
-OIDC_PICTURE_CLAIM=picture
-OIDC_PROVIDER_NAME=SSO
-OIDC_TOKEN_AUTH_METHOD=client_secret_post
-SESSION_SECRET=
-CORS_ORIGINS_STR=https://your-domain.example
-DEFAULT_VIEWER_DOMAINS_STR=
 DEV_MODE=false
+SESSION_SECRET=...
+OIDC_*=...
 ```
 
-Behavior:
-- frontend shows the configured SSO sign-in screen
-- backend exchanges the OIDC authorization code, verifies signed `id_token`s with JWKS, validates nonce, and reads user profile claims
-- backend issues an `HttpOnly` signed session cookie
-- RBAC role resolution uses stored assignments plus bootstrap admins
-- if `DEFAULT_VIEWER_DOMAINS_STR` is set, users from those domains get implicit `viewer` access when no explicit role is stored
-- on first successful login, those implicit viewers are written into `.rbac_roles.json` so admins can promote them later
+Flow:
 
-Google Sign-In uses this same generic OIDC path with
-`OIDC_ISSUER_URL=https://accounts.google.com`. For Docker frontend testing, Google must allow the
-exact redirect URI `http://127.0.0.1:8080/auth/callback`. The KiCad remote-provider callback is a
-separate backend callback and does not replace the frontend login callback.
+1. Frontend loads `/api/auth/config`.
+2. User signs in at the IdP.
+3. Browser hits `/auth/callback` with an auth code.
+4. Backend exchanges the code, verifies `id_token`, issues an HttpOnly session cookie.
+5. Roles come from PostgreSQL `workspace.user_roles`, bootstrap admins, and optional default viewer domains.
 
-### Local Dev Bypass
+### Local development bypass
 
 ```env
-AUTH_ENABLED=true
-OIDC_CLIENT_ID=
-SESSION_SECRET=
 DEV_MODE=true
 ```
 
-Behavior:
-- auth is effectively disabled because the backend only enables auth when `AUTH_ENABLED=true`, OIDC client settings are set, and `DEV_MODE=false`
-- this is convenient for local backend/frontend development
+Auth is effectively disabled even if `AUTH_ENABLED=true`. Convenient for Vite + Uvicorn development. Never use on shared hosts.
 
-## OIDC/OAuth Setup
+RBAC roles:
 
-Create an OIDC client in your identity provider and add the frontend origins and redirect URIs you actually use.
+| Role | Typical access |
+|------|----------------|
+| `viewer` | Read projects and released library content |
+| `designer` | Import/sync projects, workflows, folder mutations |
+| `admin` | Settings, role assignment, service clients |
+| `component_designer` | Library Manager authoring |
+| `component_qa` | Library QA / release queue |
 
-Typical origins:
-- local frontend dev: `http://127.0.0.1:5173`
-- local Docker frontend: `http://127.0.0.1:8080`
-- production: `https://your-domain.example`
+Details: [OIDC and OAuth](OIDC_OAUTH_INTEGRATION.md).
 
-Typical redirect URIs:
-- local frontend dev: `http://127.0.0.1:5173/auth/callback`
-- local Docker frontend: `http://127.0.0.1:8080/auth/callback`
-- production: `https://your-domain.example/auth/callback`
-- KiCad remote-symbol login: `https://your-domain.example/oauth/oidc/callback`
+## Reverse proxy path map
 
-Use the issuer URL in `OIDC_ISSUER_URL`, the client ID in `OIDC_CLIENT_ID`, and the client secret in `OIDC_CLIENT_SECRET`.
-Most providers work with `OIDC_SCOPES=openid email profile` and claim names `email`, `name`, and
-`picture`. If your provider requires HTTP Basic authentication at the token endpoint, set
-`OIDC_TOKEN_AUTH_METHOD=client_secret_basic`; otherwise keep the default `client_secret_post`.
+When the outer proxy targets the frontend container, no extra path map is required.
 
-Google Sign-In through the generic OIDC path:
+When routing directly:
 
-```env
-OIDC_ISSUER_URL=https://accounts.google.com
-OIDC_SCOPES=openid email profile
-OIDC_EMAIL_CLAIM=email
-OIDC_NAME_CLAIM=name
-OIDC_PICTURE_CLAIM=picture
-OIDC_PROVIDER_NAME=Google
-OIDC_TOKEN_AUTH_METHOD=client_secret_post
-```
+| Path | Target |
+|------|--------|
+| `/` | frontend |
+| `/api/*` | backend |
+| `/oauth/*` | backend |
+| `/.well-known/kicad-remote-provider` | backend |
+| `/remote-provider/*` | backend |
 
-Register the frontend callback URLs above in Google Cloud Console when using Google. For local
-Docker, the required URI is exactly `http://127.0.0.1:8080/auth/callback`; `localhost` and
-`127.0.0.1` are not interchangeable for Google redirect matching.
-
-Set `CORS_ORIGINS_STR` to the exact browser origins that should be allowed to send credentialed
-requests to the API. For local Docker the default includes `http://127.0.0.1:8080`; for production
-use your HTTPS origin and do not use `*`.
-
-If your production deployment is HTTPS, also set:
-
-```env
-SESSION_COOKIE_SECURE=true
-```
-
-## Reverse Proxy for Office/VPN Hosting
-
-For an internal workstation deployment such as `http://kicad-prism.example.internal`, keep the
-PostgreSQL data volume, the workspace SQLite database, and `.kicad-prism/components` asset directory
-on the workstation's local SSD/NVMe. Do not place the SQLite workspace database on NFS/SMB/network
-storage; SQLite WAL mode is designed for local filesystems. Back up PostgreSQL and the component
-asset tree as one release-data set so database manifests never outlive their referenced files.
-
-If the external reverse proxy points at the frontend container, the bundled frontend Nginx config
-already forwards KiCad/API paths to the backend. If the external reverse proxy routes directly to
-individual containers, use these path rules:
-
-- `/` to the frontend container
-- `/api/*` to the backend container
-- `/oauth/*` to the backend container
-- `/.well-known/kicad-remote-provider` to the backend container
-- `/remote-provider/*` to the backend container
-
-For plain internal HTTP:
+Plain internal HTTP example (Remote Symbols not recommended on HTTP):
 
 ```env
 CORS_ORIGINS_STR=http://kicad-prism.example.internal
 SESSION_COOKIE_SECURE=false
 ```
 
-For HTTPS, use the HTTPS origin and set `SESSION_COOKIE_SECURE=true`.
+HTTPS example:
 
-The proxy must preserve the original `Host` header so provider metadata advertises the public
-office/VPN URL instead of the backend container name. Enable gzip or Brotli compression at the
-proxy for JSON responses and static panel assets.
+```env
+CORS_ORIGINS_STR=https://kicad-prism.example.internal
+SESSION_COOKIE_SECURE=true
+```
 
-## Private Repository Access
+## Private Git access
 
-KiCAD Prism supports two normal approaches.
+### SSH (recommended)
 
-### SSH
-
-Recommended for long-lived hosted deployments.
-
-- SSH material persists under `./data/ssh`
-- backend startup ensures `~/.ssh` exists and scans common Git hosts into `known_hosts`
-- add the generated or mounted public key to your Git host account
-
-By default, startup does not scan Git host keys because network DNS during startup can slow down local Docker boot. If you want the backend to run `ssh-keyscan` for common Git hosts at startup, set:
+- Keys persist under `./data/ssh`
+- Copy the public key into GitHub/GitLab/deploy keys
+- Optional startup host-key scan:
 
 ```env
 GIT_SCAN_KNOWN_HOSTS_ON_STARTUP=true
 ```
 
-### GitHub Personal Access Token
-
-If you use HTTPS cloning for private GitHub repositories, set:
+### GitHub HTTPS token
 
 ```env
-GITHUB_TOKEN=
+GITHUB_TOKEN=ghp_...
 ```
 
-The backend configures Git URL rewriting at startup so GitHub HTTPS operations can use the token.
+Backend rewrites GitHub HTTPS remotes to use the token at startup.
 
-## Local Development Hosting
+## Component library / catalog worker
+
+Catalog mutations that need KiCad tooling run in `catalog-worker`, not inside an in-process API thread.
+
+Useful settings:
+
+```env
+CATALOG_WORKER_CONCURRENCY=2
+CATALOG_WORKER_POLL_SECONDS=1
+CATALOG_JOB_LEASE_SECONDS=120
+CATALOG_ARTIFACT_ROOT=/app/projects/.kicad-prism/artifacts
+CATALOG_RETENTION_ENABLED=true
+CATALOG_IMPORT_ROOTS=engineering=/imports/engineering
+CATALOG_KLC_ENABLED=true
+CATALOG_KLC_RELEASE_GATE=warn
+```
+
+If `CATALOG_IMPORT_ROOTS` is set, mount each path read-only on **both** `backend` and `catalog-worker`.
+
+Only components in a released / place-ready state with symbol and footprint assets appear in the KiCad Remote Symbols panel.
+
+DBL export:
+
+```bash
+curl -X POST https://prism.example.com/api/catalog/exports/kicad-dbl
+```
+
+Library onboarding: [IMPORT_EXISTING_KICAD_LIBRARIES.md](IMPORT_EXISTING_KICAD_LIBRARIES.md).
+
+## Remote Symbols panel bundle
+
+Panel source: `frontend/src/panel`.
+
+Docker backend image builds the panel with `npm run build:panel` and embeds it under `/remote-provider/panel`.
+
+Local panel rebuild without Docker:
+
+```bash
+cd frontend
+npm run build:panel
+mkdir -p ../backend/app/static/remote_provider
+cp -R dist/remote_provider/. ../backend/app/static/remote_provider/
+```
+
+Datasource ZIP for KiCad PCM:
+
+```bash
+python3 scripts/build_datasource_package.py --base-url https://prism.example.com
+```
+
+Always use the public origin users and KiCad will call.
+
+## Production tuning
+
+```env
+UVICORN_WORKERS=4
+```
+
+On constrained lab machines, `UVICORN_WORKERS=1` is fine.
+
+Backend Compose already enables `--proxy-headers` so forwarded `Host` / proto are honored.
+
+## Backups
+
+Minimum backup set:
+
+1. PostgreSQL dump or volume snapshot of `prism-postgres-data`
+2. Entire `data/projects/.kicad-prism/` tree
+3. `data/ssh/` if you rely on mounted deploy keys
+4. Root `.env` from a secret manager (not from Git)
+
+Restore requires database + asset tree consistency.
+
+## Local development hosting
 
 ### Backend
 
@@ -319,13 +339,11 @@ cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+export PRISM_DATABASE_URL=postgresql://kicad_prism:kicad-prism-local@127.0.0.1:5432/kicad_prism
 uvicorn app.main:app --reload --port 8000
 ```
 
-Notes:
-- backend settings also support a backend-local `.env`
-- if nothing is configured, local dev defaults generally keep auth off because `DEV_MODE=true`
-- local backend development uses SQLite by default at `data/projects/.kicad-prism/prism.sqlite3`
+You can start only Postgres via Compose while running the API on the host.
 
 ### Frontend
 
@@ -335,245 +353,66 @@ npm install
 npm run dev
 ```
 
-Frontend dev URL:
-- [http://127.0.0.1:5173](http://127.0.0.1:5173)
+Dev UI: [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
-### Remote Symbols Panel Bundle
+## Operations
 
-The Remote Symbols panel source lives in the dedicated frontend app under `frontend/src/panel`. The backend still serves the panel at `/remote-provider/panel`, but `backend/app/static/remote_provider` is generated output and is intentionally not committed.
-
-For Docker deployments, the backend Dockerfile builds the panel with `npm run build:panel` and copies `frontend/dist/remote_provider` into the backend image at `/app/app/static/remote_provider`.
-
-For local development of the panel UI:
-
-```bash
-cd frontend
-npm install
-npm run dev:panel
-```
-
-For local backend testing without Docker, build the panel and copy the output into the backend static path before starting Uvicorn:
-
-```bash
-cd frontend
-npm run build:panel
-mkdir -p ../backend/app/static/remote_provider
-cp -R dist/remote_provider/. ../backend/app/static/remote_provider/
-```
-
-Then start or rebuild the stack as usual:
+### Rebuild after env or image changes
 
 ```bash
 docker compose up --build -d
 ```
 
-## Component Library Deployment
-
-The component catalog has two storage layers:
-
-- SQLite stores component metadata, revisions, reusable asset rows, release workflow state, OAuth state, service-client metadata, and preview status.
-- Disk storage under `data/projects/.kicad-prism/components` stores canonical KiCad files.
-- Disk storage under `data/projects/.kicad-prism/exports/kicad-dbl` stores generated KiCad DBL compatibility bundles.
-- Disk storage under `data/projects/.kicad-prism/validation/klc` stores durable KLC report artifacts.
-
-Canonical disk layout:
-
-- `symbols/`
-- `footprints/`
-- `3dmodels/`
-- `spice/`
-- `previews/`
-- `revisions/`
-- `validation/klc/`
-
-Back up the full `data/projects/.kicad-prism` directory. A database backup without the canonical asset directory is not enough to restore placeable components.
-
-Only components in the `Released` workflow stage and with both symbol and footprint assets attached are visible/placeable through the KiCad Remote Symbols panel.
-
-### Optional KLC Validation
-
-The backend image includes a pinned checkout of KiCad's `kicad-library-utils` under `/opt/kicad-library-utils`. When `CATALOG_KLC_ENABLED=true`, Library Manager admins can run KLC checks against a component's attached symbol and footprint assets.
-
-Prism stores every run as:
-
-- SQLite summary and normalized findings for fast dashboard queries.
-- `stdout.txt`, `stderr.txt`, `report.junit.xml`, and `report.json` under `data/projects/.kicad-prism/validation/klc/{run_id}/`.
-
-Useful settings:
-
-```env
-CATALOG_KLC_ENABLED=true
-CATALOG_KLC_UTILS_PATH=/opt/kicad-library-utils
-CATALOG_KLC_RELEASE_GATE=warn
-CATALOG_KLC_TIMEOUT_SECONDS=30
-CATALOG_KLC_SYMBOL_RULES=
-CATALOG_KLC_SYMBOL_EXCLUDE_RULES=
-CATALOG_KLC_FOOTPRINT_RULES=
-CATALOG_KLC_FOOTPRINT_EXCLUDE_RULES=
-CATALOG_KLC_FOOTPRINT_LIB_DIR=
-```
-
-The release gate modes are:
-
-- `off`: validation is available but never affects release.
-- `warn`: validation issues are shown in Library Manager but release remains allowed.
-- `block`: release requires current required symbol and footprint assets to have non-failing KLC runs.
-
-Prism never invokes KLC `--fix` or `--fixmore`; validation is read-only.
-
-To generate a CERN-style KiCad DBL bundle from released/place-ready parts, call the admin API:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/catalog/exports/kicad-dbl
-```
-
-The export writes `Prism.sqlite`, `Prism_Linux.kicad_dbl`, `Prism_Windows.kicad_dbl`, `sym-lib-table`, `fp-lib-table`, `SchLib/`, and `PcbLib/`. Symbols are exported as one `.kicad_sym` file per DBL symbol library entry, which matches the KiCad v10 DBL lookup model while avoiding packed generated symbol libraries.
-
-For migrating existing KiCad libraries, see [Import Existing KiCad Libraries](IMPORT_EXISTING_KICAD_LIBRARIES.md).
-
-## Production Tuning
-
-Docker defaults favor the workstation/VPN deployment profile:
-
-```env
-UVICORN_WORKERS=4
-```
-
-For constrained development machines, lower this to one worker if startup speed matters more than
-concurrent request handling:
-
-```env
-UVICORN_WORKERS=1
-```
-
-Catalog imports, validation, and preview generation are executed by the
-`catalog-worker` service. Jobs, events, leases, retry counters, and resumable
-checkpoints live in PostgreSQL; the API never relies on an in-process daemon
-thread for catalog work. The default local-team profile runs two concurrent
-jobs while serializing KiCad-heavy work. Expired leases are reclaimable after a
-worker or host restart, and no Redis/message-broker service is required.
-
-Catalog files live on the same persistent deployment volume in a local
-content-addressed store. Mark-and-sweep maintenance quarantines unreferenced
-objects before deletion. Released source artifacts are retained, old draft
-source artifacts may be archived after 90 days, and derived previews can be
-regenerated. Replaced large STEP payloads may be purged instead of archived;
-historical revision metadata remains auditable and reports the payload as no
-longer available.
-
-Useful local-worker settings are:
-
-```env
-CATALOG_WORKER_CONCURRENCY=2
-CATALOG_WORKER_POLL_SECONDS=1
-CATALOG_JOB_LEASE_SECONDS=120
-CATALOG_ARTIFACT_ROOT=/app/projects/.kicad-prism/artifacts
-CATALOG_RETENTION_ENABLED=true
-CATALOG_IMPORT_ROOTS=engineering=/imports/engineering
-```
-
-If `CATALOG_IMPORT_ROOTS` is set, add each source as the same read-only volume
-on both `backend` (for validation and UI admission) and `catalog-worker` (for
-snapshot capture). Two job slots are sufficient for the target small-team
-deployment; a process-wide gate still permits only one KiCad-heavy operation at
-a time.
-
-Remote-symbol search uses SQLite FTS5 when available. The backend maintains the FTS index with
-SQLite triggers and falls back to `LIKE` search only if the runtime SQLite build does not include
-FTS5. The KiCad panel also fetches slim list payloads for search/category views and loads full
-asset/preview details only when a part is opened.
-
-Signed asset URLs are valid for a short time and are not bound to a specific user session. Anyone
-who receives a signed asset URL can download that single asset until the URL expires, so keep Prism
-behind the office network/VPN as planned.
-
-For a workstation-class host with local NVMe and 10-15 concurrent users, expected server-side
-latency at a CERN-scale catalog size is:
-
-- component search, first 50 results: usually below `100 ms`
-- category browsing, first 200-500 results: usually below `100 ms`
-- part manifest or inline placement bundle: usually below `20 ms` plus file read time
-
-Perceived latency over office LAN/VPN is mostly network RTT. A healthy same-site VPN should keep
-search in the `100-300 ms` range; slow or cross-region VPN links can push that higher without
-indicating a database bottleneck.
-
-## Operational Notes
-
-### Rebuild after env or frontend changes
-
-```bash
-docker compose up --build -d
-```
-
-### Inspect logs
+### Logs
 
 ```bash
 docker compose logs --tail=100 frontend
 docker compose logs --tail=100 backend
+docker compose logs --tail=100 catalog-worker
+docker compose logs --tail=100 postgres
 ```
 
-### Session behavior
+### Session notes
 
-- changing `SESSION_SECRET` invalidates all existing sessions
-- secure cookies require HTTPS and will not work correctly on plain HTTP if `SESSION_COOKIE_SECURE=true`
+- Changing `SESSION_SECRET` invalidates all web sessions and re-keys provider token signing that depends on it.
+- Secure cookies require HTTPS end-to-end from the browser's point of view.
 
 ## Troubleshooting
 
-### Blank page with frontend bundle errors
+### Blank page / frontend JS error
 
-If the browser shows a blank page, open DevTools and check the first JavaScript error.
-
-A previously observed production issue came from unsafe manual chunk splitting. If a bundle regression returns, rebuild and verify that:
-- `/assets/index-*.js` loads successfully
-- `/api/auth/config` returns `200`
-- the first console error is captured before reloading again
+Open DevTools, capture the first console error, confirm `/assets/index-*.js` and `/api/auth/config` load.
 
 ### `SESSION_SECRET is not configured`
 
-Cause:
-- auth is enabled but `SESSION_SECRET` is empty
-
-Fix:
-- set `SESSION_SECRET` in the root `.env`
-- rebuild/restart the stack
+Set `SESSION_SECRET` in root `.env` and recreate containers.
 
 ### SSO sign-in not appearing
 
-Check:
-- `AUTH_ENABLED=true`
-- OIDC client settings are set
-- `DEV_MODE=false`
-- browser origin is listed in the identity provider OAuth/OIDC configuration
+Check `AUTH_ENABLED=true`, OIDC fields populated, `DEV_MODE=false`, and IdP redirect URI allowlist.
 
-### `/api/auth/config` returns `502 Bad Gateway`
+### `/api/auth/config` returns `502`
 
-Cause:
-- the frontend is running, but the backend is unavailable or restarting
+Backend is down or still starting. Inspect backend logs; confirm Postgres is healthy.
 
-Fix:
-- inspect `docker compose logs --tail=100 backend`
-- if the catalog database is corrupt during local testing, stop the stack and move `data/projects/.kicad-prism/prism.sqlite3` aside before restarting:
+### Login works, API calls fail
 
-```bash
-docker compose down
-mv data/projects/.kicad-prism/prism.sqlite3 "data/projects/.kicad-prism/prism.sqlite3.bak.$(date +%Y%m%d%H%M%S)"
-docker compose up --build -d
-```
+- `SESSION_COOKIE_SECURE` vs actual transport
+- `CORS_ORIGINS_STR` exact origin match
+- proxy stripping cookies or `Authorization`
 
-### Login works but API requests fail after deploy
+### Remote Symbols metadata wrong scheme/host
 
-Check:
-- `SESSION_COOKIE_SECURE` matches your transport mode
-- HTTPS termination is configured correctly if using secure cookies
-- browser is not blocking cookies for the deployed origin
+See [HTTPS and TLS](HTTPS_AND_TLS.md) failure modes. Almost always forwarded headers.
 
-### Imported repositories disappear after restart
+### Imported repositories missing after restart
 
-Check that `./data/projects` is mounted and writable on the host.
+Confirm `./data/projects` is mounted and writable.
 
-## Related Docs
+## Related docs
 
-- [../README.md](../README.md)
-- [./KICAD-PRJ-REPO-STRUCTURE.md](./KICAD-PRJ-REPO-STRUCTURE.md)
-- [./PATH-MAPPING.md](./PATH-MAPPING.md)
+- [HTTPS and TLS](HTTPS_AND_TLS.md)
+- [Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md)
+- [OIDC and OAuth](OIDC_OAUTH_INTEGRATION.md)
+- [User guide](USER_GUIDE.md)
+- [Documentation index](DOCUMENTATION.md)

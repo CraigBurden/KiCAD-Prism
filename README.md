@@ -1,80 +1,111 @@
 # KiCAD Prism
 
-KiCAD Prism is a web platform for browsing, reviewing, and operating on KiCad repositories from the browser. It combines a FastAPI backend, a React/Vite frontend, repository import/sync flows, RBAC-based access control, comments export helpers, and manufacturing/documentation workflows in one workspace.
+KiCAD Prism is a web platform for browsing, reviewing, and operating on KiCad Git repositories, and for governing a shared component library that places into KiCad through the Remote Symbols panel.
 
-![KiCAD Prism Home Page](assets/KiCAD-Prism-Login-Page.png)
+It is built for engineering teams that use KiCad as their ECAD tool and want collaboration, review, and library workflow without abandoning Git-centric source control.
 
-## Core Capabilities
+<!-- SCREENSHOT NEEDED: Login / workspace hero. Preferred filename: assets/KiCAD-Prism-Login-Page.png (update or replace existing). -->
+![KiCAD Prism login](assets/KiCAD-Prism-Login-Page.png)
 
-### Workspace and Repository Management
+## Why Prism
 
-- Import standalone KiCad repositories or monorepos that contain multiple boards.
-- Sync repositories from their remotes without leaving the UI.
-- Organize projects into folders with RBAC-aware visibility.
+Standalone KiCad is excellent for design. Collaboration suites such as Altium 365 add shared review, library governance, and browser access. Prism sits between those worlds:
+
+- Keep projects in Git (GitHub, GitLab, self-hosted).
+- Review schematics, PCBs, BOM, and history in the browser.
+- Govern symbols and footprints in a first-class Library Manager.
+- Place released parts into KiCad through the Remote Symbol Provider.
+
+Prism is currently strongest as a **Git-native KiCad workspace + library platform**. In-browser design commenting APIs remain available; the visualizer commenting UI is not shipped in the current release (see [Comments](docs/COMMENTS.md)).
+
+## Core capabilities
+
+### Workspace and repositories
+
+- Import standalone KiCad repositories or monorepos with multiple boards.
+- Sync remotes from the UI.
+- Organize projects into RBAC-aware folders.
 - Search projects by name, display name, description, and parent repo.
 
 <p align="center">
-  <img src="assets/KiCAD-Prism-New-Workspace.png" width="49%" alt="Workspace Overview">
-  <img src="assets/KiCAD-Prism-Importing-Repo.png" width="49%" alt="Importing Repositories">
+  <img src="assets/KiCAD-Prism-New-Workspace.png" width="49%" alt="Workspace overview">
+  <img src="assets/KiCAD-Prism-Importing-Repo.png" width="49%" alt="Importing a repository">
 </p>
 
-### Project Exploration
+<!-- SCREENSHOT NEEDED: Updated workspace gallery with Library Manager entry visible. Preferred: assets/KiCAD-Prism-Workspace.png -->
 
-- Native schematic and PCB viewing in the browser with cross-probe support.
-- 3D board viewing and Interactive HTML BOM integration.
-- Markdown README and project docs browsing.
-- Design outputs and manufacturing outputs browsing and download.
-- Project history, releases, and visual diff support.
+### Project exploration and review
+
+- Native schematic and PCB viewing in the browser with cross-probe.
+- WebGPU 3D board viewing and Interactive HTML BOM integration.
+- Engineering BOM from the semantic index.
+- Markdown README and project documentation browsing.
+- Design and manufacturing output browsing.
+- Commit history, releases/tags, and visual SCH/PCB/BOM diffs.
+- Branch and commit pinning via URL (`?branch=` / `?commit=`).
 
 <p align="center">
-  <img src="assets/KiCAD-Prism-Visualizer-SCH.png" width="49%" alt="Schematic Viewer">
-  <img src="assets/KiCAD-Prism-Visualizer-PCB.png" width="49%" alt="PCB Viewer">
+  <img src="assets/KiCAD-Prism-Visualizer-SCH.png" width="49%" alt="Schematic viewer">
+  <img src="assets/KiCAD-Prism-Visualizer-PCB.png" width="49%" alt="PCB viewer">
 </p>
 
 <p align="center">
-  <img src="assets/KiCAD-Prism-Visualiser-3DView.png" width="49%" alt="3D Viewer">
+  <img src="assets/KiCAD-Prism-Visualiser-3DView.png" width="49%" alt="3D viewer">
   <img src="assets/KiCAD-Prism-Visualizer-ibom.png" width="49%" alt="Interactive BOM">
 </p>
 
-### Review and Collaboration
+<!-- SCREENSHOT NEEDED: Visual diff (SCH or PCB). Existing GIFs under assets/Visual-Diff-*.gif can be referenced once confirmed current. -->
+<!-- SCREENSHOT NEEDED: Engineering BOM table with cross-probe / selection inspector open. -->
 
-- Comments are stored in SQLite for live collaboration.
-- `.comments/comments.json` can be exported for repository-based workflows.
-- Per-project helper URLs are exposed to configure KiCad REST comment sources.
-- Role-based access control separates viewer, designer, and admin permissions.
+### Library Manager and KiCad placement
 
-<p align="center">
-  <img src="assets/KiCAD-Prism-Commenting-Mode.png" width="49%" alt="Commenting Mode">
-  <img src="assets/KiCAD-Prism-Comment-Dialog.png" width="49%" alt="Comment Dialog">
-</p>
+- Component catalog with revisions, QA workflow, and release queue.
+- Folder and project import into the catalog.
+- Optional KiCad Library Convention (KLC) validation.
+- KiCad DBL export for database-library workflows.
+- Remote Symbol Provider panel for searching and placing released parts from KiCad.
 
-> Integration into KiCAD natively is currently on an experimental custom build of KiCAD v9.99. For now, users can use this platform for tracking comments
+<!-- SCREENSHOT NEEDED: Library Manager catalog list. Preferred: assets/KiCAD-Prism-Library-Catalog.png -->
+<!-- SCREENSHOT NEEDED: Component workspace / release queue. Preferred: assets/KiCAD-Prism-Library-Release-Queue.png -->
+<!-- SCREENSHOT NEEDED: KiCad Remote Symbols panel placing a part. Preferred: assets/KiCAD-Prism-Remote-Symbols-Panel.png -->
 
-### Workflow Automation
+### Workflow automation
 
-- Trigger KiCad workflow jobs from the UI.
+- Trigger KiCad jobset workflows from the UI.
 - Generate design, manufacturing, and render outputs.
-- Browse generated artifacts from the project detail page.
+- Browse generated artifacts from the project Assets portal.
 
-![Workflow Management](assets/KiCAD-Prism-Workflows.png)
+![Workflow management](assets/KiCAD-Prism-Workflows.png)
 
-## Architecture
+### Access control
 
-- Frontend: React, TypeScript, Vite, Tailwind, shadcn/ui
-- Backend: FastAPI, GitPython, Pydantic Settings
-- Storage:
-  - imported repositories under `data/projects`
-  - SSH material under `data/ssh`
-  - workspace project, folder, background job, catalog, OAuth, and service-client state in SQLite at `data/projects/.kicad-prism/prism.sqlite3`
-  - role assignments in `.rbac_roles.json`
-  - comments in SQLite plus optional `.comments/comments.json` export
-- Runtime split:
-  - Docker frontend serves the production bundle on port `8080`
-  - backend API serves on port `8000`
+- OIDC single sign-on for the web UI.
+- Roles: `viewer`, `designer`, `admin`, plus catalog roles `component_designer` and `component_qa`.
+- Separate OAuth path for the KiCad Remote Symbols panel (`remote_symbols.read`).
+- Optional machine clients for PLM/MRP link-out integrations.
 
-## Quick Start
+## Architecture (current)
 
-### Docker
+| Layer | Technology |
+|-------|------------|
+| Frontend | React, TypeScript, Vite, Tailwind, shadcn/ui |
+| Backend | FastAPI, GitPython, Pydantic Settings |
+| Database | PostgreSQL 17 (`workspace`, `comments`, `catalog`, `operations` schemas) |
+| Workers | Separate `catalog-worker` for import, validation, preview, retention jobs |
+| Git data | Cloned repositories under `data/projects` |
+| Catalog assets | Content-addressed + KiCad-style trees under `data/projects/.kicad-prism/` |
+| Viewer | ecad-viewer (schematic/PCB) + WebGPU 3D path |
+
+Runtime services (Docker Compose):
+
+- `postgres`
+- `backend` (API on port `8000`)
+- `catalog-worker`
+- `frontend` (Nginx on port `8080`, proxies API and remote-provider paths)
+
+For production, place a TLS-terminating reverse proxy in front of the frontend. HTTPS is required for reliable KiCad Remote Symbols panel use outside localhost. See [HTTPS and TLS](docs/HTTPS_AND_TLS.md).
+
+## Quick start (Docker, HTTP local)
 
 ```bash
 git clone https://github.com/krishna-swaroop/KiCAD-Prism.git
@@ -82,16 +113,17 @@ cd KiCAD-Prism
 cp .env.example .env
 ```
 
-Guest mode:
+Guest mode (no login wall):
 
 ```env
 AUTH_ENABLED=false
 ```
 
-OIDC login + RBAC session auth:
+OIDC login (recommended for shared hosts):
 
 ```env
 AUTH_ENABLED=true
+DEV_MODE=false
 OIDC_ISSUER_URL=https://accounts.google.com
 OIDC_CLIENT_ID=kicad-prism
 OIDC_CLIENT_SECRET=
@@ -102,26 +134,45 @@ BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
 SESSION_COOKIE_SECURE=false
 ```
 
-Fill `OIDC_CLIENT_SECRET` with the value from your identity provider. Generate `SESSION_SECRET`
-locally with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`.
+Generate `SESSION_SECRET`:
 
-Google Sign-In is configured through the same OIDC fields as any other provider. For Docker
-testing, the Google OAuth client must allow `http://127.0.0.1:8080/auth/callback` exactly.
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+```
 
-Start the stack:
+Start:
 
 ```bash
 docker compose up --build -d
 ```
 
-Open the UI at [http://127.0.0.1:8080](http://127.0.0.1:8080).
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
 
-Important:
-- `SESSION_SECRET` is required whenever auth is effectively enabled.
-- `SESSION_COOKIE_SECURE=true` should be used only behind HTTPS.
-- Docker Compose reads the root `.env` automatically.
+**Production HTTPS:** do not stop at this HTTP quick start. Follow [Deployment](docs/DEPLOYMENT.md) and [HTTPS and TLS](docs/HTTPS_AND_TLS.md) before enabling the Remote Symbol Provider for desktop KiCad clients.
 
-### Local Development
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [Documentation index](docs/DOCUMENTATION.md) | Full map of product and ops docs |
+| [Deployment](docs/DEPLOYMENT.md) | Docker hosting, volumes, auth modes, ops |
+| [HTTPS and TLS](docs/HTTPS_AND_TLS.md) | Production TLS, internal CA, KiCad trust |
+| [User guide](docs/USER_GUIDE.md) | End-to-end product workflows |
+| [Remote Symbol Provider](docs/REMOTE_SYMBOL_PROVIDER.md) | KiCad panel setup and placement |
+| [OIDC / OAuth](docs/OIDC_OAUTH_INTEGRATION.md) | SSO and machine clients |
+| [Comments](docs/COMMENTS.md) | Comments API, export, current UI status |
+| [Path mapping](docs/PATH-MAPPING.md) | `.prism.json` output path configuration |
+| [Import existing libraries](docs/IMPORT_EXISTING_KICAD_LIBRARIES.md) | Bulk library onboarding |
+| [Repository structure](docs/KICAD-PRJ-REPO-STRUCTURE.md) | Expected KiCad repo layouts |
+
+User-flow deep dives:
+
+- [Workspace and import](docs/user-flows/01-workspace-and-import.md)
+- [Project review](docs/user-flows/02-project-review.md)
+- [Library Manager](docs/user-flows/03-library-manager.md)
+- [KiCad Remote Symbols](docs/user-flows/04-kicad-remote-symbols.md)
+
+## Local development
 
 Backend:
 
@@ -130,10 +181,11 @@ cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+# Ensure PRISM_DATABASE_URL points at a reachable Postgres instance
 uvicorn app.main:app --reload --port 8000
 ```
 
-Frontend in a second terminal:
+Frontend:
 
 ```bash
 cd frontend
@@ -141,52 +193,14 @@ npm install
 npm run dev
 ```
 
-Frontend dev server runs on [http://127.0.0.1:5173](http://127.0.0.1:5173).
+Dev UI: [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
-By default, local development usually runs without auth because `DEV_MODE=true` and no OIDC client is configured.
+## Current limitations (honest)
 
-## Authentication Model
-
-Current auth behavior is session-based:
-
-- frontend reads `/api/auth/config`
-- frontend redirects to the configured OIDC provider and receives an auth code at `/auth/callback`
-- `/auth/callback` exchanges that auth code with `/api/auth/login`
-- backend issues an `HttpOnly` signed session cookie
-- subsequent API calls resolve the current user and role from that cookie
-- machine clients can use OAuth2 `client_credentials` at `/api/oauth/token`
-
-RBAC roles:
-- `viewer`: read-only access
-- `designer`: import, sync, comments, folder/project mutations, workflows
-- `admin`: full access, including settings and role management
-
-Auth is effectively enabled only when all of the following are true:
-- `AUTH_ENABLED=true`
-- OIDC client settings are configured
-- `DEV_MODE=false`
-
-## Project Documentation
-
-- Deployment and hosting: [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
-- OIDC/OAuth2 integration: [docs/OIDC_OAUTH_INTEGRATION.md](./docs/OIDC_OAUTH_INTEGRATION.md)
-- Repository layout expectations: [docs/KICAD-PRJ-REPO-STRUCTURE.md](./docs/KICAD-PRJ-REPO-STRUCTURE.md)
-- Path mapping and `.prism.json`: [docs/PATH-MAPPING.md](./docs/PATH-MAPPING.md)
-- Display names and project metadata: [docs/CUSTOM_PROJECT_NAMES.md](./docs/CUSTOM_PROJECT_NAMES.md)
-- Comments export and REST helpers: [docs/COMMENTS-COLLAB-UPDATES.md](./docs/COMMENTS-COLLAB-UPDATES.md)
-- Workspace behavior notes: [docs/WORKSPACE_UX_IMPROVEMENTS.md](./docs/WORKSPACE_UX_IMPROVEMENTS.md)
-- Visualizer vendor sync notes: [docs/ECAD_VIEWER_SYNC_NOTES.md](./docs/ECAD_VIEWER_SYNC_NOTES.md)
-
-## Repository Layout
-
-```text
-KiCAD-Prism/
-├── backend/            # FastAPI backend
-├── frontend/           # React frontend
-├── docs/               # Project documentation
-├── assets/             # Screenshots and media for docs
-└── data/               # Runtime data in local/Docker use
-```
+- In-browser visualizer commenting UI is not shipped; PostgreSQL comments API and KiCad REST helper URLs remain.
+- Single-workspace deployment model (not multi-tenant SaaS).
+- Library Manager Connectors / PLM sync is not implemented yet.
+- Real-time multi-user co-editing is not supported; collaboration is Git + review + library workflow.
 
 ## Acknowledgements
 
@@ -198,4 +212,4 @@ KiCAD-Prism/
 
 ## License
 
-This project is licensed under the Apache-2.0 License.
+See [LICENSE](LICENSE).

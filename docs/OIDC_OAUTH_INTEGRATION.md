@@ -1,11 +1,14 @@
 # OIDC and OAuth2 Integration
 
-KiCAD Prism supports two separate integration paths:
+KiCAD Prism supports three related auth paths:
 
-- OIDC for human login into the Prism web UI.
-- OAuth2 bearer tokens for machine-to-machine API access from PLM/MRP systems such as InvenTree.
+1. OIDC for human login into the Prism web UI (session cookie).
+2. OAuth2 for the KiCad Remote Symbols panel (`remote_symbols.read`).
+3. OAuth2 bearer tokens for machine-to-machine API access (PLM/MRP).
 
-## Human SSO
+For HTTPS cookie and redirect requirements, also read [HTTPS and TLS](HTTPS_AND_TLS.md).
+
+## Human SSO (web UI)
 
 Configure Prism as an OIDC client against your identity provider:
 
@@ -23,21 +26,28 @@ OIDC_PICTURE_CLAIM=picture
 OIDC_PROVIDER_NAME=SSO
 OIDC_TOKEN_AUTH_METHOD=client_secret_post
 CORS_ORIGINS_STR=https://prism.example.com
+SESSION_COOKIE_SECURE=true
 ```
 
-Fill `OIDC_CLIENT_SECRET` with the value from your identity provider. Generate `SESSION_SECRET`
-locally with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`.
+Generate `SESSION_SECRET`:
 
-Register these redirect URIs in the identity provider:
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+```
 
-- Prism web UI: `https://prism.example.com/auth/callback`
-- KiCad remote-provider login: `https://prism.example.com/oauth/oidc/callback`
+Register redirect URIs in the identity provider:
 
-Google Sign-In uses the same generic OIDC settings as every other provider. Register the frontend
-callback URL in Google Cloud Console. For Docker this is `http://127.0.0.1:8080/auth/callback`; for
-Vite dev it is `http://127.0.0.1:5173/auth/callback`.
+| Flow | Redirect URI |
+|------|--------------|
+| Prism web UI | `https://prism.example.com/auth/callback` |
+| KiCad remote-provider login | `https://prism.example.com/oauth/oidc/callback` |
 
-For Google through the generic OIDC path, use:
+Local Docker HTTP testing (not for Remote Symbols production):
+
+- Web UI: `http://127.0.0.1:8080/auth/callback`
+- Vite dev: `http://127.0.0.1:5173/auth/callback`
+
+Google Sign-In uses the same generic OIDC fields:
 
 ```env
 OIDC_ISSUER_URL=https://accounts.google.com
@@ -49,31 +59,38 @@ OIDC_PROVIDER_NAME=Google
 OIDC_TOKEN_AUTH_METHOD=client_secret_post
 ```
 
-For JumpCloud US tenants, use `OIDC_ISSUER_URL=https://oauth.id.jumpcloud.com/`; for EU tenants,
-use `OIDC_ISSUER_URL=https://oauth.id.eu.jumpcloud.com/`. Most providers expose `email`, `name`,
-and `picture` claims, but the claim env vars allow deployments to adapt if their IdP maps profile
-attributes differently.
+JumpCloud US: `https://oauth.id.jumpcloud.com/`  
+JumpCloud EU: `https://oauth.id.eu.jumpcloud.com/`
 
-The browser login flow uses authorization code, validates the OIDC discovery metadata, exchanges the
-code through the configured token endpoint, verifies signed `id_token`s with JWKS, checks nonce, and
-then creates Prism's own HttpOnly session cookie.
+Browser login flow: authorization code → discovery → token exchange → JWKS `id_token` verification → nonce check → HttpOnly Prism session cookie.
 
-`CORS_ORIGINS_STR` must list the browser origins that may send credentialed requests to the API.
-Do not set it to `*` when session cookies are enabled.
+Role resolution uses PostgreSQL role assignments, bootstrap admins, and optional `DEFAULT_VIEWER_DOMAINS_STR`.
 
-## PLM / InvenTree Link-Out Flow
+`CORS_ORIGINS_STR` must list exact browser origins. Do not use `*` with session cookies.
 
-The intended InvenTree integration is loose coupling:
+## KiCad Remote Symbol Provider OAuth
 
-1. An InvenTree plugin authenticates to Prism with OAuth2.
+KiCad discovers `/.well-known/kicad-remote-provider`, follows Prism's `/oauth/*` authorization-code + PKCE flow, and receives a bearer token scoped to `remote_symbols.read`.
+
+Those tokens can read remote-symbol provider endpoints only. They cannot call Prism admin or Library Manager mutation APIs.
+
+This path is separate from `/api/oauth/token` (machine clients).
+
+Production checklist: [REMOTE_SYMBOL_PROVIDER.md](REMOTE_SYMBOL_PROVIDER.md) and [HTTPS and TLS](HTTPS_AND_TLS.md).
+
+## PLM / InvenTree link-out flow
+
+Intended loose coupling:
+
+1. An InvenTree (or other PLM) plugin authenticates to Prism with OAuth2.
 2. The plugin calls Prism read APIs to discover projects, releases, files, and links.
-3. InvenTree stores Prism URLs on parts, assemblies, attachments, ECOs, or work orders.
+3. The PLM stores Prism URLs on parts, assemblies, attachments, ECOs, or work orders.
 4. A user clicks the link and lands in Prism.
-5. Prism authenticates that human through OIDC/SSO and shows the project, diff, comments, or release context.
+5. Prism authenticates that human through OIDC/SSO.
 
-Prism should not be embedded in an InvenTree iframe. This avoids CORS and browser security mistakes and keeps both systems replaceable.
+Do not embed Prism inside a PLM iframe. Keep both systems replaceable and avoid brittle cookie/iframe issues.
 
-## Local Service Clients
+## Local service clients
 
 Admins can create Prism-owned OAuth2 service clients:
 
@@ -101,7 +118,7 @@ curl -X POST https://prism.example.com/api/oauth/token \
   -d 'scope=api:read'
 ```
 
-Use the token on Prism API calls:
+Use:
 
 ```http
 Authorization: Bearer <access_token>
@@ -121,12 +138,8 @@ OAUTH_EXTERNAL_JWT_CLIENT_ID_CLAIM=client_id
 
 The external JWT must include a valid Prism role claim (`viewer`, `designer`, or `admin`). Scope `api:read` is enough for read-only PLM link-out integrations.
 
-## KiCad Remote Symbol Provider
+## Related
 
-KiCad remote-symbol login is separate from PLM API access. KiCad discovers `/.well-known/kicad-remote-provider`, follows Prism's `/oauth/*` authorization-code + PKCE flow, and receives a bearer token scoped for `remote_symbols.read`.
-
-Those KiCad tokens can read remote-symbol provider endpoints but cannot access Prism admin APIs.
-
-This is intentionally separate from `/api/oauth/token`: KiCad receives Prism-issued
-`remote_symbols.read` tokens for symbol search/placement, while PLM/MRP integrations receive
-service-client or external OAuth2 API tokens for project metadata queries.
+- [Deployment](DEPLOYMENT.md)
+- [HTTPS and TLS](HTTPS_AND_TLS.md)
+- [Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md)
