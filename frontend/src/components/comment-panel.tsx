@@ -10,7 +10,8 @@ import {
     Trash2,
     X,
 } from "lucide-react";
-import type { Comment } from "@/types/comments";
+import { commentClassLabel, type Comment } from "@/types/comments";
+import { CommentSeverityBadge } from "@/components/comment-severity-badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -176,7 +177,22 @@ function PanelCommentCard({
                     </span>
                 </div>
 
+                <div className="mb-2 flex flex-wrap gap-1">
+                    <Badge variant="secondary">{commentClassLabel(comment.commentClass ?? "general")}</Badge>
+                    <CommentSeverityBadge severity={comment.severity ?? "info"} />
+                </div>
+
                 <p className="mb-3 whitespace-pre-wrap text-sm">{comment.content}</p>
+
+                {comment.mentions && comment.mentions.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-1">
+                        {comment.mentions.map((email) => (
+                            <Badge key={email} variant="outline" className="max-w-full truncate text-[10px]">
+                                @{email}
+                            </Badge>
+                        ))}
+                    </div>
+                )}
 
                 <div className="flex items-center justify-between">
                     {canModify ? (

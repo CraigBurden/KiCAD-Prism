@@ -20,10 +20,14 @@ On Schematic and PCB tabs (designer/admin):
 
 1. Select a net, wire, or component, then press **C** to open the Add Comment dialog. **Cmd/Ctrl+Enter** submits.
 2. With nothing selected, press **C** (or use **Commenting Mode**) and drag a rectangle; the marker is placed at the rectangle center and the bounds are stored.
-3. Click a yellow note marker to open a compact comment card (resolve / reply / delete).
-4. Use the **Comments** panel to browse, filter, and navigate to threads.
+3. Choose a **class** (`general`, `observation`, `question`, `task`; default `general`) and **severity** (`info`, `minor`, `major`, `critical`; default `info`).
+4. Type `@` to mention a workspace user (email list from access roles). Mentions are stored with the comment.
+5. Click a yellow note marker to open a compact comment card (resolve / reply / delete).
+6. Use the **Comments** panel to browse, filter, and navigate to threads.
 
 Overlay primitives use channel id `comments` with `setOverlayScene` / `clearOverlayScene`. Area comments also draw a dashed bbox around the region of interest.
+
+Forge Issues sync fields (`forgeProvider`, `forgeIssueId`, …) exist in the schema for a future GitHub/GitLab bridge and are unused today.
 
 ## Storage and export
 

@@ -6,7 +6,7 @@ import { EngineeringBomTable } from "./engineering-bom-table";
 import { SelectionInspector } from "./selection-inspector";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
 import { EcadViewerControls } from "./ecad-viewer-controls";
-import { CommentForm } from "./comment-form";
+import { CommentForm, type CommentFormSubmitPayload } from "./comment-form";
 import { CommentCard } from "./comment-card";
 import { CommentPanel } from "./comment-panel";
 import { fetchApi, readApiError } from "@/lib/api";
@@ -23,7 +23,11 @@ import type {
     EcadSemanticSelectionDetail,
 } from "@/types/ecad-viewer";
 import type { PrismSelection, PrismSemanticIndex } from "@/types/prism-selection";
-import type { Comment, CommentContext, CommentLocation, CommentsFile } from "@/types/comments";
+import type { Comment, CommentContext, CommentLocation, CommentsFile, MentionCandidate } from "@/types/comments";
+import {
+    DEFAULT_COMMENT_CLASS,
+    DEFAULT_COMMENT_SEVERITY,
+} from "@/types/comments";
 
 interface VisualizerProps {
     projectId: string;
@@ -35,6 +39,16 @@ type VisualizerTab = "sch" | "pcb" | "3d" | "bom" | "assembly";
 
 const isAbortError = (error: unknown): boolean =>
     error instanceof DOMException && error.name === "AbortError";
+
+function normalizeComment(raw: Comment): Comment {
+    return {
+        ...raw,
+        commentClass: raw.commentClass ?? DEFAULT_COMMENT_CLASS,
+        severity: raw.severity ?? DEFAULT_COMMENT_SEVERITY,
+        mentions: raw.mentions ?? [],
+        replies: raw.replies ?? [],
+    };
+}
 
 type ViewerBlobSource = {
     filename: string;
@@ -305,6 +319,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
     const [commentCardScreenPosition, setCommentCardScreenPosition] = useState<{ x: number; y: number } | null>(null);
     const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+    const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
     const lastSelectionRef = useRef<EcadSemanticSelectionDetail | null>(null);
 
     const {
@@ -368,10 +383,11 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             const baseUrl = `/api/projects/${projectId}`;
 
             try {
-                const [ibomRes, supportRes, commentsRes] = await Promise.all([
+                const [ibomRes, supportRes, commentsRes, mentionsRes] = await Promise.all([
                     fetch(appendCommit(`${baseUrl}/ibom`), { signal }),
                     fetch(appendCommit(`${baseUrl}/viewer/support-files`), { signal }),
                     fetchApi(`${baseUrl}/comments`, { signal }),
+                    fetchApi(`${baseUrl}/comments/mention-candidates`, { signal }),
                 ]);
 
                 if (ibomRes.ok) {
@@ -387,9 +403,15 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                 }
                 if (commentsRes.ok) {
                     const payload = await commentsRes.json() as CommentsFile;
-                    setComments(payload.comments ?? []);
+                    setComments((payload.comments ?? []).map(normalizeComment));
                 } else {
                     setComments([]);
+                }
+                if (mentionsRes.ok) {
+                    const candidates = await mentionsRes.json() as MentionCandidate[];
+                    setMentionCandidates(candidates);
+                } else {
+                    setMentionCandidates([]);
                 }
 
             } catch (err) {
@@ -581,6 +603,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         setThreeDActivated(false);
         clearGlobalSelection();
         setComments([]);
+        setMentionCandidates([]);
         setCommentMode(false);
         setShowCommentForm(false);
         setPendingLocation(null);
@@ -762,7 +785,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         };
     }, [handleCommentAreaEvent, openCommentCardForOverlayHit, pcbViewerElement, schematicViewerElement]);
 
-    const submitComment = useCallback(async (content: string) => {
+    const submitComment = useCallback(async (payload: CommentFormSubmitPayload) => {
         if (!pendingLocation || !pendingContext) return;
         setIsSubmittingComment(true);
         try {
@@ -771,15 +794,18 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                 body: JSON.stringify({
                     context: pendingContext,
                     location: pendingLocation,
-                    content,
+                    content: payload.content,
                     author: user?.name,
                     elementId: pendingElement?.elementId,
                     elementRef: pendingElement?.elementRef,
                     elementType: pendingElement?.elementType,
+                    commentClass: payload.commentClass,
+                    severity: payload.severity,
+                    mentions: payload.mentions,
                 }),
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to post comment"));
-            const created = await response.json() as Comment;
+            const created = normalizeComment(await response.json() as Comment);
             setComments((prev) => [...prev, created]);
             setShowCommentForm(false);
             setPendingLocation(null);
@@ -799,7 +825,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                 body: JSON.stringify({ status: resolved ? "RESOLVED" : "OPEN" }),
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to update comment"));
-            const updated = await response.json() as Comment;
+            const updated = normalizeComment(await response.json() as Comment);
             setComments((prev) => prev.map((entry) => (entry.id === commentId ? updated : entry)));
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to update comment");
@@ -814,7 +840,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to add reply"));
             const payload = await response.json() as { comment: Comment };
-            setComments((prev) => prev.map((entry) => (entry.id === commentId ? payload.comment : entry)));
+            setComments((prev) => prev.map((entry) => (entry.id === commentId ? normalizeComment(payload.comment) : entry)));
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to add reply");
         }
@@ -1152,10 +1178,11 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     setPendingContext(null);
                     setPendingElement(null);
                 }}
-                onSubmit={(content) => void submitComment(content)}
+                onSubmit={(payload) => void submitComment(payload)}
                 location={pendingLocation}
                 context={pendingContext ?? "SCH"}
                 isSubmitting={isSubmittingComment}
+                mentionCandidates={mentionCandidates}
             />
 
             {selectedComment && (

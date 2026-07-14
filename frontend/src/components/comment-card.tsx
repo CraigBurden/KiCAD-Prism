@@ -7,8 +7,10 @@ import {
     X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { CommentSeverityBadge } from "@/components/comment-severity-badge";
 import { cn } from "@/lib/utils";
-import type { Comment } from "@/types/comments";
+import { commentClassLabel, type Comment } from "@/types/comments";
 
 interface CommentCardProps {
     comment: Comment;
@@ -89,7 +91,24 @@ export function CommentCard({
                 </Button>
             </div>
 
+            <div className="flex flex-wrap gap-1 px-3 pt-2">
+                <Badge variant="secondary" className="h-5 text-[10px]">
+                    {commentClassLabel(comment.commentClass ?? "general")}
+                </Badge>
+                <CommentSeverityBadge severity={comment.severity ?? "info"} />
+            </div>
+
             <p className="whitespace-pre-wrap px-3 py-2 text-sm">{comment.content}</p>
+
+            {comment.mentions && comment.mentions.length > 0 && (
+                <div className="flex flex-wrap gap-1 px-3 pb-2">
+                    {comment.mentions.map((email) => (
+                        <Badge key={email} variant="outline" className="max-w-full truncate text-[10px]">
+                            @{email}
+                        </Badge>
+                    ))}
+                </div>
+            )}
 
             {comment.replies.length > 0 && (
                 <div className="space-y-2 border-t bg-muted/30 px-3 py-2">

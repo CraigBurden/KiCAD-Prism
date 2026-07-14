@@ -13,7 +13,14 @@ from pydantic import BaseModel, Field
 
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
-from app.services.comments_store_service import comments_store
+from app.services import access_service
+from app.services.comments_store_service import (
+    COMMENT_CLASSES,
+    COMMENT_SEVERITIES,
+    DEFAULT_COMMENT_CLASS,
+    DEFAULT_COMMENT_SEVERITY,
+    comments_store,
+)
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
@@ -38,6 +45,9 @@ class CreateCommentRequest(BaseModel):
     elementId: Optional[str] = None
     elementRef: Optional[str] = None
     elementType: Optional[str] = None
+    commentClass: Optional[str] = DEFAULT_COMMENT_CLASS
+    severity: Optional[str] = DEFAULT_COMMENT_SEVERITY
+    mentions: Optional[List[str]] = None
 
 
 class CreateReplyRequest(BaseModel):
@@ -67,6 +77,14 @@ class Comment(BaseModel):
     elementId: Optional[str] = None
     elementRef: Optional[str] = None
     elementType: Optional[str] = None
+    commentClass: str = DEFAULT_COMMENT_CLASS
+    severity: str = DEFAULT_COMMENT_SEVERITY
+    mentions: List[str] = Field(default_factory=list)
+    # Reserved for future forge Issues sync (null/omitted until enabled).
+    forgeProvider: Optional[str] = None
+    forgeIssueId: Optional[str] = None
+    forgeIssueUrl: Optional[str] = None
+    forgeSyncState: Optional[str] = None
 
 
 class CommentsMeta(BaseModel):
@@ -77,6 +95,11 @@ class CommentsMeta(BaseModel):
 class CommentsFile(BaseModel):
     meta: CommentsMeta = Field(default_factory=CommentsMeta)
     comments: List[Comment] = Field(default_factory=list)
+
+
+class MentionCandidate(BaseModel):
+    email: str
+    role: str
 
 
 def _normalize_author(author: Optional[str]) -> str:
@@ -111,9 +134,45 @@ def _normalize_bounds(bounds: Optional[List[float]]) -> Optional[List[float]]:
     return [x, y, w, h]
 
 
+def _normalize_comment_class(value: Optional[str]) -> str:
+    normalized = (value or DEFAULT_COMMENT_CLASS).strip().lower()
+    if normalized not in COMMENT_CLASSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"commentClass must be one of: {', '.join(COMMENT_CLASSES)}",
+        )
+    return normalized
+
+
+def _normalize_severity(value: Optional[str]) -> str:
+    normalized = (value or DEFAULT_COMMENT_SEVERITY).strip().lower()
+    if normalized not in COMMENT_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"severity must be one of: {', '.join(COMMENT_SEVERITIES)}",
+        )
+    return normalized
+
+
 # ============================================================
 # API ENDPOINTS
 # ============================================================
+
+@router.get("/{project_id}/comments/mention-candidates", response_model=List[MentionCandidate])
+async def list_mention_candidates(
+    project_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """
+    Workspace-scoped users available for @mentions in comments.
+    Requires project access; list itself is instance-wide role assignments.
+    """
+    get_project_for_role_or_404(project_id, user.role)
+    return [
+        MentionCandidate(email=item["email"], role=item["role"])
+        for item in access_service.list_role_assignments()
+    ]
+
 
 @router.get("/{project_id}/comments")
 async def get_comments(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
@@ -150,6 +209,9 @@ async def create_comment(
         element_id=request.elementId,
         element_ref=request.elementRef,
         element_type=request.elementType,
+        comment_class=_normalize_comment_class(request.commentClass),
+        severity=_normalize_severity(request.severity),
+        mentions=request.mentions,
     )
 
 

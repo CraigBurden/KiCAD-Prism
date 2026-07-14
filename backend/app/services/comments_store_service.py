@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import threading
 import uuid
@@ -26,6 +27,11 @@ COMMENTS_META = {
     "version": "1.0",
     "generator": "KiCad-Prism-Web",
 }
+
+COMMENT_CLASSES = ("general", "observation", "question", "task")
+COMMENT_SEVERITIES = ("info", "minor", "major", "critical")
+DEFAULT_COMMENT_CLASS = "general"
+DEFAULT_COMMENT_SEVERITY = "info"
 
 
 def _utc_now_iso() -> str:
@@ -61,6 +67,50 @@ def _parse_area_bounds(raw) -> Optional[Tuple[float, float, float, float]]:
     return (x, y, w, h)
 
 
+def _normalize_comment_class(raw) -> str:
+    value = str(raw or DEFAULT_COMMENT_CLASS).strip().lower()
+    return value if value in COMMENT_CLASSES else DEFAULT_COMMENT_CLASS
+
+
+def _normalize_severity(raw) -> str:
+    value = str(raw or DEFAULT_COMMENT_SEVERITY).strip().lower()
+    return value if value in COMMENT_SEVERITIES else DEFAULT_COMMENT_SEVERITY
+
+
+def _normalize_mentions(raw) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    mentions: List[str] = []
+    seen = set()
+    for item in raw:
+        email = _optional_str(item)
+        if not email:
+            continue
+        normalized = email.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        mentions.append(normalized)
+    return mentions
+
+
+def _mentions_from_content(content: str, known_emails: Optional[List[str]] = None) -> List[str]:
+    """Extract @mentions that look like emails; optionally intersect with known users."""
+    found = re.findall(r"@([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})", content or "")
+    mentions = _normalize_mentions(found)
+    if known_emails is None:
+        return mentions
+    allowed = {email.lower() for email in known_emails}
+    return [email for email in mentions if email in allowed]
+
+
 def _row_to_comment_dict(row, replies: List[Dict]) -> Dict:
     location = {
         "x": row["location_x"],
@@ -81,6 +131,9 @@ def _row_to_comment_dict(row, replies: List[Dict]) -> Dict:
         "location": location,
         "content": row["content"],
         "replies": replies,
+        "commentClass": _normalize_comment_class(row.get("comment_class")),
+        "severity": _normalize_severity(row.get("severity")),
+        "mentions": _normalize_mentions(row.get("mentions")),
     }
     element_id = row.get("element_id")
     element_ref = row.get("element_ref")
@@ -91,6 +144,20 @@ def _row_to_comment_dict(row, replies: List[Dict]) -> Dict:
         comment["elementRef"] = element_ref
     if element_type:
         comment["elementType"] = element_type
+
+    # Forge projection fields (nullable today; reserved for future Issues sync).
+    forge_provider = row.get("forge_provider")
+    forge_issue_id = row.get("forge_issue_id")
+    forge_issue_url = row.get("forge_issue_url")
+    forge_sync_state = row.get("forge_sync_state")
+    if forge_provider:
+        comment["forgeProvider"] = forge_provider
+    if forge_issue_id:
+        comment["forgeIssueId"] = forge_issue_id
+    if forge_issue_url:
+        comment["forgeIssueUrl"] = forge_issue_url
+    if forge_sync_state:
+        comment["forgeSyncState"] = forge_sync_state
     return comment
 
 
@@ -164,6 +231,14 @@ class CommentsStoreService:
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_id TEXT",
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_ref TEXT",
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_type TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS comment_class TEXT NOT NULL DEFAULT 'general'",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'info'",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]'::jsonb",
+                    # Reserved for future GitHub/GitLab Issues projection (unused today).
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_provider TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_id TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_url TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_sync_state TEXT",
                 ):
                     conn.execute(statement)
                 conn.commit()
@@ -272,6 +347,13 @@ class CommentsStoreService:
             element_id = _optional_str(raw_comment.get("elementId") or raw_comment.get("element_id"))
             element_ref = _optional_str(raw_comment.get("elementRef") or raw_comment.get("element_ref"))
             element_type = _optional_str(raw_comment.get("elementType") or raw_comment.get("element_type"))
+            comment_class = _normalize_comment_class(
+                raw_comment.get("commentClass") or raw_comment.get("comment_class")
+            )
+            severity = _normalize_severity(raw_comment.get("severity"))
+            mentions = _normalize_mentions(raw_comment.get("mentions"))
+            if not mentions:
+                mentions = _mentions_from_content(content)
 
             conn.execute(
                 """
@@ -279,9 +361,10 @@ class CommentsStoreService:
                     id, project_id, author, timestamp, status, context,
                     location_x, location_y, location_layer, location_page, content,
                     area_x, area_y, area_w, area_h,
-                    element_id, element_ref, element_type
+                    element_id, element_ref, element_type,
+                    comment_class, severity, mentions
                 )
-                VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                 ON CONFLICT (id) DO NOTHING
                 """,
                 (
@@ -303,6 +386,9 @@ class CommentsStoreService:
                     element_id,
                     element_ref,
                     element_type,
+                    comment_class,
+                    severity,
+                    json.dumps(mentions),
                 ),
             )
 
@@ -343,7 +429,9 @@ class CommentsStoreService:
             SELECT id, author, timestamp, status, context,
                    location_x, location_y, location_layer, location_page, content,
                    area_x, area_y, area_w, area_h,
-                   element_id, element_ref, element_type
+                   element_id, element_ref, element_type,
+                   comment_class, severity, mentions,
+                   forge_provider, forge_issue_id, forge_issue_url, forge_sync_state
             FROM comments
             WHERE project_id = %s
             ORDER BY timestamp ASC, id ASC
@@ -389,7 +477,9 @@ class CommentsStoreService:
             SELECT id, author, timestamp, status, context,
                    location_x, location_y, location_layer, location_page, content,
                    area_x, area_y, area_w, area_h,
-                   element_id, element_ref, element_type
+                   element_id, element_ref, element_type,
+                   comment_class, severity, mentions,
+                   forge_provider, forge_issue_id, forge_issue_url, forge_sync_state
             FROM comments
             WHERE project_id = %s AND id = %s
             """,
@@ -437,11 +527,19 @@ class CommentsStoreService:
         element_id: Optional[str] = None,
         element_ref: Optional[str] = None,
         element_type: Optional[str] = None,
+        comment_class: Optional[str] = None,
+        severity: Optional[str] = None,
+        mentions: Optional[List[str]] = None,
     ) -> Dict:
         self.initialize()
         context_norm = context.upper()
         timestamp = _utc_now_iso()
         area = _parse_area_bounds(location.get("bounds"))
+        class_norm = _normalize_comment_class(comment_class)
+        severity_norm = _normalize_severity(severity)
+        mentions_norm = _normalize_mentions(mentions)
+        if not mentions_norm:
+            mentions_norm = _mentions_from_content(content)
 
         with self._connect() as conn:
             with conn.transaction():
@@ -454,9 +552,10 @@ class CommentsStoreService:
                         id, project_id, author, timestamp, status, context,
                         location_x, location_y, location_layer, location_page, content,
                         area_x, area_y, area_w, area_h,
-                        element_id, element_ref, element_type
+                        element_id, element_ref, element_type,
+                        comment_class, severity, mentions
                     )
-                    VALUES(%s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES(%s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                     """,
                     (
                         comment_id,
@@ -476,6 +575,9 @@ class CommentsStoreService:
                         _optional_str(element_id),
                         _optional_str(element_ref),
                         _optional_str(element_type),
+                        class_norm,
+                        severity_norm,
+                        json.dumps(mentions_norm),
                     ),
                 )
 
