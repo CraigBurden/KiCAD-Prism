@@ -222,37 +222,24 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     }, [projectId, appendCommit]);
 
     useEffect(() => {
-        const identityNeeded =
-            activeTab === "bom" ||
-            activeTab === "3d" ||
-            globalSelection !== null ||
-            semanticIndexRetryToken > 0;
-        if (!identityNeeded || semanticIndex) return;
+        if (semanticIndex) return;
         const controller = new AbortController();
         setSemanticIndexLoading(true);
         setSemanticIndexError(null);
-        fetch(appendCommit(`/api/projects/${projectId}/semantic-index/status`), {
+        // The compact identity artifact is generated independently from 3D
+        // assets and loaded in the background. It never gates SCH/PCB source
+        // rendering, but is ready before the first normal selection whenever
+        // generation completes quickly.
+        fetch(appendCommit(`/api/projects/${projectId}/semantic-index/identity`), {
             signal: controller.signal,
             credentials: "include",
         })
             .then(async (response) => {
                 if (!response.ok) {
                     const payload = await response.json().catch(() => null) as { detail?: string } | null;
-                    throw new Error(payload?.detail || "Semantic identity status is unavailable");
-                }
-                const status = await response.json() as { available: boolean };
-                if (!status.available) {
-                    throw new Error("Semantic identity index has not been generated");
-                }
-                const identity = await fetch(
-                    appendCommit(`/api/projects/${projectId}/semantic-index/identity`),
-                    { signal: controller.signal, credentials: "include" },
-                );
-                if (!identity.ok) {
-                    const payload = await identity.json().catch(() => null) as { detail?: string } | null;
                     throw new Error(payload?.detail || "Semantic identity index is unavailable");
                 }
-                return identity.json() as Promise<PrismSemanticIndex>;
+                return response.json() as Promise<PrismSemanticIndex>;
             })
             .then((payload) => {
                 if (!controller.signal.aborted) setSemanticIndex(payload);
@@ -266,7 +253,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                 if (!controller.signal.aborted) setSemanticIndexLoading(false);
             });
         return () => controller.abort();
-    }, [activeTab, appendCommit, globalSelection, projectId, semanticIndex, semanticIndexRetryToken]);
+    }, [appendCommit, projectId, semanticIndex, semanticIndexRetryToken]);
 
     const generateSemanticIdentity = useCallback(async () => {
         setSemanticIndexLoading(true);

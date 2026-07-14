@@ -683,12 +683,10 @@ async def get_semantic_index_identity(
     project = get_project_for_role_or_404(project_id, user.role)
     try:
         payload = await asyncio.to_thread(
-            semantic_index_service.get_existing,
+            semantic_index_service.get_or_build,
             project,
             commit,
         )
-        if payload is None:
-            raise HTTPException(status_code=404, detail="Semantic identity index has not been generated")
         return Response(
             content=json.dumps(payload),
             media_type="application/json",
@@ -699,6 +697,8 @@ async def get_semantic_index_identity(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/{project_id}/webgpu-3d/status")

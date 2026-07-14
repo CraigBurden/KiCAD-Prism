@@ -62,8 +62,10 @@ Schematic and PCB hosts stay mounted by project, commit, and context. Tab change
 `setActive` instead of remounting. The root schematic is painted before subsheets are
 appended, and source parsing remains in upstream workers.
 
-Schematic/PCB tabs neither generate nor wait for semantic or WebGPU assets. The
-Visualizer uses explicit semantic-index status, generation, and identity endpoints.
+Schematic/PCB tabs never wait for semantic or WebGPU assets. The compact semantic
+identity artifact is generated and loaded in the background on first Visualizer use,
+while heavy WebGPU/3D generation remains explicit and isolated to the 3D tab. Status,
+generation, and identity endpoints remain independently available.
 Identity loading is deferred until BOM/3D or a selection requires enrichment. The 3D
 artifact remains responsible for WebGPU feature, node, and tile identities.
 

@@ -208,6 +208,17 @@ export function crossProbeRequestForSelection(
     semanticIndex: PrismSemanticIndex | null,
 ): CrossProbeRequest {
     if (selection.kind === "component") {
+        const component = semanticIndex
+            ? semanticIndex.components.find((entry) =>
+                entry.componentUid === selection.componentUid
+                || entry.reference === selection.reference)
+            : undefined;
+        const targetReference = targetContext === "SCH"
+            ? component?.schematicRefs?.[0]
+            : component?.pcbRefs?.[0];
+        const targetUuid = targetContext === "SCH"
+            ? component?.schematicRefs?.[0]?.symbolUuid
+            : component?.pcbRefs?.[0]?.footprintUuid;
         return {
             sourceContext: selection.sourceContext,
             targetContext,
@@ -216,7 +227,11 @@ export function crossProbeRequestForSelection(
             value: selection.reference,
             designator: selection.reference,
             componentUid: selection.componentUid,
-            uuid: selection.uuid,
+            uuid: targetUuid,
+            crossIndex: targetReference?.crossIndex,
+            page: targetContext === "SCH"
+                ? component?.schematicRefs?.[0]?.page
+                : undefined,
         };
     }
 
@@ -266,7 +281,10 @@ export function crossProbeRequestForSelection(
         net: selection.netName,
         netCode: selection.netCode,
         netUid: selection.netUid,
-        uuid: selection.uuid,
+        uuid: uuids[0],
+        page: targetContext === "SCH"
+            ? net?.schematicRefs?.[0]?.page
+            : undefined,
         uuids,
     };
 }
