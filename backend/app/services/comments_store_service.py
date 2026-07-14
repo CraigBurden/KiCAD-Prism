@@ -42,6 +42,58 @@ def get_project_comments_json_path(project_path: str) -> str:
     return os.path.join(project_path, ".comments", "comments.json")
 
 
+def _optional_str(value) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _parse_area_bounds(raw) -> Optional[Tuple[float, float, float, float]]:
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        return None
+    try:
+        x, y, w, h = (float(raw[0]), float(raw[1]), float(raw[2]), float(raw[3]))
+    except (TypeError, ValueError):
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    return (x, y, w, h)
+
+
+def _row_to_comment_dict(row, replies: List[Dict]) -> Dict:
+    location = {
+        "x": row["location_x"],
+        "y": row["location_y"],
+        "layer": row["location_layer"] or "",
+        "page": row["location_page"] or "",
+    }
+    area_vals = (row.get("area_x"), row.get("area_y"), row.get("area_w"), row.get("area_h"))
+    if all(v is not None for v in area_vals):
+        location["bounds"] = [area_vals[0], area_vals[1], area_vals[2], area_vals[3]]
+
+    comment = {
+        "id": row["id"],
+        "author": row["author"],
+        "timestamp": _iso_timestamp(row["timestamp"]),
+        "status": row["status"],
+        "context": row["context"],
+        "location": location,
+        "content": row["content"],
+        "replies": replies,
+    }
+    element_id = row.get("element_id")
+    element_ref = row.get("element_ref")
+    element_type = row.get("element_type")
+    if element_id:
+        comment["elementId"] = element_id
+    if element_ref:
+        comment["elementRef"] = element_ref
+    if element_type:
+        comment["elementType"] = element_type
+    return comment
+
+
 class CommentsStoreService:
     """PostgreSQL-backed comments service."""
 
@@ -103,6 +155,17 @@ class CommentsStoreService:
                     """,
                     prepare=False,
                 )
+                # Additive columns for area/element-anchored comments (safe on existing DBs).
+                for statement in (
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_x REAL",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_y REAL",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_w REAL",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_h REAL",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_id TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_ref TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_type TEXT",
+                ):
+                    conn.execute(statement)
                 conn.commit()
 
             self._initialized = True
@@ -205,14 +268,20 @@ class CommentsStoreService:
 
             loc_layer = str(location.get("layer") or "")
             loc_page = str(location.get("page") or "")
+            area = _parse_area_bounds(location.get("bounds"))
+            element_id = _optional_str(raw_comment.get("elementId") or raw_comment.get("element_id"))
+            element_ref = _optional_str(raw_comment.get("elementRef") or raw_comment.get("element_ref"))
+            element_type = _optional_str(raw_comment.get("elementType") or raw_comment.get("element_type"))
 
             conn.execute(
                 """
                 INSERT INTO comments(
                     id, project_id, author, timestamp, status, context,
-                    location_x, location_y, location_layer, location_page, content
+                    location_x, location_y, location_layer, location_page, content,
+                    area_x, area_y, area_w, area_h,
+                    element_id, element_ref, element_type
                 )
-                VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO NOTHING
                 """,
                 (
@@ -227,6 +296,13 @@ class CommentsStoreService:
                     loc_layer,
                     loc_page,
                     content,
+                    area[0] if area else None,
+                    area[1] if area else None,
+                    area[2] if area else None,
+                    area[3] if area else None,
+                    element_id,
+                    element_ref,
+                    element_type,
                 ),
             )
 
@@ -265,7 +341,9 @@ class CommentsStoreService:
         comment_rows = conn.execute(
             """
             SELECT id, author, timestamp, status, context,
-                   location_x, location_y, location_layer, location_page, content
+                   location_x, location_y, location_layer, location_page, content,
+                   area_x, area_y, area_w, area_h,
+                   element_id, element_ref, element_type
             FROM comments
             WHERE project_id = %s
             ORDER BY timestamp ASC, id ASC
@@ -297,21 +375,7 @@ class CommentsStoreService:
         comments: List[Dict] = []
         for row in comment_rows:
             comments.append(
-                {
-                    "id": row["id"],
-                    "author": row["author"],
-                    "timestamp": _iso_timestamp(row["timestamp"]),
-                    "status": row["status"],
-                    "context": row["context"],
-                    "location": {
-                        "x": row["location_x"],
-                        "y": row["location_y"],
-                        "layer": row["location_layer"],
-                        "page": row["location_page"],
-                    },
-                    "content": row["content"],
-                    "replies": replies_by_comment.get(row["id"], []),
-                }
+                _row_to_comment_dict(row, replies_by_comment.get(row["id"], []))
             )
 
         return {
@@ -323,7 +387,9 @@ class CommentsStoreService:
         row = conn.execute(
             """
             SELECT id, author, timestamp, status, context,
-                   location_x, location_y, location_layer, location_page, content
+                   location_x, location_y, location_layer, location_page, content,
+                   area_x, area_y, area_w, area_h,
+                   element_id, element_ref, element_type
             FROM comments
             WHERE project_id = %s AND id = %s
             """,
@@ -343,28 +409,15 @@ class CommentsStoreService:
             (project_id, comment_id),
         ).fetchall()
 
-        return {
-            "id": row["id"],
-            "author": row["author"],
-            "timestamp": _iso_timestamp(row["timestamp"]),
-            "status": row["status"],
-            "context": row["context"],
-            "location": {
-                "x": row["location_x"],
-                "y": row["location_y"],
-                "layer": row["location_layer"],
-                "page": row["location_page"],
-            },
-            "content": row["content"],
-            "replies": [
-                {
-                    "author": reply["author"],
-                    "timestamp": _iso_timestamp(reply["timestamp"]),
-                    "content": reply["content"],
-                }
-                for reply in reply_rows
-            ],
-        }
+        replies = [
+            {
+                "author": reply["author"],
+                "timestamp": _iso_timestamp(reply["timestamp"]),
+                "content": reply["content"],
+            }
+            for reply in reply_rows
+        ]
+        return _row_to_comment_dict(row, replies)
 
     def get_comments_file(self, project_id: str, project_path: str) -> Dict:
         self.initialize()
@@ -381,10 +434,14 @@ class CommentsStoreService:
         location: Dict,
         content: str,
         author: str,
+        element_id: Optional[str] = None,
+        element_ref: Optional[str] = None,
+        element_type: Optional[str] = None,
     ) -> Dict:
         self.initialize()
         context_norm = context.upper()
         timestamp = _utc_now_iso()
+        area = _parse_area_bounds(location.get("bounds"))
 
         with self._connect() as conn:
             with conn.transaction():
@@ -395,9 +452,11 @@ class CommentsStoreService:
                     """
                     INSERT INTO comments(
                         id, project_id, author, timestamp, status, context,
-                        location_x, location_y, location_layer, location_page, content
+                        location_x, location_y, location_layer, location_page, content,
+                        area_x, area_y, area_w, area_h,
+                        element_id, element_ref, element_type
                     )
-                    VALUES(%s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s)
+                    VALUES(%s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         comment_id,
@@ -410,6 +469,13 @@ class CommentsStoreService:
                         str(location.get("layer", "")),
                         str(location.get("page", "")),
                         content,
+                        area[0] if area else None,
+                        area[1] if area else None,
+                        area[2] if area else None,
+                        area[3] if area else None,
+                        _optional_str(element_id),
+                        _optional_str(element_ref),
+                        _optional_str(element_type),
                     ),
                 )
 

@@ -67,6 +67,9 @@ export interface EcadSemanticSelectionDetail {
     sheet?: string;
     page?: string;
     layer?: string;
+    x?: number;
+    y?: number;
+    bounds?: [number, number, number, number];
 }
 
 export interface EcadSchematicPageState {
@@ -117,6 +120,7 @@ export interface EcadOverlayPrimitive {
     points?: Array<[number, number]>;
     text?: string;
     size?: number;
+    glyph?: "circle" | "comment";
 }
 
 export interface EcadOverlayScene {
@@ -126,11 +130,34 @@ export interface EcadOverlayScene {
     primitives: EcadOverlayPrimitive[];
 }
 
+export interface EcadOverlayHitDetail {
+    channelId: string;
+    primitiveId: string;
+    context: "SCH" | "PCB";
+    metadata?: unknown;
+    resolvedAnchor: {
+        x: number;
+        y: number;
+        bounds?: [number, number, number, number];
+        page?: string;
+    };
+}
+
+export interface EcadCommentAreaDetail {
+    context: "SCH" | "PCB";
+    x: number;
+    y: number;
+    bounds: [number, number, number, number];
+    page?: string;
+    layer?: string;
+}
+
 export interface ECadViewerElement extends HTMLElement {
     replaceSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
     appendSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
     setActive(active: boolean): void;
     clearSelection(): void;
+    setCommentMode?(enabled: boolean): void;
     setOverlayScene(channelId: string, scene: EcadOverlayScene): void;
     clearOverlayScene(channelId: string): void;
     zoomToLocation(x: number, y: number): void;
@@ -166,6 +193,10 @@ declare global {
         "ecad-viewer:crossprobe:result": CustomEvent<CrossProbeResult>;
         "ecad-viewer:selection": CustomEvent<EcadSemanticSelectionDetail>;
         "ecad-viewer:view-state-change": CustomEvent<void>;
+        "ecad-viewer:overlay-click": CustomEvent<EcadOverlayHitDetail>;
+        "ecad-viewer:overlay-hover": CustomEvent<EcadOverlayHitDetail>;
+        "ecad-viewer:overlay-leave": CustomEvent<EcadOverlayHitDetail>;
+        "ecad-viewer:comment-area": CustomEvent<EcadCommentAreaDetail>;
         "kicanvas:select": CustomEvent<KiCanvasSelectDetail>;
     }
 

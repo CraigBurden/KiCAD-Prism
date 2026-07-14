@@ -47,10 +47,10 @@ KiCad items. Interactive primitives use indexed hit testing and emit opaque call
 metadata. This is the future integration point for comments, semantic visual diff,
 ERC annotations, and measurements.
 
-React commenting controls and the 16 ms marker overlay were removed. The PostgreSQL
-comments schema/API remains available, but no incomplete viewer commenting UI is
-exposed. A future comment pass should publish a `comments` overlay channel and open
-Prism workflow UI from overlay events.
+React commenting pin overlays were removed. In-browser commenting is restored via the
+`comments` overlay channel: translucent yellow note glyphs (no ID text on canvas), optional
+dashed area bboxes, a compact marker card, and the side Comments panel. Comment CRUD never
+mutates `.kicad_sch` / `.kicad_pcb` and does not call `replaceSources` / reparse.
 
 The overlap-selection behavior from PR #61 is incorporated at the ecad boundary:
 opening the chooser does not select the first candidate, hover does not emit a

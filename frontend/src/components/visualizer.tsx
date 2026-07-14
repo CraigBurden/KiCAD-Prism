@@ -1,18 +1,29 @@
 import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { Cpu, Box, FileText, CircuitBoard, PackageCheck } from "lucide-react";
+import { Cpu, Box, FileText, CircuitBoard, PackageCheck, MessageSquare, MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EngineeringBomTable } from "./engineering-bom-table";
 import { SelectionInspector } from "./selection-inspector";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
 import { EcadViewerControls } from "./ecad-viewer-controls";
+import { CommentForm } from "./comment-form";
+import { CommentCard } from "./comment-card";
+import { CommentPanel } from "./comment-panel";
 import { fetchApi, readApiError } from "@/lib/api";
 import { canWriteCatalog } from "@/lib/roles";
 import { crossProbeRequestForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
 import { usePrismCrossProbe } from "@/hooks/use-prism-cross-probe";
 import type { User } from "@/types/auth";
-import type { ECadViewerElement, EcadSemanticSelectionDetail } from "@/types/ecad-viewer";
+import type {
+    ECadViewerElement,
+    EcadCommentAreaDetail,
+    EcadOverlayAnchor,
+    EcadOverlayHitDetail,
+    EcadOverlayPrimitive,
+    EcadSemanticSelectionDetail,
+} from "@/types/ecad-viewer";
 import type { PrismSelection, PrismSemanticIndex } from "@/types/prism-selection";
+import type { Comment, CommentContext, CommentLocation, CommentsFile } from "@/types/comments";
 
 interface VisualizerProps {
     projectId: string;
@@ -77,6 +88,96 @@ function installEcadViewerLoadSrcGuard(): void {
         }
         return originalLoadSrc.call(this);
     };
+}
+
+interface PendingCommentElement {
+    elementId?: string;
+    elementRef?: string;
+    elementType?: string;
+}
+
+const COMMENTS_OVERLAY_CHANNEL = "comments";
+
+function applyCommentMode(viewer: ECadViewerElement | null, enabled: boolean): void {
+    if (!viewer) return;
+    viewer.setCommentMode?.(enabled);
+    if (enabled) {
+        viewer.setAttribute("comment-mode", "true");
+    } else {
+        viewer.removeAttribute("comment-mode");
+    }
+}
+
+function worldToViewportScreen(
+    viewer: ECadViewerElement | null,
+    x: number,
+    y: number,
+): { x: number; y: number } | null {
+    if (!viewer) return null;
+    const local = viewer.getScreenLocation(x, y);
+    if (!local) return null;
+    const rect = viewer.getBoundingClientRect();
+    return { x: rect.left + local.x, y: rect.top + local.y };
+}
+
+function publishCommentsOverlay(
+    viewer: ECadViewerElement | null,
+    context: CommentContext,
+    comments: Comment[],
+    activePage?: string | null,
+): void {
+    if (!viewer) return;
+
+    const filtered = comments.filter((comment) => {
+        if (comment.context !== context) return false;
+        if (context === "SCH" && activePage && comment.location.page) {
+            return comment.location.page === activePage;
+        }
+        return true;
+    });
+
+    const primitives: EcadOverlayPrimitive[] = [];
+    for (const comment of filtered) {
+        const page = comment.location.page;
+        const anchor: EcadOverlayAnchor = comment.elementId
+            ? { kind: "source-item", uuid: comment.elementId, page }
+            : { kind: "world", x: comment.location.x, y: comment.location.y, page };
+
+        primitives.push({
+            id: comment.id,
+            kind: "marker",
+            anchor,
+            glyph: "comment",
+            sizing: "screen",
+            radius: 10,
+            fill: "#facc1580",
+            stroke: "#ca8a04",
+            interactive: true,
+            metadata: { commentId: comment.id },
+            accessibilityLabel: comment.content.slice(0, 80),
+        });
+
+                if (comment.location.bounds) {
+            primitives.push({
+                id: `${comment.id}-area`,
+                kind: "bbox",
+                anchor: { kind: "bbox", bounds: comment.location.bounds, page },
+                stroke: "#ca8a04",
+                dash: [2, 1.5],
+                strokeWidth: 0.15,
+                interactive: true,
+                metadata: { commentId: comment.id },
+                sizing: "world",
+            });
+        }
+    }
+
+    viewer.setOverlayScene(COMMENTS_OVERLAY_CHANNEL, {
+        context,
+        placement: "foreground",
+        visible: true,
+        primitives,
+    });
 }
 
 type EcadViewerHostProps = {
@@ -191,6 +292,20 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [semanticIndexRetryToken, setSemanticIndexRetryToken] = useState(0);
     const [selectionInspectorOpen, setSelectionInspectorOpen] = useState(false);
     const [componentImportPending, setComponentImportPending] = useState(false);
+    const [activeSchematicPage, setActiveSchematicPage] = useState<string | null>(null);
+
+    // Comment collaboration state
+    const [comments, setComments] = useState<Comment[]>([]);
+    const [commentMode, setCommentMode] = useState(false);
+    const [showCommentForm, setShowCommentForm] = useState(false);
+    const [showCommentPanel, setShowCommentPanel] = useState(false);
+    const [pendingLocation, setPendingLocation] = useState<CommentLocation | null>(null);
+    const [pendingContext, setPendingContext] = useState<CommentContext | null>(null);
+    const [pendingElement, setPendingElement] = useState<PendingCommentElement | null>(null);
+    const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
+    const [commentCardScreenPosition, setCommentCardScreenPosition] = useState<{ x: number; y: number } | null>(null);
+    const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+    const lastSelectionRef = useRef<EcadSemanticSelectionDetail | null>(null);
 
     const {
         selection: globalSelection,
@@ -199,6 +314,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         registerClient,
     } = usePrismCrossProbe(semanticIndex);
     const canImportLibraryComponent = canWriteCatalog(user?.role);
+    const canModifyComments = user?.role === "admin" || user?.role === "designer";
 
     const handleImportSelectedComponent = useCallback(async () => {
         if (!globalSelection || globalSelection.kind === "net" || componentImportPending) return;
@@ -252,9 +368,10 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             const baseUrl = `/api/projects/${projectId}`;
 
             try {
-                const [ibomRes, supportRes] = await Promise.all([
+                const [ibomRes, supportRes, commentsRes] = await Promise.all([
                     fetch(appendCommit(`${baseUrl}/ibom`), { signal }),
                     fetch(appendCommit(`${baseUrl}/viewer/support-files`), { signal }),
+                    fetchApi(`${baseUrl}/comments`, { signal }),
                 ]);
 
                 if (ibomRes.ok) {
@@ -267,6 +384,12 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     setViewerSupportFiles(payload.files ?? []);
                 } else {
                     setViewerSupportFiles([]);
+                }
+                if (commentsRes.ok) {
+                    const payload = await commentsRes.json() as CommentsFile;
+                    setComments(payload.comments ?? []);
+                } else {
+                    setComments([]);
                 }
 
             } catch (err) {
@@ -457,6 +580,15 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         setSelectionInspectorOpen(false);
         setThreeDActivated(false);
         clearGlobalSelection();
+        setComments([]);
+        setCommentMode(false);
+        setShowCommentForm(false);
+        setPendingLocation(null);
+        setPendingContext(null);
+        setPendingElement(null);
+        setSelectedCommentId(null);
+        setCommentCardScreenPosition(null);
+        lastSelectionRef.current = null;
     }, [clearGlobalSelection, commit, projectId]);
 
     useEffect(() => {
@@ -470,6 +602,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
 
         const handleSelection = (event: Event) => {
             const detail = (event as CustomEvent<EcadSemanticSelectionDetail>).detail;
+            lastSelectionRef.current = detail;
             const normalized = normalizeEcadSelection(
                 detail,
                 semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
@@ -545,6 +678,180 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         if (globalSelection) setSelectionInspectorOpen(true);
     }, [globalSelection]);
 
+    // Track the active schematic page so comment overlay filtering can match
+    // comments to the currently visible sheet.
+    useEffect(() => {
+        const viewer = schematicViewerElement;
+        if (!viewer) {
+            setActiveSchematicPage(null);
+            return;
+        }
+        const refresh = () => {
+            const active = viewer.getActiveSchematicPage?.();
+            setActiveSchematicPage(active?.filename ?? active?.page ?? null);
+        };
+        refresh();
+        viewer.addEventListener("ecad-viewer:view-state-change", refresh);
+        return () => viewer.removeEventListener("ecad-viewer:view-state-change", refresh);
+    }, [schematicViewerElement]);
+
+    // Publish comment markers to the ecad-viewer overlay layer. This never
+    // touches replaceSources/appendSources - overlays are a separate render pass.
+    useEffect(() => {
+        if (activeTab === "sch") {
+            publishCommentsOverlay(schematicViewerElement, "SCH", comments, activeSchematicPage);
+            pcbViewerElement?.clearOverlayScene(COMMENTS_OVERLAY_CHANNEL);
+        } else if (activeTab === "pcb") {
+            publishCommentsOverlay(pcbViewerElement, "PCB", comments);
+            schematicViewerElement?.clearOverlayScene(COMMENTS_OVERLAY_CHANNEL);
+        } else {
+            schematicViewerElement?.clearOverlayScene(COMMENTS_OVERLAY_CHANNEL);
+            pcbViewerElement?.clearOverlayScene(COMMENTS_OVERLAY_CHANNEL);
+        }
+    }, [activeTab, activeSchematicPage, comments, pcbViewerElement, schematicViewerElement]);
+
+    // Mirror comment mode onto whichever viewer is currently active.
+    useEffect(() => {
+        applyCommentMode(schematicViewerElement, commentMode && activeTab === "sch");
+        applyCommentMode(pcbViewerElement, commentMode && activeTab === "pcb");
+    }, [activeTab, commentMode, pcbViewerElement, schematicViewerElement]);
+
+    const openCommentCardForOverlayHit = useCallback((event: Event) => {
+        const detail = (event as CustomEvent<EcadOverlayHitDetail>).detail;
+        if (detail.channelId !== COMMENTS_OVERLAY_CHANNEL) return;
+        const metadata = detail.metadata as { commentId?: string } | null | undefined;
+        const commentId = metadata?.commentId ?? detail.primitiveId.replace(/-area$/, "");
+        if (!commentId) return;
+        const viewer = detail.context === "SCH" ? schematicViewerRef.current : pcbViewerRef.current;
+        setSelectedCommentId(commentId);
+        setCommentCardScreenPosition(
+            worldToViewportScreen(viewer, detail.resolvedAnchor.x, detail.resolvedAnchor.y),
+        );
+    }, []);
+
+    const handleCommentAreaEvent = useCallback((event: Event) => {
+        const detail = (event as CustomEvent<EcadCommentAreaDetail>).detail;
+        setCommentMode(false);
+        setPendingContext(detail.context);
+        setPendingLocation({
+            x: detail.x,
+            y: detail.y,
+            layer: detail.layer ?? "",
+            page: detail.page,
+            bounds: detail.bounds,
+        });
+        setPendingElement(null);
+        setShowCommentForm(true);
+    }, []);
+
+    useEffect(() => {
+        const schematicViewer = schematicViewerElement;
+        const pcbViewer = pcbViewerElement;
+        if (!schematicViewer && !pcbViewer) return;
+
+        schematicViewer?.addEventListener("ecad-viewer:overlay-click", openCommentCardForOverlayHit as EventListener);
+        pcbViewer?.addEventListener("ecad-viewer:overlay-click", openCommentCardForOverlayHit as EventListener);
+        schematicViewer?.addEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
+        pcbViewer?.addEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
+
+        return () => {
+            schematicViewer?.removeEventListener("ecad-viewer:overlay-click", openCommentCardForOverlayHit as EventListener);
+            pcbViewer?.removeEventListener("ecad-viewer:overlay-click", openCommentCardForOverlayHit as EventListener);
+            schematicViewer?.removeEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
+            pcbViewer?.removeEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
+        };
+    }, [handleCommentAreaEvent, openCommentCardForOverlayHit, pcbViewerElement, schematicViewerElement]);
+
+    const submitComment = useCallback(async (content: string) => {
+        if (!pendingLocation || !pendingContext) return;
+        setIsSubmittingComment(true);
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments`, {
+                method: "POST",
+                body: JSON.stringify({
+                    context: pendingContext,
+                    location: pendingLocation,
+                    content,
+                    author: user?.name,
+                    elementId: pendingElement?.elementId,
+                    elementRef: pendingElement?.elementRef,
+                    elementType: pendingElement?.elementType,
+                }),
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to post comment"));
+            const created = await response.json() as Comment;
+            setComments((prev) => [...prev, created]);
+            setShowCommentForm(false);
+            setPendingLocation(null);
+            setPendingContext(null);
+            setPendingElement(null);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to post comment");
+        } finally {
+            setIsSubmittingComment(false);
+        }
+    }, [pendingContext, pendingElement, pendingLocation, projectId, user?.name]);
+
+    const resolveComment = useCallback(async (commentId: string, resolved: boolean) => {
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ status: resolved ? "RESOLVED" : "OPEN" }),
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to update comment"));
+            const updated = await response.json() as Comment;
+            setComments((prev) => prev.map((entry) => (entry.id === commentId ? updated : entry)));
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to update comment");
+        }
+    }, [projectId]);
+
+    const replyToComment = useCallback(async (commentId: string, content: string) => {
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}/replies`, {
+                method: "POST",
+                body: JSON.stringify({ content, author: user?.name }),
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to add reply"));
+            const payload = await response.json() as { comment: Comment };
+            setComments((prev) => prev.map((entry) => (entry.id === commentId ? payload.comment : entry)));
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to add reply");
+        }
+    }, [projectId, user?.name]);
+
+    const deleteComment = useCallback(async (commentId: string) => {
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${commentId}`, {
+                method: "DELETE",
+            });
+            if (!response.ok) throw new Error(await readApiError(response, "Failed to delete comment"));
+            setComments((prev) => prev.filter((entry) => entry.id !== commentId));
+            setSelectedCommentId((current) => (current === commentId ? null : current));
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to delete comment");
+        }
+    }, [projectId]);
+
+    const handleCommentClick = useCallback((comment: Comment) => {
+        const targetTab: VisualizerTab = comment.context === "SCH" ? "sch" : "pcb";
+        setActiveTab((current) => (current === targetTab ? current : targetTab));
+        const viewer = targetTab === "sch" ? schematicViewerRef.current : pcbViewerRef.current;
+        if (viewer) {
+            if (comment.location.page) viewer.switchPage(comment.location.page);
+            viewer.zoomToLocation(comment.location.x, comment.location.y);
+        }
+        setSelectedCommentId(comment.id);
+        setCommentCardScreenPosition(
+            worldToViewportScreen(viewer, comment.location.x, comment.location.y),
+        );
+    }, []);
+
+    const selectedComment = useMemo(
+        () => comments.find((entry) => entry.id === selectedCommentId) ?? null,
+        [comments, selectedCommentId],
+    );
+
     useEffect(() => {
         const handleKeyboard = (event: KeyboardEvent) => {
             const target = event.target;
@@ -558,6 +865,42 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             if (event.key === "Escape") {
                 clearGlobalSelection();
                 setSelectionInspectorOpen(false);
+                setCommentMode(false);
+                setShowCommentForm(false);
+                setSelectedCommentId(null);
+                lastSelectionRef.current = null;
+                return;
+            }
+            if (
+                canModifyComments
+                && (activeTab === "sch" || activeTab === "pcb")
+                && event.key.toLowerCase() === "c"
+                && !event.metaKey
+                && !event.ctrlKey
+                && !event.altKey
+            ) {
+                const selection = lastSelectionRef.current;
+                if (selection && selection.x !== undefined && selection.y !== undefined) {
+                    setCommentMode(false);
+                    setPendingContext(activeTab === "sch" ? "SCH" : "PCB");
+                    setPendingLocation({
+                        x: selection.x,
+                        y: selection.y,
+                        layer: selection.layer ?? "",
+                        page: selection.page,
+                        // Element comments use marker-at-center only; do not
+                        // treat the selected item bbox as an area comment.
+                    });
+                    setPendingElement({
+                        elementId: selection.uuid,
+                        elementRef: selection.reference,
+                        elementType: selection.itemType,
+                    });
+                    setShowCommentForm(true);
+                } else {
+                    setCommentMode(true);
+                }
+                event.preventDefault();
                 return;
             }
             if (activeTab === "sch") {
@@ -584,7 +927,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         // ecad-viewer still receives every key Prism does not handle.
         window.addEventListener("keydown", handleKeyboard, true);
         return () => window.removeEventListener("keydown", handleKeyboard, true);
-    }, [activeTab, clearGlobalSelection]);
+    }, [activeTab, canModifyComments, clearGlobalSelection]);
 
     const schematicRootSource = useMemo<ViewerBlobSource | null>(
         () => (schematicContent ? { filename: "root.kicad_sch", content: schematicContent } : null),
@@ -633,6 +976,46 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     );
                 })}
                 <div className="flex-1" />
+                {(activeTab === "sch" || activeTab === "pcb") && canModifyComments && (
+                    <Button
+                        variant={commentMode ? "default" : "ghost"}
+                        size="sm"
+                        className={
+                            commentMode
+                                ? "h-8 text-xs bg-warning text-warning-foreground hover:bg-warning/90"
+                                : "h-8 text-xs"
+                        }
+                        aria-pressed={commentMode}
+                        onClick={() => setCommentMode((enabled) => !enabled)}
+                    >
+                        <MessageSquarePlus className="mr-2 h-3 w-3" />
+                        Commenting Mode
+                        <span
+                            className={
+                                commentMode
+                                    ? "ml-2 rounded bg-warning-foreground/15 px-1 text-[10px]"
+                                    : "ml-2 rounded bg-muted px-1 text-[10px] text-muted-foreground"
+                            }
+                        >
+                            C
+                        </span>
+                    </Button>
+                )}
+                <Button
+                    variant={showCommentPanel ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setShowCommentPanel((open) => !open)}
+                    className="text-xs h-8"
+                    aria-pressed={showCommentPanel}
+                >
+                    <MessageSquare className="w-3 h-3 mr-2" />
+                    Comments
+                    {comments.length > 0 && (
+                        <span className="ml-2 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
+                            {comments.length}
+                        </span>
+                    )}
+                </Button>
             </div>
 
             {/* Content Area */}
@@ -644,7 +1027,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                             schematicSources.length > 0 ? (
                                 <div className="flex h-full min-w-0">
                                     <EcadViewerControls context="SCH" viewer={schematicViewerElement} />
-                                    <div className="min-w-0 flex-1">
+                                    <div className="min-h-0 min-w-0 flex-1">
                                         <EcadViewerHost
                                             viewerKey={schematicViewerKey}
                                             sources={schematicSources}
@@ -671,7 +1054,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                             pcbSources.length > 0 ? (
                                 <div className="flex h-full min-w-0">
                                     <EcadViewerControls context="PCB" viewer={pcbViewerElement} />
-                                    <div className="min-w-0 flex-1">
+                                    <div className="min-h-0 min-w-0 flex-1">
                                         <EcadViewerHost
                                             viewerKey={pcbViewerKey}
                                             sources={pcbSources}
@@ -737,6 +1120,18 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     )}
 
                 </div>
+                {showCommentPanel && (
+                    <CommentPanel
+                        comments={comments}
+                        onClose={() => setShowCommentPanel(false)}
+                        onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
+                        onReply={replyToComment}
+                        onDelete={deleteComment}
+                        onCommentClick={handleCommentClick}
+                        canModify={canModifyComments}
+                        highlightedId={selectedCommentId}
+                    />
+                )}
                 <SelectionInspector
                     open={selectionInspectorOpen}
                     selection={globalSelection}
@@ -748,6 +1143,32 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     importingComponent={componentImportPending}
                 />
             </div>
+
+            <CommentForm
+                isOpen={showCommentForm}
+                onClose={() => {
+                    setShowCommentForm(false);
+                    setPendingLocation(null);
+                    setPendingContext(null);
+                    setPendingElement(null);
+                }}
+                onSubmit={(content) => void submitComment(content)}
+                location={pendingLocation}
+                context={pendingContext ?? "SCH"}
+                isSubmitting={isSubmittingComment}
+            />
+
+            {selectedComment && (
+                <CommentCard
+                    comment={selectedComment}
+                    screenPosition={commentCardScreenPosition}
+                    canModify={canModifyComments}
+                    onClose={() => setSelectedCommentId(null)}
+                    onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
+                    onReply={replyToComment}
+                    onDelete={deleteComment}
+                />
+            )}
         </div>
     );
 }

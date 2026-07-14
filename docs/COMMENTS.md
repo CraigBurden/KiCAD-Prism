@@ -1,8 +1,8 @@
 # Comments
 
-This document describes the current comments architecture in KiCAD Prism.
+This document describes the comments architecture in KiCAD Prism.
 
-## Current status (read this first)
+## Current status
 
 | Layer | Status |
 |-------|--------|
@@ -10,15 +10,25 @@ This document describes the current comments architecture in KiCAD Prism.
 | REST API under `/api/projects/{id}/comments` | Available |
 | Export to `.comments/comments.json` | Available via `POST .../comments/push` |
 | KiCad REST helper URL generation | Available |
-| In-browser visualizer commenting UI | **Not shipped** in the current release |
+| In-browser visualizer commenting UI | **Shipped** via ecad-viewer overlay scenes |
 
-React commenting controls and marker overlays were removed during the ecad-viewer host refactor. Overlay extension channels remain in the viewer host for a future comments pass. See [postgres-ecad-extension-refactor.md](postgres-ecad-extension-refactor.md).
+Markers are painted by the ecad-viewer host as translucent yellow text-box glyphs on an overlay channel. They are **not** written into `.kicad_sch` / `.kicad_pcb`, and creating or updating comments does **not** reparse or replace design sources.
 
-Older screenshots in `assets/` that show commenting mode are historical and do not represent the current UI.
+## Visualizer UX
+
+On Schematic and PCB tabs (designer/admin):
+
+1. Select a net, wire, or component, then press **C** to open the Add Comment dialog. **Cmd/Ctrl+Enter** submits.
+2. With nothing selected, press **C** (or use **Commenting Mode**) and drag a rectangle; the marker is placed at the rectangle center and the bounds are stored.
+3. Click a yellow note marker to open a compact comment card (resolve / reply / delete).
+4. Use the **Comments** panel to browse, filter, and navigate to threads.
+
+Overlay primitives use channel id `comments` with `setOverlayScene` / `clearOverlayScene`. Area comments also draw a dashed bbox around the region of interest.
 
 ## Storage and export
 
 - Live source of truth: PostgreSQL comments tables (per-project isolation).
+- Optional columns: `area_*` bounds for rectangle comments; `element_id` / `element_ref` / `element_type` for selection anchors.
 - Export artifact: `.comments/comments.json` inside the project repository.
 - `POST /comments/push` means **export DB state to JSON**. It does not perform a Git push.
 - After export, stage/commit/push with normal Git workflows if you want the artifact versioned.
@@ -32,8 +42,8 @@ Under `/api/projects/{project_id}`:
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/comments` | List comments |
-| POST | `/comments` | Create |
-| PATCH | `/comments/{comment_id}` | Update |
+| POST | `/comments` | Create (supports `location.bounds`, optional element fields) |
+| PATCH | `/comments/{comment_id}` | Update status |
 | POST | `/comments/{comment_id}/replies` | Reply |
 | DELETE | `/comments/{comment_id}` | Delete |
 | POST | `/comments/push` | Export JSON artifact |
@@ -62,29 +72,9 @@ COMMENTS_API_BASE_URL=https://prism.example.com
 
 so helpers do not accidentally advertise an internal hostname.
 
-## Frontend behavior today
-
-- Import dialog can show comment-source helper URLs after a successful import (copy/paste into experimental KiCad REST configuration).
-- There is no visualizer pin/thread UI and no in-app comment resolution board.
-- `frontend/src/types/comments.ts` remains for API typing; do not assume a comments panel exists.
-
-## Recommended usage
-
-1. Use Git history + visual diff + selection inspector for browser review today.
-2. Use helper URLs only if you run an experimental KiCad build that consumes Prism comment REST endpoints.
-3. Export `.comments/comments.json` when you need a repository-carried artifact.
-4. Plan future in-browser commenting on the ecad overlay channel rather than reintroducing the removed marker overlay as-is.
-
-## Hosting notes
-
-If KiCad or other tools on another machine must reach comment APIs:
-
-- Serve Prism on a stable HTTPS origin ([HTTPS and TLS](HTTPS_AND_TLS.md)).
-- Set `COMMENTS_API_BASE_URL` to that origin.
-- Ensure designers/admins have the roles required by the comments endpoints.
-
 ## Related
 
+- [PostgreSQL / ecad extension refactor](postgres-ecad-extension-refactor.md)
 - [User guide](USER_GUIDE.md)
 - [Project review flow](user-flows/02-project-review.md)
 - [Deployment](DEPLOYMENT.md)

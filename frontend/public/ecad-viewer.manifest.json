@@ -2,9 +2,9 @@
   "schema": "prism.ecad_viewer_build_a0",
   "version": "prism-host-adapter-v2.2",
   "upstreamCommit": "a6456d3e9f10cdf761ce0c0e711ac69251e1fa45",
-  "adapterCommit": "c0731c47eb3cd5a5ec9d1720ee1815b305548500",
+  "adapterCommit": "4bde0e5ab822a31d5f683ea46f28cf117c6415d6",
   "artifacts": {
-    "ecad-viewer.js": "sha256:221d94553c9bda651c32acd7207f44fc108ce431d20ffa5417c98c42e1c45ce8",
+    "ecad-viewer.js": "sha256:803dcb051a11362dad2a4bf2b21c84c8e3b7b0704b531591e21d311bb20f10b0",
     "parser.worker.js": "sha256:9a198199f3ab25670b910f3006172d328d3db8298a9dde9e573f17f7e3934b6e"
   }
 }

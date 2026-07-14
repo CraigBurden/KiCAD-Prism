@@ -1,8 +1,8 @@
 """
 Comments API for KiCAD-Prism Collaboration Feature.
 
-Comment CRUD is backed by the PostgreSQL ``comments`` schema. The visualizer UI
-is intentionally disabled until comments are reintroduced through ecad overlay scenes.
+Comment CRUD is backed by the PostgreSQL ``comments`` schema. Visualizer markers
+are published via ecad-viewer overlay scenes (never written into KiCad sources).
 """
 
 import os
@@ -27,6 +27,7 @@ class CommentLocation(BaseModel):
     y: float
     layer: str = ""
     page: str = ""
+    bounds: Optional[List[float]] = None  # [x, y, w, h] for area comments
 
 
 class CreateCommentRequest(BaseModel):
@@ -34,6 +35,9 @@ class CreateCommentRequest(BaseModel):
     location: CommentLocation
     content: str
     author: Optional[str] = "anonymous"
+    elementId: Optional[str] = None
+    elementRef: Optional[str] = None
+    elementType: Optional[str] = None
 
 
 class CreateReplyRequest(BaseModel):
@@ -60,6 +64,9 @@ class Comment(BaseModel):
     location: CommentLocation
     content: str
     replies: List[CommentReply] = Field(default_factory=list)
+    elementId: Optional[str] = None
+    elementRef: Optional[str] = None
+    elementType: Optional[str] = None
 
 
 class CommentsMeta(BaseModel):
@@ -90,6 +97,20 @@ def _normalize_content(content: str, *, field: str = "content") -> str:
     return normalized
 
 
+def _normalize_bounds(bounds: Optional[List[float]]) -> Optional[List[float]]:
+    if bounds is None:
+        return None
+    if len(bounds) != 4:
+        raise HTTPException(status_code=400, detail="location.bounds must be [x, y, w, h]")
+    try:
+        x, y, w, h = (float(bounds[0]), float(bounds[1]), float(bounds[2]), float(bounds[3]))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="location.bounds must be numeric")
+    if w <= 0 or h <= 0:
+        raise HTTPException(status_code=400, detail="location.bounds width/height must be > 0")
+    return [x, y, w, h]
+
+
 # ============================================================
 # API ENDPOINTS
 # ============================================================
@@ -116,14 +137,19 @@ async def create_comment(
 
     context = _normalize_context(request.context)
     content = _normalize_content(request.content)
+    location = request.location.model_dump()
+    location["bounds"] = _normalize_bounds(request.location.bounds)
 
     return comments_store.create_comment(
         project_id=project.id,
         project_path=project.path,
         context=context,
-        location=request.location.model_dump(),
+        location=location,
         content=content,
         author=_normalize_author(request.author),
+        element_id=request.elementId,
+        element_ref=request.elementRef,
+        element_type=request.elementType,
     )
 
 
