@@ -447,6 +447,14 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                 viewer.clearSelection();
                 return;
             }
+            // Keep ecad-viewer cross-probing component-focused. Net selections
+            // still flow through the Visualizer bus to the semantic sidebar and
+            // 3D viewer, but compiling a whole schematic/PCB net highlight here
+            // is expensive and duplicates the 3D isolation workflow.
+            if (selection.kind === "net") {
+                viewer.clearSelection();
+                return;
+            }
             if (typeof viewer.requestCrossProbe !== "function") return;
             const request = crossProbeRequestForSelection(selection, targetContext, semanticIndex);
             const resolved = viewer.requestCrossProbe(request);

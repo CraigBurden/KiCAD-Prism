@@ -1603,6 +1603,28 @@ function syncNetIsolationControls() {
 function layersForActiveNet() {
   const layers = new Set();
   if (!state.activeNetId) return layers;
+
+  // The manifest's net record is the source of truth. It is available before
+  // tile residency begins, whereas deriving membership only from resident tile
+  // state can leave isolation with an empty layer set on its first activation.
+  const net = scene.nets.find((item) => Number(item.id) === Number(state.activeNetId));
+  const copperLayerIds = new Set(scene.copperLayers.map((layer) => Number(layer.id)));
+  for (const layerId of Object.keys(net?.layerBoundsMm || {})) {
+    const numericId = Number(layerId);
+    if (copperLayerIds.has(numericId)) layers.add(numericId);
+  }
+
+  // Older manifests may only expose the human-readable layer list.
+  if (!layers.size) {
+    const idsByName = new Map(scene.copperLayers.map((layer) => [layer.name, Number(layer.id)]));
+    for (const layerName of net?.metrics?.layers || []) {
+      const layerId = idsByName.get(layerName);
+      if (layerId != null) layers.add(layerId);
+    }
+  }
+
+  // Retain compatibility with manifests generated before per-net layer bounds.
+  if (layers.size) return layers;
   for (const tile of scene.tiles.values()) {
     if (tileHasNet(tile, state.activeNetId)) layers.add(Number(tile.layerId));
   }
