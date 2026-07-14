@@ -1,6 +1,6 @@
 {
   "schema": "prism.ecad_viewer_build_a0",
-  "version": "prism-host-adapter-v2",
+  "version": "prism-host-adapter-v2.1",
   "upstreamCommit": "a6456d3e9f10cdf761ce0c0e711ac69251e1fa45",
   "adapterCommit": "8138d208a694ff194b154023f38f51a62da7dcea",
   "artifacts": {
