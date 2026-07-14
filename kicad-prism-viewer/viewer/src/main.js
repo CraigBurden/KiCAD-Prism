@@ -1763,7 +1763,7 @@ function selectFeature(featureId, shouldFrame = false) {
   if (reference) bomViewer?.setSelectionByReference(reference, { scroll: state.workspace === "bom" });
   selectionEl.textContent = feature ? JSON.stringify(feature, null, 2) : "No object selected";
   updateSelectionCard();
-  if (shouldFrame && feature?.bounds) camera.frame(feature.bounds);
+  if (shouldFrame && feature?.bounds) framePcbFeature(feature);
   scheduleTileResidency(performance.now(), { force: true });
   emitSelectionChange(featureSelection(feature));
 }
@@ -1800,13 +1800,30 @@ function selectComponentReference(reference, shouldFrame = false) {
 
   if (shouldFrame && state.workspace === "pcb") {
     const feature = scene.features.get(Number(component.featureId));
-    if (feature?.bounds) camera.frame(feature.bounds);
+    if (feature?.bounds) framePcbFeature(feature, true);
   }
   updateSelectionCard();
 }
 
 function componentReferenceFromFeature(feature) {
   return feature?.designator || feature?.reference || feature?.componentDesignator || "";
+}
+
+function framePcbFeature(feature, forceComponent = false) {
+  if (!feature?.bounds) return;
+  const isComponent = forceComponent || feature.kind === "component" || Boolean(componentReferenceFromFeature(feature));
+  if (isComponent) {
+    const centerZ = (feature.bounds[2] + feature.bounds[5]) * 0.5;
+    const isBottomComponent = centerZ < 0;
+    // Compare against the destination orientation as well as the current
+    // interpolated camera. Repeated cross-probes during an in-progress flip
+    // must not cancel or reverse the requested board side.
+    const isCameraBottom = camera.targetPolar > Math.PI / 2;
+    if (isBottomComponent !== isCameraBottom) {
+      camera.setAxis("z", isBottomComponent);
+    }
+  }
+  camera.frame(feature.bounds);
 }
 
 function findSchematicFeatureByReference(reference) {
@@ -2191,19 +2208,7 @@ function frameSelection() {
   }
   const feature = scene.features.get(state.selectedFeatureId);
   if (feature?.bounds) {
-    if (feature.kind === "component") {
-      const center = [
-        (feature.bounds[0] + feature.bounds[3]) * 0.5,
-        (feature.bounds[1] + feature.bounds[4]) * 0.5,
-        (feature.bounds[2] + feature.bounds[5]) * 0.5,
-      ];
-      const isBottomComponent = center[2] < 0;
-      const isCameraBottom = camera.polar > Math.PI / 2;
-      if (isBottomComponent !== isCameraBottom) {
-        camera.setAxis("z", isBottomComponent);
-      }
-    }
-    camera.frame(feature.bounds);
+    framePcbFeature(feature);
   } else {
     const net = scene.nets.find((item) => Number(item.id) === state.activeNetId);
     if (net?.boundsMm) camera.frame(runtimeBounds(net.boundsMm));

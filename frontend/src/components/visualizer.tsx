@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { EngineeringBomTable } from "./engineering-bom-table";
 import { SelectionInspector } from "./selection-inspector";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
+import { EcadViewerControls } from "./ecad-viewer-controls";
 import { fetchApi, readApiError } from "@/lib/api";
 import { canWriteCatalog } from "@/lib/roles";
 import { crossProbeRequestForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
@@ -129,6 +130,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [threeDActivated, setThreeDActivated] = useState(false);
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
     const [subsheets, setSubsheets] = useState<{ filename: string, content: string }[]>([]);
+    const [viewerSupportFiles, setViewerSupportFiles] = useState<ViewerBlobSource[]>([]);
     const [pcbContent, setPcbContent] = useState<string | null>(null);
     const [ibomUrl, setIbomUrl] = useState<string | null>(null);
     const [schematicContentLoaded, setSchematicContentLoaded] = useState(false);
@@ -200,12 +202,21 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             const baseUrl = `/api/projects/${projectId}`;
 
             try {
-                const ibomRes = await fetch(appendCommit(`${baseUrl}/ibom`), { signal });
+                const [ibomRes, supportRes] = await Promise.all([
+                    fetch(appendCommit(`${baseUrl}/ibom`), { signal }),
+                    fetch(appendCommit(`${baseUrl}/viewer/support-files`), { signal }),
+                ]);
 
                 if (ibomRes.ok) {
                     setIbomUrl(appendCommit(`${baseUrl}/ibom`));
                 } else {
                     setIbomUrl(null);
+                }
+                if (supportRes.ok) {
+                    const payload = await supportRes.json() as { files?: ViewerBlobSource[] };
+                    setViewerSupportFiles(payload.files ?? []);
+                } else {
+                    setViewerSupportFiles([]);
                 }
 
             } catch (err) {
@@ -387,6 +398,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         setPcbContentLoaded(false);
         setSchematicContent(null);
         setSubsheets([]);
+        setViewerSupportFiles([]);
         setPcbContent(null);
         setIbomUrl(null);
         setSemanticIndex(null);
@@ -503,7 +515,12 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     if (handled) event.preventDefault();
                     return;
                 }
-                if (event.altKey && (event.key === "Backspace" || event.key === "Delete")) {
+                if (event.altKey && (
+                    event.key === "Backspace"
+                    || event.key === "Delete"
+                    || event.code === "Backspace"
+                    || event.code === "Delete"
+                )) {
                     const handled = schematicViewerRef.current?.navigateSchematicParent?.();
                     if (handled) event.preventDefault();
                     return;
@@ -521,14 +538,14 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         [schematicContent],
     );
     const schematicSources = useMemo<ViewerBlobSource[]>(
-        () => (schematicRootSource ? [schematicRootSource, ...subsheets] : []),
-        [schematicRootSource, subsheets],
+        () => (schematicRootSource ? [schematicRootSource, ...viewerSupportFiles, ...subsheets] : []),
+        [schematicRootSource, subsheets, viewerSupportFiles],
     );
     const pcbSources = useMemo<ViewerBlobSource[]>(
         () => (pcbContent
-            ? [{ filename: "board.kicad_pcb", content: pcbContent }]
+            ? [{ filename: "board.kicad_pcb", content: pcbContent }, ...viewerSupportFiles]
             : []),
-        [pcbContent],
+        [pcbContent, viewerSupportFiles],
     );
     const schematicViewerKey = buildViewerKey("schematic", projectId, commit);
     const pcbViewerKey = buildViewerKey("pcb", projectId, commit);
@@ -572,12 +589,17 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     <div aria-hidden={activeTab !== "sch"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
                         {schematicContentLoaded ? (
                             schematicSources.length > 0 ? (
-                                <EcadViewerHost
-                                    viewerKey={schematicViewerKey}
-                                    sources={schematicSources}
-                                    active={activeTab === "sch"}
-                                    setViewerRef={setSchematicViewerRef}
-                                />
+                                <div className="flex h-full min-w-0">
+                                    <EcadViewerControls context="SCH" viewer={schematicViewerElement} />
+                                    <div className="min-w-0 flex-1">
+                                        <EcadViewerHost
+                                            viewerKey={schematicViewerKey}
+                                            sources={schematicSources}
+                                            active={activeTab === "sch"}
+                                            setViewerRef={setSchematicViewerRef}
+                                        />
+                                    </div>
+                                </div>
                             ) : (
                                 <div className="flex h-full items-center justify-center text-muted-foreground">
                                     <p>No schematic files found.</p>
@@ -594,12 +616,17 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     <div aria-hidden={activeTab !== "pcb"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
                         {pcbContentLoaded ? (
                             pcbSources.length > 0 ? (
-                                <EcadViewerHost
-                                    viewerKey={pcbViewerKey}
-                                    sources={pcbSources}
-                                    active={activeTab === "pcb"}
-                                    setViewerRef={setPcbViewerRef}
-                                />
+                                <div className="flex h-full min-w-0">
+                                    <EcadViewerControls context="PCB" viewer={pcbViewerElement} />
+                                    <div className="min-w-0 flex-1">
+                                        <EcadViewerHost
+                                            viewerKey={pcbViewerKey}
+                                            sources={pcbSources}
+                                            active={activeTab === "pcb"}
+                                            setViewerRef={setPcbViewerRef}
+                                        />
+                                    </div>
+                                </div>
                             ) : (
                                 <div className="flex h-full items-center justify-center text-muted-foreground">
                                     <p>No PCB files found.</p>

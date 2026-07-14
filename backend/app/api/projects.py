@@ -40,6 +40,13 @@ router = APIRouter(dependencies=[Depends(require_viewer)])
 
 ARCHIVE_DIR_NAMES = {"archive", "archived", "old", "backup", "backups", "obsolete"}
 
+
+def _worksheet_path_key(path: str | Path) -> tuple[int, int, str]:
+    normalized = str(path).replace("\\", "/")
+    parts = [part.casefold() for part in normalized.split("/")]
+    archived = int(any(part in ARCHIVE_DIR_NAMES for part in parts))
+    return archived, len(parts), normalized.casefold()
+
 class Monorepo(BaseModel):
     name: str
     path: str
@@ -1279,6 +1286,117 @@ async def get_project_subsheets(
     # Convert filenames to URLs
     subsheet_urls = [{"name": s, "url": f"/api/projects/{project_id}/asset/{s}"} for s in subsheets]
     return {"files": subsheet_urls}
+
+
+@router.get("/{project_id}/viewer/support-files")
+async def get_project_viewer_support_files(
+    project_id: str,
+    commit: Optional[str] = None,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """Return the small project/worksheet sources required by ecad-viewer.
+
+    These are identity and presentation inputs, not generated semantic assets.
+    Keeping them separate from the schematic endpoint lets the root sheet paint
+    immediately while the host appends project settings and the custom page
+    layout without remounting the viewer.
+    """
+    project = get_project_for_role_or_404(project_id, user.role)
+
+    if commit:
+        repo_path, sub_path = _repo_context(project)
+        pro_paths = file_service.find_files_in_commit(
+            repo_path, commit, "*.kicad_pro", relative_prefix=sub_path
+        )
+        if not pro_paths:
+            return {"files": []}
+        config = _path_config_from_commit(project, commit)
+        expected_stem = Path(config.schematic or "").stem
+        pro_path = next(
+            (path for path in pro_paths if Path(path).stem == expected_stem),
+            pro_paths[0],
+        )
+        pro_file = _read_commit_file(project, commit, pro_path)
+        files = [
+            {
+                "filename": Path(pro_path).name,
+                "content": pro_file.content.decode("utf-8"),
+            }
+        ]
+        try:
+            settings = json.loads(pro_file.content.decode("utf-8"))
+            configured = str(
+                settings.get("schematic", {}).get("page_layout_descr_file", "")
+                or settings.get("pcbnew", {}).get("page_layout_descr_file", "")
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            configured = ""
+        worksheet_name = Path(configured.replace("kicad-embed://", "")).name
+        if worksheet_name:
+            worksheet_paths = file_service.find_files_in_commit(
+                repo_path, commit, "*.kicad_wks", relative_prefix=sub_path
+            )
+            worksheet_path = next(
+                iter(
+                    sorted(
+                        (
+                            path
+                            for path in worksheet_paths
+                            if Path(path).name == worksheet_name
+                        ),
+                        key=_worksheet_path_key,
+                    )
+                ),
+                None,
+            )
+            if worksheet_path:
+                worksheet = _read_commit_file(project, commit, worksheet_path)
+                files.append(
+                    {
+                        "filename": worksheet_path,
+                        "content": worksheet.content.decode("utf-8"),
+                    }
+                )
+        return {"files": files}
+
+    project_file = semantic_visualizer_service.find_kicad_project(project.path)
+    files = [
+        {
+            "filename": project_file.name,
+            "content": project_file.read_text(encoding="utf-8"),
+        }
+    ]
+    try:
+        settings = json.loads(files[0]["content"])
+        configured = str(
+            settings.get("schematic", {}).get("page_layout_descr_file", "")
+            or settings.get("pcbnew", {}).get("page_layout_descr_file", "")
+        )
+    except json.JSONDecodeError:
+        configured = ""
+    worksheet_name = Path(configured.replace("kicad-embed://", "")).name
+    if worksheet_name:
+        worksheet = next(
+            iter(
+                sorted(
+                    (
+                        path
+                        for path in Path(project.path).rglob(worksheet_name)
+                        if path.is_file()
+                    ),
+                    key=_worksheet_path_key,
+                )
+            ),
+            None,
+        )
+        if worksheet:
+            files.append(
+                {
+                    "filename": worksheet.relative_to(project.path).as_posix(),
+                    "content": worksheet.read_text(encoding="utf-8"),
+                }
+            )
+    return {"files": files}
 
 @router.get("/{project_id}/pcb")
 async def get_project_pcb(

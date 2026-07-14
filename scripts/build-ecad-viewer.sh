@@ -16,7 +16,7 @@ install -m 0644 "${APP_DIR}/build/parser.worker.js" "${PUBLIC_DIR}/parser.worker
 ADAPTER_COMMIT="$(git -C "${ECAD_VIEWER_DIR}" rev-parse HEAD)"
 ECAD_SHA="$(shasum -a 256 "${PUBLIC_DIR}/ecad-viewer.js" | awk '{print $1}')"
 WORKER_SHA="$(shasum -a 256 "${PUBLIC_DIR}/parser.worker.js" | awk '{print $1}')"
-BUILD_VERSION="prism-host-adapter-v2.1"
+BUILD_VERSION="prism-host-adapter-v2.2"
 
 cat > "${PUBLIC_DIR}/ecad-viewer.manifest.json" <<EOF
 {

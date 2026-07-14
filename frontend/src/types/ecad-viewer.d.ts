@@ -69,6 +69,30 @@ export interface EcadSemanticSelectionDetail {
     layer?: string;
 }
 
+export interface EcadSchematicPageState {
+    projectPath: string;
+    sheetPath: string;
+    filename: string;
+    name?: string;
+    page?: string;
+    depth: number;
+    active: boolean;
+}
+
+export interface EcadPcbLayerState {
+    name: string;
+    color: string;
+    visible: boolean;
+    highlighted: boolean;
+}
+
+export interface EcadPcbViewState {
+    layers: EcadPcbLayerState[];
+    objectOpacity: Record<"tracks" | "vias" | "pads" | "zones", number>;
+    objectVisibility: Record<"references" | "values" | "footprintText" | "hiddenText", boolean>;
+    highlightTracks: boolean;
+}
+
 export type EcadOverlayAnchor =
     | { kind: "world"; x: number; y: number; page?: string }
     | { kind: "bbox"; bounds: [number, number, number, number]; page?: string }
@@ -113,6 +137,7 @@ export interface ECadViewerElement extends HTMLElement {
     switchPage(pageId: string): void;
     navigateSchematicPage?(direction: -1 | 1): boolean;
     navigateSchematicParent?(): boolean;
+    getSchematicPages?(): EcadSchematicPageState[];
     getActiveSchematicPage?(): {
         projectPath: string;
         sheetPath: string;
@@ -120,6 +145,13 @@ export interface ECadViewerElement extends HTMLElement {
         name?: string;
         page?: string;
     } | null;
+    getPcbViewState?(): EcadPcbViewState | null;
+    setPcbLayerVisibility?(name: string, visible: boolean): boolean;
+    setPcbLayerHighlight?(name: string | null): boolean;
+    applyPcbLayerPreset?(preset: "front" | "back" | "copper" | "outer-copper" | "inner-copper" | "drawings" | "all" | "none"): void;
+    setPcbObjectOpacity?(kind: "tracks" | "vias" | "pads" | "zones", opacity: number): void;
+    setPcbObjectVisibility?(kind: "references" | "values" | "footprintText" | "hiddenText", visible: boolean): void;
+    setPcbTrackHighlight?(enabled: boolean): void;
     getScreenLocation(x: number, y: number): { x: number; y: number } | null;
     requestCrossProbe(request: CrossProbeRequest): boolean;
 }
@@ -133,6 +165,7 @@ declare global {
         "ecad-viewer:crossprobe:request": CustomEvent<CrossProbeRequest>;
         "ecad-viewer:crossprobe:result": CustomEvent<CrossProbeResult>;
         "ecad-viewer:selection": CustomEvent<EcadSemanticSelectionDetail>;
+        "ecad-viewer:view-state-change": CustomEvent<void>;
         "kicanvas:select": CustomEvent<KiCanvasSelectDetail>;
     }
 
