@@ -497,8 +497,9 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
 
     useEffect(() => {
         const handleKeyboard = (event: KeyboardEvent) => {
-            if (event.defaultPrevented || document.querySelector('[role="dialog"][data-state="open"]')) return;
             const target = event.target;
+            const openDialog = document.querySelector('[role="dialog"][data-state="open"]');
+            if (event.defaultPrevented || (openDialog && target instanceof Node && openDialog.contains(target))) return;
             if (
                 target instanceof HTMLInputElement
                 || target instanceof HTMLTextAreaElement
@@ -523,14 +524,23 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     if (handled) event.preventDefault();
                     return;
                 }
-                if (event.altKey && (
+                // macOS reports Option+Delete inconsistently across browsers:
+                // usually Backspace, occasionally Delete or a legacy keyCode.
+                const parentShortcut = event.getModifierState("Alt") && (
                     event.key === "Backspace"
                     || event.key === "Delete"
+                    || event.key === "Del"
                     || event.code === "Backspace"
                     || event.code === "Delete"
-                )) {
+                    || event.keyCode === 8
+                    || event.keyCode === 46
+                );
+                if (parentShortcut) {
                     const handled = schematicViewerRef.current?.navigateSchematicParent?.();
-                    if (handled) event.preventDefault();
+                    if (handled) {
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                    }
                     return;
                 }
             }
