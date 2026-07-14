@@ -83,6 +83,8 @@ function initialState() {
     showBoard: true,
     showComponents: true,
     isolateNet: false,
+    preIsolation3dLayers: null,
+    preIsolationCompareLayers: null,
     separation: 0,
     dragging: false,
     dragMode: "orbit",
@@ -1598,10 +1600,57 @@ function syncNetIsolationControls() {
   if (boardToggle) boardToggle.checked = state.showBoard;
 }
 
+function layersForActiveNet() {
+  const layers = new Set();
+  if (!state.activeNetId) return layers;
+  for (const tile of scene.tiles.values()) {
+    if (tileHasNet(tile, state.activeNetId)) layers.add(Number(tile.layerId));
+  }
+  return layers;
+}
+
+function applyNetIsolationLayers() {
+  const layers = layersForActiveNet();
+  if (!layers.size) return;
+  state.visible3dLayers = new Set(layers);
+  if (state.mode === "layer") beginCompareLayerTransition(layers);
+  else {
+    state.compareLayers = new Set(layers);
+    state.desiredCompareLayers = new Set(layers);
+  }
+  scheduleTileResidency(performance.now(), { force: true });
+}
+
 function setNetIsolation(enabled) {
-  state.isolateNet = Boolean(enabled && state.activeNetId);
+  const next = Boolean(enabled && state.activeNetId);
+  if (next && !state.isolateNet) {
+    state.preIsolation3dLayers = new Set(state.visible3dLayers);
+    state.preIsolationCompareLayers = new Set(state.desiredCompareLayers.size
+      ? state.desiredCompareLayers
+      : state.compareLayers);
+  }
+  state.isolateNet = next;
+  if (state.isolateNet) {
+    applyNetIsolationLayers();
+  } else if (state.preIsolation3dLayers || state.preIsolationCompareLayers) {
+    if (state.preIsolation3dLayers) {
+      state.visible3dLayers = new Set(state.preIsolation3dLayers);
+    }
+    if (state.preIsolationCompareLayers) {
+      const restored = new Set(state.preIsolationCompareLayers);
+      if (state.mode === "layer") beginCompareLayerTransition(restored);
+      else {
+        state.compareLayers = restored;
+        state.desiredCompareLayers = new Set(restored);
+      }
+    }
+    state.preIsolation3dLayers = null;
+    state.preIsolationCompareLayers = null;
+    scheduleTileResidency(performance.now(), { force: true });
+  }
   state.showBoard = !state.isolateNet;
   syncNetIsolationControls();
+  refreshControls();
 }
 
 function refreshControls() {
@@ -1749,6 +1798,7 @@ function selectNet(netId, shouldFrame) {
   }
   selectionEl.textContent = JSON.stringify(net || {}, null, 2);
   updateSelectionCard();
+  if (state.isolateNet) applyNetIsolationLayers();
   if (shouldFrame && net?.boundsMm) camera.frame(runtimeBounds(net.boundsMm));
   scheduleTileResidency(performance.now(), { force: true });
   emitSelectionChange(netSelection(net));
@@ -1763,6 +1813,7 @@ function selectFeature(featureId, shouldFrame = false) {
   if (reference) bomViewer?.setSelectionByReference(reference, { scroll: state.workspace === "bom" });
   selectionEl.textContent = feature ? JSON.stringify(feature, null, 2) : "No object selected";
   updateSelectionCard();
+  if (state.isolateNet && state.activeNetId) applyNetIsolationLayers();
   if (shouldFrame && feature?.bounds) framePcbFeature(feature);
   scheduleTileResidency(performance.now(), { force: true });
   emitSelectionChange(featureSelection(feature));
