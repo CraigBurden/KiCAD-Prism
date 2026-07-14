@@ -36,6 +36,49 @@ const buildViewerKey = (
     commit: string | null | undefined,
 ) => `${kind}:${projectId}:${commit ?? "latest"}`;
 
+type EcadViewerWithLegacyLoader = ECadViewerElement & {
+    loaded?: boolean;
+    load_src?: () => Promise<void>;
+};
+
+let ecadViewerLoadSrcGuardInstalled = false;
+
+function ecadViewerHasDomSources(viewer: ECadViewerElement): boolean {
+    for (const node of viewer.querySelectorAll("ecad-source")) {
+        const source = node as HTMLElement & { src?: string };
+        if (source.src) return true;
+    }
+    for (const node of viewer.querySelectorAll("ecad-blob")) {
+        const blob = node as HTMLElement & { filename?: string; content?: string };
+        if (blob.filename || blob.content) return true;
+    }
+    return false;
+}
+
+function installEcadViewerLoadSrcGuard(): void {
+    if (ecadViewerLoadSrcGuardInstalled) return;
+    const ctor = customElements.get("ecad-viewer") as (CustomElementConstructor & {
+        prototype: EcadViewerWithLegacyLoader;
+    }) | undefined;
+    if (!ctor?.prototype.load_src) return;
+
+    ecadViewerLoadSrcGuardInstalled = true;
+    const originalLoadSrc = ctor.prototype.load_src;
+    ctor.prototype.load_src = async function loadSrcGuard(this: EcadViewerWithLegacyLoader) {
+        const windowWithLegacyUrls = window as Window & {
+            design_urls?: unknown;
+            zip_url?: unknown;
+        };
+        if (windowWithLegacyUrls.design_urls || windowWithLegacyUrls.zip_url) {
+            return originalLoadSrc.call(this);
+        }
+        if (!ecadViewerHasDomSources(this) && this.loaded) {
+            return;
+        }
+        return originalLoadSrc.call(this);
+    };
+}
+
 type EcadViewerHostProps = {
     viewerKey: string;
     sources: ViewerBlobSource[];
@@ -62,6 +105,7 @@ function EcadViewerHost({ viewerKey, sources, active, setViewerRef }: EcadViewer
 
         const replaceRoot = async () => {
             await customElements.whenDefined("ecad-viewer");
+            installEcadViewerLoadSrcGuard();
             if (cancelled || !hostRef.current) return;
             await hostRef.current.replaceSources({
                 revisionKey: viewerKey,
@@ -114,6 +158,12 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);
     const schematicViewerRef = useRef<ECadViewerElement | null>(null);
     const pcbViewerRef = useRef<ECadViewerElement | null>(null);
+
+    useEffect(() => {
+        void customElements.whenDefined("ecad-viewer").then(() => {
+            installEcadViewerLoadSrcGuard();
+        });
+    }, []);
 
     // Callback refs to sync state and refs
     const setSchematicViewerRef = useCallback((node: ECadViewerElement | null) => {
