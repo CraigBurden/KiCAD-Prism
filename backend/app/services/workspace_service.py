@@ -163,7 +163,14 @@ class WorkspaceService:
 
     @staticmethod
     def _row_to_dict(row: Any) -> Dict[str, Any]:
-        return dict(row)
+        # psycopg returns native datetime values for TIMESTAMPTZ columns while the
+        # existing workspace API contract exposes ISO-8601 strings. Normalize at
+        # the repository boundary so every project/folder/job consumer receives
+        # the same stable JSON shape.
+        return {
+            key: value.isoformat() if isinstance(value, datetime) else value
+            for key, value in dict(row).items()
+        }
 
     @staticmethod
     def _is_folder_visible(row: Dict[str, Any], user_role: Optional[Role]) -> bool:
