@@ -105,10 +105,37 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.service.initialize()
         with self.service._connect() as conn:  # type: ignore[attr-defined]
             version = conn.execute(
-                "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = ?",
+                "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = %s",
                 ("catalog-postgres-v6",),
             ).fetchone()
         self.assertIsNotNone(version)
+
+    def test_component_head_projection_and_streaming_csv_follow_current_revision(self) -> None:
+        component = self._component("head-" + uuid.uuid4().hex[:8])
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            head = conn.execute(
+                "SELECT revision_id, value FROM component_heads WHERE component_id = %s",
+                (component["id"],),
+            ).fetchone()
+        self.assertEqual(head["revision_id"], component["revision_id"])
+        self.assertEqual(head["value"], "10k")
+
+        updated = self.service.update_component_metadata(
+            component["id"],
+            {"value": "12k"},
+            actor="editor@example.com",
+            expected_revision_id=component["revision_id"],
+        )
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            head = conn.execute(
+                "SELECT revision_id, value FROM component_heads WHERE component_id = %s",
+                (component["id"],),
+            ).fetchone()
+        self.assertEqual(head["revision_id"], updated["revision_id"])
+        self.assertEqual(head["value"], "12k")
+        exported = "".join(self.service.iter_metadata_csv(field_keys=["value", "package_name"]))
+        self.assertIn(component["id"], exported)
+        self.assertIn("12k", exported)
 
     def test_concurrent_qa_approval_creates_one_decision_and_transition(self) -> None:
         component = self._component("approval-" + uuid.uuid4().hex[:8])
@@ -229,7 +256,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         with self.assertRaises(Exception):
             with self.service._connect() as conn:  # type: ignore[attr-defined]
                 conn.execute(
-                    "UPDATE component_revisions SET description = ? WHERE id = ?",
+                    "UPDATE component_revisions SET description = %s WHERE id = %s",
                     ("tampered", component["revision_id"]),
                 )
                 conn.commit()
@@ -249,20 +276,20 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         )["component"]
         with self.service._connect() as conn:  # type: ignore[attr-defined]
             asset = conn.execute(
-                "SELECT asset_id FROM revision_assets WHERE revision_id = ? LIMIT 1",
+                "SELECT asset_id FROM revision_assets WHERE revision_id = %s LIMIT 1",
                 (attached["revision_id"],),
             ).fetchone()
         assert asset is not None
         with self.assertRaises(Exception):
             with self.service._connect() as conn:  # type: ignore[attr-defined]
                 conn.execute(
-                    "DELETE FROM revision_assets WHERE revision_id = ? AND asset_id = ?",
+                    "DELETE FROM revision_assets WHERE revision_id = %s AND asset_id = %s",
                     (attached["revision_id"], asset["asset_id"]),
                 )
                 conn.commit()
         with self.assertRaises(Exception):
             with self.service._connect() as conn:  # type: ignore[attr-defined]
-                conn.execute("UPDATE assets SET sha256 = ? WHERE id = ?", ("0" * 64, asset["asset_id"]))
+                conn.execute("UPDATE assets SET sha256 = %s WHERE id = %s", ("0" * 64, asset["asset_id"]))
                 conn.commit()
 
         preview_id = str(uuid.uuid4())
@@ -273,8 +300,8 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                     id, asset_id, kind, status, content_type, file_path, sha256, size_bytes,
                     generator_name, generator_version, pipeline_version, generator_fingerprint,
                     generation_error, created_at
-                ) VALUES (?, ?, 'symbol', 'ready', 'image/svg+xml', '/tmp/guard.svg', ?, 6,
-                          'test', '1', 'test', ?, '', CURRENT_TIMESTAMP::text)
+                ) VALUES (%s, %s, 'symbol', 'ready', 'image/svg+xml', '/tmp/guard.svg', %s, 6,
+                          'test', '1', 'test', %s, '', CURRENT_TIMESTAMP::text)
                 """,
                 (preview_id, asset["asset_id"], "a" * 64, str(uuid.uuid4())),
             )
@@ -282,7 +309,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         with self.assertRaises(Exception):
             with self.service._connect() as conn:  # type: ignore[attr-defined]
                 conn.execute(
-                    "UPDATE asset_preview_versions SET sha256 = ? WHERE id = ?",
+                    "UPDATE asset_preview_versions SET sha256 = %s WHERE id = %s",
                     ("b" * 64, preview_id),
                 )
                 conn.commit()
@@ -291,7 +318,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 conn.execute(
                     """
                     INSERT INTO revision_previews (revision_id, asset_id, kind, preview_id, created_at)
-                    VALUES (?, ?, 'symbol', ?, CURRENT_TIMESTAMP::text)
+                    VALUES (%s, %s, 'symbol', %s, CURRENT_TIMESTAMP::text)
                     """,
                     (attached["revision_id"], asset["asset_id"], preview_id),
                 )

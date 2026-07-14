@@ -67,11 +67,48 @@ export interface EcadSemanticSelectionDetail {
     sheet?: string;
     page?: string;
     layer?: string;
-    rawItem?: unknown;
+}
+
+export type EcadOverlayAnchor =
+    | { kind: "world"; x: number; y: number; page?: string }
+    | { kind: "bbox"; bounds: [number, number, number, number]; page?: string }
+    | { kind: "source-item"; uuid: string; page?: string }
+    | { kind: "entity"; reference?: string; net?: string; pin?: string; page?: string };
+
+export interface EcadOverlayPrimitive {
+    id: string;
+    kind: "marker" | "bbox" | "polyline" | "polygon" | "text";
+    anchor: EcadOverlayAnchor;
+    sizing?: "world" | "screen";
+    stroke?: string;
+    fill?: string;
+    opacity?: number;
+    strokeWidth?: number;
+    dash?: number[];
+    interactive?: boolean;
+    metadata?: unknown;
+    accessibilityLabel?: string;
+    radius?: number;
+    padding?: number;
+    points?: Array<[number, number]>;
+    text?: string;
+    size?: number;
+}
+
+export interface EcadOverlayScene {
+    context: "SCH" | "PCB";
+    placement: "underlay" | "content-overlay" | "foreground";
+    visible: boolean;
+    primitives: EcadOverlayPrimitive[];
 }
 
 export interface ECadViewerElement extends HTMLElement {
-    setCommentMode(enabled: boolean): void;
+    replaceSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
+    appendSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
+    setActive(active: boolean): void;
+    clearSelection(): void;
+    setOverlayScene(channelId: string, scene: EcadOverlayScene): void;
+    clearOverlayScene(channelId: string): void;
     zoomToLocation(x: number, y: number): void;
     switchPage(pageId: string): void;
     navigateSchematicPage?(direction: -1 | 1): boolean;
@@ -84,10 +121,7 @@ export interface ECadViewerElement extends HTMLElement {
         page?: string;
     } | null;
     getScreenLocation(x: number, y: number): { x: number; y: number } | null;
-    setCrossProbeEnabled(enabled: boolean): void;
-    isCrossProbeEnabled(): boolean;
-    requestCrossProbe(request: CrossProbeRequest): CrossProbeResult;
-    clearCrossProbe?(): void;
+    requestCrossProbe(request: CrossProbeRequest): boolean;
 }
 
 declare global {
@@ -98,6 +132,7 @@ declare global {
     interface HTMLElementEventMap {
         "ecad-viewer:crossprobe:request": CustomEvent<CrossProbeRequest>;
         "ecad-viewer:crossprobe:result": CustomEvent<CrossProbeResult>;
+        "ecad-viewer:selection": CustomEvent<EcadSemanticSelectionDetail>;
         "kicanvas:select": CustomEvent<KiCanvasSelectDetail>;
     }
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
@@ -1018,6 +1019,7 @@ def metadata_grid(
     page_size: int = Query(default=100, ge=1, le=200),
     sort_by: str = Query(default="updated_at"),
     sort_dir: str = Query(default="desc"),
+    field: list[str] | None = Query(default=None),
     user: AuthenticatedUser = Depends(require_catalog_reader),
 ):
     _ = user
@@ -1025,7 +1027,7 @@ def metadata_grid(
         return catalog_service.metadata_grid(
             query=q, availability_state=availability_state, workflow_stage=workflow_stage,
             validation_status=validation_status, category=category, page=page,
-            page_size=page_size, sort_by=sort_by, sort_dir=sort_dir,
+            page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, field_keys=field,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1097,8 +1099,8 @@ def export_metadata_csv(
         if "visible" in preferences:
             selected_fields = [str(key) for key in preferences.get("visible") or []]
     try:
-        return Response(
-            content="\ufeff" + catalog_service.export_metadata_csv(field_keys=selected_fields),
+        return StreamingResponse(
+            chain(("\ufeff",), catalog_service.iter_metadata_csv(field_keys=selected_fields)),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="prism-component-metadata.csv"'},
         )
@@ -1146,20 +1148,6 @@ def export_kicad_dbl_bundle(user: AuthenticatedUser = Depends(require_catalog_wr
 
 
 # ─── Phase 2: CSV Import Routes ──────────────────────────────────────────────
-
-@router.post("/components/import-csv")
-async def import_metadata_csv(
-    file: UploadFile = File(...),
-    user: AuthenticatedUser = Depends(require_catalog_writer),
-):
-    _ = user
-    content = await file.read()
-    try:
-        csv_str = content.decode("utf-8")
-        return catalog_service.import_metadata_csv(csv_str)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
 
 @router.post("/stock/sync-csv")
 async def import_stock_csv(

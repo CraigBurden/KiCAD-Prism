@@ -838,9 +838,8 @@ class ComponentCatalogDomainService:
     def _ensure_metadata_schema(self, conn: Any) -> None:
         """Create the metadata-editing registry and durable batch tables.
 
-        The DDL intentionally stays in the catalog domain layer so SQLite-backed
-        unit tests exercise the same invariants. Production initializes it through
-        the versioned PostgreSQL migration fence.
+        The DDL stays beside the catalog invariants while PostgreSQL initialization
+        applies it behind the versioned schema fence.
         """
         conn.executescript(
             """
@@ -1167,14 +1166,11 @@ class ComponentCatalogDomainService:
         return candidate
 
     def _lock_component_identity(self, conn: Any, manufacturer: str, mpn: str) -> None:
-        # SQLite serializes writes at the database level. PostgreSQL overrides this
-        # with a transaction-scoped advisory lock for the normalized identity.
+        # Persistence adapters provide their transaction-level identity lock.
         _ = (conn, manufacturer, mpn)
 
     def _lock_component_for_mutation(self, conn: Any, component_id: str) -> None:
-        # SQLite serializes writers at the database level. PostgreSQL overrides this
-        # hook with a row lock so every mutation reloads and validates the component
-        # head from one serial transaction.
+        # Persistence adapters provide their row-level component lock.
         _ = (conn, component_id)
 
     def _assert_component_identity_available(
@@ -2927,6 +2923,7 @@ class ComponentCatalogDomainService:
         assets: list[dict[str, Any]],
         *,
         released_view: bool = False,
+        validation_summary: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         availability_state, missing_assets, place_enabled = self._availability(
             assets,
@@ -2935,7 +2932,7 @@ class ComponentCatalogDomainService:
         )
         symbol_asset = next((asset for asset in assets if asset["asset_type"] == "symbol"), None)
         # Lightweight payloads are used by the KiCad remote panel; avoid validation lookups on search paths.
-        validation_summary = {
+        validation_summary = validation_summary or {
             "status": VALIDATION_STATUS_NOT_RUN,
             "enabled": bool(settings.CATALOG_KLC_ENABLED),
             "release_gate": self._klc_release_gate(),
@@ -2948,14 +2945,28 @@ class ComponentCatalogDomainService:
         return {
             "id": str(component_row["id"]),
             "slug": str(component_row["slug"]),
+            "source": str(component_row["source"]),
             "name": str(revision_row["name"]),
+            "value": str(revision_row["value"]),
             "manufacturer": str(revision_row["manufacturer"]),
             "mpn": str(revision_row["mpn"]),
             "description": str(revision_row["description"]),
             "package_name": str(revision_row["package_name"]),
             "category": str(revision_row["category"]),
             "datasheet_url": str(revision_row["datasheet_url"]),
+            "vendor": str(revision_row["vendor"]),
+            "vendor_part_number": str(revision_row["vendor_part_number"]),
+            "mass_g": str(revision_row["mass_g"]),
+            "rqjc_c_w": str(revision_row["rqjc_c_w"]),
+            "rqjc_top_c_w": str(revision_row["rqjc_top_c_w"]),
+            "temp_max_c": str(revision_row["temp_max_c"]),
+            "temp_min_c": str(revision_row["temp_min_c"]),
+            "power_dissipation_w": str(revision_row["power_dissipation_w"]),
+            "rate": str(revision_row["rate"]),
+            "sap_code": str(revision_row["sap_code"]),
+            "extra_fields": _json_loads(revision_row.get("extra_fields"), {}),
             "summary": str(revision_row["summary"]),
+            "revision": int(revision_row["version"]),
             "version": f"{int(revision_row['version'])}.0.0",
             "library_name": str(symbol_asset["target_library"]) if symbol_asset else "",
             "symbol_name": str(symbol_asset["target_name"]) if symbol_asset else "",
@@ -2969,6 +2980,8 @@ class ComponentCatalogDomainService:
             "workflow_stage": _normalize_workflow_stage(str(revision_row["release_status"])),
             "released_view": released_view,
             "revision_id": str(revision_row["id"]),
+            "revision_updated_at": str(revision_row["updated_at"]),
+            "component_updated_at": str(component_row["updated_at"]),
             "assets": [],
             "previews": [],
             "validation": validation_summary,
@@ -3228,34 +3241,41 @@ class ComponentCatalogDomainService:
                 for preview_row in self._load_previews_for_revisions(conn, revision_ids):
                     preview_revision_id = str(preview_row.pop("revision_id"))
                     previews_by_revision.setdefault(preview_revision_id, []).append(preview_row)
-                if revision_ids:
-                    placeholders = ",".join("%s" for _ in revision_ids)
-                    validation_rows = conn.execute(
-                        f"""
-                        SELECT *
-                        FROM asset_validation_runs
-                        WHERE revision_id IN ({placeholders})
-                        ORDER BY revision_id, asset_id, finished_at DESC, created_at DESC
-                        """,
-                        tuple(revision_ids),
-                    ).fetchall()
-                    for validation_row in validation_rows:
-                        revision_id = str(validation_row["revision_id"])
-                        asset_id = str(validation_row["asset_id"])
-                        revision_runs = validation_by_revision.setdefault(revision_id, {})
-                        if asset_id not in revision_runs:
-                            revision_runs[asset_id] = dict(validation_row)
+            if revision_ids:
+                placeholders = ",".join("%s" for _ in revision_ids)
+                validation_rows = conn.execute(
+                    f"""
+                    SELECT *
+                    FROM asset_validation_runs
+                    WHERE revision_id IN ({placeholders})
+                    ORDER BY revision_id, asset_id, finished_at DESC, created_at DESC
+                    """,
+                    tuple(revision_ids),
+                ).fetchall()
+                for validation_row in validation_rows:
+                    revision_id = str(validation_row["revision_id"])
+                    asset_id = str(validation_row["asset_id"])
+                    revision_runs = validation_by_revision.setdefault(revision_id, {})
+                    if asset_id not in revision_runs:
+                        revision_runs[asset_id] = dict(validation_row)
 
             items = []
             for component_row, revision_row in parsed_rows:
                 rev_assets = assets_by_revision.get(str(revision_row["id"]), [])
                 if lightweight:
+                    validation = self._component_validation_summary(
+                        conn,
+                        str(revision_row["id"]),
+                        rev_assets,
+                        preloaded_runs=validation_by_revision.get(str(revision_row["id"]), {}),
+                    )
                     items.append(
                         self._component_summary_payload(
                             component_row,
                             revision_row,
                             rev_assets,
                             released_view=released_only,
+                            validation_summary=validation,
                         )
                     )
                     continue
@@ -3852,9 +3872,39 @@ class ComponentCatalogDomainService:
             conn.commit()
         return normalized
 
-    def metadata_grid(self, **filters: Any) -> dict[str, Any]:
-        result = self.list_components(lightweight=False, include_inactive=False, **filters)
-        return {**result, "schema": METADATA_SCHEMA_VERSION, "fields": self.list_metadata_fields()}
+    def metadata_grid(self, *, field_keys: list[str] | None = None, **filters: Any) -> dict[str, Any]:
+        fields = self.list_metadata_fields()
+        if field_keys is not None:
+            requested = {str(key) for key in field_keys}
+            fields = [field for field in fields if str(field["key"]) in requested]
+        result = self.list_components(lightweight=True, include_inactive=False, **filters)
+        component_ids = [str(item["id"]) for item in result["items"]]
+        if component_ids:
+            column_keys = sorted({
+                str(field["storage_key"])
+                for field in fields
+                if field["storage_kind"] == "column"
+            })
+            needs_extras = any(field["storage_kind"] == "extra" for field in fields)
+            selected_columns = ["component_id", "revision_id", *column_keys]
+            if needs_extras:
+                selected_columns.append("extra_fields")
+            placeholders = ",".join("%s" for _ in component_ids)
+            with self._connect() as conn:
+                rows = conn.execute(
+                    f"SELECT {', '.join(selected_columns)} FROM component_heads "
+                    f"WHERE component_id IN ({placeholders})",
+                    tuple(component_ids),
+                ).fetchall()
+            by_component = {str(row["component_id"]): dict(row) for row in rows}
+            for item in result["items"]:
+                head = by_component.get(str(item["id"]), {})
+                for key in column_keys:
+                    if key in head:
+                        item[key] = str(head[key] or "")
+                if needs_extras:
+                    item["extra_fields"] = _json_loads(head.get("extra_fields"), {})
+        return {**result, "schema": METADATA_SCHEMA_VERSION, "fields": fields}
 
     def _validate_metadata_value(self, field: dict[str, Any], value: str) -> str:
         value = str(value or "").strip()
@@ -4213,6 +4263,9 @@ class ComponentCatalogDomainService:
         return {"batch_id": batch_id, "status": status, "applied": applied, "failed": failed, "errors": errors}
 
     def export_metadata_csv(self, field_keys: list[str] | None = None) -> str:
+        return "".join(self.iter_metadata_csv(field_keys=field_keys))
+
+    def iter_metadata_csv(self, field_keys: list[str] | None = None) -> Iterator[str]:
         self.initialize()
         fields = self.list_metadata_fields()
         if field_keys is not None:
@@ -4227,15 +4280,13 @@ class ComponentCatalogDomainService:
         headers = ["_prism_schema_version", "component_id", "expected_revision_id", "revision", "workflow_stage"]
         headers.extend(field["key"] for field in fixed)
         headers.extend(f"custom:{field['key']}" for field in custom)
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=headers, extrasaction="ignore")
-        writer.writeheader()
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT c.id AS component_id, cr.* FROM components c JOIN component_revisions cr ON cr.id = c.current_revision_id "
-                "WHERE c.is_active = 1 ORDER BY cr.manufacturer, cr.mpn, c.id"
-            ).fetchall()
-            for row in rows:
+
+        def generate() -> Iterator[str]:
+            header_output = io.StringIO()
+            csv.DictWriter(header_output, fieldnames=headers, extrasaction="ignore").writeheader()
+            yield header_output.getvalue()
+
+            def render_row(row: Any) -> str:
                 extras = _json_loads(row["extra_fields"], {})
                 payload = {
                     "_prism_schema_version": METADATA_SCHEMA_VERSION,
@@ -4252,8 +4303,24 @@ class ComponentCatalogDomainService:
                     )
                     for field in custom
                 })
-                writer.writerow(payload)
-        return output.getvalue()
+                output = io.StringIO()
+                csv.DictWriter(output, fieldnames=headers, extrasaction="ignore").writerow(payload)
+                return output.getvalue()
+
+            with self._connect() as conn:
+                sql = (
+                    "SELECT c.id AS component_id, cr.* FROM components c "
+                    "JOIN component_revisions cr ON cr.id = c.current_revision_id "
+                    "WHERE c.is_active = 1 ORDER BY cr.manufacturer, cr.mpn, c.id"
+                )
+                if hasattr(conn, "iter_rows"):
+                    rows = conn.iter_rows(sql, batch_size=500)
+                else:
+                    rows = iter(conn.execute(sql).fetchall())
+                for row in rows:
+                    yield render_row(row)
+
+        return generate()
 
     def _metadata_csv_export_value(self, field: dict[str, Any], value: str) -> str:
         # CSV has no type information and spreadsheet applications aggressively

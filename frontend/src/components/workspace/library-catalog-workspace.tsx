@@ -318,6 +318,7 @@ export function LibraryCatalogWorkspace({
       page_size: String(PAGE_SIZE),
       sort_by: sortKey,
       sort_dir: sortDirection,
+      lightweight: "true",
     });
     if (urlQuery) params.set("q", urlQuery);
     if (workflow !== "all") params.set("workflow_stage", workflow);

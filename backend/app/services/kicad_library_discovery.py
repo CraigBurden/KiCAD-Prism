@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import re
+import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +12,9 @@ from typing import Any
 DISCOVERY_SUFFIXES = {".kicad_sym", ".kicad_mod"}
 MODEL_SUFFIXES = {".step", ".stp", ".wrl"}
 SPICE_SUFFIXES = {".lib", ".mod", ".mdl", ".cir", ".sub", ".subckt", ".spice"}
+_DISCOVERY_CACHE_LIMIT = 8
+_discovery_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+_discovery_cache_lock = threading.Lock()
 
 
 def identity_key(value: str) -> str:
@@ -155,6 +161,17 @@ def discover_library(
     footprint_resolutions: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     inventory = normalize_inventory(inventory_items)
+    signature_payload = "\n".join([
+        *(f"source:{item.get('relative_path', '')}:{item.get('sha256', '')}:{item.get('size_bytes', '')}" for item in source_files),
+        *(f"inventory:{item['relative_path']}:{item['size_bytes']}" for item in inventory),
+        *(f"resolution:{key}:{value}" for key, value in sorted((footprint_resolutions or {}).items())),
+    ])
+    directory_signature = hashlib.sha256(signature_payload.encode("utf-8")).hexdigest()
+    with _discovery_cache_lock:
+        cached = _discovery_cache.get(directory_signature)
+        if cached is not None:
+            _discovery_cache.move_to_end(directory_signature)
+            return copy.deepcopy(cached)
     inventory_by_path = {item["relative_path"].casefold(): item for item in inventory}
     inventory_by_name: dict[str, list[dict[str, Any]]] = {}
     for item in inventory:
@@ -319,9 +336,16 @@ def discover_library(
                 "findings": findings,
             })
 
-    return {
+    result = {
         "components": components,
         "required_paths": sorted(required_paths),
         "inventory_file_count": len(inventory),
         "discovery_file_count": len(source_files),
+        "directory_signature": directory_signature,
     }
+    with _discovery_cache_lock:
+        _discovery_cache[directory_signature] = copy.deepcopy(result)
+        _discovery_cache.move_to_end(directory_signature)
+        while len(_discovery_cache) > _DISCOVERY_CACHE_LIMIT:
+            _discovery_cache.popitem(last=False)
+    return result

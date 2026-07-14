@@ -155,6 +155,37 @@ def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
             return payload
 
 
+def get_existing(project: Any, commit: str | None = None) -> dict[str, Any] | None:
+    with _project_file_for_revision(project, commit) as (project_file, _resolved_commit):
+        source_revision_key = source_revision_key_for_project_file(project_file)
+        path = artifact_path(str(project.id), source_revision_key)
+        if not path.is_file():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+
+def generate(project: Any, commit: str | None = None, *, force: bool = False) -> dict[str, Any]:
+    with _project_file_for_revision(project, commit) as (project_file, resolved_commit):
+        source_revision_key = source_revision_key_for_project_file(project_file)
+        path = artifact_path(str(project.id), source_revision_key)
+        with _lock(str(project.id), source_revision_key):
+            if path.is_file() and not force:
+                return json.loads(path.read_text(encoding="utf-8"))
+            payload = build_semantic_index(
+                project_file,
+                source_revision_key=source_revision_key,
+                commit=resolved_commit,
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".json.tmp")
+            temporary.write_text(
+                json.dumps(payload, indent=2, sort_keys=False) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+            return payload
+
+
 def get_status(project: Any, commit: str | None = None) -> dict[str, Any]:
     with _project_file_for_revision(project, commit) as (project_file, resolved_commit):
         source_revision_key = source_revision_key_for_project_file(project_file)

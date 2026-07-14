@@ -24,7 +24,7 @@ from app.services.library_folder_import_service import (  # noqa: E402
     resolve_server_import_path,
 )
 from app.services.local_artifact_store import LocalArtifactStore  # noqa: E402
-from app.services.component_catalog_service_sqlite import ComponentCatalogService  # noqa: E402
+from app.services.component_catalog_domain import ComponentCatalogDomainService  # noqa: E402
 
 
 class LibraryFolderImportTests(unittest.TestCase):
@@ -167,10 +167,11 @@ class LibraryFolderImportTests(unittest.TestCase):
                 put_stream=put_stream,
                 materialize=materialize,
             )
-            service = ComponentCatalogService(
-                store_root=root / "catalog",
-                database_url=str(root / "catalog.sqlite3"),
-            )
+            # Proposal construction only needs the domain's pure KiCad symbol helpers;
+            # persistence is deliberately outside this unit test.
+            service = ComponentCatalogDomainService.__new__(ComponentCatalogDomainService)
+            service._store_root = root / "catalog"  # type: ignore[attr-defined]
+            service._store_root.mkdir(parents=True, exist_ok=True)  # type: ignore[attr-defined]
             with (
                 mock.patch("app.services.library_folder_import_service.artifact_store", fake_store),
                 mock.patch("app.services.library_folder_import_service.catalog_service", service),

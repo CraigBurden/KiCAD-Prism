@@ -1,14 +1,16 @@
+import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
 import { cn } from "@/lib/utils";
-import { LibraryImportCenter } from "./library-import-center";
-import { LibraryComponentWorkspace } from "./library-component-workspace";
-import { LibraryReleaseQueue } from "./library-release-queue";
 import { LibraryCatalogWorkspace } from "./library-catalog-workspace";
-import { LibraryBulkEditWorkspace } from "./library-bulk-edit-workspace";
+
+const LibraryBulkEditWorkspace = lazy(() => import("./library-bulk-edit-workspace").then((module) => ({ default: module.LibraryBulkEditWorkspace })));
+const LibraryComponentWorkspace = lazy(() => import("./library-component-workspace").then((module) => ({ default: module.LibraryComponentWorkspace })));
+const LibraryImportCenter = lazy(() => import("./library-import-center").then((module) => ({ default: module.LibraryImportCenter })));
+const LibraryReleaseQueue = lazy(() => import("./library-release-queue").then((module) => ({ default: module.LibraryReleaseQueue })));
 
 type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "connectors";
 
@@ -58,7 +60,7 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
   };
 
   if (componentId) {
-    return <LibraryComponentWorkspace componentId={componentId} user={user} projects={projects} onBack={closeComponent} />;
+    return <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Opening component workspace…</div>}><LibraryComponentWorkspace componentId={componentId} user={user} projects={projects} onBack={closeComponent} /></Suspense>;
   }
 
   return (
@@ -68,6 +70,7 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
           <Button key={item} size="sm" variant="ghost" className={cn("capitalize", view === item && "bg-secondary")} aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>{item === "bulk-edit" ? "Bulk Edit" : item === "imports" ? "Import Center" : item === "releases" ? "Release Queue" : item}</Button>
         ))}
       </nav>
+      <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading library workspace…</div>}>
       <div className="min-h-0 flex-1 overflow-hidden">
         {view === "catalog" && <LibraryCatalogWorkspace user={user} onOpenComponent={(id) => openComponent(id, "overview", "catalog")} />}
         {view === "bulk-edit" && <LibraryBulkEditWorkspace user={user} />}
@@ -75,6 +78,7 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
         {view === "releases" && <LibraryReleaseQueue onOpenComponent={(id) => openComponent(id, "review", "releases")} />}
         {view === "connectors" && <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Connector configuration will appear here as integrations are enabled.</div>}
       </div>
+      </Suspense>
     </div>
   );
 }

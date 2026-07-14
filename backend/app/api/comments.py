@@ -1,8 +1,8 @@
 """
 Comments API for KiCAD-Prism Collaboration Feature.
 
-All comment CRUD is backed by SQLite (single source of truth).
-comments.json is generated from DB only during push/export workflows.
+Comment CRUD is backed by the PostgreSQL ``comments`` schema. The visualizer UI
+is intentionally disabled until comments are reintroduced through ecad overlay scenes.
 """
 
 import os

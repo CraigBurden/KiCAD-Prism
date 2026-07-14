@@ -25,6 +25,8 @@ import type {
 const PAGE_SIZE = 100;
 const DEFAULT_WIDTH = 180;
 const IDENTITY_WIDTH = 330;
+const GRID_ROW_HEIGHT = 36;
+const GRID_OVERSCAN = 8;
 const WORKFLOW_LABELS: Record<WorkflowStage, string> = {
   open: "Open", in_progress: "In progress", qa_review: "Awaiting QA", done: "Approved",
   released: "Released", archived: "Archived",
@@ -60,21 +62,24 @@ function validateCell(field: CatalogMetadataField, value: string): string {
 }
 
 function MetadataCell({
-  value, field, readOnly, rowIndex, columnIndex, pinnedOffset, onCommit, onFocusCell, onNavigate,
+  value, field, readOnly, active, rowIndex, columnIndex, pinnedOffset, onCommit, onActivate, onNavigate,
 }: {
   value: string;
   field: CatalogMetadataField;
   readOnly: boolean;
+  active: boolean;
   rowIndex: number;
   columnIndex: number;
   pinnedOffset?: number;
   onCommit: (value: string) => void;
-  onFocusCell: () => void;
+  onActivate: () => void;
   onNavigate: (rowDelta: number, columnDelta: number) => void;
 }) {
   const [draft, setDraft] = useState(value);
   const cancelCommit = useRef(false);
+  const editorRef = useRef<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(null);
   useEffect(() => setDraft(value), [value]);
+  useEffect(() => { if (active) editorRef.current?.focus(); }, [active]);
   const error = validateCell(field, draft);
   const commit = () => {
     if (cancelCommit.current) { cancelCommit.current = false; return; }
@@ -83,18 +88,39 @@ function MetadataCell({
   const pinnedClass = pinnedOffset === undefined ? "" : "sticky z-10 bg-background";
   const pinnedStyle = pinnedOffset === undefined ? undefined : { left: pinnedOffset };
 
+  if (!active || readOnly) {
+    const display = field.type === "boolean"
+      ? (["true", "1", "yes"].includes(value.toLocaleLowerCase()) ? "True" : "False")
+      : value || "—";
+    return <div
+      className={cn("flex h-9 min-w-0 items-center border-r px-2 text-xs outline-none focus:ring-1 focus:ring-inset focus:ring-ring", pinnedClass)}
+      style={pinnedStyle}
+      data-cell={`${rowIndex}:${columnIndex}`}
+      tabIndex={0}
+      title={field.description || display}
+      onFocus={onActivate}
+      onDoubleClick={onActivate}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !readOnly) { event.preventDefault(); onActivate(); }
+        if (event.key === "ArrowUp") { event.preventDefault(); onNavigate(-1, 0); }
+        if (event.key === "ArrowDown") { event.preventDefault(); onNavigate(1, 0); }
+        if (event.key === "ArrowLeft") { event.preventDefault(); onNavigate(0, -1); }
+        if (event.key === "ArrowRight" || event.key === "Tab") { event.preventDefault(); onNavigate(0, event.shiftKey ? -1 : 1); }
+      }}
+    ><span className="truncate">{display}</span></div>;
+  }
+
   if (field.type === "boolean") {
     return <div className={cn("flex h-9 items-center justify-center border-r px-2", pinnedClass)} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`}>
-      <Checkbox checked={["true", "1", "yes"].includes(value.toLocaleLowerCase())} disabled={readOnly} onCheckedChange={(checked) => onCommit(checked ? "true" : "false")} onFocus={onFocusCell} />
+      <Checkbox ref={editorRef as React.Ref<HTMLButtonElement>} checked={["true", "1", "yes"].includes(value.toLocaleLowerCase())} onCheckedChange={(checked) => onCommit(checked ? "true" : "false")} />
     </div>;
   }
   if (field.type === "enum") {
     return <div className={cn("h-9 border-r p-1", pinnedClass)} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`}>
       <select
+        ref={editorRef as React.Ref<HTMLSelectElement>}
         className="h-full w-full border-0 bg-transparent px-1 text-xs outline-none focus:ring-1 focus:ring-ring"
         value={value}
-        disabled={readOnly}
-        onFocus={onFocusCell}
         onChange={(event) => onCommit(event.target.value)}
       >
         <option value="">—</option>
@@ -104,12 +130,11 @@ function MetadataCell({
   }
   return <div className={cn("h-9 border-r p-1", pinnedClass, error && "bg-destructive/10")} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`} title={error || field.description}>
     <input
+      ref={editorRef as React.Ref<HTMLInputElement>}
       className="h-full w-full border-0 bg-transparent px-1 text-xs outline-none focus:bg-background focus:ring-1 focus:ring-ring disabled:cursor-default"
       type={field.type === "number" ? "text" : field.type === "url" ? "url" : "text"}
       inputMode={field.type === "number" ? "decimal" : undefined}
       value={draft}
-      disabled={readOnly}
-      onFocus={onFocusCell}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
@@ -245,6 +270,8 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const redoStack = useRef<StagedRows[]>([]);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const preferencesLoaded = useRef(false);
+  const gridViewportRef = useRef<HTMLDivElement>(null);
+  const [gridViewport, setGridViewport] = useState({ height: 640, scrollTop: 0 });
   const isAdmin = user?.role === "admin";
   const canEdit = canWriteCatalog(user?.role);
 
@@ -278,6 +305,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
     const controller = new AbortController();
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE), sort_by: sortBy, sort_dir: sortDir });
+    preferences.visible.forEach((fieldKey) => params.append("field", fieldKey));
     if (debouncedQuery) params.set("q", debouncedQuery);
     if (workflow !== "all") params.set("workflow_stage", workflow);
     if (availability !== "all") params.set("availability_state", availability);
@@ -288,7 +316,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
       .catch((error) => { if (!controller.signal.aborted) toast.error(error instanceof Error ? error.message : "Failed to load metadata grid"); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [availability, category, debouncedQuery, page, refreshKey, sortBy, sortDir, validation, workflow]);
+  }, [availability, category, debouncedQuery, page, preferences.visible, refreshKey, sortBy, sortDir, validation, workflow]);
 
   useEffect(() => {
     if (!preferencesLoaded.current) return;
@@ -320,6 +348,19 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const gridTemplate = useMemo(() => `${IDENTITY_WIDTH}px ${visibleFields.map((field) => `${preferences.widths[field.key] || DEFAULT_WIDTH}px`).join(" ")}`, [preferences.widths, visibleFields]);
   const filteredFieldList = useMemo(() => fields.filter((field) => (showArchived || !field.archived) && `${field.label} ${field.key} ${field.description}`.toLocaleLowerCase().includes(fieldQuery.toLocaleLowerCase())), [fieldQuery, fields, showArchived]);
   const groupedFieldList = useMemo(() => (["core", "engineering", "custom"] as const).map((group) => ({ group, items: filteredFieldList.filter((field) => field.group === group) })).filter((section) => section.items.length), [filteredFieldList]);
+  const firstVisibleRow = Math.max(0, Math.floor(Math.max(0, gridViewport.scrollTop - 40) / GRID_ROW_HEIGHT) - GRID_OVERSCAN);
+  const lastVisibleRow = Math.min(items.length, Math.ceil((gridViewport.scrollTop + gridViewport.height) / GRID_ROW_HEIGHT) + GRID_OVERSCAN);
+  const visibleRows = items.slice(firstVisibleRow, lastVisibleRow);
+
+  useEffect(() => {
+    const viewport = gridViewportRef.current;
+    if (!viewport) return;
+    const updateHeight = () => setGridViewport((current) => ({ ...current, height: viewport.clientHeight || current.height }));
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
 
   const commitStaged = useCallback((next: StagedRows) => {
     setStaged((current) => { undoStack.current.push(cloneStaged(current)); if (undoStack.current.length > 100) undoStack.current.shift(); redoStack.current = []; return next; });
@@ -342,8 +383,8 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const navigateCell = (row: number, column: number) => {
     const nextRow = Math.max(0, Math.min(items.length - 1, row));
     const nextColumn = Math.max(0, Math.min(visibleFields.length - 1, column));
-    const target = document.querySelector<HTMLElement>(`[data-cell="${nextRow}:${nextColumn}"] input, [data-cell="${nextRow}:${nextColumn}"] select, [data-cell="${nextRow}:${nextColumn}"] button`);
-    target?.focus();
+    setActiveCell({ row: nextRow, column: nextColumn });
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-cell="${nextRow}:${nextColumn}"]`)?.focus());
   };
 
   const handleGridPaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
@@ -488,16 +529,18 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
       <main className="flex min-w-0 flex-1 flex-col p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading components…" : `${items.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${Math.min(page * PAGE_SIZE, total)} of ${total.toLocaleString()}`}</span><span>{visibleFields.length} visible fields · {Object.keys(staged).length} staged components</span></div>
-        <div className={cn("min-h-0 flex-1 overflow-auto border", loading && "opacity-60")} onPaste={handleGridPaste} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); } if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "y") { event.preventDefault(); redo(); } }}>
+        <div ref={gridViewportRef} className={cn("min-h-0 flex-1 overflow-auto border", loading && "opacity-60")} onScroll={(event) => setGridViewport((current) => ({ ...current, scrollTop: event.currentTarget.scrollTop }))} onPaste={handleGridPaste} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); } if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "y") { event.preventDefault(); redo(); } }}>
           <div className="min-w-max" style={{ width: IDENTITY_WIDTH + visibleFields.reduce((sum, field) => sum + (preferences.widths[field.key] || DEFAULT_WIDTH), 0) }}>
             <div className="sticky top-0 z-20 grid h-10 border-b bg-muted text-xs font-medium" style={{ gridTemplateColumns: gridTemplate }}>
               <div className="sticky left-0 z-30 flex items-center border-r bg-muted px-3">Component</div>
               {visibleFields.map((field) => <div key={field.key} className={cn("group relative flex items-center gap-1 border-r bg-muted px-2", pinnedOffsets.has(field.key) && "sticky z-20")} style={pinnedOffsets.has(field.key) ? { left: pinnedOffsets.get(field.key) } : undefined}><span className="truncate">{field.label}</span>{field.unit ? <span className="text-muted-foreground">({field.unit})</span> : null}{field.required ? <span className="text-destructive">*</span> : null}<button type="button" aria-label={`Resize ${field.label}`} className="absolute inset-y-0 right-0 w-2 cursor-col-resize opacity-0 hover:bg-primary/20 group-hover:opacity-100" onPointerDown={(event) => { event.preventDefault(); resizeColumn(field.key, event.clientX, preferences.widths[field.key] || DEFAULT_WIDTH); }} /></div>)}
             </div>
-            {items.map((component, rowIndex) => <div key={component.id} className={cn("grid border-b last:border-b-0", staged[component.id] && "bg-primary/5")} style={{ gridTemplateColumns: gridTemplate }}>
+            {firstVisibleRow ? <div aria-hidden="true" style={{ height: firstVisibleRow * GRID_ROW_HEIGHT }} /> : null}
+            {visibleRows.map((component, visibleRowIndex) => { const rowIndex = firstVisibleRow + visibleRowIndex; return <div key={component.id} className={cn("grid border-b last:border-b-0", staged[component.id] && "bg-primary/5")} style={{ gridTemplateColumns: gridTemplate }}>
               <div className="sticky left-0 z-10 flex h-9 min-w-0 items-center gap-2 border-r bg-background px-3"><span className="min-w-0 flex-1 truncate text-xs font-medium" title={component.name}>{component.mpn || component.name}</span><Badge variant={component.workflow_stage === "qa_review" ? "warning" : "outline"} className="shrink-0" title="Read-only workflow stage">{WORKFLOW_LABELS[component.workflow_stage]}</Badge><Badge variant="outline" className="shrink-0" title="Read-only revision">v{component.revision}</Badge></div>
-              {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} readOnly={!canEdit} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCellValue(component, field, value)} onFocusCell={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
-            </div>)}
+              {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} readOnly={!canEdit} active={activeCell?.row === rowIndex && activeCell.column === columnIndex} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCellValue(component, field, value)} onActivate={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
+            </div>; })}
+            {lastVisibleRow < items.length ? <div aria-hidden="true" style={{ height: (items.length - lastVisibleRow) * GRID_ROW_HEIGHT }} /> : null}
             {!loading && !items.length ? <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">No components match the current filters.</div> : null}
           </div>
         </div>

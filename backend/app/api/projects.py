@@ -644,15 +644,51 @@ async def get_semantic_index_status(
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@router.get("/{project_id}/semantic-index")
-async def get_semantic_index(
+class SemanticIndexGenerateRequest(BaseModel):
+    commit: Optional[str] = None
+    force: bool = False
+
+
+@router.post("/{project_id}/semantic-index/generate", dependencies=[Depends(require_designer)])
+async def generate_semantic_index(
+    project_id: str,
+    request: SemanticIndexGenerateRequest,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    project = get_project_for_role_or_404(project_id, user.role)
+    try:
+        payload = await asyncio.to_thread(
+            semantic_index_service.generate,
+            project,
+            request.commit,
+            force=request.force,
+        )
+        return {
+            "available": True,
+            "sourceRevisionKey": payload.get("sourceRevisionKey"),
+            "generator": payload.get("generator"),
+        }
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@router.get("/{project_id}/semantic-index/identity")
+async def get_semantic_index_identity(
     project_id: str,
     commit: Optional[str] = Query(default=None),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
     try:
-        payload = await asyncio.to_thread(semantic_index_service.get_or_build, project, commit)
+        payload = await asyncio.to_thread(
+            semantic_index_service.get_existing,
+            project,
+            commit,
+        )
+        if payload is None:
+            raise HTTPException(status_code=404, detail="Semantic identity index has not been generated")
         return Response(
             content=json.dumps(payload),
             media_type="application/json",
@@ -663,8 +699,6 @@ async def get_semantic_index(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    except RuntimeError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/{project_id}/webgpu-3d/status")
