@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -149,12 +152,14 @@ class ComponentCatalogServiceHelperTests(unittest.TestCase):
             "power_dissipation_w": "",
             "rate": "",
             "sap_code": "",
+            "extra_fields": {"voltage_rating": "50V"},
         }
         rendered = _rewrite_symbol_payload(payload, "remote_prism_smd:R_0603_1608Metric", component).decode("utf-8")
         self.assertIn('(property "Value" "10k"', rendered)
         self.assertIn('(property "Manufacturer" "Acme"', rendered)
         self.assertIn('(property "Footprint" "remote_prism_smd:R_0603_1608Metric"', rendered)
         self.assertIn('(property "SAP Code" ""', rendered)
+        self.assertIn('(property "voltage_rating" "50V"', rendered)
 
     def test_footprint_rewrite_points_model_into_remote_library(self) -> None:
         payload = b"""(footprint \"R_0603_1608Metric\"\n  (model \"old/path/to/model.step\")\n)\n"""
@@ -162,8 +167,12 @@ class ComponentCatalogServiceHelperTests(unittest.TestCase):
             "target_name": "R_0603_1608Metric",
             "name": "R_0603_1608Metric.kicad_mod",
         }
-        rendered = _rewrite_footprint_payload(payload, asset).decode("utf-8")
-        self.assertIn('${KIPRJMOD}/RemoteLibrary/remote_3d/R_0603_1608Metric.step', rendered)
+        rendered = _rewrite_footprint_payload(
+            payload,
+            asset,
+            [{"canonical_path": "/catalog/3dmodels/Resistor_Body.wrl"}],
+        ).decode("utf-8")
+        self.assertIn('${KIPRJMOD}/RemoteLibrary/remote_3d/Resistor_Body.wrl', rendered)
 
     def test_csv_required_columns_match_manual_mandatory_fields(self) -> None:
         service = ComponentCatalogService()
@@ -618,6 +627,218 @@ class ComponentCatalogServiceHelperTests(unittest.TestCase):
                     actor="author@example.com",
                     expected_revision_id=first_revision_id,
                 )
+
+    def test_bulk_metadata_fields_csv_and_qa_revision_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = ComponentCatalogService(
+                store_root=root / "components",
+                database_url=str(root / "prism.sqlite3"),
+            )
+            component = service.create_manual_component(
+                value="10k",
+                description="Bulk editable resistor",
+                datasheet="https://example.com/r.pdf",
+                manufacturer="Acme",
+                manufacturer_part_number="ACME-BULK-10K",
+                actor="author@example.com",
+                extra_fields={"Tolerance": "1%"},
+            )
+            discovered = next(field for field in service.list_metadata_fields() if field["storage_key"] == "Tolerance")
+            self.assertEqual(discovered["key"], "tolerance")
+            self.assertEqual(discovered["group"], "custom")
+            voltage = service.create_metadata_field(
+                {"key": "voltage_rating", "label": "Voltage Rating", "type": "number", "unit": "V"},
+                actor="admin@example.com",
+            )
+            self.assertFalse(voltage["built_in"])
+            batch = service.stage_metadata_batch(
+                [{
+                    "component_id": component["id"],
+                    "expected_revision_id": component["revision_id"],
+                    "patch": {"value": "12k", "voltage_rating": "50"},
+                }],
+                source="grid",
+                actor="author@example.com",
+                change_summary="Correct resistance and rating",
+            )
+            self.assertEqual(batch["valid_items"], 1)
+            result = service.apply_metadata_batch(batch["id"], actor="author@example.com")
+            self.assertEqual(result["applied"], 1)
+            updated = service.get_component(component["id"])
+            assert updated is not None
+            self.assertEqual(updated["revision"], 2)
+            self.assertEqual(updated["workflow_stage"], "qa_review")
+            self.assertEqual(updated["value"], "12k")
+            self.assertEqual(updated["extra_fields"]["voltage_rating"], "50")
+            self.assertEqual(updated["change_kind"], "metadata_bulk")
+
+            exported = service.export_metadata_csv()
+            self.assertIn("custom:voltage_rating", exported.splitlines()[0])
+            self.assertIn(component["id"], exported)
+            service.set_metadata_field_archived(voltage["id"], True, actor="admin@example.com")
+            self.assertNotIn("custom:voltage_rating", service.export_metadata_csv().splitlines()[0])
+            self.assertEqual(service.get_component(component["id"])["extra_fields"]["voltage_rating"], "50")
+
+    def test_metadata_csv_preview_skips_unchanged_rows_before_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = ComponentCatalogService(
+                store_root=root / "components",
+                database_url=str(root / "prism.sqlite3"),
+            )
+            changed = service.create_manual_component(
+                value="10k", description="Changed resistor", datasheet="https://example.com/a.pdf",
+                manufacturer="Acme", manufacturer_part_number="ACME-CSV-A", actor="author@example.com",
+                package_name="0207", extra_fields={"kicad_dnp": "false"},
+            )
+            service.create_manual_component(
+                value="20k", description="Unchanged resistor", datasheet="https://example.com/b.pdf",
+                manufacturer="Acme", manufacturer_part_number="ACME-CSV-B", actor="author@example.com",
+            )
+            reader = csv.DictReader(io.StringIO(service.export_metadata_csv()))
+            rows = list(reader)
+            fieldnames = [*(reader.fieldnames or []), "custom:unused_import_column"]
+            for row in rows:
+                row["custom:unused_import_column"] = ""
+                if row["component_id"] == changed["id"]:
+                    self.assertEqual(row["package_name"], "\u200b0207")
+                    row["value"] = "12k"
+                    row["custom:kicad_dnp"] = "FALSE"
+            output = io.StringIO()
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+            with patch.object(service, "_lock_component_identity") as identity_lock:
+                batch = service.preview_metadata_csv(
+                    output.getvalue(), actor="designer@example.com", change_summary="Edit one CSV row",
+                )
+
+            identity_lock.assert_not_called()
+            self.assertEqual(batch["source_rows"], 2)
+            self.assertEqual(batch["skipped_unchanged_rows"], 1)
+            self.assertEqual(batch["total_items"], 1)
+            self.assertEqual(batch["valid_items"], 1)
+            self.assertEqual(batch["unknown_fields"], [])
+            self.assertEqual(batch["items"][0]["component_id"], changed["id"])
+            self.assertEqual(batch["items"][0]["patch"], {"value": "12k"})
+
+            scoped = service.export_metadata_csv(field_keys=["value", "package_name"])
+            self.assertEqual(
+                next(csv.reader(io.StringIO(scoped))),
+                [
+                    "_prism_schema_version", "component_id", "expected_revision_id",
+                    "revision", "workflow_stage", "value", "package_name",
+                ],
+            )
+
+            unchanged = service.preview_metadata_csv(
+                service.export_metadata_csv(), actor="designer@example.com", change_summary="No changes",
+            )
+            self.assertEqual(unchanged["source_rows"], 2)
+            self.assertEqual(unchanged["skipped_unchanged_rows"], 2)
+            self.assertEqual(unchanged["total_items"], 0)
+            self.assertEqual(unchanged["items"], [])
+
+    def test_bulk_metadata_rejects_duplicate_batch_identity_and_invalid_required_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = ComponentCatalogService(
+                store_root=root / "components",
+                database_url=str(root / "prism.sqlite3"),
+            )
+            first = service.create_manual_component(
+                value="10k", description="First resistor", datasheet="https://example.com/a.pdf",
+                manufacturer="Acme", manufacturer_part_number="ACME-A", actor="author@example.com",
+            )
+            second = service.create_manual_component(
+                value="20k", description="Second resistor", datasheet="https://example.com/b.pdf",
+                manufacturer="Acme", manufacturer_part_number="ACME-B", actor="author@example.com",
+            )
+            batch = service.stage_metadata_batch(
+                [
+                    {"component_id": first["id"], "expected_revision_id": first["revision_id"], "patch": {"mpn": "ACME-C"}},
+                    {"component_id": second["id"], "expected_revision_id": second["revision_id"], "patch": {"mpn": "ACME-C"}},
+                ],
+                source="grid", actor="author@example.com", change_summary="Normalize duplicate identity",
+            )
+            self.assertEqual(batch["valid_items"], 0)
+            self.assertTrue(all(item["validation_status"] == "invalid" for item in batch["items"]))
+
+            field = service.create_metadata_field(
+                {"key": "internal_note", "label": "Internal note", "type": "text"},
+                actor="admin@example.com",
+            )
+            with self.assertRaisesRegex(ValueError, "invalidate 2 current component"):
+                service.update_metadata_field(field["id"], {"required": True}, actor="admin@example.com")
+
+    def test_bulk_metadata_inherits_klc_evidence_and_keeps_released_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = ComponentCatalogService(
+                store_root=root / "components",
+                database_url=str(root / "prism.sqlite3"),
+            )
+            released = self._create_released_component(service, value="10k", mpn="ACME-KLC-10K")
+            parent_revision_id = released["revision_id"]
+            parent_assets = {asset["id"]: asset["sha256"] for asset in released["assets"]}
+            report_dir = root / "reports"
+            report_dir.mkdir()
+            with service._connect() as conn:  # type: ignore[attr-defined]
+                for asset in released["assets"]:
+                    run_id = f"run-{asset['id']}"
+                    service._store_validation_run(  # type: ignore[attr-defined]
+                        conn,
+                        run_id=run_id,
+                        component_id=released["id"],
+                        revision_id=parent_revision_id,
+                        asset=asset,
+                        status="passed",
+                        findings=[],
+                        exit_code=0,
+                        report_dir=report_dir,
+                        stdout_path=report_dir / f"{run_id}.stdout",
+                        stderr_path=report_dir / f"{run_id}.stderr",
+                        junit_path=report_dir / f"{run_id}.xml",
+                        json_path=report_dir / f"{run_id}.json",
+                        raw_output="",
+                        tool_version="test",
+                        created_at="2026-01-01T00:00:00Z",
+                        finished_at="2026-01-01T00:00:01Z",
+                    )
+                conn.commit()
+
+            batch = service.stage_metadata_batch(
+                [{
+                    "component_id": released["id"],
+                    "expected_revision_id": parent_revision_id,
+                    "patch": {"description": "Updated metadata only"},
+                }],
+                source="grid",
+                actor="designer@example.com",
+                change_summary="Correct description",
+            )
+            service.apply_metadata_batch(batch["id"], actor="designer@example.com")
+            updated = service.get_component(released["id"])
+            assert updated is not None
+            self.assertEqual(updated["workflow_stage"], "qa_review")
+            self.assertEqual({asset["id"]: asset["sha256"] for asset in updated["assets"]}, parent_assets)
+            self.assertEqual(
+                service.get_component(released["id"], released_only=True)["revision_id"],
+                parent_revision_id,
+            )
+            comparison = service.compare_component_revisions(
+                released["id"], parent_revision_id, updated["revision_id"],
+            )
+            self.assertEqual(comparison["summary"]["assetChanges"], 0)
+            validation = service.get_component_validation(released["id"])
+            self.assertEqual(validation["summary"]["status"], "passed")
+            self.assertTrue(validation["runs"])
+            self.assertTrue(all(run["inherited"] for run in validation["runs"]))
+            self.assertTrue(
+                all(run["inherited_from_revision_id"] == parent_revision_id for run in validation["runs"])
+            )
 
     def test_preview_regeneration_updates_derived_outputs_without_a_revision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

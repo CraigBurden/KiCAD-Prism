@@ -9,10 +9,11 @@ import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { canWriteCatalog } from "@/lib/roles";
 import type { User } from "@/types/auth";
-import type { ProjectComponentImportProposal, ProjectComponentImportSession } from "@/types/catalog";
+import type { LibraryFolderDiscovery, ProjectComponentImportProposal, ProjectComponentImportSession } from "@/types/catalog";
 import type { Project } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { LibraryImportRemediationDialog, type ProposalRemediation } from "./library-import-remediation-dialog";
+import { LibraryFolderDiscoveryDialog } from "./library-folder-discovery-dialog";
 
 interface LibraryImportCenterProps {
   projects: Project[];
@@ -39,6 +40,54 @@ function groupedFindings(findings: ProjectComponentImportProposal["findings"]) {
   return Array.from(grouped.values());
 }
 
+const folderRelativePath = (file: File) => file.webkitRelativePath || file.name;
+const isDiscoverySource = (file: File) => /\.(kicad_sym|kicad_mod)$/i.test(file.name);
+const retryableUploadStatus = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+async function uploadSnapshotFiles(
+  snapshotId: string,
+  files: File[],
+  onProgress: (completed: number, total: number) => void
+) {
+  let cursor = 0;
+  let completed = 0;
+  const failures: Array<{ file: File; message: string }> = [];
+  const uploadOne = async (file: File) => {
+    let lastMessage = `Failed to upload ${file.name}`;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const form = new FormData();
+        form.append("relative_path", folderRelativePath(file));
+        form.append("file", file, file.name);
+        const response = await fetchApi(`/api/catalog/import-snapshots/folders/${snapshotId}/files`, { method: "POST", body: form });
+        if (response.ok) return;
+        lastMessage = await readApiError(response, response.status === 413
+          ? `${file.name} exceeds the reverse-proxy upload limit`
+          : `Failed to upload ${file.name}`);
+        if (!retryableUploadStatus.has(response.status)) break;
+      } catch (error) {
+        lastMessage = error instanceof Error ? error.message : lastMessage;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
+    }
+    failures.push({ file, message: lastMessage });
+  };
+  const worker = async () => {
+    while (cursor < files.length) {
+      const file = files[cursor];
+      cursor += 1;
+      await uploadOne(file);
+      completed += 1;
+      onProgress(completed, files.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, files.length) }, () => worker()));
+  if (failures.length > 0) {
+    const first = failures[0];
+    throw new Error(`${failures.length} file${failures.length === 1 ? "" : "s"} could not be captured. ${first.file.name}: ${first.message}`);
+  }
+}
+
 export function LibraryImportCenter({ projects, user, initialSessionId }: LibraryImportCenterProps) {
   const [sessions, setSessions] = useState<ProjectComponentImportSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState(initialSessionId || "");
@@ -46,7 +95,15 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const [projectId, setProjectId] = useState(projects[0]?.id || "");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [folderProgress, setFolderProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [folderProgress, setFolderProgress] = useState<{ completed: number; total: number; label: string } | null>(null);
+  const [pendingFolder, setPendingFolder] = useState<{
+    snapshotId: string;
+    filesByPath: Map<string, File>;
+    manualFiles: Map<string, File>;
+    discovery: LibraryFolderDiscovery;
+    uploadedPaths: Set<string>;
+    footprintResolutions: Record<string, string>;
+  } | null>(null);
   const [serverRoots, setServerRoots] = useState<Array<{ name: string; path_hint: string }>>([]);
   const [serverRoot, setServerRoot] = useState("");
   const [serverSubpath, setServerSubpath] = useState("");
@@ -142,42 +199,159 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
     if (!files?.length) return;
     setCreating(true);
     const selected = Array.from(files);
-    setFolderProgress({ completed: 0, total: selected.length });
     try {
       const topLevel = selected[0]?.webkitRelativePath.split("/")[0] || "KiCad libraries";
+      const discoveryFiles = selected.filter(isDiscoverySource);
+      if (discoveryFiles.length === 0) throw new Error("No .kicad_sym or .kicad_mod files were found in the selected directory");
       const snapshot = await fetchJson<{ id: string }>("/api/catalog/import-snapshots/folders", {
         method: "POST",
         body: JSON.stringify({ display_name: topLevel }),
       });
-      let completed = 0;
-      for (let index = 0; index < selected.length; index += 4) {
-        await Promise.all(selected.slice(index, index + 4).map(async (file) => {
-          const form = new FormData();
-          form.append("relative_path", file.webkitRelativePath || file.name);
-          form.append("file", file, file.name);
-          const response = await fetchApi(`/api/catalog/import-snapshots/folders/${snapshot.id}/files`, {
-            method: "POST",
-            body: form,
-          });
-          if (!response.ok) throw new Error(await readApiError(response, `Failed to upload ${file.name}`));
-          completed += 1;
-          setFolderProgress({ completed, total: selected.length });
-        }));
-      }
-      const session = await fetchJson<ProjectComponentImportSession>(
-        `/api/catalog/import-snapshots/folders/${snapshot.id}/complete`,
-        { method: "POST" }
+      setFolderProgress({ completed: 0, total: discoveryFiles.length, label: "Capturing KiCad sources" });
+      await uploadSnapshotFiles(snapshot.id, discoveryFiles, (completed, total) => {
+        setFolderProgress({ completed, total, label: "Capturing KiCad sources" });
+      });
+      setFolderProgress({ completed: 0, total: 1, label: "Resolving component relationships" });
+      const discovery = await fetchJson<LibraryFolderDiscovery>(
+        `/api/catalog/import-snapshots/folders/${snapshot.id}/discover`,
+        {
+          method: "POST",
+          body: JSON.stringify({ files: selected.map((file) => ({ relative_path: folderRelativePath(file), size_bytes: file.size })) }),
+        }
       );
-      await loadSessions();
-      setSelectedSessionId(session.id);
-      toast.success(`${selected.length} files captured; component discovery queued`);
+      setPendingFolder({
+        snapshotId: snapshot.id,
+        filesByPath: new Map(selected.map((file) => [folderRelativePath(file).toLocaleLowerCase(), file])),
+        manualFiles: new Map(),
+        discovery,
+        uploadedPaths: new Set(discoveryFiles.map((file) => folderRelativePath(file).toLocaleLowerCase())),
+        footprintResolutions: {},
+      });
+      toast.success(`${discovery.components.length} components identified for review`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to import folder snapshot");
+      toast.error(error instanceof Error ? error.message : "Failed to discover library folder");
     } finally {
       setCreating(false);
       setFolderProgress(null);
-      if (folderInputRef.current) folderInputRef.current.value = "";
     }
+  };
+
+  const approveFolderDiscovery = async (componentIds: string[], footprintResolutions: Record<string, string>) => {
+    if (!pendingFolder) return;
+    setCreating(true);
+    try {
+      const effectiveResolutions = { ...pendingFolder.footprintResolutions, ...footprintResolutions };
+      const selectedFiles = [...pendingFolder.filesByPath.values()];
+      const inventory = [
+        ...selectedFiles.map((file) => ({ relative_path: folderRelativePath(file), size_bytes: file.size })),
+        ...[...pendingFolder.manualFiles].map(([relativePath, file]) => ({ relative_path: relativePath, size_bytes: file.size })),
+      ];
+      const refreshedDiscovery = await fetchJson<LibraryFolderDiscovery>(
+        `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/discover`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            files: inventory,
+            footprint_resolutions: effectiveResolutions,
+          }),
+        }
+      );
+      const approved = refreshedDiscovery.components.filter((component) => componentIds.includes(component.id));
+      const requiredPaths = new Set<string>();
+      for (const component of approved) {
+        requiredPaths.add(component.symbol.relative_path);
+        if (component.footprint.selected) requiredPaths.add(component.footprint.selected.relative_path);
+        for (const model of component.models) {
+          if (model.status === "resolved" && model.candidates[0]) requiredPaths.add(model.candidates[0].relative_path);
+        }
+      }
+      const filesToUpload = [...requiredPaths]
+        .filter((path) => !pendingFolder.uploadedPaths.has(path.toLocaleLowerCase()))
+        .map((path) => pendingFolder.filesByPath.get(path.toLocaleLowerCase()) || pendingFolder.manualFiles.get(path))
+        .filter((file): file is File => Boolean(file));
+      const missing = [...requiredPaths].filter((path) =>
+        !pendingFolder.uploadedPaths.has(path.toLocaleLowerCase())
+        && !pendingFolder.filesByPath.has(path.toLocaleLowerCase())
+        && !pendingFolder.manualFiles.has(path)
+      );
+      if (missing.length > 0) throw new Error(`Referenced asset is unavailable in the browser selection: ${missing[0]}`);
+      setFolderProgress({ completed: 0, total: filesToUpload.length || 1, label: "Capturing approved assets" });
+      await uploadSnapshotFiles(pendingFolder.snapshotId, filesToUpload, (completed, total) => {
+        setFolderProgress({ completed, total, label: "Capturing approved assets" });
+      });
+      const session = await fetchJson<ProjectComponentImportSession>(
+        `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/complete`,
+        { method: "POST", body: JSON.stringify({ approved_component_ids: componentIds, footprint_resolutions: effectiveResolutions }) }
+      );
+      await loadSessions();
+      setSelectedSessionId(session.id);
+      setPendingFolder(null);
+      if (folderInputRef.current) folderInputRef.current.value = "";
+      toast.success(`${componentIds.length} approved components queued for import`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to capture approved library assets");
+    } finally {
+      setCreating(false);
+      setFolderProgress(null);
+    }
+  };
+
+  const attachMissingFootprint = async (componentId: string, file: File) => {
+    if (!pendingFolder) return;
+    if (!file.name.toLocaleLowerCase().endsWith(".kicad_mod")) throw new Error("Select a KiCad .kicad_mod footprint file");
+    const component = pendingFolder.discovery.components.find((item) => item.id === componentId);
+    if (!component) throw new Error("Discovered component is no longer available");
+    const safeLibrary = component.library.replace(/[^A-Za-z0-9_.-]+/g, "_") || "Manual";
+    const relativePath = `manual-footprints/${safeLibrary}.pretty/${file.name}`;
+    const form = new FormData();
+    form.append("relative_path", relativePath);
+    form.append("file", file, file.name);
+    const response = await fetchApi(`/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/files`, { method: "POST", body: form });
+    if (!response.ok) throw new Error(await readApiError(response, `Failed to attach ${file.name}`));
+    const manualFiles = new Map(pendingFolder.manualFiles).set(relativePath, file);
+    const uploadedPaths = new Set(pendingFolder.uploadedPaths).add(relativePath.toLocaleLowerCase());
+    const footprintResolutions = { ...pendingFolder.footprintResolutions, [componentId]: relativePath };
+    const inventory = [
+      ...[...pendingFolder.filesByPath.values()].map((source) => ({ relative_path: folderRelativePath(source), size_bytes: source.size })),
+      ...[...manualFiles].map(([path, source]) => ({ relative_path: path, size_bytes: source.size })),
+    ];
+    const discovery = await fetchJson<LibraryFolderDiscovery>(
+      `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/discover`,
+      { method: "POST", body: JSON.stringify({ files: inventory, footprint_resolutions: footprintResolutions }) }
+    );
+    setPendingFolder({ ...pendingFolder, manualFiles, uploadedPaths, footprintResolutions, discovery });
+    toast.success(`${file.name} attached to ${component.symbol_name}`);
+  };
+
+  const attachMissingModel = async (componentId: string, file: File) => {
+    if (!pendingFolder) return;
+    if (!/\.(step|stp|wrl)$/i.test(file.name)) throw new Error("Select a STEP, STP, or WRL 3D model file");
+    const component = pendingFolder.discovery.components.find((item) => item.id === componentId);
+    if (!component) throw new Error("Discovered component is no longer available");
+    const missingModel = component.models.find((model) => model.status === "missing");
+    if (!missingModel) throw new Error("This component no longer has a missing 3D model reference");
+    const expectedName = missingModel.reference.replace(/\\/g, "/").split("/").pop();
+    if (expectedName && file.name.toLocaleLowerCase() !== expectedName.toLocaleLowerCase()) {
+      throw new Error(`The footprint references ${expectedName}. Select a model with that filename so the relationship remains deterministic.`);
+    }
+    const relativePath = `manual-models/${file.name}`;
+    const form = new FormData();
+    form.append("relative_path", relativePath);
+    form.append("file", file, file.name);
+    const response = await fetchApi(`/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/files`, { method: "POST", body: form });
+    if (!response.ok) throw new Error(await readApiError(response, `Failed to attach ${file.name}`));
+    const manualFiles = new Map(pendingFolder.manualFiles).set(relativePath, file);
+    const uploadedPaths = new Set(pendingFolder.uploadedPaths).add(relativePath.toLocaleLowerCase());
+    const inventory = [
+      ...[...pendingFolder.filesByPath.values()].map((source) => ({ relative_path: folderRelativePath(source), size_bytes: source.size })),
+      ...[...manualFiles].map(([path, source]) => ({ relative_path: path, size_bytes: source.size })),
+    ];
+    const discovery = await fetchJson<LibraryFolderDiscovery>(
+      `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/discover`,
+      { method: "POST", body: JSON.stringify({ files: inventory, footprint_resolutions: pendingFolder.footprintResolutions }) }
+    );
+    setPendingFolder({ ...pendingFolder, manualFiles, uploadedPaths, discovery });
+    toast.success(`${file.name} attached to ${component.symbol_name}`);
   };
 
   const importServerFolder = async () => {
@@ -267,7 +441,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         {folderProgress && (
           <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            Uploading immutable folder snapshot {folderProgress.completed}/{folderProgress.total}
+            {folderProgress.label} {folderProgress.completed}/{folderProgress.total}
             <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
               <div className="h-full bg-primary transition-[width]" style={{ width: `${(folderProgress.completed / folderProgress.total) * 100}%` }} />
             </div>
@@ -356,6 +530,20 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         submitting={proposalActionId === remediationProposal?.id}
         onOpenChange={(nextOpen) => { if (!nextOpen && !proposalActionId) setRemediationProposal(null); }}
         onAccept={(remediation) => { if (remediationProposal) void resolveProposal(remediationProposal, "accept", remediation); }}
+      />
+      <LibraryFolderDiscoveryDialog
+        discovery={pendingFolder?.discovery || null}
+        open={pendingFolder !== null}
+        submitting={creating}
+        onOpenChange={(open) => {
+          if (!open && !creating) {
+            setPendingFolder(null);
+            if (folderInputRef.current) folderInputRef.current.value = "";
+          }
+        }}
+        onApprove={(componentIds, footprintResolutions) => void approveFolderDiscovery(componentIds, footprintResolutions)}
+        onAttachFootprint={attachMissingFootprint}
+        onAttachModel={attachMissingModel}
       />
     </div>
   );

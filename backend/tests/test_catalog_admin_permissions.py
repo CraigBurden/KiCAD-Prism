@@ -6,16 +6,49 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api import catalog_admin  # noqa: E402
-from app.api.catalog_admin import _can_transition_workflow  # noqa: E402
+from app.api.catalog_admin import _can_transition_workflow, _require_field_admin  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.services.component_catalog_service import ComponentCatalogService  # noqa: E402
 from app.services import catalog_worker_tasks  # noqa: E402
 
 
 class CatalogAdminPermissionTests(unittest.TestCase):
+    def test_only_admins_can_manage_metadata_field_definitions(self) -> None:
+        admin = AuthenticatedUser(email="admin@example.com", name="Admin", role="admin")
+        designer = AuthenticatedUser(
+            email="designer@example.com", name="Designer", role="component_designer"
+        )
+
+        _require_field_admin(admin)
+        with self.assertRaises(HTTPException) as raised:
+            _require_field_admin(designer)
+        self.assertEqual(raised.exception.status_code, 403)
+
+    def test_metadata_worker_applies_only_requested_items(self) -> None:
+        updates: list[dict[str, object]] = []
+        expected = {"batch_id": "batch-1", "status": "partial", "applied": 1, "failed": 0}
+        with patch.object(catalog_worker_tasks.catalog_service, "apply_metadata_batch", return_value=expected) as apply:
+            result = catalog_worker_tasks.run_metadata_batch(
+                {
+                    "payload": {
+                        "batch_id": "batch-1",
+                        "actor": "designer@example.com",
+                        "item_ids": ["item-2"],
+                    }
+                },
+                lambda **fields: updates.append(fields) or True,
+            )
+
+        self.assertEqual(result, expected)
+        apply.assert_called_once()
+        self.assertEqual(apply.call_args.kwargs["item_ids"], ["item-2"])
+        self.assertEqual(updates[-1]["progress"], 100)
+
     def test_workflow_transition_permissions_match_component_roles(self) -> None:
         admin = AuthenticatedUser(email="admin@example.com", name="Admin", role="admin")
         designer = AuthenticatedUser(email="designer@example.com", name="Designer", role="component_designer")

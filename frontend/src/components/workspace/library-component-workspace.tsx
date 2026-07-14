@@ -935,8 +935,10 @@ function KlcValidationEvidence({ component, historical }: { component: CatalogCo
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-xs font-medium">{humanize(run.asset_type)} · {run.checker_type}</p>
                   <Badge variant={validationBadgeVariant(run.status)}>{VALIDATION_LABELS[run.status]}</Badge>
+                  {run.inherited ? <Badge variant="outline">Inherited evidence</Badge> : null}
                 </div>
                 <p className="mt-1 truncate text-xs text-muted-foreground">{run.tool_version || "KiCad Library Convention"} · {formatDate(run.finished_at || run.created_at)}</p>
+                {run.inherited_from_revision_id ? <p className="mt-1 truncate text-xs text-muted-foreground">CAD assets are unchanged; evidence is reused from revision {run.inherited_from_revision_id.slice(0, 8)}.</p> : null}
               </div>
               <div className="flex flex-wrap gap-1.5">
                 <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs"><a href={run.reports.json} download>JSON</a></Button>

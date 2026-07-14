@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
@@ -13,6 +14,7 @@ from app.services.component_catalog_service import catalog_service
 from app.services.catalog_job_service import catalog_jobs
 from app.services.local_artifact_store import artifact_store
 from app.services.library_folder_import_service import configured_import_roots, resolve_server_import_path
+from app.services.kicad_library_discovery import discover_library
 from app.services import semantic_visualizer_service
 from app.services.workspace_service import workspace
 
@@ -114,6 +116,39 @@ class UpdateComponentMetadataRequest(BaseModel):
     extra_fields: dict[str, str] | None = None
 
 
+class MetadataFieldRequest(BaseModel):
+    key: str = ""
+    label: str = ""
+    description: str = ""
+    type: str = "text"
+    unit: str = ""
+    enum_values: list[str] = Field(default_factory=list)
+    required: bool = False
+    display_order: int | None = None
+
+
+class MetadataGridPreferencesRequest(BaseModel):
+    visible: list[str] = Field(default_factory=list)
+    order: list[str] = Field(default_factory=list)
+    widths: dict[str, int] = Field(default_factory=dict)
+    pinned: list[str] = Field(default_factory=list)
+
+
+class MetadataBatchItemRequest(BaseModel):
+    component_id: str
+    expected_revision_id: str
+    patch: dict[str, str] = Field(default_factory=dict)
+
+
+class CreateMetadataBatchRequest(BaseModel):
+    items: list[MetadataBatchItemRequest] = Field(min_length=1, max_length=10000)
+    change_summary: str = Field(default="Bulk update component metadata", min_length=1, max_length=500)
+
+
+class ApplyMetadataBatchRequest(BaseModel):
+    item_ids: list[str] = Field(default_factory=list, max_length=10000)
+
+
 class ReleaseStatusRequest(BaseModel):
     release_status: str = ""
     workflow_stage: str = ""
@@ -139,6 +174,21 @@ class ProjectImportRequest(BaseModel):
 
 class FolderSnapshotRequest(BaseModel):
     display_name: str = "KiCad libraries"
+
+
+class FolderInventoryFile(BaseModel):
+    relative_path: str
+    size_bytes: int = Field(default=0, ge=0)
+
+
+class FolderDiscoveryRequest(BaseModel):
+    files: list[FolderInventoryFile] = Field(default_factory=list, max_length=100000)
+    footprint_resolutions: dict[str, str] = Field(default_factory=dict)
+
+
+class FolderApprovalRequest(BaseModel):
+    approved_component_ids: list[str] = Field(default_factory=list, max_length=100000)
+    footprint_resolutions: dict[str, str] = Field(default_factory=dict)
 
 
 class ServerFolderImportRequest(BaseModel):
@@ -326,9 +376,49 @@ async def upload_folder_snapshot_file(
         await file.close()
 
 
+@router.post("/import-snapshots/folders/{snapshot_id}/discover")
+def discover_folder_snapshot(
+    snapshot_id: str,
+    payload: FolderDiscoveryRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    snapshot = _folder_snapshot_for_user(snapshot_id, user)
+    if snapshot.get("status") != "uploading":
+        raise HTTPException(status_code=409, detail="Folder snapshot is already immutable")
+    try:
+        source_files = artifact_store.snapshot_files(snapshot_id)
+        discovery = discover_library(
+            source_files,
+            [item.model_dump() for item in payload.files],
+            payload.footprint_resolutions,
+        )
+        identities = [
+            {
+                "manufacturer": str(component["metadata"].get("manufacturer") or ""),
+                "mpn": str(component["metadata"].get("manufacturer_part_number") or ""),
+            }
+            for component in discovery["components"]
+        ]
+        existing = catalog_service.match_component_identities(identities)
+        for component in discovery["components"]:
+            metadata = component["metadata"]
+            identity_key = "\0".join((
+                str(metadata.get("manufacturer") or "").strip().casefold(),
+                str(metadata.get("manufacturer_part_number") or "").strip().casefold(),
+            ))
+            component["existing_component"] = existing.get(identity_key)
+        discovery["existing_component_count"] = sum(
+            1 for component in discovery["components"] if component.get("existing_component")
+        )
+        return discovery
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/import-snapshots/folders/{snapshot_id}/complete", status_code=202)
 def complete_folder_snapshot(
     snapshot_id: str,
+    payload: FolderApprovalRequest | None = None,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _folder_snapshot_for_user(snapshot_id, user)
@@ -341,7 +431,12 @@ def complete_folder_snapshot(
         )
         job = _enqueue_catalog_job(
             "folder_library_import",
-            {"session_id": session["id"], "snapshot_id": snapshot_id},
+            {
+                "session_id": session["id"],
+                "snapshot_id": snapshot_id,
+                "approved_component_ids": list((payload or FolderApprovalRequest()).approved_component_ids),
+                "footprint_resolutions": dict((payload or FolderApprovalRequest()).footprint_resolutions),
+            },
             actor=user.email,
             idempotency_key=f"folder-import:{snapshot_id}",
         )
@@ -836,6 +931,209 @@ def run_artifact_maintenance(user: AuthenticatedUser = Depends(require_catalog_w
         raise HTTPException(status_code=403, detail="Administrator access required")
     job = _enqueue_catalog_job("artifact_maintenance", {}, actor=user.email)
     return {"job_id": job["id"], "status": job["status"]}
+
+
+# ─── Component metadata field registry and bulk editing ────────────────────
+
+def _require_field_admin(user: AuthenticatedUser) -> None:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access required to manage metadata field definitions")
+
+
+def _metadata_batch_for_user(batch_id: str, user: AuthenticatedUser) -> dict[str, Any]:
+    batch = catalog_service.get_metadata_batch(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Metadata batch not found")
+    if user.role != "admin" and str(batch.get("created_by") or "").casefold() != user.email.casefold():
+        raise HTTPException(status_code=403, detail="Metadata batch access denied")
+    return batch
+
+
+@router.get("/metadata/fields")
+def list_metadata_fields(
+    include_archived: bool = Query(default=False),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    _ = user
+    return {"schema": "prism.component_metadata_a1", "items": catalog_service.list_metadata_fields(include_archived=include_archived)}
+
+
+@router.post("/metadata/fields", status_code=201)
+def create_metadata_field(payload: MetadataFieldRequest, user: AuthenticatedUser = Depends(require_catalog_writer)):
+    _require_field_admin(user)
+    try:
+        return catalog_service.create_metadata_field(payload.model_dump(), actor=user.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/metadata/fields/{field_id}")
+def update_metadata_field(field_id: str, payload: MetadataFieldRequest, user: AuthenticatedUser = Depends(require_catalog_writer)):
+    _require_field_admin(user)
+    try:
+        return catalog_service.update_metadata_field(field_id, payload.model_dump(exclude_unset=True), actor=user.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/metadata/fields/{field_id}/archive")
+def archive_metadata_field(field_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
+    _require_field_admin(user)
+    try:
+        return catalog_service.set_metadata_field_archived(field_id, True, actor=user.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/metadata/fields/{field_id}/restore")
+def restore_metadata_field(field_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
+    _require_field_admin(user)
+    try:
+        return catalog_service.set_metadata_field_archived(field_id, False, actor=user.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/metadata/grid-preferences")
+def get_metadata_grid_preferences(user: AuthenticatedUser = Depends(require_catalog_reader)):
+    return catalog_service.get_metadata_grid_preferences(user.email)
+
+
+@router.put("/metadata/grid-preferences")
+def save_metadata_grid_preferences(
+    payload: MetadataGridPreferencesRequest,
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    return catalog_service.save_metadata_grid_preferences(user.email, payload.model_dump())
+
+
+@router.get("/metadata/grid")
+def metadata_grid(
+    q: str = Query(default=""),
+    availability_state: str | None = Query(default=None),
+    workflow_stage: str | None = Query(default=None),
+    validation_status: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=200),
+    sort_by: str = Query(default="updated_at"),
+    sort_dir: str = Query(default="desc"),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    _ = user
+    try:
+        return catalog_service.metadata_grid(
+            query=q, availability_state=availability_state, workflow_stage=workflow_stage,
+            validation_status=validation_status, category=category, page=page,
+            page_size=page_size, sort_by=sort_by, sort_dir=sort_dir,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/metadata/batches", status_code=201)
+def create_metadata_batch(payload: CreateMetadataBatchRequest, user: AuthenticatedUser = Depends(require_catalog_writer)):
+    try:
+        return catalog_service.stage_metadata_batch(
+            [item.model_dump() for item in payload.items], source="grid", actor=user.email,
+            change_summary=payload.change_summary,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/metadata/batches/{batch_id}")
+def get_metadata_batch(batch_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    return _metadata_batch_for_user(batch_id, user)
+
+
+@router.post("/metadata/batches/{batch_id}/approve-fields")
+def approve_metadata_batch_fields(batch_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
+    _require_field_admin(user)
+    _metadata_batch_for_user(batch_id, user)
+    try:
+        return catalog_service.approve_metadata_batch_fields(batch_id, actor=user.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/metadata/batches/{batch_id}/apply", status_code=202)
+def apply_metadata_batch(
+    batch_id: str,
+    payload: ApplyMetadataBatchRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    _metadata_batch_for_user(batch_id, user)
+    selection_key = hashlib.sha256(
+        "\n".join(sorted(payload.item_ids)).encode("utf-8")
+    ).hexdigest()[:16] if payload.item_ids else "all"
+    job = _enqueue_catalog_job(
+        "catalog_metadata_batch",
+        {"batch_id": batch_id, "item_ids": payload.item_ids, "actor": user.email},
+        actor=user.email,
+        idempotency_key=f"metadata-batch:{batch_id}:{selection_key}",
+    )
+    return {"batch_id": batch_id, "job_id": job["id"], "status": job["status"]}
+
+
+@router.get("/metadata/jobs/{job_id}")
+def get_metadata_job(job_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    job = catalog_jobs.get(job_id, "catalog_metadata_batch")
+    if not job:
+        raise HTTPException(status_code=404, detail="Metadata job not found")
+    if user.role != "admin" and str(job.get("created_by") or "").casefold() != user.email.casefold():
+        raise HTTPException(status_code=403, detail="Metadata job access denied")
+    return job
+
+
+@router.get("/metadata/export.csv")
+def export_metadata_csv(
+    field: list[str] | None = Query(default=None),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    selected_fields = field
+    if selected_fields is None:
+        preferences = catalog_service.get_metadata_grid_preferences(user.email)
+        if "visible" in preferences:
+            selected_fields = [str(key) for key in preferences.get("visible") or []]
+    try:
+        return Response(
+            content="\ufeff" + catalog_service.export_metadata_csv(field_keys=selected_fields),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="prism-component-metadata.csv"'},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/metadata/import-csv/preview", status_code=201)
+async def preview_metadata_csv(
+    file: UploadFile = File(...),
+    change_summary: str = Form(default="Import component metadata from CSV"),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="CSV file is empty")
+    try:
+        return catalog_service.preview_metadata_csv(content.decode("utf-8-sig"), actor=user.email, change_summary=change_summary)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        await file.close()
+
+
+@router.get("/metadata/batches/{batch_id}/report.csv")
+def metadata_batch_report(batch_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    batch = _metadata_batch_for_user(batch_id, user)
+    output = ["component_id,mpn,status,error"]
+    for item in batch["items"]:
+        values = [item["component_id"], item["mpn"], item["validation_status"], item["error_message"]]
+        output.append(",".join('"' + str(value).replace('"', '""') + '"' for value in values))
+    return Response(
+        content="\n".join(output) + "\n", media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="metadata-batch-{batch_id}.csv"'},
+    )
 
 
 @router.post("/exports/kicad-dbl")

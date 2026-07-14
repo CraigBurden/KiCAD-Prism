@@ -9,6 +9,7 @@ from typing import Any
 from app.core.config import settings
 from app.services.component_catalog_service import catalog_service
 from app.services.local_artifact_store import artifact_store
+from app.services.kicad_library_discovery import discover_library, footprint_name_from_text
 
 
 SUPPORTED_SUFFIXES = {
@@ -165,7 +166,12 @@ def _store_generated(payload: bytes) -> dict[str, Any]:
     }
 
 
-def build_folder_proposals(snapshot_id: str, session_id: str) -> list[dict[str, Any]]:
+def build_folder_proposals(
+    snapshot_id: str,
+    session_id: str,
+    approved_component_ids: set[str] | None = None,
+    footprint_resolutions: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
     snapshot = artifact_store.get_snapshot(snapshot_id)
     if not snapshot or snapshot.get("status") != "ready":
         raise ValueError("Folder snapshot is not ready")
@@ -177,14 +183,24 @@ def build_folder_proposals(snapshot_id: str, session_id: str) -> list[dict[str, 
     for item in files:
         files_by_name.setdefault(Path(str(item["relative_path"])).name.casefold(), []).append(item)
 
+    discovery = discover_library(
+        files,
+        [{"relative_path": item["relative_path"], "size_bytes": item["size_bytes"]} for item in files],
+    )
+    discovery_by_id = {str(item["id"]): item for item in discovery["components"]}
     footprints: dict[str, dict[str, Any]] = {}
+    footprints_by_path: dict[str, dict[str, Any]] = {}
     for item in files:
         if item["suffix"] != ".kicad_mod":
             continue
-        library, name = _footprint_identity(str(item["relative_path"]))
+        library, fallback_name = _footprint_identity(str(item["relative_path"]))
+        footprint_text = Path(str(item["object_path"])).read_text(encoding="utf-8", errors="replace")
+        name = footprint_name_from_text(footprint_text, fallback_name)
         enriched = {**item, "target_library": library, "target_name": name}
+        footprints_by_path[str(item["relative_path"]).casefold()] = enriched
         footprints[f"{library}:{name}".casefold()] = enriched
         footprints.setdefault(name.casefold(), enriched)
+        footprints.setdefault(fallback_name.casefold(), enriched)
 
     proposals: list[dict[str, Any]] = []
     for source in files:
@@ -197,6 +213,12 @@ def build_folder_proposals(snapshot_id: str, session_id: str) -> list[dict[str, 
             unit_base = re.sub(r"_\d+_\d+$", "", symbol_name)
             if unit_base != symbol_name and unit_base in block_names:
                 continue
+            discovery_id = hashlib.sha256(
+                f"{source['relative_path']}\0{symbol_name}".encode()
+            ).hexdigest()
+            if approved_component_ids is not None and discovery_id not in approved_component_ids:
+                continue
+            discovered_component = discovery_by_id.get(discovery_id, {})
             try:
                 symbol_payload = catalog_service._single_symbol_payload(text, symbol_name)  # type: ignore[attr-defined]
             except ValueError:
@@ -205,7 +227,13 @@ def build_folder_proposals(snapshot_id: str, session_id: str) -> list[dict[str, 
             library = Path(str(source["relative_path"])).stem or "Prism_Imported"
             properties = _properties(symbol_block)
             footprint_ref = _field(properties, "Footprint")
-            footprint = _resolve_footprint(footprint_ref, footprints) if footprint_ref else None
+            selected_footprint = (discovered_component.get("footprint") or {}).get("selected")
+            selected_path = (footprint_resolutions or {}).get(discovery_id) or str(
+                (selected_footprint or {}).get("relative_path") or ""
+            )
+            footprint = footprints_by_path.get(selected_path.casefold())
+            if footprint is None:
+                footprint = _resolve_footprint(footprint_ref, footprints) if footprint_ref else None
             value = _field(properties, "Value") or symbol_name
             manufacturer = _field(properties, "Manufacturer", "Manufacturer Name", "MFR")
             mpn = _field(properties, "Manufacturer Part Number", "MPN", "Part Number")
@@ -319,12 +347,23 @@ def build_folder_proposals(snapshot_id: str, session_id: str) -> list[dict[str, 
     return proposals
 
 
-def run_folder_import_session(session_id: str, snapshot_id: str, server_source: dict[str, str] | None = None) -> None:
+def run_folder_import_session(
+    session_id: str,
+    snapshot_id: str,
+    server_source: dict[str, str] | None = None,
+    approved_component_ids: set[str] | None = None,
+    footprint_resolutions: dict[str, str] | None = None,
+) -> None:
     try:
         catalog_service.update_project_import_session(session_id, status="scanning")
         if server_source:
             capture_server_snapshot(snapshot_id, server_source["root_name"], server_source.get("subpath", ""))
-        proposals = build_folder_proposals(snapshot_id, session_id)
+        proposals = build_folder_proposals(
+            snapshot_id,
+            session_id,
+            approved_component_ids,
+            footprint_resolutions,
+        )
         catalog_service.stage_project_import_proposals(session_id, proposals)
     except Exception as exc:
         catalog_service.update_project_import_session(session_id, status="failed", error_message=str(exc))

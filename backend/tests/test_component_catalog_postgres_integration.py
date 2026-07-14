@@ -67,6 +67,49 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(len(self.service.list_component_revisions(component["id"])), 2)
         self.assertTrue(self.service.verify_component_audit_chain(component["id"])["valid"])
 
+    def test_metadata_schema_and_qa_batch_round_trip(self) -> None:
+        token = uuid.uuid4().hex[:10]
+        component = self._component(f"metadata-{token}")
+        field = self.service.create_metadata_field(
+            {
+                "key": f"voltage_rating_{token}",
+                "label": "Voltage rating",
+                "type": "number",
+                "unit": "V",
+            },
+            actor="admin@example.com",
+        )
+        batch = self.service.stage_metadata_batch(
+            [
+                {
+                    "component_id": component["id"],
+                    "expected_revision_id": component["revision_id"],
+                    "patch": {"value": "12k", field["key"]: "50"},
+                }
+            ],
+            source="grid",
+            actor="designer@example.com",
+            change_summary="Correct metadata in PostgreSQL",
+        )
+        self.assertEqual(batch["valid_items"], 1)
+        applied = self.service.apply_metadata_batch(batch["id"], actor="designer@example.com")
+        self.assertEqual(applied["applied"], 1)
+        updated = self.service.get_component(component["id"])
+        assert updated is not None
+        self.assertEqual(updated["workflow_stage"], "qa_review")
+        self.assertEqual(updated["revision"], component["revision"] + 1)
+        self.assertEqual(updated["extra_fields"][field["key"]], "50")
+        self.assertEqual(updated["value"], "12k")
+
+        # Initialization is a version lookup after the first successful v6 migration.
+        self.service.initialize()
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            version = conn.execute(
+                "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = ?",
+                ("catalog-postgres-v6",),
+            ).fetchone()
+        self.assertIsNotNone(version)
+
     def test_concurrent_qa_approval_creates_one_decision_and_transition(self) -> None:
         component = self._component("approval-" + uuid.uuid4().hex[:8])
         self.service.set_release_status(component["id"], "in_progress", actor="designer@example.com")

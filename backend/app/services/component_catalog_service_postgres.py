@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.services.component_catalog_service_sqlite import ComponentCatalogService
 
 
-POSTGRES_SCHEMA_VERSION = "catalog-postgres-v5"
+POSTGRES_SCHEMA_VERSION = "catalog-postgres-v6"
 POSTGRES_SEARCH_VERSION = "catalog-search-v1"
 POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v3"
 
@@ -210,6 +210,7 @@ class ComponentCatalogPostgresService(ComponentCatalogService):
                     )
                     self._migrate_workflow_stages(conn)
                     self._upgrade_postgres_v5(conn)
+                    self._ensure_metadata_schema(conn)
                     conn.execute(
                         """
                         INSERT INTO catalog_schema_migrations (version, applied_at)
@@ -231,6 +232,10 @@ class ComponentCatalogPostgresService(ComponentCatalogService):
                         (POSTGRES_SCHEMA_VERSION,),
                     ).fetchone()
                     if not version:
+                        version_v5 = conn.execute(
+                            "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = ?",
+                            ("catalog-postgres-v5",),
+                        ).fetchone()
                         version_v4 = conn.execute(
                             "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = ?",
                             ("catalog-postgres-v4",),
@@ -247,7 +252,7 @@ class ComponentCatalogPostgresService(ComponentCatalogService):
                             "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = ?",
                             ("catalog-postgres-v1",),
                         ).fetchone()
-                        if not version_v1 and not version_v2 and not version_v3 and not version_v4:
+                        if not version_v1 and not version_v2 and not version_v3 and not version_v4 and not version_v5:
                             raise RuntimeError(
                                 f"PostgreSQL catalog schema is not at required version {POSTGRES_SCHEMA_VERSION}"
                             )
@@ -282,6 +287,7 @@ class ComponentCatalogPostgresService(ComponentCatalogService):
                                 f"ALTER TABLE components ADD COLUMN IF NOT EXISTS {column} {declaration}"
                             )
                         self._upgrade_postgres_v5(conn)
+                        self._ensure_metadata_schema(conn)
                         conn.execute(
                             """
                             INSERT INTO catalog_schema_migrations (version, applied_at)

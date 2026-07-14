@@ -85,11 +85,17 @@ def run_project_import(job: dict[str, Any], progress: Progress) -> dict[str, Any
 def run_folder_import(job: dict[str, Any], progress: Progress) -> dict[str, Any]:
     session_id = str(job["payload"]["session_id"])
     snapshot_id = str(job["payload"]["snapshot_id"])
+    approved_values = list(job["payload"].get("approved_component_ids") or [])
+    footprint_resolutions = {
+        str(key): str(value) for key, value in dict(job["payload"].get("footprint_resolutions") or {}).items()
+    }
     progress(progress=5, message="Resolving KiCad library snapshot", checkpoint={"snapshot_id": snapshot_id})
     run_folder_import_session(
         session_id,
         snapshot_id,
         dict(job["payload"].get("server_source") or {}) or None,
+        set(str(value) for value in approved_values) if approved_values else None,
+        footprint_resolutions,
     )
     session = catalog_service.get_project_import_session(session_id)
     progress(progress=100, message="Folder import proposals staged")
@@ -111,12 +117,37 @@ def run_artifact_maintenance(job: dict[str, Any], progress: Progress) -> dict[st
     }
 
 
+def run_metadata_batch(job: dict[str, Any], progress: Progress) -> dict[str, Any]:
+    batch_id = str(job["payload"]["batch_id"])
+    actor = str(job["payload"].get("actor") or job.get("created_by") or "metadata-worker")
+
+    def callback(counts: dict[str, Any]) -> None:
+        total = int(counts.get("total") or 0)
+        completed = int(counts.get("completed") or 0)
+        progress(
+            progress=100 if total == 0 else (completed / total) * 100,
+            message=f"Applying metadata revisions {completed}/{total}",
+            checkpoint={"batch_id": batch_id, "completed": completed},
+            result={"batch_id": batch_id, **counts},
+        )
+
+    result = catalog_service.apply_metadata_batch(
+        batch_id,
+        actor=actor,
+        item_ids=[str(value) for value in job["payload"].get("item_ids") or []],
+        progress_callback=callback,
+    )
+    progress(progress=100, message="Metadata batch applied", result=result)
+    return result
+
+
 HANDLERS: dict[str, Callable[[dict[str, Any], Progress], dict[str, Any]]] = {
     "catalog_validation": run_validation,
     "catalog_preview_generation": run_previews,
     "project_component_import": run_project_import,
     "folder_library_import": run_folder_import,
     "artifact_maintenance": run_artifact_maintenance,
+    "catalog_metadata_batch": run_metadata_batch,
 }
 
 KICAD_HEAVY_JOB_TYPES = {

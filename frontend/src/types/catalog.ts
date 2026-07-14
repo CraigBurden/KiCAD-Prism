@@ -42,6 +42,8 @@ export interface CatalogValidationRun {
   tool_version: string;
   created_at: string;
   finished_at: string;
+  inherited?: boolean;
+  inherited_from_revision_id?: string;
   reports: {
     summary: string;
     json: string;
@@ -334,6 +336,123 @@ export interface ProjectComponentImportSession {
     snapshot_id?: string;
     display_name?: string;
   };
+}
+
+export interface LibraryFolderDiscoveryAssetCandidate {
+  relative_path: string;
+  size_bytes?: number;
+  library?: string;
+  name?: string;
+}
+
+export interface LibraryFolderDiscoveryComponent {
+  id: string;
+  symbol_name: string;
+  library: string;
+  metadata: {
+    value: string;
+    description: string;
+    datasheet: string;
+    manufacturer: string;
+    manufacturer_part_number: string;
+    fields: Record<string, string>;
+  };
+  symbol: { relative_path: string };
+  footprint_reference: string;
+  footprint: {
+    status: "resolved" | "suggested" | "ambiguous" | "missing";
+    selected: LibraryFolderDiscoveryAssetCandidate | null;
+    candidates: LibraryFolderDiscoveryAssetCandidate[];
+  };
+  models: Array<{
+    reference: string;
+    status: "resolved" | "ambiguous" | "missing";
+    candidates: LibraryFolderDiscoveryAssetCandidate[];
+  }>;
+  findings: Array<{ code: string; severity: "warning" | "error"; message: string }>;
+  existing_component: {
+    component_id: string;
+    revision_id: string;
+    version: number;
+    name: string;
+    manufacturer: string;
+    manufacturer_part_number: string;
+  } | null;
+}
+
+export interface LibraryFolderDiscovery {
+  components: LibraryFolderDiscoveryComponent[];
+  required_paths: string[];
+  inventory_file_count: number;
+  discovery_file_count: number;
+  existing_component_count: number;
+}
+
+export type CatalogMetadataFieldType = "text" | "number" | "url" | "boolean" | "enum";
+
+export interface CatalogMetadataField {
+  id: string;
+  key: string;
+  label: string;
+  description: string;
+  group: "core" | "engineering" | "custom" | string;
+  type: CatalogMetadataFieldType;
+  unit: string;
+  enum_values: string[];
+  storage_kind: "column" | "extra";
+  storage_key: string;
+  built_in: boolean;
+  required: boolean;
+  display_order: number;
+  archived: boolean;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CatalogMetadataGridResponse extends PaginatedComponents {
+  schema: string;
+  fields: CatalogMetadataField[];
+}
+
+export interface CatalogMetadataGridPreferences {
+  visible: string[];
+  order: string[];
+  widths: Record<string, number>;
+  pinned: string[];
+}
+
+export interface CatalogMetadataBatchItem {
+  id: string;
+  component_id: string;
+  expected_revision_id: string;
+  name: string;
+  mpn: string;
+  patch: Record<string, string>;
+  diff: Array<{ field: string; label: string; before: string; after: string }>;
+  validation_status: "valid" | "invalid" | "noop" | "applied" | "conflict";
+  error_message: string;
+  applied_revision_id: string;
+}
+
+export interface CatalogMetadataBatch {
+  id: string;
+  source: "grid" | "csv";
+  status: "ready" | "needs_fields" | "queued" | "running" | "completed" | "partial";
+  schema_version: string;
+  change_summary: string;
+  unknown_fields: Array<{ key: string; label: string; description: string; type: CatalogMetadataFieldType; enum_values: string[] }>;
+  created_by: string;
+  total_items: number;
+  valid_items: number;
+  applied_items: number;
+  failed_items: number;
+  source_rows?: number;
+  skipped_unchanged_rows?: number;
+  created_at: string;
+  updated_at: string;
+  items: CatalogMetadataBatchItem[];
 }
 
 export interface PaginatedComponents {

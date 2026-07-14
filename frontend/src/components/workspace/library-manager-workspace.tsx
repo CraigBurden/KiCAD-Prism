@@ -8,14 +8,15 @@ import { LibraryImportCenter } from "./library-import-center";
 import { LibraryComponentWorkspace } from "./library-component-workspace";
 import { LibraryReleaseQueue } from "./library-release-queue";
 import { LibraryCatalogWorkspace } from "./library-catalog-workspace";
+import { LibraryBulkEditWorkspace } from "./library-bulk-edit-workspace";
 
-type LibraryView = "catalog" | "imports" | "releases" | "connectors";
+type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "connectors";
 
 export function LibraryManagerWorkspace({ user, projects }: { user: User | null; projects: Project[] }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const componentId = searchParams.get("component") || "";
   const requestedView = searchParams.get("libraryView") as LibraryView | null;
-  const view: LibraryView = requestedView && ["catalog", "imports", "releases", "connectors"].includes(requestedView) ? requestedView : "catalog";
+  const view: LibraryView = requestedView && ["catalog", "bulk-edit", "imports", "releases", "connectors"].includes(requestedView) ? requestedView : "catalog";
 
   const setView = (next: LibraryView) => {
     setSearchParams((current) => {
@@ -63,12 +64,13 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <nav className="flex shrink-0 items-center gap-1 border-b bg-card px-3 py-2" aria-label="Library Manager sections">
-        {(["catalog", "imports", "releases", "connectors"] as LibraryView[]).map((item) => (
-          <Button key={item} size="sm" variant="ghost" className={cn("capitalize", view === item && "bg-secondary")} aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>{item === "imports" ? "Import Center" : item === "releases" ? "Release Queue" : item}</Button>
+        {(["catalog", "bulk-edit", "imports", "releases", "connectors"] as LibraryView[]).map((item) => (
+          <Button key={item} size="sm" variant="ghost" className={cn("capitalize", view === item && "bg-secondary")} aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>{item === "bulk-edit" ? "Bulk Edit" : item === "imports" ? "Import Center" : item === "releases" ? "Release Queue" : item}</Button>
         ))}
       </nav>
       <div className="min-h-0 flex-1 overflow-hidden">
         {view === "catalog" && <LibraryCatalogWorkspace user={user} onOpenComponent={(id) => openComponent(id, "overview", "catalog")} />}
+        {view === "bulk-edit" && <LibraryBulkEditWorkspace user={user} />}
         {view === "imports" && <LibraryImportCenter projects={projects} user={user} initialSessionId={searchParams.get("session") || undefined} />}
         {view === "releases" && <LibraryReleaseQueue onOpenComponent={(id) => openComponent(id, "review", "releases")} />}
         {view === "connectors" && <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Connector configuration will appear here as integrations are enabled.</div>}
