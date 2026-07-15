@@ -325,8 +325,10 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const {
         selection: globalSelection,
         select: selectGlobal,
+        crossProbe: crossProbeGlobal,
         clear: clearGlobalSelection,
         registerClient,
+        notifyClientReady,
     } = usePrismCrossProbe(semanticIndex);
     const canImportLibraryComponent = canWriteCatalog(user?.role);
     const canModifyComments = user?.role === "admin" || user?.role === "designer";
@@ -618,29 +620,46 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         if (activeTab === "3d") setThreeDActivated(true);
     }, [activeTab]);
 
+    // Re-apply an active cross-probe when SCH/PCB becomes visible so hatch/net
+    // Focus paints that ran while the canvas was hidden are rebuilt.
+    useEffect(() => {
+        if (activeTab === "pcb") notifyClientReady("visualizer-pcb");
+        if (activeTab === "sch") notifyClientReady("visualizer-schematic");
+    }, [activeTab, notifyClientReady]);
+
     useEffect(() => {
         const schematicViewer = schematicViewerElement;
         const pcbViewer = pcbViewerElement;
         if (!schematicViewer && !pcbViewer) return;
 
+        const revisionKey = semanticIndex?.sourceRevisionKey ?? commit ?? undefined;
+
         const handleSelection = (event: Event) => {
             const detail = (event as CustomEvent<EcadSemanticSelectionDetail>).detail;
             lastSelectionRef.current = detail;
-            const normalized = normalizeEcadSelection(
-                detail,
-                semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
-            );
+            const normalized = normalizeEcadSelection(detail, revisionKey);
             if (normalized) selectGlobal(normalized);
+        };
+
+        const handleCrossProbe = (event: Event) => {
+            const detail = (event as CustomEvent<EcadSemanticSelectionDetail>).detail;
+            lastSelectionRef.current = detail;
+            const normalized = normalizeEcadSelection(detail, revisionKey);
+            if (normalized) crossProbeGlobal(normalized);
         };
 
         schematicViewer?.addEventListener("ecad-viewer:selection", handleSelection as EventListener);
         pcbViewer?.addEventListener("ecad-viewer:selection", handleSelection as EventListener);
+        schematicViewer?.addEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
+        pcbViewer?.addEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
 
         return () => {
             schematicViewer?.removeEventListener("ecad-viewer:selection", handleSelection as EventListener);
             pcbViewer?.removeEventListener("ecad-viewer:selection", handleSelection as EventListener);
+            schematicViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
+            pcbViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
         };
-    }, [clearGlobalSelection, commit, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey]);
+    }, [commit, crossProbeGlobal, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey]);
 
     useEffect(() => {
         const applySelection = (
@@ -650,14 +669,6 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         ) => {
             if (!viewer) return;
             if (!selection) {
-                viewer.clearSelection();
-                return;
-            }
-            // Keep ecad-viewer cross-probing component-focused. Net selections
-            // still flow through the Visualizer bus to the semantic sidebar and
-            // 3D viewer, but compiling a whole schematic/PCB net highlight here
-            // is expensive and duplicates the 3D isolation workflow.
-            if (selection.kind === "net") {
                 viewer.clearSelection();
                 return;
             }
@@ -1109,7 +1120,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                                 user={user}
                                 active={activeTab === "3d"}
                                 selection={globalSelection}
-                                onSelection={selectGlobal}
+                                onSelection={crossProbeGlobal}
                                 onClearSelection={clearGlobalSelection}
                             />
                         </div>
@@ -1122,7 +1133,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                                 loading={semanticIndexLoading}
                                 error={semanticIndexError}
                                 selection={globalSelection}
-                                onSelection={selectGlobal}
+                                onSelection={crossProbeGlobal}
                                 onRetry={() => void generateSemanticIdentity()}
                             />
                         </div>

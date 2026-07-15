@@ -4,7 +4,7 @@
   "upstreamCommit": "a6456d3e9f10cdf761ce0c0e711ac69251e1fa45",
   "adapterCommit": "4bde0e5ab822a31d5f683ea46f28cf117c6415d6",
   "artifacts": {
-    "ecad-viewer.js": "sha256:803dcb051a11362dad2a4bf2b21c84c8e3b7b0704b531591e21d311bb20f10b0",
-    "parser.worker.js": "sha256:9a198199f3ab25670b910f3006172d328d3db8298a9dde9e573f17f7e3934b6e"
+    "ecad-viewer.js": "sha256:506dbe99415a7894498cbd6b2a6e2cb107561766f9932f8e3aabe091c87d701f",
+    "parser.worker.js": "sha256:074c4fc242f47636ea41692d420bdb2483e6f42a40fab8678167b93ffb5a7cae"
   }
 }

@@ -152,6 +152,14 @@ export interface EcadCommentAreaDetail {
     layer?: string;
 }
 
+/** Value-based camera state from <ecad-viewer> (world center + zoom + rotation). */
+export interface CameraState {
+    x: number;
+    y: number;
+    zoom: number;
+    rotation: number;
+}
+
 export interface ECadViewerElement extends HTMLElement {
     replaceSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
     appendSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
@@ -162,6 +170,18 @@ export interface ECadViewerElement extends HTMLElement {
     clearOverlayScene(channelId: string): void;
     zoomToLocation(x: number, y: number): void;
     switchPage(pageId: string): void;
+    /** Resolves once the project has loaded (parse + first paint). */
+    readonly ready?: Promise<void>;
+    /** Switch schematic page and resolve once applied. Awaits readiness first. */
+    showPage?(pageId: string): Promise<void>;
+    /** Fit the active viewer to a world-space bbox; resolves the settled camera. */
+    focusBBox?(x: number, y: number, w: number, h: number): Promise<CameraState | null>;
+    /** Focus an item by uuid; resolves the settled camera or null. */
+    focusItem?(uuid: string, opts?: { select?: boolean; pad?: number }): Promise<CameraState | null>;
+    /** Convenience cross-probe by designator/uuid in the active viewer. Prefer requestCrossProbe. */
+    crossProbe?(reference: string): Promise<CameraState | null>;
+    /** Active tab's camera as a plain value, or null before load. Settable. */
+    camera?: CameraState | null;
     navigateSchematicPage?(direction: -1 | 1): boolean;
     navigateSchematicParent?(): boolean;
     getSchematicPages?(): EcadSchematicPageState[];
@@ -192,12 +212,14 @@ declare global {
         "ecad-viewer:crossprobe:request": CustomEvent<CrossProbeRequest>;
         "ecad-viewer:crossprobe:result": CustomEvent<CrossProbeResult>;
         "ecad-viewer:selection": CustomEvent<EcadSemanticSelectionDetail>;
+        "ecad-viewer:crossprobe": CustomEvent<EcadSemanticSelectionDetail>;
         "ecad-viewer:view-state-change": CustomEvent<void>;
         "ecad-viewer:overlay-click": CustomEvent<EcadOverlayHitDetail>;
         "ecad-viewer:overlay-hover": CustomEvent<EcadOverlayHitDetail>;
         "ecad-viewer:overlay-leave": CustomEvent<EcadOverlayHitDetail>;
         "ecad-viewer:comment-area": CustomEvent<EcadCommentAreaDetail>;
         "kicanvas:select": CustomEvent<KiCanvasSelectDetail>;
+        camerachange: CustomEvent<CameraState>;
     }
 
     namespace JSX {
@@ -215,6 +237,7 @@ declare global {
                     "show-header"?: boolean | "true" | "false";
                 "header-sections"?: string;
                 "show-selection-panel"?: string;
+                "hide-chrome"?: boolean | "true" | "false";
                 },
                 ECadViewerElement
             >;

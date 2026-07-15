@@ -8,7 +8,10 @@ import type {
 
 interface PrismCrossProbeBus {
     selection: PrismSelection | null;
+    /** Panel-only: updates inspector state without mirroring into other viewers. */
     select: (selection: PrismSelection) => void;
+    /** Full cross-probe: updates inspector and applies to other ready viewers. */
+    crossProbe: (selection: PrismSelection) => void;
     clear: () => void;
     registerClient: (client: PrismViewerClient) => () => void;
     notifyClientReady: (clientId: string) => void;
@@ -19,12 +22,15 @@ export function usePrismCrossProbe(
 ): PrismCrossProbeBus {
     const [selection, setSelection] = useState<PrismSelection | null>(null);
     const selectionRef = useRef<PrismSelection | null>(null);
+    const probingRef = useRef(false);
     const clientsRef = useRef(new Map<string, PrismViewerClient>());
 
     const dispatch = useCallback((next: PrismSelection | null, onlyClientId?: string) => {
         for (const client of clientsRef.current.values()) {
             if (onlyClientId && client.id !== onlyClientId) continue;
-            if (!client.isReady()) continue;
+            if (!client.isReady()) {
+                continue;
+            }
             if (
                 next
                 && client.context === next.sourceContext
@@ -45,12 +51,21 @@ export function usePrismCrossProbe(
 
     const select = useCallback((next: PrismSelection) => {
         const enriched = enrichPrismSelection(next, semanticIndex);
+        probingRef.current = false;
+        selectionRef.current = enriched;
+        setSelection(enriched);
+    }, [semanticIndex]);
+
+    const crossProbe = useCallback((next: PrismSelection) => {
+        const enriched = enrichPrismSelection(next, semanticIndex);
+        probingRef.current = true;
         selectionRef.current = enriched;
         setSelection(enriched);
         dispatch(enriched);
     }, [dispatch, semanticIndex]);
 
     const clear = useCallback(() => {
+        probingRef.current = false;
         selectionRef.current = null;
         setSelection(null);
         dispatch(null);
@@ -64,7 +79,9 @@ export function usePrismCrossProbe(
             && client.context === current.sourceContext
             && (!client.revisionKey || !current.sourceRevisionKey || client.revisionKey === current.sourceRevisionKey),
         );
-        if (client.isReady() && !isSourceClient) void client.applySelection(current);
+        if (probingRef.current && client.isReady() && !isSourceClient) {
+            void client.applySelection(current);
+        }
         return () => {
             if (clientsRef.current.get(client.id) === client) {
                 clientsRef.current.delete(client.id);
@@ -73,6 +90,7 @@ export function usePrismCrossProbe(
     }, []);
 
     const notifyClientReady = useCallback((clientId: string) => {
+        if (!probingRef.current) return;
         dispatch(selectionRef.current, clientId);
     }, [dispatch]);
 
@@ -81,8 +99,8 @@ export function usePrismCrossProbe(
         const enriched = enrichPrismSelection(selectionRef.current, semanticIndex);
         selectionRef.current = enriched;
         setSelection(enriched);
-        dispatch(enriched);
+        if (probingRef.current) dispatch(enriched);
     }, [dispatch, semanticIndex]);
 
-    return { selection, select, clear, registerClient, notifyClientReady };
+    return { selection, select, crossProbe, clear, registerClient, notifyClientReady };
 }

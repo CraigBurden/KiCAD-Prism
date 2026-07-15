@@ -46,6 +46,7 @@ export interface PrismTerminalSelection extends PrismSelectionBase {
     componentUid?: string;
     netUid?: string;
     netName?: string;
+    netCode?: number;
     uuid?: string;
 }
 

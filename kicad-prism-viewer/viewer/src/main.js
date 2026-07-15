@@ -83,6 +83,9 @@ function initialState() {
     showBoard: true,
     showComponents: true,
     isolateNet: false,
+    /** User/view prefs restored after Esc; not overwritten by net-probe toggles. */
+    savedShowBoard: true,
+    savedShowComponents: true,
     preIsolation3dLayers: null,
     preIsolationCompareLayers: null,
     separation: 0,
@@ -375,6 +378,7 @@ function featureSelection(feature) {
       pin,
       netUid: net?.uid,
       netName: net?.name,
+      netCode: net ? Number(net.id) : undefined,
       uuid: String(feature.sourceUid || "") || undefined,
       featureId: Number(feature.id || 0) || undefined,
     };
@@ -391,6 +395,33 @@ function featureSelection(feature) {
     };
   }
   return netSelection(net, feature);
+}
+
+function applyComponentProbeVisibility() {
+  state.showBoard = true;
+  state.showComponents = true;
+  syncNetIsolationControls();
+  if (typeof refreshControls === "function") refreshControls();
+}
+
+function applyNetProbeVisibility() {
+  // Snapshot prefs only when leaving a non-probe visibility state so chained
+  // net probes do not overwrite the user's last ON preferences with false.
+  if (state.showBoard || state.showComponents) {
+    state.savedShowBoard = state.showBoard;
+    state.savedShowComponents = state.showComponents;
+  }
+  state.showBoard = false;
+  state.showComponents = false;
+  syncNetIsolationControls();
+  if (typeof refreshControls === "function") refreshControls();
+}
+
+function restoreViewVisibilityPrefs() {
+  state.showBoard = state.savedShowBoard !== false;
+  state.showComponents = state.savedShowComponents !== false;
+  syncNetIsolationControls();
+  if (typeof refreshControls === "function") refreshControls();
 }
 
 async function boot(token) {
@@ -1598,6 +1629,8 @@ function syncNetIsolationControls() {
   cardButton?.setAttribute("aria-pressed", String(isolate));
   const boardToggle = viewControlsEl?.querySelector?.("#show-board");
   if (boardToggle) boardToggle.checked = state.showBoard;
+  const componentsToggle = viewControlsEl?.querySelector?.("#show-components");
+  if (componentsToggle) componentsToggle.checked = state.showComponents;
 }
 
 function layersForActiveNet() {
@@ -1645,6 +1678,7 @@ function applyNetIsolationLayers() {
 
 function setNetIsolation(enabled) {
   const next = Boolean(enabled && state.activeNetId);
+  const wasIsolating = state.isolateNet;
   if (next && !state.isolateNet) {
     state.preIsolation3dLayers = new Set(state.visible3dLayers);
     state.preIsolationCompareLayers = new Set(state.desiredCompareLayers.size
@@ -1670,7 +1704,13 @@ function setNetIsolation(enabled) {
     state.preIsolationCompareLayers = null;
     scheduleTileResidency(performance.now(), { force: true });
   }
-  state.showBoard = !state.isolateNet;
+  // Only couple substrate to isolation transitions — never force board ON on clear.
+  // Do not overwrite savedShowBoard; net-probe / user prefs own that value.
+  if (next && !wasIsolating) {
+    state.showBoard = false;
+  } else if (!next && wasIsolating) {
+    state.showBoard = state.savedShowBoard !== false;
+  }
   syncNetIsolationControls();
   refreshControls();
 }
@@ -1740,10 +1780,12 @@ function bindControlEvents() {
   }));
   viewControlsEl.querySelector("#show-board").addEventListener("change", (event) => {
     state.showBoard = event.target.checked;
+    state.savedShowBoard = state.showBoard;
     if (state.showBoard && state.isolateNet) setNetIsolation(false);
   });
   viewControlsEl.querySelector("#show-components").addEventListener("change", (event) => {
     state.showComponents = event.target.checked;
+    state.savedShowComponents = state.showComponents;
   });
   viewControlsEl.querySelector("#separation").addEventListener("input", (event) => {
     state.separation = Number(event.target.value);
@@ -1818,6 +1860,7 @@ function selectNet(netId, shouldFrame) {
     schematicScene.activeNetUid = net.uid;
     schematicRenderer.activeNetUid = net.uid;
   }
+  applyNetProbeVisibility();
   selectionEl.textContent = JSON.stringify(net || {}, null, 2);
   updateSelectionCard();
   if (state.isolateNet) applyNetIsolationLayers();
@@ -1833,18 +1876,22 @@ function selectFeature(featureId, shouldFrame = false) {
   state.activeNetId = Number(feature?.netId || 0);
   const reference = componentReferenceFromFeature(feature);
   if (reference) bomViewer?.setSelectionByReference(reference, { scroll: state.workspace === "bom" });
+  const selection = featureSelection(feature);
+  if (selection?.kind === "net") applyNetProbeVisibility();
+  else applyComponentProbeVisibility();
   selectionEl.textContent = feature ? JSON.stringify(feature, null, 2) : "No object selected";
   updateSelectionCard();
   if (state.isolateNet && state.activeNetId) applyNetIsolationLayers();
   if (shouldFrame && feature?.bounds) framePcbFeature(feature);
   scheduleTileResidency(performance.now(), { force: true });
-  emitSelectionChange(featureSelection(feature));
+  emitSelectionChange(selection);
 }
 
 function selectComponentReference(reference, shouldFrame = false) {
   const component = scene.componentFeatures.get(reference);
   bomViewer?.setSelectionByReference(reference, { scroll: state.workspace === "bom" });
   if (!component?.featureId) return;
+  applyComponentProbeVisibility();
   selectFeature(Number(component.featureId), false);
 
   const schematicMatch = findSchematicFeatureByReference(reference);
@@ -1927,7 +1974,13 @@ function clearSelection() {
   state.selectedFeatureId = 0;
   state.selectedSchematicFeature = null;
   state.selectionAnchor = null;
-  setNetIsolation(false);
+  const wasIsolating = state.isolateNet;
+  if (wasIsolating) setNetIsolation(false);
+  else {
+    // Still clear isolation bookkeeping without forcing substrate ON.
+    state.isolateNet = false;
+  }
+  restoreViewVisibilityPrefs();
   schematicScene.activeNetUid = "";
   if (schematicRenderer) schematicRenderer.activeNetUid = "";
   schematicDomRenderer?.setSelection(null);
@@ -2553,7 +2606,7 @@ async function pickAt(event) {
     compareOffsets,
     visibleTileIds: state.mode === "3d" ? state.visibleTileIds : null,
   });
-  if (featureId) selectFeature(featureId, false);
+  if (featureId) selectFeature(featureId, true);
   else clearSelection();
 }
 

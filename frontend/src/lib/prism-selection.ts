@@ -31,6 +31,7 @@ export function normalizeEcadSelection(
     } as const;
 
     if (normalized.reference && normalized.pin) {
+        // Cross-probe of pads is promoted to net upstream; panel select keeps terminal.
         return {
             kind: "terminal",
             sourceContext,
@@ -258,13 +259,31 @@ export function crossProbeRequestForSelection(
     }
 
     const net = semanticNetForSelection(selection, semanticIndex);
+    const schematicRefs = [...(net?.schematicRefs || [])].sort((a, b) =>
+        String(a.page || "").localeCompare(String(b.page || "")),
+    );
+    const preferredPage = selection.anchor?.page || selection.anchor?.sheet;
+    const preferredSchRef =
+        (preferredPage
+            ? schematicRefs.find((reference) =>
+                reference.page === preferredPage
+                || reference.sheetInstancePath === preferredPage)
+            : undefined)
+        ?? schematicRefs[0];
     const uuids = targetContext === "SCH"
-        ? (net?.schematicRefs || []).flatMap((reference) => [
-            ...(reference.wireUuids || []),
-            ...(reference.labelUuids || []),
-            ...(reference.junctionUuids || []),
-            ...(reference.pinUuids || []),
-        ])
+        ? (preferredSchRef
+            ? [
+                ...(preferredSchRef.wireUuids || []),
+                ...(preferredSchRef.labelUuids || []),
+                ...(preferredSchRef.junctionUuids || []),
+                ...(preferredSchRef.pinUuids || []),
+            ]
+            : schematicRefs.flatMap((reference) => [
+                ...(reference.wireUuids || []),
+                ...(reference.labelUuids || []),
+                ...(reference.junctionUuids || []),
+                ...(reference.pinUuids || []),
+            ]))
         : (net?.pcbRefs || []).flatMap((reference) => [
             ...(reference.trackUuids || []),
             ...(reference.arcUuids || []),
@@ -279,12 +298,11 @@ export function crossProbeRequestForSelection(
         kind: "net",
         value: selection.netName || selection.netUid || selection.uuid || "",
         net: selection.netName,
-        netCode: selection.netCode,
+        netCode: selection.netCode ?? net?.netCode,
         netUid: selection.netUid,
         uuid: uuids[0],
-        page: targetContext === "SCH"
-            ? net?.schematicRefs?.[0]?.page
-            : undefined,
+        page: targetContext === "SCH" ? preferredSchRef?.page : undefined,
+        sheet: targetContext === "SCH" ? preferredSchRef?.page : undefined,
         uuids,
     };
 }
