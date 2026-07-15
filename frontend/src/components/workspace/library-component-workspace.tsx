@@ -165,7 +165,7 @@ const WORKFLOW_LABELS: Record<WorkflowStage, string> = {
 };
 
 const AVAILABILITY_LABELS: Record<AvailabilityState, string> = {
-  place_ready: "Place ready",
+  place_ready: "CAD complete",
   files_partial: "Files partial",
   metadata_only: "Metadata only",
 };
@@ -337,7 +337,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
         <MetricCard label="Release state" value={WORKFLOW_LABELS[workflowStage(component)]} detail={`Revision v${component.revision}`} />
         <MetricCard label="Required assets" value={`${requiredAttached}/${requiredAttached + component.missing_assets.length}`} detail={component.missing_assets.length ? `Missing ${component.missing_assets.join(", ")}` : "All required assets attached"} />
         <MetricCard label="Validation" value={VALIDATION_LABELS[component.validation.status]} detail={`${component.validation.error_count} errors · ${component.validation.warning_count} warnings`} />
-        <MetricCard label="Project usage" value={component.place_enabled ? "Place enabled" : "Not placeable"} detail={AVAILABILITY_LABELS[component.availability_state]} />
+        <MetricCard label="Project usage" value={component.place_enabled ? "Placeable" : "Not placeable"} detail={`${AVAILABILITY_LABELS[component.availability_state]}${component.place_enabled ? "" : " · requires Released"}`} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -2054,7 +2054,7 @@ export function LibraryComponentWorkspace({
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge tone={workflowStage(activeComponent) === "released" ? "success" : "neutral"}>{WORKFLOW_LABELS[workflowStage(activeComponent)]}</StatusBadge>
               <StatusBadge tone={activeComponent.validation.status === "failed" ? "danger" : activeComponent.validation.status === "warning" ? "warning" : activeComponent.validation.status === "passed" ? "success" : "neutral"}>{VALIDATION_LABELS[activeComponent.validation.status]}</StatusBadge>
-              <StatusBadge tone={activeComponent.availability_state === "place_ready" ? "success" : activeComponent.availability_state === "files_partial" ? "warning" : "danger"}>{AVAILABILITY_LABELS[activeComponent.availability_state]}</StatusBadge>
+              <StatusBadge tone={activeComponent.place_enabled ? "success" : activeComponent.availability_state === "files_partial" ? "warning" : activeComponent.availability_state === "metadata_only" ? "danger" : "neutral"}>{activeComponent.place_enabled ? "Placeable" : AVAILABILITY_LABELS[activeComponent.availability_state]}</StatusBadge>
               <Button size="sm" variant="outline" aria-label="Refresh component workspace" onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-3 w-3" /> Refresh</Button>
             </div>
           </div>

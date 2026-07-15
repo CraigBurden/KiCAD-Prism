@@ -103,7 +103,7 @@ export function LibraryComponentQuickView({
                 </div>
                 <div className="mt-3 border p-3 text-xs">
                   <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Revision</span><span className="font-medium">v{component.revision}</span></div>
-                  <div className="mt-2 flex items-center justify-between gap-3"><span className="text-muted-foreground">CAD state</span><span className="font-medium">{component.availability_state.replace(/_/g, " ")}</span></div>
+                  <div className="mt-2 flex items-center justify-between gap-3"><span className="text-muted-foreground">CAD state</span><span className="font-medium">{component.availability_state === "place_ready" ? "CAD complete" : component.availability_state.replace(/_/g, " ")}</span></div>
                   <div className="mt-2 flex items-center justify-between gap-3"><span className="text-muted-foreground">Validation</span><span className={cn("font-medium", component.validation.error_count > 0 && "text-destructive")}>{component.validation.error_count} errors · {component.validation.warning_count} warnings</span></div>
                 </div>
               </section>

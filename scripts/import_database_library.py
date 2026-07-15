@@ -96,11 +96,26 @@ class ImportStats:
     errors: list[str] = field(default_factory=list)
 
 
-CATALOG_DELETE_ORDER = (
+# Truncate order is irrelevant under CASCADE; list every catalog table that holds
+# imported component/asset state so --replace-catalog clears the Postgres schema.
+CATALOG_TRUNCATE_TABLES = (
     "asset_validation_findings",
     "asset_validation_runs",
+    "revision_validation_evidence_links",
+    "revision_preview_outputs",
+    "revision_previews",
+    "asset_preview_versions",
     "asset_previews",
     "revision_assets",
+    "component_release_records",
+    "component_review_decisions",
+    "catalog_audit_events",
+    "catalog_metadata_batch_items",
+    "catalog_metadata_batches",
+    "component_usage",
+    "project_component_import_proposals",
+    "project_component_import_sessions",
+    "component_heads",
     "component_revisions",
     "components",
     "assets",
@@ -396,7 +411,7 @@ def _runtime_path(local_path: Path, local_store_root: Path, runtime_store_root: 
 
 def _register_asset(
     service: Any,
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     asset_type: str,
     canonical_path: Path,
@@ -416,19 +431,22 @@ def _register_asset(
     )
     runtime_canonical_path = _runtime_path(local_path, service.store_root, runtime_store_root)
     if str(asset["canonical_path"]) != runtime_canonical_path:
-        conn.execute("UPDATE assets SET canonical_path = ? WHERE id = ?", (runtime_canonical_path, asset["id"]))
+        conn.execute(
+            "UPDATE assets SET canonical_path = %s WHERE id = %s",
+            (runtime_canonical_path, asset["id"]),
+        )
         asset = dict(asset)
         asset["canonical_path"] = runtime_canonical_path
     return asset
 
 
-def _find_existing_component(conn: sqlite3.Connection, mpn: str) -> str | None:
+def _find_existing_component(conn: Any, mpn: str) -> str | None:
     row = conn.execute(
         """
         SELECT c.id
         FROM components c
         JOIN component_revisions cr ON cr.id = c.current_revision_id
-        WHERE cr.mpn = ?
+        WHERE cr.mpn = %s
         LIMIT 1
         """,
         (mpn,),
@@ -436,27 +454,9 @@ def _find_existing_component(conn: sqlite3.Connection, mpn: str) -> str | None:
     return str(row["id"]) if row else None
 
 
-def _clear_catalog(conn: sqlite3.Connection) -> None:
-    conn.execute("PRAGMA foreign_keys = OFF")
-    for table in CATALOG_DELETE_ORDER:
-        conn.execute(f'DELETE FROM "{table}"')
-    conn.execute("PRAGMA foreign_keys = ON")
-
-
-def _rebuild_fts(conn: sqlite3.Connection) -> None:
-    conn.execute("INSERT INTO component_revisions_fts(component_revisions_fts) VALUES ('rebuild')")
-    signature_row = conn.execute(
-        "SELECT COUNT(1) AS count, COALESCE(MAX(updated_at), '') AS updated_at FROM component_revisions"
-    ).fetchone()
-    signature = f"{int(signature_row['count'])}:{signature_row['updated_at']}"
-    conn.execute(
-        """
-        INSERT INTO catalog_meta(key, value)
-        VALUES ('component_revisions_fts_signature', ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        """,
-        (signature,),
-    )
+def _clear_catalog(conn: Any) -> None:
+    tables = ", ".join(f'"{table}"' for table in CATALOG_TRUNCATE_TABLES)
+    conn.execute(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -677,11 +677,11 @@ def main() -> int:
                     if not args.no_release and linked_symbol and linked_footprint:
                         now = _utc_now_iso()
                         target_conn.execute(
-                            "UPDATE component_revisions SET release_status = 'released', updated_at = ? WHERE id = ?",
+                            "UPDATE component_revisions SET release_status = 'released', updated_at = %s WHERE id = %s",
                             (now, revision_id),
                         )
                         target_conn.execute(
-                            "UPDATE components SET released_revision_id = ?, updated_at = ? WHERE id = ?",
+                            "UPDATE components SET released_revision_id = %s, updated_at = %s WHERE id = %s",
                             (revision_id, now, component_id),
                         )
                         stats.components_released += 1
@@ -693,7 +693,6 @@ def main() -> int:
                 break
 
         if target_conn is not None:
-            _rebuild_fts(target_conn)
             target_conn.commit()
     except Exception as exc:  # noqa: BLE001
         fatal_error = True
@@ -712,7 +711,7 @@ def main() -> int:
             "source_database": str(database_path),
             "symbols_root": str(symbols_root),
             "footprints_root": str(footprints_root),
-            "target_database": str(service.db_path),
+            "target_database": "postgresql:catalog",
             "store_root": str(service.store_root),
             "runtime_store_root": str(runtime_store_root) if runtime_store_root else "",
             "dry_run": bool(args.dry_run),

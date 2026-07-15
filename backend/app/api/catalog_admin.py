@@ -271,7 +271,7 @@ def release_queue(
             page_size=page_size,
             sort_by="updated_at",
             sort_dir="desc",
-            lightweight=False,
+            lightweight=True,
         )
         return {**result, "summary": catalog_service.release_queue_summary()}
     except ValueError as exc:

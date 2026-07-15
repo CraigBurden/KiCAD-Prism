@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -7,6 +8,8 @@ from typing import Any, Iterator
 from app.core.config import settings
 from app.services.component_catalog_domain import ComponentCatalogDomainService
 from app.services.postgres_database import database
+
+logger = logging.getLogger(__name__)
 
 
 POSTGRES_SCHEMA_VERSION = "catalog-postgres-v6"
@@ -390,7 +393,11 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     ("postgres_search_version", POSTGRES_SEARCH_VERSION),
                 )
                 conn.commit()
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "pg_trgm catalog search indexes unavailable; falling back to btree lower() indexes: %s",
+                    exc,
+                )
                 conn.rollback()
                 conn.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s))",

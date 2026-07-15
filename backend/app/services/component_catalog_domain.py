@@ -415,7 +415,7 @@ def _release_allows_remote(release_status: str) -> bool:
 
 
 def _normalize_workflow_stage(stage: str) -> str:
-    normalized = (stage or "").strip()
+    normalized = (stage or "").strip().lower()
     return LEGACY_WORKFLOW_STAGE_MAP.get(normalized, normalized)
 
 
@@ -1386,6 +1386,15 @@ class ComponentCatalogDomainService:
                 (component_id,),
             ).fetchone()["max_version"]
         ) + 1
+        parent_status = _normalize_workflow_stage(str(current["release_status"]))
+        # Preserve in-flight workflow across asset/metadata clones. Only branch
+        # back to open when starting new work from a released/archived revision.
+        if change_kind == "new_draft" or parent_status in {"released", "archived"}:
+            next_status = "open"
+        elif parent_status == "done":
+            next_status = "in_progress"
+        else:
+            next_status = parent_status if parent_status in WORKFLOW_STAGES else "open"
         revision_id = str(uuid.uuid4())
         conn.execute(
             """
@@ -1397,14 +1406,25 @@ class ComponentCatalogDomainService:
                 summary, keywords, extra_fields, search_document, created_at, updated_at
             )
             SELECT
-                %s, component_id, %s, id, %s, %s, %s, '', %s, 'open', name, value, description, datasheet_url,
+                %s, component_id, %s, id, %s, %s, %s, '', %s, %s, name, value, description, datasheet_url,
                 manufacturer, mpn, category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
                 summary, keywords, extra_fields, search_document, %s, %s
             FROM component_revisions
             WHERE id = %s
             """,
-            (revision_id, next_version, change_kind, change_summary, actor, REVISION_MANIFEST_A2, now, now, current["id"]),
+            (
+                revision_id,
+                next_version,
+                change_kind,
+                change_summary,
+                actor,
+                REVISION_MANIFEST_A2,
+                next_status,
+                now,
+                now,
+                current["id"],
+            ),
         )
         conn.execute(
             """
@@ -1437,6 +1457,7 @@ class ComponentCatalogDomainService:
             "UPDATE components SET current_revision_id = %s, updated_at = %s WHERE id = %s",
             (revision_id, now, component_id),
         )
+        self._inherit_validation_evidence(conn, str(current["id"]), revision_id)
         return self._revision_row(conn, revision_id) or {}
 
     def _load_assets_for_revision(self, conn: Any, revision_id: str) -> list[dict[str, Any]]:
@@ -1474,6 +1495,8 @@ class ComponentCatalogDomainService:
             SELECT preview.*
             FROM revision_preview_outputs link
             JOIN asset_preview_versions preview ON preview.id = link.preview_id
+            JOIN revision_assets ra
+              ON ra.revision_id = link.revision_id AND ra.asset_id = link.asset_id
             WHERE link.revision_id = %s
             """,
             (revision_id,),
@@ -1483,6 +1506,8 @@ class ComponentCatalogDomainService:
             SELECT preview.*
             FROM revision_previews link
             JOIN asset_preview_versions preview ON preview.id = link.preview_id
+            JOIN revision_assets ra
+              ON ra.revision_id = link.revision_id AND ra.asset_id = link.asset_id
             WHERE link.revision_id = %s
             """,
             (revision_id,),
@@ -1524,6 +1549,8 @@ class ComponentCatalogDomainService:
             SELECT preview.*, link.revision_id
             FROM revision_preview_outputs link
             JOIN asset_preview_versions preview ON preview.id = link.preview_id
+            JOIN revision_assets ra
+              ON ra.revision_id = link.revision_id AND ra.asset_id = link.asset_id
             WHERE link.revision_id IN ({placeholders})
             """,
             tuple(revision_ids),
@@ -1533,6 +1560,8 @@ class ComponentCatalogDomainService:
             SELECT preview.*, link.revision_id
             FROM revision_previews link
             JOIN asset_preview_versions preview ON preview.id = link.preview_id
+            JOIN revision_assets ra
+              ON ra.revision_id = link.revision_id AND ra.asset_id = link.asset_id
             WHERE link.revision_id IN ({placeholders})
             """,
             tuple(revision_ids),
@@ -1869,7 +1898,14 @@ class ComponentCatalogDomainService:
                 """,
                 (component_id,),
             ).fetchall()
-            return [dict(row) for row in rows]
+            return [
+                {
+                    **dict(row),
+                    "release_status": _normalize_workflow_stage(str(row["release_status"])),
+                    "workflow_stage": _normalize_workflow_stage(str(row["release_status"])),
+                }
+                for row in rows
+            ]
 
     def list_component_audit_events(self, component_id: str) -> list[dict[str, Any]]:
         self.initialize()
@@ -3071,6 +3107,8 @@ class ComponentCatalogDomainService:
             )
 
             def latest_status_exists(status: str, suffix: str) -> str:
+                # Scope runs to the revision (direct or inherited evidence). Matching
+                # by asset_id alone incorrectly picks status from unrelated revisions.
                 return (
                     f"EXISTS (SELECT 1 FROM revision_assets ra_validation_{suffix} "
                     f"JOIN assets asset_validation_{suffix} ON asset_validation_{suffix}.id = ra_validation_{suffix}.asset_id "
@@ -3079,10 +3117,19 @@ class ComponentCatalogDomainService:
                     f"AND COALESCE(("
                     f"SELECT avr_validation_{suffix}.status "
                     f"FROM asset_validation_runs avr_validation_{suffix} "
-                    f"WHERE avr_validation_{suffix}.asset_id = asset_validation_{suffix}.id "
+                    f"WHERE avr_validation_{suffix}.revision_id = {revision_ref}.id "
+                    f"AND avr_validation_{suffix}.asset_id = asset_validation_{suffix}.id "
                     f"ORDER BY avr_validation_{suffix}.finished_at DESC, avr_validation_{suffix}.created_at DESC "
                     f"LIMIT 1"
-                    f"), '{VALIDATION_STATUS_NOT_RUN}') = '{status}')"
+                    f"), COALESCE(("
+                    f"SELECT inherited_run_{suffix}.status "
+                    f"FROM revision_validation_evidence_links inherited_link_{suffix} "
+                    f"JOIN asset_validation_runs inherited_run_{suffix} "
+                    f"  ON inherited_run_{suffix}.id = inherited_link_{suffix}.source_run_id "
+                    f"WHERE inherited_link_{suffix}.revision_id = {revision_ref}.id "
+                    f"AND inherited_link_{suffix}.asset_id = asset_validation_{suffix}.id "
+                    f"LIMIT 1"
+                    f"), '{VALIDATION_STATUS_NOT_RUN}')) = '{status}')"
                 )
 
             failed_exists = latest_status_exists(VALIDATION_STATUS_FAILED, "failed")
@@ -3110,16 +3157,9 @@ class ComponentCatalogDomainService:
             filters.append("c.released_revision_id <> ''")
             filters.append("rr.release_status = 'released'")
         query_text = query.strip()
-        fts_query = self._fts_query(query_text) if query_text and self._fts_available else ""
-        if fts_query:
-            filters.append(
-                f"({revision_ref}.rowid IN ("
-                "SELECT rowid FROM component_revisions_fts "
-                "WHERE component_revisions_fts MATCH %s"
-                f") OR LOWER({revision_ref}.created_by) LIKE LOWER(%s))"
-            )
-            params.extend([fts_query, f"%{query_text}%"])
-        elif query_text:
+        # Postgres catalog search uses search_document (+ optional pg_trgm). The
+        # legacy SQLite FTS branch is intentionally disabled to avoid rowid MATCH.
+        if query_text:
             filters.append(
                 f"(LOWER({revision_ref}.search_document) LIKE LOWER(%s) "
                 f"OR LOWER({revision_ref}.created_by) LIKE LOWER(%s))"
@@ -3258,6 +3298,22 @@ class ComponentCatalogDomainService:
                     revision_runs = validation_by_revision.setdefault(revision_id, {})
                     if asset_id not in revision_runs:
                         revision_runs[asset_id] = dict(validation_row)
+                inherited_rows = conn.execute(
+                    f"""
+                    SELECT run.*, run.revision_id AS inherited_from_revision_id,
+                           link.revision_id AS inherited_for_revision_id, link.asset_id AS linked_asset_id
+                    FROM revision_validation_evidence_links link
+                    JOIN asset_validation_runs run ON run.id = link.source_run_id
+                    WHERE link.revision_id IN ({placeholders})
+                    """,
+                    tuple(revision_ids),
+                ).fetchall()
+                for inherited_row in inherited_rows:
+                    revision_id = str(inherited_row["inherited_for_revision_id"])
+                    asset_id = str(inherited_row["linked_asset_id"])
+                    revision_runs = validation_by_revision.setdefault(revision_id, {})
+                    if asset_id not in revision_runs:
+                        revision_runs[asset_id] = dict(inherited_row)
 
             items = []
             for component_row, revision_row in parsed_rows:
@@ -4109,9 +4165,11 @@ class ComponentCatalogDomainService:
             return self._metadata_batch_payload(conn, batch_id) or {}
 
     def _inherit_validation_evidence(self, conn: Any, parent_revision_id: str, revision_id: str) -> None:
+        # Inherit only for assets still attached to the child revision so replaced
+        # or detached CAD does not keep stale validation evidence links.
         assets = conn.execute(
             "SELECT asset_id FROM revision_assets WHERE revision_id = %s AND asset_type IN ('symbol', 'footprint')",
-            (parent_revision_id,),
+            (revision_id,),
         ).fetchall()
         for asset in assets:
             run = conn.execute(
@@ -4952,7 +5010,7 @@ class ComponentCatalogDomainService:
         asset: dict[str, Any],
     ) -> tuple[str, list[tuple[int, bytes]] | str]:
         # Preserve custom render adapters that implemented the original single-preview hook.
-        if type(self)._generate_symbol_preview is not ComponentCatalogService._generate_symbol_preview:
+        if type(self)._generate_symbol_preview is not ComponentCatalogDomainService._generate_symbol_preview:
             status, result = self._generate_symbol_preview(asset)
             if status != PREVIEW_STATUS_READY or not isinstance(result, bytes):
                 return status, str(result)
@@ -5132,13 +5190,16 @@ class ComponentCatalogDomainService:
         changed_assets: set[str] = set()
         failures: list[dict[str, str]] = []
         skipped = 0
+        existing_previews = self._load_previews_for_revision(conn, revision_id)
+        existing_by_asset: dict[str, list[dict[str, Any]]] = {}
+        for preview in existing_previews:
+            existing_by_asset.setdefault(str(preview["asset_id"]), []).append(preview)
         for asset in assets:
             kind = PREVIEW_KIND_SYMBOL if str(asset["asset_type"]) == "symbol" else PREVIEW_KIND_FOOTPRINT
             existing_rows = [
                 preview
-                for preview in self._load_previews_for_revision(conn, revision_id)
-                if str(preview["asset_id"]) == str(asset["id"])
-                and (str(preview["kind"]) == kind or str(preview["kind"]).startswith(f"{kind}:unit"))
+                for preview in existing_by_asset.get(str(asset["id"]), [])
+                if str(preview["kind"]) == kind or str(preview["kind"]).startswith(f"{kind}:unit")
             ]
             existing_by_kind = {str(row["kind"]): row for row in existing_rows}
             if only_missing and existing_by_kind and all(
@@ -5282,6 +5343,16 @@ class ComponentCatalogDomainService:
             conn.execute(
                 "DELETE FROM revision_preview_outputs WHERE revision_id = %s AND (kind = %s OR kind LIKE %s) AND asset_id <> %s",
                 (revision_id, kind, f"{kind}:unit%", asset["id"]),
+            )
+            conn.execute(
+                """
+                DELETE FROM revision_validation_evidence_links
+                WHERE revision_id = %s AND asset_id IN (
+                    SELECT asset_id FROM revision_assets
+                    WHERE revision_id = %s AND asset_type = %s AND asset_id <> %s
+                )
+                """,
+                (revision_id, revision_id, asset["asset_type"], asset["id"]),
             )
             conn.execute(
                 "DELETE FROM revision_assets WHERE revision_id = %s AND asset_type = %s AND asset_id <> %s",
@@ -5592,6 +5663,24 @@ class ComponentCatalogDomainService:
             conn.execute(
                 """
                 DELETE FROM revision_previews
+                WHERE revision_id = %s AND asset_id IN (
+                    SELECT asset_id FROM revision_assets WHERE revision_id = %s AND asset_type = %s
+                )
+                """,
+                (revision["id"], revision["id"], asset_type),
+            )
+            conn.execute(
+                """
+                DELETE FROM revision_preview_outputs
+                WHERE revision_id = %s AND asset_id IN (
+                    SELECT asset_id FROM revision_assets WHERE revision_id = %s AND asset_type = %s
+                )
+                """,
+                (revision["id"], revision["id"], asset_type),
+            )
+            conn.execute(
+                """
+                DELETE FROM revision_validation_evidence_links
                 WHERE revision_id = %s AND asset_id IN (
                     SELECT asset_id FROM revision_assets WHERE revision_id = %s AND asset_type = %s
                 )
@@ -6017,7 +6106,6 @@ class ComponentCatalogDomainService:
     def catalog_health(self) -> dict[str, Any]:
         self.initialize()
         validation_counts = {status: 0 for status in (VALIDATION_STATUS_PASSED, VALIDATION_STATUS_WARNING, VALIDATION_STATUS_FAILED, VALIDATION_STATUS_SKIPPED, VALIDATION_STATUS_NOT_RUN)}
-        preview_failed = 0
         place_ready = 0
         released = 0
         missing_files = 0
@@ -6025,7 +6113,8 @@ class ComponentCatalogDomainService:
         page = 1
         page_size = 10000
         while True:
-            result = self.list_components(include_inactive=False, page=page, page_size=page_size, lightweight=False)
+            # Lightweight payloads avoid hydrating preview graphs for every component.
+            result = self.list_components(include_inactive=False, page=page, page_size=page_size, lightweight=True)
             components = result["items"]
             total_components = int(result["total"])
             for component in components:
@@ -6036,11 +6125,21 @@ class ComponentCatalogDomainService:
                     missing_files += 1
                 if component["release_status"] == "released":
                     released += 1
-                if any(preview["status"] == PREVIEW_STATUS_FAILED for preview in component.get("previews", [])):
-                    preview_failed += 1
             if page >= int(result["pages"]):
                 break
             page += 1
+        with self._connect() as conn:
+            preview_failed_row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM revision_preview_outputs rpo
+                JOIN components c ON c.current_revision_id = rpo.revision_id
+                JOIN asset_preview_versions apv ON apv.id = rpo.preview_id
+                WHERE c.is_active = 1 AND apv.status = %s
+                """,
+                (PREVIEW_STATUS_FAILED,),
+            ).fetchone()
+            preview_failed = int(preview_failed_row["count"] if preview_failed_row else 0)
         checker_available = bool(self._klc_checker_path("symbol") and self._klc_checker_path("footprint"))
         return {
             "enabled": bool(settings.CATALOG_KLC_ENABLED),
@@ -6404,11 +6503,33 @@ class ComponentCatalogDomainService:
             row = conn.execute("SELECT * FROM asset_preview_versions WHERE id = %s", (preview_id,)).fetchone()
             if not row:
                 row = conn.execute("SELECT * FROM asset_previews WHERE id = %s", (preview_id,)).fetchone()
-        if not row:
-            return None
+            if not row:
+                return None
+            component_row = conn.execute(
+                """
+                SELECT c.id AS component_id
+                FROM revision_preview_outputs rpo
+                JOIN components c ON c.current_revision_id = rpo.revision_id
+                WHERE rpo.preview_id = %s
+                LIMIT 1
+                """,
+                (preview_id,),
+            ).fetchone()
+            if not component_row:
+                component_row = conn.execute(
+                    """
+                    SELECT c.id AS component_id
+                    FROM revision_assets ra
+                    JOIN components c ON c.current_revision_id = ra.revision_id
+                    WHERE ra.asset_id = %s
+                    LIMIT 1
+                    """,
+                    (str(row["asset_id"]),),
+                ).fetchone()
+            component_id = str(component_row["component_id"]) if component_row else ""
         return CatalogPreview(
             preview_id=str(row["id"]),
-            component_id=str(row["asset_id"]),
+            component_id=component_id,
             kind=str(row["kind"]),
             status=str(row["status"]),
             content_type=str(row["content_type"]),

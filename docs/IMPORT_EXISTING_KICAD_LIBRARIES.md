@@ -173,7 +173,7 @@ python3 scripts/import_kicad_library_assets.py \
 Useful options:
 
 - `--store-root path`: Prism canonical store root. In Docker this is normally `/app/projects/.kicad-prism/components`.
-- `--database-url URL`: explicit PostgreSQL catalog URL. Normally omit this in Docker and let backend settings use `CATALOG_DATABASE_URL`. Filesystem paths remain supported only for local SQLite compatibility.
+- `--database-url URL`: explicit PostgreSQL URL (`PRISM_DATABASE_URL`). Normally omit this in Docker. Source libraries may still be SQLite files; the Prism target is always PostgreSQL `catalog.*`.
 - `--no-index-db`: write canonical files only; do not create catalog asset rows.
 - `--no-previews`: skip preview generation.
 - `--skip-symbol-upgrade`: do not run `kicad-cli sym upgrade` before splitting symbols.

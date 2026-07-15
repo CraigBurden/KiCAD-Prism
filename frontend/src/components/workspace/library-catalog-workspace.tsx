@@ -100,7 +100,7 @@ const WORKFLOW_LABELS: Record<WorkflowStage, string> = {
 };
 
 const AVAILABILITY_LABELS: Record<AvailabilityState, string> = {
-  place_ready: "Place ready",
+  place_ready: "CAD complete",
   files_partial: "Files partial",
   metadata_only: "Metadata only",
 };
@@ -151,7 +151,7 @@ function SortControl({
 
 function AvailabilityBadge({ state }: { state: AvailabilityState }) {
   const Icon = state === "place_ready" ? PackageCheck : state === "files_partial" ? Package : CircleDashed;
-  return <Badge variant={state === "place_ready" ? "secondary" : "outline"}><Icon className="h-3 w-3" />{AVAILABILITY_LABELS[state]}</Badge>;
+  return <Badge variant="outline"><Icon className="h-3 w-3" />{AVAILABILITY_LABELS[state]}</Badge>;
 }
 
 function ValidationBadge({ status }: { status: CatalogValidationStatus }) {

@@ -95,3 +95,22 @@ For each pinned project, record cold and warm runs for:
 4. hover latency p95 (target: below 50 ms);
 5. 20 SCH/PCB tab cycles (expected: no remount, reparse, or sustained heap growth);
 6. overlap chooser selection (expected: exactly one event after choosing an item).
+
+## JTYU-OBC parse benchmark (Node, `kicad-parser`)
+
+Measured on branch `feature/perf-matteo-port` against
+`JTYU-OBC/OBC.kicad_pcb` (39.2 MB) and
+`Subsheets/S32G3_PWR_Rail_Connections.kicad_sch` (2.3 MB).
+Enable browser logs with `localStorage.setItem('ecadPerfLog','1')` or `?ecadPerfLog=1`.
+
+| Metric | Baseline | After Matteo parser port | Speedup |
+|--------|----------|--------------------------|---------|
+| PCB `listify` | 2418 ms | ~515 ms | ~4.7× |
+| PCB full parse (`listify` + `parse_expr`) | **52358 ms** | **~740 ms** | **~71×** |
+| PCB `parse_expr` (approx) | 49940 ms | ~220 ms | ~227× |
+| Largest SCH full parse | 128 ms | ~44 ms | ~2.9× |
+
+Ports included: drop eager `${expr}` logging in `parse_expr`, fast single-pass
+`listify`, shared `WorkerPool` + parse dedup, draw/hover/resize render fixes,
+`custom-element` render-then-swap, `ecad-blob` `connectedCallback`.
+Board net-isolation rewrite and duplicate host APIs were intentionally skipped.

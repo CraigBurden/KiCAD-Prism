@@ -31,7 +31,7 @@ const WORKFLOW_LABELS: Record<WorkflowStage, string> = {
   open: "Open", in_progress: "In progress", qa_review: "Awaiting QA", done: "Approved",
   released: "Released", archived: "Archived",
 };
-const AVAILABILITY_LABELS: Record<string, string> = { metadata_only: "Metadata only", files_partial: "Files partial", place_ready: "Place ready" };
+const AVAILABILITY_LABELS: Record<string, string> = { metadata_only: "Metadata only", files_partial: "Files partial", place_ready: "CAD complete" };
 const VALIDATION_LABELS: Record<string, string> = { passed: "Passed", warning: "Warnings", failed: "Failed", skipped: "Skipped", not_run: "Not run" };
 
 type StagedRows = Record<string, { expected_revision_id: string; patch: Record<string, string> }>;
