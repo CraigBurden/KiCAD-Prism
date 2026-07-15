@@ -66,6 +66,9 @@ export interface EcadSemanticSelectionDetail {
     netCode?: number;
     sheet?: string;
     page?: string;
+    projectPath?: string;
+    sheetPath?: string;
+    filename?: string;
     layer?: string;
     x?: number;
     y?: number;
@@ -161,6 +164,7 @@ export interface CameraState {
 }
 
 export interface ECadViewerElement extends HTMLElement {
+    readonly isReady: boolean;
     replaceSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
     appendSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
     setActive(active: boolean): void;
@@ -171,7 +175,7 @@ export interface ECadViewerElement extends HTMLElement {
     zoomToLocation(x: number, y: number): void;
     switchPage(pageId: string): void;
     /** Resolves once the project has loaded (parse + first paint). */
-    readonly ready?: Promise<void>;
+    readonly ready: Promise<void>;
     /** Switch schematic page and resolve once applied. Awaits readiness first. */
     showPage?(pageId: string): Promise<void>;
     /** Fit the active viewer to a world-space bbox; resolves the settled camera. */
@@ -200,7 +204,16 @@ export interface ECadViewerElement extends HTMLElement {
     setPcbObjectVisibility?(kind: "references" | "values" | "footprintText" | "hiddenText", visible: boolean): void;
     setPcbTrackHighlight?(enabled: boolean): void;
     getScreenLocation(x: number, y: number): { x: number; y: number } | null;
-    requestCrossProbe(request: CrossProbeRequest): boolean;
+    requestCrossProbe(request: CrossProbeRequest): Promise<
+        | { ok: true; targetContext: "SCH" | "PCB"; generation: number }
+        | {
+              ok: false;
+              reason: "empty-value" | "load-error" | "target-unavailable" | "not-found";
+              targetContext?: "SCH" | "PCB";
+              generation: number;
+              message?: string;
+          }
+    >;
 }
 
 declare global {
@@ -238,6 +251,7 @@ declare global {
                 "header-sections"?: string;
                 "show-selection-panel"?: string;
                 "hide-chrome"?: boolean | "true" | "false";
+                "source-mode"?: "auto" | "host";
                 },
                 ECadViewerElement
             >;

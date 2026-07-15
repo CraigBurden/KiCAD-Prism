@@ -61,49 +61,6 @@ const buildViewerKey = (
     commit: string | null | undefined,
 ) => `${kind}:${projectId}:${commit ?? "latest"}`;
 
-type EcadViewerWithLegacyLoader = ECadViewerElement & {
-    loaded?: boolean;
-    load_src?: () => Promise<void>;
-};
-
-let ecadViewerLoadSrcGuardInstalled = false;
-
-function ecadViewerHasDomSources(viewer: ECadViewerElement): boolean {
-    for (const node of viewer.querySelectorAll("ecad-source")) {
-        const source = node as HTMLElement & { src?: string };
-        if (source.src) return true;
-    }
-    for (const node of viewer.querySelectorAll("ecad-blob")) {
-        const blob = node as HTMLElement & { filename?: string; content?: string };
-        if (blob.filename || blob.content) return true;
-    }
-    return false;
-}
-
-function installEcadViewerLoadSrcGuard(): void {
-    if (ecadViewerLoadSrcGuardInstalled) return;
-    const ctor = customElements.get("ecad-viewer") as (CustomElementConstructor & {
-        prototype: EcadViewerWithLegacyLoader;
-    }) | undefined;
-    if (!ctor?.prototype.load_src) return;
-
-    ecadViewerLoadSrcGuardInstalled = true;
-    const originalLoadSrc = ctor.prototype.load_src;
-    ctor.prototype.load_src = async function loadSrcGuard(this: EcadViewerWithLegacyLoader) {
-        const windowWithLegacyUrls = window as Window & {
-            design_urls?: unknown;
-            zip_url?: unknown;
-        };
-        if (windowWithLegacyUrls.design_urls || windowWithLegacyUrls.zip_url) {
-            return originalLoadSrc.call(this);
-        }
-        if (!ecadViewerHasDomSources(this) && this.loaded) {
-            return;
-        }
-        return originalLoadSrc.call(this);
-    };
-}
-
 interface PendingCommentElement {
     elementId?: string;
     elementRef?: string;
@@ -138,14 +95,22 @@ function publishCommentsOverlay(
     viewer: ECadViewerElement | null,
     context: CommentContext,
     comments: Comment[],
-    activePage?: string | null,
+    activePage?: {
+        projectPath: string;
+        filename: string;
+        page?: string;
+    } | null,
 ): void {
     if (!viewer) return;
 
     const filtered = comments.filter((comment) => {
         if (comment.context !== context) return false;
         if (context === "SCH" && activePage && comment.location.page) {
-            return comment.location.page === activePage;
+            // New comments use the unique instance path. Continue accepting
+            // filename/page identifiers so existing comment files still show.
+            return [activePage.projectPath, activePage.filename, activePage.page]
+                .filter(Boolean)
+                .includes(comment.location.page);
         }
         return true;
     });
@@ -199,9 +164,10 @@ type EcadViewerHostProps = {
     sources: ViewerBlobSource[];
     active: boolean;
     setViewerRef: (node: ECadViewerElement | null) => void;
+    onReady: () => void;
 };
 
-function EcadViewerHost({ viewerKey, sources, active, setViewerRef }: EcadViewerHostProps) {
+function EcadViewerHost({ viewerKey, sources, active, setViewerRef, onReady }: EcadViewerHostProps) {
     const hostRef = useRef<ECadViewerElement | null>(null);
     const replaceReadyRef = useRef<Promise<void>>(Promise.resolve());
     const rootSource = sources[0];
@@ -220,12 +186,21 @@ function EcadViewerHost({ viewerKey, sources, active, setViewerRef }: EcadViewer
 
         const replaceRoot = async () => {
             await customElements.whenDefined("ecad-viewer");
-            installEcadViewerLoadSrcGuard();
             if (cancelled || !hostRef.current) return;
+            hostRef.current.dataset.ecadReadyRevision = "";
             await hostRef.current.replaceSources({
                 revisionKey: viewerKey,
                 sources: [rootSource],
             });
+            if (
+                !cancelled &&
+                hostRef.current?.isReady &&
+                appendedSources.length === 0
+            ) {
+                await hostRef.current.ready;
+                hostRef.current.dataset.ecadReadyRevision = viewerKey;
+                onReady();
+            }
         };
 
         replaceReadyRef.current = replaceRoot();
@@ -233,10 +208,11 @@ function EcadViewerHost({ viewerKey, sources, active, setViewerRef }: EcadViewer
         return () => {
             cancelled = true;
         };
-    }, [rootSource, viewerKey]);
+    }, [appendedSources.length, onReady, rootSource, viewerKey]);
 
     useEffect(() => {
         if (!appendedSources.length) return;
+        if (hostRef.current) hostRef.current.dataset.ecadReadyRevision = "";
         let cancelled = false;
         const appendRemainingSources = async () => {
             await replaceReadyRef.current;
@@ -245,10 +221,15 @@ function EcadViewerHost({ viewerKey, sources, active, setViewerRef }: EcadViewer
                 revisionKey: viewerKey,
                 sources: appendedSources,
             });
+            if (!cancelled && hostRef.current?.isReady) {
+                await hostRef.current.ready;
+                hostRef.current.dataset.ecadReadyRevision = viewerKey;
+                onReady();
+            }
         };
         void appendRemainingSources();
         return () => { cancelled = true; };
-    }, [appendedSources, viewerKey]);
+    }, [appendedSources, onReady, viewerKey]);
 
     useEffect(() => {
         let cancelled = false;
@@ -264,6 +245,7 @@ function EcadViewerHost({ viewerKey, sources, active, setViewerRef }: EcadViewer
             style={{ width: "100%", height: "100%" }}
             show-header="false"
             show-selection-panel="false"
+            source-mode="host"
         />
     );
 }
@@ -273,12 +255,6 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);
     const schematicViewerRef = useRef<ECadViewerElement | null>(null);
     const pcbViewerRef = useRef<ECadViewerElement | null>(null);
-
-    useEffect(() => {
-        void customElements.whenDefined("ecad-viewer").then(() => {
-            installEcadViewerLoadSrcGuard();
-        });
-    }, []);
 
     // Callback refs to sync state and refs
     const setSchematicViewerRef = useCallback((node: ECadViewerElement | null) => {
@@ -306,7 +282,11 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [semanticIndexRetryToken, setSemanticIndexRetryToken] = useState(0);
     const [selectionInspectorOpen, setSelectionInspectorOpen] = useState(false);
     const [componentImportPending, setComponentImportPending] = useState(false);
-    const [activeSchematicPage, setActiveSchematicPage] = useState<string | null>(null);
+    const [activeSchematicPage, setActiveSchematicPage] = useState<{
+        projectPath: string;
+        filename: string;
+        page?: string;
+    } | null>(null);
 
     // Comment collaboration state
     const [comments, setComments] = useState<Comment[]>([]);
@@ -330,6 +310,14 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         registerClient,
         notifyClientReady,
     } = usePrismCrossProbe(semanticIndex);
+    const notifySchematicViewerReady = useCallback(
+        () => notifyClientReady("visualizer-schematic"),
+        [notifyClientReady],
+    );
+    const notifyPcbViewerReady = useCallback(
+        () => notifyClientReady("visualizer-pcb"),
+        [notifyClientReady],
+    );
     const canImportLibraryComponent = canWriteCatalog(user?.role);
     const canModifyComments = user?.role === "admin" || user?.role === "designer";
 
@@ -674,39 +662,45 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             }
             if (typeof viewer.requestCrossProbe !== "function") return;
             const request = crossProbeRequestForSelection(selection, targetContext, semanticIndex);
-            const resolved = viewer.requestCrossProbe(request);
-            if (!resolved && selection.kind === "terminal") {
-                viewer.requestCrossProbe({
-                    sourceContext: selection.sourceContext,
-                    targetContext,
-                    mode: "select",
-                    kind: "designator",
-                    value: selection.reference,
-                    designator: selection.reference,
-                    pin: selection.pin,
-                });
-            }
+            void (async () => {
+                const resolved = await viewer.requestCrossProbe(request);
+                if (!resolved.ok && selection.kind === "terminal") {
+                    await viewer.requestCrossProbe({
+                        sourceContext: selection.sourceContext,
+                        targetContext,
+                        mode: "select",
+                        kind: "designator",
+                        value: selection.reference,
+                        designator: selection.reference,
+                        pin: selection.pin,
+                    });
+                }
+            })();
         };
 
         const unregisterSchematic = registerClient({
             id: "visualizer-schematic",
             context: "SCH",
             revisionKey: semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
-            isReady: () => Boolean(schematicViewerRef.current && schematicContent),
+            isReady: () =>
+                schematicViewerRef.current?.dataset.ecadReadyRevision ===
+                buildViewerKey("schematic", projectId, commit),
             applySelection: (selection) => applySelection(schematicViewerRef.current, "SCH", selection),
         });
         const unregisterPcb = registerClient({
             id: "visualizer-pcb",
             context: "PCB",
             revisionKey: semanticIndex?.sourceRevisionKey ?? commit ?? undefined,
-            isReady: () => Boolean(pcbViewerRef.current && pcbContent),
+            isReady: () =>
+                pcbViewerRef.current?.dataset.ecadReadyRevision ===
+                buildViewerKey("pcb", projectId, commit),
             applySelection: (selection) => applySelection(pcbViewerRef.current, "PCB", selection),
         });
         return () => {
             unregisterSchematic();
             unregisterPcb();
         };
-    }, [commit, pcbContent, pcbViewerElement, registerClient, schematicContent, schematicViewerElement, semanticIndex]);
+    }, [commit, pcbViewerElement, projectId, registerClient, schematicViewerElement, semanticIndex]);
 
     useEffect(() => {
         if (globalSelection) setSelectionInspectorOpen(true);
@@ -722,7 +716,15 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         }
         const refresh = () => {
             const active = viewer.getActiveSchematicPage?.();
-            setActiveSchematicPage(active?.filename ?? active?.page ?? null);
+            setActiveSchematicPage(
+                active
+                    ? {
+                          projectPath: active.projectPath,
+                          filename: active.filename,
+                          page: active.page,
+                      }
+                    : null,
+            );
         };
         refresh();
         viewer.addEventListener("ecad-viewer:view-state-change", refresh);
@@ -1070,6 +1072,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                                             sources={schematicSources}
                                             active={activeTab === "sch"}
                                             setViewerRef={setSchematicViewerRef}
+                                            onReady={notifySchematicViewerReady}
                                         />
                                     </div>
                                 </div>
@@ -1097,6 +1100,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                                             sources={pcbSources}
                                             active={activeTab === "pcb"}
                                             setViewerRef={setPcbViewerRef}
+                                            onReady={notifyPcbViewerReady}
                                         />
                                     </div>
                                 </div>

@@ -2,20 +2,29 @@
 
 This document tracks the current upstream sync reference for the vendored visualizer assets.
 
-## Current Reference
+## Canonical repository and branch
 
-- sync date: 2026-07-10
-- local integration branch: `feature/prism-selection-adapter`
-- local integration base: `7b442967613115e47ac7c9d492edd3d506ea2794`
-- local upstream snapshot: `krishna-swaroop/ecad-viewer@a85abd4`
-- official KiCanvas revision reviewed manually: `theacodes/kicanvas@b031159`
-- generated browser bundle SHA-256: `0d685c32b097c1dc85199a9ad82df1b3bd65ebe1391d1373944bdb78b09f19e8`
+- canonical repository: `krishna-swaroop/ecad-viewer`
+- integration branch: `feature/prism-host-adapter-v2`
+- upstream base: the commit in `scripts/ecad-viewer-upstream.lock`
+- performance-source reference: `Keybored02/ecad-viewer@kicad-prism-perf`
+
+The Keybored02 branch is an input for reviewed cherry-picks, not a second release
+line. Shared performance or interaction fixes must land on the canonical adapter
+branch first. Prism then vendors only the artifacts produced by
+`scripts/build-ecad-viewer.sh`; direct edits to `frontend/public/ecad-viewer.js` or
+`parser.worker.js` are not accepted.
+
+The host-facing TypeScript contract is exported from the `ecad-viewer-app` package
+root. Prism's global custom-element declaration mirrors that public contract only;
+viewer internals and prototype patches are not integration APIs.
 
 ## Vendored Artifacts
 
-The current sync updated `frontend/public/ecad-viewer.js`. The exact source diff is
-stored in `docs/ecad-viewer-prism-selection-adapter.patch`; it applies to the local
-integration base above.
+The build manifest records the upstream base, adapter commit, whether the source
+tree was dirty, the worktree patch digest, and both artifact digests. Clean source
+trees are required by default. `ECAD_ALLOW_DIRTY=1` exists only for local validation.
+The browser cache key is generated from the final bundle SHA-256.
 
 The focused adapter patch adds:
 

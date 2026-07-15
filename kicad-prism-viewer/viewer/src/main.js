@@ -88,6 +88,8 @@ function initialState() {
     savedShowComponents: true,
     preIsolation3dLayers: null,
     preIsolationCompareLayers: null,
+    /** Snapshot of showBoard taken when entering Isolate (I); restored on exit. */
+    preIsolationShowBoard: null,
     separation: 0,
     dragging: false,
     dragMode: "orbit",
@@ -1704,12 +1706,18 @@ function setNetIsolation(enabled) {
     state.preIsolationCompareLayers = null;
     scheduleTileResidency(performance.now(), { force: true });
   }
-  // Only couple substrate to isolation transitions — never force board ON on clear.
-  // Do not overwrite savedShowBoard; net-probe / user prefs own that value.
+  // Couple substrate hide/show to the Isolate transition only.
+  // Restore the visibility that was current when Isolate was entered — not
+  // savedShowBoard (user prefs for Esc). Net-probe already hides the board;
+  // unisolating must not turn the substrate back on.
   if (next && !wasIsolating) {
+    state.preIsolationShowBoard = state.showBoard;
     state.showBoard = false;
   } else if (!next && wasIsolating) {
-    state.showBoard = state.savedShowBoard !== false;
+    if (typeof state.preIsolationShowBoard === "boolean") {
+      state.showBoard = state.preIsolationShowBoard;
+    }
+    state.preIsolationShowBoard = null;
   }
   syncNetIsolationControls();
   refreshControls();
