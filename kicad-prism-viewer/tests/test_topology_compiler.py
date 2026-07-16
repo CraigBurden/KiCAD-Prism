@@ -35,8 +35,10 @@ from pipeline.topology_compiler.prism_clipper2 import (
     prism_clipper2_library_info,
     resolve_prism_clipper2_library_path,
 )
+from pipeline.topology_compiler.context import PrismCompilationContext
 from pipeline.topology_compiler.pcb_extract import _board_bbox, _declared_layers, _stackup_metadata_from_pcb_file
-from pipeline.topology_compiler.pcb_extract import extract_pcb_metadata_light
+from pipeline.topology_compiler.pcb_extract import compile_pcb_artifacts, extract_pcb_metadata_light
+from pipeline.topology_compiler.pcb_geometry import extract_pad_holes
 from pipeline.topology_compiler.kicad_cli_export import (
     BOARD_CONTEXT_CACHE_VERSION,
     _board_context_export_args,
@@ -47,10 +49,25 @@ from pipeline.topology_compiler.semantic_gltf import (
     _native_backend_for_semantic_mode,
     _semantic_clipper_backend,
 )
-from pipeline.topology_compiler.__main__ import _remove_stale_schematic_native, write_artifact_manifest
+from pipeline.topology_compiler.__main__ import (
+    _remove_stale_schematic_native,
+    _resolve_semantic_tile_size,
+    write_artifact_manifest,
+)
 
 
 class TopologyCompilerTests(unittest.TestCase):
+    def test_auto_tile_size_uses_one_power_of_two_tile_for_small_boards(self) -> None:
+        self.assertEqual(
+            _resolve_semantic_tile_size("auto", {"bbox_mm": [22.0, 15.0, 154.0, 105.0]}),
+            160.0,
+        )
+        self.assertEqual(
+            _resolve_semantic_tile_size("auto", {"bbox_mm": [0.0, 0.0, 39.0, 25.0]}),
+            40.0,
+        )
+        self.assertEqual(_resolve_semantic_tile_size("80", {"bbox_mm": []}), 80.0)
+
     def test_semantic_clipper_defaults_to_auto(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(_semantic_clipper_backend(), "auto")
@@ -393,6 +410,108 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(metadata["physical_objects"], [])
         self.assertEqual(metadata["terminal_pad_links"][0]["object_uid"], metadata["pads"][0]["uid"])
         self.assertEqual(metadata["components"][0]["designator"], "U1")
+
+    def test_unified_board_compilation_matches_legacy_topology_and_pad_holes(self) -> None:
+        pcb_text = """(kicad_pcb
+  (version 20240108)
+  (generator "kicad")
+  (generator_version "10.0.3")
+  (general (thickness 1.6))
+  (paper "A4")
+  (layers
+    (0 "F.Cu" signal)
+    (31 "B.Cu" signal)
+    (44 "Edge.Cuts" user))
+  (setup
+    (stackup
+      (layer "F.Cu" (type "copper") (thickness 0.035))
+      (layer "dielectric 1" (type "core") (thickness 1.53))
+      (layer "B.Cu" (type "copper") (thickness 0.035))))
+  (net 0 "")
+  (net 1 "/A")
+  (gr_line (start 0 0) (end 25 0) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts"))
+  (gr_line (start 25 0) (end 25 25) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts"))
+  (gr_line (start 25 25) (end 0 25) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts"))
+  (gr_line (start 0 25) (end 0 0) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts"))
+  (footprint "Device:R" (layer "F.Cu") (at 10 12 0) (uuid "fp-r1")
+    (property "Reference" "R1" (at 0 0 0) (layer "F.SilkS"))
+    (property "Value" "10k" (at 0 1 0) (layer "F.Fab"))
+    (pad "1" thru_hole circle (at 0 0) (size 1 1) (drill 0.4) (layers "*.Cu" "*.Mask") (net 1 "/A") (uuid "pad-r1-1"))
+    (pad "2" smd rect (at 1 0) (size 1 1) (layers "F.Cu") (net 1 "/A") (uuid "pad-r1-2"))
+    (pad "" np_thru_hole circle (at 2 0) (size 0.5 0.5) (drill 0.5) (layers "*.Cu" "*.Mask") (uuid "pad-r1-hole")))
+  (segment (start 10 12) (end 11 12) (width 0.1) (layer "F.Cu") (net 1) (uuid "seg1"))
+  (via (at 11 12) (size 0.4) (drill 0.2) (layers "F.Cu" "B.Cu") (net 1) (uuid "via1"))
+)
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "unified-parity.kicad_pro"
+            board_path = root / "unified-parity.kicad_pcb"
+            project.write_text("{}", encoding="utf-8")
+            board_path.write_text(pcb_text, encoding="utf-8")
+
+            from kicad_monkey import KiCadPcb
+
+            pcb = KiCadPcb.from_file(board_path)
+            legacy = extract_pcb_metadata_light(pcb, project)
+            pcb_ir = pcb.to_ir(source_path=str(board_path)).to_dict()
+            unified, unified_holes = compile_pcb_artifacts(pcb, project, pcb_ir)
+            legacy_holes = extract_pad_holes(pcb)
+
+        design_payload = {
+            "components": [{"designator": "R1", "value": "10k", "footprint": "Device:R"}],
+            "nets": [{
+                "uid": "net-a",
+                "name": "/A",
+                "terminals": [
+                    {"designator": "R1", "pin": "1"},
+                    {"designator": "R1", "pin": "2"},
+                ],
+            }],
+        }
+        self.assertEqual(unified["mode"], "unified")
+        self.assertNotIn("pads", unified)
+        self.assertEqual(unified["board"], legacy["board"])
+        self.assertEqual(unified["terminal_pad_links"], legacy["terminal_pad_links"])
+        self.assertEqual(unified["stats"], legacy["stats"])
+        self.assertEqual(unified_holes, legacy_holes)
+        self.assertEqual(
+            compile_topology(design_payload, [], unified, {}),
+            compile_topology(design_payload, [], legacy, {}),
+        )
+
+    def test_board_compilation_is_cached_across_all_consumers(self) -> None:
+        calls = {"ir": 0, "payload": 0, "artifacts": 0}
+
+        class IrDocument:
+            def to_dict(self):
+                calls["payload"] += 1
+                return {"records": []}
+
+        pcb = object()
+
+        def to_pcb_ir():
+            calls["ir"] += 1
+            return IrDocument()
+
+        context = PrismCompilationContext(Path("unit.kicad_pro"))
+        context._design = SimpleNamespace(pcb=pcb, to_pcb_ir=to_pcb_ir)
+
+        def compile_artifacts(actual_pcb, project_file, ir_payload, profile_callback=None):
+            calls["artifacts"] += 1
+            self.assertIs(actual_pcb, pcb)
+            self.assertEqual(ir_payload, {"records": []})
+            return {"mode": "unified"}, {"pad": {"drill_mm": 0.3}}
+
+        with patch(
+            "pipeline.topology_compiler.context.compile_pcb_artifacts",
+            side_effect=compile_artifacts,
+        ):
+            self.assertEqual(context.pcb_metadata["mode"], "unified")
+            self.assertEqual(context.pcb_ir, {"records": []})
+            self.assertIn("pad", context.pad_holes)
+
+        self.assertEqual(calls, {"ir": 1, "payload": 1, "artifacts": 1})
 
     def test_artifact_manifest_is_deterministic_and_removes_stale_native(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

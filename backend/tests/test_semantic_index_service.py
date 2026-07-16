@@ -1,3 +1,4 @@
+import json
 import sys
 import tempfile
 import unittest
@@ -9,6 +10,102 @@ from app.services import semantic_index_service, semantic_visualizer_service
 
 
 class SemanticIndexServiceTests(unittest.TestCase):
+    def test_full_bundle_overlay_commits_bundle_json_last(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            staging = root / "staging"
+            target = root / "target"
+            (staging / "scene-gltf").mkdir(parents=True)
+            target.mkdir()
+            (target / "bundle.json").write_text('{"stage":"board-ready"}', encoding="utf-8")
+            (staging / "scene-gltf" / "scene.manifest.json").write_text(
+                '{"schema":"prism.semantic_gltf_a0"}',
+                encoding="utf-8",
+            )
+            (staging / "semantic_geometry.json").write_text(
+                '{"schema":"prism.semantic_geometry_a0"}',
+                encoding="utf-8",
+            )
+            (staging / "bundle.json").write_text(
+                '{"stage":"semantic-ready"}',
+                encoding="utf-8",
+            )
+            copied: list[str] = []
+            original_atomic_copy = semantic_visualizer_service._atomic_copy
+
+            def recording_copy(source: Path, destination: Path) -> None:
+                copied.append(source.relative_to(staging).as_posix())
+                original_atomic_copy(source, destination)
+
+            with patch.object(
+                semantic_visualizer_service,
+                "_atomic_copy",
+                side_effect=recording_copy,
+            ):
+                semantic_visualizer_service._overlay_staged_tree(staging, target)
+
+            self.assertEqual(copied[-1], "bundle.json")
+            self.assertEqual(
+                json.loads((target / "bundle.json").read_text(encoding="utf-8"))["stage"],
+                "semantic-ready",
+            )
+            self.assertTrue((target / "scene-gltf" / "scene.manifest.json").is_file())
+
+    def test_staged_webgpu_bundle_publishes_board_then_components(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch.object(
+            semantic_visualizer_service,
+            "semantic_store_root",
+            return_value=Path(temporary) / "semantic-store",
+        ):
+            root = Path(temporary)
+            output = root / "compiler-output"
+            geometry = output / "geometry"
+            geometry.mkdir(parents=True)
+            (geometry / "base_board.glb").write_bytes(b"board")
+            project = SimpleNamespace(id="prj_test", name="Demo", display_name="Demo board")
+            source_hash = "revision-a"
+            target = semantic_visualizer_service.bundle_dir(project.id, source_hash)
+            job = {"logs": []}
+
+            semantic_visualizer_service._publish_partial_bundle(
+                project,
+                output,
+                target,
+                source_hash,
+                "board-ready",
+                job,
+                lambda: None,
+            )
+
+            bundle = json.loads((target / "bundle.json").read_text(encoding="utf-8"))
+            semantic = json.loads((target / "semantic_geometry.json").read_text(encoding="utf-8"))
+            self.assertEqual(bundle["readiness"]["stage"], "board-ready")
+            self.assertEqual(semantic["assets"], {"base_board_glb": "geometry/base_board.glb"})
+            self.assertEqual(job["readiness_stage"], "board-ready")
+            self.assertEqual(
+                semantic_visualizer_service.get_status_for_source(project, source_hash)["status"],
+                "building",
+            )
+
+            (geometry / "components.glb").write_bytes(b"components")
+            semantic_visualizer_service._publish_partial_bundle(
+                project,
+                output,
+                target,
+                source_hash,
+                "components-ready",
+                job,
+                lambda: None,
+            )
+
+            bundle = json.loads((target / "bundle.json").read_text(encoding="utf-8"))
+            self.assertEqual(bundle["readiness"]["stage"], "components-ready")
+            self.assertEqual(
+                bundle["readiness"]["available_assets"],
+                ["board", "components"],
+            )
+            self.assertEqual((target / "geometry" / "components.glb").read_bytes(), b"components")
+
     def test_webgpu_bundle_path_rejects_cache_key_traversal(self) -> None:
         for source_key, build_key in (
             ("../outside", "build-a"),

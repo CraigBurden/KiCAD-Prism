@@ -1,4 +1,6 @@
 # Backend Dockerfile
+ARG KICAD_MONKEY_VARIANT=kicad-monkey-upstream
+
 # KiCad CLI runtime. Keep this aligned with the newest KiCad file format Prism imports.
 ARG KICAD_BASE_PLATFORM=linux/amd64
 
@@ -9,7 +11,7 @@ RUN npm ci
 COPY frontend/ .
 RUN npm run build:panel
 
-FROM --platform=${KICAD_BASE_PLATFORM} kicad/kicad:10.0.0
+FROM --platform=${KICAD_BASE_PLATFORM} kicad/kicad:10.0.0 AS prism-runtime
 ARG KICAD_LIBRARY_UTILS_REF=7124a92887b2280f85cfe2d5abb216062978d5e1
 
 # Prevent interactive prompts
@@ -80,3 +82,20 @@ EXPOSE 8000
 
 # Run the application. Keep workers configurable because each worker runs startup hooks.
 CMD ["sh", "-c", "/app/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-4}"]
+
+# The default image keeps the release pins from requirements-runtime.txt.
+FROM prism-runtime AS kicad-monkey-upstream
+ENV PRISM_KICAD_MONKEY_SOURCE=pypi-release
+
+# Opt-in development target. The named context is supplied only by
+# docker-compose.local-kicad-monkey.yml, so normal deployments do not need a
+# sibling kicad-monkey checkout.
+FROM prism-runtime AS kicad-monkey-local
+RUN --mount=from=kicad_monkey,source=/,target=/tmp/kicad-monkey,ro \
+    uv pip install --no-cache-dir --no-deps --reinstall /tmp/kicad-monkey \
+    && KICAD_MONKEY_VERSION="$(python -c 'import kicad_monkey; print(kicad_monkey.__version__)')" \
+    && uv pip install --no-cache-dir --upgrade "kicad-cruncher==${KICAD_MONKEY_VERSION}" \
+    && uv pip check
+ENV PRISM_KICAD_MONKEY_SOURCE=local-working-tree
+
+FROM ${KICAD_MONKEY_VARIANT} AS final

@@ -28,7 +28,7 @@ interface WebGpuGeneratorTag {
 
 interface WebGpu3dStatus {
     schema: "prism.webgpu_3d_status_a0";
-    status: "ready" | "missing" | "invalid";
+    status: "ready" | "building" | "missing" | "invalid";
     available: boolean;
     sourceRevisionKey: string;
     source_fingerprint: string;
@@ -39,6 +39,16 @@ interface WebGpu3dStatus {
     message?: string;
     error?: string;
     generator: WebGpuGeneratorTag;
+    readiness?: WebGpu3dReadiness;
+}
+
+interface WebGpu3dReadiness {
+    schema: "prism.visualizer_readiness.a0";
+    stage: "board-ready" | "components-ready" | "semantic-ready" | string;
+    progress: number;
+    available_assets: string[];
+    revision: string;
+    updated_at?: string;
 }
 
 interface WorkflowJob {
@@ -48,10 +58,22 @@ interface WorkflowJob {
     percent?: number;
     logs?: string[];
     error?: string;
+    readiness_stage?: string;
+    readiness?: WebGpu3dReadiness;
+    bundle_url?: string;
 }
 
 interface GenerateResponse {
     job_id: string;
+}
+
+interface ViewerPerformanceDetail {
+    schema: "prism.semantic_viewer_performance.a0";
+    milestone: string;
+    elapsed_ms?: number;
+    timings?: Record<string, number>;
+    readiness_stage?: string;
+    readiness_progress?: number;
 }
 
 interface WebGpu3dTabProps {
@@ -90,6 +112,9 @@ export function WebGpu3dTab({
 }: WebGpu3dTabProps) {
     const viewerRef = useRef<PrismSemanticViewerElement | null>(null);
     const selectionRef = useRef(selection);
+    const generationStartedAt = useRef<number | null>(null);
+    const readinessRevisionRef = useRef<string | null>(null);
+    const tabLoadStartedAt = useRef(performance.now());
     selectionRef.current = selection;
     const [viewerElement, setViewerElement] = useState<PrismSemanticViewerElement | null>(null);
     const [status, setStatus] = useState<WebGpu3dStatus | null>(null);
@@ -116,6 +141,7 @@ export function WebGpu3dTab({
                 "Failed to load WebGPU 3D asset status",
             );
             setStatus(next);
+            readinessRevisionRef.current = next.readiness?.revision ?? null;
             setError(next.error ?? null);
         } catch (nextError) {
             setStatus(null);
@@ -147,6 +173,15 @@ export function WebGpu3dTab({
                 );
                 if (cancelled) return;
                 setJob(next);
+                const nextReadinessRevision = next.readiness?.revision;
+                if (
+                    next.bundle_url
+                    && nextReadinessRevision
+                    && nextReadinessRevision !== readinessRevisionRef.current
+                ) {
+                    readinessRevisionRef.current = nextReadinessRevision;
+                    await refreshStatus();
+                }
                 if (next.status === "completed") {
                     setJobId(null);
                     setViewerRevision((revision) => revision + 1);
@@ -178,6 +213,7 @@ export function WebGpu3dTab({
     const generate = useCallback(async (force: boolean) => {
         if (!canGenerate || jobId) return;
         setError(null);
+        generationStartedAt.current = performance.now();
         setJob({
             job_id: "pending",
             status: "queued",
@@ -225,9 +261,26 @@ export function WebGpu3dTab({
         const node = viewerElement;
         if (!node) return;
 
-        const handleReady = () => {
+        const handleReady = (event: Event) => {
+            const detail = (event as CustomEvent<ViewerPerformanceDetail>).detail;
+            const browserMilestone = {
+                schema: "prism.3d_cold_start_browser.a0",
+                milestone: "board-visible",
+                project_id: projectId,
+                source_revision_key: status?.sourceRevisionKey,
+                generation_to_visible_ms: generationStartedAt.current === null
+                    ? null
+                    : performance.now() - generationStartedAt.current,
+                tab_load_to_visible_ms: performance.now() - tabLoadStartedAt.current,
+                viewer: detail,
+            };
+            console.info("[prism-3d-cold-start]", browserMilestone);
+            generationStartedAt.current = null;
             setViewerReady(true);
             node.setSelection(selectionForRenderer(selectionRef.current));
+        };
+        const handlePerformance = (event: Event) => {
+            console.info("[prism-3d-cold-start]", (event as CustomEvent<ViewerPerformanceDetail>).detail);
         };
         const handleSelection = (event: Event) => {
             const detail = (event as CustomEvent<PrismSemanticViewerSelectionDetail>).detail;
@@ -246,14 +299,29 @@ export function WebGpu3dTab({
             setError(custom.detail?.error?.message || "The WebGPU renderer failed to load");
         };
         node.addEventListener("prism-semantic-viewer:ready", handleReady);
+        node.addEventListener("prism-semantic-viewer:performance", handlePerformance);
         node.addEventListener("prism-semantic-viewer:selectionchange", handleSelection);
         node.addEventListener("prism-semantic-viewer:error", handleError);
         return () => {
             node.removeEventListener("prism-semantic-viewer:ready", handleReady);
+            node.removeEventListener("prism-semantic-viewer:performance", handlePerformance);
             node.removeEventListener("prism-semantic-viewer:selectionchange", handleSelection);
             node.removeEventListener("prism-semantic-viewer:error", handleError);
         };
-    }, [onClearSelection, onSelection, status?.sourceRevisionKey, viewerElement]);
+    }, [onClearSelection, onSelection, projectId, status?.sourceRevisionKey, viewerElement]);
+
+    const readiness = status?.readiness;
+    const readinessStage = readiness?.stage || (status?.status === "ready" ? "semantic-ready" : "generating");
+    const readinessProgress = job?.readiness?.progress ?? readiness?.progress ?? job?.percent ?? 0;
+    const stageLabel = {
+        "board-ready": "Board visible",
+        "components-ready": "Board and components visible",
+        "semantic-ready": "Semantic scene ready",
+        generating: "Generating 3D assets",
+    }[readinessStage] || readinessStage;
+    const bundleUrl = status?.bundle_url
+        ? `${status.bundle_url}${status.bundle_url.includes("?") ? "&" : "?"}viewer=${encodeURIComponent(readiness?.revision || status.generated_at || status.sourceRevisionKey)}`
+        : undefined;
 
     if (loading && !status) {
         return (
@@ -335,17 +403,19 @@ export function WebGpu3dTab({
     return (
         <div className="relative h-full min-h-0 overflow-hidden bg-muted/20">
             <prism-semantic-viewer
-                key={`${status.sourceRevisionKey}-${status.generator.build}-${viewerRevision}`}
+                key={`${status.sourceRevisionKey}-${status.generator.build}-${readiness?.revision || viewerRevision}`}
                 ref={attachViewer}
-                bundle-url={status.bundle_url}
+                bundle-url={bundleUrl}
                 project-name={projectId}
                 active={active ? "true" : undefined}
                 className="block h-full min-h-0 w-full"
             />
             <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
                 <Badge variant="secondary" className="pointer-events-auto gap-1 shadow-sm">
-                    <CheckCircle2 className="h-3 w-3" />
-                    {status.generator.version}
+                    {readinessStage === "semantic-ready"
+                        ? <CheckCircle2 className="h-3 w-3" />
+                        : <Loader2 className="h-3 w-3 animate-spin" />}
+                    {stageLabel}
                 </Badge>
                 {canGenerate && (
                     <Button
@@ -360,6 +430,27 @@ export function WebGpu3dTab({
                     </Button>
                 )}
             </div>
+            {(jobId || status.status === "building") && (
+                <div className="pointer-events-none absolute bottom-3 left-3 right-3 mx-auto max-w-xl border bg-background/95 p-3 shadow-sm backdrop-blur-sm">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                        <span className="font-medium text-foreground">{job?.message || stageLabel}</span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(readinessProgress)}%</span>
+                    </div>
+                    <div
+                        className="h-1.5 overflow-hidden bg-muted"
+                        role="progressbar"
+                        aria-label="3D asset generation progress"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(readinessProgress)}
+                    >
+                        <div
+                            className="h-full bg-primary transition-[width] duration-300"
+                            style={{ width: `${Math.max(0, Math.min(100, readinessProgress))}%` }}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

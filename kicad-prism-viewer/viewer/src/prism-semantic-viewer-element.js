@@ -58,10 +58,16 @@ function escapeHtml(value) {
   );
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, timings = null, label = "fetch") {
+  const started = performance.now();
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status}`);
-  return response.json();
+  const value = await response.json();
+  if (timings) {
+    timings[`${label}_fetch_parse_ms`] = performance.now() - started;
+    timings[`${label}_content_length`] = Number(response.headers.get("content-length") || 0);
+  }
+  return value;
 }
 
 function withCacheKey(url, cacheKey) {
@@ -86,18 +92,18 @@ function absolutizeAssetPaths(semanticGeometry, bundleUrl, bundle, cacheKey) {
   return output;
 }
 
-async function loadBundle(bundleUrl) {
+async function loadBundle(bundleUrl, timings) {
   const absoluteBundleUrl = new URL(bundleUrl, document.baseURI).toString();
   const cacheKey = new URL(absoluteBundleUrl).searchParams.get("viewer") || "";
-  const bundle = await fetchJson(absoluteBundleUrl);
+  const bundle = await fetchJson(absoluteBundleUrl, timings, "bundle");
   if (bundle.schema !== SUPPORTED_SCHEMA) {
     throw new Error(`Unsupported visualizer bundle schema: ${bundle.schema || "missing"}`);
   }
   const topologyUrl = new URL(bundle.topology || "topology.json", absoluteBundleUrl);
   const semanticGeometryUrl = new URL(bundle.semantic_geometry || "semantic_geometry.json", absoluteBundleUrl);
   const [topology, semanticGeometry] = await Promise.all([
-    fetchJson(topologyUrl),
-    fetchJson(semanticGeometryUrl),
+    fetchJson(topologyUrl, timings, "topology"),
+    fetchJson(semanticGeometryUrl, timings, "semantic_geometry"),
   ]);
   return {
     bundle,
@@ -117,23 +123,40 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.controller = null;
     this.abortController = null;
     this.pendingSelection = null;
+    this.reloadQueued = false;
+    this.reloadSource = null;
   }
 
   connectedCallback() {
-    void this.reload();
+    this.queueReload();
   }
 
   disconnectedCallback() {
     this.abortController?.abort();
     this.controller?.dispose?.();
     this.controller = null;
+    this.reloadSource = null;
   }
 
-  attributeChangedCallback() {
-    if (this.isConnected) void this.reload();
+  attributeChangedCallback(_name, oldValue, newValue) {
+    if (this.isConnected && oldValue !== newValue) this.queueReload();
+  }
+
+  queueReload() {
+    const source = this.getAttribute("bundle-url");
+    if (!source || source === this.reloadSource) return;
+    this.reloadSource = source;
+    if (this.reloadQueued) return;
+    this.reloadQueued = true;
+    queueMicrotask(() => {
+      this.reloadQueued = false;
+      if (this.isConnected) void this.reload();
+    });
   }
 
   async reload() {
+    const reloadStarted = performance.now();
+    const timings = {};
     const bundleUrl = this.getAttribute("bundle-url");
     this.abortController?.abort();
     this.abortController = new AbortController();
@@ -145,13 +168,17 @@ export class PrismSemanticViewerElement extends HTMLElement {
     }
     try {
       this.shadowRoot.innerHTML = `<style>:host{display:block;height:100%;background:#020817;color:#e5e7eb;font:14px system-ui}</style><div style="display:grid;place-items:center;height:100%">Loading semantic visualizer...</div>`;
-      const { bundle, topology, semanticGeometry } = await loadBundle(bundleUrl);
+      const bundleStarted = performance.now();
+      const { bundle, topology, semanticGeometry } = await loadBundle(bundleUrl, timings);
+      timings.bundle_group_total_ms = performance.now() - bundleStarted;
       if (this.abortController.signal.aborted) return;
       this.shadowRoot.innerHTML = shellHtml(bundle.project_name || topology?.design?.name || "Semantic Visualizer");
+      const mountStarted = performance.now();
       this.controller = await mountStandaloneViewer({
         root: this.shadowRoot,
         topology,
         semanticGeometry,
+        readiness: bundle.readiness,
         workspaceScope: "3d",
         isActive: () => this.getAttribute("active") === "true",
         onSelectionChange: (selection) => {
@@ -161,9 +188,34 @@ export class PrismSemanticViewerElement extends HTMLElement {
             detail: { selection },
           }));
         },
+        onPerformanceEvent: (detail) => {
+          console.info("[prism-3d-perf]", detail);
+          this.dispatchEvent(new CustomEvent("prism-semantic-viewer:performance", {
+            bubbles: true,
+            composed: true,
+            detail,
+          }));
+        },
       });
-      this.controller?.setSelection?.(this.pendingSelection);
-      this.dispatchEvent(new CustomEvent("prism-semantic-viewer:ready", { bubbles: true }));
+      timings.mount_and_first_frame_ms = performance.now() - mountStarted;
+      Object.assign(timings, this.controller?.performance || {});
+      // A fresh viewer is already unselected. Avoid a redundant clearSelection()
+      // while the staged shell is completing its first-frame setup.
+      if (this.pendingSelection) this.controller?.setSelection?.(this.pendingSelection);
+      timings.reload_to_visible_ms = performance.now() - reloadStarted;
+      const detail = {
+        schema: "prism.semantic_viewer_performance.a0",
+        milestone: "board-visible",
+        readiness_stage: bundle.readiness?.stage || "semantic-ready",
+        readiness_progress: bundle.readiness?.progress ?? 100,
+        timings,
+      };
+      console.info("[prism-3d-perf]", detail);
+      this.dispatchEvent(new CustomEvent("prism-semantic-viewer:ready", {
+        bubbles: true,
+        composed: true,
+        detail,
+      }));
     } catch (error) {
       console.error(error);
       this.shadowRoot.innerHTML = `

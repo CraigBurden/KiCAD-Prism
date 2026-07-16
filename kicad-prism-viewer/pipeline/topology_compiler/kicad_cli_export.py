@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import hashlib
 import os
@@ -37,6 +38,18 @@ class ExportResult:
         }
 
 
+@dataclass
+class GeometryExportArtifacts:
+    project_file: Path
+    pcb_file: Path
+    output_dir: Path
+    cli: Path
+    cli_version: str
+    pcb_hash: str
+    exports: list[ExportResult]
+    elapsed_ms: float
+
+
 def find_kicad_cli() -> Path:
     configured = os.environ.get("KICAD_CLI")
     if configured:
@@ -58,13 +71,36 @@ def export_project_geometry(
     *,
     strict_components: bool = False,
     progress: Callable[[str], None] | None = None,
+    profile_callback: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Export KiCad-owned 3D geometry and a semantic sidecar.
+    """Export KiCad-owned 3D geometry and a semantic sidecar."""
 
-    Commands intentionally run sequentially. KiCad's project locking and embedded
-    model cache can report spurious errors when exports run concurrently.
-    """
+    artifacts = export_project_geometry_assets(
+        project_file,
+        output_dir,
+        strict_components=strict_components,
+        progress=progress,
+        profile_callback=profile_callback,
+    )
+    return finalize_project_geometry(
+        topology,
+        artifacts,
+        progress=progress,
+        profile_callback=profile_callback,
+    )
 
+
+def export_project_geometry_assets(
+    project_file: Path,
+    output_dir: Path,
+    *,
+    strict_components: bool = False,
+    progress: Callable[[str], None] | None = None,
+    profile_callback: Callable[[str, dict[str, Any]], None] | None = None,
+) -> GeometryExportArtifacts:
+    """Export board and component GLBs without waiting for topology compilation."""
+
+    lane_started = time.perf_counter()
     cli = find_kicad_cli()
     pcb_file = project_file.with_suffix(".kicad_pcb")
     if not pcb_file.exists():
@@ -74,43 +110,130 @@ def export_project_geometry(
     cache_dir = output_dir.parent / ".cache" / "geometry"
     geometry_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    pcb_hash = hashlib.sha256(pcb_file.read_bytes()).hexdigest()
+    started = time.perf_counter()
+    pcb_bytes = pcb_file.read_bytes()
+    pcb_hash = hashlib.sha256(pcb_bytes).hexdigest()
+    if profile_callback:
+        profile_callback(
+            "pcb_hash",
+            {"elapsed_ms": (time.perf_counter() - started) * 1000.0, "bytes": len(pcb_bytes)},
+        )
+    started = time.perf_counter()
     cli_version = _cli_version(cli)
+    if profile_callback:
+        profile_callback("version", {"elapsed_ms": (time.perf_counter() - started) * 1000.0})
     if progress:
         progress(f"kicad-cli version={cli_version} pcb={pcb_file.name}")
 
-    exports: list[ExportResult] = []
-    exports.append(
-        _run_cached_export(
+    board_export_args = _board_context_export_args(geometry_dir, pcb_file)
+    component_export_args = [
+        "pcb",
+        "export",
+        "glb",
+        "--force",
+        "--output",
+        str(geometry_dir / "components.glb"),
+        "--no-board-body",
+        str(pcb_file),
+    ]
+
+    def export_board() -> ExportResult:
+        result = _run_cached_export(
             "board_context",
             cli,
-            _board_context_export_args(geometry_dir, pcb_file),
+            board_export_args,
             cache_dir=cache_dir,
             cache_key=f"{pcb_hash}-{cli_version}-{BOARD_CONTEXT_CACHE_VERSION}",
             progress=progress,
         )
-    )
-    component_export = _run_cached_export(
-        "components",
-        cli,
-        [
-            "pcb",
-            "export",
-            "glb",
-            "--force",
-            "--output",
-            str(geometry_dir / "components.glb"),
-            "--no-board-body",
-            str(pcb_file),
-        ],
-        check=strict_components,
-        cache_dir=cache_dir,
-        cache_key=f"{pcb_hash}-{cli_version}-components",
-        progress=progress,
-    )
-    exports.append(component_export)
+        if progress:
+            progress(
+                "MILESTONE board-ready "
+                f"path=geometry/base_board.glb bytes={result.path.stat().st_size if result.path.exists() else 0}"
+            )
+        return result
+
+    def export_components() -> ExportResult:
+        result = _run_cached_export(
+            "components",
+            cli,
+            component_export_args,
+            check=strict_components,
+            cache_dir=cache_dir,
+            cache_key=f"{pcb_hash}-{cli_version}-components",
+            progress=progress,
+        )
+        if progress and result.path.exists():
+            progress(
+                "MILESTONE components-ready "
+                f"path=geometry/components.glb bytes={result.path.stat().st_size}"
+            )
+        return result
+
+    parallel_exports = os.environ.get("PRISM_KICAD_EXPORT_PARALLEL", "1").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    export_started = time.perf_counter()
+    if parallel_exports:
+        if progress:
+            progress("kicad-cli exports: guarded parallel mode")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            board_future = pool.submit(export_board)
+            component_future = pool.submit(export_components)
+            board_export = board_future.result()
+            component_export = component_future.result()
+    else:
+        board_export = export_board()
+        component_export = export_components()
+    if profile_callback:
+        profile_callback(
+            "exports.wall",
+            {
+                "elapsed_ms": (time.perf_counter() - export_started) * 1000.0,
+                "parallel": parallel_exports,
+            },
+        )
+
+    exports = [board_export, component_export]
+    if profile_callback:
+        profile_callback("export.board_context", _export_profile(board_export))
+    if profile_callback:
+        profile_callback("export.components", _export_profile(component_export))
     if strict_components and not component_export.path.exists():
         raise RuntimeError("Component GLB export failed in strict component mode")
+
+    return GeometryExportArtifacts(
+        project_file=project_file,
+        pcb_file=pcb_file,
+        output_dir=output_dir,
+        cli=cli,
+        cli_version=cli_version,
+        pcb_hash=pcb_hash,
+        exports=exports,
+        elapsed_ms=(time.perf_counter() - lane_started) * 1000.0,
+    )
+
+
+def finalize_project_geometry(
+    topology: dict[str, Any],
+    artifacts: GeometryExportArtifacts,
+    *,
+    progress: Callable[[str], None] | None = None,
+    profile_callback: Callable[[str, dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Join completed KiCad exports with topology-dependent semantic metadata."""
+
+    output_dir = artifacts.output_dir
+    geometry_dir = output_dir / "geometry"
+    project_file = artifacts.project_file
+    pcb_file = artifacts.pcb_file
+    cli = artifacts.cli
+    cli_version = artifacts.cli_version
+    pcb_hash = artifacts.pcb_hash
+    exports = artifacts.exports
 
     connected_nets = [
         net
@@ -119,6 +242,13 @@ def export_project_geometry(
     ]
     if progress:
         progress(f"semantic geometry metadata connected_nets={len(connected_nets)} components={len(topology.get('components', []) or [])}")
+    started = time.perf_counter()
+    components = _component_nodes(geometry_dir / "components.glb")
+    if profile_callback:
+        profile_callback(
+            "inspect.components_glb",
+            {"elapsed_ms": (time.perf_counter() - started) * 1000.0, "components": len(components)},
+        )
     manifest = {
         "schema": "prism.semantic_geometry_a0",
         "generator": "kicad-cli",
@@ -140,7 +270,7 @@ def export_project_geometry(
             "components_glb": "geometry/components.glb",
         },
         "exports": [item.to_dict(output_dir) for item in exports],
-        "components": _component_nodes(geometry_dir / "components.glb"),
+        "components": components,
         "visibility_groups": [
             {"id": "board", "label": "Board", "asset": "geometry/base_board.glb", "mesh_name_contains": ["_PCB"]},
             {"id": "silkscreen", "label": "Silkscreen", "asset": "geometry/base_board.glb", "mesh_name_contains": ["_silkscreen"]},
@@ -148,8 +278,23 @@ def export_project_geometry(
         ],
     }
     manifest_path = output_dir / "semantic_geometry.json"
+    started = time.perf_counter()
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    if profile_callback:
+        profile_callback(
+            "write.semantic_geometry",
+            {"elapsed_ms": (time.perf_counter() - started) * 1000.0, "bytes": manifest_path.stat().st_size},
+        )
     return manifest
+
+
+def _export_profile(result: ExportResult) -> dict[str, Any]:
+    return {
+        "elapsed_ms": float(result.elapsed_ms),
+        "cache_hit": result.stdout == "cache hit",
+        "bytes": result.path.stat().st_size if result.path.exists() else 0,
+        "warnings": len(_warning_lines(result.stdout + "\n" + result.stderr)),
+    }
 
 
 def _board_context_export_args(geometry_dir: Path, pcb_file: Path) -> list[str]:

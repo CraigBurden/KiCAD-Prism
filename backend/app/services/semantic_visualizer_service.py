@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -91,6 +92,17 @@ def semantic_meshopt_level() -> str:
     return level if level in MESHOPT_LEVELS else "medium"
 
 
+def semantic_tile_size_mm() -> str:
+    configured = os.environ.get("PRISM_SEMANTIC_GLTF_TILE_SIZE_MM", "auto").strip().lower()
+    if configured == "auto":
+        return "auto"
+    try:
+        value = float(configured)
+    except ValueError:
+        return "auto"
+    return str(value) if 1.0 <= value <= 1000.0 else "auto"
+
+
 def find_kicad_project(project_path: str) -> Path:
     root = Path(project_path)
     config = path_config_service.get_path_config(project_path)
@@ -112,9 +124,16 @@ def source_fingerprint(project_path: str) -> str:
     return source_fingerprint_for_root(Path(project_path))
 
 
-def source_fingerprint_for_root(project_root: Path) -> str:
+def source_fingerprint_for_root(
+    project_root: Path,
+    profile_callback: Callable[[str, Dict[str, Any]], None] | None = None,
+) -> str:
     root = project_root.resolve()
     digest = hashlib.sha256()
+    started = time.perf_counter()
+    files = 0
+    bytes_read = 0
+    metadata_only_files = 0
     for path in sorted(root.rglob("*")):
         if not path.is_file() or ".git" in path.parts:
             continue
@@ -124,13 +143,26 @@ def source_fingerprint_for_root(project_root: Path) -> str:
             continue
         rel = path.relative_to(root).as_posix()
         stat = path.stat()
+        files += 1
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
         if stat.st_size > 32 * 1024 * 1024:
             digest.update(f"large:{stat.st_size}:{int(stat.st_mtime_ns)}".encode("utf-8"))
+            metadata_only_files += 1
         else:
             digest.update(path.read_bytes())
+            bytes_read += stat.st_size
         digest.update(b"\0")
+    if profile_callback:
+        profile_callback(
+            "source_fingerprint",
+            {
+                "elapsed_ms": (time.perf_counter() - started) * 1000.0,
+                "files": files,
+                "bytes_read": bytes_read,
+                "metadata_only_files": metadata_only_files,
+            },
+        )
     return digest.hexdigest()[:32]
 
 
@@ -210,6 +242,18 @@ def get_status_for_source(
     if available:
         try:
             bundle = json.loads(current_bundle.read_text(encoding="utf-8"))
+            readiness = bundle.get("readiness") or {
+                "schema": "prism.visualizer_readiness.a0",
+                "stage": "semantic-ready",
+                "progress": 100,
+                "available_assets": ["board", "components", "semantic-geometry", "topology"],
+                "revision": str(bundle.get("generated_at") or "legacy-ready"),
+                "updated_at": bundle.get("generated_at"),
+            }
+            payload["readiness"] = readiness
+            payload["status"] = (
+                "ready" if readiness.get("stage") == "semantic-ready" else "building"
+            )
             payload["generated_at"] = bundle.get("generated_at")
             payload["capabilities"] = bundle.get("capabilities", {})
             _validate_bundle_assets(current_bundle.parent, bundle)
@@ -353,6 +397,7 @@ def _commit_index_key(commit: str, project_rel: str) -> str:
 
 
 def _run_preflight(viewer_root: Path, job: Dict[str, Any], persist: Callable[[], None]) -> None:
+    preflight_started = time.perf_counter()
     job["stage"] = "preflight"
     job["message"] = "Checking semantic visualizer compiler runtime..."
     job["percent"] = max(int(job.get("percent") or 0), 10)
@@ -369,6 +414,7 @@ def _run_preflight(viewer_root: Path, job: Dict[str, Any], persist: Callable[[],
 
     binaries: Dict[str, str] = {}
     for binary in ("kicad-cli", "node", "npm"):
+        check_started = time.perf_counter()
         resolved = shutil.which(binary)
         if not resolved:
             raise RuntimeError(f"Missing required executable: {binary}")
@@ -386,6 +432,7 @@ def _run_preflight(viewer_root: Path, job: Dict[str, Any], persist: Callable[[],
         except Exception as exc:
             version = f"version check failed: {type(exc).__name__}: {exc}"
         job["logs"].append(f"Preflight OK: {binary} -> {resolved} ({version})")
+        _record_perf(job, persist, f"preflight.version.{binary}", check_started)
 
     node_modules = viewer_root / "node_modules"
     if not node_modules.is_dir():
@@ -405,6 +452,7 @@ def _run_preflight(viewer_root: Path, job: Dict[str, Any], persist: Callable[[],
         "polygon-clipping"
     ]
     node_check_script = "; ".join(f"require.resolve('{pkg}')" for pkg in required_node_pkgs)
+    node_started = time.perf_counter()
     node_result = subprocess.run(
         [
             binaries["node"],
@@ -424,9 +472,11 @@ def _run_preflight(viewer_root: Path, job: Dict[str, Any], persist: Callable[[],
             f"Failed to resolve core libraries. Output: {(node_result.stdout or '').strip()}"
         )
     job["logs"].append("Preflight OK: Node packages verified (@gltf-transform, earcut, meshoptimizer, polygon-clipping)")
+    _record_perf(job, persist, "preflight.node_packages", node_started)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = semantic_viewer_pythonpath(viewer_root, os.environ.get("PYTHONPATH", ""))
+    python_started = time.perf_counter()
     result = subprocess.run(
         [
             sys.executable,
@@ -451,15 +501,66 @@ def _run_preflight(viewer_root: Path, job: Dict[str, Any], persist: Callable[[],
             f"Output: {(result.stdout or '').strip()}"
         )
     job["logs"].append(f"Preflight OK: Python libraries -> {(result.stdout or '').strip()}")
+    _record_perf(job, persist, "preflight.python_imports", python_started)
+    _record_perf(job, persist, "preflight.total", preflight_started)
     persist()
 
 
-def _write_bundle(project: Any, output_dir: Path, source_hash: str) -> None:
-    topology = output_dir / "topology.json"
-    semantic_geometry = output_dir / "semantic_geometry.json"
-    if not topology.exists() or not semantic_geometry.exists():
-        raise ValueError("semantic visualizer build did not produce topology.json and semantic_geometry.json")
-    bundle = {
+def _record_perf(
+    job: Dict[str, Any],
+    persist: Callable[[], None],
+    stage: str,
+    started: float,
+    **details: Any,
+) -> None:
+    event = {
+        "schema": "prism.3d_generation_perf.a0",
+        "stage": stage,
+        "elapsed_ms": round((time.perf_counter() - started) * 1000.0, 3),
+        **details,
+    }
+    job.setdefault("performance", []).append(event)
+    job.setdefault("logs", []).append(f"[perf] {json.dumps(event, sort_keys=True, separators=(',', ':'))}")
+    persist()
+
+
+def _job_profiler(job: Dict[str, Any], persist: Callable[[], None]):
+    def emit(stage: str, details: Dict[str, Any]) -> None:
+        event = {
+            "schema": "prism.3d_generation_perf.a0",
+            "stage": stage,
+            **details,
+        }
+        job.setdefault("performance", []).append(event)
+        job.setdefault("logs", []).append(f"[perf] {json.dumps(event, sort_keys=True, separators=(',', ':'))}")
+        persist()
+
+    return emit
+
+
+def _readiness(stage: str, available_assets: list[str]) -> Dict[str, Any]:
+    progress_by_stage = {
+        "board-ready": 35,
+        "components-ready": 55,
+        "semantic-ready": 100,
+    }
+    return {
+        "schema": "prism.visualizer_readiness.a0",
+        "stage": stage,
+        "progress": progress_by_stage.get(stage, 0),
+        "available_assets": available_assets,
+        "revision": str(time.time_ns()),
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+def _bundle_document(
+    project: Any,
+    source_hash: str,
+    readiness: Dict[str, Any],
+) -> Dict[str, Any]:
+    semantic_ready = readiness.get("stage") == "semantic-ready"
+    return {
         "schema": SCHEMA,
         "project_id": project.id,
         "project_name": project.display_name or project.name,
@@ -475,13 +576,113 @@ def _write_bundle(project: Any, output_dir: Path, source_hash: str) -> None:
         "topology": "topology.json",
         "semantic_geometry": "semantic_geometry.json",
         "asset_base": "./",
+        "readiness": readiness,
         "capabilities": {
             "pcb_3d": True,
-            "pcb_layer_compare": True,
-            "component_selection": True,
-            "net_selection": True,
+            "pcb_layer_compare": semantic_ready,
+            "component_selection": semantic_ready,
+            "net_selection": semantic_ready,
         },
     }
+
+
+def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{threading.get_ident()}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temporary.replace(path)
+
+
+def _atomic_copy(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{threading.get_ident()}.tmp")
+    shutil.copy2(source, temporary)
+    temporary.replace(destination)
+
+
+def _overlay_staged_tree(staging: Path, target: Path) -> None:
+    """Promote a full bundle over a partial bundle without a missing-path window."""
+
+    bundle_source = staging / "bundle.json"
+    for source in sorted(path for path in staging.rglob("*") if path.is_file()):
+        if source == bundle_source:
+            continue
+        _atomic_copy(source, target / source.relative_to(staging))
+    # The bundle is the readiness commit record. Publish it only after every
+    # file referenced by the semantic-ready revision is in place.
+    _atomic_copy(bundle_source, target / "bundle.json")
+
+
+def _publish_partial_bundle(
+    project: Any,
+    output_dir: Path,
+    target: Path,
+    source_hash: str,
+    stage: str,
+    job: Dict[str, Any],
+    persist: Callable[[], None],
+) -> None:
+    board_source = output_dir / "geometry" / "base_board.glb"
+    component_source = output_dir / "geometry" / "components.glb"
+    if not board_source.is_file():
+        return
+
+    target.mkdir(parents=True, exist_ok=True)
+    available_assets = ["board"]
+    _atomic_copy(board_source, target / "geometry" / "base_board.glb")
+    assets: Dict[str, str] = {"base_board_glb": "geometry/base_board.glb"}
+    if component_source.is_file():
+        _atomic_copy(component_source, target / "geometry" / "components.glb")
+        assets["components_glb"] = "geometry/components.glb"
+        available_assets.append("components")
+        stage = "components-ready"
+
+    readiness = _readiness(stage, available_assets)
+    topology = {
+        "schema": "prism.topology_partial.a0",
+        "design": {"name": project.display_name or project.name},
+        "components": [],
+        "nets": [],
+        "readiness": readiness,
+    }
+    semantic_geometry = {
+        "schema": "prism.semantic_geometry_partial.a0",
+        "generator": "kicad-cli",
+        "packing_mode": "staged-readiness",
+        "assets": assets,
+        "components": [],
+        "readiness": readiness,
+    }
+    bundle = _bundle_document(project, source_hash, readiness)
+    _atomic_write_json(target / "topology.json", topology)
+    _atomic_write_json(target / "semantic_geometry.json", semantic_geometry)
+    _atomic_write_json(target / "bundle.json", bundle)
+
+    job["stage"] = stage
+    job["readiness_stage"] = stage
+    job["readiness"] = readiness
+    job["bundle_url"] = bundle_url(project.id, source_hash)
+    job["percent"] = readiness["progress"]
+    job["message"] = (
+        "Board and components are visible; building semantic layers..."
+        if stage == "components-ready"
+        else "Board is visible; loading components and semantic layers..."
+    )
+    job.setdefault("logs", []).append(
+        f"Published staged bundle: {stage} ({', '.join(available_assets)})"
+    )
+    persist()
+
+
+def _write_bundle(project: Any, output_dir: Path, source_hash: str) -> None:
+    topology = output_dir / "topology.json"
+    semantic_geometry = output_dir / "semantic_geometry.json"
+    if not topology.exists() or not semantic_geometry.exists():
+        raise ValueError("semantic visualizer build did not produce topology.json and semantic_geometry.json")
+    readiness = _readiness(
+        "semantic-ready",
+        ["board", "components", "semantic-geometry", "topology"],
+    )
+    bundle = _bundle_document(project, source_hash, readiness)
     (output_dir / "bundle.json").write_text(json.dumps(bundle, indent=2), encoding="utf-8")
     _validate_bundle_assets(output_dir, bundle)
 
@@ -493,9 +694,10 @@ def build_visualizer_bundle(
     *,
     force: bool = False,
 ) -> Dict[str, Any]:
+    total_started = time.perf_counter()
     project_file = find_kicad_project(project.path)
-    source_hash = source_fingerprint_for_project_file(project_file)
-    return build_visualizer_bundle_from_project_file(
+    source_hash = source_fingerprint_for_root(project_file.resolve().parent, _job_profiler(job, persist))
+    status = build_visualizer_bundle_from_project_file(
         project,
         project_file,
         job,
@@ -503,6 +705,8 @@ def build_visualizer_bundle(
         force=force,
         source_hash=source_hash,
     )
+    _record_perf(job, persist, "request.total", total_started)
+    return status
 
 
 def build_visualizer_bundle_for_commit(
@@ -513,6 +717,7 @@ def build_visualizer_bundle_for_commit(
     *,
     force: bool = False,
 ) -> Dict[str, Any]:
+    total_started = time.perf_counter()
     repo_root = _repo_root(Path(project.path))
     resolved_commit = _resolve_commit(repo_root, commit)
     rel = _project_relative_path(repo_root, Path(project.path))
@@ -532,12 +737,14 @@ def build_visualizer_bundle_for_commit(
             return status
 
     with tempfile.TemporaryDirectory(prefix="semantic-commit-") as tmp:
+        archive_started = time.perf_counter()
         checkout = Path(tmp) / "checkout"
         _archive_checkout(repo_root, resolved_commit, checkout)
+        _record_perf(job, persist, "commit.archive_checkout", archive_started)
         project_file = checkout / rel
         if not project_file.is_file():
             raise ValueError(f"KiCad project file not found in commit {resolved_commit}: {rel}")
-        source_hash = source_fingerprint_for_project_file(project_file)
+        source_hash = source_fingerprint_for_root(project_file.resolve().parent, _job_profiler(job, persist))
         source_tree = git_project_tree_fingerprint(repo_root, resolved_commit, rel)
         record_commit_source(
             project.id,
@@ -557,6 +764,7 @@ def build_visualizer_bundle_for_commit(
         status["commit"] = resolved_commit
         status["project_path"] = rel
         status["source_tree_fingerprint"] = source_tree
+        _record_perf(job, persist, "request.total", total_started)
         return status
 
 
@@ -601,6 +809,7 @@ def _build_visualizer_bundle_locked(
     *,
     force: bool = False,
 ) -> Dict[str, Any]:
+    build_started = time.perf_counter()
     target = bundle_dir(project.id, source_hash)
     existing = target / "bundle.json"
     if existing.exists() and not force:
@@ -617,7 +826,9 @@ def _build_visualizer_bundle_locked(
             persist()
 
     job["stage"] = "locate-compiler"
+    locate_started = time.perf_counter()
     viewer_root = find_viewer_repo_root()
+    _record_perf(job, persist, "locate_compiler", locate_started, viewer_root=str(viewer_root))
     _run_preflight(viewer_root, job, persist)
 
     job["stage"] = "discover-project"
@@ -637,6 +848,7 @@ def _build_visualizer_bundle_locked(
         output.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
         env["PYTHONPATH"] = semantic_viewer_pythonpath(viewer_root, os.environ.get("PYTHONPATH", ""))
+        env["PRISM_TOPOLOGY_COMPILER_METRICS_PATH"] = str(output / "generation-profile.json")
         cmd = [
             sys.executable,
             "-m",
@@ -649,6 +861,8 @@ def _build_visualizer_bundle_locked(
             str(compiler_cache),
             "--meshopt-level",
             semantic_meshopt_level(),
+            "--tile-size",
+            str(semantic_tile_size_mm()),
             "--scope",
             "3d",
         ]
@@ -656,6 +870,7 @@ def _build_visualizer_bundle_locked(
             cmd.append("--force-rebuild")
         job["logs"].append(f"Command: {' '.join(cmd)}")
         persist()
+        compile_started = time.perf_counter()
         process = subprocess.Popen(
             cmd,
             cwd=str(viewer_root),
@@ -666,20 +881,53 @@ def _build_visualizer_bundle_locked(
             bufsize=1,
         )
         assert process.stdout is not None
+        compiler_milestones: set[str] = set()
         for line in process.stdout:
             line = line.strip()
             if line:
                 job["logs"].append(line)
                 persist()
+                if "MILESTONE board-ready" in line:
+                    compiler_milestones.add("board-ready")
+                if "MILESTONE components-ready" in line:
+                    compiler_milestones.add("components-ready")
+                if "board-ready" in compiler_milestones:
+                    partial_stage = (
+                        "components-ready"
+                        if "components-ready" in compiler_milestones
+                        else "board-ready"
+                    )
+                    current_stage = job.get("readiness_stage")
+                    if current_stage != partial_stage:
+                        partial_started = time.perf_counter()
+                        _publish_partial_bundle(
+                            project,
+                            output,
+                            target,
+                            source_hash,
+                            partial_stage,
+                            job,
+                            persist,
+                        )
+                        _record_perf(
+                            job,
+                            persist,
+                            f"publish.partial.{partial_stage}",
+                            partial_started,
+                        )
         return_code = process.wait()
+        _record_perf(job, persist, "compiler.subprocess", compile_started, return_code=return_code)
         if return_code != 0:
             raise RuntimeError(f"semantic visualizer compiler exited with code {return_code}")
 
+        bundle_started = time.perf_counter()
         _write_bundle(project, output, source_hash)
+        _record_perf(job, persist, "bundle.write_and_validate", bundle_started)
         job["stage"] = "publish-assets"
         job["message"] = "Publishing semantic viewer assets..."
         job["percent"] = 85
         persist()
+        publish_started = time.perf_counter()
         target.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(
             tempfile.mkdtemp(
@@ -689,20 +937,47 @@ def _build_visualizer_bundle_locked(
         )
         if staging.exists():
             shutil.rmtree(staging)
+        copy_started = time.perf_counter()
         shutil.copytree(output, staging)
+        _record_perf(job, persist, "publish.copy_to_staging", copy_started)
+        validate_started = time.perf_counter()
         bundle = json.loads((staging / "bundle.json").read_text(encoding="utf-8"))
         _validate_bundle_assets(staging, bundle)
+        _record_perf(job, persist, "publish.validate_staging", validate_started)
+        promote_started = time.perf_counter()
         if target.exists():
-            shutil.rmtree(target)
-        staging.rename(target)
+            _overlay_staged_tree(staging, target)
+            shutil.rmtree(staging)
+            promotion_mode = "atomic-file-overlay"
+        else:
+            staging.rename(target)
+            promotion_mode = "directory-rename"
+        _record_perf(
+            job,
+            persist,
+            "publish.promote",
+            promote_started,
+            mode=promotion_mode,
+        )
+        validate_started = time.perf_counter()
         published_bundle = json.loads((target / "bundle.json").read_text(encoding="utf-8"))
         _validate_bundle_assets(target, published_bundle)
+        _record_perf(job, persist, "publish.validate_target", validate_started)
+        _record_perf(job, persist, "publish.total", publish_started)
 
     job["percent"] = 100
+    job["stage"] = "semantic-ready"
+    job["readiness_stage"] = "semantic-ready"
+    job["readiness"] = published_bundle.get("readiness") or {}
+    job["bundle_url"] = bundle_url(project.id, source_hash)
     job["message"] = "Semantic visualizer bundle generated"
     job["logs"].append(f"Published bundle: {target / 'bundle.json'}")
+    _record_perf(job, persist, "build.total", build_started)
     persist()
-    return get_status_for_source(project, source_hash)
+    status_started = time.perf_counter()
+    status = get_status_for_source(project, source_hash)
+    _record_perf(job, persist, "status.final_validation", status_started)
+    return status
 
 
 def _repo_root(project_path: Path) -> Path:

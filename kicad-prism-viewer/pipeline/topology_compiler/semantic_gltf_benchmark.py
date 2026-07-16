@@ -219,6 +219,7 @@ def _prepare_fixed_input(
         raise RuntimeError("benchmark-semantic-gltf requires a project path unless --synthetic-fixture is set")
     if project.suffix == ".json":
         payload = json.loads(project.read_text(encoding="utf-8"))
+        payload["tileSizeMm"] = tile_size_mm
         payload["meshoptLevel"] = meshopt_level
         fixed_input.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
         return fixed_input

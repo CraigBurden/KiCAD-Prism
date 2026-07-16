@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
 
-import { Accessor, Document, NodeIO } from "@gltf-transform/core";
+import { Accessor, Document, Logger, NodeIO } from "@gltf-transform/core";
 import {
   EXTMeshFeatures,
   EXTMeshoptCompression,
@@ -910,7 +910,7 @@ function appendTilePolygon(tiles, object, tile, polygon, sourcePolygon = null) {
 }
 
 function createDocument(tile, geometry) {
-  const document = new Document();
+  const document = new Document().setLogger(new Logger(Logger.Verbosity.ERROR));
   const buffer = document.createBuffer("geometry");
   const meshFeatures = document.createExtension(EXTMeshFeatures);
   const primitive = document

@@ -17,6 +17,7 @@ const TILE_INDEX_BYTES = 4;
 
 let topology = window.__TOPOLOGY__ || {};
 let semanticGeometry = window.__SEMANTIC_GEOMETRY__ || {};
+let viewerReadiness = { stage: "semantic-ready", progress: 100 };
 let viewerRoot = document;
 let appEl;
 let canvas;
@@ -140,6 +141,7 @@ function initialScene() {
     failed: new Map(),
     residentTiles: new Map(),
     componentFeatures: new Map(),
+    runtimeBounds: null,
     layerZOffsets: new Float32Array(256),
     layerZOffsetSignature: "",
   };
@@ -306,11 +308,16 @@ function viewerSessionActive(token) {
 
 export async function mountStandaloneViewer(options = {}) {
   const token = beginViewerSession();
+  const performanceTimings = {};
   topology = options.topology || window.__TOPOLOGY__ || {};
   if (topology && !topology.net_details) {
     topology.net_details = buildNetDetails(topology);
   }
   semanticGeometry = options.semanticGeometry || window.__SEMANTIC_GEOMETRY__ || {};
+  viewerReadiness = options.readiness || semanticGeometry.readiness || {
+    stage: "semantic-ready",
+    progress: 100,
+  };
   selectionChangeCallback = typeof options.onSelectionChange === "function"
     ? options.onSelectionChange
     : null;
@@ -318,8 +325,9 @@ export async function mountStandaloneViewer(options = {}) {
   legacyWorkspacesEnabled = options.workspaceScope !== "3d";
   resolveDom(options.root || document);
   if (!appEl || !canvas) throw new Error("Semantic viewer shell is missing required DOM nodes");
-  await boot(token);
+  await boot(token, performanceTimings, options.onPerformanceEvent);
   return {
+    performance: performanceTimings,
     setSelection(selection) {
       suppressSelectionChange = true;
       try {
@@ -426,16 +434,33 @@ function restoreViewVisibilityPrefs() {
   if (typeof refreshControls === "function") refreshControls();
 }
 
-async function boot(token) {
+async function boot(token, performanceTimings = {}, onPerformanceEvent = null) {
+  const bootStarted = performance.now();
   const manifestPath = semanticGeometry.assets?.scene_manifest || semanticGeometry.semantic_gltf?.path;
-  if (!manifestPath) throw new Error("This bundle does not contain prism.semantic_gltf_a0");
-  scene.manifestUrl = new URL(manifestPath, location.href).toString();
-  scene.manifest = await fetchJson(scene.manifestUrl);
-  if (!viewerSessionActive(token)) return;
-  if (scene.manifest.schema !== "prism.semantic_gltf_a0") {
-    throw new Error(`Unsupported scene schema: ${scene.manifest.schema}`);
+  let started = performance.now();
+  if (manifestPath) {
+    scene.manifestUrl = new URL(manifestPath, location.href).toString();
+    scene.manifest = await fetchJson(scene.manifestUrl);
+    performanceTimings.scene_manifest_fetch_parse_ms = performance.now() - started;
+    if (!viewerSessionActive(token)) return;
+    if (scene.manifest.schema !== "prism.semantic_gltf_a0") {
+      throw new Error(`Unsupported scene schema: ${scene.manifest.schema}`);
+    }
+  } else {
+    scene.manifest = {
+      schema: "prism.semantic_gltf_partial.a0",
+      bbox: null,
+      layers: [],
+      nets: [],
+      objectFeatures: [],
+      components: [],
+      tiles: [],
+      barrels: [],
+    };
+    performanceTimings.scene_manifest_fetch_parse_ms = 0;
   }
 
+  started = performance.now();
   scene.layers = scene.manifest.layers || [];
   scene.copperLayers = scene.layers.filter(
     (layer) => layer.role === "copper" || String(layer.name).endsWith(".Cu"),
@@ -455,6 +480,7 @@ async function boot(token) {
     });
   }
   for (const tile of scene.manifest.tiles || []) scene.tiles.set(tile.id, tile);
+  performanceTimings.scene_manifest_index_ms = performance.now() - started;
 
   const defaultCompareLayers = defaultPcbCompareLayers();
   for (const layerId of defaultCompareLayers) {
@@ -463,22 +489,28 @@ async function boot(token) {
   }
   for (const layer of scene.copperLayers) state.visible3dLayers.add(Number(layer.id));
 
+  started = performance.now();
   renderer = await Renderer.create(canvas);
+  performanceTimings.webgpu_renderer_create_ms = performance.now() - started;
   if (!viewerSessionActive(token)) {
     renderer?.dispose?.();
     renderer = null;
     return;
   }
-  camera = new CameraController(runtimeBoundsFromGltf(scene.manifest.bbox));
   renderer.setBarrels(scene.manifest.barrels || []);
-  await loadBoard(token);
+  started = performance.now();
+  const boardBounds = await loadBoard(token);
+  performanceTimings.board_fetch_parse_upload_ms = performance.now() - started;
   if (!viewerSessionActive(token)) return;
+  scene.runtimeBounds = boardBounds || runtimeBoundsFromGltf(scene.manifest.bbox);
+  camera = new CameraController(scene.runtimeBounds);
   if (legacyWorkspacesEnabled) {
     await loadSchematicWorld(token);
     if (!viewerSessionActive(token)) return;
     await loadBom(token);
     if (!viewerSessionActive(token)) return;
   }
+  started = performance.now();
   renderControls();
   bindInteractions();
   if (legacyWorkspacesEnabled) {
@@ -487,10 +519,32 @@ async function boot(token) {
   }
   bindPanelTabs();
   bindGizmoInteraction();
-  statusEl.textContent = "WebGPU semantic glTF active";
-  void loadComponents(token);
+  performanceTimings.controls_and_bindings_ms = performance.now() - started;
+  const stageLabels = {
+    "board-ready": "Board ready · components and semantic layers are still generating",
+    "components-ready": "Board and components ready · semantic layers are still generating",
+    "semantic-ready": "WebGPU semantic glTF active",
+  };
+  statusEl.textContent = stageLabels[viewerReadiness.stage] || "Loading 3D assets";
+  if (semanticGeometry.assets?.components_glb) {
+    const componentsStarted = performance.now();
+    void loadComponents(token).then(() => {
+      if (!viewerSessionActive(token)) return;
+      onPerformanceEvent?.({
+        schema: "prism.semantic_viewer_performance.a0",
+        milestone: "components-loaded",
+        readiness_stage: viewerReadiness.stage,
+        elapsed_ms: performance.now() - componentsStarted,
+        bytes_loaded: state.loadedBytes,
+      });
+    });
+  }
   scheduleTileResidency(performance.now(), { force: true });
   scheduleFrame(token);
+  started = performance.now();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  performanceTimings.first_frame_wait_ms = performance.now() - started;
+  performanceTimings.boot_total_ms = performance.now() - bootStarted;
 }
 
 async function loadSchematicWorld(token = activeViewerToken) {
@@ -853,9 +907,9 @@ function tileDistanceToFocus(tile) {
 
 async function loadBoard(token = activeViewerToken) {
   const path = semanticGeometry.assets?.base_board_glb;
-  if (!path) return;
+  if (!path) return null;
   const loaded = await loadGltf(new URL(path, location.href).toString(), { defaultFeatureId: 0 });
-  if (!viewerSessionActive(token) || !renderer) return;
+  if (!viewerSessionActive(token) || !renderer) return null;
   state.loadedBytes += loaded.byteLength;
   const contextPrimitives = loaded.primitives.filter((primitive) => boardRole(primitive) !== "pad");
   for (const primitive of mergePrimitivesByMaterial(contextPrimitives, boardRole)) {
@@ -867,6 +921,24 @@ async function loadBoard(token = activeViewerToken) {
       color: primitive.material.baseColor,
     });
   }
+  return mergeBounds(contextPrimitives.map((primitive) => primitive.bounds));
+}
+
+function mergeBounds(boundsList) {
+  const valid = boundsList.filter((bounds) => Array.isArray(bounds) && bounds.length === 6);
+  if (!valid.length) return null;
+  return valid.reduce((merged, bounds) => [
+    Math.min(merged[0], bounds[0]),
+    Math.min(merged[1], bounds[1]),
+    Math.min(merged[2], bounds[2]),
+    Math.max(merged[3], bounds[3]),
+    Math.max(merged[4], bounds[4]),
+    Math.max(merged[5], bounds[5]),
+  ], [...valid[0]]);
+}
+
+function sceneRuntimeBounds() {
+  return scene.runtimeBounds || runtimeBoundsFromGltf(scene.manifest?.bbox);
 }
 
 function boardRole(primitive) {
@@ -1099,10 +1171,10 @@ function schematicDomDetailPages(visiblePages) {
 }
 
 function stackupOffsets() {
-  const bbox = scene.manifest.bbox;
+  const bounds = sceneRuntimeBounds();
   const diagonal = Math.hypot(
-    (bbox.max[0] - bbox.min[0]) * 1000,
-    (bbox.max[2] - bbox.min[2]) * 1000,
+    (bounds[3] - bounds[0]) * 1000,
+    (bounds[4] - bounds[1]) * 1000,
   );
   const gap = state.separation * state.separation * clamp(diagonal * 0.12, 8, 25) / 1000;
   const signature = `${state.separation}:${gap}:${scene.copperLayers.length}`;
@@ -1131,7 +1203,7 @@ function updateCompareLayout(now) {
   else if (count === 3 || count === 4) columns = 2;
   else if (count > 4) columns = Math.ceil(Math.sqrt(count * aspect));
   const rows = Math.ceil(count / columns);
-  const bounds = runtimeBoundsFromGltf(scene.manifest.bbox);
+  const bounds = sceneRuntimeBounds();
   const boardWidth = bounds[3] - bounds[0];
   const boardHeight = bounds[4] - bounds[1];
   const pitchX = boardWidth * 1.18;
@@ -1293,7 +1365,9 @@ function renderControls() {
   if (state.workspace === "stackup") {
     return;
   }
-  viewerKindEl.textContent = "Semantic GLTF A0";
+  viewerKindEl.textContent = viewerReadiness.stage === "semantic-ready"
+    ? "Semantic GLTF A0"
+    : "Prism staged 3D";
   primaryHeadingEl.textContent = "Layers";
   primaryDescriptionEl.textContent = "Visibility and compare";
   query('[data-panel="search"] .section-heading span').textContent = "Nets, components and pins";
@@ -1761,7 +1835,7 @@ function bindControlEvents() {
       activatePcbLayerMode();
     } else {
       state.mode = "3d";
-      camera.frame(runtimeBoundsFromGltf(scene.manifest.bbox));
+      camera.frame(sceneRuntimeBounds());
       camera.snap();
       state.visibleTileIds = new Set();
       scheduleTileResidency(performance.now(), { force: true });
@@ -2683,7 +2757,7 @@ function handleKey(event) {
     event.preventDefault();
     setNetIsolation(!state.isolateNet);
   }
-  else if (key === "home") camera.frame(runtimeBoundsFromGltf(scene.manifest.bbox));
+  else if (key === "home") camera.frame(sceneRuntimeBounds());
   else if (["x", "y", "z"].includes(key)) camera.setAxis(key, event.shiftKey);
   else if (key === "f") camera.flip();
   else if (key === "r") camera.rotateZ(event.shiftKey ? -1 : 1);
@@ -2794,7 +2868,7 @@ function updateLayerLabels() {
     labelsEl.innerHTML = "";
     return;
   }
-  const bounds = runtimeBoundsFromGltf(scene.manifest.bbox);
+  const bounds = sceneRuntimeBounds();
   const visibleLayers = compareRenderLayers();
   labelsEl.innerHTML = scene.copperLayers
     .filter((layer) => visibleLayers.has(Number(layer.id)))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -14,21 +15,22 @@ from .bom import build_bom_artifact
 from .compiler import compile_topology
 from .context import PrismCompilationContext
 from .exporter import export_viewer_html
-from .kicad_cli_export import export_project_geometry
+from .kicad_cli_export import export_project_geometry_assets, finalize_project_geometry
 from .schematic_scene import build_schematic_scene
 from .schematic_world import build_schematic_world
 from .semantic_gltf import build_semantic_gltf_scene
 
 _STAGE_TIMINGS_MS: dict[str, float] = {}
+_PROFILE_EVENTS: list[dict] = []
 REQUIRED_FROM_PROJECT_TIMINGS = (
     "design_load_ms",
     "netlist_ms",
     "design_json_topology_ms",
     "design_json_svg_ms",
     "pcb_ir_ms",
-    "pad_holes_ms",
-    "pcb_metadata_light_ms",
-    "pcb_metadata_full_ms",
+    "pcb_ir_to_dict_ms",
+    "pcb_metadata_unified_ms",
+    "board_compilation_ms",
     "bom_design_reuse_ms",
     "bom_assembly_ms",
     "bom_normalize_group_ms",
@@ -37,6 +39,15 @@ REQUIRED_FROM_PROJECT_TIMINGS = (
 
 def _progress(message: str) -> None:
     print(f"[semantic-visualizer] {time.strftime('%H:%M:%S')} {message}", flush=True)
+
+
+def _profile(scope: str):
+    def emit(key: str, values: dict) -> None:
+        event = {"stage": f"{scope}.{key}", **values}
+        _PROFILE_EVENTS.append(event)
+        _progress(f"PROFILE {json.dumps(event, sort_keys=True, separators=(',', ':'))}")
+
+    return emit
 
 
 @contextmanager
@@ -53,7 +64,13 @@ def _stage(label: str):
         _progress(f"DONE {label} ({elapsed:.1f}s)")
 
 
-def _write_outputs(topology: dict, output_dir: Path, semantic_geometry: dict | None = None) -> None:
+def _write_outputs(
+    topology: dict,
+    output_dir: Path,
+    semantic_geometry: dict | None = None,
+    *,
+    emit_standalone_html: bool = True,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     topology_path = output_dir / "topology.json"
     html_path = output_dir / "viewer.html"
@@ -67,12 +84,15 @@ def _write_outputs(topology: dict, output_dir: Path, semantic_geometry: dict | N
     topology_path.write_text(json.dumps(topology_export, indent=2), encoding="utf-8")
     if semantic_geometry:
         (output_dir / "semantic_geometry.json").write_text(json.dumps(semantic_geometry, indent=2), encoding="utf-8")
-    export_viewer_html(
-        topology_export,
-        html_path,
-        title=topology["design"].get("project", {}).get("filename", "KiCad 3D Viz"),
-        semantic_geometry=semantic_geometry or {},
-    )
+    if emit_standalone_html:
+        export_viewer_html(
+            topology_export,
+            html_path,
+            title=topology["design"].get("project", {}).get("filename", "KiCad 3D Viz"),
+            semantic_geometry=semantic_geometry or {},
+        )
+    else:
+        html_path.unlink(missing_ok=True)
 
 def _discover_project_assets(project_file: Path) -> dict:
     root = project_file.parent
@@ -93,89 +113,139 @@ def _discover_project_assets(project_file: Path) -> dict:
     }
 
 
+def _resolve_semantic_tile_size(requested: str, pcb_metadata: dict) -> float:
+    value = str(requested or "auto").strip().lower()
+    if value != "auto":
+        size = float(value)
+        if size <= 0:
+            raise ValueError("semantic tile size must be positive")
+        return size
+    bbox = pcb_metadata.get("bbox_mm") or []
+    if len(bbox) == 4:
+        board_span = max(float(bbox[2]) - float(bbox[0]), float(bbox[3]) - float(bbox[1]))
+        for size in (20.0, 40.0, 80.0, 160.0):
+            if board_span <= size:
+                return size
+    return 160.0
+
+
 def cmd_from_project(args: argparse.Namespace) -> None:
     _STAGE_TIMINGS_MS.clear()
+    _PROFILE_EVENTS.clear()
     total_started = time.perf_counter()
     project_file = args.project
     _progress(f"from-project input={project_file} output={args.output}")
-    context = PrismCompilationContext(
-        project_file,
-        compatibility_design_json=args.compat_design_json,
-        progress=_progress,
-    )
-    try:
-        design = context.design
-        design_payload = context.design_payload_for_topology
-        pcb_metadata = context.pcb_metadata_light
-    except Exception as exc:
-        print(f"error: kicad_monkey failed to compile {project_file}: {exc}", file=sys.stderr)
-        raise SystemExit(2)
-    with _stage("compile topology model"):
-        topology = compile_topology(design_payload, [], pcb_metadata, _discover_project_assets(project_file))
-    try:
-        with _stage("export KiCad GLB context and component models"):
-            semantic_geometry = export_project_geometry(
-                project_file,
-                topology,
-                args.output,
-                strict_components=args.strict_components,
-                progress=_progress,
+    _progress("START parallel KiCad GLB export lane")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as export_pool:
+        export_future = export_pool.submit(
+            export_project_geometry_assets,
+            project_file,
+            args.output,
+            strict_components=args.strict_components,
+            progress=_progress,
+            profile_callback=_profile("kicad_cli"),
+        )
+        context = PrismCompilationContext(
+            project_file,
+            compatibility_design_json=args.compat_design_json,
+            progress=_progress,
+            profile=_profile("context"),
+        )
+        try:
+            design = context.design
+            design_payload = context.design_payload_for_topology
+            pcb_metadata = context.pcb_metadata
+        except Exception as exc:
+            print(f"error: kicad_monkey failed to compile {project_file}: {exc}", file=sys.stderr)
+            raise SystemExit(2)
+        with _stage("compile topology model"):
+            topology = compile_topology(design_payload, [], pcb_metadata, _discover_project_assets(project_file))
+        tile_size_mm = _resolve_semantic_tile_size(args.tile_size, pcb_metadata)
+        _profile("compiler")(
+            "tile_size",
+            {
+                "requested": args.tile_size,
+                "resolved_mm": tile_size_mm,
+                "board_bbox_mm": pcb_metadata.get("bbox_mm"),
+            },
+        )
+        try:
+            export_artifacts = export_future.result()
+            _STAGE_TIMINGS_MS["kicad_glb_ms"] = export_artifacts.elapsed_ms
+            _profile("kicad_cli")(
+                "lane_total",
+                {"elapsed_ms": export_artifacts.elapsed_ms, "overlapped": True},
             )
-        with _stage("build semantic GLTF scene tiles"):
-            semantic_geometry["semantic_gltf"] = build_semantic_gltf_scene(
+            _progress(f"DONE parallel KiCad GLB export lane ({export_artifacts.elapsed_ms / 1000.0:.1f}s)")
+            semantic_geometry = finalize_project_geometry(
                 topology,
-                semantic_geometry,
-                context.pcb_ir,
-                args.output,
-                pad_holes=context.pad_holes,
-                force_rebuild=args.force_rebuild,
-                clean_cache=args.clean_cache,
-                cache_dir=args.cache_dir,
-                meshopt_level=args.meshopt_level,
+                export_artifacts,
                 progress=_progress,
+                profile_callback=_profile("kicad_cli"),
             )
-        semantic_geometry["assets"]["scene_manifest"] = "scene-gltf/scene.manifest.json"
-        if args.scope == "all":
-            with _stage("build schematic SVG world fallback"):
-                semantic_geometry["schematic_world"] = build_schematic_world(
-                    design,
-                    context.design_payload_for_svg_world,
+            with _stage("build semantic GLTF scene tiles"):
+                semantic_geometry["semantic_gltf"] = build_semantic_gltf_scene(
+                    topology,
+                    semantic_geometry,
+                    context.pcb_ir,
                     args.output,
+                    pad_holes=context.pad_holes,
+                    force_rebuild=args.force_rebuild,
+                    clean_cache=args.clean_cache,
+                    cache_dir=args.cache_dir,
+                    meshopt_level=args.meshopt_level,
+                    tile_size_mm=tile_size_mm,
                     progress=_progress,
+                    profile_callback=_profile("semantic_gltf"),
                 )
-            semantic_geometry["assets"]["schematic_manifest"] = semantic_geometry["schematic_world"]["path"]
-            if args.emit_schematic_native:
-                with _stage("build schematic vector/DOM semantic scene"):
-                    semantic_geometry["schematic_vector"] = build_schematic_scene(
+            semantic_geometry["assets"]["scene_manifest"] = "scene-gltf/scene.manifest.json"
+            if args.scope == "all":
+                with _stage("build schematic SVG world fallback"):
+                    semantic_geometry["schematic_world"] = build_schematic_world(
                         design,
                         context.design_payload_for_svg_world,
                         args.output,
-                        topology=topology,
                         progress=_progress,
                     )
-                semantic_geometry["assets"]["schematic_native_manifest"] = semantic_geometry["schematic_vector"]["path"]
-            else:
-                _remove_stale_schematic_native(args.output)
-            with _stage("build normalized BoM model"):
-                semantic_geometry["bom"] = build_bom_artifact(
-                    project_file,
-                    args.output,
-                    raw_components=context.bom_assembly_by_variant(None),
-                    timings=context.timings,
-                    progress=_progress,
-                )
-            semantic_geometry["assets"]["bom"] = semantic_geometry["bom"]["path"]
-    except Exception as exc:
-        print(f"error: semantic PCB geometry export failed for {project_file}: {exc}", file=sys.stderr)
-        raise SystemExit(3)
+                semantic_geometry["assets"]["schematic_manifest"] = semantic_geometry["schematic_world"]["path"]
+                if args.emit_schematic_native:
+                    with _stage("build schematic vector/DOM semantic scene"):
+                        semantic_geometry["schematic_vector"] = build_schematic_scene(
+                            design,
+                            context.design_payload_for_svg_world,
+                            args.output,
+                            topology=topology,
+                            progress=_progress,
+                        )
+                    semantic_geometry["assets"]["schematic_native_manifest"] = semantic_geometry["schematic_vector"]["path"]
+                else:
+                    _remove_stale_schematic_native(args.output)
+                with _stage("build normalized BoM model"):
+                    semantic_geometry["bom"] = build_bom_artifact(
+                        project_file,
+                        args.output,
+                        raw_components=context.bom_assembly_by_variant(None),
+                        timings=context.timings,
+                        progress=_progress,
+                    )
+                semantic_geometry["assets"]["bom"] = semantic_geometry["bom"]["path"]
+        except Exception as exc:
+            print(f"error: semantic PCB geometry export failed for {project_file}: {exc}", file=sys.stderr)
+            raise SystemExit(3)
     topology["design"].setdefault("assets", {})["semantic_geometry"] = "semantic_geometry.json"
     topology["design"]["assets"]["geometry_mode"] = "semantic-gltf"
     with _stage("write final viewer bundle files"):
-        _write_outputs(topology, args.output, semantic_geometry)
+        _write_outputs(
+            topology,
+            args.output,
+            semantic_geometry,
+            emit_standalone_html=args.scope == "all",
+        )
     artifact_manifest = write_artifact_manifest(args.output)
     _log_artifact_manifest(artifact_manifest)
     _STAGE_TIMINGS_MS.update(context.timings)
     _write_from_project_metrics(project_file, args.output, total_started, artifact_manifest)
+    _progress("MILESTONE semantic-ready")
     _progress("from-project complete")
 
 
@@ -186,8 +256,9 @@ def _stage_metric_key(label: str) -> str | None:
         "compile topology design JSON": "design_json_topology_ms",
         "compile schematic-world design JSON": "design_json_svg_ms",
         "compile PCB IR": "pcb_ir_ms",
-        "extract PCB pad holes": "pad_holes_ms",
-        "extract light PCB metadata": "pcb_metadata_light_ms",
+        "materialize PCB IR payload": "pcb_ir_to_dict_ms",
+        "derive PCB topology indexes from IR": "pcb_metadata_unified_ms",
+        "compile unified PCB artifacts": "board_compilation_ms",
         "export KiCad GLB context and component models": "kicad_glb_ms",
         "build semantic GLTF scene tiles": "semantic_tile_ms",
         "build schematic SVG world fallback": "schematic_world_ms",
@@ -219,6 +290,7 @@ def _write_from_project_metrics(
                 **{key: _STAGE_TIMINGS_MS.get(key, 0.0) for key in REQUIRED_FROM_PROJECT_TIMINGS},
                 **_STAGE_TIMINGS_MS,
                 "artifactTotals": (artifact_manifest or {}).get("totalsByFamily", {}),
+                "profileEvents": _PROFILE_EVENTS,
                 "total_ms": (time.perf_counter() - total_started) * 1000.0,
             },
             indent=2,
@@ -433,6 +505,11 @@ def main() -> None:
         choices=["low", "medium", "high"],
         default="medium",
         help="Meshoptimizer compression level for semantic GLTF tiles",
+    )
+    from_project.add_argument(
+        "--tile-size",
+        default="auto",
+        help="Semantic GLTF tile edge length in millimetres, or auto for a board-adaptive size",
     )
     from_project.set_defaults(func=cmd_from_project)
 

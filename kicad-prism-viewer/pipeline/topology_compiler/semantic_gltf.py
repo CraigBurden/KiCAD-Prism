@@ -510,7 +510,7 @@ class SemanticGltfBuilder:
         self.feature_bounds[feature_id] = self._merge_bounds(self.feature_bounds.get(feature_id), bounds)
         self.net_bounds[net_id] = self._merge_bounds(self.net_bounds.get(net_id), bounds)
 
-    def write_input(self, path: Path, *, tile_size_mm: float = TILE_SIZE_MM) -> dict[str, Any]:
+    def build_input_payload(self, *, tile_size_mm: float = TILE_SIZE_MM) -> dict[str, Any]:
         for net in self.nets[1:]:
             net_id = int(net["id"])
             net["metrics"] = {
@@ -581,6 +581,10 @@ class SemanticGltfBuilder:
             "barrels": self.barrels,
             "components": components,
         }
+        return payload
+
+    def write_input(self, path: Path, *, tile_size_mm: float = TILE_SIZE_MM) -> dict[str, Any]:
+        payload = self.build_input_payload(tile_size_mm=tile_size_mm)
         path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
         return payload
 
@@ -662,65 +666,65 @@ def build_semantic_gltf_scene(
     scene_cache_root = cache_root / "scenes"
     input_cache_dir.mkdir(parents=True, exist_ok=True)
     scene_cache_root.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp:
-        scratch_input = Path(tmp) / "semantic-gltf-input.json"
-        started = time.perf_counter()
-        payload = builder.write_input(scratch_input, tile_size_mm=tile_size_mm)
-        if profile_callback:
-            profile_callback(
-                "write_input_initial",
-                {
-                    "elapsed_ms": (time.perf_counter() - started) * 1000.0,
-                    "input_json_bytes": scratch_input.stat().st_size if scratch_input.exists() else 0,
-                    "objects": len(payload.get("objects", []) or []),
-                    "barrels": len(payload.get("barrels", []) or []),
-                    "features": len(payload.get("objectFeatures", []) or []),
-                    "nets": len(payload.get("nets", []) or []),
-                },
-            )
-        payload["meshoptLevel"] = meshopt_level
-        source_geometry_revision = str(payload["geometryRevision"])
-        started = time.perf_counter()
-        compiler_identity = _semantic_geometry_compiler_identity(
-            tile_size_mm=tile_size_mm,
-            meshopt_level=meshopt_level,
+    started = time.perf_counter()
+    payload = builder.build_input_payload(tile_size_mm=tile_size_mm)
+    if profile_callback:
+        profile_callback(
+            "build_input_payload",
+            {
+                "elapsed_ms": (time.perf_counter() - started) * 1000.0,
+                "objects": len(payload.get("objects", []) or []),
+                "barrels": len(payload.get("barrels", []) or []),
+                "features": len(payload.get("objectFeatures", []) or []),
+                "nets": len(payload.get("nets", []) or []),
+            },
         )
-        compiler_revision = hashlib.sha256(
-            json.dumps(compiler_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        payload["sourceGeometryRevision"] = source_geometry_revision
-        payload["geometryCompiler"] = {
-            **compiler_identity,
-            "revision": compiler_revision,
-        }
-        payload["geometryRevision"] = hashlib.sha256(
-            json.dumps(
-                {
-                    "sourceGeometryRevision": source_geometry_revision,
-                    "geometryCompiler": payload["geometryCompiler"],
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
-        if profile_callback:
-            profile_callback(
-                "geometry_revision_hash",
-                {"elapsed_ms": (time.perf_counter() - started) * 1000.0},
-            )
-        started = time.perf_counter()
-        scratch_input.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-        input_path = input_cache_dir / f"{payload['geometryRevision']}-{meshopt_level}.json"
-        if not input_path.exists():
-            input_path.write_bytes(scratch_input.read_bytes())
-        if profile_callback:
-            profile_callback(
-                "write_input_final",
-                {
-                    "elapsed_ms": (time.perf_counter() - started) * 1000.0,
-                    "input_json_bytes": input_path.stat().st_size if input_path.exists() else 0,
-                },
-            )
+    payload["meshoptLevel"] = meshopt_level
+    source_geometry_revision = str(payload["geometryRevision"])
+    started = time.perf_counter()
+    compiler_identity = _semantic_geometry_compiler_identity(
+        tile_size_mm=tile_size_mm,
+        meshopt_level=meshopt_level,
+    )
+    compiler_revision = hashlib.sha256(
+        json.dumps(compiler_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    payload["sourceGeometryRevision"] = source_geometry_revision
+    payload["geometryCompiler"] = {
+        **compiler_identity,
+        "revision": compiler_revision,
+    }
+    payload["geometryRevision"] = hashlib.sha256(
+        json.dumps(
+            {
+                "sourceGeometryRevision": source_geometry_revision,
+                "geometryCompiler": payload["geometryCompiler"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if profile_callback:
+        profile_callback(
+            "geometry_revision_hash",
+            {"elapsed_ms": (time.perf_counter() - started) * 1000.0},
+        )
+    started = time.perf_counter()
+    input_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    input_digest = hashlib.sha256(input_bytes).hexdigest()
+    input_path = input_cache_dir / f"{payload['geometryRevision']}-{meshopt_level}.json"
+    input_cache_hit = input_path.exists()
+    if not input_cache_hit:
+        input_path.write_bytes(input_bytes)
+    if profile_callback:
+        profile_callback(
+            "serialize_input",
+            {
+                "elapsed_ms": (time.perf_counter() - started) * 1000.0,
+                "input_json_bytes": len(input_bytes),
+                "cache_hit": input_cache_hit,
+            },
+        )
     if profile_callback:
         profile_callback(
             "collect_total",
@@ -772,12 +776,28 @@ def build_semantic_gltf_scene(
             for tile in persistent_manifest.get("tiles", [])
         )
     )
+    if profile_callback:
+        profile_callback(
+            "cache_decision",
+            {
+                "output_cache_hit": cache_hit,
+                "persistent_cache_hit": persistent_scene_complete,
+                "force_rebuild": force_rebuild,
+                "clean_cache": clean_cache,
+            },
+        )
     if not cache_hit:
         shutil.rmtree(scene_dir, ignore_errors=True)
         if persistent_scene_complete:
             if progress:
                 progress(f"semantic GLTF persistent scene cache hit revision={payload['geometryRevision'][:12]}")
+            started = time.perf_counter()
             shutil.copytree(persistent_scene_dir, scene_dir)
+            if profile_callback:
+                profile_callback(
+                    "persistent_scene_restore",
+                    {"elapsed_ms": (time.perf_counter() - started) * 1000.0},
+                )
         else:
             if progress:
                 if force_rebuild:
@@ -796,24 +816,43 @@ def build_semantic_gltf_scene(
                 payload,
                 cache_root=cache_root,
                 compiler_identity=compiler_identity,
+                input_digest=input_digest,
                 progress=progress,
                 profile_callback=profile_callback,
             )
             if native_preclip:
                 node_env.update(native_preclip)
-            _run_node_builder(
-                ["node", str(tool), str(input_path), str(scene_dir)],
-                env=node_env,
-                progress=progress,
-            )
+            with tempfile.TemporaryDirectory(prefix="semantic-node-profile-") as profile_tmp:
+                node_metrics_path = Path(profile_tmp) / "metrics.json"
+                if profile_callback:
+                    node_env["PRISM_SEMANTIC_GLTF_METRICS_PATH"] = str(node_metrics_path)
+                started = time.perf_counter()
+                _run_node_builder(
+                    ["node", str(tool), str(input_path), str(scene_dir)],
+                    env=node_env,
+                    progress=progress,
+                )
+                if profile_callback:
+                    event: dict[str, Any] = {
+                        "elapsed_ms": (time.perf_counter() - started) * 1000.0,
+                    }
+                    if node_metrics_path.is_file():
+                        event["node_metrics"] = json.loads(node_metrics_path.read_text(encoding="utf-8"))
+                    profile_callback("node_builder", event)
             if progress:
                 progress("semantic GLTF persistent scene cache update: start")
             temp_cache_scene = persistent_scene_dir.with_name(f"{persistent_scene_dir.name}.tmp-{int(time.time() * 1000)}")
             shutil.rmtree(temp_cache_scene, ignore_errors=True)
+            started = time.perf_counter()
             shutil.copytree(scene_dir, temp_cache_scene)
             if persistent_scene_dir.exists():
                 shutil.rmtree(persistent_scene_dir)
             temp_cache_scene.rename(persistent_scene_dir)
+            if profile_callback:
+                profile_callback(
+                    "persistent_scene_update",
+                    {"elapsed_ms": (time.perf_counter() - started) * 1000.0},
+                )
             if progress:
                 progress("semantic GLTF persistent scene cache update: done")
     elif progress:
@@ -833,6 +872,15 @@ def build_semantic_gltf_scene(
             "semantic GLTF manifest "
             f"tiles={len(manifest.get('tiles', []))} "
             f"bytes={sum(int(tile.get('bytes') or 0) for tile in manifest.get('tiles', [])) / 1_000_000:.1f} MB"
+        )
+    if profile_callback:
+        profile_callback(
+            "manifest_validate",
+            {
+                "tiles": len(manifest.get("tiles", [])),
+                "bytes": sum(int(tile.get("bytes") or 0) for tile in manifest.get("tiles", [])),
+                "missing_tiles": len(missing_tiles),
+            },
         )
     return {
         "schema": SCHEMA,
@@ -889,6 +937,7 @@ def _prepare_native_preclip(
     *,
     cache_root: Path,
     compiler_identity: dict[str, Any],
+    input_digest: str | None = None,
     progress: Callable[[str], None] | None = None,
     profile_callback: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, str] | None:
@@ -922,7 +971,7 @@ def _prepare_native_preclip(
         "tileSizeMm": payload.get("tileSizeMm"),
         "meshoptLevel": compiler_identity.get("meshoptLevel"),
         "geometryRevision": payload.get("geometryRevision"),
-        "inputDigest": _payload_digest(payload),
+        "inputDigest": input_digest or _payload_digest(payload),
     }
     preclip_key = hashlib.sha256(
         json.dumps(preclip_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -945,6 +994,7 @@ def _prepare_native_preclip(
                     progress(f"semantic GLTF native {native_backend} unavailable; falling back to JS: {exc}")
                 return None
             raise RuntimeError(f"native {native_backend} semantic clipping failed: {exc}") from exc
+        serialize_started = time.perf_counter()
         preclip_path.write_text(json.dumps(response, separators=(",", ":")), encoding="utf-8")
         if profile_callback:
             profile_callback(
@@ -952,6 +1002,9 @@ def _prepare_native_preclip(
                 {
                     "elapsed_ms": timings.get("native_total_ms", 0.0),
                     **{key: value for key, value in timings.items() if isinstance(value, (int, float))},
+                    "serialize_ms": (time.perf_counter() - serialize_started) * 1000.0,
+                    "bytes": preclip_path.stat().st_size,
+                    "cache_hit": False,
                 },
             )
         if progress:
@@ -963,6 +1016,11 @@ def _prepare_native_preclip(
                 f"nativeMs={timings.get('native_batch_call_ms', 0):.1f} "
                 f"totalMs={timings.get('native_total_ms', 0):.1f}"
             )
+    elif profile_callback:
+        profile_callback(
+            "native_preclip",
+            {"elapsed_ms": 0.0, "bytes": preclip_path.stat().st_size, "cache_hit": True},
+        )
     return {"PRISM_SEMANTIC_CLIPPED_INPUT": str(preclip_path)}
 
 

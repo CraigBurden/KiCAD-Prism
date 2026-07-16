@@ -195,6 +195,57 @@ npm run dev
 
 Dev UI: [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
+### Test a local kicad-monkey checkout in Docker
+
+For temporary integration testing, place `KiCAD-Prism` and `kicad-monkey` next
+to each other:
+
+```text
+KiCAD-Platform/
+├── KiCAD-Prism/
+└── kicad-monkey/
+```
+
+Build and start Prism with the current local `kicad-monkey` working tree,
+including uncommitted changes:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.local-kicad-monkey.yml \
+  up -d --build
+docker compose restart frontend
+```
+
+Verify which package was installed:
+
+```bash
+docker compose exec backend /app/venv/bin/python -c \
+  'import inspect, kicad_monkey; print(kicad_monkey.__version__); print(inspect.getfile(kicad_monkey))'
+docker compose exec backend /bin/sh -c 'echo "$PRISM_KICAD_MONKEY_SOURCE"'
+```
+
+To return to the pinned upstream release, omit the override and rebuild:
+
+```bash
+docker compose up -d --build
+docker compose restart frontend
+```
+
+Restarting the frontend refreshes Nginx's Docker DNS entry after the backend
+container is replaced.
+
+The local override does not modify `requirements-runtime.txt`, vendor a wheel,
+or require a fork. Normal Docker deployments therefore continue to use the
+released versions pinned by Prism. The opt-in image also installs the released
+`kicad-cruncher` version matching the local `kicad-monkey` package version so
+their exact-version dependency remains consistent.
+
+Prism compiles board topology indexes, semantic PCB IR, and pad-hole data as
+one cached board product. There is no separate projection/full mode and no
+metadata environment switch: every consumer reuses the same parsed PCB and IR
+payload.
+
 ## Current limitations (honest)
 
 - In-browser visualizer commenting UI is not shipped; PostgreSQL comments API and KiCad REST helper URLs remain.

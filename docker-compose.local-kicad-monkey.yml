@@ -1,0 +1,17 @@
+# Opt-in Docker override for testing the adjacent kicad-monkey working tree.
+# Use together with docker-compose.yml; normal Compose builds remain pinned to
+# the upstream release in kicad-prism-viewer/requirements-runtime.txt.
+services:
+  backend:
+    build:
+      additional_contexts:
+        kicad_monkey: ../kicad-monkey
+      args:
+        KICAD_MONKEY_VARIANT: kicad-monkey-local
+
+  catalog-worker:
+    build:
+      additional_contexts:
+        kicad_monkey: ../kicad-monkey
+      args:
+        KICAD_MONKEY_VARIANT: kicad-monkey-local

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -415,12 +416,14 @@ def _stackup_metadata_from_pcb_file(pcb_file: Path) -> dict[str, Any]:
     except Exception:
         return defaults
     try:
-        root = parse_sexp(pcb_file.read_text(encoding="utf-8"))
+        text = pcb_file.read_text(encoding="utf-8")
+        stackup_text = _extract_named_form(text, "stackup")
+        if not stackup_text:
+            return defaults
+        stackup = parse_sexp(stackup_text)
     except Exception:
         return defaults
-    setup = _sexp_child(root, "setup")
-    stackup = _sexp_child(setup, "stackup") if setup else None
-    if not stackup:
+    if not _sexp_is(stackup, "stackup"):
         return defaults
     return {
         "copper_finish": _clean_enum_text(_sexp_value(stackup, "copper_finish")) or "None",
@@ -428,6 +431,41 @@ def _stackup_metadata_from_pcb_file(pcb_file: Path) -> dict[str, Any]:
         "castellated_pads": _manufacturing_bool(_sexp_value(stackup, "castellated_pads"), default=False),
         "edge_plating": _manufacturing_bool(_sexp_value(stackup, "edge_plating"), default=False),
     }
+
+
+def _extract_named_form(text: str, head: str) -> str | None:
+    """Return one balanced top-level form without parsing the full PCB tree."""
+    marker = f"({head}"
+    start = text.find(marker)
+    while start >= 0:
+        after = start + len(marker)
+        if after >= len(text) or text[after].isspace() or text[after] in ")(" :
+            break
+        start = text.find(marker, after)
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
 
 
 def _sexp_is(value: Any, name: str) -> bool:
@@ -829,11 +867,25 @@ def _extract_board_graphics(pcb: Any) -> list[dict[str, Any]]:
     return objects
 
 
-def _pcb_metadata_common(pcb: Any, project_file: Path, *, physical_objects: list[dict[str, Any]], terminal_pad_links: list[dict[str, str]]) -> dict[str, Any]:
+def _pcb_metadata_common(
+    pcb: Any,
+    project_file: Path,
+    *,
+    physical_objects: list[dict[str, Any]],
+    terminal_pad_links: list[dict[str, str]],
+    board_bbox: list[float] | None = None,
+    components: list[dict[str, Any]] | None = None,
+    stats: dict[str, int] | None = None,
+    profile_callback=None,
+) -> dict[str, Any]:
     pcb_file = project_file.with_suffix(".kicad_pcb")
-    layers = _declared_layers(pcb, pcb_file)
+    layers = _profile_timed(profile_callback, "declared_layers", lambda: _declared_layers(pcb, pcb_file))
     stackup = getattr(pcb, "stackup", None)
-    file_stackup_metadata = _stackup_metadata_from_pcb_file(pcb_file)
+    file_stackup_metadata = _profile_timed(
+        profile_callback,
+        "stackup_metadata_from_file",
+        lambda: _stackup_metadata_from_pcb_file(pcb_file),
+    )
     computed_thickness = float(getattr(pcb, "thickness", 1.6) or 1.6)
     get_board_thickness = getattr(stackup, "get_board_thickness", None)
     if callable(get_board_thickness):
@@ -841,6 +893,7 @@ def _pcb_metadata_common(pcb: Any, project_file: Path, *, physical_objects: list
     project_file_pro = project_file.with_suffix(".kicad_pro")
     net_classes_list = []
     if project_file_pro.is_file():
+        net_classes_started = time.perf_counter()
         try:
             from kicad_monkey.kicad_project import KiCadProject
             proj = KiCadProject.from_file(project_file_pro)
@@ -857,11 +910,42 @@ def _pcb_metadata_common(pcb: Any, project_file: Path, *, physical_objects: list
                     })
         except Exception:
             pass
+        _profile_emit(
+            profile_callback,
+            "project_net_classes",
+            (time.perf_counter() - net_classes_started) * 1000.0,
+            net_classes=len(net_classes_list),
+        )
+
+    if board_bbox is None:
+        board_bbox = _profile_timed(profile_callback, "board_bbox", lambda: _board_bbox(pcb))
+    if components is None:
+        components = _profile_timed(profile_callback, "component_footprints", lambda: _component_footprints(pcb))
+    stats_started = time.perf_counter()
+    if stats is None:
+        def collection_count(name: str) -> int:
+            counter = getattr(pcb, "collection_count", None)
+            if callable(counter):
+                return int(counter(name))
+            return len(getattr(pcb, name, []) or [])
+
+        stats = {
+            "layers": len(layers),
+            "footprints": collection_count("footprints"),
+            "pads": sum(len(getattr(fp, "pads", []) or []) for fp in getattr(pcb, "footprints", []) or []),
+            "segments": collection_count("segments"),
+            "vias": collection_count("vias"),
+            "zones": collection_count("zones"),
+            "physical_objects": len(physical_objects),
+        }
+    else:
+        stats = {**stats, "layers": len(layers), "physical_objects": len(physical_objects)}
+    _profile_emit(profile_callback, "stats", (time.perf_counter() - stats_started) * 1000.0, **stats)
 
     return {
         "source": str(pcb_file),
         "board": {
-            "bbox_mm": _board_bbox(pcb),
+            "bbox_mm": board_bbox,
             "thickness_mm": computed_thickness,
             "aux_axis_origin_mm": [0.0, 0.0],
             "stackup": {
@@ -890,16 +974,8 @@ def _pcb_metadata_common(pcb: Any, project_file: Path, *, physical_objects: list
         },
         "physical_objects": physical_objects,
         "terminal_pad_links": terminal_pad_links,
-        "components": _component_footprints(pcb),
-        "stats": {
-            "layers": len(layers),
-            "footprints": len(getattr(pcb, "footprints", []) or []),
-            "pads": sum(len(getattr(fp, "pads", []) or []) for fp in getattr(pcb, "footprints", []) or []),
-            "segments": len(getattr(pcb, "segments", []) or []),
-            "vias": len(getattr(pcb, "vias", []) or []),
-            "zones": len(getattr(pcb, "zones", []) or []),
-            "physical_objects": len(physical_objects),
-        },
+        "components": components,
+        "stats": stats,
     }
 
 
@@ -941,6 +1017,7 @@ def extract_pcb_metadata_light(pcb: Any, project_file: Path, profile_callback=No
             project_file,
             physical_objects=[],
             terminal_pad_links=terminal_pad_links,
+            profile_callback=profile_callback,
         ),
     )
     metadata["pads"] = pads
@@ -948,6 +1025,147 @@ def extract_pcb_metadata_light(pcb: Any, project_file: Path, profile_callback=No
     metadata["stats"]["physical_objects"] = 0
     _profile_emit(profile_callback, "total", (time.perf_counter() - started) * 1000.0)
     return metadata
+
+
+def _unified_ir_metadata_records(
+    pcb_ir: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, dict[str, Any]], dict[str, int]]:
+    """Derive Prism's compact PCB indexes from the already-built plotter IR.
+
+    This deliberately avoids walking ``pcb.footprints`` a second time. The
+    generic plotter IR already carries footprint placement, pad identity,
+    terminal/net attributes, and drill dimensions.
+    """
+
+    components: list[dict[str, Any]] = []
+    terminal_pad_links_by_key: dict[tuple[str, str], dict[str, str]] = {}
+    pad_holes: dict[str, dict[str, Any]] = {}
+    counts = {"footprints": 0, "pads": 0, "segments": 0, "vias": 0, "zones": 0}
+
+    for record in pcb_ir.get("records", []) or []:
+        kind = str(record.get("kind") or "")
+        if kind == "segment":
+            counts["segments"] += 1
+        elif kind == "via":
+            counts["vias"] += 1
+        elif kind == "zone_fill":
+            counts["zones"] += 1
+        if kind != "footprint":
+            continue
+
+        counts["footprints"] += 1
+        footprint_uuid = str(record.get("uuid") or "")
+        designator = str(record.get("reference") or "")
+        placement = record.get("placement") or {}
+        components.append(
+            {
+                "designator": designator,
+                "uid": _component_uid(designator),
+                "unique_id": footprint_uuid,
+                "layer": str(record.get("layer") or "F.Cu"),
+                "bbox_mm": None,
+                "x_mm": round(float(placement.get("x_nm") or 0) * 1e-6, 6),
+                "y_mm": round(float(placement.get("y_nm") or 0) * 1e-6, 6),
+                "angle_deg": float(placement.get("angle_deg") or 0.0),
+            }
+        )
+
+        for operation in record.get("operations", []) or []:
+            if str(operation.get("kind") or "") != "StartBlock":
+                continue
+            data_ref = str(operation.get("data_ref") or "")
+            attrs = operation.get("extra_attrs") or {}
+            if data_ref == "pad":
+                pad_number = str(attrs.get("pad_number") or "")
+                pad_uuid = str(operation.get("data_uuid") or operation.get("label") or "")
+                net_name = str(attrs.get("net") or "")
+                key = (footprint_uuid, pad_uuid or pad_number)
+                terminal_pad_links_by_key[key] = {
+                    "designator": str(attrs.get("component") or designator),
+                    "pin": pad_number,
+                    "net_name": net_name,
+                    "object_uid": stable_id(
+                        "obj",
+                        f"pad:{footprint_uuid}:{pad_uuid or pad_number}",
+                    ),
+                }
+            elif data_ref == "pad_hole":
+                owner = str(attrs.get("hole_owner") or "")
+                if not owner:
+                    continue
+                pad_number = str(attrs.get("pad_number") or "")
+                key = (footprint_uuid, owner or pad_number)
+                terminal_pad_links_by_key.setdefault(
+                    key,
+                    {
+                        "designator": str(attrs.get("component") or designator),
+                        "pin": pad_number,
+                        "net_name": str(attrs.get("net") or ""),
+                        "object_uid": stable_id(
+                            "obj",
+                            f"pad:{footprint_uuid}:{owner or pad_number}",
+                        ),
+                    },
+                )
+                diameter = _float_or_none(attrs.get("hole_diameter_mm"))
+                width = _float_or_none(attrs.get("hole_width_mm"))
+                height = _float_or_none(attrs.get("hole_height_mm"))
+                drill = diameter
+                if drill is None and width and height:
+                    drill = min(width, height)
+                if not drill or drill <= 0:
+                    continue
+                pad_holes[owner] = {
+                    "drill_mm": drill,
+                    "drill_width_mm": width or drill,
+                    "drill_height_mm": height or drill,
+                    "oval": bool(width and height and abs(width - height) > 1e-12),
+                    "plated": str(attrs.get("hole_plating") or "plated") != "non_plated",
+                }
+
+    terminal_pad_links = list(terminal_pad_links_by_key.values())
+    counts["pads"] = len(terminal_pad_links)
+    return components, terminal_pad_links, pad_holes, counts
+
+
+def compile_pcb_artifacts(
+    pcb: Any,
+    project_file: Path,
+    pcb_ir: dict[str, Any],
+    profile_callback=None,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Compile all Prism board-side indexes from one parsed PCB and its IR."""
+
+    started = time.perf_counter()
+    components, terminal_pad_links, pad_holes, stats = _profile_timed(
+        profile_callback,
+        "derive_indexes_from_ir",
+        lambda: _unified_ir_metadata_records(pcb_ir),
+    )
+    board_bbox = _profile_timed(profile_callback, "board_bbox", lambda: _board_bbox(pcb))
+    metadata = _profile_timed(
+        profile_callback,
+        "common_metadata",
+        lambda: _pcb_metadata_common(
+            pcb,
+            project_file,
+            physical_objects=[],
+            terminal_pad_links=terminal_pad_links,
+            board_bbox=board_bbox,
+            components=components,
+            stats=stats,
+            profile_callback=profile_callback,
+        ),
+    )
+    metadata["mode"] = "unified"
+    _profile_emit(
+        profile_callback,
+        "total",
+        (time.perf_counter() - started) * 1000.0,
+        terminal_pad_links=len(terminal_pad_links),
+        pad_holes=len(pad_holes),
+    )
+    return metadata, pad_holes
 
 
 def extract_pcb_metadata_full(project_file: Path, pcb: Any | None = None, profile_callback=None) -> dict[str, Any]:
@@ -981,6 +1199,7 @@ def extract_pcb_metadata_full(project_file: Path, pcb: Any | None = None, profil
             project_file,
             physical_objects=physical_objects,
             terminal_pad_links=terminal_pad_links,
+            profile_callback=profile_callback,
         ),
     )
     metadata["mode"] = "full"
