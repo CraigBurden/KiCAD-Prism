@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, CheckCircle2, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import type { CSSProperties } from "react";
+import { Box, Layers3, Loader2, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +82,7 @@ interface WebGpu3dTabProps {
     commit?: string | null;
     user: User | null;
     active: boolean;
+    workspace: "pcb" | "stackup";
     selection: PrismSelection | null;
     onSelection: (selection: PrismSelection) => void;
     onClearSelection: () => void;
@@ -106,6 +108,7 @@ export function WebGpu3dTab({
     commit,
     user,
     active,
+    workspace,
     selection,
     onSelection,
     onClearSelection,
@@ -125,6 +128,7 @@ export function WebGpu3dTab({
     const [error, setError] = useState<string | null>(null);
     const [viewerRevision, setViewerRevision] = useState(0);
     const canGenerate = user?.role === "admin" || user?.role === "designer";
+    const isStackup = workspace === "stackup";
 
     const commitQuery = useMemo(
         () => commit ? `?commit=${encodeURIComponent(commit)}` : "",
@@ -340,11 +344,15 @@ export function WebGpu3dTab({
                 <Card className="w-full max-w-2xl" size="sm">
                     <CardHeader className="border-b">
                         <CardTitle className="flex items-center gap-2">
-                            <Box className="h-4 w-4 text-primary" />
-                            WebGPU 3D assets are not ready
+                            {isStackup
+                                ? <Layers3 className="h-4 w-4 text-primary" />
+                                : <Box className="h-4 w-4 text-primary" />}
+                            {isStackup ? "Stackup data is not ready" : "WebGPU 3D assets are not ready"}
                         </CardTitle>
                         <CardDescription>
-                            Schematic and PCB viewing remain available. Generate this revision’s isolated 3D bundle when needed.
+                            {isStackup
+                                ? "Generate this revision’s 3D assets to compile the board stackup, fabrication properties, and design rules."
+                                : "Schematic and PCB viewing remain available. Generate this revision’s isolated 3D bundle when needed."}
                         </CardDescription>
                         <CardAction>
                             <Badge variant="outline">{status?.status || "unavailable"}</Badge>
@@ -406,17 +414,32 @@ export function WebGpu3dTab({
                 key={`${status.sourceRevisionKey}-${status.generator.build}-${readiness?.revision || viewerRevision}`}
                 ref={attachViewer}
                 bundle-url={bundleUrl}
-                project-name={projectId}
-                active={active ? "true" : undefined}
+                workspace={workspace}
+                active={active && !isStackup ? "true" : undefined}
+                style={{
+                    "--prism-shell": "hsl(var(--background))",
+                    "--prism-panel": "hsl(var(--card))",
+                    "--prism-panel-raised": "hsl(var(--muted))",
+                    "--prism-control": "hsl(var(--secondary))",
+                    "--prism-control-hover": "hsl(var(--accent))",
+                    "--prism-foreground": "hsl(var(--foreground))",
+                    "--prism-muted": "hsl(var(--muted-foreground))",
+                    "--prism-border": "hsl(var(--border))",
+                    "--prism-primary": "hsl(var(--primary))",
+                    "--prism-primary-foreground": "hsl(var(--primary-foreground))",
+                } as CSSProperties}
                 className="block h-full min-h-0 w-full"
             />
-            <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
-                <Badge variant="secondary" className="pointer-events-auto gap-1 shadow-sm">
-                    {readinessStage === "semantic-ready"
-                        ? <CheckCircle2 className="h-3 w-3" />
-                        : <Loader2 className="h-3 w-3 animate-spin" />}
-                    {stageLabel}
-                </Badge>
+            <div className={cn(
+                "pointer-events-none absolute flex items-center gap-2",
+                isStackup ? "right-5 top-5" : "left-3 top-3",
+            )}>
+                {readinessStage !== "semantic-ready" && (
+                    <Badge variant="secondary" className="pointer-events-auto gap-1 shadow-sm">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        {stageLabel}
+                    </Badge>
+                )}
                 {canGenerate && (
                     <Button
                         className="pointer-events-auto shadow-sm"

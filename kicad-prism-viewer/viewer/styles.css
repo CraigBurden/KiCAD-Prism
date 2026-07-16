@@ -1,16 +1,20 @@
 :host,
 :root {
   color-scheme: dark;
-  --shell: #09090b;
-  --panel: #09090b;
-  --panel-raised: #18181b;
-  --control: #18181b;
-  --control-hover: #27272a;
-  --foreground: #fafafa;
-  --muted: #a1a1aa;
-  --border: #27272a;
-  --primary: #3b82f6;
-  --surface: #09090b;
+  --shell: var(--prism-shell, #09090b);
+  --panel: var(--prism-panel, #09090b);
+  --panel-raised: var(--prism-panel-raised, #18181b);
+  --control: var(--prism-control, #18181b);
+  --control-hover: var(--prism-control-hover, #27272a);
+  --foreground: var(--prism-foreground, #fafafa);
+  --muted: var(--prism-muted, #a1a1aa);
+  --border: var(--prism-border, #27272a);
+  --primary: var(--prism-primary, #3b82f6);
+  --primary-foreground: var(--prism-primary-foreground, var(--panel));
+  --surface: var(--prism-shell, #09090b);
+  --stackup-via-thru: color-mix(in srgb, var(--primary) 34%, var(--foreground));
+  --stackup-via-blind: var(--primary);
+  --stackup-via-buried: color-mix(in srgb, var(--primary) 58%, var(--muted));
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -827,6 +831,10 @@ input {
   border-bottom: 1px solid var(--border);
 }
 
+.panel-mode-header {
+  padding-top: 1px;
+}
+
 .eyebrow {
   margin: 0 0 5px;
   color: #60a5fa;
@@ -914,12 +922,18 @@ h2 {
   color: var(--foreground);
 }
 
-.mode-toolbar button.active,
+.mode-toolbar button.active {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
 .quick-actions button.active {
   background: var(--control-hover);
   border: 1px solid var(--border);
   color: var(--foreground);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--shell) 60%, transparent);
 }
 
 .layer-presets,
@@ -1230,10 +1244,10 @@ pre {
   position: absolute;
   inset: 0;
   z-index: 2;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--shell);
   color: var(--foreground);
-  padding: 24px 32px;
+  padding: clamp(20px, 3vw, 40px);
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -1247,6 +1261,8 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
 }
 
 .stackup-header-title {
@@ -1256,7 +1272,7 @@ pre {
 }
 
 .stackup-header-title h1 {
-  font-size: 20px;
+  font-size: clamp(22px, 2vw, 30px);
   font-weight: 700;
   margin: 0;
   color: var(--foreground);
@@ -1275,7 +1291,7 @@ pre {
 }
 
 .stackup-summary-card {
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel-raised) 54%, var(--panel));
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 12px 16px;
@@ -1303,7 +1319,8 @@ pre {
   display: grid;
   grid-template-columns: minmax(520px, 1fr) minmax(360px, 44vw);
   gap: 28px;
-  align-items: start;
+  align-items: stretch;
+  flex: 1;
   min-height: 0;
 }
 
@@ -1312,19 +1329,23 @@ pre {
   flex-direction: column;
   gap: 12px;
   align-items: center;
-  justify-content: center;
-  background: var(--panel);
+  justify-content: flex-start;
+  background: color-mix(in srgb, var(--panel-raised) 38%, var(--panel));
   border: 1px solid var(--border);
   border-radius: 6px;
-  min-height: min(640px, calc(100vh - 260px));
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 32px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .stackup-visual-svg {
-  width: 100%;
-  max-width: 760px;
+  width: 96%;
+  max-width: 720px;
   height: auto;
+  flex: none;
   overflow: visible;
 }
 
@@ -1333,11 +1354,79 @@ pre {
   flex-direction: column;
   gap: 18px;
   min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.stackup-via-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.stackup-via-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stackup-via-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--stackup-via-thru);
+}
+
+.stackup-via-legend i[data-via-type="blind"] {
+  background: var(--stackup-via-blind);
+}
+
+.stackup-via-legend i[data-via-type="buried"] {
+  background: var(--stackup-via-buried);
 }
 
 .stackup-svg-layer {
   cursor: pointer;
   transition: opacity 120ms ease, filter 120ms ease;
+}
+
+.stackup-svg-column-headings text {
+  fill: var(--muted);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stackup-layer-dimension,
+.stackup-total-dimension path {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.stackup-total-dimension text {
+  fill: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+
+.stackup-layer-name,
+.stackup-layer-thickness,
+.stackup-layer-metadata {
+  transition: fill 120ms ease, font-weight 120ms ease;
 }
 
 .stackup-svg-layer:hover {
@@ -1349,6 +1438,17 @@ pre {
   stroke: var(--primary);
   stroke-width: 1.5px;
   filter: brightness(1.3);
+}
+
+.stackup-svg-layer.active .stackup-layer-dimension {
+  stroke: var(--primary);
+  stroke-width: 1.5px;
+}
+
+.stackup-svg-layer.active .stackup-layer-name,
+.stackup-svg-layer.active .stackup-layer-thickness {
+  fill: var(--primary);
+  font-weight: 800;
 }
 
 .stackup-tables-container {
@@ -1372,11 +1472,32 @@ pre {
   margin-bottom: 2px;
 }
 
+.stackup-section-heading {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-left: 3px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, var(--panel));
+  color: var(--foreground);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.stackup-section-heading small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .stackup-table-wrapper {
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel-raised) 26%, var(--panel));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   max-height: min(360px, calc(100vh - 420px));
 }
@@ -1414,12 +1535,21 @@ pre {
 }
 
 .stackup-table tr.active td {
-  background: rgba(59, 130, 246, 0.1);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
   color: var(--primary);
 }
 
 .stackup-table tr:hover td {
   background: var(--control-hover);
+}
+
+.stackup-table tbody tr[data-layer-id] {
+  cursor: crosshair;
+}
+
+.stackup-table tbody tr[data-layer-id]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 
 .stackup-badge {
@@ -1457,12 +1587,25 @@ pre {
 }
 
 @media (max-width: 1180px) {
+  #stackup-workspace-view {
+    overflow-y: auto;
+  }
+
   .stackup-workspace-body {
     grid-template-columns: 1fr;
+    flex: none;
   }
 
   .stackup-diagram-card {
     min-height: auto;
+    height: auto;
+    overflow: visible;
+  }
+
+  .stackup-side-panel {
+    height: auto;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .stackup-table-wrapper {
@@ -1471,6 +1614,21 @@ pre {
 }
 
 @media (max-width: 760px) {
+  #stackup-workspace-view {
+    padding: 16px;
+  }
+
+  .stackup-diagram-card {
+    align-items: flex-start;
+    overflow-x: auto;
+  }
+
+  .stackup-visual-svg,
+  .stackup-via-legend {
+    width: 680px;
+    max-width: none;
+  }
+
   .stackup-summary-grid {
     grid-template-columns: 1fr;
   }

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { Cpu, Box, FileText, CircuitBoard, PackageCheck, MessageSquare, MessageSquarePlus } from "lucide-react";
+import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EngineeringBomTable } from "./engineering-bom-table";
 import { SelectionInspector } from "./selection-inspector";
@@ -35,7 +35,7 @@ interface VisualizerProps {
     commit?: string | null;
 }
 
-type VisualizerTab = "sch" | "pcb" | "3d" | "bom" | "assembly";
+type VisualizerTab = "sch" | "pcb" | "3d" | "bom" | "stackup" | "assembly";
 
 const isAbortError = (error: unknown): boolean =>
     error instanceof DOMException && error.name === "AbortError";
@@ -605,7 +605,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     }, [clearGlobalSelection, commit, projectId]);
 
     useEffect(() => {
-        if (activeTab === "3d") setThreeDActivated(true);
+        if (activeTab === "3d" || activeTab === "stackup") setThreeDActivated(true);
     }, [activeTab]);
 
     // Re-apply an active cross-probe when SCH/PCB becomes visible so hatch/net
@@ -991,6 +991,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         { id: "pcb", label: "PCB", icon: CircuitBoard },
         { id: "3d", label: "3D", icon: Box },
         { id: "bom", label: "BOM", icon: FileText },
+        { id: "stackup", label: "Stackup", icon: Layers3 },
         { id: "assembly", label: "Assembly Assistant", icon: PackageCheck },
     ];
 
@@ -1117,12 +1118,13 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     </div>
 
                     {threeDActivated && (
-                        <div aria-hidden={activeTab !== "3d"} className={`absolute inset-0 bg-background transition-opacity duration-200 ${activeTab === "3d" ? "visible z-20 pointer-events-auto opacity-100" : "invisible z-0 pointer-events-none opacity-0"}`}>
+                        <div aria-hidden={activeTab !== "3d" && activeTab !== "stackup"} className={`absolute inset-0 bg-background transition-opacity duration-200 ${activeTab === "3d" || activeTab === "stackup" ? "visible z-20 pointer-events-auto opacity-100" : "invisible z-0 pointer-events-none opacity-0"}`}>
                             <WebGpu3dTab
                                 projectId={projectId}
                                 commit={commit}
                                 user={user}
-                                active={activeTab === "3d"}
+                                active={activeTab === "3d" || activeTab === "stackup"}
+                                workspace={activeTab === "stackup" ? "stackup" : "pcb"}
                                 selection={globalSelection}
                                 onSelection={crossProbeGlobal}
                                 onClearSelection={clearGlobalSelection}

@@ -29,7 +29,7 @@ declare global {
             "prism-semantic-viewer": React.DetailedHTMLProps<
                 React.HTMLAttributes<PrismSemanticViewerElement> & {
                     "bundle-url"?: string;
-                    "project-name"?: string;
+                    workspace?: "pcb" | "stackup";
                     active?: string;
                 },
                 PrismSemanticViewerElement

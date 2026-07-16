@@ -3,13 +3,13 @@ import { mountStandaloneViewer } from "./main.js";
 
 const SUPPORTED_SCHEMA = "prism.visualizer_bundle.a0";
 
-function shellHtml(title) {
-  const escapedTitle = escapeHtml(title || "Semantic Visualizer");
+function shellHtml() {
   return `
     <style>
       ${viewerCss}
       #app { grid-template-columns: minmax(0, 1fr) 376px; }
       #app.panel-collapsed { grid-template-columns: minmax(0, 1fr) 46px; }
+      #app.workspace-stackup { grid-template-columns: minmax(0, 1fr); }
       #selection-card { display: none !important; }
     </style>
     <main id="app">
@@ -28,10 +28,8 @@ function shellHtml(title) {
           <button class="rail-tab" data-tab="view" title="View controls">View</button>
         </nav>
         <div class="panel-drawer">
-          <header>
-            <p id="viewer-kind" class="eyebrow">Prism WebGPU 3D</p>
-            <h1>${escapedTitle}</h1>
-            <p id="status">Booting renderer</p>
+          <header class="panel-mode-header">
+            <div id="mode-switch"></div>
           </header>
           <section class="tab-panel active" data-panel="layers">
             <div class="section-heading"><h2 id="primary-heading">Layers</h2><span id="primary-description">Visibility and compare</span></div>
@@ -114,7 +112,7 @@ async function loadBundle(bundleUrl, timings) {
 
 export class PrismSemanticViewerElement extends HTMLElement {
   static get observedAttributes() {
-    return ["bundle-url"];
+    return ["bundle-url", "workspace"];
   }
 
   constructor() {
@@ -138,8 +136,17 @@ export class PrismSemanticViewerElement extends HTMLElement {
     this.reloadSource = null;
   }
 
-  attributeChangedCallback(_name, oldValue, newValue) {
-    if (this.isConnected && oldValue !== newValue) this.queueReload();
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (!this.isConnected || oldValue === newValue) return;
+    if (name === "workspace") {
+      this.controller?.setWorkspace?.(this.workspace);
+      return;
+    }
+    this.queueReload();
+  }
+
+  get workspace() {
+    return this.getAttribute("workspace") === "stackup" ? "stackup" : "pcb";
   }
 
   queueReload() {
@@ -172,7 +179,7 @@ export class PrismSemanticViewerElement extends HTMLElement {
       const { bundle, topology, semanticGeometry } = await loadBundle(bundleUrl, timings);
       timings.bundle_group_total_ms = performance.now() - bundleStarted;
       if (this.abortController.signal.aborted) return;
-      this.shadowRoot.innerHTML = shellHtml(bundle.project_name || topology?.design?.name || "Semantic Visualizer");
+      this.shadowRoot.innerHTML = shellHtml();
       const mountStarted = performance.now();
       this.controller = await mountStandaloneViewer({
         root: this.shadowRoot,
@@ -197,6 +204,7 @@ export class PrismSemanticViewerElement extends HTMLElement {
           }));
         },
       });
+      this.controller?.setWorkspace?.(this.workspace);
       timings.mount_and_first_frame_ms = performance.now() - mountStarted;
       Object.assign(timings, this.controller?.performance || {});
       // A fresh viewer is already unselected. Avoid a redundant clearSelection()

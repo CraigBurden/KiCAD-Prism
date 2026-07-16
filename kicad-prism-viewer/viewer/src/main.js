@@ -4,6 +4,7 @@ import { loadGltf } from "./gltf-loader.js";
 import { clamp } from "./math.js";
 import { Renderer } from "./renderer.js";
 import { SchematicWorldRenderer } from "./schematic-world-renderer.js";
+import { collectStackupViaData } from "./stackup-vias.js";
 import { SvgDomSchematicRenderer } from "./svg-dom-schematic-renderer.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
@@ -40,6 +41,7 @@ let selectionCardEl;
 let primaryHeadingEl;
 let primaryDescriptionEl;
 let stackupWorkspaceViewEl;
+let modeSwitchEl;
 
 const query = (selector) => viewerRoot.querySelector(selector);
 const queryAll = (selector) => viewerRoot.querySelectorAll(selector);
@@ -52,8 +54,8 @@ function resolveDom(root = document) {
   schematicDomLayer = query("#schematic-dom-layer");
   schematicFlowOverlay = query("#schematic-flow-overlay");
   bomViewEl = query("#bom-view");
-  statusEl = query("#status");
-  viewerKindEl = query("#viewer-kind");
+  statusEl = query("#status") || { set textContent(_value) {} };
+  viewerKindEl = query("#viewer-kind") || { set textContent(_value) {} };
   selectionEl = query("#selection") || { set textContent(v) {} };
   diagnosticsEl = query("#diagnostics") || { set innerHTML(v) {} };
   layersEl = query("#layers");
@@ -67,6 +69,7 @@ function resolveDom(root = document) {
   selectionCardEl = query("#selection-card");
   primaryHeadingEl = query("#primary-heading");
   primaryDescriptionEl = query("#primary-description");
+  modeSwitchEl = query("#mode-switch");
   appEl.classList.add("workspace-pcb");
 }
 
@@ -351,6 +354,10 @@ export async function mountStandaloneViewer(options = {}) {
       if (state.workspace === "pcb" && state.mode === "layer") {
         activatePcbLayerMode();
       }
+    },
+    setWorkspace(workspace) {
+      const nextWorkspace = workspace === "stackup" ? "stackup" : "pcb";
+      if (state.workspace !== nextWorkspace) switchWorkspace(nextWorkspace);
     },
     dispose() {
       disposeViewerSession(token);
@@ -1372,11 +1379,14 @@ function renderControls() {
   primaryDescriptionEl.textContent = "Visibility and compare";
   query('[data-panel="search"] .section-heading span').textContent = "Nets, components and pins";
   query('[data-panel="view"] .section-heading span').textContent = "Camera and stackup";
-  layersEl.innerHTML = `
+  const modeToolbar = `
     <div class="mode-toolbar">
       <button data-mode="layer">PCB</button>
       <button data-mode="3d">3D</button>
-    </div>
+    </div>`;
+  if (modeSwitchEl) modeSwitchEl.innerHTML = modeToolbar;
+  layersEl.innerHTML = `
+    ${modeSwitchEl ? "" : modeToolbar}
     <div class="layer-presets">
       <button data-preset="all">All</button><button data-preset="none">None</button>
       <button data-preset="outer">Outer</button><button data-preset="inner">Inner</button>
@@ -1798,8 +1808,10 @@ function setNetIsolation(enabled) {
 }
 
 function refreshControls() {
-  layersEl.querySelectorAll("[data-mode]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.mode === state.mode);
+  (modeSwitchEl || layersEl).querySelectorAll("[data-mode]").forEach((button) => {
+    const active = button.dataset.mode === state.mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
   viewControlsEl.querySelectorAll("[data-tool]").forEach((button) => {
     button.classList.toggle("active", button.dataset.tool === state.cameraTool);
@@ -1830,7 +1842,7 @@ function refreshControls() {
 }
 
 function bindControlEvents() {
-  layersEl.querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => {
+  (modeSwitchEl || layersEl).querySelectorAll("[data-mode]").forEach((button) => button.addEventListener("click", () => {
     if (button.dataset.mode === "layer") {
       activatePcbLayerMode();
     } else {
@@ -2568,16 +2580,16 @@ function switchWorkspace(workspace) {
   const stackup = workspace === "stackup";
   
   canvas.hidden = schematic || bom || stackup;
-  schematicCanvas.hidden = !schematic;
-  schematicDomLayer.hidden = !schematic || !schematicDomRenderer;
-  schematicFlowOverlay.hidden = !schematic;
-  bomViewEl.hidden = !bom;
+  if (schematicCanvas) schematicCanvas.hidden = !schematic;
+  if (schematicDomLayer) schematicDomLayer.hidden = !schematic || !schematicDomRenderer;
+  if (schematicFlowOverlay) schematicFlowOverlay.hidden = !schematic;
+  if (bomViewEl) bomViewEl.hidden = !bom;
   if (stackupWorkspaceViewEl) {
     stackupWorkspaceViewEl.hidden = !stackup;
   }
   gizmo.hidden = schematic || bom || stackup;
   labelsEl.hidden = schematic || bom || stackup;
-  schematicLabelsEl.hidden = !schematic;
+  if (schematicLabelsEl) schematicLabelsEl.hidden = !schematic;
   
   queryAll("[data-workspace]").forEach((button) => {
     button.classList.toggle("active", button.dataset.workspace === workspace);
@@ -3088,6 +3100,43 @@ function renderStackupWorkspace() {
     if (["1", "true", "yes", "y", "on"].includes(normalized)) return "Yes";
     return "Yes";
   };
+  const layerRoleLabel = (role) => ({
+    copper: "Copper",
+    dielectric: "Dielectric",
+    paste: "Paste",
+    silkscreen: "Silkscreen",
+    soldermask: "Solder mask",
+  })[role] || String(role || "Layer");
+  const dielectricSubtype = (layer) => {
+    if (layer.role !== "dielectric") return "";
+    if (layer.type === "core") return "Core";
+    if (layer.type === "prepreg") return "Prepreg";
+    return (layer.material || "").toLowerCase().includes("prepreg") ? "Prepreg" : "Core";
+  };
+  const layerThicknessLabel = (layer, digits = 4) => {
+    const value = Number(layer.thickness_mm);
+    return Number.isFinite(value) && value > 0 ? `${value.toFixed(digits)} mm` : "Not specified";
+  };
+  const layerGraphicDetails = (layer) => {
+    const role = layerRoleLabel(layer.role);
+    const material = String(layer.material || "").trim();
+    const meaningfulMaterial = material && material.toLowerCase() !== String(layer.role || "").toLowerCase();
+    if (layer.role === "dielectric") {
+      const secondary = [
+        meaningfulMaterial ? material : "",
+        displayMaterialFloat(layer.epsilon_r, 3) !== "-" ? `εr ${displayMaterialFloat(layer.epsilon_r, 3)}` : "",
+        displayMaterialFloat(layer.loss_tangent, 4) !== "-" ? `tan δ ${displayMaterialFloat(layer.loss_tangent, 4)}` : "",
+      ].filter(Boolean).join(" · ");
+      return {
+        primary: `${layer.name} · ${dielectricSubtype(layer)}`,
+        secondary,
+      };
+    }
+    return {
+      primary: [layer.name, role, meaningfulMaterial ? material : ""].filter(Boolean).join(" · "),
+      secondary: "",
+    };
+  };
 
   let signalCount = 0;
   let planeCount = 0;
@@ -3113,59 +3162,19 @@ function renderStackupWorkspace() {
   let blindCount = 0;
   let buriedCount = 0;
 
-  const copperLayerIndexById = new Map(copperLayers.map((layer, index) => [Number(layer.id), index]));
-  const copperLayerById = new Map(copperLayers.map((layer) => [Number(layer.id), layer]));
-  const viaSpans = new Set();
-  const seenViaFeatures = new Set();
-
-  const classifyViaSpan = (featureId, layerIds) => {
-    if (featureId) {
-      if (seenViaFeatures.has(featureId)) return;
-      seenViaFeatures.add(featureId);
-    }
-
-    const copperIds = (layerIds || [])
-      .map((id) => Number(id))
-      .filter((id) => copperLayerIndexById.has(id))
-      .sort((a, b) => copperLayerIndexById.get(a) - copperLayerIndexById.get(b));
-    if (copperIds.length < 2) return;
-
-    const startId = copperIds[0];
-    const endId = copperIds[copperIds.length - 1];
-    const startIdx = copperLayerIndexById.get(startId);
-    const endIdx = copperLayerIndexById.get(endId);
-    if (startIdx === undefined || endIdx === undefined) return;
-
-    if (startIdx === 0 && endIdx === copperLayers.length - 1) {
-      thruCount++;
-    } else if (startIdx === 0 || endIdx === copperLayers.length - 1) {
-      blindCount++;
-    } else {
-      buriedCount++;
-    }
-
-    viaSpans.add(JSON.stringify([
-      copperLayerById.get(startId)?.name,
-      copperLayerById.get(endId)?.name,
-    ]));
-  };
-
-  for (const barrel of scene.manifest?.barrels || []) {
-    if (barrel.kind === "via") {
-      classifyViaSpan(Number(barrel.objectFeatureId || 0), barrel.layerIds || [barrel.startLayerId, barrel.endLayerId]);
-    }
-  }
-
-  scene.features.forEach((feature) => {
-    if (feature.kind === "via") {
-      classifyViaSpan(Number(feature.id || 0), feature.layerIds || []);
-    }
-  });
-
-  const uniqueSpans = Array.from(viaSpans).map(s => JSON.parse(s));
+  const viaRecords = [
+    ...(scene.manifest?.barrels || []).filter((barrel) => barrel.kind === "via"),
+    ...[...scene.features.values()].filter((feature) => feature.kind === "via"),
+  ];
+  const viaData = collectStackupViaData(copperLayers, viaRecords);
+  thruCount = viaData.counts.thru;
+  blindCount = viaData.counts.blind;
+  buriedCount = viaData.counts.buried;
+  const uniqueSpans = viaData.spans;
 
   // --- SVG cross-section diagram ---
-  let svgHeight = 0;
+  const svgTopPadding = 30;
+  let svgHeight = svgTopPadding;
   const svgLayersData = [];
 
   const originalOrder = new Map(physicalLayers.map((layer, index) => [layer, index]));
@@ -3201,9 +3210,11 @@ function renderStackupWorkspace() {
     svgHeight += layerHeight;
   });
 
-  const svgWidth = 560;
-  const boardX = 170;
-  const boardWidth = 170;
+  const svgWidth = 800;
+  const boardX = 130;
+  const boardWidth = 240;
+  const dimensionX = boardX + boardWidth + 16;
+  const labelX = dimensionX + 84;
 
   let svgRectsHtml = "";
   svgLayersData.forEach((layer) => {
@@ -3215,16 +3226,35 @@ function renderStackupWorkspace() {
     else if (layer.role === "silkscreen") color = "#e2e8f0";
 
     const copperIdx = copperLayers.findIndex(cl => cl.name === layer.name);
+    const details = layerGraphicDetails(layer);
+    const centerY = layer.svgY + layer.svgHeight / 2;
+    const showSecondary = Boolean(details.secondary) && layer.svgHeight >= 38;
+    const primaryY = showSecondary ? centerY - 5 : centerY + 3;
+    const layerId = escapeHtml(layer.id);
+    const layerName = escapeHtml(layer.name);
+    const hasThickness = Number.isFinite(Number(layer.thickness_mm)) && Number(layer.thickness_mm) > 0;
+    const thickness = escapeHtml(hasThickness ? layerThicknessLabel(layer) : "—");
+    const fullDescription = escapeHtml([
+      details.primary,
+      details.secondary,
+      `Thickness ${layerThicknessLabel(layer)}`,
+    ].filter(Boolean).join("; "));
 
     svgRectsHtml += `
-      <g class="stackup-svg-layer" data-layer-id="${layer.id}" data-layer-name="${layer.name}">
+      <g class="stackup-svg-layer" data-layer-id="${layerId}" data-layer-name="${layerName}">
+        <title>${fullDescription}</title>
         <rect x="${boardX}" y="${layer.svgY}" width="${boardWidth}" height="${layer.svgHeight}" fill="${color}" opacity="0.85" rx="1"/>
         <text x="${boardX - 8}" y="${layer.svgY + layer.svgHeight / 2 + 3}" fill="var(--muted)" font-size="9px" text-anchor="end" font-weight="700">
           ${layer.role === "copper" ? (copperIdx + 1) : ""}
         </text>
-        <text x="${boardX + boardWidth + 10}" y="${layer.svgY + layer.svgHeight / 2 + 3}" fill="var(--foreground)" font-size="9px">
-          ${layer.name}${layer.thickness_mm ? ` (${layer.thickness_mm.toFixed(3)} mm)` : ""}
+        <path class="stackup-layer-dimension" d="M ${dimensionX + 6} ${layer.svgY + 1} H ${dimensionX} V ${layer.svgY + layer.svgHeight - 1} H ${dimensionX + 6}" />
+        <text class="stackup-layer-thickness" x="${dimensionX + 10}" y="${centerY + 3}" fill="var(--muted)" font-size="8.5px" font-weight="650">
+          ${thickness}
         </text>
+        <text class="stackup-layer-name" x="${labelX}" y="${primaryY}" fill="var(--foreground)" font-size="9px" font-weight="650">
+          ${escapeHtml(details.primary)}
+        </text>
+        ${showSecondary ? `<text class="stackup-layer-metadata" x="${labelX}" y="${centerY + 10}" fill="var(--muted)" font-size="8px">${escapeHtml(details.secondary)}</text>` : ""}
       </g>
     `;
   });
@@ -3234,22 +3264,19 @@ function renderStackupWorkspace() {
   const copperSvgLayers = svgLayersData.filter(l => l.role === "copper");
 
   uniqueSpans.forEach((span, spanIdx) => {
-    const topL = svgLayersData.find(l => l.name === span[0]);
-    const botL = svgLayersData.find(l => l.name === span[1]);
+    const topL = svgLayersData.find(l => l.name === span.startName);
+    const botL = svgLayersData.find(l => l.name === span.endName);
     if (!topL || !botL) return;
 
     const yStart = topL.svgY;
     const yEnd = botL.svgY + botL.svgHeight;
-    const xPos = boardX + 25 + (spanIdx * 22);
-
-    const startIdx = copperLayers.findIndex(l => l.name === span[0]);
-    const endIdx = copperLayers.findIndex(l => l.name === span[1]);
-    const isThru = startIdx === 0 && endIdx === copperLayers.length - 1;
-    const isBlind = !isThru && (startIdx === 0 || endIdx === copperLayers.length - 1);
-    const viaColor = isThru ? "#d97706" : isBlind ? "#0ea5e9" : "#a855f7";
+    const xPos = boardX + ((spanIdx + 1) * boardWidth) / (uniqueSpans.length + 1);
+    const viaLabel = span.type === "thru" ? "Thru" : span.type === "blind" ? "Blind" : "Buried";
+    const viaColor = `var(--stackup-via-${span.type})`;
 
     svgViasHtml += `
-      <g class="stackup-svg-via" title="${isThru ? "Thru" : isBlind ? "Blind" : "Buried"}: ${span[0]} → ${span[1]}">
+      <g class="stackup-svg-via" data-via-type="${span.type}">
+        <title>${viaLabel}: ${span.startName} → ${span.endName}</title>
         ${copperSvgLayers.map(cl => {
           if (cl.svgY >= topL.svgY && cl.svgY <= botL.svgY) {
             return `<rect x="${xPos - 5}" y="${cl.svgY}" width="10" height="${cl.svgHeight}" fill="${viaColor}" rx="0.5" />`;
@@ -3264,9 +3291,22 @@ function renderStackupWorkspace() {
 
   const svgMarkup = `
     <svg class="stackup-visual-svg" viewBox="0 0 ${svgWidth} ${svgHeight + 10}" width="${svgWidth}" height="${svgHeight + 10}">
+      <g class="stackup-svg-column-headings" aria-hidden="true">
+        <text x="${dimensionX + 10}" y="15">Thickness</text>
+        <text x="${labelX}" y="15">Layer / material properties</text>
+      </g>
+      <g class="stackup-total-dimension" aria-label="Total board thickness ${totalThickness.toFixed(4)} millimetres">
+        <path d="M 76 ${svgTopPadding} H 68 V ${svgHeight} H 76" />
+        <text x="68" y="15">Total ${totalThickness.toFixed(4)} mm</text>
+      </g>
       ${svgRectsHtml}
       ${svgViasHtml}
     </svg>
+    <div class="stackup-via-legend" aria-label="Via span legend">
+      <span><i data-via-type="thru"></i>Thru</span>
+      <span><i data-via-type="blind"></i>Blind</span>
+      <span><i data-via-type="buried"></i>Buried</span>
+    </div>
   `;
 
   // --- Layers table ---
@@ -3278,16 +3318,17 @@ function renderStackupWorkspace() {
     else if (layer.role === "paste") badgeClass = "paste";
     else if (layer.role === "soldermask") badgeClass = "mask";
 
-    const dielectricType = layer.role === "dielectric"
-      ? (layer.type === "core" ? "Core" : layer.type === "prepreg" ? "Prepreg" : (layer.material || "").toLowerCase().includes("prepreg") ? "Prepreg" : "Core")
-      : "";
+    const dielectricType = dielectricSubtype(layer);
+    const layerId = escapeHtml(layer.id);
+    const layerName = escapeHtml(layer.name);
+    const graphicDetails = layerGraphicDetails(layer);
 
     tableRowsHtml += `
-      <tr data-layer-id="${layer.id}" data-layer-name="${layer.name}">
-        <td><strong>${layer.name}</strong></td>
+      <tr data-layer-id="${layerId}" data-layer-name="${layerName}" tabindex="0" aria-label="${escapeHtml(`${graphicDetails.primary}; thickness ${layerThicknessLabel(layer)}`)}">
+        <td><strong>${layerName}</strong></td>
         <td><span class="stackup-badge ${badgeClass}">${layer.role}</span></td>
         <td>${dielectricType || "-"}</td>
-        <td>${layer.material || "-"}</td>
+        <td>${escapeHtml(layer.material || "-")}</td>
         <td>${layer.role === "dielectric" ? displayMaterialFloat(layer.epsilon_r, 3) : "-"}</td>
         <td>${layer.role === "dielectric" ? displayMaterialFloat(layer.loss_tangent, 4) : "-"}</td>
         <td>${layer.thickness_mm ? layer.thickness_mm.toFixed(4) + " mm" : "-"}</td>
@@ -3298,17 +3339,21 @@ function renderStackupWorkspace() {
   // --- Impedance net classes table ---
   let impedanceRowsHtml = "";
   const netClasses = topology.board?.net_classes || [];
+  const displayRuleMm = (value) => {
+    const formatted = displayMm(value);
+    return formatted === "-" ? formatted : `${formatted} mm`;
+  };
 
   if (netClasses.length) {
     netClasses.forEach((nc) => {
       impedanceRowsHtml += `
         <tr>
           <td><strong>${nc.name}</strong></td>
-          <td>${displayMm(nc.track_width)}</td>
-          <td>${displayMm(nc.clearance)}</td>
-          <td>${displayMm(nc.diff_pair_width)}</td>
-          <td>${displayMm(nc.diff_pair_gap)}</td>
-          <td>${Number.isFinite(Number(nc.via_diameter)) ? `${displayMm(nc.via_drill)}/${displayMm(nc.via_diameter)}` : "-"}</td>
+          <td>${displayRuleMm(nc.track_width)}</td>
+          <td>${displayRuleMm(nc.clearance)}</td>
+          <td>${displayRuleMm(nc.diff_pair_width)}</td>
+          <td>${displayRuleMm(nc.diff_pair_gap)}</td>
+          <td>${Number.isFinite(Number(nc.via_diameter)) ? `${displayMm(nc.via_drill)}/${displayMm(nc.via_diameter)} mm` : "-"}</td>
         </tr>
       `;
     });
@@ -3361,7 +3406,7 @@ function renderStackupWorkspace() {
           <span>${buriedCount}</span>
         </div>
       </div>
-      <span class="stackup-section-title">Fabrication</span>
+      <span class="stackup-section-title stackup-section-heading">Fabrication</span>
       <div class="stackup-summary-grid">
         <div class="stackup-summary-card">
           <label>Copper Finish</label>
@@ -3382,7 +3427,10 @@ function renderStackupWorkspace() {
       </div>
       <div class="stackup-tables-container">
         <div class="stackup-table-section">
-          <span class="stackup-section-title">Layers Stackup</span>
+          <div class="stackup-section-title stackup-section-heading">
+            <span>Layers Stackup</span>
+            <small>Hover or focus a row to locate it</small>
+          </div>
           <div class="stackup-table-wrapper">
             <table class="stackup-table">
               <thead>
@@ -3404,7 +3452,7 @@ function renderStackupWorkspace() {
         </div>
 
         <div class="stackup-table-section">
-          <span class="stackup-section-title">Impedance Net Classes</span>
+          <span class="stackup-section-title stackup-section-heading">Impedance Net Classes</span>
           <div class="stackup-table-wrapper">
             <table class="stackup-table">
               <thead>
@@ -3429,32 +3477,48 @@ function renderStackupWorkspace() {
   `;
 
   // --- Hover highlight syncing ---
-  const syncLayerSelection = (layerName, isActive) => {
+  const syncLayerSelection = (layerId, isActive) => {
     stackupWorkspaceViewEl.querySelectorAll(".stackup-svg-layer").forEach((el) => {
-      const match = el.dataset.layerName === layerName;
+      const match = el.dataset.layerId === layerId;
       el.classList.toggle("active", match && isActive);
     });
-    stackupWorkspaceViewEl.querySelectorAll(".stackup-table tbody tr").forEach((el) => {
-      const match = el.dataset.layerName === layerName;
+    stackupWorkspaceViewEl.querySelectorAll(".stackup-table tbody tr[data-layer-id]").forEach((el) => {
+      const match = el.dataset.layerId === layerId;
       el.classList.toggle("active", match && isActive);
     });
   };
 
-  const addLayerListeners = (elements) => {
-    elements.forEach((el) => {
-      el.addEventListener("mouseenter", () => {
-        const layerName = el.dataset.layerName;
-        syncLayerSelection(layerName, true);
-      });
+  const revealLayerInDiagram = (layerId) => {
+    const diagram = stackupWorkspaceViewEl.querySelector(".stackup-diagram-card");
+    const target = stackupWorkspaceViewEl.querySelector(`.stackup-svg-layer[data-layer-id="${CSS.escape(layerId)}"]`);
+    if (!diagram || !target || diagram.scrollHeight <= diagram.clientHeight) return;
+    const diagramRect = diagram.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const targetTop = diagram.scrollTop + targetRect.top - diagramRect.top - (diagram.clientHeight - targetRect.height) / 2;
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    diagram.scrollTo({ top: Math.max(0, targetTop), behavior: reducedMotion ? "auto" : "smooth" });
+  };
 
-      el.addEventListener("mouseleave", () => {
-        syncLayerSelection(null, false);
-      });
+  const addLayerListeners = (elements, { revealDiagram = false } = {}) => {
+    elements.forEach((el) => {
+      const activate = () => {
+        const layerId = el.dataset.layerId;
+        syncLayerSelection(layerId, true);
+        if (revealDiagram) revealLayerInDiagram(layerId);
+      };
+      const deactivate = () => syncLayerSelection(null, false);
+
+      el.addEventListener("mouseenter", activate);
+      el.addEventListener("mouseleave", deactivate);
+      if (revealDiagram) {
+        el.addEventListener("focus", activate);
+        el.addEventListener("blur", deactivate);
+      }
     });
   };
 
   addLayerListeners(stackupWorkspaceViewEl.querySelectorAll(".stackup-svg-layer"));
-  addLayerListeners(stackupWorkspaceViewEl.querySelectorAll(".stackup-table tbody tr"));
+  addLayerListeners(stackupWorkspaceViewEl.querySelectorAll(".stackup-table tbody tr[data-layer-id]"), { revealDiagram: true });
 }
 
 function fallbackStackupDisplayOrder(layers) {
