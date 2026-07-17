@@ -44,6 +44,11 @@ from pipeline.topology_compiler.kicad_cli_export import (
     _board_context_export_args,
     _component_nodes,
 )
+from pipeline.topology_compiler.copper_geometry import (
+    copper_emit_enabled,
+    extract_pcb_metadata_from_copper,
+    is_copper_geometry_document,
+)
 from pipeline.topology_compiler.semantic_gltf import (
     SemanticGltfBuilder,
     _native_backend_for_semantic_mode,
@@ -513,6 +518,60 @@ class TopologyCompilerTests(unittest.TestCase):
 
         self.assertEqual(calls, {"ir": 1, "payload": 1, "artifacts": 1})
 
+    def test_copper_board_compilation_never_hydrates_full_pcb(self) -> None:
+        document = SimpleNamespace(
+            schema="kicad.copper_geometry.a0",
+            bounds_nm=(0, 0, 10_000_000, 8_000_000),
+            layers=(SimpleNamespace(index=0, name="F.Cu"), SimpleNamespace(index=1, name="B.Cu")),
+            nets=(SimpleNamespace(index=0, name="VBUS"),),
+            features=(
+                SimpleNamespace(
+                    kind="pad",
+                    source_uid="pad-1",
+                    net_index=0,
+                    layer_indexes=(0, 1),
+                    outer_nm=((0, 0), (1_000_000, 0), (1_000_000, 1_000_000), (0, 1_000_000)),
+                    holes_nm=(),
+                    footprint_uid="fp-1",
+                    component_ref="U1",
+                    pad_number="1",
+                ),
+            ),
+            drills=(),
+            stats={"tracks": 2, "track_arcs": 0, "vias": 1, "pads": 1, "zone_fills": 0},
+        )
+
+        class ExplodingDesign:
+            pcb_path = Path("unit.kicad_pcb")
+
+            @property
+            def pcb(self):
+                raise AssertionError("full KiCadPcb hydration must not run on copper path")
+
+        context = PrismCompilationContext(Path("unit.kicad_pro"))
+        context._design = ExplodingDesign()
+
+        with patch.dict(os.environ, {"PRISM_COPPER_EMIT_ENABLED": "1"}):
+            self.assertTrue(copper_emit_enabled())
+            with patch(
+                "pipeline.topology_compiler.context.copper_emit_available",
+                return_value=True,
+            ), patch(
+                "pipeline.topology_compiler.context.emit_copper_geometry",
+                return_value=document,
+            ), patch(
+                "pipeline.topology_compiler.context.extract_pcb_metadata_from_copper",
+                wraps=extract_pcb_metadata_from_copper,
+            ) as metadata_spy:
+                compilation = context.board_compilation
+
+        self.assertIs(compilation.copper_geometry, document)
+        self.assertIsNone(compilation.pcb_ir)
+        self.assertEqual(compilation.metadata["mode"], "copper")
+        self.assertEqual(compilation.metadata["bbox_mm"], [0.0, 0.0, 10.0, 8.0])
+        self.assertEqual(compilation.metadata["components"][0]["designator"], "U1")
+        metadata_spy.assert_called_once()
+
     def test_artifact_manifest_is_deterministic_and_removes_stale_native(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -593,6 +652,56 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(barrel["netId"], 1)
         self.assertGreater(barrel["startZMm"], barrel["endZMm"])
         self.assertGreater(barrel["outerWidthMm"], barrel["drillWidthMm"])
+
+    def test_copper_emit_via_uses_topology_layers_and_shared_feature(self) -> None:
+        builder = SemanticGltfBuilder(self.semantic_topology())
+        document = SimpleNamespace(
+            schema="kicad.copper_geometry.a0",
+            layers=(
+                SimpleNamespace(index=0, name="F.Cu"),
+                SimpleNamespace(index=1, name="In1.Cu"),
+                SimpleNamespace(index=2, name="B.Cu"),
+            ),
+            nets=(SimpleNamespace(index=0, name="VBUS"),),
+            features=(
+                SimpleNamespace(
+                    source_uid="via-emit-1",
+                    kind="via",
+                    net_index=0,
+                    layer_indexes=(0, 1, 2),
+                    outer_nm=(
+                        (9_700_000, 20_000_000),
+                        (10_000_000, 19_700_000),
+                        (10_300_000, 20_000_000),
+                        (10_000_000, 20_300_000),
+                    ),
+                    holes_nm=(),
+                ),
+            ),
+            drills=(
+                SimpleNamespace(
+                    source_uid="via-emit-1",
+                    kind="via",
+                    center_nm=(10_000_000, 20_000_000),
+                    width_nm=300_000,
+                    height_nm=300_000,
+                    plated=True,
+                    layer_indexes=(0, 1, 2),
+                ),
+            ),
+        )
+
+        self.assertTrue(is_copper_geometry_document(document))
+        builder.add_copper_geometry(document)
+
+        self.assertEqual(len(builder.objects), 3)
+        self.assertEqual(len(builder.barrels), 1)
+        self.assertEqual(len(builder.object_features), 2)
+        feature_id = builder.object_features[1]["id"]
+        self.assertTrue(all(item["objectFeatureId"] == feature_id for item in builder.objects))
+        self.assertEqual(builder.barrels[0]["objectFeatureId"], feature_id)
+        self.assertEqual(builder.barrels[0]["layerMask"], 0b111)
+        self.assertEqual(builder.barrels[0]["netId"], 1)
 
     def test_plated_pad_barrel_uses_pad_feature_and_layer_mask(self) -> None:
         builder = SemanticGltfBuilder(self.semantic_topology())

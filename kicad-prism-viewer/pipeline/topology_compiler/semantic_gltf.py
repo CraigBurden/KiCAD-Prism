@@ -12,6 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable
 
+from .copper_geometry import ingest_copper_geometry, is_copper_geometry_document
 from .glb_inspect import mesh_axis_range
 from .native_clipper import NativeClipperError, build_native_clip_response
 from .prism_clipper2 import PrismClipper2Library, prism_clipper2_library_info
@@ -213,7 +214,8 @@ class SemanticGltfBuilder:
             return
         net_id = self.net_id_by_name.get(net_name, 0)
         layer_id = int(layer["id"])
-        feature_id = feature_id or self._feature_id(source_uid, net_id, layer_id, kind)
+        if feature_id is None:
+            feature_id = self._feature_id(source_uid, net_id, layer_id, kind)
         self.source_polygon_record_id += 1
         source_polygon_record_id = self.source_polygon_record_id
         z_mm = self._runtime_z_mm(float(layer.get("z_mm") or 0.0))
@@ -280,6 +282,10 @@ class SemanticGltfBuilder:
                 self._add_via(record)
             elif kind == "footprint":
                 self._add_pads(record, pad_holes)
+
+    def add_copper_geometry(self, document: Any) -> None:
+        """Add renderer-ready polygons emitted by kicad-monkey."""
+        ingest_copper_geometry(self, document)
 
     def add_component_nodes(self, nodes: list[dict[str, Any]]) -> None:
         self.component_nodes = {
@@ -592,7 +598,7 @@ class SemanticGltfBuilder:
 def build_semantic_gltf_scene(
     topology: dict[str, Any],
     semantic_geometry: dict[str, Any],
-    pcb_ir: Any,
+    geometry_source: Any,
     output_dir: Path,
     *,
     pad_holes: dict[str, dict[str, Any]] | None = None,
@@ -613,29 +619,40 @@ def build_semantic_gltf_scene(
     if profile_callback:
         profile_callback("builder_init", {"elapsed_ms": (time.perf_counter() - started) * 1000.0})
     started = time.perf_counter()
-    pcb_payload = pcb_ir.to_dict() if hasattr(pcb_ir, "to_dict") else pcb_ir
+    is_copper_geometry = is_copper_geometry_document(geometry_source)
+    if is_copper_geometry:
+        if progress:
+            progress(
+                "semantic GLTF collect copper emit "
+                f"features={len(geometry_source.features)} drills={len(geometry_source.drills)}"
+            )
+        builder.add_copper_geometry(geometry_source)
+        profile_stage = "add_copper_geometry"
+    else:
+        pcb_payload = geometry_source.to_dict() if hasattr(geometry_source, "to_dict") else geometry_source
+        if profile_callback:
+            records = pcb_payload.get("records", []) if isinstance(pcb_payload, dict) else []
+            by_kind: dict[str, int] = {}
+            for record in records:
+                kind = str(record.get("kind") or "")
+                by_kind[kind] = by_kind.get(kind, 0) + 1
+            profile_callback(
+                "pcb_ir_to_dict",
+                {
+                    "elapsed_ms": (time.perf_counter() - started) * 1000.0,
+                    "records": len(records),
+                    "records_by_kind": by_kind,
+                },
+            )
+        if progress:
+            records = pcb_payload.get("records", []) if isinstance(pcb_payload, dict) else []
+            progress(f"semantic GLTF collect PCB IR records={len(records)}")
+        started = time.perf_counter()
+        builder.add_pcb_ir(pcb_payload, pad_holes=pad_holes)
+        profile_stage = "add_pcb_ir"
     if profile_callback:
-        records = pcb_payload.get("records", []) if isinstance(pcb_payload, dict) else []
-        by_kind: dict[str, int] = {}
-        for record in records:
-            kind = str(record.get("kind") or "")
-            by_kind[kind] = by_kind.get(kind, 0) + 1
         profile_callback(
-            "pcb_ir_to_dict",
-            {
-                "elapsed_ms": (time.perf_counter() - started) * 1000.0,
-                "records": len(records),
-                "records_by_kind": by_kind,
-            },
-        )
-    if progress:
-        records = pcb_payload.get("records", []) if isinstance(pcb_payload, dict) else []
-        progress(f"semantic GLTF collect PCB IR records={len(records)}")
-    started = time.perf_counter()
-    builder.add_pcb_ir(pcb_payload, pad_holes=pad_holes)
-    if profile_callback:
-        profile_callback(
-            "add_pcb_ir",
+            profile_stage,
             {
                 "elapsed_ms": (time.perf_counter() - started) * 1000.0,
                 "objects": len(builder.objects),

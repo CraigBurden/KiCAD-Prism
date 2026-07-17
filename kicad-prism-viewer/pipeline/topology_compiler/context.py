@@ -5,13 +5,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from .copper_geometry import (
+    copper_emit_available,
+    copper_emit_enabled,
+    emit_copper_geometry,
+    extract_pcb_metadata_from_copper,
+)
 from .pcb_extract import compile_pcb_artifacts
 from .vendor_paths import ensure_reference_paths
 
 
 @dataclass(frozen=True)
 class BoardCompilation:
-    pcb_ir: dict[str, Any]
+    pcb_ir: dict[str, Any] | None
+    copper_geometry: Any | None
     metadata: dict[str, Any]
     pad_holes: dict[str, dict[str, Any]]
 
@@ -62,6 +69,13 @@ class PrismCompilationContext:
         return self._design
 
     @property
+    def pcb_path(self) -> Path:
+        design_path = getattr(self.design, "pcb_path", None)
+        if design_path:
+            return Path(design_path)
+        return self.project_file.with_suffix(".kicad_pcb")
+
+    @property
     def pcb(self):
         return self.design.pcb
 
@@ -103,6 +117,11 @@ class PrismCompilationContext:
         return self.board_compilation.pcb_ir
 
     @property
+    def semantic_geometry_source(self):
+        compilation = self.board_compilation
+        return compilation.copper_geometry or compilation.pcb_ir
+
+    @property
     def pad_holes(self) -> dict[str, Any]:
         return self.board_compilation.pad_holes
 
@@ -110,40 +129,74 @@ class PrismCompilationContext:
     def pcb_metadata(self) -> dict[str, Any]:
         return self.board_compilation.metadata
 
+    def _compile_copper_board(self) -> BoardCompilation:
+        # Resolve the board path from the design sidecar only. Accessing
+        # ``self.pcb`` would hydrate a full KiCadPcb and erase the copper-path win.
+        pcb_file = self.pcb_path
+        copper_geometry = self._timed(
+            "copper_emit_ms",
+            "emit renderer-ready PCB copper geometry",
+            lambda: emit_copper_geometry(pcb_file),
+        )
+        metadata = self._timed(
+            "pcb_metadata_copper_ms",
+            "derive PCB topology indexes from copper geometry",
+            lambda: extract_pcb_metadata_from_copper(
+                self.project_file,
+                copper_geometry,
+                profile_callback=self._board_compilation_profile,
+            ),
+        )
+        self.timings.setdefault("copper_emit_ms", 0.0)
+        self.timings.setdefault("pcb_metadata_copper_ms", 0.0)
+        return BoardCompilation(
+            pcb_ir=None,
+            copper_geometry=copper_geometry,
+            metadata=metadata,
+            pad_holes={},
+        )
+
+    def _compile_ir_board(self) -> BoardCompilation:
+        ir_document = self._timed(
+            "pcb_ir_ms",
+            "compile PCB IR",
+            self.design.to_pcb_ir,
+        )
+        ir_payload = self._timed(
+            "pcb_ir_to_dict_ms",
+            "materialize PCB IR payload",
+            ir_document.to_dict,
+        )
+        metadata, pad_holes = self._timed(
+            "pcb_metadata_unified_ms",
+            "derive PCB topology indexes from IR",
+            lambda: compile_pcb_artifacts(
+                self.pcb,
+                self.project_file,
+                ir_payload,
+                profile_callback=self._board_compilation_profile,
+            ),
+        )
+        return BoardCompilation(
+            pcb_ir=ir_payload,
+            copper_geometry=None,
+            metadata=metadata,
+            pad_holes=pad_holes,
+        )
+
     @property
     def board_compilation(self) -> BoardCompilation:
         if self._board_compilation is None:
-            def compile_board() -> BoardCompilation:
-                ir_document = self._timed(
-                    "pcb_ir_ms",
-                    "compile PCB IR",
-                    self.design.to_pcb_ir,
+            use_copper = copper_emit_enabled() and copper_emit_available()
+            if copper_emit_enabled() and not use_copper:
+                self._log(
+                    "PRISM_COPPER_EMIT_ENABLED set but emit_pcb_copper_geometry "
+                    "is unavailable; falling back to Plotter IR"
                 )
-                ir_payload = self._timed(
-                    "pcb_ir_to_dict_ms",
-                    "materialize PCB IR payload",
-                    ir_document.to_dict,
-                )
-                metadata, pad_holes = self._timed(
-                    "pcb_metadata_unified_ms",
-                    "derive PCB topology indexes from IR",
-                    lambda: compile_pcb_artifacts(
-                        self.pcb,
-                        self.project_file,
-                        ir_payload,
-                        profile_callback=self._board_compilation_profile,
-                    ),
-                )
-                return BoardCompilation(
-                    pcb_ir=ir_payload,
-                    metadata=metadata,
-                    pad_holes=pad_holes,
-                )
-
             self._board_compilation = self._timed(
                 "board_compilation_ms",
                 "compile unified PCB artifacts",
-                compile_board,
+                self._compile_copper_board if use_copper else self._compile_ir_board,
             )
         return self._board_compilation
 

@@ -1,5 +1,6 @@
 import datetime
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -29,6 +30,8 @@ def _compute_build_fingerprint() -> str:
         inputs = [
             "pipeline/topology_compiler/__main__.py",
             "pipeline/topology_compiler/compiler.py",
+            "pipeline/topology_compiler/context.py",
+            "pipeline/topology_compiler/copper_geometry.py",
             "pipeline/topology_compiler/pcb_extract.py",
             "pipeline/topology_compiler/semantic_gltf.py",
             "pipeline/topology_compiler/kicad_cli_export.py",
@@ -43,10 +46,17 @@ def _compute_build_fingerprint() -> str:
         ]
         hasher = hashlib.sha256()
         hasher.update(base.encode("utf-8"))
+        hasher.update(os.environ.get("PRISM_COPPER_EMIT_ENABLED", "").encode("utf-8"))
+        hasher.update(os.environ.get("PRISM_KICAD_MONKEY_SOURCE", "").encode("utf-8"))
         for rel_path in inputs:
             path = viewer_root / rel_path
             if path.is_file():
                 hasher.update(path.read_bytes())
+        monkey_spec = importlib.util.find_spec("kicad_monkey")
+        if monkey_spec and monkey_spec.origin:
+            copper_module = Path(monkey_spec.origin).parent / "kicad_copper_geometry.py"
+            if copper_module.is_file():
+                hasher.update(copper_module.read_bytes())
         return f"{base}_{hasher.hexdigest()[:8]}"
     except Exception:
         return base

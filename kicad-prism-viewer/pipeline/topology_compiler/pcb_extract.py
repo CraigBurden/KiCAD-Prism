@@ -369,12 +369,14 @@ def _stackup_layers_from_pcb_file(pcb_file: Path) -> list[dict[str, Any]]:
     except Exception:
         return []
     try:
-        root = parse_sexp(pcb_file.read_text(encoding="utf-8"))
+        text = pcb_file.read_text(encoding="utf-8")
+        stackup_text = _extract_named_form(text, "stackup")
+        if not stackup_text:
+            return []
+        stackup = parse_sexp(stackup_text)
     except Exception:
         return []
-    setup = _sexp_child(root, "setup")
-    stackup = _sexp_child(setup, "stackup") if setup else None
-    if not stackup:
+    if not _sexp_is(stackup, "stackup"):
         return []
     layers: list[dict[str, Any]] = []
     for item in stackup:

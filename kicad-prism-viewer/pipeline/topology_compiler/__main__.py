@@ -30,6 +30,8 @@ REQUIRED_FROM_PROJECT_TIMINGS = (
     "pcb_ir_ms",
     "pcb_ir_to_dict_ms",
     "pcb_metadata_unified_ms",
+    "copper_emit_ms",
+    "pcb_metadata_copper_ms",
     "board_compilation_ms",
     "bom_design_reuse_ms",
     "bom_assembly_ms",
@@ -120,7 +122,8 @@ def _resolve_semantic_tile_size(requested: str, pcb_metadata: dict) -> float:
         if size <= 0:
             raise ValueError("semantic tile size must be positive")
         return size
-    bbox = pcb_metadata.get("bbox_mm") or []
+    board = pcb_metadata.get("board") if isinstance(pcb_metadata.get("board"), dict) else {}
+    bbox = pcb_metadata.get("bbox_mm") or board.get("bbox_mm") or []
     if len(bbox) == 4:
         board_span = max(float(bbox[2]) - float(bbox[0]), float(bbox[3]) - float(bbox[1]))
         for size in (20.0, 40.0, 80.0, 160.0):
@@ -136,7 +139,7 @@ def cmd_from_project(args: argparse.Namespace) -> None:
     project_file = args.project
     _progress(f"from-project input={project_file} output={args.output}")
     _progress("START parallel KiCad GLB export lane")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as export_pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as export_pool:
         export_future = export_pool.submit(
             export_project_geometry_assets,
             project_file,
@@ -153,7 +156,10 @@ def cmd_from_project(args: argparse.Namespace) -> None:
         )
         try:
             design = context.design
+            # Overlap copper emit / board compilation with topology JSON work.
+            board_future = export_pool.submit(lambda: context.board_compilation)
             design_payload = context.design_payload_for_topology
+            board_future.result()
             pcb_metadata = context.pcb_metadata
         except Exception as exc:
             print(f"error: kicad_monkey failed to compile {project_file}: {exc}", file=sys.stderr)
@@ -187,7 +193,7 @@ def cmd_from_project(args: argparse.Namespace) -> None:
                 semantic_geometry["semantic_gltf"] = build_semantic_gltf_scene(
                     topology,
                     semantic_geometry,
-                    context.pcb_ir,
+                    context.semantic_geometry_source,
                     args.output,
                     pad_holes=context.pad_holes,
                     force_rebuild=args.force_rebuild,
@@ -255,6 +261,8 @@ def _stage_metric_key(label: str) -> str | None:
         "compile design JSON and indexes": "design_json_ms",
         "compile topology design JSON": "design_json_topology_ms",
         "compile schematic-world design JSON": "design_json_svg_ms",
+        "emit renderer-ready PCB copper geometry": "copper_emit_ms",
+        "derive PCB topology indexes from copper geometry": "pcb_metadata_copper_ms",
         "compile PCB IR": "pcb_ir_ms",
         "materialize PCB IR payload": "pcb_ir_to_dict_ms",
         "derive PCB topology indexes from IR": "pcb_metadata_unified_ms",
