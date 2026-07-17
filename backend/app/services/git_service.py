@@ -1,9 +1,13 @@
+import logging
 import os
+import re
 from fastapi import HTTPException
 from git import Repo
 from git.exc import BadName, GitCommandError
 from typing import Dict, Any
 import datetime
+
+logger = logging.getLogger(__name__)
 
 
 def _open_repo(repo_path: str) -> Repo:
@@ -56,11 +60,69 @@ def _get_commits(repo_path: str, limit: int, relative_path: str = None, ref: str
         iter_kwargs["paths"] = relative_path
 
     try:
-        return [_serialize_commit(commit) for commit in repo.iter_commits(**iter_kwargs)]
+        commits = [_serialize_commit(commit) for commit in repo.iter_commits(**iter_kwargs)]
     except HTTPException:
         raise
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
+
+    # Cheap enrichment: per-commit counts of which kinds of KiCad files were
+    # touched (without running a full diff per commit). One `git log` call
+    # covers the whole page. Best-effort — never blocks the commits list.
+    try:
+        flags_by_hash = _kicad_change_flags(repo, [c["full_hash"] for c in commits], relative_path)
+        for c in commits:
+            c["kicad_changes"] = flags_by_hash.get(
+                c["full_hash"], {"sch": 0, "pcb": 0, "pro": 0, "other": 0}
+            )
+    except Exception:
+        for c in commits:
+            c.setdefault("kicad_changes", {"sch": 0, "pcb": 0, "pro": 0, "other": 0})
+
+    return commits
+
+
+def _kicad_change_flags(
+    repo: Repo, full_hashes: list[str], relative_path: str | None
+) -> dict[str, dict[str, int]]:
+    """
+    Return {full_hash: {sch, pcb, pro, other}} where each value is the count of
+    files of that kind changed in the commit (vs its first parent).
+
+    Uses a single `git log --name-only` call that walks the requested commits.
+    """
+    if not full_hashes:
+        return {}
+
+    args = [
+        "log",
+        "--no-renames",
+        "--name-only",
+        "--format=PRISMHASH:%H",
+        "--no-walk",
+    ] + full_hashes
+    if relative_path:
+        args.extend(["--", relative_path])
+
+    raw = repo.git.execute(["git", *args])
+    out: dict[str, dict[str, int]] = {}
+    current = None
+    for line in raw.splitlines():
+        if line.startswith("PRISMHASH:"):
+            current = line[len("PRISMHASH:") :]
+            out[current] = {"sch": 0, "pcb": 0, "pro": 0, "other": 0}
+            continue
+        if not current or not line.strip():
+            continue
+        if line.endswith(".kicad_sch"):
+            out[current]["sch"] += 1
+        elif line.endswith(".kicad_pcb"):
+            out[current]["pcb"] += 1
+        elif line.endswith(".kicad_pro"):
+            out[current]["pro"] += 1
+        else:
+            out[current]["other"] += 1
+    return out
 
 
 def get_commits_list_filtered(repo_path: str, relative_path: str = None, limit: int = 50, ref: str = None):
@@ -114,6 +176,7 @@ def _get_releases(repo_path: str, relative_path: str = None, ref: str = None):
             release = {
                 "tag": tag.name,
                 "commit_hash": commit.hexsha[:7],
+                "full_hash": commit.hexsha,
                 "date": datetime.datetime.fromtimestamp(commit.committed_date).isoformat(),
                 "message": commit.message.strip(),
             }
@@ -327,6 +390,148 @@ def file_exists_in_commit(repo_path: str, commit_hash: str, file_path: str) -> b
             return False
     except:
         return False
+
+
+# --- Lightweight per-file "semantic bucket" counts -------------------------
+#
+# This is intentionally NOT a real item-level diff (no per-item identity, no
+# click-to-navigate). It's a cheap regex-based approximation — comparing raw
+# s-expression token counts between the two file revisions — good enough for
+# an at-a-glance summary in the commit list. Full semantic diffing (with
+# per-item identity, added/removed/changed lists) belongs to the future
+# Design Comparison workspace.
+_SCH_BUCKET_TOKENS: dict[str, list[str]] = {
+    "components": ["symbol"],
+    "nets": ["wire", "bus", "label", "global_label", "hierarchical_label", "junction", "no_connect"],
+    "sheets": ["sheet"],
+    "text": ["text"],
+}
+
+_PCB_BUCKET_TOKENS: dict[str, list[str]] = {
+    "components": ["footprint"],
+    "nets": ["segment", "via"],
+    "zones": ["zone"],
+    "graphics": ["gr_line", "gr_circle", "gr_rect", "gr_arc", "gr_poly", "gr_text"],
+}
+
+_sexp_token_re_cache: dict[str, "re.Pattern[str]"] = {}
+
+
+def _count_sexp_token(content: str, token: str) -> int:
+    pattern = _sexp_token_re_cache.get(token)
+    if pattern is None:
+        pattern = re.compile(r"\(" + re.escape(token) + r"[\s)]")
+        _sexp_token_re_cache[token] = pattern
+    return len(pattern.findall(content))
+
+
+def _semantic_bucket_delta(
+    old_content: str | None, new_content: str | None, tokens: dict[str, list[str]]
+) -> dict[str, dict[str, int]]:
+    """
+    Approximate added/removed counts per category by comparing token counts
+    between the two revisions. `old_content`/`new_content` may be None (e.g.
+    for added/removed files) and are treated as empty.
+    """
+    old_content = old_content or ""
+    new_content = new_content or ""
+    buckets: dict[str, dict[str, int]] = {}
+    for category, token_list in tokens.items():
+        old_count = sum(_count_sexp_token(old_content, t) for t in token_list)
+        new_count = sum(_count_sexp_token(new_content, t) for t in token_list)
+        if old_count == 0 and new_count == 0:
+            continue
+        delta = new_count - old_count
+        buckets[category] = {"added": max(delta, 0), "removed": max(-delta, 0)}
+    return buckets
+
+
+def _bucket_tokens_for_filename(filename: str) -> dict[str, list[str]] | None:
+    if filename.endswith(".kicad_sch"):
+        return _SCH_BUCKET_TOKENS
+    if filename.endswith(".kicad_pcb"):
+        return _PCB_BUCKET_TOKENS
+    return None
+
+
+def _read_blob_text(blob) -> str | None:
+    if blob is None:
+        return None
+    try:
+        if not (blob.mime_type or "").startswith("text") or blob.size > 500_000:
+            return None
+        return blob.data_stream.read().decode("utf-8", errors="replace")
+    except Exception as error:
+        logger.debug("Could not read blob text: %s", error)
+        return None
+
+
+def get_commit_file_summary(
+    repo_path: str, commit_hash: str, relative_path: str = None
+) -> list[dict[str, Any]]:
+    """
+    Return the list of files changed in a commit vs its parent.
+    Each entry: { path, filename, status, additions, deletions, semantic_buckets? }
+    Optionally filtered to files under relative_path (Type-2 projects).
+    """
+    try:
+        repo = _open_repo(repo_path)
+        commit = repo.commit(commit_hash)
+        parent = commit.parents[0] if commit.parents else None
+
+        diffs = parent.diff(commit) if parent else commit.diff(None)
+
+        result = []
+        for d in diffs:
+            path = d.b_path or d.a_path
+            if relative_path and not path.startswith(relative_path):
+                continue
+            if d.change_type == "A":
+                status = "added"
+            elif d.change_type == "D":
+                status = "removed"
+            elif d.change_type == "R":
+                status = "renamed"
+            else:
+                status = "modified"
+
+            old_text = _read_blob_text(d.a_blob)
+            new_text = _read_blob_text(d.b_blob)
+
+            additions, deletions = None, None
+            if old_text is not None and new_text is not None:
+                old_lines = set(old_text.splitlines())
+                new_lines = set(new_text.splitlines())
+                additions = len(new_lines - old_lines)
+                deletions = len(old_lines - new_lines)
+            elif new_text is not None:
+                additions = len(new_text.splitlines())
+            elif old_text is not None:
+                deletions = len(old_text.splitlines())
+
+            filename = path.split("/")[-1]
+            entry: dict[str, Any] = {
+                "path": path,
+                "filename": filename,
+                "status": status,
+                "additions": additions,
+                "deletions": deletions,
+            }
+
+            tokens = _bucket_tokens_for_filename(filename)
+            if tokens is not None and status in ("added", "removed", "modified"):
+                buckets = _semantic_bucket_delta(old_text, new_text, tokens)
+                if buckets:
+                    entry["semantic_buckets"] = buckets
+
+            result.append(entry)
+
+        result.sort(key=lambda x: x["path"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
 
 
 def sync_with_remote(repo_path: str) -> Dict[str, Any]:

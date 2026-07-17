@@ -184,6 +184,8 @@ export interface ECadViewerElement extends HTMLElement {
     setActive(active: boolean): void;
     clearSelection(): void;
     setCommentMode?(enabled: boolean): void;
+    /** Dim native item colours so overlay-scene primitives read clearly. No-op if unsupported. */
+    setColorMode?(mode: "normal" | "monochrome"): void;
     setOverlayScene(channelId: string, scene: EcadOverlayScene): void;
     clearOverlayScene(channelId: string): void;
     zoomToLocation(x: number, y: number): void;

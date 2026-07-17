@@ -64,6 +64,7 @@ export interface Comment {
     commentClass: CommentClass;
     severity: CommentSeverity;
     mentions: string[];
+    metadata?: Record<string, unknown>;
     /** Reserved for future GitHub/GitLab Issues sync */
     forgeProvider?: string;
     forgeIssueId?: string;
@@ -92,6 +93,7 @@ export interface CreateCommentRequest {
     commentClass?: CommentClass;
     severity?: CommentSeverity;
     mentions?: string[];
+    metadata?: Record<string, unknown>;
 }
 
 export interface CreateReplyRequest {

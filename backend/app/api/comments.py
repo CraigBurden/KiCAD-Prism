@@ -48,6 +48,7 @@ class CreateCommentRequest(BaseModel):
     commentClass: Optional[str] = DEFAULT_COMMENT_CLASS
     severity: Optional[str] = DEFAULT_COMMENT_SEVERITY
     mentions: Optional[List[str]] = None
+    metadata: Optional[dict] = None
 
 
 class CreateReplyRequest(BaseModel):
@@ -212,6 +213,7 @@ async def create_comment(
         comment_class=_normalize_comment_class(request.commentClass),
         severity=_normalize_severity(request.severity),
         mentions=request.mentions,
+        metadata=request.metadata,
     )
 
 

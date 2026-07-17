@@ -29,6 +29,7 @@ from app.services.comments_url_service import build_comments_source_urls, resolv
 from app.services.git_service import (
     get_branches,
     get_commit_distance,
+    get_commit_file_summary,
     get_commits_list,
     get_commits_list_filtered,
     get_releases,
@@ -1211,6 +1212,23 @@ async def get_project_commits(
         commits = get_commits_list(project.path, limit, ref)
     
     return {"commits": commits}
+
+
+@router.get("/{project_id}/commits/{commit_hash}/summary")
+async def get_project_commit_summary(
+    project_id: str,
+    commit_hash: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """
+    Return files changed in a commit vs its parent, with status, line stats,
+    and (for .kicad_sch/.kicad_pcb) lightweight semantic bucket counts.
+    For Type-2 projects, the file list is scoped to the subproject path.
+    """
+    project = get_project_for_role_or_404(project_id, user.role)
+    repo_path, relative_path = _repo_context(project)
+    files = await asyncio.to_thread(get_commit_file_summary, repo_path, commit_hash, relative_path)
+    return {"files": files}
 
 
 @router.get("/{project_id}/schematic")

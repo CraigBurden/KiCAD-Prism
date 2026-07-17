@@ -144,6 +144,14 @@ def _row_to_comment_dict(row, replies: List[Dict]) -> Dict:
         comment["elementRef"] = element_ref
     if element_type:
         comment["elementType"] = element_type
+    metadata = row.get("metadata")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except Exception:
+            metadata = None
+    if isinstance(metadata, dict) and metadata:
+        comment["metadata"] = metadata
 
     # Forge projection fields (nullable today; reserved for future Issues sync).
     forge_provider = row.get("forge_provider")
@@ -234,6 +242,7 @@ class CommentsStoreService:
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS comment_class TEXT NOT NULL DEFAULT 'general'",
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'info'",
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]'::jsonb",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
                     # Reserved for future GitHub/GitLab Issues projection (unused today).
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_provider TEXT",
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_id TEXT",
@@ -430,7 +439,7 @@ class CommentsStoreService:
                    location_x, location_y, location_layer, location_page, content,
                    area_x, area_y, area_w, area_h,
                    element_id, element_ref, element_type,
-                   comment_class, severity, mentions,
+                   comment_class, severity, mentions, metadata,
                    forge_provider, forge_issue_id, forge_issue_url, forge_sync_state
             FROM comments
             WHERE project_id = %s
@@ -478,7 +487,7 @@ class CommentsStoreService:
                    location_x, location_y, location_layer, location_page, content,
                    area_x, area_y, area_w, area_h,
                    element_id, element_ref, element_type,
-                   comment_class, severity, mentions,
+                   comment_class, severity, mentions, metadata,
                    forge_provider, forge_issue_id, forge_issue_url, forge_sync_state
             FROM comments
             WHERE project_id = %s AND id = %s
@@ -530,6 +539,7 @@ class CommentsStoreService:
         comment_class: Optional[str] = None,
         severity: Optional[str] = None,
         mentions: Optional[List[str]] = None,
+        metadata: Optional[Dict] = None,
     ) -> Dict:
         self.initialize()
         context_norm = context.upper()
@@ -540,6 +550,7 @@ class CommentsStoreService:
         mentions_norm = _normalize_mentions(mentions)
         if not mentions_norm:
             mentions_norm = _mentions_from_content(content)
+        metadata_norm = metadata if isinstance(metadata, dict) else {}
 
         with self._connect() as conn:
             with conn.transaction():
@@ -553,9 +564,9 @@ class CommentsStoreService:
                         location_x, location_y, location_layer, location_page, content,
                         area_x, area_y, area_w, area_h,
                         element_id, element_ref, element_type,
-                        comment_class, severity, mentions
+                        comment_class, severity, mentions, metadata
                     )
-                    VALUES(%s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    VALUES(%s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
                     """,
                     (
                         comment_id,
@@ -578,6 +589,7 @@ class CommentsStoreService:
                         class_norm,
                         severity_norm,
                         json.dumps(mentions_norm),
+                        json.dumps(metadata_norm),
                     ),
                 )
 
