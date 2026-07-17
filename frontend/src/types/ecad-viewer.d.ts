@@ -107,7 +107,7 @@ export type EcadOverlayAnchor =
 
 export interface EcadOverlayPrimitive {
     id: string;
-    kind: "marker" | "bbox" | "polyline" | "polygon" | "text";
+    kind: "marker" | "bbox" | "polyline" | "polygon" | "text" | "arc" | "circle";
     anchor: EcadOverlayAnchor;
     sizing?: "world" | "screen";
     stroke?: string;
@@ -115,6 +115,10 @@ export interface EcadOverlayPrimitive {
     opacity?: number;
     strokeWidth?: number;
     dash?: number[];
+    hatch?: { spacing?: number; angleDeg?: number; width?: number };
+    outline?: { color?: string; width?: number };
+    lineCap?: "butt" | "round" | "square";
+    hitPadding?: number;
     interactive?: boolean;
     metadata?: unknown;
     accessibilityLabel?: string;
@@ -124,6 +128,14 @@ export interface EcadOverlayPrimitive {
     text?: string;
     size?: number;
     glyph?: "circle" | "comment";
+    /** Arc: center relative to anchor (with radius + angles). */
+    center?: [number, number];
+    startAngleDeg?: number;
+    endAngleDeg?: number;
+    /** Arc three-point form (relative to anchor). */
+    start?: [number, number];
+    mid?: [number, number];
+    end?: [number, number];
 }
 
 export interface EcadOverlayScene {
@@ -131,6 +143,8 @@ export interface EcadOverlayScene {
     placement: "underlay" | "content-overlay" | "foreground";
     visible: boolean;
     primitives: EcadOverlayPrimitive[];
+    /** When set, paint/hit only while the active SCH sheet matches. */
+    page?: string;
 }
 
 export interface EcadOverlayHitDetail {
