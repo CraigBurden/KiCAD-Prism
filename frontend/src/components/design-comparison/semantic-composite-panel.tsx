@@ -13,14 +13,15 @@ import type {
     ECadViewerElement,
     EcadMeasurementDetail,
     EcadOverlayPrimitive,
+    EcadOverlayScene,
     EcadPcbLayerState,
+    EcadReviewPreparationState,
     EcadReviewItemRule,
     EcadReviewPresentation,
 } from "@/types/ecad-viewer";
 import type {
     ChangeItem,
     GeometryEntry,
-    GeometrySnapshot,
 } from "./types";
 
 type Domain = "schematic" | "pcb";
@@ -31,15 +32,26 @@ interface SemanticCompositePanelProps {
     domain: Domain;
     base: string;
     compare: string;
-    geometry: { base: GeometrySnapshot; head: GeometrySnapshot };
-    selectedChanges: ChangeItem[];
+    allChanges: ChangeItem[];
+    reviewGroups: Array<{ id: string; changes: ChangeItem[] }>;
+    selection: { kind: "item" | "group"; id: string } | null;
     visibleChanges: ChangeItem[];
-    selectedPage: string | null;
     initialVisibleLayers: string[];
     onVisibleLayersChange: (layers: string[]) => void;
 }
 
 const REVIEW_CHANNEL = "semantic-review-selection";
+
+function ecadPerfEnabled(): boolean {
+    try {
+        return (
+            localStorage.getItem("ecadPerfLog") === "1"
+            || new URLSearchParams(location.search).get("ecadPerfLog") === "1"
+        );
+    } catch {
+        return false;
+    }
+}
 
 const isAbortError = (error: unknown): boolean =>
     error instanceof DOMException && error.name === "AbortError";
@@ -351,14 +363,114 @@ function entryPrimitive(
     return null;
 }
 
+export type ReviewFocusTarget = {
+    page?: string;
+    compareSourceIds: string[];
+    baseSourceIds: string[];
+    bounds?: [number, number, number, number];
+    baseOverlay: EcadOverlayPrimitive[];
+};
+
+function unionBounds(
+    bounds: Array<[number, number, number, number]>,
+): [number, number, number, number] | undefined {
+    if (!bounds.length) return undefined;
+    const minX = Math.min(...bounds.map((item) => item[0]));
+    const minY = Math.min(...bounds.map((item) => item[1]));
+    const maxX = Math.max(...bounds.map((item) => item[0] + item[2]));
+    const maxY = Math.max(...bounds.map((item) => item[1] + item[3]));
+    return [minX, minY, maxX - minX, maxY - minY];
+}
+
+function buildReviewFocusTarget(
+    changes: ChangeItem[],
+    removedColor: string,
+): ReviewFocusTarget {
+    const page = changes.find((change) => change.page)?.page ?? undefined;
+    const activeChanges = page
+        ? changes.filter((change) => !change.page || change.page === page)
+        : changes;
+    const compareSourceIds = activeChanges
+        .map((change) => sourceId(change, "compare"))
+        .filter((id): id is string => Boolean(id));
+    const baseSourceIds = activeChanges
+        .map((change) => sourceId(change, "base"))
+        .filter((id): id is string => Boolean(id));
+    const bounds = unionBounds(
+        activeChanges.flatMap((change) => [
+            ...(change.geometry?.bounds ? [change.geometry.bounds] : []),
+            ...(change.oldGeometry?.bounds ? [change.oldGeometry.bounds] : []),
+        ]),
+    );
+    const baseOverlay = activeChanges
+        .map((change) => {
+            const entry = change.oldGeometry ?? change.geometry;
+            return entry
+                ? entryPrimitive(
+                    `selected-${change.id}`,
+                    entry,
+                    removedColor,
+                )
+                : null;
+        })
+        .filter(
+            (primitive): primitive is EcadOverlayPrimitive =>
+                primitive !== null,
+        );
+    return {
+        page: page ?? undefined,
+        compareSourceIds,
+        baseSourceIds,
+        bounds,
+        baseOverlay,
+    };
+}
+
+export function buildReviewFocusManifest(
+    allChanges: ChangeItem[],
+    reviewGroups: Array<{ id: string; changes: ChangeItem[] }>,
+    removedColor: string,
+): Map<string, ReviewFocusTarget> {
+    const startedAt = performance.now();
+    const targets = new Map<string, ReviewFocusTarget>();
+    for (const change of allChanges) {
+        targets.set(
+            `item:${change.id}`,
+            buildReviewFocusTarget([change], removedColor),
+        );
+    }
+    for (const group of reviewGroups) {
+        targets.set(
+            `group:${group.id}`,
+            buildReviewFocusTarget(group.changes, removedColor),
+        );
+    }
+    if (ecadPerfEnabled()) {
+        console.info(
+            "[ecad-perf] review focus manifest",
+            JSON.stringify({
+                durationMs: performance.now() - startedAt,
+                items: allChanges.length,
+                groups: reviewGroups.length,
+                overlayPrimitives: Array.from(targets.values()).reduce(
+                    (total, target) => total + target.baseOverlay.length,
+                    0,
+                ),
+            }),
+        );
+    }
+    return targets;
+}
+
 export function SemanticCompositePanel({
     projectId,
     domain,
     base,
     compare,
-    selectedChanges,
+    allChanges,
+    reviewGroups,
+    selection,
     visibleChanges,
-    selectedPage,
     initialVisibleLayers,
     onVisibleLayersChange,
 }: SemanticCompositePanelProps) {
@@ -371,6 +483,15 @@ export function SemanticCompositePanel({
     const [measurement, setMeasurement] = useState<EcadMeasurementDetail | null>(null);
     const [showLayers, setShowLayers] = useState(false);
     const [pcbLayers, setPcbLayers] = useState<EcadPcbLayerState[]>([]);
+    const [preparation, setPreparation] =
+        useState<EcadReviewPreparationState>({
+            prepared: 0,
+            total: 0,
+            bytes: 0,
+            status: "idle",
+        });
+    const [framePending, setFramePending] = useState(false);
+    const reviewRequestRef = useRef("");
     const baseSources = useEcadSources(projectId, domain, base);
     const compareSources = useEcadSources(projectId, domain, compare);
     const initialLayerSelection = initialVisibleLayers.join(",");
@@ -380,22 +501,70 @@ export function SemanticCompositePanel({
         () => reviewPresentations(domain, visibleChanges, palette),
         [domain, visibleChanges, palette],
     );
+    const reviewManifest = useMemo(
+        () =>
+            buildReviewFocusManifest(
+                allChanges,
+                reviewGroups,
+                palette.removed,
+            ),
+        [allChanges, reviewGroups, palette.removed],
+    );
+    const selectedTarget = selection
+        ? reviewManifest.get(`${selection.kind}:${selection.id}`) ?? null
+        : null;
+    const changedPages = useMemo(
+        () =>
+            domain === "schematic"
+                ? Array.from(
+                    new Set(
+                        allChanges
+                            .map((change) => change.page)
+                            .filter((page): page is string => Boolean(page)),
+                    ),
+                )
+                : [],
+        [allChanges, domain],
+    );
 
     useEffect(() => {
         if (!compareViewer || compareReadyRevision !== compareRevisionKey) return;
         let cancelled = false;
+        const handleProgress = (event: Event) => {
+            if (!cancelled) {
+                setPreparation(
+                    (
+                        event as CustomEvent<EcadReviewPreparationState>
+                    ).detail,
+                );
+            }
+        };
+        compareViewer.addEventListener(
+            "ecad-viewer:review-prepare-progress",
+            handleProgress as EventListener,
+        );
         void (async () => {
             await compareViewer.ready;
-            if (!cancelled) await compareViewer.setReviewPresentation(presentations.compare);
+            if (!cancelled) {
+                await compareViewer.prepareReviewPages({
+                    revisionKey: compareRevisionKey,
+                    pages: changedPages,
+                    presentation: presentations.compare,
+                });
+            }
         })();
         return () => {
             cancelled = true;
-            void compareViewer.clearReviewPresentation();
+            compareViewer.removeEventListener(
+                "ecad-viewer:review-prepare-progress",
+                handleProgress as EventListener,
+            );
         };
     }, [
         compareViewer,
         compareReadyRevision,
         compareRevisionKey,
+        changedPages,
         presentations.compare,
     ]);
 
@@ -404,13 +573,24 @@ export function SemanticCompositePanel({
         let cancelled = false;
         void (async () => {
             await baseViewer.ready;
-            if (!cancelled) await baseViewer.setReviewPresentation(presentations.base);
+            if (!cancelled) {
+                await baseViewer.prepareReviewPages({
+                    revisionKey: baseRevisionKey,
+                    pages: changedPages,
+                    presentation: presentations.base,
+                });
+            }
         })();
         return () => {
             cancelled = true;
-            void baseViewer.clearReviewPresentation();
         };
-    }, [baseViewer, baseReadyRevision, baseRevisionKey, presentations.base]);
+    }, [
+        baseViewer,
+        baseReadyRevision,
+        baseRevisionKey,
+        changedPages,
+        presentations.base,
+    ]);
 
     useEffect(() => {
         if (
@@ -479,143 +659,93 @@ export function SemanticCompositePanel({
 
     useEffect(() => {
         if (
-            !selectedPage
-            || domain !== "schematic"
+            !baseViewer
+            || !compareViewer
             || compareReadyRevision !== compareRevisionKey
             || baseReadyRevision !== baseRevisionKey
         ) return;
-        void compareViewer?.showPage?.(selectedPage);
-        void baseViewer?.showPage?.(selectedPage);
-    }, [
-        selectedPage,
-        domain,
-        baseViewer,
-        compareViewer,
-        baseReadyRevision,
-        compareReadyRevision,
-        baseRevisionKey,
-        compareRevisionKey,
-    ]);
 
-    useEffect(() => {
-        const primitives = selectedChanges
-            .map((change) => {
-                const entry = change.oldGeometry ?? change.geometry;
-                return entry ? entryPrimitive(`selected-${change.id}`, entry, palette.removed) : null;
-            })
-            .filter((primitive): primitive is EcadOverlayPrimitive => primitive !== null);
-        baseViewer?.setOverlayScene(REVIEW_CHANNEL, {
-            context: domain === "schematic" ? "SCH" : "PCB",
+        const requestId = `review-${performance.now()}-${
+            selection?.kind ?? "none"
+        }:${selection?.id ?? "none"}`;
+        reviewRequestRef.current = requestId;
+        setFramePending(Boolean(selectedTarget));
+        const context = domain === "schematic" ? "SCH" : "PCB";
+        const overlay: EcadOverlayScene & { channelId: string } = {
+            channelId: REVIEW_CHANNEL,
+            context,
             placement: "foreground",
             visible: true,
-            primitives,
-            page: domain === "schematic" ? selectedPage ?? undefined : undefined,
-        });
-        return () => baseViewer?.clearOverlayScene(REVIEW_CHANNEL);
-    }, [baseViewer, domain, selectedChanges, selectedPage, palette.removed]);
-
-    useEffect(() => {
-        const change = selectedChanges.find((candidate) => (
-            sourceId(candidate, "compare")
-            || sourceId(candidate, "base")
-            || candidate.geometry?.bounds
-            || candidate.oldGeometry?.bounds
-        ));
-        if (!change) return;
-        if (
-            compareReadyRevision !== compareRevisionKey
-            || baseReadyRevision !== baseRevisionKey
-        ) return;
-        let cancelled = false;
-        void (async () => {
-            if (domain === "schematic" && selectedPage) {
-                await Promise.all([
-                    compareViewer?.showPage?.(selectedPage),
-                    baseViewer?.showPage?.(selectedPage),
-                ]);
-                if (cancelled) return;
-            }
-            if (selectedChanges.length === 1) {
-                const selected = selectedChanges[0]!;
-                const compareId = sourceId(selected, "compare");
-                if (compareId && compareViewer?.focusItem) {
-                    await compareViewer.ready;
-                    if (!cancelled) {
-                        await compareViewer.focusItem(compareId, {
-                            select: false,
-                            pad: 28,
-                        });
-                        return;
-                    }
-                }
-                const baseId = sourceId(selected, "base");
-                if (baseId && baseViewer?.focusItem) {
-                    await baseViewer.ready;
-                    if (!cancelled) {
-                        await baseViewer.focusItem(baseId, {
-                            select: false,
-                            pad: 28,
-                        });
-                        if (baseViewer.camera && compareViewer) {
-                            compareViewer.camera = baseViewer.camera;
-                        }
-                        return;
-                    }
-                }
-            }
-            const compareBounds = selectedChanges
-                .map((candidate) => candidate.geometry?.bounds)
-                .filter((bounds): bounds is [number, number, number, number] => Boolean(bounds));
-            const baseBounds = selectedChanges
-                .map((candidate) => candidate.oldGeometry?.bounds)
-                .filter((bounds): bounds is [number, number, number, number] => Boolean(bounds));
-            const union = (
-                bounds: Array<[number, number, number, number]>,
-            ): [number, number, number, number] | null => {
-                if (!bounds.length) return null;
-                const minX = Math.min(...bounds.map((item) => item[0]));
-                const minY = Math.min(...bounds.map((item) => item[1]));
-                const maxX = Math.max(...bounds.map((item) => item[0] + item[2]));
-                const maxY = Math.max(...bounds.map((item) => item[1] + item[3]));
-                return [minX, minY, maxX - minX, maxY - minY];
-            };
-            const compareUnion = union(compareBounds);
-            if (compareUnion && compareViewer?.focusBBox) {
-                await compareViewer.ready;
-                if (!cancelled) {
-                    await compareViewer.focusBBox(...compareUnion);
-                    return;
-                }
-            }
-            const baseUnion = union(baseBounds);
-            if (baseUnion && baseViewer?.focusBBox) {
-                await baseViewer.ready;
-                if (!cancelled) {
-                    await baseViewer.focusBBox(...baseUnion);
-                    if (baseViewer.camera && compareViewer) compareViewer.camera = baseViewer.camera;
-                    return;
-                }
-            }
-            const compareId = sourceId(change, "compare");
-            if (compareId && compareViewer?.focusItem) {
-                await compareViewer.ready;
-                if (!cancelled) await compareViewer.focusItem(compareId, { select: false, pad: 28 });
-                return;
-            }
-            const baseId = sourceId(change, "base");
-            if (baseId && baseViewer?.focusItem) {
-                await baseViewer.ready;
-                if (!cancelled) {
-                    await baseViewer.focusItem(baseId, { select: false, pad: 28 });
-                    if (baseViewer.camera && compareViewer) compareViewer.camera = baseViewer.camera;
-                }
-            }
-        })();
-        return () => {
-            cancelled = true;
+            primitives: selectedTarget?.baseOverlay ?? [],
+            page:
+                domain === "schematic"
+                    ? selectedTarget?.page
+                    : undefined,
         };
+        const focus = selectedTarget
+            ? {
+                bounds: selectedTarget.bounds,
+                padding: 28,
+            }
+            : undefined;
+
+        performance.mark(`${requestId}:start`);
+        void Promise.all([
+            compareViewer.setReviewFrame({
+                requestId: `${requestId}:compare`,
+                page:
+                    domain === "schematic"
+                        ? selectedTarget?.page
+                        : undefined,
+                focus: focus
+                    ? {
+                        ...focus,
+                        sourceIds: selectedTarget?.compareSourceIds,
+                    }
+                    : undefined,
+            }),
+            baseViewer.setReviewFrame({
+                requestId: `${requestId}:base`,
+                page:
+                    domain === "schematic"
+                        ? selectedTarget?.page
+                        : undefined,
+                focus: focus
+                    ? {
+                        ...focus,
+                        sourceIds: selectedTarget?.baseSourceIds,
+                    }
+                    : undefined,
+                overlay,
+            }),
+        ])
+            .then(() => {
+                performance.mark(`${requestId}:end`);
+                const measure = performance.measure(
+                    "prism-semantic-review-selection",
+                    `${requestId}:start`,
+                    `${requestId}:end`,
+                );
+                if (ecadPerfEnabled()) {
+                    console.info(
+                        "[ecad-perf] prism review selection",
+                        JSON.stringify({
+                            requestId,
+                            durationMs: measure.duration,
+                            selection,
+                        }),
+                    );
+                }
+            })
+            .catch(() => undefined)
+            .finally(() => {
+                performance.clearMarks(`${requestId}:start`);
+                performance.clearMarks(`${requestId}:end`);
+                if (reviewRequestRef.current === requestId) {
+                    setFramePending(false);
+                }
+            });
     }, [
-        selectedChanges,
         baseViewer,
         compareViewer,
         baseReadyRevision,
@@ -623,7 +753,8 @@ export function SemanticCompositePanel({
         baseRevisionKey,
         compareRevisionKey,
         domain,
-        selectedPage,
+        selectedTarget,
+        selection,
     ]);
 
     useEffect(() => {
@@ -800,6 +931,18 @@ export function SemanticCompositePanel({
                             />
                         </div>
                     </>
+                )}
+
+                {domain === "schematic"
+                    && (framePending || preparation.status === "preparing") && (
+                    <div
+                        className="absolute bottom-3 left-3 z-20 rounded-md border bg-background/95 px-3 py-1.5 text-xs text-muted-foreground shadow-sm"
+                        role="status"
+                    >
+                        {framePending
+                            ? "Opening review focus…"
+                            : `Preparing changed sheets ${preparation.prepared}/${preparation.total}`}
+                    </div>
                 )}
 
                 {showLayers && domain === "pcb" && pcbLayers.length > 0 && (

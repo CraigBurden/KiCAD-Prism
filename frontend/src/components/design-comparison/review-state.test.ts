@@ -4,7 +4,10 @@ import {
     groupChanges,
     readInitialUrlState,
 } from "./design-comparison-workspace";
-import { reviewPresentations } from "./semantic-composite-panel";
+import {
+    buildReviewFocusManifest,
+    reviewPresentations,
+} from "./semantic-composite-panel";
 import type { ChangeItem, BomDiff } from "./types";
 import type { Comment } from "@/types/comments";
 
@@ -69,6 +72,45 @@ describe("semantic comparison state", () => {
         });
         expect(presentations.compare.rules?.[0]?.style.tint).toBe("green");
         expect(presentations.base.rules?.[0]?.style.tint).toBe("red");
+    });
+
+    it("precomputes distinct item and group review frames", () => {
+        const first = {
+            ...change("first", "changed", "uuid-1"),
+            domain: "schematic" as const,
+            page: "/root/processor.kicad_sch",
+            geometry: {
+                kind: "symbol" as const,
+                source_id: "uuid-1",
+                page: "/root/processor.kicad_sch",
+                bounds: [10, 10, 2, 2] as [number, number, number, number],
+            },
+        };
+        const second = {
+            ...change("second", "changed", "uuid-2"),
+            domain: "schematic" as const,
+            page: "/root/processor.kicad_sch",
+            geometry: {
+                kind: "wire" as const,
+                source_id: "uuid-2",
+                page: "/root/processor.kicad_sch",
+                bounds: [20, 20, 4, 1] as [number, number, number, number],
+            },
+        };
+        const manifest = buildReviewFocusManifest(
+            [first, second],
+            [{ id: "processor-group", changes: [first, second] }],
+            "red",
+        );
+
+        expect(manifest.get("item:first")?.compareSourceIds).toEqual([
+            "uuid-1",
+        ]);
+        expect(manifest.get("item:first")?.bounds).toEqual([10, 10, 2, 2]);
+        expect(manifest.get("group:processor-group")?.compareSourceIds)
+            .toEqual(["uuid-1", "uuid-2"]);
+        expect(manifest.get("group:processor-group")?.bounds)
+            .toEqual([10, 10, 14, 11]);
     });
 });
 

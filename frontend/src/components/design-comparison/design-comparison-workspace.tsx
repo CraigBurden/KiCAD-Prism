@@ -147,6 +147,7 @@ function DifferencesPane({
     onShowSecondaryChange,
     selectedChangeId,
     onSelectChange,
+    onSelectGroup,
     onPrevious,
     onNext,
     routeMetrics,
@@ -160,6 +161,7 @@ function DifferencesPane({
     onShowSecondaryChange: (value: boolean) => void;
     selectedChangeId: string | null;
     onSelectChange: (change: ChangeItem) => void;
+    onSelectGroup: (group: ChangeGroup) => void;
     onPrevious: () => void;
     onNext: () => void;
     routeMetrics?: { base?: RouteMetrics; compare?: RouteMetrics } | null;
@@ -270,7 +272,7 @@ function DifferencesPane({
                                                             ? "border-primary bg-accent text-accent-foreground"
                                                             : "border-transparent",
                                                     )}
-                                                    onClick={() => onSelectChange(group.changes[0]!)}
+                                                    onClick={() => onSelectGroup(group)}
                                                 >
                                                     {expanded
                                                         ? <ChevronDown className="h-3 w-3 shrink-0" />
@@ -385,7 +387,13 @@ export function DesignComparisonWorkspace({
     const [selectedChangeId, setSelectedChangeId] = useState<string | null>(
         initial.selectedChangeId,
     );
-    const [selectedPage, setSelectedPage] = useState<string | null>(null);
+    const [reviewSelection, setReviewSelection] = useState<
+        { kind: "item" | "group"; id: string } | null
+    >(
+        initial.selectedChangeId
+            ? { kind: "item", id: initial.selectedChangeId }
+            : null,
+    );
     const [visibleLayers, setVisibleLayers] = useState<string[]>(initial.layers);
     const [comments, setComments] = useState<Comment[]>([]);
     const [showDiscussion, setShowDiscussion] = useState(
@@ -536,12 +544,6 @@ export function DesignComparisonWorkspace({
         () => domainChanges.find((change) => change.id === selectedChangeId) ?? null,
         [domainChanges, selectedChangeId],
     );
-    const selectedGroupChanges = useMemo(
-        () => groups.find((group) =>
-            group.changes.some((change) => change.id === selectedChangeId)
-        )?.changes ?? (selectedChange ? [selectedChange] : []),
-        [groups, selectedChange, selectedChangeId],
-    );
     const selectedGroup = useMemo(
         () => groups.find((group) =>
             group.changes.some((change) => change.id === selectedChangeId)
@@ -565,7 +567,19 @@ export function DesignComparisonWorkspace({
             net: change.net,
         };
         setSelectedChangeId(change.id);
-        setSelectedPage(change.page ?? null);
+        setReviewSelection({ kind: "item", id: change.id });
+    };
+
+    const selectGroup = (group: ChangeGroup) => {
+        const change = group.changes[0];
+        if (!change) return;
+        semanticFocusRef.current = {
+            semanticId: change.semantic_id,
+            reference: change.reference,
+            net: change.net,
+        };
+        setSelectedChangeId(change.id);
+        setReviewSelection({ kind: "group", id: group.id });
     };
 
     useEffect(() => {
@@ -580,7 +594,20 @@ export function DesignComparisonWorkspace({
                 reference: current.reference,
                 net: current.net,
             };
-            setSelectedPage(current.page ?? null);
+            const validGroupSelection = reviewSelection?.kind === "group"
+                && groups.some((group) => (
+                    group.id === reviewSelection.id
+                    && group.changes.some((change) => change.id === current.id)
+                ));
+            if (
+                !validGroupSelection
+                && (
+                    reviewSelection?.kind !== "item"
+                    || reviewSelection.id !== current.id
+                )
+            ) {
+                setReviewSelection({ kind: "item", id: current.id });
+            }
             return;
         }
         const focus = semanticFocusRef.current;
@@ -593,12 +620,12 @@ export function DesignComparisonWorkspace({
             : null;
         if (counterpart) {
             setSelectedChangeId(counterpart.id);
-            setSelectedPage(counterpart.page ?? null);
+            setReviewSelection({ kind: "item", id: counterpart.id });
         } else {
             setSelectedChangeId(null);
-            setSelectedPage(null);
+            setReviewSelection(null);
         }
-    }, [activeTab, domainChanges, result, selectedChangeId]);
+    }, [activeTab, domainChanges, groups, result, reviewSelection, selectedChangeId]);
 
     const navigate = (direction: -1 | 1) => {
         if (!groups.length) return;
@@ -608,7 +635,7 @@ export function DesignComparisonWorkspace({
         const next = current < 0
             ? 0
             : (current + direction + groups.length) % groups.length;
-        selectChange(groups[next]!.changes[0]!);
+        selectGroup(groups[next]!);
     };
 
     const tabs: Array<{ id: WorkspaceTab; label: string; icon: typeof Cpu; badge?: number }> = [
@@ -734,6 +761,7 @@ export function DesignComparisonWorkspace({
                                         onShowSecondaryChange={setShowSecondary}
                                         selectedChangeId={selectedChangeId}
                                         onSelectChange={selectChange}
+                                        onSelectGroup={selectGroup}
                                         onPrevious={() => navigate(-1)}
                                         onNext={() => navigate(1)}
                                         routeMetrics={selectedRouteMetrics}
@@ -743,10 +771,10 @@ export function DesignComparisonWorkspace({
                                         domain={domain}
                                         base={base}
                                         compare={head}
-                                        geometry={result.geometry}
-                                        selectedChanges={selectedGroupChanges}
+                                        allChanges={domainChanges}
+                                        reviewGroups={groups}
+                                        selection={reviewSelection}
                                         visibleChanges={filteredChanges}
-                                        selectedPage={selectedPage}
                                         initialVisibleLayers={visibleLayers}
                                         onVisibleLayersChange={setVisibleLayers}
                                     />

@@ -147,6 +147,30 @@ export interface EcadOverlayScene {
     page?: string;
 }
 
+export interface EcadReviewPreparationState {
+    prepared: number;
+    total: number;
+    bytes: number;
+    status: "idle" | "preparing" | "ready";
+}
+
+export interface EcadReviewFrame {
+    requestId: string;
+    page?: string;
+    focus?: {
+        sourceIds?: string[];
+        bounds?: [number, number, number, number];
+        padding?: number;
+    };
+    overlay?: EcadOverlayScene & { channelId: string };
+    camera?: CameraState;
+}
+
+export interface EcadReviewFrameResult {
+    status: "applied" | "superseded" | "missing";
+    pageCacheHit: boolean;
+}
+
 export interface EcadOverlayHitDetail {
     channelId: string;
     primitiveId: string;
@@ -220,6 +244,14 @@ export interface ECadViewerElement extends HTMLElement {
     setCommentMode?(enabled: boolean): void;
     setReviewPresentation(presentation: EcadReviewPresentation): Promise<void>;
     clearReviewPresentation(): Promise<void>;
+    prepareReviewPages(request: {
+        revisionKey: string;
+        pages: string[];
+        presentation: EcadReviewPresentation;
+        cacheBudgetBytes?: number;
+    }): Promise<void>;
+    setReviewFrame(frame: EcadReviewFrame): Promise<EcadReviewFrameResult>;
+    getReviewPreparationState(): EcadReviewPreparationState;
     setMeasurementMode(enabled: boolean): void;
     clearMeasurement(): void;
     setOverlayScene(channelId: string, scene: EcadOverlayScene): void;
@@ -279,6 +311,13 @@ declare global {
         "ecad-viewer:selection": CustomEvent<EcadSemanticSelectionDetail>;
         "ecad-viewer:crossprobe": CustomEvent<EcadSemanticSelectionDetail>;
         "ecad-viewer:view-state-change": CustomEvent<void>;
+        "ecad-viewer:review-prepare-progress": CustomEvent<EcadReviewPreparationState>;
+        "ecad-viewer:review-frame": CustomEvent<{
+            requestId: string;
+            page?: string;
+            pageCacheHit: boolean;
+            durationMs: number;
+        }>;
         "ecad-viewer:overlay-click": CustomEvent<EcadOverlayHitDetail>;
         "ecad-viewer:overlay-hover": CustomEvent<EcadOverlayHitDetail>;
         "ecad-viewer:overlay-leave": CustomEvent<EcadOverlayHitDetail>;
