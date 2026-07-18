@@ -59,6 +59,21 @@ function sourceNameForDomain(
         ?? "board.kicad_pcb";
 }
 
+function encodeAssetPath(path: string): string {
+    return path
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/");
+}
+
+export function revisionSourceKey(
+    projectId: string,
+    commit: string,
+    domain: Domain,
+): string {
+    return `${projectId}:${commit}:${domain}`;
+}
+
 function useRevisionSources(
     projectId: string,
     domain: Domain,
@@ -68,6 +83,8 @@ function useRevisionSources(
     const [sources, setSources] = useState<ViewerBlobSource[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [resolvedKey, setResolvedKey] = useState<string | null>(null);
+    const requestKey = revisionSourceKey(projectId, commit, domain);
     const rootName = useMemo(
         () => sourceNameForDomain(domain, files),
         [domain, files],
@@ -76,6 +93,7 @@ function useRevisionSources(
     useEffect(() => {
         const controller = new AbortController();
         const { signal } = controller;
+        setResolvedKey(null);
         setSources([]);
         setLoading(true);
         setError(null);
@@ -93,70 +111,44 @@ function useRevisionSources(
                           files?: ViewerBlobSource[];
                       }).files ?? []
                     : [];
-                const collected: ViewerBlobSource[] = [];
-
-                if (domain === "pcb") {
-                    const response = await fetch(`${root}/pcb?${query}`, {
-                        signal,
-                    });
-                    if (!response.ok) {
-                        throw new Error(
-                            `PCB source failed (${response.status})`,
+                const extension =
+                    domain === "pcb" ? ".kicad_pcb" : ".kicad_sch";
+                const sourcePaths = [...new Set(
+                    files
+                        .map((file) => file.path)
+                        .filter((path) => path.endsWith(extension)),
+                )];
+                if (!sourcePaths.includes(rootName)) {
+                    sourcePaths.unshift(rootName);
+                }
+                const settled = await Promise.allSettled(
+                    sourcePaths.map(async (path) => {
+                        const response = await fetch(
+                            `${root}/asset/${encodeAssetPath(path)}?${query}`,
+                            { signal },
                         );
-                    }
-                    collected.push({
-                        filename: rootName,
-                        content: await response.text(),
-                    });
-                } else {
-                    const [rootResponse, subsheetsResponse] =
-                        await Promise.all([
-                            fetch(`${root}/schematic?${query}`, { signal }),
-                            fetch(
-                                `${root}/schematic/subsheets?${query}`,
-                                { signal },
-                            ),
-                        ]);
-                    if (!rootResponse.ok) {
-                        throw new Error(
-                            `Schematic source failed (${rootResponse.status})`,
-                        );
-                    }
-                    collected.push({
-                        filename: rootName,
-                        content: await rootResponse.text(),
-                    });
-                    if (subsheetsResponse.ok) {
-                        const manifest =
-                            (await subsheetsResponse.json()) as {
-                                files?: Array<{
-                                    name?: string;
-                                    path?: string;
-                                    url: string;
-                                }>;
-                            };
-                        const settled = await Promise.allSettled(
-                            (manifest.files ?? []).map(async (file) => {
-                                const response = await fetch(file.url, {
-                                    signal,
-                                });
-                                if (!response.ok) throw new Error(file.url);
-                                return {
-                                    filename:
-                                        file.path
-                                        ?? file.name
-                                        ?? file.url.split("/").pop()
-                                        ?? "subsheet.kicad_sch",
-                                    content: await response.text(),
-                                };
-                            }),
-                        );
-                        for (const item of settled) {
-                            if (item.status === "fulfilled") {
-                                collected.push(item.value);
-                            }
+                        if (!response.ok) {
+                            throw new Error(
+                                `${path} failed (${response.status})`,
+                            );
                         }
-                    }
+                        return {
+                            filename: path,
+                            content: await response.text(),
+                        };
+                    }),
+                );
+                const collected = settled.flatMap((item) =>
+                    item.status === "fulfilled" ? [item.value] : []
+                );
+                if (!collected.some((source) => source.filename === rootName)) {
+                    const failure = settled[sourcePaths.indexOf(rootName)];
+                    throw new Error(
+                        failure?.status === "rejected"
+                            && failure.reason instanceof Error
+                            ? failure.reason.message
+                            : `Revision does not contain ${rootName}`,
+                    );
                 }
                 collected.push(...support);
                 if (!signal.aborted) setSources(collected);
@@ -169,13 +161,21 @@ function useRevisionSources(
                     );
                 }
             } finally {
-                if (!signal.aborted) setLoading(false);
+                if (!signal.aborted) {
+                    setResolvedKey(requestKey);
+                    setLoading(false);
+                }
             }
         })();
         return () => controller.abort();
-    }, [commit, domain, projectId, rootName]);
+    }, [commit, domain, files, projectId, requestKey, rootName]);
 
-    return { sources, loading, error };
+    const isCurrent = resolvedKey === requestKey;
+    return {
+        sources: isCurrent ? sources : [],
+        loading: loading || !isCurrent,
+        error: isCurrent ? error : null,
+    };
 }
 
 function selectedChanges(
@@ -311,11 +311,19 @@ export function NativeDocumentComparisonPanel({
                 const next = await viewer.loadDocumentComparison({
                     comparisonKey: `${projectId}:${base}:${compare}:${domain}`,
                     reference: {
-                        revisionKey: `${projectId}:${base}`,
+                        revisionKey: revisionSourceKey(
+                            projectId,
+                            base,
+                            domain,
+                        ),
                         sources: referenceSources.sources,
                     },
                     comparison: {
-                        revisionKey: `${projectId}:${compare}`,
+                        revisionKey: revisionSourceKey(
+                            projectId,
+                            compare,
+                            domain,
+                        ),
                         sources: comparisonSources.sources,
                     },
                     diff: documentDiff.project,

@@ -146,6 +146,7 @@ function DifferencesPane({
     showSecondary,
     onShowSecondaryChange,
     selectedChangeId,
+    selectedGroupId,
     onSelectChange,
     onSelectGroup,
     onPrevious,
@@ -160,6 +161,7 @@ function DifferencesPane({
     showSecondary: boolean;
     onShowSecondaryChange: (value: boolean) => void;
     selectedChangeId: string | null;
+    selectedGroupId: string | null;
     onSelectChange: (change: ChangeItem) => void;
     onSelectGroup: (group: ChangeGroup) => void;
     onPrevious: () => void;
@@ -169,6 +171,18 @@ function DifferencesPane({
     const selectedGroup = groups.find((group) =>
         group.changes.some((change) => change.id === selectedChangeId)
     );
+    const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(
+        () => new Set(),
+    );
+    useEffect(() => {
+        if (!selectedGroup) return;
+        setExpandedGroupIds((current) => {
+            if (current.has(selectedGroup.id)) return current;
+            const next = new Set(current);
+            next.add(selectedGroup.id);
+            return next;
+        });
+    }, [selectedGroup]);
     const byCategory = useMemo(() => {
         const result = new Map<Category, ChangeGroup[]>();
         for (const group of groups) {
@@ -260,7 +274,9 @@ function DifferencesPane({
                                 </h3>
                                 <div className="space-y-0.5">
                                     {categoryGroups.map((group) => {
-                                        const expanded = selectedGroup?.id === group.id;
+                                        const expanded = expandedGroupIds.has(group.id);
+                                        const selected = selectedGroupId === group.id
+                                            || selectedGroup?.id === group.id;
                                         const status = STATUS_META.find((item) => item.id === group.kind)!;
                                         return (
                                             <div key={group.id}>
@@ -268,16 +284,26 @@ function DifferencesPane({
                                                     type="button"
                                                     className={cn(
                                                         "flex w-full items-center gap-2 border-l-2 px-2 py-2 text-left text-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                                        expanded
+                                                        selected
                                                             ? "border-primary bg-accent text-accent-foreground"
                                                             : "border-transparent",
                                                     )}
-                                                    onClick={() => onSelectGroup(group)}
+                                                    onClick={() => {
+                                                        setExpandedGroupIds((current) => {
+                                                            const next = new Set(current);
+                                                            if (next.has(group.id)) next.delete(group.id);
+                                                            else next.add(group.id);
+                                                            return next;
+                                                        });
+                                                        onSelectGroup(group);
+                                                    }}
+                                                    aria-expanded={expanded}
                                                 >
                                                     {expanded
                                                         ? <ChevronDown className="h-3 w-3 shrink-0" />
                                                         : <ChevronRight className="h-3 w-3 shrink-0" />}
                                                     <span className={cn("h-2 w-2 shrink-0 rounded-full", status.marker)} />
+                                                    <span className="sr-only">{status.label}</span>
                                                     <span className="min-w-0 flex-1 truncate">{group.label}</span>
                                                     {group.classification === "secondary" && (
                                                         <span className="rounded bg-muted px-1 text-[9px] uppercase text-muted-foreground">
@@ -298,16 +324,26 @@ function DifferencesPane({
                                                                 type="button"
                                                                 onClick={() => onSelectChange(change)}
                                                                 className={cn(
-                                                                    "block w-full truncate rounded px-2 py-1.5 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                                                    "block w-full rounded px-2 py-1.5 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                                                     selectedChangeId === change.id && "bg-primary/10 text-primary",
                                                                 )}
+                                                                aria-current={
+                                                                    selectedChangeId === change.id
+                                                                        ? "true"
+                                                                        : undefined
+                                                                }
                                                             >
-                                                                {change.geometry?.kind
-                                                                    ?? change.oldGeometry?.kind
-                                                                    ?? change.label}
-                                                                {change.layers?.length
-                                                                    ? ` · ${change.layers.join(", ")}`
-                                                                    : ""}
+                                                                <span className="block truncate font-medium">
+                                                                    {change.label}
+                                                                </span>
+                                                                <span className="block truncate text-[10px] text-muted-foreground">
+                                                                    {change.geometry?.kind
+                                                                        ?? change.oldGeometry?.kind
+                                                                        ?? change.category}
+                                                                    {change.layers?.length
+                                                                        ? ` · ${change.layers.join(", ")}`
+                                                                        : ""}
+                                                                </span>
                                                             </button>
                                                         ))}
                                                     </div>
@@ -540,6 +576,10 @@ export function DesignComparisonWorkspace({
         () => groupChanges(filteredChanges, comments),
         [filteredChanges, comments],
     );
+    const navigationGroups = useMemo(
+        () => groupChanges(domainChanges, comments),
+        [domainChanges, comments],
+    );
     const selectedChange = useMemo(
         () => domainChanges.find((change) => change.id === selectedChangeId) ?? null,
         [domainChanges, selectedChangeId],
@@ -760,6 +800,11 @@ export function DesignComparisonWorkspace({
                                         showSecondary={showSecondary}
                                         onShowSecondaryChange={setShowSecondary}
                                         selectedChangeId={selectedChangeId}
+                                        selectedGroupId={
+                                            reviewSelection?.kind === "group"
+                                                ? reviewSelection.id
+                                                : null
+                                        }
                                         onSelectChange={selectChange}
                                         onSelectGroup={selectGroup}
                                         onPrevious={() => navigate(-1)}
@@ -774,7 +819,7 @@ export function DesignComparisonWorkspace({
                                             compare={head}
                                             documentDiff={result.document_diff}
                                             files={result.files}
-                                            reviewGroups={groups}
+                                            reviewGroups={navigationGroups}
                                             selection={reviewSelection}
                                             initialVisibleLayers={visibleLayers}
                                             onVisibleLayersChange={setVisibleLayers}

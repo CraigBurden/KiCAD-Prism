@@ -5,6 +5,7 @@ import {
     readInitialUrlState,
 } from "./design-comparison-workspace";
 import {
+    revisionSourceKey,
     resolveNativeSelection,
     resolveSelectedDocument,
 } from "./native-document-comparison-panel";
@@ -43,6 +44,15 @@ describe("semantic comparison state", () => {
             showSecondary: true,
             layers: ["F.Cu", "B.Cu"],
         });
+    });
+
+    it("keeps PCB and schematic snapshots distinct at the same revision", () => {
+        expect(revisionSourceKey("project", "abc123", "pcb")).toBe(
+            "project:abc123:pcb",
+        );
+        expect(revisionSourceKey("project", "abc123", "schematic")).toBe(
+            "project:abc123:schematic",
+        );
     });
 
     it("deduplicates members into one stable semantic group and counts open threads", () => {

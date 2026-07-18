@@ -53,7 +53,7 @@ shape independently.
 ## Implemented foundation
 
 - ecad-viewer branch: `feature/native-document-diff-viewer`
-- pinned viewer commit: `1a39974a90b581f4733d93086ad89e8b5fe6c7d7`
+- pinned viewer commit: `33a832d765daa48666bf688c40cb28aeaf20963c`
 - Prism branch: `feature/history-document-diff-review`
 - strict JSON validation and KiCad IU conversion
 - reference/comparison parsing through one shared worker pool
@@ -62,6 +62,9 @@ shape independently.
 - O(1) item/group selection targets
 - atomic internal selection overlay + camera frame
 - parsed-project and prepared-document reuse across changed files
+- serialized latest-request-wins revision loading across SCH/PCB switches
+- native painter bounds for focus and a screen-space selection outline
+- theme-aware monochrome context, including schematic drawing sheets
 - local-only selection counters for parser and full-paint regressions
 - typed comment-only overlay host API
 - Prism semantic-to-DOCUMENT_DIFF provider and field-only geometry hydration

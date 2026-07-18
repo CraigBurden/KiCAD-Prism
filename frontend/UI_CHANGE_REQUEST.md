@@ -31,6 +31,12 @@
 9. Keep BOM, Stackup, search/status filters, URL restoration, and comparison
    discussions intact.
 10. Publish canvas comments only through the typed comment-overlay API.
+11. Treat schematic and PCB files at the same commit as distinct immutable
+    source manifests.
+12. Keep group expansion independent from group/item selection and focus the
+    retained native bounds on every selected row.
+13. Apply subdued monochrome treatment to unchanged PCB and schematic content,
+    including the schematic drawing sheet.
 
 ## Constraints
 
@@ -44,11 +50,11 @@
 
 ## Done-When Checklist (pass/fail)
 
-- [ ] Visual update matches requested after state.
+- [x] Visual update matches requested after state.
 - [x] No hardcoded frontend colors introduced.
 - [x] Existing Commit and Release views are preserved.
 - [x] Loading, empty, unresolved, and error states remain valid.
-- [ ] Keyboard focus and labels remain accessible.
+- [x] Keyboard focus and labels remain accessible.
 - [x] Changes limited to the comparison seam and comment API migration.
 - [ ] Warm selection records zero parser invocations and zero full paints.
 - [x] Frontend lint/build and focused tests pass.
