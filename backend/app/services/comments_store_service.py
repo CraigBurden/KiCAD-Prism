@@ -152,6 +152,15 @@ def _row_to_comment_dict(row, replies: List[Dict]) -> Dict:
             metadata = None
     if isinstance(metadata, dict) and metadata:
         comment["metadata"] = metadata
+    scope = row.get("scope") or "canvas"
+    comment["scope"] = scope
+    if scope == "comparison":
+        comment["baseCommit"] = row.get("base_commit")
+        comment["compareCommit"] = row.get("compare_commit")
+        comment["comparisonDomain"] = row.get("comparison_domain")
+        comment["filePath"] = row.get("file_path")
+        comment["semanticItemId"] = row.get("semantic_item_id")
+        comment["anchorKind"] = row.get("anchor_kind")
 
     # Forge projection fields (nullable today; reserved for future Issues sync).
     forge_provider = row.get("forge_provider")
@@ -243,6 +252,13 @@ class CommentsStoreService:
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'info'",
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]'::jsonb",
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'canvas'",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS base_commit TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS compare_commit TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS comparison_domain TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS file_path TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS semantic_item_id TEXT",
+                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_kind TEXT",
                     # Reserved for future GitHub/GitLab Issues projection (unused today).
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_provider TEXT",
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_id TEXT",
@@ -250,6 +266,15 @@ class CommentsStoreService:
                     "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_sync_state TEXT",
                 ):
                     conn.execute(statement)
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_comments_comparison
+                    ON comments(
+                        project_id, scope, base_commit, compare_commit,
+                        comparison_domain, semantic_item_id
+                    )
+                    """
+                )
                 conn.commit()
 
             self._initialized = True
@@ -440,9 +465,11 @@ class CommentsStoreService:
                    area_x, area_y, area_w, area_h,
                    element_id, element_ref, element_type,
                    comment_class, severity, mentions, metadata,
+                   scope, base_commit, compare_commit, comparison_domain,
+                   file_path, semantic_item_id, anchor_kind,
                    forge_provider, forge_issue_id, forge_issue_url, forge_sync_state
             FROM comments
-            WHERE project_id = %s
+            WHERE project_id = %s AND scope <> 'comparison'
             ORDER BY timestamp ASC, id ASC
             """,
             (project_id,),
@@ -488,6 +515,8 @@ class CommentsStoreService:
                    area_x, area_y, area_w, area_h,
                    element_id, element_ref, element_type,
                    comment_class, severity, mentions, metadata,
+                   scope, base_commit, compare_commit, comparison_domain,
+                   file_path, semantic_item_id, anchor_kind,
                    forge_provider, forge_issue_id, forge_issue_url, forge_sync_state
             FROM comments
             WHERE project_id = %s AND id = %s
@@ -540,6 +569,13 @@ class CommentsStoreService:
         severity: Optional[str] = None,
         mentions: Optional[List[str]] = None,
         metadata: Optional[Dict] = None,
+        scope: str = "canvas",
+        base_commit: Optional[str] = None,
+        compare_commit: Optional[str] = None,
+        comparison_domain: Optional[str] = None,
+        file_path: Optional[str] = None,
+        semantic_item_id: Optional[str] = None,
+        anchor_kind: Optional[str] = None,
     ) -> Dict:
         self.initialize()
         context_norm = context.upper()
@@ -564,9 +600,15 @@ class CommentsStoreService:
                         location_x, location_y, location_layer, location_page, content,
                         area_x, area_y, area_w, area_h,
                         element_id, element_ref, element_type,
-                        comment_class, severity, mentions, metadata
+                        comment_class, severity, mentions, metadata,
+                        scope, base_commit, compare_commit, comparison_domain,
+                        file_path, semantic_item_id, anchor_kind
                     )
-                    VALUES(%s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                    VALUES(
+                        %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
+                        %s, %s, %s, %s, %s, %s, %s
+                    )
                     """,
                     (
                         comment_id,
@@ -590,6 +632,13 @@ class CommentsStoreService:
                         severity_norm,
                         json.dumps(mentions_norm),
                         json.dumps(metadata_norm),
+                        scope,
+                        _optional_str(base_commit),
+                        _optional_str(compare_commit),
+                        _optional_str(comparison_domain),
+                        _optional_str(file_path),
+                        _optional_str(semantic_item_id),
+                        _optional_str(anchor_kind),
                     ),
                 )
 
@@ -598,6 +647,67 @@ class CommentsStoreService:
                     raise RuntimeError("Failed to fetch created comment.")
 
                 return created
+
+    def get_comparison_comments(
+        self,
+        project_id: str,
+        project_path: str,
+        base_commit: str,
+        compare_commit: str,
+        comparison_domain: Optional[str] = None,
+    ) -> Dict:
+        self.initialize()
+        with self._connect() as conn:
+            with conn.transaction():
+                self._bootstrap_project_if_needed(conn, project_id, project_path)
+                query = """
+                    SELECT id, author, timestamp, status, context,
+                           location_x, location_y, location_layer, location_page, content,
+                           area_x, area_y, area_w, area_h,
+                           element_id, element_ref, element_type,
+                           comment_class, severity, mentions, metadata,
+                           scope, base_commit, compare_commit, comparison_domain,
+                           file_path, semantic_item_id, anchor_kind,
+                           forge_provider, forge_issue_id, forge_issue_url, forge_sync_state
+                    FROM comments
+                    WHERE project_id = %s
+                      AND scope = 'comparison'
+                      AND base_commit = %s
+                      AND compare_commit = %s
+                """
+                params: List[object] = [project_id, base_commit, compare_commit]
+                if comparison_domain:
+                    query += " AND comparison_domain = %s"
+                    params.append(comparison_domain)
+                query += " ORDER BY timestamp ASC, id ASC"
+                rows = conn.execute(query, tuple(params)).fetchall()
+                comment_ids = [row["id"] for row in rows]
+                replies_by_comment: Dict[str, List[Dict]] = {}
+                if comment_ids:
+                    reply_rows = conn.execute(
+                        """
+                        SELECT comment_id, author, timestamp, content
+                        FROM comment_replies
+                        WHERE project_id = %s AND comment_id = ANY(%s)
+                        ORDER BY timestamp ASC, id ASC
+                        """,
+                        (project_id, comment_ids),
+                    ).fetchall()
+                    for reply in reply_rows:
+                        replies_by_comment.setdefault(reply["comment_id"], []).append(
+                            {
+                                "author": reply["author"],
+                                "timestamp": _iso_timestamp(reply["timestamp"]),
+                                "content": reply["content"],
+                            }
+                        )
+                return {
+                    "meta": dict(COMMENTS_META),
+                    "comments": [
+                        _row_to_comment_dict(row, replies_by_comment.get(row["id"], []))
+                        for row in rows
+                    ],
+                }
 
     def update_comment_status(
         self,

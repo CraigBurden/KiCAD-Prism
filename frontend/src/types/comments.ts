@@ -65,6 +65,13 @@ export interface Comment {
     severity: CommentSeverity;
     mentions: string[];
     metadata?: Record<string, unknown>;
+    scope?: "canvas" | "comparison";
+    baseCommit?: string;
+    compareCommit?: string;
+    comparisonDomain?: CommentContext;
+    filePath?: string;
+    semanticItemId?: string;
+    anchorKind?: "comparison" | "file" | "item" | "group";
     /** Reserved for future GitHub/GitLab Issues sync */
     forgeProvider?: string;
     forgeIssueId?: string;

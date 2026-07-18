@@ -169,6 +169,40 @@ export interface EcadCommentAreaDetail {
     layer?: string;
 }
 
+export interface EcadMeasurementDetail {
+    context: "SCH" | "PCB";
+    page?: string;
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    deltaX: number;
+    deltaY: number;
+    distance: number;
+    unit: "mm";
+}
+
+export interface EcadReviewItemStyle {
+    visibility?: "visible" | "hidden";
+    colorMode?: "normal" | "monochrome" | "tint";
+    tint?: string;
+    opacity?: number;
+}
+
+export interface EcadReviewItemRule {
+    uuid?: string;
+    reference?: string;
+    net?: string;
+    page?: string;
+    style: EcadReviewItemStyle;
+    inheritChildren?: boolean;
+}
+
+export interface EcadReviewPresentation {
+    context: "SCH" | "PCB";
+    background?: "themed" | "transparent";
+    defaultStyle?: EcadReviewItemStyle;
+    rules?: EcadReviewItemRule[];
+}
+
 /** Value-based camera state from <ecad-viewer> (world center + zoom + rotation). */
 export interface CameraState {
     x: number;
@@ -184,8 +218,10 @@ export interface ECadViewerElement extends HTMLElement {
     setActive(active: boolean): void;
     clearSelection(): void;
     setCommentMode?(enabled: boolean): void;
-    /** Dim native item colours so overlay-scene primitives read clearly. No-op if unsupported. */
-    setColorMode?(mode: "normal" | "monochrome"): void;
+    setReviewPresentation(presentation: EcadReviewPresentation): Promise<void>;
+    clearReviewPresentation(): Promise<void>;
+    setMeasurementMode(enabled: boolean): void;
+    clearMeasurement(): void;
     setOverlayScene(channelId: string, scene: EcadOverlayScene): void;
     clearOverlayScene(channelId: string): void;
     zoomToLocation(x: number, y: number): void;
@@ -247,6 +283,7 @@ declare global {
         "ecad-viewer:overlay-hover": CustomEvent<EcadOverlayHitDetail>;
         "ecad-viewer:overlay-leave": CustomEvent<EcadOverlayHitDetail>;
         "ecad-viewer:comment-area": CustomEvent<EcadCommentAreaDetail>;
+        "ecad-viewer:measurement": CustomEvent<EcadMeasurementDetail>;
         "kicanvas:select": CustomEvent<KiCanvasSelectDetail>;
         camerachange: CustomEvent<CameraState>;
     }

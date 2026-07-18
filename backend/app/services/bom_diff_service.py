@@ -1,6 +1,6 @@
 import csv
 import io
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 def parse_bom_csv(csv_content: str) -> List[Dict[str, str]]:
     """Parse CSV content into a list of component dictionaries."""
@@ -10,7 +10,13 @@ def parse_bom_csv(csv_content: str) -> List[Dict[str, str]]:
     reader = csv.DictReader(f)
     return [row for row in reader]
 
-def diff_boms(old_bom: List[Dict[str, str]], new_bom: List[Dict[str, str]], fields: List[str]) -> Dict[str, Any]:
+def diff_boms(
+    old_bom: List[Dict[str, str]],
+    new_bom: List[Dict[str, str]],
+    fields: List[str],
+    *,
+    include_unchanged: bool = False,
+) -> Dict[str, Any]:
     """
     Compare two BoMs and return a structured diff.
     Components are matched by 'Reference'.
@@ -23,9 +29,15 @@ def diff_boms(old_bom: List[Dict[str, str]], new_bom: List[Dict[str, str]], fiel
     changes = []
     summary = {"added": 0, "removed": 0, "changed": 0}
     
-    # Ensure Reference is always in fields for display/comparison
-    if 'Reference' not in fields:
-        fields = ['Reference'] + fields
+    # Preserve configured ordering, then expose every detected engineering
+    # field so the client can offer a column chooser without another export.
+    detected_fields = {
+        key
+        for row in old_bom + new_bom
+        for key in row.keys()
+        if key
+    }
+    fields = list(dict.fromkeys(["Reference", *fields, *sorted(detected_fields)]))
 
     for ref in all_refs:
         old_item = old_map.get(ref)
@@ -67,11 +79,9 @@ def diff_boms(old_bom: List[Dict[str, str]], new_bom: List[Dict[str, str]], fiel
                     "new": {f: new_item.get(f, '') for f in fields},
                     "diffs": diffs
                 })
-            # If not changed, we don't necessarily need to return it unless we want a full table
-            # For the diff viewer, we only show changes?
-            # User might want to see the whole BoM with highlights. 
-            # Let's return all items but with status 'unchanged'
             else:
+                if not include_unchanged:
+                    continue
                 changes.append({
                     "ref": ref,
                     "status": "unchanged",
@@ -82,5 +92,6 @@ def diff_boms(old_bom: List[Dict[str, str]], new_bom: List[Dict[str, str]], fiel
     return {
         "summary": summary,
         "changes": changes,
-        "fields": fields
+        "fields": fields,
+        "include_unchanged": include_unchanged,
     }

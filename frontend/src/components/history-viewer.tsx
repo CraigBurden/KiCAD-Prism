@@ -19,6 +19,8 @@ import {
     Cpu,
     Settings,
     FileCode,
+    ArrowLeftRight,
+    X,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -59,6 +61,12 @@ interface CommitsResponse {
     commits: Commit[];
 }
 
+interface RevisionRef {
+    sha: string;
+    label: string;
+    kind: "commit" | "release";
+}
+
 /** Cheap, regex-based approximation of per-category added/removed counts for
     a single .kicad_sch/.kicad_pcb file — see backend git_service.py. Not a
     real item-level diff (no per-item identity / click-to-navigate); that
@@ -83,6 +91,7 @@ interface HistoryViewerProps {
     branchRef?: string | null;
     onViewCommit: (commitHash: string) => void;
     canCompareDiffs: boolean;
+    canComment?: boolean;
 }
 
 function formatDate(isoDate: string): string {
@@ -184,12 +193,23 @@ interface CommitItemProps {
     commit: Commit;
     projectId: string;
     onViewCommit: (hash: string) => void;
-    isSelected: boolean;
-    onSelect: () => void;
+    isBase: boolean;
+    isCompare: boolean;
+    onSetBase: () => void;
+    onSetCompare: () => void;
     selectable: boolean;
 }
 
-function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, selectable }: CommitItemProps) {
+function CommitItem({
+    commit,
+    projectId,
+    onViewCommit,
+    isBase,
+    isCompare,
+    onSetBase,
+    onSetCompare,
+    selectable,
+}: CommitItemProps) {
     const [copied, setCopied] = useState(false);
     const [expanded, setExpanded] = useState(false);
     const [summary, setSummary] = useState<CommitSummary | null>(null);
@@ -231,19 +251,12 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
     };
 
     return (
-        <div className={`border rounded-lg transition-colors ${isSelected ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted/50'}`}>
+        <div className={`border rounded-lg transition-colors ${
+            isBase || isCompare ? "border-primary/50 bg-primary/5" : "hover:bg-muted/50"
+        }`}>
             <div className="flex items-start gap-3 p-4">
                 <div className="flex-shrink-0 mt-1 flex items-center justify-center">
-                    {selectable ? (
-                        <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={onSelect}
-                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer accent-primary"
-                        />
-                    ) : (
-                        <GitCommit className="h-4 w-4 text-muted-foreground" />
-                    )}
+                    <GitCommit className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-4 mb-2">
@@ -282,6 +295,28 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
                             >
                                 <Eye className="h-3 w-3" />
                             </Button>
+                            {selectable && (
+                                <>
+                                    <Button
+                                        variant={isBase ? "secondary" : "ghost"}
+                                        size="sm"
+                                        className="h-6 px-2 text-[10px]"
+                                        onClick={onSetBase}
+                                        aria-pressed={isBase}
+                                    >
+                                        Base
+                                    </Button>
+                                    <Button
+                                        variant={isCompare ? "secondary" : "ghost"}
+                                        size="sm"
+                                        className="h-6 px-2 text-[10px]"
+                                        onClick={onSetCompare}
+                                        aria-pressed={isCompare}
+                                    >
+                                        Compare
+                                    </Button>
+                                </>
+                            )}
                         </div>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -356,61 +391,40 @@ function CommitItem({ commit, projectId, onViewCommit, isSelected, onSelect, sel
     );
 }
 
-export function HistoryViewer({ projectId, branchRef, onViewCommit, canCompareDiffs }: HistoryViewerProps) {
+export function HistoryViewer({
+    projectId,
+    branchRef,
+    onViewCommit,
+    canCompareDiffs,
+    canComment = false,
+}: HistoryViewerProps) {
     const [releases, setReleases] = useState<Release[]>([]);
     const [commits, setCommits] = useState<Commit[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [selectedCommits, setSelectedCommits] = useState<string[]>([]);
-    const [showDiff, setShowDiff] = useState(false);
+    const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
+    const [baseRevision, setBaseRevision] = useState<RevisionRef | null>(() => {
+        const sha = initialParams.get("base");
+        return sha ? { sha, label: sha.slice(0, 10), kind: "commit" } : null;
+    });
+    const [compareRevision, setCompareRevision] = useState<RevisionRef | null>(() => {
+        const sha = initialParams.get("compare");
+        return sha ? { sha, label: sha.slice(0, 10), kind: "commit" } : null;
+    });
+    const [showDiff, setShowDiff] = useState(
+        () => Boolean(initialParams.get("base") && initialParams.get("compare")),
+    );
 
-    // Filter commits to find selected ones and determining newer/older
-    const diffPair = useMemo(() => {
-        if (selectedCommits.length !== 2) return null;
-
-        // Commits are already sorted by date (newest first)
-        const c1Index = commits.findIndex(c => c.full_hash === selectedCommits[0]);
-        const c2Index = commits.findIndex(c => c.full_hash === selectedCommits[1]);
-
-        if (c1Index === -1 || c2Index === -1) return null;
-
-        // Smaller index = Newer commit
-        const newerIndex = Math.min(c1Index, c2Index);
-        const olderIndex = Math.max(c1Index, c2Index);
-
-        return {
-            newer: commits[newerIndex],
-            older: commits[olderIndex]
-        };
-    }, [commits, selectedCommits]);
-
-    const handleSelectCommit = (hash: string) => {
-        if (!canCompareDiffs) {
-            return;
+    const setRevision = (slot: "base" | "compare", revision: RevisionRef) => {
+        if (!canCompareDiffs) return;
+        if (slot === "base") {
+            setBaseRevision(revision);
+            if (compareRevision?.sha === revision.sha) setCompareRevision(null);
+        } else {
+            setCompareRevision(revision);
+            if (baseRevision?.sha === revision.sha) setBaseRevision(null);
         }
-        setSelectedCommits(prev => {
-            if (prev.includes(hash)) {
-                return prev.filter(h => h !== hash);
-            }
-            if (prev.length >= 2) {
-                // Remove oldest selection (first one added? or just FIFO)
-                // Let's just create a new array with the new one
-                return [prev[1], hash];
-            }
-            return [...prev, hash];
-        });
     };
-
-    useEffect(() => {
-        if (!canCompareDiffs) {
-            setSelectedCommits([]);
-        }
-    }, [canCompareDiffs]);
-
-    useEffect(() => {
-        const currentHashes = new Set(commits.map((commit) => commit.full_hash));
-        setSelectedCommits((previous) => previous.filter((hash) => currentHashes.has(hash)).slice(-2));
-    }, [commits]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -502,12 +516,13 @@ export function HistoryViewer({ projectId, branchRef, onViewCommit, canCompareDi
             )}
 
             {/* Design Comparison Workspace */}
-            {showDiff && diffPair && (
+            {showDiff && baseRevision && compareRevision && (
                 <DesignComparisonWorkspace
                     projectId={projectId}
-                    base={diffPair.older.full_hash}
-                    head={diffPair.newer.full_hash}
+                    base={baseRevision.sha}
+                    head={compareRevision.sha}
                     branchTipSha={commits[0]?.full_hash ?? null}
+                    canComment={canComment}
                     onClose={() => {
                         setShowDiff(false);
                     }}
@@ -554,6 +569,34 @@ export function HistoryViewer({ projectId, branchRef, onViewCommit, canCompareDi
                                     <Calendar className="h-3 w-3" />
                                     {formatDate(release.date)}
                                 </div>
+                                {canCompareDiffs && (
+                                    <div className="mt-3 flex gap-2 border-t pt-3">
+                                        <Button
+                                            variant={baseRevision?.sha === release.full_hash ? "secondary" : "outline"}
+                                            size="sm"
+                                            className="h-7 flex-1 text-xs"
+                                            onClick={() => setRevision("base", {
+                                                sha: release.full_hash,
+                                                label: release.tag,
+                                                kind: "release",
+                                            })}
+                                        >
+                                            Base
+                                        </Button>
+                                        <Button
+                                            variant={compareRevision?.sha === release.full_hash ? "secondary" : "outline"}
+                                            size="sm"
+                                            className="h-7 flex-1 text-xs"
+                                            onClick={() => setRevision("compare", {
+                                                sha: release.full_hash,
+                                                label: release.tag,
+                                                kind: "release",
+                                            })}
+                                        >
+                                            Compare
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -567,20 +610,6 @@ export function HistoryViewer({ projectId, branchRef, onViewCommit, canCompareDi
                         <GitCommit className="h-5 w-5" />
                         Commits
                     </h3>
-                    {canCompareDiffs && selectedCommits.length === 2 && (
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="default"
-                                size="sm"
-                                onClick={() => {
-                                    setShowDiff(true);
-                                }}
-                            >
-                                <Eye className="h-4 w-4 mr-2" />
-                                Compare Selected ({selectedCommits.length})
-                            </Button>
-                        </div>
-                    )}
                 </div>
 
                 {commits.length === 0 ? (
@@ -595,14 +624,68 @@ export function HistoryViewer({ projectId, branchRef, onViewCommit, canCompareDi
                                 commit={commit}
                                 projectId={projectId}
                                 onViewCommit={onViewCommit}
-                                isSelected={selectedCommits.includes(commit.full_hash)}
-                                onSelect={() => handleSelectCommit(commit.full_hash)}
+                                isBase={baseRevision?.sha === commit.full_hash}
+                                isCompare={compareRevision?.sha === commit.full_hash}
+                                onSetBase={() => setRevision("base", {
+                                    sha: commit.full_hash,
+                                    label: commit.message.split("\n")[0] || commit.hash,
+                                    kind: "commit",
+                                })}
+                                onSetCompare={() => setRevision("compare", {
+                                    sha: commit.full_hash,
+                                    label: commit.message.split("\n")[0] || commit.hash,
+                                    kind: "commit",
+                                })}
                                 selectable={canCompareDiffs}
                             />
                         ))}
                     </div>
                 )}
             </div>
+            {canCompareDiffs && (baseRevision || compareRevision) && (
+                <div className="sticky bottom-3 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur">
+                    <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
+                    <div className="min-w-0 flex-1 text-xs">
+                        <span className="text-muted-foreground">Base: </span>
+                        <span className="font-medium">{baseRevision?.label ?? "Choose revision"}</span>
+                        <span className="mx-2 text-muted-foreground">→</span>
+                        <span className="text-muted-foreground">Compare: </span>
+                        <span className="font-medium">{compareRevision?.label ?? "Choose revision"}</span>
+                    </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!baseRevision || !compareRevision}
+                        onClick={() => {
+                            const currentBase = baseRevision;
+                            setBaseRevision(compareRevision);
+                            setCompareRevision(currentBase);
+                        }}
+                    >
+                        Swap
+                    </Button>
+                    <Button
+                        size="sm"
+                        disabled={!baseRevision || !compareRevision}
+                        onClick={() => setShowDiff(true)}
+                    >
+                        Compare
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => {
+                            setBaseRevision(null);
+                            setCompareRevision(null);
+                            setShowDiff(false);
+                        }}
+                        aria-label="Clear comparison"
+                    >
+                        <X className="h-4 w-4" />
+                    </Button>
+                </div>
+            )}
         </div>
     );
 }
