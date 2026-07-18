@@ -160,6 +160,44 @@ export interface SourceFileRef {
     path: string;
 }
 
+export type KiCadChangeKind =
+    | "added"
+    | "removed"
+    | "modified"
+    | "collision"
+    | "duplicate_uuid";
+
+export interface KiCadItemChange {
+    id: string;
+    typeName: string;
+    kind: KiCadChangeKind;
+    properties: Array<{
+        name: string;
+        before: { type: string; v?: unknown; label?: string };
+        after: { type: string; v?: unknown; label?: string };
+    }>;
+    bbox: [number, number, number, number];
+    refdes?: string;
+    children: KiCadItemChange[];
+}
+
+export interface KiCadDocumentDiff {
+    path: string;
+    docType: string;
+    changes: KiCadItemChange[];
+}
+
+export interface KiCadProjectDiffBundle {
+    schema: "prism.kicad_project_diff_v1" | string;
+    provider: "prism-semantic" | "kicad-cli" | string;
+    project: { documents: KiCadDocumentDiff[] };
+    navigation: Record<
+        string,
+        { documentPath: string; changeId: string }
+    >;
+    diagnostics: Array<{ changeId: string; reason: string }>;
+}
+
 export interface GeometrySnapshot {
     schematic: Record<string, GeometryEntry>;
     pcb: Record<string, GeometryEntry>;
@@ -183,6 +221,7 @@ export interface DesignCompareResult {
         base: SourceFileRef[];
         head: SourceFileRef[];
     };
+    document_diff: KiCadProjectDiffBundle;
 }
 
 export interface DesignCompareJobStatus {

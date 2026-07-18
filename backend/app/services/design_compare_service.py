@@ -19,7 +19,12 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.services import bom_diff_service, project_service, semantic_index_service
+from app.services import (
+    bom_diff_service,
+    document_diff_service,
+    project_service,
+    semantic_index_service,
+)
 from app.services.workspace_service import workspace
 
 logger = logging.getLogger(__name__)
@@ -1222,16 +1227,28 @@ def _run_job(
             }
         )
 
+        source_files = {
+            "base": base_rev.get("sources") or [],
+            "head": head_rev.get("sources") or [],
+        }
+        document_diff = document_diff_service.build_project_diff(
+            schematic_changes=schematic_changes,
+            pcb_changes=pcb_changes,
+            files=source_files,
+            geometry={
+                "base": base_rev.get("geometry") or {},
+                "head": head_rev.get("geometry") or {},
+            },
+        )
+
         result = {
             "schema": "prism.semantic_comparison_v2",
             "base": base,
             "head": head,
             "compare": head,
             "diagnostics": [],
-            "files": {
-                "base": base_rev.get("sources") or [],
-                "head": head_rev.get("sources") or [],
-            },
+            "files": source_files,
+            "document_diff": document_diff,
             "schematic": {
                 "pages": sheets,
                 "changes": schematic_changes,

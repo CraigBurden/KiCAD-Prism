@@ -99,89 +99,31 @@ export interface EcadPcbViewState {
     highlightTracks: boolean;
 }
 
-export type EcadOverlayAnchor =
+export type EcadCommentContext = "SCH" | "PCB";
+
+export type EcadCommentAnchor =
     | { kind: "world"; x: number; y: number; page?: string }
-    | { kind: "bbox"; bounds: [number, number, number, number]; page?: string }
-    | { kind: "source-item"; uuid: string; page?: string }
-    | { kind: "entity"; reference?: string; net?: string; pin?: string; page?: string };
+    | { kind: "source-item"; uuid: string; page?: string };
 
-export interface EcadOverlayPrimitive {
-    id: string;
-    kind: "marker" | "bbox" | "polyline" | "polygon" | "text" | "arc" | "circle";
-    anchor: EcadOverlayAnchor;
-    sizing?: "world" | "screen";
-    stroke?: string;
-    fill?: string;
-    opacity?: number;
-    strokeWidth?: number;
-    dash?: number[];
-    hatch?: { spacing?: number; angleDeg?: number; width?: number };
-    outline?: { color?: string; width?: number };
-    lineCap?: "butt" | "round" | "square";
-    hitPadding?: number;
-    interactive?: boolean;
-    metadata?: unknown;
-    accessibilityLabel?: string;
-    radius?: number;
-    padding?: number;
-    points?: Array<[number, number]>;
-    text?: string;
-    size?: number;
-    glyph?: "circle" | "comment";
-    /** Arc: center relative to anchor (with radius + angles). */
-    center?: [number, number];
-    startAngleDeg?: number;
-    endAngleDeg?: number;
-    /** Arc three-point form (relative to anchor). */
-    start?: [number, number];
-    mid?: [number, number];
-    end?: [number, number];
+export interface EcadCommentOverlaySet {
+    context: EcadCommentContext;
+    comments: Array<{
+        id: string;
+        anchor: EcadCommentAnchor;
+        areaBounds?: [number, number, number, number];
+        accessibilityLabel?: string;
+        metadata?: unknown;
+    }>;
 }
 
-export interface EcadOverlayScene {
+export interface EcadCommentOverlayHitDetail {
+    commentId: string;
     context: "SCH" | "PCB";
-    placement: "underlay" | "content-overlay" | "foreground";
-    visible: boolean;
-    primitives: EcadOverlayPrimitive[];
-    /** When set, paint/hit only while the active SCH sheet matches. */
+    x: number;
+    y: number;
+    bounds?: [number, number, number, number];
     page?: string;
-}
-
-export interface EcadReviewPreparationState {
-    prepared: number;
-    total: number;
-    bytes: number;
-    status: "idle" | "preparing" | "ready";
-}
-
-export interface EcadReviewFrame {
-    requestId: string;
-    page?: string;
-    focus?: {
-        sourceIds?: string[];
-        bounds?: [number, number, number, number];
-        padding?: number;
-    };
-    overlay?: EcadOverlayScene & { channelId: string };
-    camera?: CameraState;
-}
-
-export interface EcadReviewFrameResult {
-    status: "applied" | "superseded" | "missing";
-    pageCacheHit: boolean;
-}
-
-export interface EcadOverlayHitDetail {
-    channelId: string;
-    primitiveId: string;
-    context: "SCH" | "PCB";
     metadata?: unknown;
-    resolvedAnchor: {
-        x: number;
-        y: number;
-        bounds?: [number, number, number, number];
-        page?: string;
-    };
 }
 
 export interface EcadCommentAreaDetail {
@@ -193,38 +135,38 @@ export interface EcadCommentAreaDetail {
     layer?: string;
 }
 
-export interface EcadMeasurementDetail {
+export interface EcadPreparedDiffTarget {
+    id: string;
+    kind: "change" | "group";
+    category: "added" | "removed" | "modified" | "conflict";
+    label: string;
+    memberIds: string[];
+    sourceIds: string[];
+    bounds: [number, number, number, number];
+}
+
+export interface EcadDocumentComparisonPreparation {
+    comparisonKey: string;
     context: "SCH" | "PCB";
-    page?: string;
-    start: { x: number; y: number };
-    end: { x: number; y: number };
-    deltaX: number;
-    deltaY: number;
-    distance: number;
-    unit: "mm";
+    document: { path: string; docType: string; changes: unknown[] };
+    targets: ReadonlyMap<string, EcadPreparedDiffTarget>;
+    diagnostics: Array<{
+        changeId: string;
+        sourceId?: string;
+        side: "reference" | "comparison";
+        reason: "missing-source-id" | "item-not-found";
+    }>;
+    prepareMs: number;
+    sourceCacheHit: boolean;
 }
 
-export interface EcadReviewItemStyle {
-    visibility?: "visible" | "hidden";
-    colorMode?: "normal" | "monochrome" | "tint";
-    tint?: string;
-    opacity?: number;
-}
-
-export interface EcadReviewItemRule {
-    uuid?: string;
-    reference?: string;
-    net?: string;
-    page?: string;
-    style: EcadReviewItemStyle;
-    inheritChildren?: boolean;
-}
-
-export interface EcadReviewPresentation {
-    context: "SCH" | "PCB";
-    background?: "themed" | "transparent";
-    defaultStyle?: EcadReviewItemStyle;
-    rules?: EcadReviewItemRule[];
+export interface EcadDocumentComparisonSelectionResult {
+    status: "applied" | "missing" | "superseded";
+    requestId: number;
+    target?: EcadPreparedDiffTarget;
+    clickToFrameMs: number;
+    paintCount: number;
+    parserCount: number;
 }
 
 /** Value-based camera state from <ecad-viewer> (world center + zoom + rotation). */
@@ -242,20 +184,26 @@ export interface ECadViewerElement extends HTMLElement {
     setActive(active: boolean): void;
     clearSelection(): void;
     setCommentMode?(enabled: boolean): void;
-    setReviewPresentation(presentation: EcadReviewPresentation): Promise<void>;
-    clearReviewPresentation(): Promise<void>;
-    prepareReviewPages(request: {
-        revisionKey: string;
-        pages: string[];
-        presentation: EcadReviewPresentation;
-        cacheBudgetBytes?: number;
-    }): Promise<void>;
-    setReviewFrame(frame: EcadReviewFrame): Promise<EcadReviewFrameResult>;
-    getReviewPreparationState(): EcadReviewPreparationState;
-    setMeasurementMode(enabled: boolean): void;
-    clearMeasurement(): void;
-    setOverlayScene(channelId: string, scene: EcadOverlayScene): void;
-    clearOverlayScene(channelId: string): void;
+    setCommentOverlays(request: EcadCommentOverlaySet): void;
+    clearCommentOverlays(context?: EcadCommentContext): void;
+    loadDocumentComparison(request: {
+        comparisonKey: string;
+        reference: {
+            revisionKey: string;
+            sources: Array<{ filename: string; content: string }>;
+        };
+        comparison: {
+            revisionKey: string;
+            sources: Array<{ filename: string; content: string }>;
+        };
+        diff: unknown;
+        documentPath?: string;
+    }): Promise<EcadDocumentComparisonPreparation>;
+    selectDocumentDiff(selection: {
+        kind: "change" | "group";
+        id: string;
+    }): Promise<EcadDocumentComparisonSelectionResult>;
+    clearDocumentComparison(): void;
     zoomToLocation(x: number, y: number): void;
     switchPage(pageId: string): void;
     /** Resolves once the project has loaded (parse + first paint). */
@@ -311,18 +259,10 @@ declare global {
         "ecad-viewer:selection": CustomEvent<EcadSemanticSelectionDetail>;
         "ecad-viewer:crossprobe": CustomEvent<EcadSemanticSelectionDetail>;
         "ecad-viewer:view-state-change": CustomEvent<void>;
-        "ecad-viewer:review-prepare-progress": CustomEvent<EcadReviewPreparationState>;
-        "ecad-viewer:review-frame": CustomEvent<{
-            requestId: string;
-            page?: string;
-            pageCacheHit: boolean;
-            durationMs: number;
-        }>;
-        "ecad-viewer:overlay-click": CustomEvent<EcadOverlayHitDetail>;
-        "ecad-viewer:overlay-hover": CustomEvent<EcadOverlayHitDetail>;
-        "ecad-viewer:overlay-leave": CustomEvent<EcadOverlayHitDetail>;
+        "ecad-viewer:comment-overlay-click": CustomEvent<EcadCommentOverlayHitDetail>;
+        "ecad-viewer:document-comparison-ready": CustomEvent<EcadDocumentComparisonPreparation>;
+        "ecad-viewer:document-comparison-frame": CustomEvent<EcadDocumentComparisonSelectionResult>;
         "ecad-viewer:comment-area": CustomEvent<EcadCommentAreaDetail>;
-        "ecad-viewer:measurement": CustomEvent<EcadMeasurementDetail>;
         "kicanvas:select": CustomEvent<KiCanvasSelectDetail>;
         camerachange: CustomEvent<CameraState>;
     }

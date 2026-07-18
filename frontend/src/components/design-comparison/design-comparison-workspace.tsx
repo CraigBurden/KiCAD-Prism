@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { fetchApi, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CATEGORY_META, mergedKind, type Category, type DiffKind } from "@/lib/diff-grouping";
-import { SemanticCompositePanel } from "./semantic-composite-panel";
+import { NativeDocumentComparisonPanel } from "./native-document-comparison-panel";
 import { BomPanel } from "./bom-panel";
 import { StackupPanel } from "./stackup-panel";
 import { ComparisonDiscussionRail } from "./comparison-discussion-rail";
@@ -766,18 +766,28 @@ export function DesignComparisonWorkspace({
                                         onNext={() => navigate(1)}
                                         routeMetrics={selectedRouteMetrics}
                                     />
-                                    <SemanticCompositePanel
-                                        projectId={projectId}
-                                        domain={domain}
-                                        base={base}
-                                        compare={head}
-                                        allChanges={domainChanges}
-                                        reviewGroups={groups}
-                                        selection={reviewSelection}
-                                        visibleChanges={filteredChanges}
-                                        initialVisibleLayers={visibleLayers}
-                                        onVisibleLayersChange={setVisibleLayers}
-                                    />
+                                    {result.document_diff ? (
+                                        <NativeDocumentComparisonPanel
+                                            projectId={projectId}
+                                            domain={domain}
+                                            base={base}
+                                            compare={head}
+                                            documentDiff={result.document_diff}
+                                            files={result.files}
+                                            reviewGroups={groups}
+                                            selection={reviewSelection}
+                                            initialVisibleLayers={visibleLayers}
+                                            onVisibleLayersChange={setVisibleLayers}
+                                        />
+                                    ) : (
+                                        <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
+                                            <div className="max-w-sm text-sm text-muted-foreground">
+                                                <AlertCircle className="mx-auto mb-3 h-8 w-8 text-warning" />
+                                                This result predates native document comparison.
+                                                Reopen the comparison to rebuild it.
+                                            </div>
+                                        </div>
+                                    )}
                                 </>
                             )}
                             {activeTab === "bom" && <BomPanel bom={result.bom} />}
