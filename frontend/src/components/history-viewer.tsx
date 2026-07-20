@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
     GitCommit,
     Tag,
@@ -25,6 +26,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { DesignComparisonWorkspace } from "./design-comparison/design-comparison-workspace";
+import {
+    applyOpenComparisonParams,
+    clearComparisonParams,
+    comparisonIsOpen,
+    readComparisonUrlState,
+} from "./design-comparison/comparison-url";
 import { fetchJson } from "@/lib/api";
 import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
 
@@ -398,22 +405,79 @@ export function HistoryViewer({
     canCompareDiffs,
     canComment = false,
 }: HistoryViewerProps) {
+    const [searchParams, setSearchParams] = useSearchParams();
+    const comparisonUrl = useMemo(
+        () => readComparisonUrlState(searchParams),
+        [searchParams],
+    );
     const [releases, setReleases] = useState<Release[]>([]);
     const [commits, setCommits] = useState<Commit[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
     const [baseRevision, setBaseRevision] = useState<RevisionRef | null>(() => {
-        const sha = initialParams.get("base");
+        const sha = comparisonUrl.base;
         return sha ? { sha, label: sha.slice(0, 10), kind: "commit" } : null;
     });
     const [compareRevision, setCompareRevision] = useState<RevisionRef | null>(() => {
-        const sha = initialParams.get("compare");
+        const sha = comparisonUrl.compare;
         return sha ? { sha, label: sha.slice(0, 10), kind: "commit" } : null;
     });
-    const [showDiff, setShowDiff] = useState(
-        () => Boolean(initialParams.get("base") && initialParams.get("compare")),
-    );
+    // URL is the single open/close signal. Do not flip a local showDiff flag
+    // before base/compare land — that raced the workspace URL watcher and
+    // immediately closed the review.
+    const showDiff = comparisonIsOpen(comparisonUrl);
+
+    useEffect(() => {
+        if (comparisonUrl.base) {
+            setBaseRevision((current) =>
+                current?.sha === comparisonUrl.base
+                    ? current
+                    : {
+                        sha: comparisonUrl.base!,
+                        label: comparisonUrl.base!.slice(0, 10),
+                        kind: "commit",
+                    },
+            );
+        }
+        if (comparisonUrl.compare) {
+            setCompareRevision((current) =>
+                current?.sha === comparisonUrl.compare
+                    ? current
+                    : {
+                        sha: comparisonUrl.compare!,
+                        label: comparisonUrl.compare!.slice(0, 10),
+                        kind: "commit",
+                    },
+            );
+        }
+    }, [comparisonUrl]);
+
+    const closeComparison = useCallback(() => {
+        setSearchParams((current) => clearComparisonParams(current), {
+            replace: true,
+        });
+    }, [setSearchParams]);
+
+    const clearComparisonSelection = useCallback(() => {
+        setBaseRevision(null);
+        setCompareRevision(null);
+        setSearchParams((current) => clearComparisonParams(current), {
+            replace: true,
+        });
+    }, [setSearchParams]);
+
+    const openComparison = useCallback((base: RevisionRef, compare: RevisionRef) => {
+        setBaseRevision(base);
+        setCompareRevision(compare);
+        setSearchParams(
+            (current) =>
+                applyOpenComparisonParams(current, {
+                    base: base.sha,
+                    compare: compare.sha,
+                }),
+            { replace: true },
+        );
+    }, [setSearchParams]);
 
     const setRevision = (slot: "base" | "compare", revision: RevisionRef) => {
         if (!canCompareDiffs) return;
@@ -523,9 +587,7 @@ export function HistoryViewer({
                     head={compareRevision.sha}
                     branchTipSha={commits[0]?.full_hash ?? null}
                     canComment={canComment}
-                    onClose={() => {
-                        setShowDiff(false);
-                    }}
+                    onClose={closeComparison}
                 />
             )}
 
@@ -667,7 +729,11 @@ export function HistoryViewer({
                     <Button
                         size="sm"
                         disabled={!baseRevision || !compareRevision}
-                        onClick={() => setShowDiff(true)}
+                        onClick={() => {
+                            if (baseRevision && compareRevision) {
+                                openComparison(baseRevision, compareRevision);
+                            }
+                        }}
                     >
                         Compare
                     </Button>
@@ -675,11 +741,7 @@ export function HistoryViewer({
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => {
-                            setBaseRevision(null);
-                            setCompareRevision(null);
-                            setShowDiff(false);
-                        }}
+                        onClick={clearComparisonSelection}
                         aria-label="Clear comparison"
                     >
                         <X className="h-4 w-4" />

@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
     AlertCircle,
     ChevronDown,
     ChevronLeft,
     ChevronRight,
     CircuitBoard,
+    Columns2,
     Cpu,
     FileText,
     Layers3,
     Loader2,
     MessageSquare,
     Search,
+    Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +27,13 @@ import { Input } from "@/components/ui/input";
 import { fetchApi, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CATEGORY_META, mergedKind, type Category, type DiffKind } from "@/lib/diff-grouping";
-import { NativeDocumentComparisonPanel } from "./native-document-comparison-panel";
+import { ComparisonPresentationShell } from "./comparison-presentation-shell";
+import {
+    applyWorkspaceComparisonParams,
+    readComparisonUrlState,
+    type ComparisonPresentationMode,
+    type ComparisonUrlTab,
+} from "./comparison-url";
 import { BomPanel } from "./bom-panel";
 import { StackupPanel } from "./stackup-panel";
 import { ComparisonDiscussionRail } from "./comparison-discussion-rail";
@@ -37,7 +46,8 @@ import type {
     RouteMetrics,
 } from "./types";
 
-type WorkspaceTab = "sch" | "pcb" | "bom" | "stackup";
+type WorkspaceTab = ComparisonUrlTab;
+export type PresentationMode = ComparisonPresentationMode;
 
 interface DesignComparisonWorkspaceProps {
     projectId: string;
@@ -122,18 +132,16 @@ export function groupChanges(changes: ChangeItem[], comments: Comment[]): Change
     });
 }
 
-export function readInitialUrlState(search = window.location.search) {
-    const params = new URLSearchParams(search);
-    const rawTab = params.get("diff");
-    const activeTab: WorkspaceTab =
-        rawTab === "pcb" || rawTab === "bom" || rawTab === "stackup"
-            ? rawTab
-            : "sch";
+export function readInitialUrlState(
+    search: string | URLSearchParams = window.location.search,
+) {
+    const state = readComparisonUrlState(search);
     return {
-        activeTab,
-        selectedChangeId: params.get("item"),
-        showSecondary: params.get("secondary") === "1",
-        layers: (params.get("layers") ?? "").split(",").filter(Boolean),
+        activeTab: state.diff,
+        presentationMode: state.presentationMode,
+        selectedChangeId: state.item,
+        showSecondary: state.showSecondary,
+        layers: state.layers,
     };
 }
 
@@ -409,12 +417,16 @@ export function DesignComparisonWorkspace({
     canComment,
     onClose,
 }: DesignComparisonWorkspaceProps) {
-    const initial = useMemo(readInitialUrlState, []);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const initial = useMemo(() => readInitialUrlState(searchParams), []);
     const [jobId, setJobId] = useState<string | null>(null);
     const [jobStatus, setJobStatus] = useState<DesignCompareJobStatus | null>(null);
     const [result, setResult] = useState<DesignCompareResult | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<WorkspaceTab>(initial.activeTab);
+    const [presentationMode, setPresentationMode] = useState<PresentationMode>(
+        initial.presentationMode,
+    );
     const [statuses, setStatuses] = useState<Set<ChangeKind>>(
         () => new Set(["added", "changed", "removed"]),
     );
@@ -521,32 +533,62 @@ export function DesignComparisonWorkspace({
     }, [projectId]);
 
     useEffect(() => {
-        const url = new URL(window.location.href);
-        url.searchParams.set("section", "history");
-        url.searchParams.set("base", base);
-        url.searchParams.set("compare", head);
-        url.searchParams.set("view", "semantic");
-        url.searchParams.set("diff", activeTab);
-        if (selectedChangeId) url.searchParams.set("item", selectedChangeId);
-        else url.searchParams.delete("item");
-        if (showSecondary) url.searchParams.set("secondary", "1");
-        else url.searchParams.delete("secondary");
-        if (visibleLayers.length) url.searchParams.set("layers", visibleLayers.join(","));
-        else url.searchParams.delete("layers");
-        window.history.replaceState(window.history.state, "", url);
-    }, [base, head, activeTab, selectedChangeId, showSecondary, visibleLayers]);
+        setSearchParams(
+            (current) => {
+                const next = applyWorkspaceComparisonParams(current, {
+                    base,
+                    compare: head,
+                    activeTab,
+                    presentationMode,
+                    selectedChangeId,
+                    showSecondary,
+                    visibleLayers,
+                });
+                return next.toString() === current.toString() ? current : next;
+            },
+            { replace: true },
+        );
+    }, [
+        base,
+        head,
+        activeTab,
+        presentationMode,
+        selectedChangeId,
+        showSecondary,
+        visibleLayers,
+        setSearchParams,
+    ]);
 
     useEffect(() => {
-        const handlePopState = () => {
-            const next = readInitialUrlState();
-            setActiveTab(next.activeTab);
-            setSelectedChangeId(next.selectedChangeId);
-            setShowSecondary(next.showSecondary);
-            setVisibleLayers(next.layers);
-        };
-        window.addEventListener("popstate", handlePopState);
-        return () => window.removeEventListener("popstate", handlePopState);
-    }, []);
+        const next = readComparisonUrlState(searchParams);
+        // Parent owns open/close via base+compare in the URL. Never call onClose
+        // here when params are briefly missing — that raced Compare and dismissed
+        // the dialog before open params landed.
+        if (!next.base || !next.compare) return;
+        setActiveTab((current) => (current === next.diff ? current : next.diff));
+        setPresentationMode((current) =>
+            current === next.presentationMode ? current : next.presentationMode,
+        );
+        setSelectedChangeId((current) =>
+            current === next.item ? current : next.item,
+        );
+        setShowSecondary((current) =>
+            current === next.showSecondary ? current : next.showSecondary,
+        );
+        setVisibleLayers((current) => {
+            if (
+                current.length === next.layers.length
+                && current.every((layer, index) => layer === next.layers[index])
+            ) {
+                return current;
+            }
+            return next.layers;
+        });
+    }, [searchParams]);
+
+    const handleClose = () => {
+        onClose();
+    };
 
     const domain = activeTab === "pcb" ? "pcb" : "schematic";
     const domainChanges = useMemo(() => {
@@ -715,7 +757,7 @@ export function DesignComparisonWorkspace({
             : null;
 
     return (
-        <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <Dialog open onOpenChange={(open) => !open && handleClose()}>
             <DialogContent className="flex h-[96vh] w-[98vw] max-w-none flex-col gap-0 overflow-hidden p-0">
                 <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -764,6 +806,34 @@ export function DesignComparisonWorkspace({
                                     </Button>
                                 );
                             })}
+                            {(activeTab === "sch" || activeTab === "pcb") && (
+                                <div
+                                    className="ml-2 flex items-center gap-0.5 rounded-md border bg-background p-0.5"
+                                    role="group"
+                                    aria-label="Presentation mode"
+                                >
+                                    <Button
+                                        variant={presentationMode === "composite" ? "secondary" : "ghost"}
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => setPresentationMode("composite")}
+                                        aria-pressed={presentationMode === "composite"}
+                                    >
+                                        <Square className="mr-1.5 h-3.5 w-3.5" />
+                                        Composite
+                                    </Button>
+                                    <Button
+                                        variant={presentationMode === "side-by-side" ? "secondary" : "ghost"}
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => setPresentationMode("side-by-side")}
+                                        aria-pressed={presentationMode === "side-by-side"}
+                                    >
+                                        <Columns2 className="mr-1.5 h-3.5 w-3.5" />
+                                        Side by side
+                                    </Button>
+                                </div>
+                            )}
                             <Button
                                 variant={showDiscussion ? "secondary" : "ghost"}
                                 size="sm"
@@ -812,11 +882,13 @@ export function DesignComparisonWorkspace({
                                         routeMetrics={selectedRouteMetrics}
                                     />
                                     {result.document_diff ? (
-                                        <NativeDocumentComparisonPanel
+                                        <ComparisonPresentationShell
+                                            key={`${domain}:${base}:${head}`}
                                             projectId={projectId}
                                             domain={domain}
                                             base={base}
                                             compare={head}
+                                            presentationMode={presentationMode}
                                             documentDiff={result.document_diff}
                                             files={result.files}
                                             reviewGroups={navigationGroups}

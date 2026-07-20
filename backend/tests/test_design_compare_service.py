@@ -293,6 +293,95 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual(full["changes"][0]["status"], "unchanged")
         self.assertIn("Tolerance", full["fields"])
 
+    def test_bom_value_change_with_kicad_cli_refs_header(self) -> None:
+        """Default kicad-cli BOM CSV uses Refs, not Reference."""
+        old_csv = "Refs,Value,Footprint,Qty,DNP\nR5,5.1k,R_0805_2012Metric,1,\n"
+        new_csv = "Refs,Value,Footprint,Qty,DNP\nR5,2.4k,R_0805_2012Metric,1,\n"
+        old = bom_diff_service.parse_bom_csv(old_csv)
+        new = bom_diff_service.parse_bom_csv(new_csv)
+        result = bom_diff_service.diff_boms(old, new, ["Value", "Footprint"])
+        self.assertEqual(result["summary"], {"added": 0, "removed": 0, "changed": 1})
+        self.assertEqual(result["changes"][0]["ref"], "R5")
+        self.assertEqual(result["changes"][0]["status"], "changed")
+        self.assertEqual(
+            result["changes"][0]["diffs"]["Value"],
+            {"old": "5.1k", "new": "2.4k"},
+        )
+
+    def test_stackup_extract_reads_thickness_after_color(self) -> None:
+        """KiCad often writes (color ...) between (type ...) and (thickness ...)."""
+        pcb_text = """(kicad_pcb
+  (layers
+    (0 "F.Cu" signal)
+    (31 "B.Cu" signal)
+  )
+  (setup
+    (stackup
+      (layer "F.Mask"
+        (type "Top Solder Mask")
+        (color "Green")
+        (thickness 0.0254)
+      )
+      (layer "F.Cu"
+        (type "copper")
+        (thickness 0.035)
+      )
+      (layer "dielectric 1"
+        (type "core")
+        (color "FR4 natural")
+        (thickness 1.51)
+        (material "FR4")
+      )
+      (layer "B.Cu"
+        (type "copper")
+        (thickness 0.035)
+      )
+    )
+  )
+)
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            snap = Path(temporary)
+            (snap / "board.kicad_pcb").write_text(pcb_text, encoding="utf-8")
+            stackup = design_compare_service._extract_stackup(snap)
+        self.assertTrue(stackup["present"])
+        by_name = {layer["name"]: layer for layer in stackup["layers"]}
+        self.assertEqual(by_name["F.Mask"]["thickness"], 0.0254)
+        self.assertEqual(by_name["dielectric 1"]["thickness"], 1.51)
+        self.assertEqual(by_name["F.Cu"]["type"], "copper")
+
+    def test_stackup_diff_detects_thickness_change(self) -> None:
+        base = {
+            "present": True,
+            "layers": [
+                {"name": "F.Cu", "type": "copper", "thickness": 0.035},
+                {"name": "dielectric 1", "type": "core", "thickness": 1.51},
+            ],
+        }
+        head = {
+            "present": True,
+            "layers": [
+                {"name": "F.Cu", "type": "copper", "thickness": 0.035},
+                {"name": "dielectric 1", "type": "core", "thickness": 1.2},
+            ],
+        }
+        diff = design_compare_service._diff_stackup(base, head)
+        self.assertTrue(diff["changed"])
+        self.assertTrue(diff["present"])
+        self.assertEqual(diff["head"][1]["thickness"], 1.2)
+
+    def test_bom_grouped_refs_expand_to_per_designator_rows(self) -> None:
+        old_csv = "Refs,Value,Footprint\n\"R1, R2\",10k,R_0805_2012Metric\n"
+        new_csv = "Refs,Value,Footprint\n\"R1, R2\",4.7k,R_0805_2012Metric\n"
+        old = bom_diff_service.parse_bom_csv(old_csv)
+        new = bom_diff_service.parse_bom_csv(new_csv)
+        result = bom_diff_service.diff_boms(old, new, ["Value"])
+        self.assertEqual(result["summary"]["changed"], 2)
+        self.assertEqual(
+            {row["ref"] for row in result["changes"]},
+            {"R1", "R2"},
+        )
+
     def test_revision_resolution_returns_full_immutable_sha(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

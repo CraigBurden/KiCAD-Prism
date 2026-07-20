@@ -203,6 +203,8 @@ export interface ECadViewerElement extends HTMLElement {
         kind: "change" | "group";
         id: string;
     }): Promise<EcadDocumentComparisonSelectionResult>;
+    /** Abort in-flight comparison loads without tearing down painted presentation. */
+    abortDocumentComparisonLoad?(): void;
     clearDocumentComparison(): void;
     zoomToLocation(x: number, y: number): void;
     switchPage(pageId: string): void;

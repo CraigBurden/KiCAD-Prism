@@ -324,7 +324,20 @@ def _export_bom_csv(snap: Path, logs: List[str]) -> str:
         return ""
     out = snap / "_bom.csv"
     cli = _get_cli_command()
-    cmd = [cli, "sch", "export", "bom", "--output", str(out), sch]
+    # Request Reference explicitly. Default kicad-cli labels use "Refs", which
+    # historically caused every BOM row to be dropped by the Reference matcher.
+    bom_fields = ["Reference", "Value", "Footprint", "Datasheet"]
+    cmd = [
+        cli,
+        "sch",
+        "export",
+        "bom",
+        "--fields",
+        ",".join(bom_fields),
+        "--output",
+        str(out),
+        sch,
+    ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0 or not out.exists():
         logs.append(f"kicad-cli bom export failed: {proc.stderr[:200]}")
@@ -344,7 +357,8 @@ def _extract_stackup(snap: Path) -> Dict[str, Any]:
     if not pcb:
         return {"present": False, "layers": []}
     text = pcb.read_text(encoding="utf-8", errors="replace")
-    # Prefer (stackup ...) block layers
+    # Prefer (stackup ...) block layers. Parse each (layer ...) form independently so
+    # fields like (color ...) between (type ...) and (thickness ...) are tolerated.
     layers: List[Dict[str, Any]] = []
     stackup_start = re.search(r"\(stackup(?=\s|\))", text)
     stackup_end = (
@@ -353,15 +367,17 @@ def _extract_stackup(snap: Path) -> Dict[str, Any]:
         else None
     )
     body = text[stackup_start.start():stackup_end] if stackup_start and stackup_end else ""
-    for m in re.finditer(
-        r'\(layer\s+"([^"]+)"\s*\(type\s+"([^"]+)"\)(?:\s*\(thickness\s+([0-9.eE+-]+)\))?',
-        body,
-    ):
+    for layer_block in _iter_sexpr_blocks(body, "layer"):
+        name_match = re.match(r'\(layer\s+"([^"]+)"', layer_block)
+        if not name_match:
+            continue
+        type_match = re.search(r'\(type\s+"([^"]*)"\)', layer_block)
+        thickness_match = re.search(r"\(thickness\s+([-+0-9.eE]+)\)", layer_block)
         layers.append(
             {
-                "name": m.group(1),
-                "type": m.group(2),
-                "thickness": float(m.group(3)) if m.group(3) else None,
+                "name": name_match.group(1),
+                "type": type_match.group(1) if type_match else "",
+                "thickness": float(thickness_match.group(1)) if thickness_match else None,
             }
         )
     if not layers:

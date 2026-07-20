@@ -17,7 +17,9 @@ comment areas. Difference graphics are not host overlays:
   the same retained scene;
 - selection uses one internal highlight box and precomputed camera bounds.
 
-No ghost, split, image-overlay, measurement, or legacy visual mode is retained.
+No ghost, image-overlay, measurement, or legacy visual mode is retained. Host
+Side-by-side (two normal revision viewers) is an optional presentation mode
+alongside Composite; it does not use `loadDocumentComparison`.
 
 ## Provider boundary
 
@@ -70,6 +72,15 @@ shape independently.
 - Prism semantic-to-DOCUMENT_DIFF provider and field-only geometry hydration
 - one-viewer History comparison panel with existing filters, discussions, BOM,
   Stackup, URL state, and PCB layers preserved
+- host-level Side-by-side presentation mode (Base | Compare dual viewers with
+  synced cameras); Composite remains the default native retained-scene path.
+  Old/New single-canvas toggle is deferred. Mode is URL-backed via
+  `presentation=side-by-side`.
+- schematic paper bypass (`:DrawingSheet:Background`) so unchanged geometry
+  stays readable on white paper in composite SCH
+- direct SCH/PCB tab activation in ecad-viewer (no hidden-header click hang)
+- Visualizer-style PCB layers drawer in compare; React Router owns review URL
+  open/close (`base`/`compare` cleared on exit)
 
 ## Remaining performance phases
 
