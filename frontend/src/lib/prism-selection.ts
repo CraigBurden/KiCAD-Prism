@@ -220,6 +220,9 @@ export function crossProbeRequestForSelection(
         const targetUuid = targetContext === "SCH"
             ? component?.schematicRefs?.[0]?.symbolUuid
             : component?.pcbRefs?.[0]?.footprintUuid;
+        const schPageHint = targetContext === "SCH"
+            ? schematicPageHint(component?.schematicRefs?.[0])
+            : undefined;
         return {
             sourceContext: selection.sourceContext,
             targetContext,
@@ -230,9 +233,8 @@ export function crossProbeRequestForSelection(
             componentUid: selection.componentUid,
             uuid: targetUuid,
             crossIndex: targetReference?.crossIndex,
-            page: targetContext === "SCH"
-                ? component?.schematicRefs?.[0]?.page
-                : undefined,
+            page: schPageHint,
+            sheet: schPageHint,
         };
     }
 
@@ -243,6 +245,12 @@ export function crossProbeRequestForSelection(
                 semanticIndex.indexes.terminalByReferencePin?.[`${selection.reference}:${selection.pin}`] ?? -1
             ];
         const targetUuid = targetContext === "SCH" ? terminal?.schematicPinUuid : terminal?.pcbPadUuid;
+        const component = semanticIndex?.components.find((entry) =>
+            entry.componentUid === (terminal?.componentUid || selection.componentUid)
+            || entry.reference === selection.reference);
+        const schPageHint = targetContext === "SCH"
+            ? schematicPageHint(component?.schematicRefs?.[0])
+            : undefined;
         return {
             sourceContext: selection.sourceContext,
             targetContext,
@@ -255,6 +263,8 @@ export function crossProbeRequestForSelection(
             componentUid: selection.componentUid,
             terminalUid: selection.terminalUid,
             netUid: selection.netUid,
+            page: schPageHint,
+            sheet: schPageHint,
         };
     }
 
@@ -263,11 +273,18 @@ export function crossProbeRequestForSelection(
         String(a.page || "").localeCompare(String(b.page || "")),
     );
     const preferredPage = selection.anchor?.page || selection.anchor?.sheet;
+    const preferredPageIsSchematic = Boolean(
+        preferredPage
+        && !/\.kicad_pcb$/i.test(preferredPage)
+        && (preferredPage.includes(":") || /\.kicad_sch$/i.test(preferredPage)
+            || /[0-9a-f]{8}-[0-9a-f]{4}/i.test(preferredPage)),
+    );
     const preferredSchRef =
-        (preferredPage
+        (preferredPageIsSchematic
             ? schematicRefs.find((reference) =>
                 reference.page === preferredPage
-                || reference.sheetInstancePath === preferredPage)
+                || reference.sheetInstancePath === preferredPage
+                || schematicPageHint(reference) === preferredPage)
             : undefined)
         ?? schematicRefs[0];
     const uuids = targetContext === "SCH"
@@ -291,6 +308,12 @@ export function crossProbeRequestForSelection(
             ...(reference.zoneUuids || []),
             ...(reference.padUuids || []),
         ]);
+    // Never fall back to a PCB filename/anchor — that produced showPage("board.kicad_pcb").
+    const schPageHint = targetContext === "SCH"
+        ? (preferredPageIsSchematic
+            ? (preferredPage!.includes(":") ? preferredPage : schematicPageHint(preferredSchRef) || preferredPage)
+            : schematicPageHint(preferredSchRef))
+        : undefined;
     return {
         sourceContext: selection.sourceContext,
         targetContext,
@@ -301,8 +324,32 @@ export function crossProbeRequestForSelection(
         netCode: selection.netCode ?? net?.netCode,
         netUid: selection.netUid,
         uuid: uuids[0],
-        page: targetContext === "SCH" ? preferredSchRef?.page : undefined,
-        sheet: targetContext === "SCH" ? preferredSchRef?.page : undefined,
+        page: schPageHint,
+        sheet: schPageHint,
         uuids,
     };
+}
+
+/** Build an ecad-viewer project_path hint: `filename:sheet_path`. */
+function schematicPageHint(
+    reference: { page?: string; sheetInstancePath?: string } | undefined,
+): string | undefined {
+    if (!reference) return undefined;
+    const page = reference.page?.trim();
+    const sheetPath = reference.sheetInstancePath?.trim();
+    // Semantic indexes often store KiCad *human* sheet paths in both fields
+    // (e.g. "/Power Section/VR5510/"). ecad-viewer pages use
+    // `filename:/uuid/uuid` — only emit a hint the viewer can resolve.
+    const pageIsFilename = Boolean(page && /\.kicad_sch$/i.test(page));
+    const sheetIsUuidPath = Boolean(
+        sheetPath
+        && sheetPath !== "/"
+        && /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(sheetPath),
+    );
+    if (pageIsFilename && sheetIsUuidPath) {
+        return `${page}:${sheetPath}`;
+    }
+    if (pageIsFilename) return page;
+    if (sheetIsUuidPath) return sheetPath;
+    return undefined;
 }

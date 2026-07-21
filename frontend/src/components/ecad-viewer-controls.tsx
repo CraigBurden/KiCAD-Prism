@@ -55,15 +55,41 @@ export function EcadViewerControls({ context, viewer }: EcadViewerControlsProps)
 
     const refresh = useCallback(() => {
         if (!viewer) return;
-        if (context === "SCH") setPages(viewer.getSchematicPages?.() ?? []);
-        else setPcbState(viewer.getPcbViewState?.() ?? null);
+        if (context === "SCH") {
+            setPages(viewer.getSchematicPages?.() ?? []);
+            return;
+        }
+        setPcbState(viewer.getPcbViewState?.() ?? null);
     }, [context, viewer]);
 
     useEffect(() => {
         refresh();
         viewer?.addEventListener("ecad-viewer:view-state-change", refresh);
-        return () => viewer?.removeEventListener("ecad-viewer:view-state-change", refresh);
-    }, [refresh, viewer]);
+
+        // Board paint can finish after the first view-state-change (which still
+        // reports null layers). Re-poll briefly until layers appear.
+        let cancelled = false;
+        let attempts = 0;
+        let timer: number | undefined;
+        if (context === "PCB" && viewer) {
+            const poll = () => {
+                if (cancelled || attempts++ > 40) return;
+                const state = viewer.getPcbViewState?.() ?? null;
+                if (state?.layers?.length) {
+                    setPcbState(state);
+                    return;
+                }
+                timer = window.setTimeout(poll, 150);
+            };
+            timer = window.setTimeout(poll, 150);
+        }
+
+        return () => {
+            cancelled = true;
+            if (timer !== undefined) window.clearTimeout(timer);
+            viewer?.removeEventListener("ecad-viewer:view-state-change", refresh);
+        };
+    }, [context, refresh, viewer]);
 
     const visiblePages = useMemo(() => {
         const normalized = query.trim().toLocaleLowerCase();

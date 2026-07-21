@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PRISM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ECAD_VIEWER_DIR="${ECAD_VIEWER_DIR:-${PRISM_ROOT}/../ecad-viewer-prism-refactor}"
+ECAD_VIEWER_DIR="${ECAD_VIEWER_DIR:-${PRISM_ROOT}/../ecad-viewer}"
 APP_DIR="${ECAD_VIEWER_DIR}/packages/ecad-viewer-app"
 PUBLIC_DIR="${PRISM_ROOT}/frontend/public"
 UPSTREAM_COMMIT="$(tr -d '[:space:]' < "${PRISM_ROOT}/scripts/ecad-viewer-upstream.lock")"

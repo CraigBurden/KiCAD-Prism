@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EngineeringBomTable } from "./engineering-bom-table";
-import { SelectionInspector } from "./selection-inspector";
+import { SelectionInspector, type LabelInstanceRef } from "./selection-inspector";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
 import { EcadViewerControls } from "./ecad-viewer-controls";
 import { CommentForm, type CommentFormSubmitPayload } from "./comment-form";
@@ -168,12 +168,14 @@ function EcadViewerHost({ viewerKey, sources, active, setViewerRef, onReady }: E
                 revisionKey: viewerKey,
                 sources: [rootSource],
             });
-            if (
-                !cancelled &&
-                hostRef.current?.isReady &&
-                appendedSources.length === 0
-            ) {
+            if (cancelled || !hostRef.current) return;
+            // Wait for project load. Do not gate on host.isReady — the custom
+            // element exposes `ready` (Promise), not a boolean isReady flag.
+            // Gating on undefined left ecadReadyRevision unset forever, which
+            // blocked Escape clears and SCH cross-probe apply.
+            if (appendedSources.length === 0) {
                 await hostRef.current.ready;
+                if (cancelled || !hostRef.current) return;
                 hostRef.current.dataset.ecadReadyRevision = viewerKey;
                 onReady();
             }
@@ -197,11 +199,11 @@ function EcadViewerHost({ viewerKey, sources, active, setViewerRef, onReady }: E
                 revisionKey: viewerKey,
                 sources: appendedSources,
             });
-            if (!cancelled && hostRef.current?.isReady) {
-                await hostRef.current.ready;
-                hostRef.current.dataset.ecadReadyRevision = viewerKey;
-                onReady();
-            }
+            if (cancelled || !hostRef.current) return;
+            await hostRef.current.ready;
+            if (cancelled || !hostRef.current) return;
+            hostRef.current.dataset.ecadReadyRevision = viewerKey;
+            onReady();
         };
         void appendRemainingSources();
         return () => { cancelled = true; };
@@ -258,6 +260,8 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [semanticIndexRetryToken, setSemanticIndexRetryToken] = useState(0);
     const [selectionInspectorOpen, setSelectionInspectorOpen] = useState(false);
     const [componentImportPending, setComponentImportPending] = useState(false);
+    const [labelInstances, setLabelInstances] = useState<LabelInstanceRef[]>([]);
+    const [navigatingLabelInstance, setNavigatingLabelInstance] = useState(false);
     const [activeSchematicPage, setActiveSchematicPage] = useState<{
         projectPath: string;
         filename: string;
@@ -585,11 +589,34 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     }, [activeTab]);
 
     // Re-apply an active cross-probe when SCH/PCB becomes visible so hatch/net
-    // Focus paints that ran while the canvas was hidden are rebuilt.
+    // Focus paints that ran while the canvas was hidden are rebuilt. For SCH,
+    // also force the hierarchical page from the probe so the correct sheet is
+    // visible when the user opens the tab after probing from PCB.
     useEffect(() => {
-        if (activeTab === "pcb") notifyClientReady("visualizer-pcb");
-        if (activeTab === "sch") notifyClientReady("visualizer-schematic");
-    }, [activeTab, notifyClientReady]);
+        if (activeTab === "pcb") {
+            notifyClientReady("visualizer-pcb");
+            return;
+        }
+        if (activeTab !== "sch") return;
+
+        const viewer = schematicViewerRef.current;
+        const selection = globalSelection;
+        if (viewer && selection) {
+            const request = crossProbeRequestForSelection(selection, "SCH", semanticIndex);
+            if (request.page && typeof viewer.showPage === "function") {
+                void viewer.showPage(request.page).finally(() => {
+                    notifyClientReady("visualizer-schematic");
+                });
+                return;
+            }
+            // No resolvable page hint (common when the semantic index only has
+            // human sheet paths). Still re-dispatch so uuid/designator lookup
+            // can activate the correct hierarchical page.
+            notifyClientReady("visualizer-schematic");
+            return;
+        }
+        notifyClientReady("visualizer-schematic");
+    }, [activeTab, globalSelection, notifyClientReady, semanticIndex]);
 
     useEffect(() => {
         const schematicViewer = schematicViewerElement;
@@ -640,7 +667,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
             const request = crossProbeRequestForSelection(selection, targetContext, semanticIndex);
             void (async () => {
                 const resolved = await viewer.requestCrossProbe(request);
-                if (!resolved.ok && selection.kind === "terminal") {
+                if (!resolved && selection.kind === "terminal") {
                     await viewer.requestCrossProbe({
                         sourceContext: selection.sourceContext,
                         targetContext,
@@ -681,6 +708,78 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     useEffect(() => {
         if (globalSelection) setSelectionInspectorOpen(true);
     }, [globalSelection]);
+
+    useEffect(() => {
+        const selection = globalSelection;
+        const viewer = schematicViewerRef.current;
+        if (
+            !selection ||
+            selection.kind !== "net" ||
+            selection.sourceContext !== "SCH" ||
+            !viewer?.findLabelInstances
+        ) {
+            setLabelInstances([]);
+            return;
+        }
+
+        const itemType = (selection.anchor?.itemType || "").toLowerCase();
+        if (itemType !== "global-label" && itemType !== "label") {
+            setLabelInstances([]);
+            return;
+        }
+
+        const all = viewer.findLabelInstances(selection.netName);
+        const pageHint =
+            activeSchematicPage?.filename ||
+            selection.anchor?.page ||
+            selection.anchor?.sheet ||
+            undefined;
+        const sheetBase = (value: string) => {
+            const parts = value.split("/").filter(Boolean);
+            return parts[parts.length - 1] || value;
+        };
+        const sheetMatches = (sheet: string, page: string | undefined) => {
+            if (!page) return true;
+            if (sheet === page) return true;
+            return sheetBase(sheet) === sheetBase(page);
+        };
+
+        const filtered =
+            itemType === "global-label"
+                ? all.filter((instance) => instance.kind === "global")
+                : all.filter(
+                      (instance) =>
+                          instance.kind === "net" && sheetMatches(instance.sheet, pageHint),
+                  );
+        setLabelInstances(filtered);
+    }, [activeSchematicPage?.filename, globalSelection, schematicViewerElement]);
+
+    const focusLabelInstance = useCallback(async (uuid: string) => {
+        const viewer = schematicViewerRef.current;
+        if (!viewer?.focusLabelInstance) return;
+        setNavigatingLabelInstance(true);
+        try {
+            await viewer.focusLabelInstance(uuid);
+        } finally {
+            setNavigatingLabelInstance(false);
+        }
+    }, []);
+
+    const navigateLabelInstance = useCallback(
+        (direction: -1 | 1) => {
+            if (labelInstances.length < 2) return;
+            const activeUuid = globalSelection?.uuid || globalSelection?.anchor?.uuid;
+            const currentIndex = Math.max(
+                0,
+                labelInstances.findIndex((instance) => instance.uuid === activeUuid),
+            );
+            const nextIndex =
+                (currentIndex + direction + labelInstances.length) % labelInstances.length;
+            const next = labelInstances[nextIndex];
+            if (next) void focusLabelInstance(next.uuid);
+        },
+        [focusLabelInstance, globalSelection?.anchor?.uuid, globalSelection?.uuid, labelInstances],
+    );
 
     // Track the active schematic page so comment overlay filtering can match
     // comments to the currently visible sheet.
@@ -1159,6 +1258,10 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     onImportComponent={globalSelection?.kind === "net" ? undefined : handleImportSelectedComponent}
                     canImportComponent={canImportLibraryComponent}
                     importingComponent={componentImportPending}
+                    labelInstances={labelInstances}
+                    onNavigateLabelInstance={navigateLabelInstance}
+                    onFocusLabelInstance={(uuid) => void focusLabelInstance(uuid)}
+                    navigatingLabelInstance={navigatingLabelInstance}
                 />
             </div>
 

@@ -216,6 +216,17 @@ export interface ECadViewerElement extends HTMLElement {
     focusBBox?(x: number, y: number, w: number, h: number): Promise<CameraState | null>;
     /** Focus an item by uuid; resolves the settled camera or null. */
     focusItem?(uuid: string, opts?: { select?: boolean; pad?: number }): Promise<CameraState | null>;
+    /**
+     * Label / global-label instances that share `name` (for Selection Next/Prev).
+     */
+    findLabelInstances?(name: string): Array<{
+        uuid: string;
+        sheet: string;
+        name: string;
+        kind?: "global" | "net" | "hierarchical";
+    }>;
+    /** Switch sheet if needed, frame the label uuid, and emit selection. */
+    focusLabelInstance?(uuid: string): Promise<boolean>;
     /** Convenience cross-probe by designator/uuid in the active viewer. Prefer requestCrossProbe. */
     crossProbe?(reference: string): Promise<CameraState | null>;
     /** Active tab's camera as a plain value, or null before load. Settable. */

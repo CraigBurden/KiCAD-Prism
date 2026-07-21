@@ -28,7 +28,9 @@ export function usePrismCrossProbe(
     const dispatch = useCallback((next: PrismSelection | null, onlyClientId?: string) => {
         for (const client of clientsRef.current.values()) {
             if (onlyClientId && client.id !== onlyClientId) continue;
-            if (!client.isReady()) {
+            // Clears must always reach viewers — sticky PCB Focus is applied
+            // locally even when the host ready bit was wrong.
+            if (!client.isReady() && next !== null) {
                 continue;
             }
             if (
