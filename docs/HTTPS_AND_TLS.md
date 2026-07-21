@@ -61,6 +61,7 @@ DEV_MODE=false
 SESSION_SECRET=<long-random-value>
 SESSION_COOKIE_SECURE=true
 CORS_ORIGINS_STR=https://prism.example.com
+PUBLIC_BASE_URL=https://prism.example.com
 
 OIDC_ISSUER_URL=https://sso.example.com/realms/engineering
 OIDC_CLIENT_ID=kicad-prism
@@ -70,12 +71,18 @@ OIDC_PROVIDER_NAME=SSO
 BOOTSTRAP_ADMIN_USERS_STR=admin@example.com
 ```
 
+`PUBLIC_BASE_URL` is the hard override for absolute URLs advertised to KiCad (Remote Symbols
+metadata and OAuth endpoints). Prefer it for multi-hop proxies (ALB → Kong → Compose, outer
+nginx → frontend nginx → backend). If unset, Prism derives the origin from
+`X-Forwarded-Proto` / `X-Forwarded-Host` (or `Host`) and finally `request.base_url`.
+
 Identity provider redirect URIs (exact match):
 
 - Web UI: `https://prism.example.com/auth/callback`
 - KiCad remote-provider login: `https://prism.example.com/oauth/oidc/callback`
 
-Optional, when helper URLs for comments or tooling must ignore request-derived hosts:
+Optional, when comments helpers must ignore request-derived hosts (wins over `PUBLIC_BASE_URL`
+for comments only):
 
 ```env
 COMMENTS_API_BASE_URL=https://prism.example.com
@@ -243,6 +250,7 @@ Then set Prism `.env` exactly as in the HTTPS section above.
 |---------|-------------|-----|
 | `SESSION_COOKIE_SECURE` | `true` | Prevents cookies on plain HTTP |
 | `CORS_ORIGINS_STR` | exact `https://...` origin | Credentialed browser calls |
+| `PUBLIC_BASE_URL` | exact `https://...` origin | Absolute URLs for KiCad Remote Symbols / OAuth |
 | IdP redirect URIs | HTTPS callbacks only | Matches browser and KiCad login return URLs |
 | `DEV_MODE` | `false` | Auth actually enabled |
 
@@ -283,9 +291,16 @@ Detailed product steps: [REMOTE_SYMBOL_PROVIDER.md](REMOTE_SYMBOL_PROVIDER.md) a
 
 ### Metadata shows `http://` or `backend:8000`
 
-Cause: outer proxy missing `X-Forwarded-Proto: https` or overwriting `Host`.
+Cause: outer proxy missing `X-Forwarded-Proto: https`, overwriting `Host`, or an older frontend
+Nginx that forced `$scheme` on the internal HTTP hop to the backend.
 
-Fix: preserve public Host; force forwarded proto to `https`; restart proxy; re-fetch metadata.
+Fix:
+
+1. Set `PUBLIC_BASE_URL=https://<public-host>`
+2. Preserve public Host and force `X-Forwarded-Proto: https` on the outer proxy
+3. Restart proxy + Compose; re-fetch metadata
+
+Frontend Nginx preserves an incoming `X-Forwarded-Proto` (falls back to `$scheme` for direct HTTP).
 
 ### Browser works, KiCad panel shows certificate / network error
 
