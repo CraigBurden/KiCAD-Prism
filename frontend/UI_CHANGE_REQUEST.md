@@ -2,51 +2,59 @@
 
 ## Screenshots
 
-- Current UI screenshot: `/var/folders/16/cv6qs1kd1hlg28vrg96rsg040000gq/T/codex-clipboard-08ec566c-f774-44c4-a11a-99e24503dd77.png`.
-- Annotation notes: Remove the semantic glTF eyebrow, project title, and persistent active-status copy from the 3D drawer. Promote the PCB/3D segmented control into that space so Layers follows immediately below.
-- Reference implementation: Reuse and polish the existing semantic viewer Stackup workspace as a full-page Visualizer tab.
+- Current state: existing History workspace on `feature/history-design-comparison`.
+- Target reference: KiCad V11-style single native comparison scene discussed in
+  this task.
 
 ## Where
 
-- Route(s): `/project/:projectId`, Visualizers section.
-- Screen/component name(s): Visualizer tab bar, WebGPU 3D drawer, Stackup Viewer, shared WebGPU asset-readiness states.
+- Route: `/project/:projectId?section=history&base=<sha>&compare=<sha>`.
+- Components: History Design Comparison workspace, Differences pane, native
+  comparison canvas, existing comparison discussions.
 
 ## Before -> After
 
-1. Restore the PCB/3D segmented-control behavior after its move into the drawer header.
-2. Give the selected PCB/3D mode an unambiguous primary-color active state.
-3. Reduce the cross-section graphic scale slightly.
-4. Make the cross-section card independently scrollable while the right-side information remains stationary.
-5. Append millimetre units to impedance-class values.
-6. Strengthen the visual hierarchy of Fabrication, Layers Stackup, and Impedance Net Classes headings.
-7. Normalize via endpoints from layer IDs, endpoint IDs, or layer masks and render distinct thru, blind, and buried spans.
-8. Put a true thickness dimension and available layer metadata directly beside every cross-section layer.
-9. Keep layer-table and graphic hover highlighting synchronized by stable layer ID.
-10. Auto-scroll the independent cross-section pane to the matching layer when a layer-table row is hovered or focused.
+1. Preserve the existing Commit and Release History views.
+2. Replace the two-viewer review graphics path with one native ecad-viewer
+   comparison document.
+3. Keep unchanged comparison content monochrome; paint added native items
+   green, removed reference items red, and modified comparison items amber.
+4. Load two immutable revision source sets plus KiCad-shaped DOCUMENT_DIFF
+   data through one viewer API.
+5. Selecting a difference updates the row immediately, then performs one O(1)
+   viewer selection request using precomputed native bounds.
+6. Switching changed files reuses parsed revisions and prepared document data.
+7. Show explicit loading, unresolved-source, empty-document, and selection
+   diagnostics in the canvas.
+8. Keep PCB physical layer controls; remove measurement and alternate visual
+   modes from this iteration.
+9. Keep BOM, Stackup, search/status filters, URL restoration, and comparison
+   discussions intact.
+10. Publish canvas comments only through the typed comment-overlay API.
+11. Treat schematic and PCB files at the same commit as distinct immutable
+    source manifests.
+12. Keep group expansion independent from group/item selection and focus the
+    retained native bounds on every selected row.
+13. Apply subdued monochrome treatment to unchanged PCB and schematic content,
+    including the schematic drawing sheet.
 
 ## Constraints
 
-- New dependencies allowed: no; use existing React, Tailwind, ShadCN/Radix and lucide-react.
-- Dark mode impact: all additions use existing semantic tokens.
-- Breakpoints to verify: desktop primary; narrow layouts must keep tabs scrollable and the inspector usable.
-- Behavior constraints: SCH/PCB must never wait for semantic index or WebGPU assets; 3D selections defer until ready.
-- Behavior constraints: Stackup remains on the same mounted semantic viewer and generated-asset contract.
-- Behavior constraints: scrolling the cross-section must not move the side information at desktop widths.
-- Behavior constraints: table-driven reveal must scroll only the cross-section pane, never the side inspector or page.
-- Non-goals: changing the stackup artifact schema, replacing ecad-viewer 2D rendering, or adding a new backend endpoint.
+- New dependencies allowed: no.
+- Dark mode impact: canvas chrome and diagnostics use existing semantic tokens.
+- Breakpoints to verify: desktop and narrow workspace.
+- Behavior constraints: no Git checkout mutation; no source reload or full
+  document paint during a warm item selection; no arbitrary public graphics.
+- Non-goals: ghost/split/legacy modes, measurement, formal approvals, and
+  free-form comparison markup.
 
-## Done-When Checklist
+## Done-When Checklist (pass/fail)
 
-- [x] PCB and 3D both switch modes and expose an active pressed state.
-- [x] The selected mode uses Prism's primary theme color in light and dark modes.
-- [x] The cross-section graphic is slightly smaller and scrolls independently on desktop.
-- [x] Side summaries and tables remain stationary while the cross-section scrolls.
-- [x] Impedance-class measurements display `mm` values.
-- [x] Requested Stackup section headings are visually prominent.
-- [x] Thru, blind, and buried spans classify and render distinctly.
-- [x] Narrow layouts retain a usable document-style scroll flow.
-- [x] Frontend lint/build and semantic viewer build pass.
-- [x] Cross-section callouts show thickness, role/subtype, material, and dielectric properties when available.
-- [x] Total board thickness is dimensioned on the graphic.
-- [x] Hovering or focusing a layer-table row highlights and centers the corresponding graphic layer.
-- [x] Table-driven reveal changes only the diagram scroll position; it does not programmatically scroll the side panel or outer page.
+- [x] Visual update matches requested after state.
+- [x] No hardcoded frontend colors introduced.
+- [x] Existing Commit and Release views are preserved.
+- [x] Loading, empty, unresolved, and error states remain valid.
+- [x] Keyboard focus and labels remain accessible.
+- [x] Changes limited to the comparison seam and comment API migration.
+- [ ] Warm selection records zero parser invocations and zero full paints.
+- [x] Frontend lint/build and focused tests pass.

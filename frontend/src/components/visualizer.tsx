@@ -16,10 +16,9 @@ import { usePrismCrossProbe } from "@/hooks/use-prism-cross-probe";
 import type { User } from "@/types/auth";
 import type {
     ECadViewerElement,
+    EcadCommentAnchor,
     EcadCommentAreaDetail,
-    EcadOverlayAnchor,
-    EcadOverlayHitDetail,
-    EcadOverlayPrimitive,
+    EcadCommentOverlayHitDetail,
     EcadSemanticSelectionDetail,
 } from "@/types/ecad-viewer";
 import type { PrismSelection, PrismSemanticIndex } from "@/types/prism-selection";
@@ -67,8 +66,6 @@ interface PendingCommentElement {
     elementType?: string;
 }
 
-const COMMENTS_OVERLAY_CHANNEL = "comments";
-
 function applyCommentMode(viewer: ECadViewerElement | null, enabled: boolean): void {
     if (!viewer) return;
     viewer.setCommentMode?.(enabled);
@@ -115,47 +112,26 @@ function publishCommentsOverlay(
         return true;
     });
 
-    const primitives: EcadOverlayPrimitive[] = [];
-    for (const comment of filtered) {
-        const page = comment.location.page;
-        const anchor: EcadOverlayAnchor = comment.elementId
-            ? { kind: "source-item", uuid: comment.elementId, page }
-            : { kind: "world", x: comment.location.x, y: comment.location.y, page };
-
-        primitives.push({
-            id: comment.id,
-            kind: "marker",
-            anchor,
-            glyph: "comment",
-            sizing: "screen",
-            radius: 10,
-            fill: "#facc1580",
-            stroke: "#ca8a04",
-            interactive: true,
-            metadata: { commentId: comment.id },
-            accessibilityLabel: comment.content.slice(0, 80),
-        });
-
-                if (comment.location.bounds) {
-            primitives.push({
-                id: `${comment.id}-area`,
-                kind: "bbox",
-                anchor: { kind: "bbox", bounds: comment.location.bounds, page },
-                stroke: "#ca8a04",
-                dash: [2, 1.5],
-                strokeWidth: 0.15,
-                interactive: true,
-                metadata: { commentId: comment.id },
-                sizing: "world",
-            });
-        }
-    }
-
-    viewer.setOverlayScene(COMMENTS_OVERLAY_CHANNEL, {
+    viewer.setCommentOverlays({
         context,
-        placement: "foreground",
-        visible: true,
-        primitives,
+        comments: filtered.map((comment) => {
+            const page = comment.location.page;
+            const anchor: EcadCommentAnchor = comment.elementId
+                ? { kind: "source-item", uuid: comment.elementId, page }
+                : {
+                      kind: "world",
+                      x: comment.location.x,
+                      y: comment.location.y,
+                      page,
+                  };
+            return {
+                id: comment.id,
+                anchor,
+                areaBounds: comment.location.bounds,
+                metadata: { commentId: comment.id },
+                accessibilityLabel: comment.content.slice(0, 80),
+            };
+        }),
     });
 }
 
@@ -736,13 +712,13 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     useEffect(() => {
         if (activeTab === "sch") {
             publishCommentsOverlay(schematicViewerElement, "SCH", comments, activeSchematicPage);
-            pcbViewerElement?.clearOverlayScene(COMMENTS_OVERLAY_CHANNEL);
+            pcbViewerElement?.clearCommentOverlays("PCB");
         } else if (activeTab === "pcb") {
             publishCommentsOverlay(pcbViewerElement, "PCB", comments);
-            schematicViewerElement?.clearOverlayScene(COMMENTS_OVERLAY_CHANNEL);
+            schematicViewerElement?.clearCommentOverlays("SCH");
         } else {
-            schematicViewerElement?.clearOverlayScene(COMMENTS_OVERLAY_CHANNEL);
-            pcbViewerElement?.clearOverlayScene(COMMENTS_OVERLAY_CHANNEL);
+            schematicViewerElement?.clearCommentOverlays("SCH");
+            pcbViewerElement?.clearCommentOverlays("PCB");
         }
     }, [activeTab, activeSchematicPage, comments, pcbViewerElement, schematicViewerElement]);
 
@@ -753,15 +729,14 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     }, [activeTab, commentMode, pcbViewerElement, schematicViewerElement]);
 
     const openCommentCardForOverlayHit = useCallback((event: Event) => {
-        const detail = (event as CustomEvent<EcadOverlayHitDetail>).detail;
-        if (detail.channelId !== COMMENTS_OVERLAY_CHANNEL) return;
+        const detail = (event as CustomEvent<EcadCommentOverlayHitDetail>).detail;
         const metadata = detail.metadata as { commentId?: string } | null | undefined;
-        const commentId = metadata?.commentId ?? detail.primitiveId.replace(/-area$/, "");
+        const commentId = metadata?.commentId ?? detail.commentId;
         if (!commentId) return;
         const viewer = detail.context === "SCH" ? schematicViewerRef.current : pcbViewerRef.current;
         setSelectedCommentId(commentId);
         setCommentCardScreenPosition(
-            worldToViewportScreen(viewer, detail.resolvedAnchor.x, detail.resolvedAnchor.y),
+            worldToViewportScreen(viewer, detail.x, detail.y),
         );
     }, []);
 
@@ -785,14 +760,14 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         const pcbViewer = pcbViewerElement;
         if (!schematicViewer && !pcbViewer) return;
 
-        schematicViewer?.addEventListener("ecad-viewer:overlay-click", openCommentCardForOverlayHit as EventListener);
-        pcbViewer?.addEventListener("ecad-viewer:overlay-click", openCommentCardForOverlayHit as EventListener);
+        schematicViewer?.addEventListener("ecad-viewer:comment-overlay-click", openCommentCardForOverlayHit as EventListener);
+        pcbViewer?.addEventListener("ecad-viewer:comment-overlay-click", openCommentCardForOverlayHit as EventListener);
         schematicViewer?.addEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
         pcbViewer?.addEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
 
         return () => {
-            schematicViewer?.removeEventListener("ecad-viewer:overlay-click", openCommentCardForOverlayHit as EventListener);
-            pcbViewer?.removeEventListener("ecad-viewer:overlay-click", openCommentCardForOverlayHit as EventListener);
+            schematicViewer?.removeEventListener("ecad-viewer:comment-overlay-click", openCommentCardForOverlayHit as EventListener);
+            pcbViewer?.removeEventListener("ecad-viewer:comment-overlay-click", openCommentCardForOverlayHit as EventListener);
             schematicViewer?.removeEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
             pcbViewer?.removeEventListener("ecad-viewer:comment-area", handleCommentAreaEvent as EventListener);
         };

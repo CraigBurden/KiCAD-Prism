@@ -30,7 +30,7 @@ install -m 0644 "${APP_DIR}/build/parser.worker.js" "${PUBLIC_DIR}/parser.worker
 ADAPTER_COMMIT="$(git -C "${ECAD_VIEWER_DIR}" rev-parse HEAD)"
 ECAD_SHA="$(shasum -a 256 "${PUBLIC_DIR}/ecad-viewer.js" | awk '{print $1}')"
 WORKER_SHA="$(shasum -a 256 "${PUBLIC_DIR}/parser.worker.js" | awk '{print $1}')"
-BUILD_VERSION="prism-host-adapter-v2.3"
+BUILD_VERSION="prism-native-document-diff-v1"
 PATCH_SHA="$(git -C "${ECAD_VIEWER_DIR}" diff --binary HEAD -- packages/ecad-viewer-app/src packages/kicad-parser/src | shasum -a 256 | awk '{print $1}')"
 SOURCE_TREE_SHA="$(node -e '
 const fs = require("fs");

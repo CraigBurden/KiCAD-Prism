@@ -112,11 +112,30 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     );
     const activeCommit = currentCommit || selectedBranch?.commit || null;
 
-    const handleViewCommit = (commitHash: string) => {
-        const next: Record<string, string> = { commit: commitHash };
-        if (selectedBranchRef) {
-            next.branch = selectedBranchRef;
+    useEffect(() => {
+        const section = searchParams.get("section");
+        if (
+            section === "overview"
+            || section === "history"
+            || section === "visualizers"
+            || section === "assets"
+            || section === "documentation"
+            || section === "workflows"
+        ) {
+            setActiveSection(section);
         }
+    }, [searchParams]);
+
+    const handleSectionChange = (section: Section) => {
+        setActiveSection(section);
+        const next = new URLSearchParams(searchParams);
+        next.set("section", section);
+        setSearchParams(next);
+    };
+
+    const handleViewCommit = (commitHash: string) => {
+        const next = new URLSearchParams(searchParams);
+        next.set("commit", commitHash);
         setSearchParams(next);
     };
 
@@ -129,7 +148,10 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     };
 
     const handleBranchChange = (branchRef: string) => {
-        setSearchParams(branchRef ? { branch: branchRef } : {});
+        const next = new URLSearchParams(searchParams);
+        if (branchRef) next.set("branch", branchRef);
+        else next.delete("branch");
+        setSearchParams(next);
     };
 
     const handleSync = async () => {
@@ -327,7 +349,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                         <button
                                             key={item.id}
                                             onClick={() => {
-                                                setActiveSection(item.id);
+                                                handleSectionChange(item.id);
                                                 // Close sheet hack
                                                 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
                                             }}
@@ -493,7 +515,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             return (
                                 <button
                                     key={item.id}
-                                    onClick={() => setActiveSection(item.id)}
+                                    onClick={() => handleSectionChange(item.id)}
                                     className={cn(
                                         "w-full flex items-center rounded-md text-sm transition-colors",
                                         isExpanded ? "gap-3 px-3 py-2" : "justify-center py-2",
@@ -567,7 +589,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                         projectId={projectId}
                                         branchRef={selectedBranchRef}
                                         onViewCommit={handleViewCommit}
-                                        canCompareDiffs={canMutateProject}
+                                        canCompareDiffs
+                                        canComment={canMutateProject}
                                     />
                                 </Suspense>
                             )}
