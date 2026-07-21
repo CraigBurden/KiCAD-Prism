@@ -7,7 +7,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
     ECadViewerElement,
@@ -135,6 +135,8 @@ export function ComparisonPresentationShell({
     const [selectionPending, setSelectionPending] = useState(false);
     const [selectionDiagnostic, setSelectionDiagnostic] =
         useState<string | null>(null);
+    const [dismissedBanner, setDismissedBanner] = useState<string | null>(null);
+    const [diagnosticsDismissed, setDiagnosticsDismissed] = useState(false);
     const [sidePageReadyPath, setSidePageReadyPath] =
         useState<string | null>(null);
     const [showLayers, setShowLayers] = useState(false);
@@ -195,6 +197,28 @@ export function ComparisonPresentationShell({
     const baseHostKey = `${projectId}:base:${domain}:${base}`;
     const compareHostKey = `${projectId}:compare:${domain}:${compare}`;
     const comparisonKey = `${projectId}:${base}:${compare}:${domain}`;
+
+    useEffect(() => {
+        setDiagnosticsDismissed(false);
+        setDismissedBanner(null);
+    }, [comparisonKey, documentPath]);
+
+    const oneSidedSheetNotice = useMemo(() => {
+        if (!documentPath || domain !== "schematic") return null;
+        const matches = (path: string) =>
+            path === documentPath
+            || path.endsWith(`/${documentPath}`)
+            || documentPath.endsWith(`/${path}`);
+        const inBase = files.base.some((file) => matches(file.path));
+        const inHead = files.head.some((file) => matches(file.path));
+        if (inHead && !inBase) {
+            return `${documentPath} exists only in the compare revision.`;
+        }
+        if (inBase && !inHead) {
+            return `${documentPath} exists only in the base revision.`;
+        }
+        return null;
+    }, [documentPath, domain, files.base, files.head]);
 
     const attachHost = useCallback(
         (
@@ -261,6 +285,8 @@ export function ComparisonPresentationShell({
             cameraSyncSuppressedRef.current = false;
             setSelectionPending(false);
             setSelectionDiagnostic(null);
+            setDismissedBanner(null);
+            setDiagnosticsDismissed(false);
         }
         if (
             previous === "composite"
@@ -524,24 +550,20 @@ export function ComparisonPresentationShell({
                     !cancelled
                     && generation === pageGenerationRef.current
                 ) {
-                    dispatch({
-                        type: "transition",
-                        slot: "compare",
-                        key: compareHostKey,
-                        phase: "error",
-                        error:
-                            caught instanceof Error
-                                ? caught.message
-                                : "Failed to open schematic page",
-                    });
+                    // One-sided sheets (added/renamed) should not hard-fail
+                    // the whole side-by-side surface; surface a dismissible note.
+                    setSelectionDiagnostic(
+                        caught instanceof Error
+                            ? caught.message
+                            : "This sheet is missing from one revision.",
+                    );
+                    setSidePageReadyPath(documentPath);
                 }
             });
         return () => {
             cancelled = true;
         };
     }, [
-        baseViewer,
-        compareHostKey,
         compareViewer,
         documentPath,
         domain,
@@ -795,6 +817,10 @@ export function ComparisonPresentationShell({
         sourceError
         ?? (presentationMode === "composite" ? compositeError : sideError)
         ?? selectionDiagnostic;
+    const bannerMessage = activeError ?? oneSidedSheetNotice;
+    const showBanner =
+        Boolean(bannerMessage) && bannerMessage !== dismissedBanner;
+    const bannerIsError = Boolean(activeError);
     const loading =
         baseSources.loading
         || compareSources.loading
@@ -925,19 +951,54 @@ export function ComparisonPresentationShell({
                         </div>
                     )}
 
-                    {activeError && (
-                        <div className="absolute inset-x-3 bottom-3 flex items-start gap-2 rounded border border-destructive/30 bg-background/95 p-3 text-xs text-destructive shadow-sm">
+                    {showBanner && bannerMessage && (
+                        <div
+                            className={cn(
+                                "absolute inset-x-3 bottom-3 flex items-start gap-2 rounded border bg-background/95 p-3 text-xs shadow-sm",
+                                bannerIsError
+                                    ? "border-destructive/30 text-destructive"
+                                    : "border-amber-500/30 text-amber-800 dark:text-amber-200",
+                            )}
+                        >
                             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                            <span>{activeError}</span>
+                            <span className="min-w-0 flex-1 break-words">
+                                {bannerMessage}
+                            </span>
+                            <button
+                                type="button"
+                                className={cn(
+                                    "shrink-0 rounded p-0.5 transition-colors",
+                                    bannerIsError
+                                        ? "text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+                                        : "text-amber-700/70 hover:bg-amber-500/10 hover:text-amber-900 dark:text-amber-200/70 dark:hover:text-amber-100",
+                                )}
+                                aria-label="Dismiss warning"
+                                onClick={() =>
+                                    setDismissedBanner(bannerMessage)
+                                }
+                            >
+                                <X className="h-3.5 w-3.5" />
+                            </button>
                         </div>
                     )}
 
                     {presentationMode === "composite"
                         && !!diagnostics
-                        && !activeError && (
-                        <div className="absolute bottom-3 right-3 rounded border bg-background/90 px-2 py-1 text-[10px] text-muted-foreground shadow-sm">
-                            {diagnostics} unresolved native{" "}
-                            {diagnostics === 1 ? "item" : "items"}
+                        && !showBanner
+                        && !diagnosticsDismissed && (
+                        <div className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded border bg-background/90 px-2 py-1 text-[10px] text-muted-foreground shadow-sm">
+                            <span>
+                                {diagnostics} unresolved native{" "}
+                                {diagnostics === 1 ? "item" : "items"}
+                            </span>
+                            <button
+                                type="button"
+                                className="rounded p-0.5 transition-colors hover:bg-muted hover:text-foreground"
+                                aria-label="Dismiss unresolved items notice"
+                                onClick={() => setDiagnosticsDismissed(true)}
+                            >
+                                <X className="h-3 w-3" />
+                            </button>
                         </div>
                     )}
                 </div>

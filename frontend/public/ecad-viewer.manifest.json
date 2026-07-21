@@ -4,10 +4,10 @@
   "upstreamCommit": "1a39974a90b581f4733d93086ad89e8b5fe6c7d7",
   "adapterCommit": "33a832d765daa48666bf688c40cb28aeaf20963c",
   "dirty": true,
-  "worktreePatchSha256": "1234f979c425262ca0d9a6361cf383e1ae89de82dc85a9f8b1dc54f16c19b678",
-  "sourceTreeSha256": "e7e990366d7b900f31fe5aaa5b47da34abd649ec0d44d95482f9f1315370af1d",
+  "worktreePatchSha256": "e9867d4a6c33bbcbf535d35e44d80d54d8ed25d2ebca19d1d85fffa69f42ed75",
+  "sourceTreeSha256": "3d15775f80cb7ec5f0bf49f78d1cf1fb2d9ba879c452179b752b72104e19ab00",
   "artifacts": {
-    "ecad-viewer.js": "sha256:0f8507df5fea5809194f2c001cde56b4389576126649d89352b1bee532c4604b",
+    "ecad-viewer.js": "sha256:83c05eba56f6b59c52fce45f8d2cf9d06c36095906020b2b056d2133aabee612",
     "parser.worker.js": "sha256:074c4fc242f47636ea41692d420bdb2483e6f42a40fab8678167b93ffb5a7cae"
   }
 }
