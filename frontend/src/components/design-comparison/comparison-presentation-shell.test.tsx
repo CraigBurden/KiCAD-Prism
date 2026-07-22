@@ -839,6 +839,10 @@ describe("ComparisonPresentationShell", () => {
             expect(FakeEcadViewer.instances[1]?.setViewportInsets)
                 .toHaveBeenLastCalledWith(expect.objectContaining({ right: 320 }));
         });
+        // ComparisonViewerHost coalesces its initial sized-canvas notification
+        // into the next animation frame. Let that initialization settle before
+        // asserting that the rail-only rerender adds no resize calls.
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         const resizeCounts = FakeEcadViewer.instances.map(
             (viewer) => viewer.resize.mock.calls.length,
         );

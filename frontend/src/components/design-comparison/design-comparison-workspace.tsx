@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+    Profiler,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ProfilerOnRenderCallback,
+} from "react";
 import { useSearchParams } from "react-router-dom";
 import {
     AlertCircle,
@@ -761,6 +769,20 @@ export function DesignComparisonWorkspace({
         useState<ComparisonSelection>(null);
     const jobIdRef = useRef<string | null>(null);
     const semanticFocusRef = useRef<SemanticFocus | null>(null);
+    const logRenderPerformance = useCallback<ProfilerOnRenderCallback>(
+        (id, phase, actualDuration, baseDuration, startTime, commitTime) => {
+            if (phase !== "mount" && actualDuration < 4) return;
+            logComparisonDebug("performance.react", {
+                id,
+                phase,
+                actualDurationMs: Number(actualDuration.toFixed(3)),
+                baseDurationMs: Number(baseDuration.toFixed(3)),
+                startTimeMs: Number(startTime.toFixed(3)),
+                commitTimeMs: Number(commitTime.toFixed(3)),
+            });
+        },
+        [],
+    );
 
     useEffect(() => {
         if (activeTab !== "pcb" && comparisonRightRailTab === "layers") {
@@ -1312,81 +1334,91 @@ export function DesignComparisonWorkspace({
                         <div className="flex min-h-0 flex-1">
                             {(activeTab === "sch" || activeTab === "pcb") && (
                                 <>
-                                    <DifferencesPane
-                                        groups={paginatedGroups}
-                                        totalGroups={groups.length}
-                                        page={differencesPage}
-                                        pageSize={DIFFERENCES_PAGE_SIZE}
-                                        onPageChange={setDifferencesPage}
-                                        statuses={statuses}
-                                        onToggleStatus={(kind) => {
-                                            setStatuses((current) => {
-                                                const next = new Set(current);
-                                                if (next.has(kind)) next.delete(kind);
-                                                else next.add(kind);
-                                                return next;
-                                            });
-                                        }}
-                                        search={search}
-                                        onSearchChange={setSearch}
-                                        showSecondary={showSecondary}
-                                        onShowSecondaryChange={setShowSecondary}
-                                        selectedChangeId={selectedChangeId}
-                                        selectedGroupId={
-                                            reviewSelection?.kind === "group"
-                                                ? reviewSelection.id
-                                                : null
-                                        }
-                                        selectedDocumentPath={
-                                            reviewSelection?.documentPath
-                                        }
-                                        documentDiff={result.document_diff}
-                                        onSelectChange={selectChange}
-                                        onSelectGroup={selectGroup}
-                                        onPreviewChange={setPreviewSelection}
-                                        onPrevious={() => navigate(-1)}
-                                        onNext={() => navigate(1)}
-                                        routeMetrics={selectedRouteMetrics}
-                                    />
-                                    {result.document_diff ? (
-                                        <ComparisonPresentationShell
-                                            key={`${domain}:${base}:${head}`}
-                                            projectId={projectId}
-                                            domain={domain}
-                                            base={base}
-                                            compare={head}
-                                            presentationMode={presentationMode}
+                                    <Profiler
+                                        id="differences-pane"
+                                        onRender={logRenderPerformance}
+                                    >
+                                        <DifferencesPane
+                                            groups={paginatedGroups}
+                                            totalGroups={groups.length}
+                                            page={differencesPage}
+                                            pageSize={DIFFERENCES_PAGE_SIZE}
+                                            onPageChange={setDifferencesPage}
+                                            statuses={statuses}
+                                            onToggleStatus={(kind) => {
+                                                setStatuses((current) => {
+                                                    const next = new Set(current);
+                                                    if (next.has(kind)) next.delete(kind);
+                                                    else next.add(kind);
+                                                    return next;
+                                                });
+                                            }}
+                                            search={search}
+                                            onSearchChange={setSearch}
+                                            showSecondary={showSecondary}
+                                            onShowSecondaryChange={setShowSecondary}
+                                            selectedChangeId={selectedChangeId}
+                                            selectedGroupId={
+                                                reviewSelection?.kind === "group"
+                                                    ? reviewSelection.id
+                                                    : null
+                                            }
+                                            selectedDocumentPath={
+                                                reviewSelection?.documentPath
+                                            }
                                             documentDiff={result.document_diff}
-                                            files={result.files}
-                                            reviewGroups={navigationGroups}
-                                            selection={reviewSelection}
-                                            previewSelection={previewSelection}
-                                            initialVisibleLayers={visibleLayers}
-                                            onVisibleLayersChange={setVisibleLayers}
-                                            rightRailTab={comparisonRightRailTab}
-                                            onRightRailTabChange={setComparisonRightRailTab}
-                                            discussionCount={comments.filter((comment) => comment.status === "OPEN").length}
-                                            discussionContent={(
-                                                <ComparisonDiscussionRail
-                                                    projectId={projectId}
-                                                    base={base}
-                                                    compare={head}
-                                                    domain={activeTab === "pcb" ? "PCB" : "SCH"}
-                                                    anchor={selectedReviewGroup
-                                                        ? {
-                                                            id: selectedReviewGroup.id,
-                                                            label: selectedReviewGroup.label,
-                                                            page: selectedChange?.page,
-                                                        }
-                                                        : null}
-                                                    comments={comments}
-                                                    canComment={canComment}
-                                                    onCommentsChange={setComments}
-                                                    onClose={() => setComparisonRightRailTab(null)}
-                                                    embedded
-                                                />
-                                            )}
+                                            onSelectChange={selectChange}
+                                            onSelectGroup={selectGroup}
+                                            onPreviewChange={setPreviewSelection}
+                                            onPrevious={() => navigate(-1)}
+                                            onNext={() => navigate(1)}
+                                            routeMetrics={selectedRouteMetrics}
                                         />
+                                    </Profiler>
+                                    {result.document_diff ? (
+                                        <Profiler
+                                            id="comparison-presentation"
+                                            onRender={logRenderPerformance}
+                                        >
+                                            <ComparisonPresentationShell
+                                                key={`${domain}:${base}:${head}`}
+                                                projectId={projectId}
+                                                domain={domain}
+                                                base={base}
+                                                compare={head}
+                                                presentationMode={presentationMode}
+                                                documentDiff={result.document_diff}
+                                                files={result.files}
+                                                reviewGroups={navigationGroups}
+                                                selection={reviewSelection}
+                                                previewSelection={previewSelection}
+                                                initialVisibleLayers={visibleLayers}
+                                                onVisibleLayersChange={setVisibleLayers}
+                                                rightRailTab={comparisonRightRailTab}
+                                                onRightRailTabChange={setComparisonRightRailTab}
+                                                discussionCount={comments.filter((comment) => comment.status === "OPEN").length}
+                                                discussionContent={(
+                                                    <ComparisonDiscussionRail
+                                                        projectId={projectId}
+                                                        base={base}
+                                                        compare={head}
+                                                        domain={activeTab === "pcb" ? "PCB" : "SCH"}
+                                                        anchor={selectedReviewGroup
+                                                            ? {
+                                                                id: selectedReviewGroup.id,
+                                                                label: selectedReviewGroup.label,
+                                                                page: selectedChange?.page,
+                                                            }
+                                                            : null}
+                                                        comments={comments}
+                                                        canComment={canComment}
+                                                        onCommentsChange={setComments}
+                                                        onClose={() => setComparisonRightRailTab(null)}
+                                                        embedded
+                                                    />
+                                                )}
+                                            />
+                                        </Profiler>
                                     ) : (
                                         <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
                                             <div className="max-w-sm text-sm text-muted-foreground">

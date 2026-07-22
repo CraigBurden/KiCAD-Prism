@@ -10,8 +10,9 @@ import re
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from app.core.config import settings
 from app.services import semantic_visualizer_service
@@ -354,8 +355,25 @@ def build_semantic_index(
     *,
     source_revision_key: str,
     commit: str | None = None,
+    timing_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    _add_kicad_monkey_import_paths()
+    def timed(phase: str, action: Callable[[], Any], **metadata: Any) -> Any:
+        started_ns = time.perf_counter_ns()
+        cpu_started_ns = time.thread_time_ns()
+        try:
+            return action()
+        finally:
+            if timing_callback is not None:
+                timing_callback(
+                    {
+                        "phase": phase,
+                        "elapsedNs": time.perf_counter_ns() - started_ns,
+                        "cpuNs": time.thread_time_ns() - cpu_started_ns,
+                        "metadata": metadata,
+                    }
+                )
+
+    timed("configure-imports", _add_kicad_monkey_import_paths)
     try:
         from kicad_monkey import KiCadDesign
     except ImportError as exc:
@@ -364,9 +382,22 @@ def build_semantic_index(
             "KICAD_MONKEY_PYTHONPATH or install the package in the backend runtime"
         ) from exc
 
-    design = KiCadDesign.from_project_file(project_file)
-    design_payload = design.to_json(include_indexes=True)
-    source_fields_by_uuid = _schematic_instance_fields(project_file)
+    design = timed("load-project", lambda: KiCadDesign.from_project_file(project_file))
+    netlist = timed("compile-netlist", design.to_netlist)
+    # kicad_design_to_json materializes PnP data and therefore accesses the
+    # lazily parsed board. Resolve it explicitly so benchmark output separates
+    # the parser cost from the much smaller JSON projection cost.
+    pcb = timed("load-pcb", lambda: design.pcb)
+    design_payload = timed(
+        "materialize-design-json",
+        lambda: design.to_json(include_indexes=True),
+        components=len(netlist.components),
+        nets=len(netlist.nets),
+    )
+    source_fields_by_uuid = timed(
+        "scan-instance-fields",
+        lambda: _schematic_instance_fields(project_file),
+    )
 
     components: list[dict[str, Any]] = []
     nets: list[dict[str, Any]] = []
@@ -384,6 +415,8 @@ def build_semantic_index(
         "netByPcbUuid": {},
     }
 
+    projection_started_ns = time.perf_counter_ns()
+    projection_cpu_started_ns = time.thread_time_ns()
     component_by_reference: dict[str, dict[str, Any]] = {}
     for raw in design_payload.get("components", ()):
         reference = _string(raw.get("designator") or raw.get("reference"))
@@ -418,11 +451,23 @@ def build_semantic_index(
         if symbol_uuid:
             indexes["componentBySchematicUuid"][symbol_uuid] = component_index
 
+    if timing_callback is not None:
+        timing_callback(
+            {
+                "phase": "project-components",
+                "elapsedNs": time.perf_counter_ns() - projection_started_ns,
+                "cpuNs": time.thread_time_ns() - projection_cpu_started_ns,
+                "metadata": {"components": len(components)},
+            }
+        )
+
     net_by_name: dict[str, dict[str, Any]] = {}
     net_index_by_name: dict[str, int] = {}
     terminal_by_pair: dict[str, dict[str, Any]] = {}
     terminal_index_by_pair: dict[str, int] = {}
 
+    projection_started_ns = time.perf_counter_ns()
+    projection_cpu_started_ns = time.thread_time_ns()
     for raw in design_payload.get("nets", ()):
         name = _string(raw.get("name"))
         if not name:
@@ -505,7 +550,18 @@ def build_semantic_index(
                 indexes["terminalBySchematicPinUuid"][pin_uuid] = terminal_index
                 indexes["netBySchematicUuid"][pin_uuid] = net_index
 
-    pcb = design.pcb
+    if timing_callback is not None:
+        timing_callback(
+            {
+                "phase": "project-schematic-nets",
+                "elapsedNs": time.perf_counter_ns() - projection_started_ns,
+                "cpuNs": time.thread_time_ns() - projection_cpu_started_ns,
+                "metadata": {"nets": len(nets), "terminals": len(terminals)},
+            }
+        )
+
+    pcb_started_ns = time.perf_counter_ns()
+    pcb_cpu_started_ns = time.thread_time_ns()
     if pcb is not None:
         def ensure_pcb_net(name: str, code: int | None) -> tuple[dict[str, Any], int] | tuple[None, None]:
             if not name:
@@ -592,6 +648,20 @@ def build_semantic_index(
                     continue
                 net_entry["pcbRefs"][0][target_key].append(source_uuid)
                 indexes["netByPcbUuid"][source_uuid] = net_index
+
+    if timing_callback is not None:
+        timing_callback(
+            {
+                "phase": "project-pcb-indexes",
+                "elapsedNs": time.perf_counter_ns() - pcb_started_ns,
+                "cpuNs": time.thread_time_ns() - pcb_cpu_started_ns,
+                "metadata": {
+                    "components": len(components),
+                    "nets": len(nets),
+                    "terminals": len(terminals),
+                },
+            }
+        )
 
     return {
         "schema": SCHEMA,

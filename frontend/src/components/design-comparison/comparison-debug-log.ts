@@ -5,6 +5,7 @@ type DebugSession = {
     projectId: string;
     sessionId: string;
     sequence: number;
+    startedAt: number;
 };
 
 let session: DebugSession | null = null;
@@ -32,6 +33,8 @@ async function postEvent(
     event: string,
     payload: ComparisonDebugPayload,
     reset: boolean,
+    timestamp: string,
+    clientElapsedMs: number,
 ): Promise<void> {
     try {
         const response = await fetch(
@@ -44,8 +47,11 @@ async function postEvent(
                     session_id: active.sessionId,
                     sequence: active.sequence,
                     event,
-                    timestamp: new Date().toISOString(),
-                    payload,
+                    timestamp,
+                    payload: {
+                        ...payload,
+                        clientElapsedMs,
+                    },
                     reset,
                 }),
                 keepalive: true,
@@ -69,9 +75,20 @@ function enqueue(
 ): void {
     const sequence = active.sequence++;
     const snapshot = { ...active, sequence };
+    const timestamp = new Date().toISOString();
+    const clientElapsedMs = Number(
+        (performance.now() - active.startedAt).toFixed(3),
+    );
     writeTail = writeTail
         .catch(() => undefined)
-        .then(() => postEvent(snapshot, event, payload, reset));
+        .then(() => postEvent(
+            snapshot,
+            event,
+            payload,
+            reset,
+            timestamp,
+            clientElapsedMs,
+        ));
 }
 
 export function startComparisonDebugSession(input: {
@@ -86,6 +103,7 @@ export function startComparisonDebugSession(input: {
         projectId: input.projectId,
         sessionId: makeSessionId(),
         sequence: 0,
+        startedAt: performance.now(),
     };
     enqueue(session, "session.start", {
         base: input.base,

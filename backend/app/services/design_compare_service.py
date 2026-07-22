@@ -28,6 +28,7 @@ from app.services import (
     project_service,
     semantic_index_service,
 )
+from app.services.design_compare_benchmark import DesignCompareBenchmark
 from app.services.workspace_service import workspace
 
 logger = logging.getLogger(__name__)
@@ -226,24 +227,35 @@ def _load_or_build_revision(
     commit: str,
     logs: List[str],
     on_progress: Optional[Any] = None,
+    benchmark: Optional[DesignCompareBenchmark] = None,
 ) -> Dict[str, Any]:
     revision_started = time.perf_counter()
     timings: Dict[str, float] = {}
 
     def timed(label: str, action: Callable[[], Any]) -> Any:
         started = time.perf_counter()
-        try:
-            return action()
-        finally:
-            elapsed = time.perf_counter() - started
-            timings[label] = elapsed
-            logs.append(f"Timing {commit[:7]} {label}: {elapsed:.3f}s")
+        if benchmark is None:
+            try:
+                return action()
+            finally:
+                elapsed = time.perf_counter() - started
+                timings[label] = elapsed
+                logs.append(f"Timing {commit[:7]} {label}: {elapsed:.3f}s")
+        with benchmark.span(label, scope=f"revision:{commit}"):
+            try:
+                return action()
+            finally:
+                elapsed = time.perf_counter() - started
+                timings[label] = elapsed
+                logs.append(f"Timing {commit[:7]} {label}: {elapsed:.3f}s")
 
     cache = _cache_dir(project_id, commit)
     marker = cache / "revision.json"
     cached = _read_revision_cache(marker) if marker.exists() else None
     if cached is not None:
         logs.append(f"Cache hit for {commit[:7]}")
+        if benchmark is not None:
+            benchmark.mark("cache-hit", scope=f"revision:{commit}")
         if on_progress:
             on_progress(f"Cache hit {commit[:7]}")
         return cached
@@ -252,6 +264,8 @@ def _load_or_build_revision(
         cached = _read_revision_cache(marker) if marker.exists() else None
         if cached is not None:
             logs.append(f"Cache hit for {commit[:7]} after wait")
+            if benchmark is not None:
+                benchmark.mark("cache-hit-after-wait", scope=f"revision:{commit}")
             if on_progress:
                 on_progress(f"Cache hit {commit[:7]}")
             return cached
@@ -287,6 +301,17 @@ def _load_or_build_revision(
                         pro,
                         source_revision_key=commit,
                         commit=commit,
+                        timing_callback=(
+                            None
+                            if benchmark is None
+                            else lambda event: benchmark.record_duration(
+                                event["phase"],
+                                elapsed_ns=event["elapsedNs"],
+                                cpu_ns=event["cpuNs"],
+                                scope=f"revision:{commit}:semantic",
+                                metadata=event.get("metadata"),
+                            )
+                        ),
                     ),
                 )
                 logs.append(f"Built semantic index for {commit[:7]}")
@@ -2050,6 +2075,7 @@ def _build_revisions(
     base: str,
     head: str,
     heartbeat: Callable[[str, Optional[float]], None],
+    benchmark: Optional[DesignCompareBenchmark] = None,
 ) -> tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
     """Build the requested snapshots with bounded, newest-independent workers."""
     unique_commits = list(dict.fromkeys((base, head)))
@@ -2086,13 +2112,18 @@ def _build_revisions(
                 progress,
             )
 
+        load_arguments = {
+            "on_progress": report,
+        }
+        if benchmark is not None:
+            load_arguments["benchmark"] = benchmark
         revision = _load_or_build_revision(
             project_id,
             repo_path,
             relative_path,
             commit,
             local_logs,
-            on_progress=report,
+            **load_arguments,
         )
         return revision, local_logs
 
@@ -2144,6 +2175,19 @@ def _run_job(
     logs: List[str] = job.setdefault("logs", [])
     job_lock = threading.Lock()
     job_started = time.perf_counter()
+    benchmark = DesignCompareBenchmark(
+        job_id=job_id,
+        metadata={
+            "projectId": project_id,
+            "base": base,
+            "compare": head,
+            "revisionWorkers": os.environ.get(
+                "PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS",
+                "2",
+            ),
+            "semanticGenerator": semantic_index_service.generator_cache_tag(),
+        },
+    )
 
     def heartbeat(message: str, percent: Optional[float] = None) -> None:
         with job_lock:
@@ -2158,14 +2202,16 @@ def _run_job(
         heartbeat("Building revisions…", 10)
 
         revisions_started = time.perf_counter()
-        revisions, revision_logs = _build_revisions(
-            project_id,
-            repo_path,
-            relative_path,
-            base,
-            head,
-            heartbeat,
-        )
+        with benchmark.span("revision-pipeline"):
+            revisions, revision_logs = _build_revisions(
+                project_id,
+                repo_path,
+                relative_path,
+                base,
+                head,
+                heartbeat,
+                benchmark=benchmark,
+            )
         for commit in dict.fromkeys((base, head)):
             label = "old/new" if base == head else "old" if commit == base else "new"
             logs.extend(
@@ -2179,30 +2225,49 @@ def _run_job(
         heartbeat("Diffing designs…", 55)
         assembly_started = time.perf_counter()
 
+        def assemble(phase: str, action: Callable[[], Any]) -> Any:
+            with benchmark.span(phase, scope="assembly"):
+                return action()
+
         base_rev = revisions[base]
         head_rev = revisions[head]
-        sch_diff = _diff_designs(
-            base_rev.get("semantic") or base_rev.get("design") or {},
-            head_rev.get("semantic") or head_rev.get("design") or {},
+        sch_diff = assemble(
+            "schematic-semantic-diff",
+            lambda: _diff_designs(
+                base_rev.get("semantic") or base_rev.get("design") or {},
+                head_rev.get("semantic") or head_rev.get("design") or {},
+            ),
         )
-        sch_geometry_changes = _diff_geometry(
-            base_rev.get("geometry") or {},
-            head_rev.get("geometry") or {},
-            "schematic",
+        sch_geometry_changes = assemble(
+            "schematic-geometry-diff",
+            lambda: _diff_geometry(
+                base_rev.get("geometry") or {},
+                head_rev.get("geometry") or {},
+                "schematic",
+            ),
         )
-        schematic_changes = _merge_semantic_geometry_changes(
-            sch_diff["changes"],
-            sch_geometry_changes,
+        schematic_changes = assemble(
+            "schematic-change-merge",
+            lambda: _merge_semantic_geometry_changes(
+                sch_diff["changes"],
+                sch_geometry_changes,
+            ),
         )
-        _hydrate_visual_target_pages_and_match_labels(
-            schematic_changes,
-            (base_rev.get("geometry") or {}).get("schematic") or {},
-            (head_rev.get("geometry") or {}).get("schematic") or {},
+        assemble(
+            "visual-target-hydration",
+            lambda: _hydrate_visual_target_pages_and_match_labels(
+                schematic_changes,
+                (base_rev.get("geometry") or {}).get("schematic") or {},
+                (head_rev.get("geometry") or {}).get("schematic") or {},
+            ),
         )
-        pcb_changes = _diff_geometry(
-            base_rev.get("geometry") or {},
-            head_rev.get("geometry") or {},
-            "pcb",
+        pcb_changes = assemble(
+            "pcb-geometry-diff",
+            lambda: _diff_geometry(
+                base_rev.get("geometry") or {},
+                head_rev.get("geometry") or {},
+                "pcb",
+            ),
         )
 
         # BOM
@@ -2214,26 +2279,38 @@ def _run_job(
                 fields = cfg.get("bom", {}).get("fields") or fields
         except Exception:
             pass
-        old_bom = bom_diff_service.parse_bom_csv(base_rev.get("bom_csv") or "")
-        new_bom = bom_diff_service.parse_bom_csv(head_rev.get("bom_csv") or "")
-        bom = bom_diff_service.diff_boms(
-            old_bom,
-            new_bom,
-            fields,
-            include_unchanged=include_unchanged,
-        )
+        def build_bom_diff() -> Dict[str, Any]:
+            old_bom = bom_diff_service.parse_bom_csv(base_rev.get("bom_csv") or "")
+            new_bom = bom_diff_service.parse_bom_csv(head_rev.get("bom_csv") or "")
+            return bom_diff_service.diff_boms(
+                old_bom,
+                new_bom,
+                fields,
+                include_unchanged=include_unchanged,
+            )
 
-        stackup = _diff_stackup(base_rev.get("stackup") or {}, head_rev.get("stackup") or {})
-        route_metrics = {
-            "base": _route_metrics(
-                base_rev.get("geometry") or {},
+        bom = assemble("bom-diff", build_bom_diff)
+
+        stackup = assemble(
+            "stackup-diff",
+            lambda: _diff_stackup(
                 base_rev.get("stackup") or {},
-            ),
-            "compare": _route_metrics(
-                head_rev.get("geometry") or {},
                 head_rev.get("stackup") or {},
             ),
-        }
+        )
+        route_metrics = assemble(
+            "route-metrics",
+            lambda: {
+                "base": _route_metrics(
+                    base_rev.get("geometry") or {},
+                    base_rev.get("stackup") or {},
+                ),
+                "compare": _route_metrics(
+                    head_rev.get("geometry") or {},
+                    head_rev.get("stackup") or {},
+                ),
+            },
+        )
 
         sheets = sorted(
             {
@@ -2247,15 +2324,24 @@ def _run_job(
             "base": base_rev.get("sources") or [],
             "head": head_rev.get("sources") or [],
         }
-        document_diff = document_diff_service.build_project_diff(
-            schematic_changes=schematic_changes,
-            pcb_changes=pcb_changes,
-            files=source_files,
-            geometry={
-                "base": base_rev.get("geometry") or {},
-                "head": head_rev.get("geometry") or {},
-            },
+        document_diff = assemble(
+            "document-diff",
+            lambda: document_diff_service.build_project_diff(
+                schematic_changes=schematic_changes,
+                pcb_changes=pcb_changes,
+                files=source_files,
+                geometry={
+                    "base": base_rev.get("geometry") or {},
+                    "head": head_rev.get("geometry") or {},
+                },
+            ),
         )
+
+        schematic_groups = assemble(
+            "schematic-grouping",
+            lambda: _group_changes(schematic_changes),
+        )
+        pcb_groups = assemble("pcb-grouping", lambda: _group_changes(pcb_changes))
 
         result = {
             "schema": "prism.semantic_comparison_v2",
@@ -2268,12 +2354,12 @@ def _run_job(
             "schematic": {
                 "pages": sheets,
                 "changes": schematic_changes,
-                "groups": _group_changes(schematic_changes),
+                "groups": schematic_groups,
                 "summary": _summary(schematic_changes),
             },
             "pcb": {
                 "changes": pcb_changes,
-                "groups": _group_changes(pcb_changes),
+                "groups": pcb_groups,
                 "summary": _summary(pcb_changes),
                 "route_metrics": route_metrics,
             },
@@ -2288,10 +2374,11 @@ def _run_job(
         out.mkdir(parents=True, exist_ok=True)
         publish_started = time.perf_counter()
         result_path = out / "result.json"
-        result_path.write_text(
-            json.dumps(result, separators=(",", ":")),
-            encoding="utf-8",
-        )
+        with benchmark.span("result-publish"):
+            result_path.write_text(
+                json.dumps(result, separators=(",", ":")),
+                encoding="utf-8",
+            )
         logs.append(
             f"Timing result publish: {time.perf_counter() - publish_started:.3f}s; "
             f"result={result_path.stat().st_size / (1024 * 1024):.1f}MiB"
@@ -2299,18 +2386,34 @@ def _run_job(
         logs.append(
             f"Timing comparison total: {time.perf_counter() - job_started:.3f}s"
         )
+        benchmark.update_metadata(
+            resultBytes=result_path.stat().st_size,
+            schematicChanges=len(schematic_changes),
+            pcbChanges=len(pcb_changes),
+            bomChanges=len(bom.get("changes") or []),
+        )
 
         job["status"] = "completed"
         job["message"] = "Design comparison ready"
         job["percent"] = 100
         job["result"] = result
         job["logs"] = logs
-        _persist_job(job_id)
     except Exception as exc:
         logger.exception("design-compare failed")
         job["status"] = "failed"
         job["message"] = str(exc)
         job["logs"] = logs + [str(exc)]
+        benchmark.update_metadata(error=str(exc))
+    finally:
+        benchmark_path = _JOB_ROOT / job_id / "benchmark.json"
+        try:
+            benchmark.write(benchmark_path)
+            job["benchmark_path"] = str(benchmark_path)
+            job.setdefault("logs", []).append(
+                f"Structured benchmark: {benchmark_path}"
+            )
+        except Exception:
+            logger.exception("design-compare benchmark publish failed")
         _persist_job(job_id)
 
 
@@ -2411,6 +2514,7 @@ def get_job_status(job_id: str) -> Optional[dict]:
         "project_id": job.get("project_id"),
         "base": job.get("base"),
         "head": job.get("head"),
+        "benchmark_path": job.get("benchmark_path"),
     }
 
 

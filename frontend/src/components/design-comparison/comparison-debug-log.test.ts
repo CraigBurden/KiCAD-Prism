@@ -40,7 +40,11 @@ describe("comparison debug log", () => {
             sequence: 1,
             event: "difference.click",
             reset: false,
-            payload: { target: "item", id: "net:VCC" },
+            payload: {
+                target: "item",
+                id: "net:VCC",
+                clientElapsedMs: expect.any(Number),
+            },
         });
         expect(second.session_id).toBe(first.session_id);
     });
