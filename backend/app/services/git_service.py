@@ -50,9 +50,15 @@ def _resolve_commit(repo: Repo, ref: str | None):
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
 
 
-def _get_commits(repo_path: str, limit: int, relative_path: str = None, ref: str = None):
+def _get_commits(
+    repo_path: str,
+    limit: int,
+    relative_path: str = None,
+    ref: str = None,
+    offset: int = 0,
+):
     repo = _open_repo(repo_path)
-    iter_kwargs = {"max_count": limit}
+    iter_kwargs = {"max_count": limit, "skip": max(0, offset)}
     if ref:
         _resolve_commit(repo, ref)
         iter_kwargs["rev"] = ref
@@ -61,6 +67,22 @@ def _get_commits(repo_path: str, limit: int, relative_path: str = None, ref: str
 
     try:
         commits = [_serialize_commit(commit) for commit in repo.iter_commits(**iter_kwargs)]
+        count_args = ["rev-list", "--count"]
+        if relative_path:
+            # Path-scoped totals still walk the ref; approximate with filtered walk
+            # when paths are set by counting matching commits up to a soft cap.
+            total = None
+        else:
+            count_target = ref or "HEAD"
+            total = int(repo.git.execute(["git", *count_args, count_target]))
+        if total is None:
+            # Filtered histories: count via rev-list --count -- <path>
+            count_target = ref or "HEAD"
+            total = int(
+                repo.git.execute(
+                    ["git", "rev-list", "--count", count_target, "--", relative_path]
+                )
+            )
     except HTTPException:
         raise
     except Exception as error:
@@ -79,7 +101,7 @@ def _get_commits(repo_path: str, limit: int, relative_path: str = None, ref: str
         for c in commits:
             c.setdefault("kicad_changes", {"sch": 0, "pcb": 0, "pro": 0, "other": 0})
 
-    return commits
+    return {"commits": commits, "total": total, "limit": limit, "offset": max(0, offset)}
 
 
 def _kicad_change_flags(
@@ -125,12 +147,19 @@ def _kicad_change_flags(
     return out
 
 
-def get_commits_list_filtered(repo_path: str, relative_path: str = None, limit: int = 50, ref: str = None):
+def get_commits_list_filtered(
+    repo_path: str,
+    relative_path: str = None,
+    limit: int = 50,
+    ref: str = None,
+    offset: int = 0,
+):
     """
-    Get list of commits from repository, optionally filtered to a subdirectory.
+    Get paginated commits from repository, optionally filtered to a subdirectory.
     For Type-2 projects, relative_path scopes commits to the subproject.
+    Returns {commits, total, limit, offset}.
     """
-    return _get_commits(repo_path, limit, relative_path, ref)
+    return _get_commits(repo_path, limit, relative_path, ref, offset)
 
 
 def _count_tree_entries(commit, relative_path: str) -> int | None:
@@ -162,7 +191,13 @@ def _is_ancestor(repo: Repo, ancestor: str, descendant: str) -> bool:
         return False
 
 
-def _get_releases(repo_path: str, relative_path: str = None, ref: str = None):
+def _get_releases(
+    repo_path: str,
+    relative_path: str = None,
+    ref: str = None,
+    limit: int | None = None,
+    offset: int = 0,
+):
     repo = _open_repo(repo_path)
     releases = []
     try:
@@ -185,19 +220,35 @@ def _get_releases(repo_path: str, relative_path: str = None, ref: str = None):
             releases.append(release)
 
         releases.sort(key=lambda item: item["date"], reverse=True)
-        return releases
+        total = len(releases)
+        start = max(0, offset)
+        if limit is None:
+            return releases if start == 0 else releases[start:]
+        return {
+            "releases": releases[start : start + max(0, limit)],
+            "total": total,
+            "limit": limit,
+            "offset": start,
+        }
     except HTTPException:
         raise
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
 
 
-def get_releases_filtered(repo_path: str, relative_path: str = None, ref: str = None):
+def get_releases_filtered(
+    repo_path: str,
+    relative_path: str = None,
+    ref: str = None,
+    limit: int | None = None,
+    offset: int = 0,
+):
     """
-    Get list of Git tags/releases from repository.
+    Get Git tags/releases from repository.
     For Type-2 projects, shows file count under relative_path for each tag.
+    When limit is set, returns {releases, total, limit, offset}; otherwise a list.
     """
-    return _get_releases(repo_path, relative_path, ref)
+    return _get_releases(repo_path, relative_path, ref, limit, offset)
 
 
 def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None) -> str:
@@ -247,17 +298,19 @@ def file_exists_in_commit_with_prefix(repo_path: str, commit_hash: str, file_pat
     except:
         return False
 
-def get_releases(repo_path: str, ref: str = None):
+def get_releases(repo_path: str, ref: str = None, limit: int | None = None, offset: int = 0):
     """
     Get list of Git tags/releases from repository.
+    When limit is set, returns {releases, total, limit, offset}; otherwise a list.
     """
-    return _get_releases(repo_path, ref=ref)
+    return _get_releases(repo_path, ref=ref, limit=limit, offset=offset)
 
-def get_commits_list(repo_path: str, limit: int = 50, ref: str = None):
+def get_commits_list(repo_path: str, limit: int = 50, ref: str = None, offset: int = 0):
     """
-    Get list of commits from repository.
+    Get paginated commits from repository.
+    Returns {commits, total, limit, offset}.
     """
-    return _get_commits(repo_path, limit, ref=ref)
+    return _get_commits(repo_path, limit, ref=ref, offset=offset)
 
 
 def get_commit_distance(repo_path: str, commit_hash: str, relative_path: str = None, ref: str = None) -> int:

@@ -5,6 +5,10 @@ import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRigh
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
+import {
+    comparisonIsOpen,
+    readComparisonUrlState,
+} from "@/components/design-comparison/comparison-url";
 
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -111,6 +115,11 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         [branches, selectedBranchRef]
     );
     const activeCommit = currentCommit || selectedBranch?.commit || null;
+    const comparisonUrl = useMemo(
+        () => readComparisonUrlState(searchParams),
+        [searchParams],
+    );
+    const comparisonOpen = comparisonIsOpen(comparisonUrl);
 
     useEffect(() => {
         const section = searchParams.get("section");
@@ -135,6 +144,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
     const handleViewCommit = (commitHash: string) => {
         const next = new URLSearchParams(searchParams);
+        next.set("section", "history");
         next.set("commit", commitHash);
         setSearchParams(next);
     };
@@ -607,7 +617,12 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             <div className="flex-1 min-h-0">
                                 {projectId && (
                                     <Suspense fallback={<div className="text-sm text-muted-foreground">Loading visualizers...</div>}>
-                                        <Visualizer projectId={projectId} user={user} commit={activeCommit} />
+                                        <Visualizer
+                                            projectId={projectId}
+                                            user={user}
+                                            commit={activeCommit}
+                                            active={!comparisonOpen && activeSection === "visualizers"}
+                                        />
                                     </Suspense>
                                 )}
                             </div>

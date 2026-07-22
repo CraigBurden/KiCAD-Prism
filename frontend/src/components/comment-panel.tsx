@@ -15,6 +15,7 @@ import { CommentSeverityBadge } from "@/components/comment-severity-badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 interface CommentPanelProps {
     comments: Comment[];
@@ -25,6 +26,7 @@ interface CommentPanelProps {
     onCommentClick: (comment: Comment) => void;
     canModify: boolean;
     highlightedId?: string | null;
+    embedded?: boolean;
 }
 
 export function CommentPanel({
@@ -36,6 +38,7 @@ export function CommentPanel({
     onCommentClick,
     canModify,
     highlightedId = null,
+    embedded = false,
 }: CommentPanelProps) {
     const [filter, setFilter] = useState<"ALL" | "OPEN" | "RESOLVED">("ALL");
 
@@ -45,7 +48,13 @@ export function CommentPanel({
     });
 
     return (
-        <div className="flex h-full w-80 flex-col border-l bg-background shadow-xl z-50">
+        <div
+            className={cn(
+                "flex h-full flex-col bg-background",
+                embedded ? "w-full" : "z-50 w-80 border-l shadow-xl",
+            )}
+        >
+            {!embedded && (
             <div className="flex items-center justify-between border-b p-4">
                 <div className="flex items-center gap-2">
                     <MessageSquare className="h-5 w-5" />
@@ -58,6 +67,7 @@ export function CommentPanel({
                     <X className="h-4 w-4" />
                 </Button>
             </div>
+            )}
 
             <div className="flex gap-2 border-b bg-muted/30 p-2">
                 {(["ALL", "OPEN", "RESOLVED"] as const).map((value) => (

@@ -9,6 +9,7 @@ import { EcadViewerControls } from "./ecad-viewer-controls";
 import { CommentForm, type CommentFormSubmitPayload } from "./comment-form";
 import { CommentCard } from "./comment-card";
 import { CommentPanel } from "./comment-panel";
+import { ViewerOverlayRail } from "./viewer-overlay-rail";
 import { fetchApi, readApiError } from "@/lib/api";
 import { canWriteCatalog } from "@/lib/roles";
 import { crossProbeRequestForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
@@ -20,6 +21,7 @@ import type {
     EcadCommentAreaDetail,
     EcadCommentOverlayHitDetail,
     EcadSemanticSelectionDetail,
+    EcadViewportInsets,
 } from "@/types/ecad-viewer";
 import type { PrismSelection, PrismSemanticIndex } from "@/types/prism-selection";
 import type { Comment, CommentContext, CommentLocation, CommentsFile, MentionCandidate } from "@/types/comments";
@@ -32,9 +34,11 @@ interface VisualizerProps {
     projectId: string;
     user: User | null;
     commit?: string | null;
+    active?: boolean;
 }
 
 type VisualizerTab = "sch" | "pcb" | "3d" | "bom" | "stackup" | "assembly";
+type ViewerRightRailTab = "selection" | "comments";
 
 const isAbortError = (error: unknown): boolean =>
     error instanceof DOMException && error.name === "AbortError";
@@ -141,13 +145,25 @@ type EcadViewerHostProps = {
     active: boolean;
     setViewerRef: (node: ECadViewerElement | null) => void;
     onReady: () => void;
+    viewportInsets: EcadViewportInsets;
 };
 
-function EcadViewerHost({ viewerKey, sources, active, setViewerRef, onReady }: EcadViewerHostProps) {
+function EcadViewerHost({
+    viewerKey,
+    sources,
+    active,
+    setViewerRef,
+    onReady,
+    viewportInsets,
+}: EcadViewerHostProps) {
     const hostRef = useRef<ECadViewerElement | null>(null);
     const replaceReadyRef = useRef<Promise<void>>(Promise.resolve());
     const rootSource = sources[0];
     const appendedSources = useMemo(() => sources.slice(1), [sources]);
+    const viewportLeft = viewportInsets.left ?? 0;
+    const viewportRight = viewportInsets.right ?? 0;
+    const viewportTop = viewportInsets.top ?? 0;
+    const viewportBottom = viewportInsets.bottom ?? 0;
 
     const attachViewerRef = useCallback((node: ECadViewerElement | null) => {
         hostRef.current = node;
@@ -217,6 +233,23 @@ function EcadViewerHost({ viewerKey, sources, active, setViewerRef, onReady }: E
         return () => { cancelled = true; };
     }, [active]);
 
+    useLayoutEffect(() => {
+        const viewer = hostRef.current;
+        if (!viewer) return;
+        let cancelled = false;
+        void customElements.whenDefined("ecad-viewer").then(() => {
+            if (!cancelled && hostRef.current === viewer) {
+                viewer.setViewportInsets({
+                    left: viewportLeft,
+                    right: viewportRight,
+                    top: viewportTop,
+                    bottom: viewportBottom,
+                });
+            }
+        });
+        return () => { cancelled = true; };
+    }, [viewportBottom, viewportLeft, viewportRight, viewportTop]);
+
     return (
         <ecad-viewer
             ref={attachViewerRef}
@@ -228,7 +261,7 @@ function EcadViewerHost({ viewerKey, sources, active, setViewerRef, onReady }: E
     );
 }
 
-export function Visualizer({ projectId, user, commit }: VisualizerProps) {
+export function Visualizer({ projectId, user, commit, active: viewerActive = true }: VisualizerProps) {
     const [schematicViewerElement, setSchematicViewerElement] = useState<ECadViewerElement | null>(null);
     const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);
     const schematicViewerRef = useRef<ECadViewerElement | null>(null);
@@ -258,7 +291,11 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [semanticIndexLoading, setSemanticIndexLoading] = useState(true);
     const [semanticIndexError, setSemanticIndexError] = useState<string | null>(null);
     const [semanticIndexRetryToken, setSemanticIndexRetryToken] = useState(0);
-    const [selectionInspectorOpen, setSelectionInspectorOpen] = useState(false);
+    const [rightRailTab, setRightRailTab] =
+        useState<ViewerRightRailTab | null>(null);
+    const [schematicLeftInset, setSchematicLeftInset] = useState(0);
+    const [pcbLeftInset, setPcbLeftInset] = useState(0);
+    const [rightRailInset, setRightRailInset] = useState(0);
     const [componentImportPending, setComponentImportPending] = useState(false);
     const [labelInstances, setLabelInstances] = useState<LabelInstanceRef[]>([]);
     const [navigatingLabelInstance, setNavigatingLabelInstance] = useState(false);
@@ -272,7 +309,6 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     const [comments, setComments] = useState<Comment[]>([]);
     const [commentMode, setCommentMode] = useState(false);
     const [showCommentForm, setShowCommentForm] = useState(false);
-    const [showCommentPanel, setShowCommentPanel] = useState(false);
     const [pendingLocation, setPendingLocation] = useState<CommentLocation | null>(null);
     const [pendingContext, setPendingContext] = useState<CommentContext | null>(null);
     const [pendingElement, setPendingElement] = useState<PendingCommentElement | null>(null);
@@ -569,7 +605,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
         setSemanticIndex(null);
         setSemanticIndexLoading(true);
         setSemanticIndexError(null);
-        setSelectionInspectorOpen(false);
+        setRightRailTab(null);
         setThreeDActivated(false);
         clearGlobalSelection();
         setComments([]);
@@ -706,7 +742,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
     }, [commit, pcbViewerElement, projectId, registerClient, schematicViewerElement, semanticIndex]);
 
     useEffect(() => {
-        if (globalSelection) setSelectionInspectorOpen(true);
+        if (globalSelection) setRightRailTab("selection");
     }, [globalSelection]);
 
     useEffect(() => {
@@ -977,7 +1013,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
 
             if (event.key === "Escape") {
                 clearGlobalSelection();
-                setSelectionInspectorOpen(false);
+                setRightRailTab(null);
                 setCommentMode(false);
                 setShowCommentForm(false);
                 setSelectedCommentId(null);
@@ -1116,11 +1152,13 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     </Button>
                 )}
                 <Button
-                    variant={showCommentPanel ? "secondary" : "ghost"}
+                    variant={rightRailTab === "comments" ? "secondary" : "ghost"}
                     size="sm"
-                    onClick={() => setShowCommentPanel((open) => !open)}
+                    onClick={() => setRightRailTab((tab) =>
+                        tab === "comments" ? null : "comments"
+                    )}
                     className="text-xs h-8"
-                    aria-pressed={showCommentPanel}
+                    aria-pressed={rightRailTab === "comments"}
                 >
                     <MessageSquare className="w-3 h-3 mr-2" />
                     Comments
@@ -1139,17 +1177,25 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     <div aria-hidden={activeTab !== "sch"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "sch" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
                         {schematicContentLoaded ? (
                             schematicSources.length > 0 ? (
-                                <div className="flex h-full min-w-0">
-                                    <EcadViewerControls context="SCH" viewer={schematicViewerElement} />
-                                    <div className="min-h-0 min-w-0 flex-1">
+                                <div className="relative h-full min-w-0 overflow-hidden">
+                                    <div className="absolute inset-0 min-h-0 min-w-0">
                                         <EcadViewerHost
                                             viewerKey={schematicViewerKey}
                                             sources={schematicSources}
-                                            active={activeTab === "sch"}
+                                            active={viewerActive && activeTab === "sch"}
                                             setViewerRef={setSchematicViewerRef}
                                             onReady={notifySchematicViewerReady}
+                                            viewportInsets={{
+                                                left: schematicLeftInset,
+                                                right: rightRailInset,
+                                            }}
                                         />
                                     </div>
+                                    <EcadViewerControls
+                                        context="SCH"
+                                        viewer={schematicViewerElement}
+                                        onVisibleWidthChange={setSchematicLeftInset}
+                                    />
                                 </div>
                             ) : (
                                 <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -1167,17 +1213,25 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                     <div aria-hidden={activeTab !== "pcb"} className={`absolute inset-0 z-10 transition-opacity duration-200 ${activeTab === "pcb" ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"}`}>
                         {pcbContentLoaded ? (
                             pcbSources.length > 0 ? (
-                                <div className="flex h-full min-w-0">
-                                    <EcadViewerControls context="PCB" viewer={pcbViewerElement} />
-                                    <div className="min-h-0 min-w-0 flex-1">
+                                <div className="relative h-full min-w-0 overflow-hidden">
+                                    <div className="absolute inset-0 min-h-0 min-w-0">
                                         <EcadViewerHost
                                             viewerKey={pcbViewerKey}
                                             sources={pcbSources}
-                                            active={activeTab === "pcb"}
+                                            active={viewerActive && activeTab === "pcb"}
                                             setViewerRef={setPcbViewerRef}
                                             onReady={notifyPcbViewerReady}
+                                            viewportInsets={{
+                                                left: pcbLeftInset,
+                                                right: rightRailInset,
+                                            }}
                                         />
                                     </div>
+                                    <EcadViewerControls
+                                        context="PCB"
+                                        viewer={pcbViewerElement}
+                                        onVisibleWidthChange={setPcbLeftInset}
+                                    />
                                 </div>
                             ) : (
                                 <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -1197,7 +1251,7 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                                 projectId={projectId}
                                 commit={commit}
                                 user={user}
-                                active={activeTab === "3d" || activeTab === "stackup"}
+                                active={viewerActive && (activeTab === "3d" || activeTab === "stackup")}
                                 workspace={activeTab === "stackup" ? "stackup" : "pcb"}
                                 selection={globalSelection}
                                 onSelection={crossProbeGlobal}
@@ -1236,33 +1290,65 @@ export function Visualizer({ projectId, user, commit }: VisualizerProps) {
                         </div>
                     )}
 
+                    <ViewerOverlayRail
+                        activeTab={rightRailTab}
+                        tabs={[
+                            {
+                                id: "selection",
+                                label: "Selection",
+                                icon: <Cpu className="mr-1.5 size-3.5" />,
+                            },
+                            {
+                                id: "comments",
+                                label: "Comments",
+                                icon: <MessageSquare className="mr-1.5 size-3.5" />,
+                                badge: comments.length > 0
+                                    ? <span className="rounded-full bg-muted px-1.5 text-[10px]">{comments.length}</span>
+                                    : null,
+                            },
+                        ]}
+                        onTabChange={setRightRailTab}
+                        onClose={() => setRightRailTab(null)}
+                        onVisibleWidthChange={setRightRailInset}
+                        ariaLabel="Viewer details"
+                    >
+                        {rightRailTab === "comments" ? (
+                            <CommentPanel
+                                comments={comments}
+                                onClose={() => setRightRailTab(null)}
+                                onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
+                                onReply={replyToComment}
+                                onDelete={deleteComment}
+                                onCommentClick={handleCommentClick}
+                                canModify={canModifyComments}
+                                highlightedId={selectedCommentId}
+                                embedded
+                            />
+                        ) : globalSelection ? (
+                            <SelectionInspector
+                                open
+                                selection={globalSelection}
+                                semanticIndex={semanticIndex}
+                                onOpenChange={(open) => {
+                                    if (!open) setRightRailTab(null);
+                                }}
+                                onClear={clearGlobalSelection}
+                                onImportComponent={globalSelection.kind === "net" ? undefined : handleImportSelectedComponent}
+                                canImportComponent={canImportLibraryComponent}
+                                importingComponent={componentImportPending}
+                                labelInstances={labelInstances}
+                                onNavigateLabelInstance={navigateLabelInstance}
+                                onFocusLabelInstance={(uuid) => void focusLabelInstance(uuid)}
+                                navigatingLabelInstance={navigatingLabelInstance}
+                                embedded
+                            />
+                        ) : (
+                            <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted-foreground">
+                                Select a component, net, pad, via, zone, or track to inspect it.
+                            </div>
+                        )}
+                    </ViewerOverlayRail>
                 </div>
-                {showCommentPanel && (
-                    <CommentPanel
-                        comments={comments}
-                        onClose={() => setShowCommentPanel(false)}
-                        onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
-                        onReply={replyToComment}
-                        onDelete={deleteComment}
-                        onCommentClick={handleCommentClick}
-                        canModify={canModifyComments}
-                        highlightedId={selectedCommentId}
-                    />
-                )}
-                <SelectionInspector
-                    open={selectionInspectorOpen}
-                    selection={globalSelection}
-                    semanticIndex={semanticIndex}
-                    onOpenChange={setSelectionInspectorOpen}
-                    onClear={clearGlobalSelection}
-                    onImportComponent={globalSelection?.kind === "net" ? undefined : handleImportSelectedComponent}
-                    canImportComponent={canImportLibraryComponent}
-                    importingComponent={componentImportPending}
-                    labelInstances={labelInstances}
-                    onNavigateLabelInstance={navigateLabelInstance}
-                    onFocusLabelInstance={(uuid) => void focusLabelInstance(uuid)}
-                    navigatingLabelInstance={navigatingLabelInstance}
-                />
             </div>
 
             <CommentForm

@@ -1,4 +1,4 @@
-export type ComparisonHostSlot = "composite" | "base" | "compare";
+export type ComparisonHostSlot = "composite" | "base" | "compare" | "toggle";
 
 export type ComparisonHostPhase =
     | "idle"
@@ -43,6 +43,7 @@ export function createComparisonLifecycleState(): ComparisonLifecycleState {
         composite: emptyHost(),
         base: emptyHost(),
         compare: emptyHost(),
+        toggle: emptyHost(),
     };
 }
 

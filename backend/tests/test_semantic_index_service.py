@@ -238,6 +238,56 @@ class SemanticIndexServiceTests(unittest.TestCase):
         )
         self.assertEqual(fields["Datasheet"], "https://example.test/part.pdf")
 
+    def test_graphical_pin_without_terminal_row_still_counts_as_connectivity(self) -> None:
+        design_payload = {
+            "components": [{
+                "designator": "U30",
+                "svg_id": "symbol-u30",
+                "hierarchy": {"sheet": "io.kicad_sch"},
+            }],
+            "nets": [{
+                "name": "LLCE_CAN5_TX",
+                "graphical": {
+                    "wires": ["wire-can5"],
+                    "labels": ["label-can5"],
+                    "pins": [{
+                        "designator": "U30",
+                        "pin": "16",
+                        "source_pin_id": "pin-u30-16",
+                    }],
+                },
+                "terminals": [],
+            }],
+        }
+
+        class FakeDesign:
+            pcb = None
+
+            def to_json(self, include_indexes=True):
+                self.assert_include_indexes = include_indexes
+                return design_payload
+
+        class FakeKiCadDesign:
+            @staticmethod
+            def from_project_file(_path):
+                return FakeDesign()
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            sys.modules,
+            {"kicad_monkey": SimpleNamespace(KiCadDesign=FakeKiCadDesign)},
+        ):
+            payload = semantic_index_service.build_semantic_index(
+                Path(temporary) / "board.kicad_pro",
+                source_revision_key="revision-a",
+            )
+
+        terminal = payload["terminals"][0]
+        self.assertEqual(terminal["reference"], "U30")
+        self.assertEqual(terminal["pin"], "16")
+        self.assertEqual(terminal["schematicPinUuid"], "pin-u30-16")
+        net = payload["nets"][0]
+        self.assertEqual(net["schematicRefs"][0]["pinUuids"], ["pin-u30-16"])
+
 
 if __name__ == "__main__":
     unittest.main()

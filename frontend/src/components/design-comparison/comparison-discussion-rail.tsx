@@ -3,6 +3,7 @@ import { CheckCircle2, MessageSquare, Reply, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchApi, readApiError } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { Comment, CommentContext } from "@/types/comments";
 
 interface DiscussionAnchor {
@@ -21,6 +22,7 @@ interface ComparisonDiscussionRailProps {
     canComment: boolean;
     onCommentsChange: (comments: Comment[]) => void;
     onClose: () => void;
+    embedded?: boolean;
 }
 
 export function ComparisonDiscussionRail({
@@ -33,6 +35,7 @@ export function ComparisonDiscussionRail({
     canComment,
     onCommentsChange,
     onClose,
+    embedded = false,
 }: ComparisonDiscussionRailProps) {
     const [content, setContent] = useState("");
     const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -110,7 +113,15 @@ export function ComparisonDiscussionRail({
     };
 
     return (
-        <aside className="flex h-full w-80 shrink-0 flex-col border-l bg-background max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl">
+        <aside
+            className={cn(
+                "flex h-full flex-col bg-background",
+                embedded
+                    ? "w-full"
+                    : "w-80 shrink-0 border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:shadow-xl",
+            )}
+        >
+            {!embedded && (
             <div className="flex items-center justify-between border-b px-3 py-2">
                 <div className="flex items-center gap-2">
                     <MessageSquare className="h-4 w-4" />
@@ -124,6 +135,7 @@ export function ComparisonDiscussionRail({
                     <span className="sr-only">Close discussion</span>
                 </Button>
             </div>
+            )}
 
             <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
                 {!comments.length && (

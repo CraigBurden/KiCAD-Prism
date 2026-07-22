@@ -15,9 +15,12 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.services import (
     bom_diff_service,
@@ -32,7 +35,7 @@ logger = logging.getLogger(__name__)
 design_compare_jobs: Dict[str, dict] = {}
 _CACHE_ROOT = Path(os.environ.get("PRISM_DESIGN_COMPARE_CACHE", "/tmp/prism_design_compare_cache"))
 _JOB_ROOT = Path(os.environ.get("PRISM_DESIGN_COMPARE_JOBS", "/tmp/prism_design_compare"))
-_CACHE_SCHEMA = "prism.design_compare_revision_v3"
+_CACHE_SCHEMA = "prism.design_compare_revision_v4"
 _CACHE_LOCKS: Dict[str, threading.Lock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
 _GENERATED_PARTS = {
@@ -57,7 +60,10 @@ def _persist_job(job_id: str) -> None:
         **{
             key: value
             for key, value in job.items()
-            if key not in {"job_id", "status", "message", "percent"}
+            # The result is already published atomically under _JOB_ROOT. Writing
+            # the multi-megabyte payload into the workspace JSONB row duplicates
+            # serialization and can dominate completion time on large projects.
+            if key not in {"job_id", "status", "message", "percent", "result"}
         },
     )
 
@@ -78,18 +84,55 @@ def _repo_paths(project_id: str) -> Tuple[Path, Optional[str], Path]:
     return checkout, None, checkout
 
 
-def _snapshot_commit(repo_path: Path, commit: str, destination: Path, relative_path: Optional[str]) -> None:
-    """git archive into destination; Type-2 archives only the subproject prefix when set.
+_SNAPSHOT_SUFFIXES = {
+    ".kicad_dru",
+    ".kicad_jobset",
+    ".kicad_pcb",
+    ".kicad_pro",
+    ".kicad_sch",
+    ".kicad_wks",
+}
+_SNAPSHOT_NAMES = {".prism.json", "fp-lib-table", "sym-lib-table"}
 
-    Streams tar (no capture_output) so large Manufacturing-Outputs / STEP trees do not
-    OOM the uvicorn worker. After extract, prune non-design artefacts.
-    """
+
+def _snapshot_paths(
+    repo_path: Path,
+    commit: str,
+    relative_path: Optional[str],
+) -> List[str]:
+    """List only inputs needed by semantic, geometry, BOM, and viewer generation."""
+    args = ["git", "-C", str(repo_path), "ls-tree", "-rz", "--name-only", commit]
+    if relative_path:
+        args.extend(["--", relative_path])
+    process = subprocess.run(args, capture_output=True)
+    if process.returncode != 0:
+        raise RuntimeError(
+            f"git ls-tree failed for {commit}: "
+            f"{process.stderr.decode('utf-8', errors='replace')}"
+        )
+    paths: List[str] = []
+    for raw in process.stdout.split(b"\0"):
+        if not raw:
+            continue
+        value = raw.decode("utf-8", errors="surrogateescape")
+        path = Path(value)
+        folded_parts = {part.casefold() for part in path.parts[:-1]}
+        if folded_parts & _GENERATED_PARTS:
+            continue
+        if path.name in _SNAPSHOT_NAMES or path.suffix.casefold() in _SNAPSHOT_SUFFIXES:
+            paths.append(value)
+    if not paths:
+        raise RuntimeError(f"No KiCad design inputs found at {commit}")
+    return paths
+
+
+def _snapshot_commit(repo_path: Path, commit: str, destination: Path, relative_path: Optional[str]) -> None:
+    """Archive only comparison inputs, excluding manufacturing and 3D asset bulk."""
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    args = ["git", "-C", str(repo_path), "archive", "--format=tar", commit]
-    if relative_path:
-        args.append(relative_path)
+    paths = _snapshot_paths(repo_path, commit, relative_path)
+    args = ["git", "-C", str(repo_path), "archive", "--format=tar", commit, "--", *paths]
     archive = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert archive.stdout is not None
     tar = subprocess.Popen(
@@ -184,6 +227,18 @@ def _load_or_build_revision(
     logs: List[str],
     on_progress: Optional[Any] = None,
 ) -> Dict[str, Any]:
+    revision_started = time.perf_counter()
+    timings: Dict[str, float] = {}
+
+    def timed(label: str, action: Callable[[], Any]) -> Any:
+        started = time.perf_counter()
+        try:
+            return action()
+        finally:
+            elapsed = time.perf_counter() - started
+            timings[label] = elapsed
+            logs.append(f"Timing {commit[:7]} {label}: {elapsed:.3f}s")
+
     cache = _cache_dir(project_id, commit)
     marker = cache / "revision.json"
     cached = _read_revision_cache(marker) if marker.exists() else None
@@ -205,7 +260,10 @@ def _load_or_build_revision(
         logs.append(f"Snapshotting {commit[:7]}…")
         if on_progress:
             on_progress(f"Snapshotting {commit[:7]}…")
-        _snapshot_commit(repo_path, commit, snap, relative_path)
+        timed(
+            "snapshot",
+            lambda: _snapshot_commit(repo_path, commit, snap, relative_path),
+        )
 
         pro = _find_pro(snap)
         semantic_index: Dict[str, Any] = {
@@ -223,10 +281,13 @@ def _load_or_build_revision(
             try:
                 if on_progress:
                     on_progress(f"Building semantic index for {commit[:7]}…")
-                semantic_index = semantic_index_service.build_semantic_index(
-                    pro,
-                    source_revision_key=commit,
-                    commit=commit,
+                semantic_index = timed(
+                    "semantic-index",
+                    lambda: semantic_index_service.build_semantic_index(
+                        pro,
+                        source_revision_key=commit,
+                        commit=commit,
+                    ),
                 )
                 logs.append(f"Built semantic index for {commit[:7]}")
             except Exception as exc:
@@ -240,14 +301,17 @@ def _load_or_build_revision(
                 }
 
             try:
-                stackup = _extract_stackup(snap)
+                stackup = timed("stackup", lambda: _extract_stackup(snap))
             except Exception as exc:
                 logs.append(f"Stackup extract failed: {exc}")
 
             try:
                 if on_progress:
                     on_progress(f"Extracting geometry for {commit[:7]}…")
-                geometry = _extract_geometry(snap, semantic_index)
+                geometry = timed(
+                    "geometry",
+                    lambda: _extract_geometry(snap, semantic_index),
+                )
                 logs.append(
                     f"Geometry {commit[:7]}: "
                     f"sch={len(geometry.get('schematic') or {})} "
@@ -259,7 +323,7 @@ def _load_or_build_revision(
             try:
                 if on_progress:
                     on_progress(f"Exporting BOM for {commit[:7]}…")
-                bom_csv = _export_bom_csv(snap, logs)
+                bom_csv = timed("bom", lambda: _export_bom_csv(snap, logs))
             except Exception as exc:
                 logs.append(f"BOM export failed: {exc}")
 
@@ -267,18 +331,29 @@ def _load_or_build_revision(
             "schema": _CACHE_SCHEMA,
             "commit": commit,
             "semantic": semantic_index,
-            # Keep the old key for one payload generation so callers that have
-            # not migrated yet still receive the compact semantic document.
-            "design": semantic_index,
             "geometry": geometry,
             "stackup": stackup,
             "bom_csv": bom_csv,
-            "sources": _list_kicad_sources(snap),
+            "sources": timed("source-list", lambda: _list_kicad_sources(snap)),
+            "timings": timings,
         }
         cache.mkdir(parents=True, exist_ok=True)
         temporary = marker.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-        temporary.replace(marker)
+        timed(
+            "cache-write",
+            lambda: (
+                temporary.write_text(
+                    json.dumps(payload, separators=(",", ":")),
+                    encoding="utf-8",
+                ),
+                temporary.replace(marker),
+            ),
+        )
+        total = time.perf_counter() - revision_started
+        logs.append(
+            f"Timing {commit[:7]} total: {total:.3f}s; "
+            f"cache={marker.stat().st_size / (1024 * 1024):.1f}MiB"
+        )
         if on_progress:
             on_progress(f"Revision {commit[:7]} ready")
         return payload
@@ -414,6 +489,16 @@ def _point(block: str, key: str) -> Optional[List[float]]:
     return [float(match.group(1)), float(match.group(2))] if match else None
 
 
+def _point_angle(block: str, key: str) -> Optional[float]:
+    match = re.search(
+        rf"\({re.escape(key)}\s+[-+0-9.eE]+\s+[-+0-9.eE]+(?:\s+([-+0-9.eE]+))?",
+        block,
+    )
+    if not match:
+        return None
+    return float(match.group(1) or 0)
+
+
 def _points(block: str) -> List[List[float]]:
     return [
         [float(x), float(y)]
@@ -478,27 +563,70 @@ def _extract_geometry(snap: Path, semantic_index: Dict[str, Any]) -> Dict[str, A
             at = _point(block, "at")
             if not source_id or not at:
                 continue
+            symbol_bounds = [at[0] - 2.54, at[1] - 2.54, 5.08, 5.08]
             sch_geom[source_id] = _enrich_geometry(
                 {
                     "kind": "symbol",
                     "page": page,
                     "x": at[0],
                     "y": at[1],
-                    "bounds": [at[0] - 2.54, at[1] - 2.54, 5.08, 5.08],
+                    "bounds": symbol_bounds,
                 },
                 source_id=source_id,
                 semantic_index=semantic_index,
                 context="schematic",
             )
-        for kind in ("wire", "bus", "polyline", "arc", "circle", "text", "text_box"):
+            # Instance pins have native UUIDs but no independent `(at ...)` in
+            # the schematic file. Index them against their owning symbol so a
+            # terminal-only semantic net can still resolve the correct page
+            # and let ecad-viewer obtain the exact painted pin bounds.
+            for pin_block in _iter_sexpr_blocks(block, "pin"):
+                pin_source_id = _source_id(pin_block)
+                if not pin_source_id:
+                    continue
+                sch_geom[pin_source_id] = _enrich_geometry(
+                    {
+                        "kind": "pin",
+                        "page": page,
+                        "x": at[0],
+                        "y": at[1],
+                        "bounds": symbol_bounds,
+                        "parent_source_id": source_id,
+                    },
+                    source_id=pin_source_id,
+                    semantic_index=semantic_index,
+                    context="schematic",
+                )
+        for kind in (
+            "wire",
+            "bus",
+            "polyline",
+            "arc",
+            "circle",
+            "text",
+            "text_box",
+            "label",
+            "global_label",
+            "hierarchical_label",
+            "junction",
+            "no_connect",
+        ):
             for block in _iter_sexpr_blocks(text, kind):
                 source_id = _source_id(block)
                 if not source_id:
                     continue
                 points = _points(block)
                 at = _point(block, "at")
+                if kind in {"label", "global_label", "hierarchical_label"}:
+                    geometry_kind = "label"
+                elif kind == "junction":
+                    geometry_kind = "junction"
+                elif kind == "no_connect":
+                    geometry_kind = "graphic"
+                else:
+                    geometry_kind = "wire" if kind in {"wire", "bus"} else "graphic"
                 entry: Dict[str, Any] = {
-                    "kind": "wire" if kind in {"wire", "bus"} else "graphic",
+                    "kind": geometry_kind,
                     "page": page,
                 }
                 if points:
@@ -598,6 +726,7 @@ def _extract_geometry(snap: Path, semantic_index: Dict[str, Any]) -> Dict[str, A
         for block in _iter_sexpr_blocks(text, "footprint"):
             source_id, entry = common(block, "footprint")
             at = _point(block, "at")
+            rotation = _point_angle(block, "at")
             if not source_id or not at:
                 continue
             lib_id = re.match(r'\(footprint\s+"([^"]+)"', block)
@@ -606,6 +735,7 @@ def _extract_geometry(snap: Path, semantic_index: Dict[str, Any]) -> Dict[str, A
                     "lib_id": lib_id.group(1) if lib_id else "",
                     "x": at[0],
                     "y": at[1],
+                    "rotation": rotation or 0,
                     # Used only if native UUID focus is unavailable.
                     "bounds": [at[0] - 5, at[1] - 5, 10, 10],
                 }
@@ -623,6 +753,23 @@ def _component_source(component: Dict[str, Any], context: str) -> Optional[str]:
         return None
     key = "symbolUuid" if context == "schematic" else "footprintUuid"
     return refs[0].get(key)
+
+
+def _component_sources(component: Dict[str, Any], context: str = "schematic") -> List[str]:
+    refs = component.get("schematicRefs" if context == "schematic" else "pcbRefs") or []
+    key = "symbolUuid" if context == "schematic" else "footprintUuid"
+    return [str(ref[key]) for ref in refs if ref.get(key)]
+
+
+def _component_page(component: Dict[str, Any]) -> Optional[str]:
+    return next(
+        (
+            str(ref.get("page"))
+            for ref in component.get("schematicRefs") or []
+            if ref.get("page")
+        ),
+        None,
+    )
 
 
 def _native_item(
@@ -657,6 +804,222 @@ def _terminal_pairs(index: Dict[str, Any], net_uid: str) -> set[tuple[str, str]]
     }
 
 
+def _terminal_names(pairs: set[tuple[str, str]]) -> List[str]:
+    return sorted(f"{reference}.{pin}" for reference, pin in pairs)
+
+
+def _net_label_count(net: Optional[Dict[str, Any]]) -> int:
+    if not net:
+        return 0
+    return sum(
+        int(ref.get("labelInstanceCount") or 0)
+        for ref in net.get("schematicRefs") or []
+    )
+
+
+def _net_source_ids(net: Optional[Dict[str, Any]]) -> List[str]:
+    if not net:
+        return []
+    values: List[str] = []
+    for ref in net.get("schematicRefs") or []:
+        for bucket in ("wireUuids", "labelUuids", "pinUuids", "junctionUuids"):
+            values.extend(str(value) for value in ref.get(bucket) or [] if value)
+    return list(dict.fromkeys(values))
+
+
+def _component_visual_targets(
+    component: Optional[Dict[str, Any]],
+    *,
+    side: str,
+    status: str,
+) -> List[Dict[str, Any]]:
+    if not component:
+        return []
+    return [
+        {
+            "side": side,
+            "status": status,
+            "sourceId": source_id,
+            "page": _component_page(component),
+            "role": "component",
+        }
+        for source_id in _component_sources(component)
+    ]
+
+
+def _net_bucket_targets(
+    net: Optional[Dict[str, Any]],
+    *,
+    side: str,
+    status: str,
+    buckets: Optional[set[str]] = None,
+) -> List[Dict[str, Any]]:
+    if not net:
+        return []
+    roles = {
+        "wireUuids": "wire",
+        "labelUuids": "label",
+        "junctionUuids": "junction",
+        "pinUuids": "terminal",
+    }
+    selected = buckets or set(roles)
+    targets: List[Dict[str, Any]] = []
+    for ref in net.get("schematicRefs") or []:
+        page = ref.get("page")
+        for bucket, role in roles.items():
+            if bucket not in selected:
+                continue
+            for source_id in ref.get(bucket) or []:
+                if not source_id:
+                    continue
+                targets.append(
+                    {
+                        "side": side,
+                        "status": status,
+                        "sourceId": str(source_id),
+                        "page": str(page) if page else None,
+                        "role": role,
+                    }
+                )
+    return targets
+
+
+def _terminal_visual_target(
+    index: Dict[str, Any],
+    pair: tuple[str, str],
+    *,
+    side: str,
+    status: str,
+) -> Optional[Dict[str, Any]]:
+    reference, pin = pair
+    terminal = next(
+        (
+            item
+            for item in index.get("terminals") or []
+            if str(item.get("reference") or "") == reference
+            and str(item.get("pin") or "") == pin
+        ),
+        None,
+    )
+    component = next(
+        (
+            item
+            for item in index.get("components") or []
+            if str(item.get("reference") or "") == reference
+        ),
+        None,
+    )
+    source_id = str((terminal or {}).get("schematicPinUuid") or "")
+    parent_sources = _component_sources(component or {})
+    parent_source_id = parent_sources[0] if parent_sources else None
+    if not source_id and not parent_source_id:
+        return None
+    return {
+        "side": side,
+        "status": status,
+        "sourceId": source_id or parent_source_id,
+        "parentSourceId": parent_source_id,
+        "page": _component_page(component or {}),
+        "role": "terminal" if source_id else "component",
+        "reference": reference,
+        "pin": pin,
+    }
+
+
+def _dedupe_visual_targets(targets: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    positions: Dict[tuple[str, str, str], int] = {}
+    for target in targets:
+        key = (
+            str(target.get("side") or ""),
+            str(target.get("status") or ""),
+            str(target.get("sourceId") or ""),
+        )
+        if not key[2]:
+            continue
+        if key in positions:
+            existing = result[positions[key]]
+            existing.update(
+                {
+                    name: value
+                    for name, value in target.items()
+                    if value not in (None, "", [])
+                }
+            )
+            continue
+        positions[key] = len(result)
+        result.append(dict(target))
+    return result
+
+
+def _net_connectivity_fingerprint(
+    index: Dict[str, Any], net: Dict[str, Any]
+) -> frozenset[tuple[str, str]]:
+    """Cross-revision net identity from terminal/pad membership, not name."""
+    return frozenset(_terminal_pairs(index, str(net.get("netUid") or "")))
+
+
+def _net_source_id(net: Dict[str, Any], index: Dict[str, Any]) -> Optional[str]:
+    """Pick a native paint identity so net-owned geometry enters PROJECT_DIFF."""
+    for ref in net.get("schematicRefs") or []:
+        for bucket in ("wireUuids", "labelUuids", "pinUuids", "junctionUuids"):
+            for uid in ref.get(bucket) or []:
+                if uid:
+                    return str(uid)
+    for ref in net.get("pcbRefs") or []:
+        for bucket in ("trackUuids", "arcUuids", "viaUuids", "padUuids", "zoneUuids"):
+            for uid in ref.get(bucket) or []:
+                if uid:
+                    return str(uid)
+    net_uid = net.get("netUid")
+    for item in index.get("terminals") or []:
+        if item.get("netUid") == net_uid and item.get("schematicPinUuid"):
+            return str(item["schematicPinUuid"])
+        if item.get("netUid") == net_uid and item.get("pcbPadUuid"):
+            return str(item["pcbPadUuid"])
+    return None
+
+
+def _component_native_keys(component: Dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for ref in component.get("schematicRefs") or []:
+        uuid = ref.get("symbolUuid")
+        if uuid:
+            keys.add(f"sch:{uuid}")
+    for ref in component.get("pcbRefs") or []:
+        uuid = ref.get("footprintUuid")
+        if uuid:
+            keys.add(f"pcb:{uuid}")
+    return keys
+
+
+def _match_by_keys(
+    base_items: List[Dict[str, Any]],
+    head_items: List[Dict[str, Any]],
+    keys_of,
+) -> List[tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]]:
+    """Greedy 1:1 match: shared native keys first, then leftover unpaired."""
+    pairs: List[tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]] = []
+    head_unused = list(head_items)
+    for old in base_items:
+        old_keys = keys_of(old)
+        match_idx = next(
+            (
+                index
+                for index, candidate in enumerate(head_unused)
+                if old_keys and old_keys & keys_of(candidate)
+            ),
+            None,
+        )
+        if match_idx is None:
+            pairs.append((old, None))
+            continue
+        pairs.append((old, head_unused.pop(match_idx)))
+    for new in head_unused:
+        pairs.append((None, new))
+    return pairs
+
+
 def _summary(changes: List[Dict[str, Any]]) -> Dict[str, int]:
     return {
         "added": sum(1 for change in changes if change["kind"] == "added"),
@@ -666,105 +1029,498 @@ def _summary(changes: List[Dict[str, Any]]) -> Dict[str, int]:
 
 
 def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
-    """Diff compact kicad-monkey semantic indexes, preserving native source IDs."""
-    base_components = {
-        str(item.get("reference")): item
-        for item in base.get("components") or []
-        if item.get("reference")
-    }
-    head_components = {
-        str(item.get("reference")): item
-        for item in head.get("components") or []
-        if item.get("reference")
-    }
-    base_nets = {str(item.get("name")): item for item in base.get("nets") or [] if item.get("name")}
-    head_nets = {str(item.get("name")): item for item in head.get("nets") or [] if item.get("name")}
+    """Diff compact kicad-monkey semantic indexes with connectivity-aware matching.
+
+    Components prefer native schematic/PCB UUIDs over refdes so renames become
+    modified. Nets prefer terminal/pad fingerprints over name so renames and
+    rewires are explicit; name-hash netUid is never treated as a cross-commit UID.
+    """
+    base_components = [item for item in base.get("components") or [] if item.get("reference")]
+    head_components = [item for item in head.get("components") or [] if item.get("reference")]
     changes: List[Dict[str, Any]] = []
 
-    for reference in sorted(base_components.keys() | head_components.keys()):
-        old, new = base_components.get(reference), head_components.get(reference)
-        base_source = _component_source(old or {}, "schematic")
-        compare_source = _component_source(new or {}, "schematic")
-        page = next(
-            (
-                Path(str(ref.get("page") or "")).name
-                for ref in ((new or old or {}).get("schematicRefs") or [])
-                if ref.get("page")
-            ),
-            None,
-        )
-        semantic_id = (new or old or {}).get("componentUid")
-        common = {
-            "domain": "schematic",
-            "category": "components",
-            "label": reference,
-            "reference": reference,
-            "semantic_id": semantic_id,
-            "page": page,
-            "alsoOnPages": [page] if page else [],
-            "source_id_base": base_source,
-            "source_id_compare": compare_source,
-            "uuid": compare_source or base_source,
-            "base_item": _native_item(
-                source_id=base_source,
-                semantic_id=semantic_id,
-                page=page,
-                reference=reference,
-            ),
-            "compare_item": _native_item(
-                source_id=compare_source,
-                semantic_id=semantic_id,
-                page=page,
-                reference=reference,
-            ),
-            "classification": "primary",
-        }
+    def component_change(
+        old: Optional[Dict[str, Any]],
+        new: Optional[Dict[str, Any]],
+        *,
+        kind: Optional[str] = None,
+        reasons: Optional[List[str]] = None,
+        details: Optional[Dict[str, Any]] = None,
+        base_sources: Optional[List[str]] = None,
+        compare_sources: Optional[List[str]] = None,
+        source_side: Optional[str] = None,
+        semantic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        old_reference = str((old or {}).get("reference") or "")
+        new_reference = str((new or {}).get("reference") or "")
+        reference = new_reference or old_reference
+        old_page, new_page = _component_page(old or {}), _component_page(new or {})
+        base_ids = base_sources if base_sources is not None else _component_sources(old or {})
+        compare_ids = compare_sources if compare_sources is not None else _component_sources(new or {})
+        change_kind = kind or ("added" if old is None else "removed" if new is None else "changed")
+        resolved_side = source_side or ("reference" if change_kind == "removed" else "comparison")
+        base_source = base_ids[0] if base_ids else None
+        compare_source = compare_ids[0] if compare_ids else None
+        active_source = base_source if resolved_side == "reference" else compare_source or base_source
+        resolved_semantic_id = semantic_id or (new or old or {}).get("componentUid") or f"ref:{reference}"
+        pages = list(dict.fromkeys(page for page in (old_page, new_page) if page))
+        instance_delta = (details or {}).get("instanceCount") or {}
+        old_instance_count = instance_delta.get("old")
+        new_instance_count = instance_delta.get("new")
+        visual_targets: List[Dict[str, Any]] = []
+        if change_kind != "added":
+            visual_targets.extend(
+                {
+                    "side": "reference",
+                    "status": (
+                        "removed"
+                        if change_kind == "removed"
+                        or (
+                            isinstance(old_instance_count, int)
+                            and isinstance(new_instance_count, int)
+                            and new_instance_count < old_instance_count
+                        )
+                        else "modified"
+                    ),
+                    "sourceId": source_id,
+                    "page": old_page,
+                    "role": "component",
+                }
+                for source_id in base_ids
+            )
+        if change_kind != "removed":
+            visual_targets.extend(
+                {
+                    "side": "comparison",
+                    "status": (
+                        "added"
+                        if change_kind == "added"
+                        or (
+                            isinstance(old_instance_count, int)
+                            and isinstance(new_instance_count, int)
+                            and new_instance_count > old_instance_count
+                        )
+                        else "modified"
+                    ),
+                    "sourceId": source_id,
+                    "page": new_page,
+                    "role": "component",
+                }
+                for source_id in compare_ids
+            )
+        resolved_details = dict(details or {})
+        resolved_details["visualTargets"] = _dedupe_visual_targets(visual_targets)
+        fields: Dict[str, Any] = {}
         if old is None:
-            changes.append(
-                {
-                    **common,
-                    "id": f"sch-comp-add-{semantic_id or reference}",
-                    "kind": "added",
-                    "fields": {
-                        field: {"old": None, "new": value}
-                        for field, value in (new.get("fields") or {}).items()
-                        if value
-                    },
-                }
-            )
-        elif new is None:
-            changes.append(
-                {
-                    **common,
-                    "id": f"sch-comp-del-{semantic_id or reference}",
-                    "kind": "removed",
-                }
-            )
-        else:
-            old_fields, new_fields = old.get("fields") or {}, new.get("fields") or {}
-            field_diffs = {
+            fields = {
+                field: {"old": None, "new": value}
+                for field, value in ((new or {}).get("fields") or {}).items()
+                if value not in (None, "")
+            }
+        elif new is not None:
+            old_fields = dict(old.get("fields") or {})
+            new_fields = dict(new.get("fields") or {})
+            if old_reference != new_reference:
+                old_fields["Reference"] = old_reference
+                new_fields["Reference"] = new_reference
+            fields = {
                 field: {"old": old_fields.get(field, ""), "new": new_fields.get(field, "")}
                 for field in sorted(old_fields.keys() | new_fields.keys())
                 if old_fields.get(field, "") != new_fields.get(field, "")
             }
-            if field_diffs:
-                changes.append(
-                    {
-                        **common,
-                        "id": f"sch-comp-chg-{semantic_id or reference}",
-                        "kind": "changed",
-                        "fields": field_diffs,
-                    }
-                )
+        return {
+            "id": f"sch-comp-{change_kind}-{resolved_semantic_id}",
+            "kind": change_kind,
+            "domain": "schematic",
+            "category": "components",
+            "classification": "primary",
+            "label": reference,
+            "reference": reference,
+            "semantic_id": resolved_semantic_id,
+            "page": new_page or old_page,
+            "alsoOnPages": pages,
+            "source_id_base": base_source,
+            "source_id_compare": compare_source,
+            "affected_source_ids_base": base_ids,
+            "affected_source_ids_compare": compare_ids,
+            "source_side": resolved_side,
+            "uuid": active_source,
+            "base_item": _native_item(
+                source_id=base_source,
+                semantic_id=resolved_semantic_id,
+                page=old_page,
+                reference=old_reference or reference,
+            ),
+            "compare_item": _native_item(
+                source_id=compare_source,
+                semantic_id=resolved_semantic_id,
+                page=new_page,
+                reference=new_reference or reference,
+            ),
+            "fields": fields,
+            "reasons": reasons or (["object-added"] if change_kind == "added" else ["object-removed"]),
+            "details": resolved_details,
+        }
 
-    for name in sorted(base_nets.keys() | head_nets.keys()):
-        old, new = base_nets.get(name), head_nets.get(name)
-        semantic_id = (new or old or {}).get("netUid")
+    # Match native identities first. This preserves renames and lets placement
+    # changes disappear when fields, sheet, and connectivity are unchanged.
+    head_unused = list(head_components)
+    matched_pairs: List[tuple[Dict[str, Any], Dict[str, Any]]] = []
+    base_unmatched: List[Dict[str, Any]] = []
+    for old in base_components:
+        keys = _component_native_keys(old)
+        index = next(
+            (
+                offset
+                for offset, candidate in enumerate(head_unused)
+                if keys and keys & _component_native_keys(candidate)
+            ),
+            None,
+        )
+        if index is None:
+            base_unmatched.append(old)
+        else:
+            matched_pairs.append((old, head_unused.pop(index)))
+
+    for old, new in matched_pairs:
+        field_probe = component_change(old, new)
+        reasons: List[str] = []
+        details: Dict[str, Any] = {}
+        if field_probe["fields"]:
+            reasons.append("symbol-fields-changed")
+            details["fieldDeltas"] = field_probe["fields"]
+        old_page, new_page = _component_page(old), _component_page(new)
+        if old_page != new_page:
+            reasons.append("sheet-changed")
+            details["sheetChange"] = {"old": old_page, "new": new_page}
+        if _component_sources(old) != _component_sources(new):
+            reasons.append("instance-replaced")
+        if reasons:
+            change = component_change(old, new, reasons=reasons, details=details)
+            changes.append(change)
+
+    base_by_ref: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    head_by_ref: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    all_base_by_ref: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    all_head_by_ref: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for component in base_unmatched:
+        base_by_ref[str(component.get("reference"))].append(component)
+    for component in head_unused:
+        head_by_ref[str(component.get("reference"))].append(component)
+    for component in base_components:
+        all_base_by_ref[str(component.get("reference"))].append(component)
+    for component in head_components:
+        all_head_by_ref[str(component.get("reference"))].append(component)
+
+    for reference in sorted(base_by_ref.keys() | head_by_ref.keys()):
+        old_group = sorted(base_by_ref.get(reference, []), key=lambda item: _component_sources(item))
+        new_group = sorted(head_by_ref.get(reference, []), key=lambda item: _component_sources(item))
+        old_all = all_base_by_ref.get(reference, [])
+        new_all = all_head_by_ref.get(reference, [])
+        old_count, new_count = len(old_all), len(new_all)
+        base_ids = [source for item in old_group for source in _component_sources(item)]
+        compare_ids = [source for item in new_group for source in _component_sources(item)]
+        semantic_id = (
+            str((new_group[0] if len(new_group) == 1 else {}).get("componentUid") or "")
+            or str((old_group[0] if len(old_group) == 1 else {}).get("componentUid") or "")
+            or f"ref:{reference}"
+        )
+
+        if old_count and new_count and old_count != new_count:
+            source_side = "comparison" if new_count > old_count else "reference"
+            change = component_change(
+                old_group[0] if old_group else old_all[0],
+                new_group[0] if new_group else new_all[0],
+                kind="changed",
+                reasons=["instance-count-changed"],
+                details={"instanceCount": {"old": old_count, "new": new_count}},
+                base_sources=base_ids,
+                compare_sources=compare_ids,
+                source_side=source_side,
+                semantic_id=semantic_id,
+            )
+            change["affected_source_ids_base"] = [
+                source for item in old_all for source in _component_sources(item)
+            ]
+            change["affected_source_ids_compare"] = [
+                source for item in new_all for source in _component_sources(item)
+            ]
+            change["fields"]["instanceCount"] = {"old": old_count, "new": new_count}
+            changes.append(change)
+        elif old_group and new_group:
+            # Same RefDes, same multiplicity, but no shared native UUID: a
+            # copy/paste or delete/recreate operation is a semantic replacement.
+            changes.append(
+                component_change(
+                    old_group[0],
+                    new_group[0],
+                    kind="changed",
+                    reasons=["instance-replaced"],
+                    details={"instanceReplacement": {"old": base_ids, "new": compare_ids}},
+                    base_sources=base_ids,
+                    compare_sources=compare_ids,
+                    semantic_id=semantic_id,
+                )
+            )
+        elif old_group:
+            change = component_change(
+                old_group[0],
+                None,
+                kind="removed",
+                base_sources=base_ids,
+                compare_sources=[],
+                semantic_id=semantic_id,
+            )
+            change["details"]["instanceCount"] = {"old": old_count, "new": 0}
+            changes.append(change)
+        elif new_group:
+            change = component_change(
+                None,
+                new_group[0],
+                kind="added",
+                base_sources=[],
+                compare_sources=compare_ids,
+                semantic_id=semantic_id,
+            )
+            change["details"]["instanceCount"] = {"old": 0, "new": new_count}
+            changes.append(change)
+
+    base_nets = [item for item in base.get("nets") or [] if item.get("name")]
+    head_nets = [item for item in head.get("nets") or [] if item.get("name")]
+    base_by_fp: Dict[frozenset[tuple[str, str]], List[Dict[str, Any]]] = {}
+    head_by_fp: Dict[frozenset[tuple[str, str]], List[Dict[str, Any]]] = {}
+    for net in base_nets:
+        fp = _net_connectivity_fingerprint(base, net)
+        if fp:
+            base_by_fp.setdefault(fp, []).append(net)
+    for net in head_nets:
+        fp = _net_connectivity_fingerprint(head, net)
+        if fp:
+            head_by_fp.setdefault(fp, []).append(net)
+
+    net_pairs: List[tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]] = []
+    used_base: set[int] = set()
+    used_head: set[int] = set()
+
+    for fp in sorted(base_by_fp.keys() & head_by_fp.keys(), key=lambda value: sorted(value)):
+        base_group = list(base_by_fp[fp])
+        head_group = list(head_by_fp[fp])
+        # Disambiguate identical connectivity by net name when possible.
+        head_by_name = {str(item.get("name")): item for item in head_group}
+        for old in base_group:
+            named = head_by_name.pop(str(old.get("name")), None)
+            if named is not None:
+                net_pairs.append((old, named))
+                used_base.add(id(old))
+                used_head.add(id(named))
+                continue
+            if head_group:
+                # Prefer unmatched head with same fingerprint.
+                candidate = next(
+                    (item for item in head_group if id(item) not in used_head),
+                    None,
+                )
+                if candidate is not None:
+                    net_pairs.append((old, candidate))
+                    used_base.add(id(old))
+                    used_head.add(id(candidate))
+
+    leftover_base_nets = [net for net in base_nets if id(net) not in used_base]
+    leftover_head_nets = [net for net in head_nets if id(net) not in used_head]
+    by_name_base = {str(item.get("name")): item for item in leftover_base_nets}
+    by_name_head = {str(item.get("name")): item for item in leftover_head_nets}
+    for name in sorted(by_name_base.keys() | by_name_head.keys()):
+        net_pairs.append((by_name_base.get(name), by_name_head.get(name)))
+
+    for old, new in net_pairs:
+        name = str((new or old or {}).get("name") or "")
         old_pairs = _terminal_pairs(base, old.get("netUid")) if old else set()
         new_pairs = _terminal_pairs(head, new.get("netUid")) if new else set()
+        # Prefer compare-side identity for navigation; never use name-hash as UID.
+        semantic_id = (new or old or {}).get("netUid")
+        base_source = _net_source_id(old, base) if old else None
+        compare_source = _net_source_id(new, head) if new else None
+        base_sources = _net_source_ids(old)
+        compare_sources = _net_source_ids(new)
+        base_label_count = _net_label_count(old)
+        compare_label_count = _net_label_count(new)
+        page = None
         kind = "added" if old is None else "removed" if new is None else "changed"
-        if old is not None and new is not None and old_pairs == new_pairs:
-            continue
+        fields: Dict[str, Any] = {}
+        reasons: List[str] = []
+        details: Dict[str, Any] = {}
+        if old is not None and new is not None:
+            old_name, new_name = str(old.get("name") or ""), str(new.get("name") or "")
+            if old_name != new_name:
+                fields["name"] = {"old": old_name, "new": new_name}
+                reasons.append("net-renamed")
+            if old_pairs != new_pairs:
+                fields["connections"] = {"old": len(old_pairs), "new": len(new_pairs)}
+                reasons.append("connectivity-changed")
+                details["connectivity"] = {
+                    "addedTerminals": _terminal_names(new_pairs - old_pairs),
+                    "removedTerminals": _terminal_names(old_pairs - new_pairs),
+                }
+            if base_label_count != compare_label_count:
+                fields["labelInstances"] = {
+                    "old": base_label_count,
+                    "new": compare_label_count,
+                }
+                reasons.append("label-count-changed")
+                details["labelInstances"] = {
+                    "old": base_label_count,
+                    "new": compare_label_count,
+                }
+            if not reasons:
+                continue
+        elif kind == "added":
+            fields["instances"] = {"old": 0, "new": 1}
+            if new_pairs:
+                fields["connections"] = {"old": 0, "new": len(new_pairs)}
+            details["netInstances"] = {"old": 0, "new": 1}
+            reasons.append("object-added")
+        elif kind == "removed":
+            fields["instances"] = {"old": 1, "new": 0}
+            if old_pairs:
+                fields["connections"] = {"old": len(old_pairs), "new": 0}
+            details["netInstances"] = {"old": 1, "new": 0}
+            reasons.append("object-removed")
+
+        visual_targets: List[Dict[str, Any]] = []
+        if kind == "added":
+            visual_targets.extend(
+                _net_bucket_targets(
+                    new,
+                    side="comparison",
+                    status="added",
+                )
+            )
+            visual_targets.extend(
+                target
+                for pair in new_pairs
+                if (
+                    target := _terminal_visual_target(
+                        head,
+                        pair,
+                        side="comparison",
+                        status="added",
+                    )
+                )
+            )
+        elif kind == "removed":
+            visual_targets.extend(
+                _net_bucket_targets(
+                    old,
+                    side="reference",
+                    status="removed",
+                )
+            )
+            visual_targets.extend(
+                target
+                for pair in old_pairs
+                if (
+                    target := _terminal_visual_target(
+                        base,
+                        pair,
+                        side="reference",
+                        status="removed",
+                    )
+                )
+            )
+        else:
+            if "net-renamed" in reasons:
+                visual_targets.extend(
+                    _net_bucket_targets(
+                        old,
+                        side="reference",
+                        status="modified",
+                    )
+                )
+                visual_targets.extend(
+                    _net_bucket_targets(
+                        new,
+                        side="comparison",
+                        status="modified",
+                    )
+                )
+            if "connectivity-changed" in reasons:
+                visual_targets.extend(
+                    target
+                    for pair in old_pairs - new_pairs
+                    if (
+                        target := _terminal_visual_target(
+                            base,
+                            pair,
+                            side="reference",
+                            status="removed",
+                        )
+                    )
+                )
+                visual_targets.extend(
+                    target
+                    for pair in new_pairs - old_pairs
+                    if (
+                        target := _terminal_visual_target(
+                            head,
+                            pair,
+                            side="comparison",
+                            status="added",
+                        )
+                    )
+                )
+            if "label-count-changed" in reasons:
+                old_labels = _net_bucket_targets(
+                    old,
+                    side="reference",
+                    status="removed",
+                    buckets={"labelUuids"},
+                )
+                new_labels = _net_bucket_targets(
+                    new,
+                    side="comparison",
+                    status="added",
+                    buckets={"labelUuids"},
+                )
+                old_ids = {str(target["sourceId"]) for target in old_labels}
+                new_ids = {str(target["sourceId"]) for target in new_labels}
+                visual_targets.extend(
+                    target
+                    for target in old_labels
+                    if str(target["sourceId"]) not in new_ids
+                )
+                visual_targets.extend(
+                    target
+                    for target in new_labels
+                    if str(target["sourceId"]) not in old_ids
+                )
+
+        visual_targets = _dedupe_visual_targets(visual_targets)
+        if not visual_targets:
+            visual_targets.extend(
+                _net_bucket_targets(
+                    old,
+                    side="reference",
+                    status="modified",
+                )
+            )
+            visual_targets.extend(
+                _net_bucket_targets(
+                    new,
+                    side="comparison",
+                    status="modified",
+                )
+            )
+            visual_targets = _dedupe_visual_targets(visual_targets)
+        details["visualTargets"] = visual_targets
+        page = next(
+            (
+                str(target.get("page"))
+                for target in visual_targets
+                if target.get("page")
+            ),
+            None,
+        )
+
         changes.append(
             {
                 "id": f"sch-net-{kind}-{semantic_id or name}",
@@ -774,12 +1530,23 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
                 "label": name,
                 "net": name,
                 "semantic_id": semantic_id,
+                "page": page,
                 "classification": "primary",
-                "base_item": _native_item(source_id=None, semantic_id=semantic_id, net=name),
-                "compare_item": _native_item(source_id=None, semantic_id=semantic_id, net=name),
-                "fields": {
-                    "connections": {"old": len(old_pairs), "new": len(new_pairs)}
-                },
+                "source_id_base": base_source,
+                "source_id_compare": compare_source,
+                "affected_source_ids_base": base_sources,
+                "affected_source_ids_compare": compare_sources,
+                "source_side": "reference" if kind == "removed" else "comparison",
+                "uuid": compare_source or base_source,
+                "base_item": _native_item(
+                    source_id=base_source, semantic_id=semantic_id, net=name
+                ),
+                "compare_item": _native_item(
+                    source_id=compare_source, semantic_id=semantic_id, net=name
+                ),
+                "fields": fields,
+                "reasons": reasons,
+                "details": details,
             }
         )
 
@@ -787,8 +1554,9 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _geometry_identity(source_id: str, item: Dict[str, Any]) -> str:
+    # Prefer semantic identity, then native UUID — never refdes alone across commits.
     if item.get("kind") in {"footprint", "symbol"}:
-        return str(item.get("semantic_id") or item.get("reference") or source_id)
+        return str(item.get("semantic_id") or source_id)
     return source_id
 
 
@@ -895,7 +1663,11 @@ def _merge_semantic_geometry_changes(
 
     for semantic in semantic_changes:
         semantic_id = semantic.get("semantic_id")
-        native = geometry_by_semantic.get(str(semantic_id)) if semantic_id else None
+        native = (
+            geometry_by_semantic.get(str(semantic_id))
+            if semantic_id and semantic.get("category") == "components"
+            else None
+        )
         if not native:
             merged.append(semantic)
             continue
@@ -903,6 +1675,13 @@ def _merge_semantic_geometry_changes(
         merged_geometry_ids.add(id(native))
         combined = {**semantic, **native}
         combined["id"] = semantic["id"]
+        combined["category"] = semantic["category"]
+        combined["classification"] = semantic.get("classification", "primary")
+        combined["label"] = semantic["label"]
+        combined["reference"] = semantic.get("reference")
+        combined["net"] = semantic.get("net")
+        combined["reasons"] = semantic.get("reasons") or []
+        combined["details"] = semantic.get("details") or {}
         combined["kind"] = (
             semantic["kind"]
             if semantic["kind"] == native["kind"]
@@ -939,8 +1718,105 @@ def _merge_semantic_geometry_changes(
         change
         for change in geometry_changes
         if id(change) not in merged_geometry_ids
+        and change.get("classification") == "secondary"
+        and change.get("kind") in {"added", "removed"}
     )
     return merged
+
+
+def _hydrate_visual_target_pages_and_match_labels(
+    changes: List[Dict[str, Any]],
+    base_geometry: Dict[str, Any],
+    compare_geometry: Dict[str, Any],
+) -> None:
+    """Attach source pages and remove deterministically matched label churn."""
+
+    def geometry_for(target: Dict[str, Any]) -> Dict[str, Any]:
+        index = base_geometry if target.get("side") == "reference" else compare_geometry
+        return (
+            index.get(target.get("sourceId"))
+            or index.get(target.get("parentSourceId"))
+            or {}
+        )
+
+    def center(target: Dict[str, Any]) -> tuple[float, float]:
+        geometry = geometry_for(target)
+        bounds = geometry.get("bounds") or []
+        if len(bounds) == 4:
+            return (
+                float(bounds[0]) + float(bounds[2]) / 2,
+                float(bounds[1]) + float(bounds[3]) / 2,
+            )
+        return (float(geometry.get("x") or 0), float(geometry.get("y") or 0))
+
+    for change in changes:
+        details = change.get("details") or {}
+        targets = list(details.get("visualTargets") or [])
+        for target in targets:
+            # Semantic extraction names a sheet by its human hierarchy
+            # (for example "/S32G399/Boot & Low Speed Interfaces/"). Native
+            # rendering must load the actual KiCad filename. Preserve the
+            # hierarchy separately, then make `page` the paintable document
+            # identity resolved from the source UUID's geometry sidecar.
+            geometry_page = geometry_for(target).get("page")
+            semantic_page = target.get("page")
+            if geometry_page:
+                if semantic_page and semantic_page != geometry_page:
+                    target["sheetPath"] = str(semantic_page)
+                target["page"] = str(geometry_page)
+
+        if "label-count-changed" not in (change.get("reasons") or []):
+            details["visualTargets"] = targets
+            continue
+        removed = [
+            target
+            for target in targets
+            if target.get("role") == "label" and target.get("side") == "reference"
+        ]
+        added = [
+            target
+            for target in targets
+            if target.get("role") == "label" and target.get("side") == "comparison"
+        ]
+        paired: set[int] = set()
+        removed_pairs: set[int] = set()
+        for old_target in sorted(removed, key=lambda target: str(target.get("sourceId"))):
+            old_page = old_target.get("sheetPath") or old_target.get("page")
+            old_center = center(old_target)
+            candidates = [
+                (index, target)
+                for index, target in enumerate(added)
+                if index not in paired
+                and (
+                    not old_page
+                    or not (target.get("sheetPath") or target.get("page"))
+                    or (target.get("sheetPath") or target.get("page")) == old_page
+                )
+            ]
+            if not candidates:
+                continue
+            match_index, _match = min(
+                candidates,
+                key=lambda candidate: (
+                    math.hypot(
+                        center(candidate[1])[0] - old_center[0],
+                        center(candidate[1])[1] - old_center[1],
+                    ),
+                    str(candidate[1].get("sourceId")),
+                ),
+            )
+            paired.add(match_index)
+            removed_pairs.add(id(old_target))
+        details["visualTargets"] = [
+            target
+            for target in targets
+            if id(target) not in removed_pairs
+            and not (
+                target.get("role") == "label"
+                and target.get("side") == "comparison"
+                and target in [added[index] for index in paired]
+            )
+        ]
 
 
 def _arc_length(points: List[List[float]]) -> float:
@@ -1044,7 +1920,17 @@ def _route_metrics(geometry: Dict[str, Any], stackup: Dict[str, Any]) -> Dict[st
 
 def _group_changes(changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     buckets: Dict[str, List[Dict[str, Any]]] = {}
-    for change in changes:
+    normalized_changes: List[Dict[str, Any]] = []
+    for original in changes:
+        change = dict(original)
+        if change.get("net") or set(change.get("reasons") or []) & {
+            "connectivity-changed",
+            "net-renamed",
+            "label-count-changed",
+        }:
+            change["category"] = "nets"
+        normalized_changes.append(change)
+    for change in normalized_changes:
         identity = (
             change.get("semantic_id")
             or change.get("reference")
@@ -1109,6 +1995,18 @@ def _group_changes(changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "label": members[0]["label"],
                 "semantic_id": members[0].get("semantic_id"),
                 "members": [member["id"] for member in members],
+                "reasons": list(
+                    dict.fromkeys(
+                        reason
+                        for member in members
+                        for reason in member.get("reasons") or []
+                    )
+                ),
+                "details": {
+                    key: value
+                    for member in members
+                    for key, value in (member.get("details") or {}).items()
+                },
                 "old_fields": {
                     field: value.get("old")
                     for member in members
@@ -1145,6 +2043,96 @@ def _diff_stackup(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
 _STALE_JOB_SECONDS = int(os.environ.get("PRISM_DESIGN_COMPARE_STALE_SECONDS", "300"))
 
 
+def _build_revisions(
+    project_id: str,
+    repo_path: Path,
+    relative_path: str,
+    base: str,
+    head: str,
+    heartbeat: Callable[[str, Optional[float]], None],
+) -> tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
+    """Build the requested snapshots with bounded, newest-independent workers."""
+    unique_commits = list(dict.fromkeys((base, head)))
+    try:
+        configured_workers = int(
+            os.environ.get("PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS", "2")
+        )
+    except ValueError:
+        configured_workers = 2
+    max_workers = max(1, min(2, configured_workers, len(unique_commits)))
+    revision_labels = {
+        commit: (
+            "old/new"
+            if base == head
+            else "old"
+            if commit == base
+            else "new"
+        )
+        for commit in unique_commits
+    }
+    revisions: Dict[str, Dict[str, Any]] = {}
+    revision_logs: Dict[str, List[str]] = {}
+    state_lock = threading.Lock()
+    completed = 0
+
+    def build_revision(commit: str) -> tuple[Dict[str, Any], List[str]]:
+        local_logs: List[str] = []
+
+        def report(message: str) -> None:
+            with state_lock:
+                progress = 15 + completed * 20
+            heartbeat(
+                f"{revision_labels[commit].capitalize()}: {message}",
+                progress,
+            )
+
+        revision = _load_or_build_revision(
+            project_id,
+            repo_path,
+            relative_path,
+            commit,
+            local_logs,
+            on_progress=report,
+        )
+        return revision, local_logs
+
+    heartbeat(
+        "Building old and new revisions…"
+        if len(unique_commits) == 2 and max_workers == 2
+        else "Building revisions…",
+        15,
+    )
+    executor = ThreadPoolExecutor(
+        max_workers=max_workers,
+        thread_name_prefix="design-compare-revision",
+    )
+    futures = {
+        executor.submit(build_revision, commit): commit
+        for commit in unique_commits
+    }
+    try:
+        for future in as_completed(futures):
+            commit = futures[future]
+            revision, local_logs = future.result()
+            revisions[commit] = revision
+            revision_logs[commit] = local_logs
+            with state_lock:
+                completed += 1
+                progress = 15 + completed * 20
+            heartbeat(
+                f"{revision_labels[commit].capitalize()} revision ready",
+                progress,
+            )
+    except Exception:
+        for future in futures:
+            future.cancel()
+        raise
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
+
+    return revisions, revision_logs
+
+
 def _run_job(
     job_id: str,
     project_id: str,
@@ -1154,35 +2142,42 @@ def _run_job(
 ) -> None:
     job = design_compare_jobs[job_id]
     logs: List[str] = job.setdefault("logs", [])
+    job_lock = threading.Lock()
+    job_started = time.perf_counter()
 
     def heartbeat(message: str, percent: Optional[float] = None) -> None:
-        job["message"] = message
-        if percent is not None:
-            job["percent"] = percent
-        job["logs"] = logs[-40:]
-        _persist_job(job_id)
+        with job_lock:
+            job["message"] = message
+            if percent is not None:
+                job["percent"] = percent
+            job["logs"] = logs[-40:]
+            _persist_job(job_id)
 
     try:
         repo_path, relative_path, _checkout = _repo_paths(project_id)
         heartbeat("Building revisions…", 10)
 
-        revisions: Dict[str, Dict[str, Any]] = {}
-        # Sequential builds: parallel monkey+geometry on large boards OOMs uvicorn workers
-        # and orphans the in-memory job thread (status stuck at 10%).
-        for idx, commit in enumerate((base, head)):
-            label = "old" if idx == 0 else "new"
-            pct = 15 + idx * 20
-            heartbeat(f"Building {label} revision ({commit[:7]})…", pct)
-            revisions[commit] = _load_or_build_revision(
-                project_id,
-                repo_path,
-                relative_path,
-                commit,
-                logs,
-                on_progress=lambda msg, p=pct: heartbeat(msg, p),
+        revisions_started = time.perf_counter()
+        revisions, revision_logs = _build_revisions(
+            project_id,
+            repo_path,
+            relative_path,
+            base,
+            head,
+            heartbeat,
+        )
+        for commit in dict.fromkeys((base, head)):
+            label = "old/new" if base == head else "old" if commit == base else "new"
+            logs.extend(
+                f"[{label}] {message}"
+                for message in revision_logs.get(commit, [])
             )
+        logs.append(
+            f"Timing revision pipeline: {time.perf_counter() - revisions_started:.3f}s"
+        )
 
         heartbeat("Diffing designs…", 55)
+        assembly_started = time.perf_counter()
 
         base_rev = revisions[base]
         head_rev = revisions[head]
@@ -1198,6 +2193,11 @@ def _run_job(
         schematic_changes = _merge_semantic_geometry_changes(
             sch_diff["changes"],
             sch_geometry_changes,
+        )
+        _hydrate_visual_target_pages_and_match_labels(
+            schematic_changes,
+            (base_rev.get("geometry") or {}).get("schematic") or {},
+            (head_rev.get("geometry") or {}).get("schematic") or {},
         )
         pcb_changes = _diff_geometry(
             base_rev.get("geometry") or {},
@@ -1279,15 +2279,26 @@ def _run_job(
             },
             "bom": bom,
             "stackup": stackup,
-            "geometry": {
-                "base": base_rev.get("geometry") or {},
-                "head": head_rev.get("geometry") or {},
-            },
         }
+        logs.append(
+            f"Timing diff assembly: {time.perf_counter() - assembly_started:.3f}s"
+        )
 
         out = _JOB_ROOT / job_id
         out.mkdir(parents=True, exist_ok=True)
-        (out / "result.json").write_text(json.dumps(result), encoding="utf-8")
+        publish_started = time.perf_counter()
+        result_path = out / "result.json"
+        result_path.write_text(
+            json.dumps(result, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        logs.append(
+            f"Timing result publish: {time.perf_counter() - publish_started:.3f}s; "
+            f"result={result_path.stat().st_size / (1024 * 1024):.1f}MiB"
+        )
+        logs.append(
+            f"Timing comparison total: {time.perf_counter() - job_started:.3f}s"
+        )
 
         job["status"] = "completed"
         job["message"] = "Design comparison ready"

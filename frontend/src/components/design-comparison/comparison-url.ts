@@ -1,5 +1,8 @@
 export type ComparisonUrlTab = "sch" | "pcb" | "bom" | "stackup";
-export type ComparisonPresentationMode = "composite" | "side-by-side";
+export type ComparisonPresentationMode =
+    | "composite"
+    | "side-by-side"
+    | "old-new";
 
 export type ComparisonUrlState = {
     base: string | null;
@@ -23,6 +26,14 @@ const COMPARISON_KEYS = [
     "layers",
 ] as const;
 
+function parsePresentationMode(
+    raw: string | null,
+): ComparisonPresentationMode {
+    if (raw === "side-by-side") return "side-by-side";
+    if (raw === "old-new") return "old-new";
+    return "composite";
+}
+
 export function readComparisonUrlState(
     search: string | URLSearchParams = window.location.search,
 ): ComparisonUrlState {
@@ -38,10 +49,7 @@ export function readComparisonUrlState(
         compare: params.get("compare"),
         view: params.get("view") === "semantic" ? "semantic" : null,
         diff,
-        presentationMode:
-            params.get("presentation") === "side-by-side"
-                ? "side-by-side"
-                : "composite",
+        presentationMode: parsePresentationMode(params.get("presentation")),
         item: params.get("item"),
         showSecondary: params.get("secondary") === "1",
         layers: (params.get("layers") ?? "").split(",").filter(Boolean),
@@ -64,10 +72,10 @@ export function applyOpenComparisonParams(
     next.set("compare", input.compare);
     next.set("view", "semantic");
     next.set("diff", input.diff ?? "sch");
-    if (input.presentationMode === "side-by-side") {
-        next.set("presentation", "side-by-side");
-    } else {
+    if (!input.presentationMode || input.presentationMode === "composite") {
         next.delete("presentation");
+    } else {
+        next.set("presentation", input.presentationMode);
     }
     return next;
 }

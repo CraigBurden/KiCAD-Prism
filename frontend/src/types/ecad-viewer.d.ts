@@ -99,6 +99,13 @@ export interface EcadPcbViewState {
     highlightTracks: boolean;
 }
 
+export interface EcadViewportInsets {
+    left?: number;
+    right?: number;
+    top?: number;
+    bottom?: number;
+}
+
 export type EcadCommentContext = "SCH" | "PCB";
 
 export type EcadCommentAnchor =
@@ -143,6 +150,9 @@ export interface EcadPreparedDiffTarget {
     memberIds: string[];
     sourceIds: string[];
     bounds: [number, number, number, number];
+    sourceSide: "reference" | "comparison";
+    routing: boolean;
+    overlayLines: Array<Array<[number, number]>>;
 }
 
 export interface EcadDocumentComparisonPreparation {
@@ -158,6 +168,10 @@ export interface EcadDocumentComparisonPreparation {
     }>;
     prepareMs: number;
     sourceCacheHit: boolean;
+    /** True when the reference revision has no matching document file. */
+    missingReference?: boolean;
+    /** True when the comparison revision has no matching document file. */
+    missingComparison?: boolean;
 }
 
 export interface EcadDocumentComparisonSelectionResult {
@@ -177,11 +191,47 @@ export interface CameraState {
     rotation: number;
 }
 
+export interface EcadRevisionDiffPresentationRequest {
+    context: "SCH" | "PCB";
+    targets: Array<{
+        id: string;
+        label?: string;
+        visuals: Array<{
+            sourceId: string;
+            parentSourceId?: string | null;
+            status: "added" | "removed" | "modified" | "conflict";
+            bounds?: [number, number, number, number];
+            routing?: boolean;
+        }>;
+    }>;
+}
+
+export interface EcadTransitionTraceDetail {
+    sequence: number;
+    timestamp: string;
+    event: string;
+    status?: "start" | "ready" | "missing" | "superseded" | "error";
+    generation?: number;
+    revisionKey?: string | null;
+    requestedPage?: string | null;
+    resolvedPage?: {
+        projectPath: string;
+        sheetPath: string;
+        filename: string;
+        name?: string;
+        page?: string;
+    } | null;
+    activePage?: string | null;
+    detail?: Record<string, unknown>;
+}
+
 export interface ECadViewerElement extends HTMLElement {
     readonly isReady: boolean;
     replaceSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
     appendSources(update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }): Promise<void>;
     setActive(active: boolean): void;
+    setViewportInsets(insets: EcadViewportInsets | null): void;
+    resize?(): void;
     clearSelection(): void;
     setCommentMode?(enabled: boolean): void;
     setCommentOverlays(request: EcadCommentOverlaySet): void;
@@ -198,11 +248,25 @@ export interface ECadViewerElement extends HTMLElement {
         };
         diff: unknown;
         documentPath?: string;
+        /** Prefer this hierarchical schematic project path when activating SCH. */
+        activeSheetPath?: string;
     }): Promise<EcadDocumentComparisonPreparation>;
     selectDocumentDiff(selection: {
         kind: "change" | "group";
         id: string;
     }): Promise<EcadDocumentComparisonSelectionResult>;
+    previewDocumentDiff?(selection: {
+        kind: "change" | "group";
+        id: string;
+    } | null): void;
+    setRevisionDiffPresentation?(
+        request: EcadRevisionDiffPresentationRequest | null,
+    ): void;
+    selectRevisionDiff?(
+        id: string | null,
+        options?: { focus?: boolean },
+    ): Promise<boolean>;
+    previewRevisionDiff?(id: string | null): void;
     /** Abort in-flight comparison loads without tearing down painted presentation. */
     abortDocumentComparisonLoad?(): void;
     clearDocumentComparison(): void;
@@ -275,6 +339,7 @@ declare global {
         "ecad-viewer:comment-overlay-click": CustomEvent<EcadCommentOverlayHitDetail>;
         "ecad-viewer:document-comparison-ready": CustomEvent<EcadDocumentComparisonPreparation>;
         "ecad-viewer:document-comparison-frame": CustomEvent<EcadDocumentComparisonSelectionResult>;
+        "ecad-viewer:transition-trace": CustomEvent<EcadTransitionTraceDetail>;
         "ecad-viewer:comment-area": CustomEvent<EcadCommentAreaDetail>;
         "kicanvas:select": CustomEvent<KiCanvasSelectDetail>;
         camerachange: CustomEvent<CameraState>;

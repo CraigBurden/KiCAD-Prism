@@ -431,6 +431,10 @@ def build_semantic_index(
         schematic_ref = {
             "wireUuids": list(graphical.get("wires") or ()),
             "labelUuids": list(graphical.get("labels") or ()) + list(graphical.get("ports") or ()) + list(graphical.get("power_ports") or ()),
+            # Only local and global labels participate in semantic instance-count
+            # comparison. Hierarchical ports and power symbols remain available in
+            # labelUuids for navigation, but do not create false count changes.
+            "labelInstanceCount": len(graphical.get("labels") or ()),
             "junctionUuids": list(graphical.get("junctions") or ()) + list(graphical.get("sheet_entries") or ()),
             "pinUuids": [],
         }
@@ -454,13 +458,32 @@ def build_semantic_index(
         pins_by_pair: dict[str, dict[str, Any]] = {}
         for pin in graphical.get("pins") or ():
             pair = f"{_string(pin.get('designator'))}:{_string(pin.get('pin'))}"
-            pins_by_pair[pair] = pin
+            if pair != ":":
+                pins_by_pair[pair] = pin
+
+        # kicad-monkey can expose a native pin in graphical.pins without also
+        # repeating it in terminals (notably newly introduced and synthetic
+        # unconnected nets). A graphical pin attached to this net is still a
+        # real terminal membership; take the stable union so connectivity
+        # counts and cross-probing do not incorrectly report 0 -> 0.
+        terminals_by_pair: dict[str, dict[str, Any]] = {}
         for raw_terminal in raw.get("terminals") or ():
             reference = _string(raw_terminal.get("designator"))
             pin_number = _string(raw_terminal.get("pin"))
             if not reference or not pin_number:
                 continue
             pair = f"{reference}:{pin_number}"
+            terminals_by_pair[pair] = raw_terminal
+        for pair, pin_graphic in pins_by_pair.items():
+            reference, pin_number = pair.split(":", 1)
+            terminals_by_pair.setdefault(
+                pair,
+                {"designator": reference, "pin": pin_number},
+            )
+
+        for pair, raw_terminal in terminals_by_pair.items():
+            reference = _string(raw_terminal.get("designator"))
+            pin_number = _string(raw_terminal.get("pin"))
             pin_graphic = pins_by_pair.get(pair, {})
             pin_uuid = _string(pin_graphic.get("source_pin_id") or pin_graphic.get("svg_id"))
             terminal = {

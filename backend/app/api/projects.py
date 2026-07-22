@@ -846,11 +846,12 @@ def _build_project_properties(project: project_service.Project) -> ProjectProper
     repo_path, relative_path = _repo_context(project)
     if relative_path:
         releases = get_releases_filtered(repo_path, relative_path)
-        latest_commits = get_commits_list_filtered(repo_path, relative_path, 1)
+        latest_page = get_commits_list_filtered(repo_path, relative_path, 1)
     else:
         releases = get_releases(repo_path)
-        latest_commits = get_commits_list(repo_path, 1)
+        latest_page = get_commits_list(repo_path, 1)
 
+    latest_commits = latest_page["commits"] if isinstance(latest_page, dict) else latest_page
     latest_commit = latest_commits[0] if latest_commits else None
     latest_tag = releases[0] if releases else None
 
@@ -1159,21 +1160,30 @@ async def get_doc_file_content(
 async def get_project_releases(
     project_id: str,
     ref: Optional[str] = None,
+    limit: int = Query(default=9, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
-    Get list of Git releases/tags for a project.
+    Get paginated Git releases/tags for a project.
     For Type-2 projects, uses parent repo with subproject file tracking.
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
     repo_path, relative_path = _repo_context(project)
     if relative_path:
-        releases = get_releases_filtered(repo_path, relative_path, ref)
+        page = get_releases_filtered(repo_path, relative_path, ref, limit, offset)
     else:
-        releases = get_releases(project.path, ref)
+        page = get_releases(project.path, ref, limit, offset)
     
-    return {"releases": releases}
+    if isinstance(page, dict):
+        return page
+    return {
+        "releases": page,
+        "total": len(page),
+        "limit": limit,
+        "offset": offset,
+    }
 
 @router.get("/{project_id}/commits/distance")
 async def get_project_commit_distance(
@@ -1196,22 +1206,23 @@ async def get_project_commit_distance(
 async def get_project_commits(
     project_id: str,
     limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     ref: Optional[str] = None,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
-    Get list of commits for a project.
+    Get paginated commits for a project.
     For Type-2 projects, shows only commits affecting the subproject.
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
     repo_path, relative_path = _repo_context(project)
     if relative_path:
-        commits = get_commits_list_filtered(repo_path, relative_path, limit, ref)
+        page = get_commits_list_filtered(repo_path, relative_path, limit, ref, offset)
     else:
-        commits = get_commits_list(project.path, limit, ref)
+        page = get_commits_list(project.path, limit, ref, offset)
     
-    return {"commits": commits}
+    return page
 
 
 @router.get("/{project_id}/commits/{commit_hash}/summary")

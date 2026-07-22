@@ -113,14 +113,18 @@ export function useRevisionSources(
                 const collected = settled.flatMap((item) =>
                     item.status === "fulfilled" ? [item.value] : []
                 );
-                if (!collected.some((source) => source.filename === rootName)) {
-                    const failure = settled[sourcePaths.indexOf(rootName)];
-                    throw new Error(
-                        failure?.status === "rejected"
-                            && failure.reason instanceof Error
-                            ? failure.reason.message
-                            : `Revision does not contain ${rootName}`,
-                    );
+                const hasRoot = collected.some(
+                    (source) => source.filename === rootName,
+                );
+                // Missing-doc revisions are an explicit empty state for the host,
+                // not a hard failure — the other side may still paint.
+                if (!hasRoot) {
+                    collected.push(...support);
+                    if (!signal.aborted) {
+                        setSources(collected);
+                        setError(null);
+                    }
+                    return;
                 }
                 collected.push(...support);
                 if (!signal.aborted) setSources(collected);
@@ -170,9 +174,10 @@ export function resolveSelectedDocument(
     domain: ComparisonDomain,
     documentDiff: KiCadProjectDiffBundle,
     changes: ChangeItem[],
+    preferredPath?: string | null,
 ): KiCadDocumentDiff | null {
     const expectedType = domain === "pcb" ? "kicad_pcb" : "kicad_sch";
-    const selectedPath = changes
+    const selectedPath = preferredPath ?? changes
         .map((change) => documentDiff.navigation[change.id]?.documentPath)
         .find(Boolean);
     return (

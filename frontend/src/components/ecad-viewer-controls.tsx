@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
 import {
     ChevronLeft,
     ChevronRight,
@@ -33,6 +41,7 @@ import type {
 type EcadViewerControlsProps = {
     context: "SCH" | "PCB";
     viewer: ECadViewerElement | null;
+    onVisibleWidthChange?: (width: number) => void;
 };
 
 const pcbPresets = [
@@ -46,8 +55,16 @@ const pcbPresets = [
     ["none", "Hide all"],
 ] as const;
 
-export function EcadViewerControls({ context, viewer }: EcadViewerControlsProps) {
+export function EcadViewerControls({
+    context,
+    viewer,
+    onVisibleWidthChange,
+}: EcadViewerControlsProps) {
     const [open, setOpen] = useState(true);
+    const railRef = useRef<HTMLElement | null>(null);
+    const handleRef = useRef<HTMLDivElement | null>(null);
+    const openRef = useRef(open);
+    openRef.current = open;
     const [section, setSection] = useState<"layers" | "objects">("layers");
     const [query, setQuery] = useState("");
     const [pages, setPages] = useState<EcadSchematicPageState[]>([]);
@@ -106,30 +123,57 @@ export function EcadViewerControls({ context, viewer }: EcadViewerControlsProps)
         setPcbState(viewer?.getPcbViewState?.() ?? null);
     }, [viewer]);
 
+    useLayoutEffect(() => {
+        if (!onVisibleWidthChange) return;
+        const report = () => {
+            const target = openRef.current ? railRef.current : handleRef.current;
+            onVisibleWidthChange(target?.getBoundingClientRect().width ?? 0);
+        };
+        report();
+        const observer = typeof ResizeObserver === "undefined"
+            ? null
+            : new ResizeObserver(report);
+        if (railRef.current) observer?.observe(railRef.current);
+        if (handleRef.current) observer?.observe(handleRef.current);
+        return () => {
+            observer?.disconnect();
+            onVisibleWidthChange(0);
+        };
+    }, [onVisibleWidthChange]);
+
+    useLayoutEffect(() => {
+        if (!onVisibleWidthChange) return;
+        const target = open ? railRef.current : handleRef.current;
+        onVisibleWidthChange(target?.getBoundingClientRect().width ?? 0);
+    }, [onVisibleWidthChange, open]);
+
     return (
         <aside
+            ref={railRef}
             className={cn(
-                "relative z-20 flex h-full shrink-0 flex-col border-r bg-background/95 transition-[width] duration-200",
-                open ? "w-80" : "w-11",
+                "absolute inset-y-0 left-0 z-30 flex w-80 flex-col border-r bg-background/95 shadow-lg backdrop-blur-sm transition-transform duration-200",
+                open ? "translate-x-0" : "-translate-x-[calc(100%_-_2.75rem)]",
             )}
             aria-label={context === "SCH" ? "Schematic pages" : "PCB display controls"}
         >
-            <div className={cn("flex h-10 shrink-0 items-center border-b", open ? "justify-between px-3" : "justify-center")}>
+            <div className="flex h-10 shrink-0 items-center border-b">
                 {open && (
-                    <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
+                    <div className="flex min-w-0 flex-1 items-center gap-2 pl-3 text-xs font-medium">
                         {context === "SCH" ? <ListFilter className="size-4" /> : <Layers3 className="size-4" />}
                         <span>{context === "SCH" ? "Schematic pages" : "Board display"}</span>
                     </div>
                 )}
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    onClick={() => setOpen((value) => !value)}
-                    aria-label={open ? "Collapse viewer controls" : "Expand viewer controls"}
-                >
-                    {open ? <ChevronLeft className="size-4" /> : <ChevronRight className="size-4" />}
-                </Button>
+                <div ref={handleRef} className="flex w-11 shrink-0 justify-center">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => setOpen((value) => !value)}
+                        aria-label={open ? "Collapse viewer controls" : "Expand viewer controls"}
+                    >
+                        {open ? <ChevronLeft className="size-4" /> : <ChevronRight className="size-4" />}
+                    </Button>
+                </div>
             </div>
 
             {open && context === "SCH" && (

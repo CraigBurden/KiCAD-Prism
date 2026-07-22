@@ -34,6 +34,7 @@ export type ComparisonPcbLayersPanelProps = {
     ) => void;
     onHighlight?: (name: string | null) => void;
     className?: string;
+    embedded?: boolean;
 };
 
 export function ComparisonPcbLayersToggle({
@@ -66,6 +67,7 @@ export function ComparisonPcbLayersPanel({
     onApplyPreset,
     onHighlight,
     className,
+    embedded = false,
 }: ComparisonPcbLayersPanelProps) {
     if (!open) return null;
 
@@ -73,10 +75,12 @@ export function ComparisonPcbLayersPanel({
         <aside
             className={cn(
                 "flex w-72 shrink-0 flex-col border-l bg-background/95",
+                embedded && "h-full w-full border-l-0",
                 className,
             )}
             aria-label="PCB layer visibility"
         >
+            {!embedded && (
             <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
                 <div className="flex items-center gap-2 text-xs font-medium">
                     <Layers3 className="size-4" />
@@ -91,6 +95,7 @@ export function ComparisonPcbLayersPanel({
                     Close
                 </Button>
             </div>
+            )}
             <div className="border-b p-3">
                 <Select
                     onValueChange={(value) =>

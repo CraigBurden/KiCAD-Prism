@@ -27,19 +27,21 @@ function StackupTable({
             <div
                 className={cn(
                     "sticky top-0 z-10 shrink-0 border-b px-4 py-2 text-xs font-semibold uppercase tracking-wide",
-                    accent === "old" ? "bg-red-500/10 text-red-700" : "bg-green-500/10 text-green-700",
+                    accent === "old"
+                        ? "bg-destructive/10 text-destructive"
+                        : "bg-success/10 text-success",
                 )}
             >
                 {title}
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
                 <table className="w-full text-sm">
-                    <thead className="bg-muted text-xs text-muted-foreground">
+                    <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground shadow-[0_1px_0_0_hsl(var(--border))]">
                         <tr>
-                            <th className="px-3 py-2 text-left">#</th>
-                            <th className="px-3 py-2 text-left">Layer</th>
-                            <th className="px-3 py-2 text-left">Type</th>
-                            <th className="px-3 py-2 text-right">Thickness (mm)</th>
+                            <th className="bg-muted px-3 py-2 text-left">#</th>
+                            <th className="bg-muted px-3 py-2 text-left">Layer</th>
+                            <th className="bg-muted px-3 py-2 text-left">Type</th>
+                            <th className="bg-muted px-3 py-2 text-right">Thickness (mm)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -56,7 +58,7 @@ function StackupTable({
                             }
                             const changed = rowsDiffer(layer, other);
                             return (
-                                <tr key={idx} className={cn("border-b", changed && "bg-amber-500/10")}>
+                                <tr key={idx} className={cn("border-b", changed && "bg-warning/10")}>
                                     <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                                     <td className="px-3 py-2 font-medium">{layer.name}</td>
                                     <td className="px-3 py-2">{layer.type}</td>
@@ -81,25 +83,45 @@ function StackupTable({
 }
 
 export function StackupPanel({ stackup }: StackupPanelProps) {
-    if (!stackup || !stackup.present) {
+    if (!stackup || !stackup.changed) {
         return (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-                No stackup data available for this project.
-            </div>
+            <section className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-8 text-center">
+                <div>
+                    <h3 className="text-sm font-medium text-foreground">
+                        No stackup changes detected
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                        The board stackup is identical in both revisions.
+                    </p>
+                </div>
+            </section>
+        );
+    }
+
+    if (!stackup.present) {
+        return (
+            <section className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-8 text-center">
+                <div>
+                    <h3 className="text-sm font-medium text-foreground">
+                        Stackup comparison unavailable
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                        Stackup data could not be read from one of the revisions.
+                    </p>
+                </div>
+            </section>
         );
     }
 
     return (
-        <div className="flex h-full min-h-0 flex-col">
-            {stackup.changed && (
-                <div className="shrink-0 border-b bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700">
-                    Stackup differs between revisions — changed rows are highlighted below.
-                </div>
-            )}
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="shrink-0 border-b bg-warning/10 px-4 py-1.5 text-xs text-warning-foreground">
+                Stackup differs between revisions — changed rows are highlighted below.
+            </div>
             <div className="flex min-h-0 flex-1 divide-x">
                 <StackupTable title="Old stackup" accent="old" layers={stackup.base} otherLayers={stackup.head} />
                 <StackupTable title="New stackup" accent="new" layers={stackup.head} otherLayers={stackup.base} />
             </div>
-        </div>
+        </section>
     );
 }

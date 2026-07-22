@@ -34,6 +34,10 @@ import {
 } from "./design-comparison/comparison-url";
 import { fetchJson } from "@/lib/api";
 import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
+import {
+    selectRevisionSlot,
+    type RevisionRef,
+} from "./history-comparison-selection";
 
 interface Release {
     tag: string;
@@ -62,17 +66,20 @@ interface Commit {
 
 interface ReleasesResponse {
     releases: Release[];
+    total: number;
+    limit: number;
+    offset: number;
 }
 
 interface CommitsResponse {
     commits: Commit[];
+    total: number;
+    limit: number;
+    offset: number;
 }
 
-interface RevisionRef {
-    sha: string;
-    label: string;
-    kind: "commit" | "release";
-}
+const COMMITS_PAGE_SIZE = 50;
+const RELEASES_PAGE_SIZE = 9;
 
 /** Cheap, regex-based approximation of per-category added/removed counts for
     a single .kicad_sch/.kicad_pcb file — see backend git_service.py. Not a
@@ -98,7 +105,7 @@ interface HistoryViewerProps {
     branchRef?: string | null;
     onViewCommit: (commitHash: string) => void;
     canCompareDiffs: boolean;
-    canComment?: boolean;
+    canComment: boolean;
 }
 
 function formatDate(isoDate: string): string {
@@ -309,6 +316,7 @@ function CommitItem({
                                         size="sm"
                                         className="h-6 px-2 text-[10px]"
                                         onClick={onSetBase}
+                                        disabled={isCompare}
                                         aria-pressed={isBase}
                                     >
                                         Base
@@ -318,6 +326,7 @@ function CommitItem({
                                         size="sm"
                                         className="h-6 px-2 text-[10px]"
                                         onClick={onSetCompare}
+                                        disabled={isBase}
                                         aria-pressed={isCompare}
                                     >
                                         Compare
@@ -403,7 +412,7 @@ export function HistoryViewer({
     branchRef,
     onViewCommit,
     canCompareDiffs,
-    canComment = false,
+    canComment,
 }: HistoryViewerProps) {
     const [searchParams, setSearchParams] = useSearchParams();
     const comparisonUrl = useMemo(
@@ -412,8 +421,13 @@ export function HistoryViewer({
     );
     const [releases, setReleases] = useState<Release[]>([]);
     const [commits, setCommits] = useState<Commit[]>([]);
+    const [commitsTotal, setCommitsTotal] = useState(0);
+    const [releasesTotal, setReleasesTotal] = useState(0);
+    const [commitsPage, setCommitsPage] = useState(0);
+    const [releasesPage, setReleasesPage] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [branchTipSha, setBranchTipSha] = useState<string | null>(null);
     const [baseRevision, setBaseRevision] = useState<RevisionRef | null>(() => {
         const sha = comparisonUrl.base;
         return sha ? { sha, label: sha.slice(0, 10), kind: "commit" } : null;
@@ -481,14 +495,31 @@ export function HistoryViewer({
 
     const setRevision = (slot: "base" | "compare", revision: RevisionRef) => {
         if (!canCompareDiffs) return;
-        if (slot === "base") {
-            setBaseRevision(revision);
-            if (compareRevision?.sha === revision.sha) setCompareRevision(null);
-        } else {
-            setCompareRevision(revision);
-            if (baseRevision?.sha === revision.sha) setBaseRevision(null);
-        }
+        const next = selectRevisionSlot(
+            baseRevision,
+            compareRevision,
+            slot,
+            revision,
+        );
+        setBaseRevision(next.base);
+        setCompareRevision(next.compare);
     };
+
+    const handleViewCommitLocal = useCallback((commitHash: string) => {
+        setSearchParams((current) => {
+            const next = new URLSearchParams(current);
+            next.set("section", "history");
+            next.set("commit", commitHash);
+            return next;
+        }, { replace: true });
+        onViewCommit(commitHash);
+    }, [onViewCommit, setSearchParams]);
+
+    useEffect(() => {
+        setCommitsPage(0);
+        setReleasesPage(0);
+        setBranchTipSha(null);
+    }, [projectId, branchRef]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -496,15 +527,26 @@ export function HistoryViewer({
         setError(null);
 
         const fetchHistory = async () => {
-            const refQuery = branchRef ? `?ref=${encodeURIComponent(branchRef)}` : "";
+            const params = new URLSearchParams();
+            if (branchRef) params.set("ref", branchRef);
+            params.set("limit", String(COMMITS_PAGE_SIZE));
+            params.set("offset", String(commitsPage * COMMITS_PAGE_SIZE));
+            const commitsQuery = params.toString();
+
+            const releaseParams = new URLSearchParams();
+            if (branchRef) releaseParams.set("ref", branchRef);
+            releaseParams.set("limit", String(RELEASES_PAGE_SIZE));
+            releaseParams.set("offset", String(releasesPage * RELEASES_PAGE_SIZE));
+            const releasesQuery = releaseParams.toString();
+
             const [releasesResult, commitsResult] = await Promise.allSettled([
                 fetchJson<ReleasesResponse>(
-                    `/api/projects/${projectId}/releases${refQuery}`,
+                    `/api/projects/${projectId}/releases?${releasesQuery}`,
                     { signal: controller.signal },
                     "Failed to load releases"
                 ),
                 fetchJson<CommitsResponse>(
-                    `/api/projects/${projectId}/commits${refQuery}`,
+                    `/api/projects/${projectId}/commits?${commitsQuery}`,
                     { signal: controller.signal },
                     "Failed to load commits"
                 ),
@@ -516,14 +558,23 @@ export function HistoryViewer({
 
             if (releasesResult.status === "fulfilled") {
                 setReleases(releasesResult.value.releases || []);
+                setReleasesTotal(releasesResult.value.total ?? releasesResult.value.releases?.length ?? 0);
             } else {
                 setReleases([]);
+                setReleasesTotal(0);
             }
 
             if (commitsResult.status === "fulfilled") {
                 setCommits(commitsResult.value.commits || []);
+                if (commitsPage === 0) {
+                    setBranchTipSha(
+                        commitsResult.value.commits?.[0]?.full_hash ?? null,
+                    );
+                }
+                setCommitsTotal(commitsResult.value.total ?? commitsResult.value.commits?.length ?? 0);
             } else {
                 setCommits([]);
+                setCommitsTotal(0);
             }
 
             if (releasesResult.status === "rejected" && commitsResult.status === "rejected") {
@@ -560,7 +611,7 @@ export function HistoryViewer({
         });
 
         return () => controller.abort();
-    }, [projectId, branchRef]);
+    }, [projectId, branchRef, commitsPage, releasesPage]);
 
     if (loading) {
         return (
@@ -585,7 +636,7 @@ export function HistoryViewer({
                     projectId={projectId}
                     base={baseRevision.sha}
                     head={compareRevision.sha}
-                    branchTipSha={commits[0]?.full_hash ?? null}
+                    branchTipSha={branchTipSha}
                     canComment={canComment}
                     onClose={closeComparison}
                 />
@@ -617,7 +668,7 @@ export function HistoryViewer({
                                             variant="ghost"
                                             size="sm"
                                             className="h-6 w-6 p-0"
-                                            onClick={() => onViewCommit(release.full_hash)}
+                                            onClick={() => handleViewCommitLocal(release.full_hash)}
                                             title="View this release"
                                         >
                                             <Eye className="h-3 w-3" />
@@ -637,6 +688,7 @@ export function HistoryViewer({
                                             variant={baseRevision?.sha === release.full_hash ? "secondary" : "outline"}
                                             size="sm"
                                             className="h-7 flex-1 text-xs"
+                                            disabled={compareRevision?.sha === release.full_hash}
                                             onClick={() => setRevision("base", {
                                                 sha: release.full_hash,
                                                 label: release.tag,
@@ -649,6 +701,7 @@ export function HistoryViewer({
                                             variant={compareRevision?.sha === release.full_hash ? "secondary" : "outline"}
                                             size="sm"
                                             className="h-7 flex-1 text-xs"
+                                            disabled={baseRevision?.sha === release.full_hash}
                                             onClick={() => setRevision("compare", {
                                                 sha: release.full_hash,
                                                 label: release.tag,
@@ -662,6 +715,29 @@ export function HistoryViewer({
                             </div>
                         ))}
                     </div>
+                    {releasesTotal > RELEASES_PAGE_SIZE && (
+                        <div className="flex items-center justify-between pt-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={releasesPage <= 0}
+                                onClick={() => setReleasesPage((page) => Math.max(0, page - 1))}
+                            >
+                                Previous
+                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                                Page {releasesPage + 1} of {Math.ceil(releasesTotal / RELEASES_PAGE_SIZE)}
+                            </span>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={(releasesPage + 1) * RELEASES_PAGE_SIZE >= releasesTotal}
+                                onClick={() => setReleasesPage((page) => page + 1)}
+                            >
+                                Next
+                            </Button>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -685,7 +761,7 @@ export function HistoryViewer({
                                 key={commit.full_hash}
                                 commit={commit}
                                 projectId={projectId}
-                                onViewCommit={onViewCommit}
+                                onViewCommit={handleViewCommitLocal}
                                 isBase={baseRevision?.sha === commit.full_hash}
                                 isCompare={compareRevision?.sha === commit.full_hash}
                                 onSetBase={() => setRevision("base", {
@@ -703,6 +779,29 @@ export function HistoryViewer({
                         ))}
                     </div>
                 )}
+                {commitsTotal > COMMITS_PAGE_SIZE && (
+                    <div className="flex items-center justify-between pt-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={commitsPage <= 0}
+                            onClick={() => setCommitsPage((page) => Math.max(0, page - 1))}
+                        >
+                            Previous
+                        </Button>
+                        <span className="text-xs text-muted-foreground">
+                            Page {commitsPage + 1} of {Math.ceil(commitsTotal / COMMITS_PAGE_SIZE)}
+                        </span>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={(commitsPage + 1) * COMMITS_PAGE_SIZE >= commitsTotal}
+                            onClick={() => setCommitsPage((page) => page + 1)}
+                        >
+                            Next
+                        </Button>
+                    </div>
+                )}
             </div>
             {canCompareDiffs && (baseRevision || compareRevision) && (
                 <div className="sticky bottom-3 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur">
@@ -717,7 +816,7 @@ export function HistoryViewer({
                     <Button
                         variant="outline"
                         size="sm"
-                        disabled={!baseRevision || !compareRevision}
+                        disabled={!baseRevision || !compareRevision || baseRevision.sha === compareRevision.sha}
                         onClick={() => {
                             const currentBase = baseRevision;
                             setBaseRevision(compareRevision);
@@ -728,7 +827,7 @@ export function HistoryViewer({
                     </Button>
                     <Button
                         size="sm"
-                        disabled={!baseRevision || !compareRevision}
+                        disabled={!baseRevision || !compareRevision || baseRevision.sha === compareRevision.sha}
                         onClick={() => {
                             if (baseRevision && compareRevision) {
                                 openComparison(baseRevision, compareRevision);

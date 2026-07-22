@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { contextLabel, selectionLabel } from "@/lib/prism-selection";
 import type {
     PrismSelection,
@@ -44,6 +45,7 @@ interface SelectionInspectorProps {
     onNavigateLabelInstance?: (direction: -1 | 1) => void;
     onFocusLabelInstance?: (uuid: string) => void;
     navigatingLabelInstance?: boolean;
+    embedded?: boolean;
 }
 
 const atIndex = <T,>(items: T[], index: number | undefined): T | undefined =>
@@ -160,6 +162,7 @@ export function SelectionInspector({
     onNavigateLabelInstance,
     onFocusLabelInstance,
     navigatingLabelInstance = false,
+    embedded = false,
 }: SelectionInspectorProps) {
     if (!open || !selection) return null;
     const component = resolveComponent(selection, semanticIndex);
@@ -175,7 +178,15 @@ export function SelectionInspector({
     const labelOrdinal = labelIndex >= 0 ? labelIndex + 1 : 1;
 
     return (
-        <aside className="relative z-30 flex h-full w-96 shrink-0 flex-col border-l bg-background shadow-lg" aria-label="Selection inspector">
+        <aside
+            className={cn(
+                "flex h-full flex-col bg-background",
+                embedded
+                    ? "w-full"
+                    : "relative z-30 w-96 shrink-0 border-l shadow-lg",
+            )}
+            aria-label="Selection inspector"
+        >
             <header className="shrink-0 border-b bg-card/70 px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                     <nav aria-label="Selection breadcrumb" className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
@@ -185,9 +196,11 @@ export function SelectionInspector({
                         <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate font-mono text-foreground">{title}</span>
                     </nav>
-                    <Button variant="ghost" size="icon-sm" aria-label="Close selection inspector" onClick={() => onOpenChange(false)}>
-                        <X className="h-4 w-4" />
-                    </Button>
+                    {!embedded && (
+                        <Button variant="ghost" size="icon-sm" aria-label="Close selection inspector" onClick={() => onOpenChange(false)}>
+                            <X className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
                 <div className="mt-4 flex items-start gap-3">
                     <div className="border bg-primary/10 p-2.5 text-primary">

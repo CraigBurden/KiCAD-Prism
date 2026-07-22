@@ -11,7 +11,7 @@ import type {
 } from "./types";
 
 export type ComparisonSelection =
-    | { kind: "item" | "group"; id: string }
+    | { kind: "item" | "group"; id: string; documentPath?: string }
     | null;
 
 export function resolveNativeSelection(
@@ -20,18 +20,17 @@ export function resolveNativeSelection(
     selection: ComparisonSelection,
     changes: ChangeItem[],
 ): { kind: "change" | "group"; id: string } | null {
-    const changeIds = changes
-        .map((change) => documentDiff.navigation[change.id])
-        .filter(
-            (
-                entry,
-            ): entry is { documentPath: string; changeId: string } =>
-                Boolean(
-                    entry
-                    && entry.documentPath === preparation.document.path,
-                ),
-        )
-        .map((entry) => entry.changeId);
+    const changeIds = changes.flatMap((change) => {
+        const entry = documentDiff.navigation[change.id];
+        if (!entry) return [];
+        const documents = entry.documents ?? [entry];
+        return documents
+            .filter(
+                (document) =>
+                    document.documentPath === preparation.document.path,
+            )
+            .map((document) => document.changeId);
+    });
 
     if (!changeIds.length) return null;
     if (selection?.kind === "group") {

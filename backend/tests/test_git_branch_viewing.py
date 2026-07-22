@@ -78,8 +78,9 @@ class GitBranchViewingTests(unittest.TestCase):
             repo.git.checkout(repo.heads[0].name)
 
             commits = git_service.get_commits_list(str(root), ref="feature/project")
+            page = commits["commits"] if isinstance(commits, dict) else commits
 
-            self.assertEqual(commits[0]["full_hash"], feature_commit.hexsha)
+            self.assertEqual(page[0]["full_hash"], feature_commit.hexsha)
             self.assertEqual(
                 git_service.get_commit_distance(str(root), initial.hexsha, ref="feature/project"),
                 1,

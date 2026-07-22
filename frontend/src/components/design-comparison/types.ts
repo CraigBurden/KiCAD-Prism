@@ -28,7 +28,17 @@ export type FieldDiffValue =
 
 /** Compact UUID → world geometry sidecar entry, keyed by source item uuid. */
 export interface GeometryEntry {
-    kind: "track" | "arc" | "via" | "zone" | "footprint" | "symbol" | "wire" | "graphic";
+    kind:
+        | "track"
+        | "arc"
+        | "via"
+        | "zone"
+        | "footprint"
+        | "symbol"
+        | "wire"
+        | "label"
+        | "junction"
+        | "graphic";
     source_id?: string;
     semantic_id?: string;
     parent_source_id?: string;
@@ -36,6 +46,7 @@ export interface GeometryEntry {
     page?: string;
     x?: number;
     y?: number;
+    rotation?: number;
     points?: Array<[number, number]>;
     width?: number;
     layer?: string;
@@ -77,6 +88,48 @@ export interface ChangeItem {
     fields?: Record<string, FieldDiffValue>;
     base_item?: NativeComparisonItem | null;
     compare_item?: NativeComparisonItem | null;
+    reasons?: ChangeReason[];
+    details?: ChangeDetails;
+    affected_source_ids_base?: string[];
+    affected_source_ids_compare?: string[];
+    source_side?: "reference" | "comparison";
+}
+
+export type ChangeReason =
+    | "object-added"
+    | "object-removed"
+    | "symbol-fields-changed"
+    | "instance-replaced"
+    | "instance-count-changed"
+    | "sheet-changed"
+    | "net-renamed"
+    | "connectivity-changed"
+    | "label-count-changed";
+
+export interface ChangeDetails {
+    fieldDeltas?: Record<string, FieldDiffValue>;
+    connectivity?: {
+        addedTerminals: string[];
+        removedTerminals: string[];
+    };
+    instanceCount?: { old: number; new: number };
+    netInstances?: { old: number; new: number };
+    labelInstances?: { old: number; new: number };
+    sheetChange?: { old?: string | null; new?: string | null };
+    instanceReplacement?: { old: string[]; new: string[] };
+    visualTargets?: Array<{
+        side: "reference" | "comparison";
+        status: "added" | "removed" | "modified";
+        sourceId: string;
+        parentSourceId?: string | null;
+        /** Native .kicad_sch filename used to load the paint document. */
+        page?: string | null;
+        /** Human hierarchy retained separately from the native filename. */
+        sheetPath?: string | null;
+        role: "component" | "wire" | "label" | "junction" | "terminal";
+        reference?: string;
+        pin?: string;
+    }>;
 }
 
 export interface SemanticChangeGroup {
@@ -90,6 +143,8 @@ export interface SemanticChangeGroup {
     old_fields: Record<string, unknown>;
     new_fields: Record<string, unknown>;
     unresolved_thread_count: number;
+    reasons?: ChangeReason[];
+    details?: ChangeDetails;
 }
 
 export interface DiffSummary {
@@ -178,6 +233,8 @@ export interface KiCadItemChange {
     }>;
     bbox: [number, number, number, number];
     refdes?: string;
+    sourceSide?: "reference" | "comparison";
+    retainReference?: boolean;
     children: KiCadItemChange[];
 }
 
@@ -193,7 +250,16 @@ export interface KiCadProjectDiffBundle {
     project: { documents: KiCadDocumentDiff[] };
     navigation: Record<
         string,
-        { documentPath: string; changeId: string }
+        {
+            documentPath: string;
+            changeId: string;
+            changeIds?: string[];
+            documents?: Array<{
+                documentPath: string;
+                changeId: string;
+                changeIds: string[];
+            }>;
+        }
     >;
     diagnostics: Array<{ changeId: string; reason: string }>;
 }
@@ -213,7 +279,8 @@ export interface DesignCompareResult {
     pcb: PcbDiff;
     bom: BomDiff | null;
     stackup: StackupDiff;
-    geometry: {
+    /** Legacy debug sidecar; current viewers consume document_diff and source files. */
+    geometry?: {
         base: GeometrySnapshot;
         head: GeometrySnapshot;
     };

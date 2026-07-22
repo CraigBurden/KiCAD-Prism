@@ -15,6 +15,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 _TYPE_NAMES = {
     "symbol": "SCH_SYMBOL",
     "wire": "SCH_LINE",
+    "label": "SCH_LABEL",
+    "junction": "SCH_JUNCTION",
     "graphic": "SCH_SHAPE",
     "footprint": "PCB_FOOTPRINT",
     "track": "PCB_TRACK",
@@ -27,6 +29,7 @@ _KIND_NAMES = {
     "added": "added",
     "removed": "removed",
     "changed": "modified",
+    "modified": "modified",
 }
 
 
@@ -40,7 +43,7 @@ def _first_pcb_path(files: Mapping[str, Any]) -> Optional[str]:
 
 
 def _source_id(change: Mapping[str, Any]) -> Optional[str]:
-    if change.get("kind") == "removed":
+    if change.get("source_side") == "reference" or change.get("kind") == "removed":
         value = change.get("source_id_base")
     else:
         value = change.get("source_id_compare") or change.get("source_id_base")
@@ -48,7 +51,7 @@ def _source_id(change: Mapping[str, Any]) -> Optional[str]:
 
 
 def _geometry(change: Mapping[str, Any]) -> Mapping[str, Any]:
-    if change.get("kind") == "removed":
+    if change.get("source_side") == "reference" or change.get("kind") == "removed":
         return change.get("oldGeometry") or {}
     return change.get("geometry") or change.get("oldGeometry") or {}
 
@@ -111,18 +114,82 @@ def _property_deltas(change: Mapping[str, Any]) -> List[Dict[str, Any]]:
     return deltas
 
 
-def _item_change(change: Mapping[str, Any], source_id: str) -> Dict[str, Any]:
-    geometry = _geometry(change)
+def _item_change(
+    change: Mapping[str, Any],
+    target: Mapping[str, Any],
+    target_geometry: Mapping[str, Any],
+    *,
+    children: Optional[List[Dict[str, Any]]] = None,
+    include_properties: bool = True,
+    retain_reference: bool = False,
+) -> Dict[str, Any]:
+    source_id = str(target.get("sourceId") or "")
+    role = str(target.get("role") or "")
+    type_name = _TYPE_NAMES.get(str(target_geometry.get("kind") or ""))
+    if not type_name:
+        type_name = {
+            "component": "SCH_SYMBOL",
+            "wire": "SCH_LINE",
+            "label": "SCH_LABEL",
+            "junction": "SCH_JUNCTION",
+            "terminal": "SCH_PIN",
+        }.get(role, "EDA_ITEM")
     refdes = change.get("reference") or change.get("net")
     return {
         "id": f"/{source_id}",
-        "typeName": _TYPE_NAMES.get(str(geometry.get("kind") or ""), "EDA_ITEM"),
-        "kind": _KIND_NAMES[str(change.get("kind"))],
-        "properties": _property_deltas(change),
-        "bbox": _bbox_iu(geometry.get("bounds"), str(change.get("domain"))),
+        "typeName": type_name,
+        "kind": _KIND_NAMES[str(target.get("status") or change.get("kind"))],
+        "sourceSide": str(target.get("side") or "comparison"),
+        "properties": _property_deltas(change) if include_properties else [],
+        "bbox": _bbox_iu(target_geometry.get("bounds"), str(change.get("domain"))),
         **({"refdes": str(refdes)} if refdes else {}),
-        "children": [],
+        **({"retainReference": True} if retain_reference else {}),
+        "children": children or [],
     }
+
+
+def _visual_targets(change: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    values = (change.get("details") or {}).get("visualTargets") or []
+    targets = [dict(value) for value in values if isinstance(value, Mapping)]
+    if targets:
+        return targets
+    source_id = _source_id(change)
+    if not source_id:
+        return []
+    status = _KIND_NAMES[str(change.get("kind"))]
+    return [{
+        "side": (
+            change.get("source_side")
+            or ("reference" if change.get("kind") == "removed" else "comparison")
+        ),
+        "status": status,
+        "sourceId": source_id,
+        "page": _document_path(change, None),
+        "role": "component" if change.get("reference") else "wire",
+    }]
+
+
+def _target_geometry(
+    target: Mapping[str, Any],
+    change: Mapping[str, Any],
+    geometry: Optional[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    side = "base" if target.get("side") == "reference" else "head"
+    domain = str(change.get("domain") or "")
+    side_geometry = (((geometry or {}).get(side) or {}).get(domain) or {})
+    source_id = target.get("sourceId")
+    parent_source_id = target.get("parentSourceId")
+    resolved = side_geometry.get(source_id) if source_id else None
+    if resolved:
+        return resolved
+    parent = side_geometry.get(parent_source_id) if parent_source_id else None
+    if parent:
+        return parent
+    return _geometry(change)
+
+
+def _is_native_schematic_path(value: Any) -> bool:
+    return isinstance(value, str) and value.replace("\\", "/").endswith(".kicad_sch")
 
 
 def build_project_diff(
@@ -137,48 +204,129 @@ def build_project_diff(
     pcb_path = _first_pcb_path(files)
     by_document: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     document_types: Dict[str, str] = {}
-    navigation: Dict[str, Dict[str, str]] = {}
+    navigation: Dict[str, Dict[str, Any]] = {}
     diagnostics: List[Dict[str, str]] = []
 
     for original_change in [*schematic_changes, *pcb_changes]:
         change = dict(original_change)
         prism_id = str(change.get("id") or "")
-        source_id = _source_id(change)
-        if source_id and not _geometry(change):
-            side = "base" if change.get("kind") == "removed" else "head"
-            domain = str(change.get("domain") or "")
-            resolved = (
-                (((geometry or {}).get(side) or {}).get(domain) or {}).get(
-                    source_id
-                )
-            )
-            if resolved:
-                change[
-                    "oldGeometry" if change.get("kind") == "removed" else "geometry"
-                ] = resolved
-        path = _document_path(change, pcb_path)
-        if not prism_id or not source_id or not path:
+        targets = _visual_targets(change)
+        if not prism_id or not targets:
             diagnostics.append(
                 {
                     "changeId": prism_id,
-                    "reason": (
-                        "missing-source-id"
-                        if not source_id
-                        else "missing-document-path"
-                    ),
+                    "reason": "missing-source-id",
                 }
             )
             continue
 
-        item = _item_change(change, source_id)
-        by_document[path].append(item)
-        document_types[path] = (
-            "kicad_pcb" if change.get("domain") == "pcb" else "kicad_sch"
-        )
-        navigation[prism_id] = {
-            "documentPath": path,
-            "changeId": item["id"],
-        }
+        resolved_by_document: Dict[
+            str,
+            List[tuple[Dict[str, Any], Mapping[str, Any]]],
+        ] = defaultdict(list)
+        candidates: List[tuple[Dict[str, Any], Mapping[str, Any], Optional[str]]] = []
+        seen_targets: set[tuple[str, str, str]] = set()
+        for target in targets:
+            source_id = str(target.get("sourceId") or "")
+            side = str(target.get("side") or "comparison")
+            status = str(target.get("status") or "modified")
+            key = (side, status, source_id)
+            if not source_id or key in seen_targets:
+                continue
+            seen_targets.add(key)
+            target_geometry = _target_geometry(target, change, geometry)
+            raw_path = (
+                pcb_path
+                if change.get("domain") == "pcb"
+                else target_geometry.get("page")
+                or target.get("page")
+                or change.get("page")
+                or (change.get("compare_item") or {}).get("page")
+                or (change.get("base_item") or {}).get("page")
+            )
+            path = str(raw_path).replace("\\", "/") if raw_path else None
+            candidates.append((target, target_geometry, path))
+
+        native_paths_by_side: Dict[str, set[str]] = defaultdict(set)
+        all_native_paths: set[str] = set()
+        if change.get("domain") == "schematic":
+            for target, _target_geometry_value, path in candidates:
+                if path and _is_native_schematic_path(path):
+                    side = str(target.get("side") or "comparison")
+                    native_paths_by_side[side].add(path)
+                    all_native_paths.add(path)
+
+        for target, target_geometry, path in candidates:
+            if change.get("domain") == "schematic" and not _is_native_schematic_path(path):
+                side = str(target.get("side") or "comparison")
+                side_paths = native_paths_by_side.get(side) or set()
+                if len(side_paths) == 1:
+                    path = next(iter(side_paths))
+                elif len(all_native_paths) == 1:
+                    path = next(iter(all_native_paths))
+                else:
+                    diagnostics.append(
+                        {
+                            "changeId": prism_id,
+                            "reason": "unresolved-schematic-hierarchy",
+                        }
+                    )
+                    continue
+            if not path:
+                diagnostics.append(
+                    {
+                        "changeId": prism_id,
+                        "reason": "missing-document-path",
+                    }
+                )
+                continue
+            resolved_by_document[path].append(
+                (target, target_geometry)
+            )
+
+        navigation_documents: List[Dict[str, Any]] = []
+        for path, resolved_targets in resolved_by_document.items():
+            first_target, first_geometry = resolved_targets[0]
+            children = [
+                _item_change(
+                    change,
+                    target,
+                    target_geometry,
+                    include_properties=False,
+                    retain_reference=True,
+                )
+                for target, target_geometry in resolved_targets[1:]
+            ]
+            item = _item_change(
+                change,
+                first_target,
+                first_geometry,
+                children=children,
+            )
+            by_document[path].append(item)
+            document_types[path] = (
+                "kicad_pcb" if change.get("domain") == "pcb" else "kicad_sch"
+            )
+            navigation_documents.append(
+                {
+                    "documentPath": path,
+                    "changeId": item["id"],
+                    "changeIds": [
+                        item["id"],
+                        *(child["id"] for child in children),
+                    ],
+                }
+            )
+
+        if navigation_documents:
+            navigation[prism_id] = {
+                **navigation_documents[0],
+                **(
+                    {"documents": navigation_documents}
+                    if len(navigation_documents) > 1
+                    else {}
+                ),
+            }
 
     documents = [
         {

@@ -43,6 +43,22 @@ const change = (
 });
 
 describe("semantic comparison state", () => {
+    it("defensively groups connectivity records under Nets", () => {
+        const groups = groupChanges([{
+            ...change("net-change", "changed", "pin-1"),
+            domain: "schematic",
+            category: "components",
+            reference: null,
+            net: "/USB/USB_D_P",
+            label: "/USB/USB_D_P",
+            semantic_id: "net:usb-d-p",
+            reasons: ["connectivity-changed"],
+        }]);
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]?.category).toBe("nets");
+    });
+
     it("hydrates the shareable semantic URL state", () => {
         expect(readInitialUrlState(
             "?diff=pcb&item=track-1&secondary=1&layers=F.Cu,B.Cu",
@@ -171,6 +187,9 @@ describe("semantic comparison state", () => {
                     memberIds: ["/uuid-1", "/uuid-2"],
                     sourceIds: ["uuid-1", "uuid-2"],
                     bounds: [10, 10, 14, 11] as [number, number, number, number],
+                    sourceSide: "comparison" as const,
+                    routing: false,
+                    overlayLines: [],
                 },
             ],
         ]);
@@ -192,6 +211,71 @@ describe("semantic comparison state", () => {
             { kind: "group", id: "processor-group" },
             changes,
         )).toEqual({ kind: "group", id: "net:modified:VCC" });
+    });
+
+    it("resolves an explicit page child for a multi-page logical change", () => {
+        const bundle: KiCadProjectDiffBundle = {
+            schema: "prism.kicad_project_diff_v1",
+            provider: "prism-semantic",
+            project: {
+                documents: [
+                    { path: "one.kicad_sch", docType: "kicad_sch", changes: [] },
+                    { path: "two.kicad_sch", docType: "kicad_sch", changes: [] },
+                ],
+            },
+            navigation: {
+                first: {
+                    documentPath: "one.kicad_sch",
+                    changeId: "/wire-one",
+                    changeIds: ["/wire-one"],
+                    documents: [
+                        {
+                            documentPath: "one.kicad_sch",
+                            changeId: "/wire-one",
+                            changeIds: ["/wire-one"],
+                        },
+                        {
+                            documentPath: "two.kicad_sch",
+                            changeId: "/wire-two",
+                            changeIds: ["/wire-two"],
+                        },
+                    ],
+                },
+            },
+            diagnostics: [],
+        };
+        const changes = [{
+            ...change("first", "changed", "wire-one"),
+            domain: "schematic" as const,
+        }];
+        const preparation: EcadDocumentComparisonPreparation = {
+            comparisonKey: "comparison",
+            context: "SCH",
+            document: bundle.project.documents[1]!,
+            targets: new Map(),
+            diagnostics: [],
+            prepareMs: 1,
+            sourceCacheHit: false,
+        };
+
+        expect(
+            resolveSelectedDocument(
+                "schematic",
+                bundle,
+                changes,
+                "two.kicad_sch",
+            )?.path,
+        ).toBe("two.kicad_sch");
+        expect(resolveNativeSelection(
+            preparation,
+            bundle,
+            {
+                kind: "item",
+                id: "first",
+                documentPath: "two.kicad_sch",
+            },
+            changes,
+        )).toEqual({ kind: "change", id: "/wire-two" });
     });
 
     it("maps semantic changes to side-by-side focus targets by kind", () => {

@@ -1,12 +1,45 @@
+import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 import subprocess
+from unittest import mock
 
 from app.services import bom_diff_service, design_compare_service
 
 
 class DesignCompareServiceTests(unittest.TestCase):
+    @staticmethod
+    def _design(*, components=None, nets=None, terminals=None):
+        return {
+            "components": components or [],
+            "nets": nets or [],
+            "terminals": terminals or [],
+        }
+
+    @staticmethod
+    def _component(reference, source_id, *, value="A", page="root.kicad_sch"):
+        return {
+            "componentUid": f"cmp:{source_id}",
+            "reference": reference,
+            "fields": {"Value": value},
+            "schematicRefs": [{"symbolUuid": source_id, "page": page}],
+        }
+
+    @staticmethod
+    def _net(name, uid, source_id, *, labels=0):
+        return {
+            "netUid": uid,
+            "name": name,
+            "schematicRefs": [{
+                "wireUuids": [source_id],
+                "labelUuids": [f"label-{index}" for index in range(labels)],
+                "labelInstanceCount": labels,
+                "pinUuids": [],
+            }],
+        }
+
     def test_generated_kicad_files_are_folded_out_of_semantic_sources(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -21,6 +54,31 @@ class DesignCompareServiceTests(unittest.TestCase):
             sources = design_compare_service._list_kicad_sources(root)
         self.assertEqual([source["path"] for source in sources], ["board.kicad_sch"])
 
+    def test_snapshot_archives_design_inputs_without_manufacturing_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            destination = Path(temporary) / "snapshot"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.email", "test@example.invalid"],
+                check=True,
+            )
+            (root / "board.kicad_pro").write_text("{}", encoding="utf-8")
+            (root / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+            manufacturing = root / "Manufacturing-Outputs"
+            manufacturing.mkdir()
+            (manufacturing / "board.step").write_bytes(b"large-model")
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "fixture"], check=True)
+
+            design_compare_service._snapshot_commit(root, "HEAD", destination, None)
+
+            self.assertTrue((destination / "board.kicad_pro").exists())
+            self.assertTrue((destination / "board.kicad_sch").exists())
+            self.assertFalse((destination / "Manufacturing-Outputs").exists())
+
     def test_geometry_extract_preserves_native_ids_and_routing_shapes(self) -> None:
         segment_id = "11111111-1111-1111-1111-111111111111"
         arc_id = "22222222-2222-2222-2222-222222222222"
@@ -28,6 +86,10 @@ class DesignCompareServiceTests(unittest.TestCase):
         footprint_id = "44444444-4444-4444-4444-444444444444"
         symbol_id = "55555555-5555-5555-5555-555555555555"
         wire_id = "66666666-6666-6666-6666-666666666666"
+        label_id = "77777777-7777-7777-7777-777777777777"
+        global_label_id = "88888888-8888-8888-8888-888888888888"
+        junction_id = "99999999-9999-9999-9999-999999999999"
+        pin_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
         semantic_index = {
             "components": [
                 {
@@ -48,8 +110,12 @@ class DesignCompareServiceTests(unittest.TestCase):
             (root / "board.kicad_sch").write_text(
                 f"""
                 (kicad_sch
-                  (symbol (lib_id "Device:R") (at 10 20) (uuid "{symbol_id}"))
+                  (symbol (lib_id "Device:R") (at 10 20) (uuid "{symbol_id}")
+                    (pin "1" (uuid "{pin_id}")))
                   (wire (pts (xy 1 2) (xy 3 4)) (uuid "{wire_id}"))
+                  (label "LOCAL" (at 5 6 0) (uuid "{label_id}"))
+                  (global_label "GLOBAL" (at 7 8 0) (uuid "{global_label_id}"))
+                  (junction (at 9 10) (diameter 0) (uuid "{junction_id}"))
                 )
                 """,
                 encoding="utf-8",
@@ -65,7 +131,7 @@ class DesignCompareServiceTests(unittest.TestCase):
                   (via (at 2 3) (size 0.8) (drill 0.4)
                     (layers "F.Cu" "B.Cu") (net 1) (uuid "{via_id}"))
                   (footprint "Package:QFN" (layer "F.Cu")
-                    (uuid "{footprint_id}") (at 20 30))
+                    (uuid "{footprint_id}") (at 20 30 90))
                 )
                 """,
                 encoding="utf-8",
@@ -77,7 +143,47 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual(geometry["pcb"][arc_id]["kind"], "arc")
         self.assertEqual(geometry["pcb"][via_id]["layers"], ["F.Cu", "B.Cu"])
         self.assertEqual(geometry["pcb"][footprint_id]["reference"], "U1")
+        self.assertEqual(geometry["pcb"][footprint_id]["rotation"], 90)
         self.assertEqual(geometry["schematic"][wire_id]["net"], "VCC")
+        self.assertEqual(geometry["schematic"][label_id]["kind"], "label")
+        self.assertEqual(geometry["schematic"][global_label_id]["page"], "board.kicad_sch")
+        self.assertEqual(geometry["schematic"][junction_id]["kind"], "junction")
+        self.assertEqual(geometry["schematic"][pin_id]["kind"], "pin")
+        self.assertEqual(
+            geometry["schematic"][pin_id]["parent_source_id"],
+            symbol_id,
+        )
+        self.assertEqual(geometry["schematic"][pin_id]["page"], "board.kicad_sch")
+
+    def test_pcb_footprint_rotation_is_a_physical_modification(self) -> None:
+        source_id = "44444444-4444-4444-4444-444444444444"
+        base = {
+            "pcb": {
+                source_id: {
+                    "kind": "footprint",
+                    "source_id": source_id,
+                    "semantic_id": "cmp:u1",
+                    "reference": "U1",
+                    "x": 20,
+                    "y": 30,
+                    "rotation": 0,
+                },
+            },
+        }
+        compare = {
+            "pcb": {
+                source_id: {
+                    **base["pcb"][source_id],
+                    "rotation": 90,
+                },
+            },
+        }
+
+        changes = design_compare_service._diff_geometry(base, compare, "pcb")
+
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["kind"], "changed")
+        self.assertEqual(changes[0]["category"], "components")
 
     def test_geometry_extract_preserves_schematic_repository_path(self) -> None:
         symbol_id = "55555555-5555-5555-5555-555555555555"
@@ -134,6 +240,465 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual(change["source_id_compare"], "new-u1")
         self.assertEqual(change["base_item"]["semantic_id"], "cmp:u1")
         self.assertEqual(change["fields"]["Value"], {"old": "A", "new": "B"})
+
+    def test_same_page_symbol_movement_and_wire_reroute_are_suppressed(self) -> None:
+        component = self._component("U1", "u1")
+        semantic = design_compare_service._diff_designs(
+            self._design(
+                components=[component],
+                nets=[self._net("VCC", "net:vcc", "wire-old")],
+                terminals=[{"reference": "U1", "pin": "1", "netUid": "net:vcc"}],
+            ),
+            self._design(
+                components=[component],
+                nets=[self._net("VCC", "net:vcc", "wire-new")],
+                terminals=[{"reference": "U1", "pin": "1", "netUid": "net:vcc"}],
+            ),
+        )
+        geometry = [
+            {
+                "id": "moved-u1",
+                "kind": "changed",
+                "category": "components",
+                "classification": "primary",
+                "semantic_id": "cmp:u1",
+            },
+            {
+                "id": "rerouted-vcc",
+                "kind": "changed",
+                "category": "nets",
+                "classification": "primary",
+                "semantic_id": "net:vcc",
+            },
+        ]
+        self.assertEqual(semantic["changes"], [])
+        self.assertEqual(
+            design_compare_service._merge_semantic_geometry_changes([], geometry),
+            [],
+        )
+
+    def test_component_field_change_has_structured_reason(self) -> None:
+        result = design_compare_service._diff_designs(
+            self._design(components=[self._component("U1", "u1", value="LM358")]),
+            self._design(components=[self._component("U1", "u1", value="TL072")]),
+        )
+        self.assertEqual(len(result["changes"]), 1)
+        change = result["changes"][0]
+        self.assertEqual(change["reasons"], ["symbol-fields-changed"])
+        self.assertEqual(
+            change["details"]["fieldDeltas"]["Value"],
+            {"old": "LM358", "new": "TL072"},
+        )
+
+    def test_same_refdes_with_new_uuid_is_instance_replacement(self) -> None:
+        result = design_compare_service._diff_designs(
+            self._design(components=[self._component("U5", "old-u5")]),
+            self._design(components=[self._component("U5", "new-u5")]),
+        )
+        self.assertEqual(len(result["changes"]), 1)
+        change = result["changes"][0]
+        self.assertEqual(change["kind"], "changed")
+        self.assertEqual(change["reasons"], ["instance-replaced"])
+        self.assertEqual(change["source_id_base"], "old-u5")
+        self.assertEqual(change["source_id_compare"], "new-u5")
+
+    def test_duplicate_refdes_count_changes_are_one_modified_change(self) -> None:
+        retained = self._component("U7", "u7-retained")
+        extra = self._component("U7", "u7-extra")
+        added = design_compare_service._diff_designs(
+            self._design(components=[retained]),
+            self._design(components=[retained, extra]),
+        )["changes"]
+        self.assertEqual(len(added), 1)
+        self.assertEqual(added[0]["details"]["instanceCount"], {"old": 1, "new": 2})
+        self.assertEqual(added[0]["source_side"], "comparison")
+        self.assertEqual(
+            added[0]["affected_source_ids_compare"],
+            ["u7-retained", "u7-extra"],
+        )
+
+        removed = design_compare_service._diff_designs(
+            self._design(components=[retained, extra]),
+            self._design(components=[retained]),
+        )["changes"]
+        self.assertEqual(len(removed), 1)
+        self.assertEqual(removed[0]["details"]["instanceCount"], {"old": 2, "new": 1})
+        self.assertEqual(removed[0]["source_side"], "reference")
+        self.assertEqual(removed[0]["source_id_base"], "u7-extra")
+
+    def test_net_connectivity_and_label_count_deltas_are_exact(self) -> None:
+        base = self._design(
+            nets=[self._net("RESET", "net:reset", "wire-reset", labels=1)],
+            terminals=[
+                {"reference": "U1", "pin": "4", "netUid": "net:reset"},
+                {"reference": "U2", "pin": "3", "netUid": "net:reset"},
+            ],
+        )
+        compare = self._design(
+            nets=[self._net("RESET", "net:reset", "wire-reset", labels=2)],
+            terminals=[
+                {"reference": "U2", "pin": "3", "netUid": "net:reset"},
+                {"reference": "U3", "pin": "1", "netUid": "net:reset"},
+            ],
+        )
+        change = design_compare_service._diff_designs(base, compare)["changes"][0]
+        self.assertEqual(
+            change["reasons"],
+            ["connectivity-changed", "label-count-changed"],
+        )
+        self.assertEqual(
+            change["details"]["connectivity"],
+            {"addedTerminals": ["U3.1"], "removedTerminals": ["U1.4"]},
+        )
+        self.assertEqual(change["details"]["labelInstances"], {"old": 1, "new": 2})
+        self.assertEqual(
+            change["details"]["visualTargets"],
+            [{
+                "side": "comparison",
+                "status": "added",
+                "sourceId": "label-1",
+                "page": None,
+                "role": "label",
+            }],
+        )
+
+    def test_label_count_down_targets_every_removed_native_label(self) -> None:
+        change = design_compare_service._diff_designs(
+            self._design(nets=[self._net("PF_01", "net:pf01", "wire", labels=2)]),
+            self._design(nets=[self._net("PF_01", "net:pf01", "wire", labels=0)]),
+        )["changes"][0]
+        self.assertEqual(change["category"], "nets")
+        self.assertEqual(
+            [
+                (target["sourceId"], target["side"], target["status"])
+                for target in change["details"]["visualTargets"]
+            ],
+            [
+                ("label-0", "reference", "removed"),
+                ("label-1", "reference", "removed"),
+            ],
+        )
+
+    def test_net_semantics_cannot_inherit_component_category(self) -> None:
+        semantic = [{
+            "id": "semantic-net",
+            "kind": "changed",
+            "domain": "schematic",
+            "category": "nets",
+            "classification": "primary",
+            "label": "USB_D_P",
+            "net": "USB_D_P",
+            "semantic_id": "shared-id",
+            "reasons": ["connectivity-changed"],
+            "details": {},
+        }]
+        geometry = [{
+            "id": "native-symbol",
+            "kind": "added",
+            "domain": "schematic",
+            "category": "components",
+            "classification": "primary",
+            "label": "J1",
+            "semantic_id": "shared-id",
+            "geometry": {"kind": "symbol", "bounds": [0, 0, 1, 1]},
+        }]
+        merged = design_compare_service._merge_semantic_geometry_changes(
+            semantic,
+            geometry,
+        )
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["category"], "nets")
+        self.assertEqual(
+            design_compare_service._group_changes(merged)[0]["category"],
+            "nets",
+        )
+
+    def test_unconnected_addition_targets_pin_with_component_fallback(self) -> None:
+        component = self._component("U30", "symbol-u30", page="io.kicad_sch")
+        added_net = {
+            "netUid": "net:unconnected",
+            "name": "unconnected-(U30-SPK_R-Pad16)",
+            "schematicRefs": [{
+                "wireUuids": [],
+                "labelUuids": [],
+                "junctionUuids": [],
+                "pinUuids": ["pin-u30-16"],
+                "labelInstanceCount": 0,
+            }],
+        }
+        compare = self._design(
+            components=[component],
+            nets=[added_net],
+            terminals=[{
+                "reference": "U30",
+                "pin": "16",
+                "netUid": "net:unconnected",
+                "schematicPinUuid": "pin-u30-16",
+            }],
+        )
+        change = next(
+            item
+            for item in design_compare_service._diff_designs(
+                self._design(components=[component]),
+                compare,
+            )["changes"]
+            if item["category"] == "nets"
+        )
+        target = change["details"]["visualTargets"][0]
+        self.assertEqual(target["sourceId"], "pin-u30-16")
+        self.assertEqual(target["parentSourceId"], "symbol-u30")
+        self.assertEqual(target["page"], "io.kicad_sch")
+        self.assertEqual(target["role"], "terminal")
+
+    def test_added_net_reports_logical_instance_and_terminal_count(self) -> None:
+        added_net = self._net("LLCE_CAN5_TX", "net:can5", "wire-can5")
+        compare = self._design(
+            nets=[added_net],
+            terminals=[{
+                "reference": "U30",
+                "pin": "16",
+                "netUid": "net:can5",
+                "schematicPinUuid": "pin-u30-16",
+            }],
+        )
+        change = design_compare_service._diff_designs(
+            self._design(),
+            compare,
+        )["changes"][0]
+
+        self.assertEqual(change["fields"]["instances"], {"old": 0, "new": 1})
+        self.assertEqual(change["fields"]["connections"], {"old": 0, "new": 1})
+        self.assertEqual(
+            change["details"]["netInstances"],
+            {"old": 0, "new": 1},
+        )
+
+    def test_label_uuid_churn_is_matched_by_nearest_geometry(self) -> None:
+        change = {
+            "reasons": ["label-count-changed"],
+            "details": {
+                "visualTargets": [
+                    {
+                        "side": "reference",
+                        "status": "removed",
+                        "sourceId": "old-label",
+                        "role": "label",
+                    },
+                    {
+                        "side": "comparison",
+                        "status": "added",
+                        "sourceId": "replacement-label",
+                        "role": "label",
+                    },
+                    {
+                        "side": "comparison",
+                        "status": "added",
+                        "sourceId": "new-extra-label",
+                        "role": "label",
+                    },
+                ],
+            },
+        }
+        design_compare_service._hydrate_visual_target_pages_and_match_labels(
+            [change],
+            {
+                "old-label": {
+                    "page": "root.kicad_sch",
+                    "bounds": [10, 10, 2, 1],
+                },
+            },
+            {
+                "replacement-label": {
+                    "page": "root.kicad_sch",
+                    "bounds": [10.1, 10, 2, 1],
+                },
+                "new-extra-label": {
+                    "page": "root.kicad_sch",
+                    "bounds": [40, 40, 2, 1],
+                },
+            },
+        )
+        self.assertEqual(
+            change["details"]["visualTargets"],
+            [{
+                "side": "comparison",
+                "status": "added",
+                "sourceId": "new-extra-label",
+                "role": "label",
+                "page": "root.kicad_sch",
+            }],
+        )
+
+    def test_human_hierarchy_is_replaced_by_native_document_path(self) -> None:
+        change = {
+            "reasons": ["connectivity-changed"],
+            "details": {
+                "visualTargets": [{
+                    "side": "comparison",
+                    "status": "modified",
+                    "sourceId": "pin-a1",
+                    "page": "/S32G399/Boot & Low Speed Interfaces/",
+                    "role": "terminal",
+                }],
+            },
+        }
+        design_compare_service._hydrate_visual_target_pages_and_match_labels(
+            [change],
+            {},
+            {
+                "pin-a1": {
+                    "page": "Subsheets/S32G3_Boot_LS_Interfaces.kicad_sch",
+                    "bounds": [10, 20, 1, 1],
+                },
+            },
+        )
+        target = change["details"]["visualTargets"][0]
+        self.assertEqual(
+            target["page"],
+            "Subsheets/S32G3_Boot_LS_Interfaces.kicad_sch",
+        )
+        self.assertEqual(
+            target["sheetPath"],
+            "/S32G399/Boot & Low Speed Interfaces/",
+        )
+
+    def test_cross_page_symbol_move_is_semantic_change(self) -> None:
+        change = design_compare_service._diff_designs(
+            self._design(components=[self._component("U1", "u1", page="A.kicad_sch")]),
+            self._design(components=[self._component("U1", "u1", page="B.kicad_sch")]),
+        )["changes"][0]
+        self.assertEqual(change["reasons"], ["sheet-changed"])
+        self.assertEqual(
+            change["details"]["sheetChange"],
+            {"old": "A.kicad_sch", "new": "B.kicad_sch"},
+        )
+
+    def test_pcb_placement_change_remains_reportable(self) -> None:
+        changes = design_compare_service._diff_geometry(
+            {"pcb": {"u1": {"kind": "footprint", "semantic_id": "cmp:u1", "x": 1, "y": 2}}},
+            {"pcb": {"u1": {"kind": "footprint", "semantic_id": "cmp:u1", "x": 4, "y": 6}}},
+            "pcb",
+        )
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["kind"], "changed")
+
+    def test_revision_builds_overlap_and_identical_shas_are_deduplicated(self) -> None:
+        barrier = threading.Barrier(2)
+        started = []
+        started_lock = threading.Lock()
+
+        def fake_load(_project, _repo, _relative, commit, logs, *, on_progress):
+            with started_lock:
+                started.append(commit)
+            on_progress("started")
+            barrier.wait(timeout=2)
+            logs.append(f"built {commit}")
+            return {"commit": commit}
+
+        with mock.patch.dict(os.environ, {"PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS": "2"}), mock.patch.object(
+            design_compare_service,
+            "_load_or_build_revision",
+            side_effect=fake_load,
+        ) as load:
+            revisions, revision_logs = design_compare_service._build_revisions(
+                "project",
+                Path("/repo"),
+                "board.kicad_pro",
+                "base",
+                "head",
+                lambda _message, _percent=None: None,
+            )
+        self.assertCountEqual(started, ["base", "head"])
+        self.assertEqual(set(revisions), {"base", "head"})
+        self.assertEqual(revision_logs["base"], ["built base"])
+        self.assertEqual(load.call_count, 2)
+
+        with mock.patch.object(
+            design_compare_service,
+            "_load_or_build_revision",
+            return_value={"commit": "same"},
+        ) as deduplicated:
+            revisions, _ = design_compare_service._build_revisions(
+                "project",
+                Path("/repo"),
+                "board.kicad_pro",
+                "same",
+                "same",
+                lambda _message, _percent=None: None,
+            )
+        self.assertEqual(revisions, {"same": {"commit": "same"}})
+        deduplicated.assert_called_once()
+
+    def test_component_rename_matches_by_native_uuid(self) -> None:
+        base = {
+            "components": [
+                {
+                    "componentUid": "cmp:old",
+                    "reference": "U1",
+                    "fields": {"Value": "MCU"},
+                    "schematicRefs": [{"symbolUuid": "sym-1", "page": "root.kicad_sch"}],
+                }
+            ],
+            "nets": [],
+            "terminals": [],
+        }
+        compare = {
+            "components": [
+                {
+                    "componentUid": "cmp:new",
+                    "reference": "U100",
+                    "fields": {"Value": "MCU"},
+                    "schematicRefs": [{"symbolUuid": "sym-1", "page": "root.kicad_sch"}],
+                }
+            ],
+            "nets": [],
+            "terminals": [],
+        }
+        result = design_compare_service._diff_designs(base, compare)
+        self.assertEqual(len(result["changes"]), 1)
+        change = result["changes"][0]
+        self.assertEqual(change["kind"], "changed")
+        self.assertEqual(change["fields"]["Reference"], {"old": "U1", "new": "U100"})
+        self.assertEqual(change["source_id_base"], "sym-1")
+        self.assertEqual(change["source_id_compare"], "sym-1")
+
+    def test_net_rename_matches_by_connectivity_fingerprint(self) -> None:
+        base = {
+            "components": [],
+            "nets": [
+                {
+                    "netUid": "net:vcc",
+                    "name": "VCC",
+                    "schematicRefs": [{"wireUuids": ["wire-1"], "labelUuids": [], "pinUuids": []}],
+                }
+            ],
+            "terminals": [
+                {"reference": "U1", "pin": "1", "netUid": "net:vcc", "schematicPinUuid": "pin-1"},
+                {"reference": "C1", "pin": "1", "netUid": "net:vcc"},
+            ],
+        }
+        compare = {
+            "components": [],
+            "nets": [
+                {
+                    "netUid": "net:3v3",
+                    "name": "3V3",
+                    "schematicRefs": [{"wireUuids": ["wire-1"], "labelUuids": [], "pinUuids": []}],
+                }
+            ],
+            "terminals": [
+                {"reference": "U1", "pin": "1", "netUid": "net:3v3", "schematicPinUuid": "pin-1"},
+                {"reference": "C1", "pin": "1", "netUid": "net:3v3"},
+            ],
+        }
+        result = design_compare_service._diff_designs(base, compare)
+        self.assertEqual(len(result["changes"]), 1)
+        change = result["changes"][0]
+        self.assertEqual(change["kind"], "changed")
+        self.assertEqual(change["fields"]["name"], {"old": "VCC", "new": "3V3"})
+        self.assertEqual(change["source_id_base"], "wire-1")
+        self.assertEqual(change["source_id_compare"], "wire-1")
+        self.assertNotIn("connections", change["fields"])
 
     def test_component_uuid_replacement_matches_by_semantic_identity(self) -> None:
         base = {

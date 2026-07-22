@@ -7,17 +7,21 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { AlertCircle, Loader2, X } from "lucide-react";
+import { AlertCircle, Layers3, Loader2, MessageSquare, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
     ECadViewerElement,
     EcadDocumentComparisonPreparation,
     EcadPcbLayerState,
+    EcadRevisionDiffPresentationRequest,
+    EcadTransitionTraceDetail,
 } from "@/types/ecad-viewer";
 import {
     ComparisonPcbLayersPanel,
     ComparisonPcbLayersToggle,
 } from "./comparison-pcb-layers-panel";
+import { ViewerOverlayRail } from "@/components/viewer-overlay-rail";
 import {
     comparisonLifecycleReducer,
     createComparisonLifecycleState,
@@ -43,6 +47,10 @@ import type {
 } from "./types";
 import type { ComparisonPresentationMode } from "./comparison-url";
 import { useComparisonCameraSync } from "./use-comparison-camera-sync";
+import {
+    logComparisonDebug,
+    logComparisonDebugError,
+} from "./comparison-debug-log";
 
 type ComparisonPresentationShellProps = {
     projectId: string;
@@ -53,36 +61,20 @@ type ComparisonPresentationShellProps = {
     documentDiff: KiCadProjectDiffBundle;
     files: DesignCompareResult["files"];
     selection: ComparisonSelection;
+    previewSelection?: ComparisonSelection;
     reviewGroups: Array<{ id: string; changes: ChangeItem[] }>;
     initialVisibleLayers: string[];
     onVisibleLayersChange: (layers: string[]) => void;
+    rightRailTab?: "layers" | "discussion" | null;
+    onRightRailTabChange?: (
+        tab: "layers" | "discussion" | null,
+    ) => void;
+    discussionContent?: ReactNode;
+    discussionCount?: number;
 };
 
-type PresentationLayerProps = {
-    active: boolean;
-    children: ReactNode;
-};
-
-function PresentationLayer({ active, children }: PresentationLayerProps) {
-    const ref = useRef<HTMLDivElement | null>(null);
-    useEffect(() => {
-        if (ref.current) ref.current.inert = !active;
-    }, [active]);
-    return (
-        <div
-            ref={ref}
-            aria-hidden={!active}
-            className={cn(
-                "absolute inset-0 flex min-h-0 min-w-0 flex-col",
-                active
-                    ? "visible"
-                    : "invisible pointer-events-none",
-            )}
-        >
-            {children}
-        </div>
-    );
-}
+type OldNewSide = "base" | "compare";
+const ignoreRightRailChange = () => undefined;
 
 function shortSha(sha: string): string {
     return sha.slice(0, 10);
@@ -90,6 +82,133 @@ function shortSha(sha: string): string {
 
 function isAbortError(error: unknown): boolean {
     return error instanceof DOMException && error.name === "AbortError";
+}
+
+function normalizedPath(value: string): string {
+    return value.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function sameDocument(left?: string | null, right?: string | null): boolean {
+    if (!left || !right) return true;
+    const a = normalizedPath(left);
+    const b = normalizedPath(right);
+    return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
+}
+
+function revisionHasDocument(
+    sources: DesignCompareResult["files"]["base"],
+    documentPath: string | null,
+): boolean {
+    if (!documentPath) return false;
+    return sources.some((source) => sameDocument(source.path, documentPath));
+}
+
+function resolvedViewerDocuments(
+    viewer: ECadViewerElement,
+): string[] | null {
+    if (typeof viewer.getSchematicPages !== "function") return null;
+    return viewer.getSchematicPages().flatMap((page) =>
+        [page.projectPath, page.filename].filter(
+            (value): value is string => Boolean(value),
+        ),
+    );
+}
+
+function resolvedRevisionHasDocument(
+    resolvedDocuments: string[] | null,
+    sources: DesignCompareResult["files"]["base"],
+    documentPath: string | null,
+): boolean {
+    if (!documentPath) return false;
+    if (resolvedDocuments !== null) {
+        return resolvedDocuments.some((path) => sameDocument(path, documentPath));
+    }
+    return revisionHasDocument(sources, documentPath);
+}
+
+function buildRevisionDiffPresentation(
+    groups: Array<{ id: string; changes: ChangeItem[] }>,
+    documentDiff: KiCadProjectDiffBundle,
+    documentPath: string,
+    side: "reference" | "comparison",
+    context: "SCH" | "PCB",
+): EcadRevisionDiffPresentationRequest {
+    const targets = groups.flatMap((group) => {
+        const visuals = group.changes.flatMap((change) => {
+            const navigation = documentDiff.navigation[change.id];
+            const paths = navigation?.documents?.map((entry) => entry.documentPath)
+                ?? (navigation ? [navigation.documentPath] : []);
+            if (paths.length && !paths.some((path) => sameDocument(path, documentPath))) {
+                return [];
+            }
+            const explicit = change.details?.visualTargets
+                ?.filter((target) => target.side === side)
+                .filter((target) =>
+                    target.page
+                        ? sameDocument(target.page, documentPath)
+                        // A source without a page is safe only when navigation
+                        // identifies one unambiguous document. Do not install it
+                        // on every pane of a multi-page logical net.
+                        : paths.length === 1
+                            && sameDocument(paths[0], documentPath),
+                )
+                .map((target) => ({
+                    sourceId: target.sourceId,
+                    parentSourceId: target.parentSourceId,
+                    status: target.status,
+                    bounds:
+                        side === "reference"
+                            ? change.oldGeometry?.bounds
+                            : change.geometry?.bounds,
+                    routing: target.role === "wire",
+                })) ?? [];
+            if (explicit.length) return explicit;
+
+            const applicable = side === "reference"
+                ? change.kind !== "added"
+                : change.kind !== "removed";
+            if (!applicable) return [];
+            const sourceId = side === "reference"
+                ? change.source_id_base ?? change.base_item?.source_id
+                : change.source_id_compare ?? change.compare_item?.source_id;
+            if (!sourceId) return [];
+            const geometry = side === "reference"
+                ? change.oldGeometry
+                : change.geometry;
+            return [{
+                sourceId,
+                parentSourceId:
+                    side === "reference"
+                        ? change.base_item?.parent_source_id
+                        : change.compare_item?.parent_source_id,
+                status:
+                    change.kind === "added"
+                        ? "added" as const
+                        : change.kind === "removed"
+                            ? "removed" as const
+                            : "modified" as const,
+                bounds: geometry?.bounds,
+                routing: ["wire", "track", "arc", "via"].includes(
+                    geometry?.kind ?? "",
+                ),
+            }];
+        });
+        return visuals.length
+            ? [{ id: group.id, label: group.id, visuals }]
+            : [];
+    });
+    return { context, targets };
+}
+
+function revisionSelectionId(
+    selection: ComparisonSelection,
+    groups: Array<{ id: string; changes: ChangeItem[] }>,
+): string | null {
+    if (!selection) return null;
+    if (selection.kind === "group") return selection.id;
+    return groups.find((group) =>
+        group.changes.some((change) => change.id === selection.id),
+    )?.id ?? null;
 }
 
 async function focusRevisionViewer(
@@ -106,6 +225,57 @@ async function focusRevisionViewer(
     }
 }
 
+async function selectRevisionViewer(
+    viewer: ECadViewerElement | null,
+    targetId: string | null,
+    bounds?: [number, number, number, number],
+    uuid?: string | null,
+): Promise<boolean> {
+    if (!viewer) return false;
+    if (targetId && viewer.selectRevisionDiff) {
+        const applied = await viewer.selectRevisionDiff(targetId, { focus: true });
+        if (applied) return true;
+    }
+    if (!bounds && !uuid) return false;
+    await focusRevisionViewer(viewer, bounds, uuid);
+    return true;
+}
+
+function viewerState(viewer: ECadViewerElement | null) {
+    return {
+        connected: viewer?.isConnected ?? false,
+        isReady: viewer?.isReady ?? false,
+        activePage: viewer?.getActiveSchematicPage?.() ?? null,
+        camera: viewer?.camera ?? null,
+    };
+}
+
+function MissingRevisionPane({
+    side,
+    documentPath,
+}: {
+    side: "base" | "compare";
+    documentPath: string;
+}) {
+    const opposite = side === "base" ? "compare" : "base";
+    return (
+        <div
+            className="absolute inset-0 z-10 flex items-center justify-center bg-background p-8 text-center"
+            role="status"
+        >
+            <div className="max-w-sm">
+                <AlertCircle className="mx-auto mb-3 h-9 w-9 text-muted-foreground/60" />
+                <h3 className="text-sm font-medium">
+                    Not present in the {side} revision
+                </h3>
+                <p className="mt-2 break-words text-xs text-muted-foreground">
+                    {documentPath} exists only in the {opposite} revision.
+                </p>
+            </div>
+        </div>
+    );
+}
+
 export function ComparisonPresentationShell({
     projectId,
     domain,
@@ -115,9 +285,14 @@ export function ComparisonPresentationShell({
     documentDiff,
     files,
     selection,
+    previewSelection = null,
     reviewGroups,
     initialVisibleLayers,
     onVisibleLayersChange,
+    rightRailTab = null,
+    onRightRailTabChange = ignoreRightRailChange,
+    discussionContent = null,
+    discussionCount = 0,
 }: ComparisonPresentationShellProps) {
     const [lifecycle, dispatch] = useReducer(
         comparisonLifecycleReducer,
@@ -130,47 +305,86 @@ export function ComparisonPresentationShell({
         useState<ECadViewerElement | null>(null);
     const [compareViewer, setCompareViewer] =
         useState<ECadViewerElement | null>(null);
+    const [toggleViewer, setToggleViewer] =
+        useState<ECadViewerElement | null>(null);
+    const [oldNewSide, setOldNewSide] = useState<OldNewSide>("compare");
     const [preparation, setPreparation] =
         useState<EcadDocumentComparisonPreparation | null>(null);
     const [selectionPending, setSelectionPending] = useState(false);
     const [selectionDiagnostic, setSelectionDiagnostic] =
         useState<string | null>(null);
+    const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
     const [dismissedBanner, setDismissedBanner] = useState<string | null>(null);
     const [diagnosticsDismissed, setDiagnosticsDismissed] = useState(false);
     const [sidePageReadyPath, setSidePageReadyPath] =
         useState<string | null>(null);
-    const [showLayers, setShowLayers] = useState(false);
+    const [togglePageReadyPath, setTogglePageReadyPath] =
+        useState<string | null>(null);
+    const [baseResolvedDocuments, setBaseResolvedDocuments] =
+        useState<string[] | null>(null);
+    const [compareResolvedDocuments, setCompareResolvedDocuments] =
+        useState<string[] | null>(null);
+    const [rightRailInset, setRightRailInset] = useState(0);
     const [pcbLayers, setPcbLayers] = useState<EcadPcbLayerState[]>([]);
+    const showLayers = rightRailTab === "layers";
 
     const compositeGenerationRef = useRef(0);
     const baseGenerationRef = useRef(0);
     const compareGenerationRef = useRef(0);
+    const toggleGenerationRef = useRef(0);
     const pageGenerationRef = useRef(0);
+    const togglePageGenerationRef = useRef(0);
     const selectionGenerationRef = useRef(0);
     const cameraSyncSuppressedRef = useRef(false);
     const lastCompositeSelectionKeyRef = useRef<string | null>(null);
     const lastSideSelectionKeyRef = useRef<string | null>(null);
+    const lastToggleSelectionKeyRef = useRef<string | null>(null);
     const previousPresentationRef =
         useRef<ComparisonPresentationMode>(presentationMode);
+    const compositeViewerRef = useRef<ECadViewerElement | null>(null);
+    const baseViewerRef = useRef<ECadViewerElement | null>(null);
+    const compareViewerRef = useRef<ECadViewerElement | null>(null);
+    const toggleViewerRef = useRef<ECadViewerElement | null>(null);
+    const mountedModesRef = useRef(new Set<ComparisonPresentationMode>());
+    mountedModesRef.current.add(presentationMode);
 
     const allChanges = useMemo(
         () => selectedChanges(selection, reviewGroups),
         [reviewGroups, selection],
     );
+    const previewChanges = useMemo(
+        () => selectedChanges(previewSelection, reviewGroups),
+        [previewSelection, reviewGroups],
+    );
     const selectionKey = useMemo(
         () =>
             selection
-                ? `${selection.kind}:${selection.id}:${allChanges
+                ? `${selection.kind}:${selection.id}:${selection.documentPath ?? "default"}:${allChanges
                     .map((change) => change.id)
                     .join(",")}`
                 : "none",
         [allChanges, selection],
     );
     const activeDocument = useMemo(
-        () => resolveSelectedDocument(domain, documentDiff, allChanges),
-        [allChanges, documentDiff, domain],
+        () => resolveSelectedDocument(
+            domain,
+            documentDiff,
+            allChanges,
+            selection?.documentPath,
+        ),
+        [allChanges, documentDiff, domain, selection?.documentPath],
     );
     const documentPath = activeDocument?.path ?? null;
+    const baseHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
+        baseResolvedDocuments,
+        files.base,
+        documentPath,
+    );
+    const compareHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
+        compareResolvedDocuments,
+        files.head,
+        documentPath,
+    );
 
     const baseSources = useRevisionSources(
         projectId,
@@ -184,11 +398,26 @@ export function ComparisonPresentationShell({
         compare,
         files.head,
     );
+    const baseMissingRoot = useMemo(
+        () =>
+            !baseSources.loading
+            && !baseSources.sources.some(
+                (source) => source.filename === baseSources.rootName,
+            ),
+        [baseSources.loading, baseSources.rootName, baseSources.sources],
+    );
+    const compareMissingRoot = useMemo(
+        () =>
+            !compareSources.loading
+            && !compareSources.sources.some(
+                (source) => source.filename === compareSources.rootName,
+            ),
+        [compareSources.loading, compareSources.rootName, compareSources.sources],
+    );
     const sourcesReady =
         !baseSources.loading
         && !compareSources.loading
-        && baseSources.sources.length > 0
-        && compareSources.sources.length > 0;
+        && (!baseMissingRoot || !compareMissingRoot);
 
     const baseRevisionKey = revisionSourceKey(projectId, base, domain);
     const compareRevisionKey = revisionSourceKey(projectId, compare, domain);
@@ -196,6 +425,8 @@ export function ComparisonPresentationShell({
         `${projectId}:composite:${domain}:${base}:${compare}`;
     const baseHostKey = `${projectId}:base:${domain}:${base}`;
     const compareHostKey = `${projectId}:compare:${domain}:${compare}`;
+    const toggleHostKey =
+        `${projectId}:toggle:${domain}:${base}:${compare}`;
     const comparisonKey = `${projectId}:${base}:${compare}:${domain}`;
 
     useEffect(() => {
@@ -204,6 +435,12 @@ export function ComparisonPresentationShell({
     }, [comparisonKey, documentPath]);
 
     const oneSidedSheetNotice = useMemo(() => {
+        if (baseMissingRoot && !compareMissingRoot) {
+            return `${baseSources.rootName} is missing from the base revision.`;
+        }
+        if (compareMissingRoot && !baseMissingRoot) {
+            return `${compareSources.rootName} is missing from the compare revision.`;
+        }
         if (!documentPath || domain !== "schematic") return null;
         const matches = (path: string) =>
             path === documentPath
@@ -218,15 +455,26 @@ export function ComparisonPresentationShell({
             return `${documentPath} exists only in the base revision.`;
         }
         return null;
-    }, [documentPath, domain, files.base, files.head]);
+    }, [
+        baseMissingRoot,
+        baseSources.rootName,
+        compareMissingRoot,
+        compareSources.rootName,
+        documentPath,
+        domain,
+        files.base,
+        files.head,
+    ]);
 
     const attachHost = useCallback(
         (
             slot: ComparisonHostSlot,
             key: string,
             setter: (viewer: ECadViewerElement | null) => void,
+            ref: { current: ECadViewerElement | null },
             viewer: ECadViewerElement | null,
         ) => {
+            ref.current = viewer;
             setter(viewer);
             dispatch(
                 viewer
@@ -236,19 +484,27 @@ export function ComparisonPresentationShell({
         },
         [],
     );
+
     const attachComposite = useCallback(
         (viewer: ECadViewerElement | null) =>
             attachHost(
                 "composite",
                 compositeHostKey,
                 setCompositeViewer,
+                compositeViewerRef,
                 viewer,
             ),
         [attachHost, compositeHostKey],
     );
     const attachBase = useCallback(
         (viewer: ECadViewerElement | null) =>
-            attachHost("base", baseHostKey, setBaseViewer, viewer),
+            attachHost(
+                "base",
+                baseHostKey,
+                setBaseViewer,
+                baseViewerRef,
+                viewer,
+            ),
         [attachHost, baseHostKey],
     );
     const attachCompare = useCallback(
@@ -257,10 +513,62 @@ export function ComparisonPresentationShell({
                 "compare",
                 compareHostKey,
                 setCompareViewer,
+                compareViewerRef,
                 viewer,
             ),
         [attachHost, compareHostKey],
     );
+    const attachToggle = useCallback(
+        (viewer: ECadViewerElement | null) =>
+            attachHost(
+                "toggle",
+                toggleHostKey,
+                setToggleViewer,
+                toggleViewerRef,
+                viewer,
+            ),
+        [attachHost, toggleHostKey],
+    );
+
+    useEffect(() => {
+        const viewers: Array<[
+            ComparisonHostSlot,
+            ECadViewerElement | null,
+        ]> = [
+            ["composite", compositeViewer],
+            ["base", baseViewer],
+            ["compare", compareViewer],
+            ["toggle", toggleViewer],
+        ];
+        const cleanups: Array<() => void> = [];
+        for (const [slot, viewer] of viewers) {
+            if (!viewer) continue;
+            const listener = ((event: CustomEvent<EcadTransitionTraceDetail>) => {
+                logComparisonDebug("viewer.transition", {
+                    slot,
+                    presentationMode,
+                    oldNewSide: slot === "toggle" ? oldNewSide : null,
+                    viewer: event.detail,
+                });
+            }) as EventListener;
+            viewer.addEventListener("ecad-viewer:transition-trace", listener);
+            cleanups.push(() =>
+                viewer.removeEventListener(
+                    "ecad-viewer:transition-trace",
+                    listener,
+                ),
+            );
+        }
+        return () => cleanups.forEach((cleanup) => cleanup());
+    }, [
+        baseViewer,
+        compareViewer,
+        compositeViewer,
+        oldNewSide,
+        presentationMode,
+        toggleViewer,
+    ]);
+
     const markCompositeLayout = useCallback(
         (key: string) =>
             dispatch({ type: "layout-ready", slot: "composite", key }),
@@ -276,34 +584,45 @@ export function ComparisonPresentationShell({
             dispatch({ type: "layout-ready", slot: "compare", key }),
         [],
     );
+    const markToggleLayout = useCallback(
+        (key: string) =>
+            dispatch({ type: "layout-ready", slot: "toggle", key }),
+        [],
+    );
 
     useEffect(() => {
         const previous = previousPresentationRef.current;
         previousPresentationRef.current = presentationMode;
-        if (previous !== presentationMode) {
-            selectionGenerationRef.current += 1;
-            cameraSyncSuppressedRef.current = false;
-            setSelectionPending(false);
-            setSelectionDiagnostic(null);
-            setDismissedBanner(null);
-            setDiagnosticsDismissed(false);
+        if (previous === presentationMode) return;
+
+        logComparisonDebug("presentation.transition", {
+            from: previous,
+            to: presentationMode,
+            domain,
+            documentPath,
+            selectionKey,
+            lifecycle,
+        });
+
+        selectionGenerationRef.current += 1;
+        cameraSyncSuppressedRef.current = false;
+        setSelectionPending(false);
+        setSelectionDiagnostic(null);
+        setDismissedBanner(null);
+        setDiagnosticsDismissed(false);
+        setPreparation(null);
+        setSidePageReadyPath(null);
+        setTogglePageReadyPath(null);
+
+        if (previous === "composite") {
+            compositeViewerRef.current?.abortDocumentComparisonLoad?.();
         }
-        if (
-            previous === "composite"
-            && presentationMode === "side-by-side"
-            && lifecycle.composite.phase === "ready"
-        ) {
-            compositeViewer?.abortDocumentComparisonLoad?.();
-        }
-    }, [
-        compositeViewer,
-        lifecycle.composite.phase,
-        presentationMode,
-    ]);
+    }, [documentPath, domain, lifecycle, presentationMode, selectionKey]);
 
     useEffect(() => {
         if (
-            !compositeViewer
+            presentationMode !== "composite"
+            || !compositeViewer
             || !lifecycle.composite.layoutReady
             || !activeDocument
             || !sourcesReady
@@ -320,6 +639,24 @@ export function ComparisonPresentationShell({
             key: compositeHostKey,
             phase: "loading",
         });
+        logComparisonDebug("host.composite.load.start", {
+            generation,
+            documentPath: activeDocument.path,
+            baseRevisionKey,
+            compareRevisionKey,
+        });
+
+        if (typeof compositeViewer.loadDocumentComparison !== "function") {
+            dispatch({
+                type: "transition",
+                slot: "composite",
+                key: compositeHostKey,
+                phase: "error",
+                error:
+                    "This ecad-viewer build does not expose loadDocumentComparison. Rebuild and sync frontend/public/ecad-viewer.js from the feature branch.",
+            });
+            return;
+        }
 
         void compositeViewer
             .loadDocumentComparison({
@@ -334,6 +671,7 @@ export function ComparisonPresentationShell({
                 },
                 diff: documentDiff.project,
                 documentPath: activeDocument.path,
+                activeSheetPath: activeDocument.path,
             })
             .then((next) => {
                 if (
@@ -343,6 +681,14 @@ export function ComparisonPresentationShell({
                     return;
                 }
                 setPreparation(next);
+                logComparisonDebug("host.composite.load.ready", {
+                    generation,
+                    documentPath: next.document.path,
+                    missingReference: next.missingReference ?? false,
+                    missingComparison: next.missingComparison ?? false,
+                    targetCount: next.targets.size,
+                    viewerState: viewerState(compositeViewer),
+                });
                 dispatch({
                     type: "transition",
                     slot: "composite",
@@ -368,6 +714,15 @@ export function ComparisonPresentationShell({
                             ? caught.message
                             : "Failed to prepare native comparison",
                 });
+                logComparisonDebugError(
+                    "host.composite.load.failed",
+                    caught,
+                    {
+                        generation,
+                        documentPath: activeDocument.path,
+                        viewerState: viewerState(compositeViewer),
+                    },
+                );
             });
 
         return () => {
@@ -385,12 +740,14 @@ export function ComparisonPresentationShell({
         compositeViewer,
         documentDiff.project,
         lifecycle.composite.layoutReady,
+        presentationMode,
         sourcesReady,
     ]);
 
     useEffect(() => {
         if (
-            !baseViewer
+            presentationMode !== "side-by-side"
+            || !baseViewer
             || !lifecycle.base.layoutReady
             || !sourcesReady
         ) {
@@ -398,12 +755,29 @@ export function ComparisonPresentationShell({
         }
         const generation = ++baseGenerationRef.current;
         let cancelled = false;
+        setBaseResolvedDocuments(null);
         dispatch({
             type: "transition",
             slot: "base",
             key: baseHostKey,
             phase: "loading",
         });
+        logComparisonDebug("host.revision.load.start", {
+            slot: "base",
+            generation,
+            revisionKey: baseRevisionKey,
+            sourceCount: baseSources.sources.length,
+        });
+        if (baseMissingRoot) {
+            dispatch({
+                type: "transition",
+                slot: "base",
+                key: baseHostKey,
+                phase: "error",
+                error: `${baseSources.rootName} is missing from the base revision.`,
+            });
+            return;
+        }
         void baseViewer
             .replaceSources({
                 revisionKey: baseRevisionKey,
@@ -415,11 +789,18 @@ export function ComparisonPresentationShell({
                     return;
                 }
                 baseViewer.dataset.ecadReadyRevision = baseRevisionKey;
+                setBaseResolvedDocuments(resolvedViewerDocuments(baseViewer));
                 dispatch({
                     type: "transition",
                     slot: "base",
                     key: baseHostKey,
                     phase: "ready",
+                });
+                logComparisonDebug("host.revision.load.ready", {
+                    slot: "base",
+                    generation,
+                    revisionKey: baseRevisionKey,
+                    viewerState: viewerState(baseViewer),
                 });
             })
             .catch((caught) => {
@@ -436,22 +817,32 @@ export function ComparisonPresentationShell({
                             ? caught.message
                             : "Failed to load base revision",
                 });
+                logComparisonDebugError("host.revision.load.failed", caught, {
+                    slot: "base",
+                    generation,
+                    revisionKey: baseRevisionKey,
+                    viewerState: viewerState(baseViewer),
+                });
             });
         return () => {
             cancelled = true;
         };
     }, [
         baseHostKey,
+        baseMissingRoot,
         baseRevisionKey,
+        baseSources.rootName,
         baseSources.sources,
         baseViewer,
         lifecycle.base.layoutReady,
+        presentationMode,
         sourcesReady,
     ]);
 
     useEffect(() => {
         if (
-            !compareViewer
+            presentationMode !== "side-by-side"
+            || !compareViewer
             || !lifecycle.compare.layoutReady
             || !sourcesReady
         ) {
@@ -459,12 +850,29 @@ export function ComparisonPresentationShell({
         }
         const generation = ++compareGenerationRef.current;
         let cancelled = false;
+        setCompareResolvedDocuments(null);
         dispatch({
             type: "transition",
             slot: "compare",
             key: compareHostKey,
             phase: "loading",
         });
+        logComparisonDebug("host.revision.load.start", {
+            slot: "compare",
+            generation,
+            revisionKey: compareRevisionKey,
+            sourceCount: compareSources.sources.length,
+        });
+        if (compareMissingRoot) {
+            dispatch({
+                type: "transition",
+                slot: "compare",
+                key: compareHostKey,
+                phase: "error",
+                error: `${compareSources.rootName} is missing from the compare revision.`,
+            });
+            return;
+        }
         void compareViewer
             .replaceSources({
                 revisionKey: compareRevisionKey,
@@ -479,11 +887,18 @@ export function ComparisonPresentationShell({
                     return;
                 }
                 compareViewer.dataset.ecadReadyRevision = compareRevisionKey;
+                setCompareResolvedDocuments(resolvedViewerDocuments(compareViewer));
                 dispatch({
                     type: "transition",
                     slot: "compare",
                     key: compareHostKey,
                     phase: "ready",
+                });
+                logComparisonDebug("host.revision.load.ready", {
+                    slot: "compare",
+                    generation,
+                    revisionKey: compareRevisionKey,
+                    viewerState: viewerState(compareViewer),
                 });
             })
             .catch((caught) => {
@@ -503,28 +918,170 @@ export function ComparisonPresentationShell({
                             ? caught.message
                             : "Failed to load compare revision",
                 });
+                logComparisonDebugError("host.revision.load.failed", caught, {
+                    slot: "compare",
+                    generation,
+                    revisionKey: compareRevisionKey,
+                    viewerState: viewerState(compareViewer),
+                });
             });
         return () => {
             cancelled = true;
         };
     }, [
         compareHostKey,
+        compareMissingRoot,
         compareRevisionKey,
+        compareSources.rootName,
         compareSources.sources,
         compareViewer,
         lifecycle.compare.layoutReady,
+        presentationMode,
         sourcesReady,
+    ]);
+
+    useEffect(() => {
+        if (
+            presentationMode !== "old-new"
+            || !toggleViewer
+            || !lifecycle.toggle.layoutReady
+            || !sourcesReady
+        ) {
+            return;
+        }
+        const generation = ++toggleGenerationRef.current;
+        let cancelled = false;
+        const revisionKey =
+            oldNewSide === "base" ? baseRevisionKey : compareRevisionKey;
+        const sources =
+            oldNewSide === "base"
+                ? baseSources.sources
+                : compareSources.sources;
+        const missing =
+            oldNewSide === "base" ? baseMissingRoot : compareMissingRoot;
+        const rootName =
+            oldNewSide === "base"
+                ? baseSources.rootName
+                : compareSources.rootName;
+        delete toggleViewer.dataset.ecadReadyRevision;
+        dispatch({
+            type: "transition",
+            slot: "toggle",
+            key: toggleHostKey,
+            phase: "loading",
+        });
+        logComparisonDebug("host.toggle.load.start", {
+            generation,
+            side: oldNewSide,
+            revisionKey,
+            sourceCount: sources.length,
+        });
+        if (missing) {
+            dispatch({
+                type: "transition",
+                slot: "toggle",
+                key: toggleHostKey,
+                phase: "error",
+                error: `${rootName} is missing from the ${oldNewSide} revision.`,
+            });
+            return;
+        }
+        void toggleViewer
+            .replaceSources({ revisionKey, sources })
+            .then(() => toggleViewer.ready)
+            .then(() => {
+                if (
+                    cancelled
+                    || generation !== toggleGenerationRef.current
+                ) {
+                    return;
+                }
+                toggleViewer.dataset.ecadReadyRevision = revisionKey;
+                const resolvedDocuments = resolvedViewerDocuments(toggleViewer);
+                if (oldNewSide === "base") {
+                    setBaseResolvedDocuments(resolvedDocuments);
+                } else {
+                    setCompareResolvedDocuments(resolvedDocuments);
+                }
+                dispatch({
+                    type: "transition",
+                    slot: "toggle",
+                    key: toggleHostKey,
+                    phase: "ready",
+                });
+                logComparisonDebug("host.toggle.load.ready", {
+                    generation,
+                    side: oldNewSide,
+                    revisionKey,
+                    viewerState: viewerState(toggleViewer),
+                });
+            })
+            .catch((caught) => {
+                if (
+                    cancelled
+                    || generation !== toggleGenerationRef.current
+                ) {
+                    return;
+                }
+                dispatch({
+                    type: "transition",
+                    slot: "toggle",
+                    key: toggleHostKey,
+                    phase: "error",
+                    error:
+                        caught instanceof Error
+                            ? caught.message
+                            : "Failed to load revision",
+                });
+                logComparisonDebugError("host.toggle.load.failed", caught, {
+                    generation,
+                    side: oldNewSide,
+                    revisionKey,
+                    viewerState: viewerState(toggleViewer),
+                });
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        baseMissingRoot,
+        baseRevisionKey,
+        baseSources.rootName,
+        baseSources.sources,
+        compareMissingRoot,
+        compareRevisionKey,
+        compareSources.rootName,
+        compareSources.sources,
+        lifecycle.toggle.layoutReady,
+        oldNewSide,
+        presentationMode,
+        sourcesReady,
+        toggleHostKey,
+        toggleViewer,
     ]);
 
     const sideReady =
         lifecycle.base.phase === "ready"
         && lifecycle.compare.phase === "ready";
+    const sideSettled =
+        (lifecycle.base.phase === "ready" || lifecycle.base.phase === "error")
+        && (lifecycle.compare.phase === "ready"
+            || lifecycle.compare.phase === "error");
+    const toggleReady = lifecycle.toggle.phase === "ready";
+    const activeToggleRevisionKey = oldNewSide === "base"
+        ? baseRevisionKey
+        : compareRevisionKey;
+    const toggleRevisionReady = toggleReady
+        && toggleViewer?.dataset.ecadReadyRevision === activeToggleRevisionKey;
+    const toggleSettled =
+        lifecycle.toggle.phase === "ready" || lifecycle.toggle.phase === "error";
 
     useEffect(() => {
         const generation = ++pageGenerationRef.current;
         setSidePageReadyPath(domain === "pcb" ? documentPath : null);
         if (
-            domain !== "schematic"
+            presentationMode !== "side-by-side"
+            || domain !== "schematic"
             || !documentPath
             || !sideReady
             || !baseViewer
@@ -533,30 +1090,65 @@ export function ComparisonPresentationShell({
             return;
         }
         let cancelled = false;
-        void Promise.all([
-            baseViewer.showPage?.(documentPath),
-            compareViewer.showPage?.(documentPath),
+        logComparisonDebug("page.side-by-side.start", {
+            generation,
+            documentPath,
+            base: viewerState(baseViewer),
+            compare: viewerState(compareViewer),
+        });
+        if (!baseHasDocument) {
+            logComparisonDebug("page.side-by-side.absent", {
+                side: "base",
+                documentPath,
+            });
+        }
+        if (!compareHasDocument) {
+            logComparisonDebug("page.side-by-side.absent", {
+                side: "compare",
+                documentPath,
+            });
+        }
+        void Promise.allSettled([
+            baseHasDocument
+                ? baseViewer.showPage?.(documentPath)
+                : Promise.resolve(),
+            compareHasDocument
+                ? compareViewer.showPage?.(documentPath)
+                : Promise.resolve(),
         ])
-            .then(() => {
+            .then((results) => {
                 if (
                     !cancelled
                     && generation === pageGenerationRef.current
                 ) {
-                    setSidePageReadyPath(documentPath);
-                }
-            })
-            .catch((caught) => {
-                if (
-                    !cancelled
-                    && generation === pageGenerationRef.current
-                ) {
-                    // One-sided sheets (added/renamed) should not hard-fail
-                    // the whole side-by-side surface; surface a dismissible note.
-                    setSelectionDiagnostic(
-                        caught instanceof Error
-                            ? caught.message
-                            : "This sheet is missing from one revision.",
+                    const failures = results.flatMap((result, index) =>
+                        result.status === "rejected"
+                            ? [{
+                                  side: index === 0 ? "base" : "compare",
+                                  error:
+                                      result.reason instanceof Error
+                                          ? {
+                                                name: result.reason.name,
+                                                message: result.reason.message,
+                                            }
+                                          : String(result.reason),
+                              }]
+                            : [],
                     );
+                    logComparisonDebug("page.side-by-side.complete", {
+                        generation,
+                        documentPath,
+                        failures,
+                        base: viewerState(baseViewer),
+                        compare: viewerState(compareViewer),
+                    });
+                    if (failures.length) {
+                        setSelectionDiagnostic(
+                            failures.length === 2
+                                ? "This sheet could not be resolved in either revision."
+                                : `This sheet could not be resolved in the ${failures[0]!.side} revision.`,
+                        );
+                    }
                     setSidePageReadyPath(documentPath);
                 }
             });
@@ -564,10 +1156,93 @@ export function ComparisonPresentationShell({
             cancelled = true;
         };
     }, [
+        baseViewer,
+        baseHasDocument,
         compareViewer,
+        compareHasDocument,
         documentPath,
         domain,
+        oldNewSide,
+        presentationMode,
         sideReady,
+    ]);
+
+    useEffect(() => {
+        const generation = ++togglePageGenerationRef.current;
+        setTogglePageReadyPath(domain === "pcb" ? documentPath : null);
+        if (
+            presentationMode !== "old-new"
+            || domain !== "schematic"
+            || !documentPath
+            || !toggleRevisionReady
+            || !toggleViewer
+        ) {
+            return;
+        }
+        let cancelled = false;
+        const activeSideHasDocument =
+            oldNewSide === "base" ? baseHasDocument : compareHasDocument;
+        logComparisonDebug("page.toggle.start", {
+            generation,
+            side: oldNewSide,
+            documentPath,
+            viewerState: viewerState(toggleViewer),
+        });
+        if (!activeSideHasDocument) {
+            logComparisonDebug("page.toggle.absent", {
+                generation,
+                side: oldNewSide,
+                documentPath,
+            });
+            setTogglePageReadyPath(documentPath);
+            return;
+        }
+        void toggleViewer.showPage?.(documentPath)
+            .then(() => {
+                if (
+                    !cancelled
+                    && generation === togglePageGenerationRef.current
+                ) {
+                    logComparisonDebug("page.toggle.complete", {
+                        generation,
+                        side: oldNewSide,
+                        documentPath,
+                        viewerState: viewerState(toggleViewer),
+                    });
+                    setTogglePageReadyPath(documentPath);
+                }
+            })
+            .catch((caught) => {
+                if (
+                    !cancelled
+                    && generation === togglePageGenerationRef.current
+                ) {
+                    logComparisonDebugError("page.toggle.failed", caught, {
+                        generation,
+                        side: oldNewSide,
+                        documentPath,
+                        viewerState: viewerState(toggleViewer),
+                    });
+                    setSelectionDiagnostic(
+                        caught instanceof Error
+                            ? caught.message
+                            : "This sheet is missing from the selected revision.",
+                    );
+                    setTogglePageReadyPath(documentPath);
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        documentPath,
+        domain,
+        baseHasDocument,
+        compareHasDocument,
+        oldNewSide,
+        presentationMode,
+        toggleRevisionReady,
+        toggleViewer,
     ]);
 
     useEffect(() => {
@@ -591,20 +1266,57 @@ export function ComparisonPresentationShell({
             allChanges,
         );
         if (!nativeSelection) {
+            logComparisonDebug("selection.composite.unresolved", {
+                selection,
+                selectionKey,
+                documentPath,
+                selectedChanges: allChanges.map((change) => ({
+                    id: change.id,
+                    category: change.category,
+                    reasons: change.reasons,
+                    visualTargets: change.details?.visualTargets,
+                })),
+            });
             setSelectionPending(false);
-            setSelectionDiagnostic(
+            setSelectionDiagnostic(null);
+            setSelectionNotice(
                 selection
-                    ? "This semantic change has no native source object yet."
+                    ? "This is a derived connectivity change with no standalone KiCad object to highlight."
                     : null,
             );
             return;
         }
         setSelectionPending(true);
         setSelectionDiagnostic(null);
+        setSelectionNotice(null);
+        logComparisonDebug("selection.composite.start", {
+            generation,
+            selection,
+            nativeSelection,
+            selectionKey,
+            documentPath,
+            viewerState: viewerState(compositeViewer),
+        });
         void compositeViewer
             .selectDocumentDiff(nativeSelection)
             .then((frame) => {
                 if (generation !== selectionGenerationRef.current) return;
+                logComparisonDebug("selection.composite.complete", {
+                    generation,
+                    selection,
+                    nativeSelection,
+                    frame: {
+                        status: frame.status,
+                        requestId: frame.requestId,
+                        clickToFrameMs: frame.clickToFrameMs,
+                        paintCount: frame.paintCount,
+                        parserCount: frame.parserCount,
+                        targetId: frame.target?.id,
+                        sourceIds: frame.target?.sourceIds,
+                        bounds: frame.target?.bounds,
+                    },
+                    viewerState: viewerState(compositeViewer),
+                });
                 if (frame.status === "missing") {
                     setSelectionDiagnostic(
                         "The selected native item could not be resolved.",
@@ -613,6 +1325,17 @@ export function ComparisonPresentationShell({
             })
             .catch((caught) => {
                 if (generation === selectionGenerationRef.current) {
+                    logComparisonDebugError(
+                        "selection.composite.failed",
+                        caught,
+                        {
+                            generation,
+                            selection,
+                            nativeSelection,
+                            documentPath,
+                            viewerState: viewerState(compositeViewer),
+                        },
+                    );
                     setSelectionDiagnostic(
                         caught instanceof Error
                             ? caught.message
@@ -637,8 +1360,165 @@ export function ComparisonPresentationShell({
         selectionKey,
     ]);
 
+    useEffect(() => {
+        if (
+            presentationMode !== "composite"
+            || !compositeViewer
+            || !preparation
+            || preparation.document.path !== documentPath
+        ) {
+            return;
+        }
+        if (!previewSelection) {
+            compositeViewer.previewDocumentDiff?.(null);
+            return;
+        }
+        const nativePreview = resolveNativeSelection(
+            preparation,
+            documentDiff,
+            previewSelection,
+            previewChanges,
+        );
+        compositeViewer.previewDocumentDiff?.(nativePreview);
+        return () => compositeViewer.previewDocumentDiff?.(null);
+    }, [
+        compositeViewer,
+        documentDiff,
+        documentPath,
+        preparation,
+        presentationMode,
+        previewChanges,
+        previewSelection,
+    ]);
+
     const sidePageReady =
         domain === "pcb" || sidePageReadyPath === documentPath;
+    const togglePageReady =
+        domain === "pcb" || togglePageReadyPath === documentPath;
+
+    useEffect(() => {
+        if (presentationMode !== "side-by-side" || !sideReady || !sidePageReady) {
+            return;
+        }
+        const id = revisionSelectionId(previewSelection, reviewGroups);
+        baseViewer?.previewRevisionDiff?.(id);
+        compareViewer?.previewRevisionDiff?.(id);
+        return () => {
+            baseViewer?.previewRevisionDiff?.(null);
+            compareViewer?.previewRevisionDiff?.(null);
+        };
+    }, [
+        baseViewer,
+        compareViewer,
+        presentationMode,
+        previewSelection,
+        reviewGroups,
+        sidePageReady,
+        sideReady,
+    ]);
+
+    useEffect(() => {
+        if (
+            presentationMode !== "old-new"
+            || !toggleRevisionReady
+            || !togglePageReady
+        ) {
+            return;
+        }
+        const id = revisionSelectionId(previewSelection, reviewGroups);
+        toggleViewer?.previewRevisionDiff?.(id);
+        return () => toggleViewer?.previewRevisionDiff?.(null);
+    }, [
+        presentationMode,
+        previewSelection,
+        reviewGroups,
+        togglePageReady,
+        toggleRevisionReady,
+        toggleViewer,
+    ]);
+
+    useEffect(() => {
+        if (
+            presentationMode !== "side-by-side"
+            || !sideReady
+            || !sidePageReady
+            || !documentPath
+        ) {
+            return;
+        }
+        const context = domain === "pcb" ? "PCB" : "SCH";
+        baseViewer?.setRevisionDiffPresentation?.(
+            baseHasDocument
+                ? buildRevisionDiffPresentation(
+                      reviewGroups,
+                      documentDiff,
+                      documentPath,
+                      "reference",
+                      context,
+                  )
+                : null,
+        );
+        compareViewer?.setRevisionDiffPresentation?.(
+            compareHasDocument
+                ? buildRevisionDiffPresentation(
+                      reviewGroups,
+                      documentDiff,
+                      documentPath,
+                      "comparison",
+                      context,
+                  )
+                : null,
+        );
+    }, [
+        baseViewer,
+        baseHasDocument,
+        compareViewer,
+        compareHasDocument,
+        documentDiff,
+        documentPath,
+        domain,
+        presentationMode,
+        reviewGroups,
+        sidePageReady,
+        sideReady,
+    ]);
+
+    useEffect(() => {
+        if (
+            presentationMode !== "old-new"
+            || !toggleRevisionReady
+            || !togglePageReady
+            || !toggleViewer
+            || !documentPath
+        ) {
+            return;
+        }
+        const activeSideHasDocument =
+            oldNewSide === "base" ? baseHasDocument : compareHasDocument;
+        toggleViewer.setRevisionDiffPresentation?.(
+            activeSideHasDocument
+                ? buildRevisionDiffPresentation(
+                      reviewGroups,
+                      documentDiff,
+                      documentPath,
+                      oldNewSide === "base" ? "reference" : "comparison",
+                      domain === "pcb" ? "PCB" : "SCH",
+                  )
+                : null,
+        );
+    }, [
+        baseHasDocument,
+        compareHasDocument,
+        documentDiff,
+        documentPath,
+        domain,
+        oldNewSide,
+        presentationMode,
+        reviewGroups,
+        togglePageReady,
+        toggleRevisionReady,
+        toggleViewer,
+    ]);
 
     useEffect(() => {
         if (
@@ -654,11 +1534,20 @@ export function ComparisonPresentationShell({
         if (lastSideSelectionKeyRef.current === applicationKey) return;
         lastSideSelectionKeyRef.current = applicationKey;
         const focus = resolveComparisonFocus(allChanges);
-        if (!focus) {
+        const targetId = revisionSelectionId(selection, reviewGroups);
+        if (!focus && !targetId) {
+            logComparisonDebug("selection.side-by-side.unresolved", {
+                selection,
+                selectionKey,
+                documentPath,
+                focus,
+                targetId,
+            });
             setSelectionPending(false);
-            setSelectionDiagnostic(
+            setSelectionDiagnostic(null);
+            setSelectionNotice(
                 selection
-                    ? "This semantic change has no geometry to focus yet."
+                    ? "This is a derived connectivity change with no standalone KiCad object to highlight."
                     : null,
             );
             return;
@@ -666,20 +1555,66 @@ export function ComparisonPresentationShell({
         cameraSyncSuppressedRef.current = true;
         setSelectionPending(true);
         setSelectionDiagnostic(null);
+        setSelectionNotice(null);
+        logComparisonDebug("selection.side-by-side.start", {
+            generation,
+            selection,
+            selectionKey,
+            documentPath,
+            targetId,
+            focus,
+            base: viewerState(baseViewer),
+            compare: viewerState(compareViewer),
+        });
         void Promise.all([
-            focusRevisionViewer(
+            selectRevisionViewer(
                 baseViewer,
-                focus.baseBounds,
-                focus.baseUuid,
+                targetId,
+                focus?.baseBounds,
+                focus?.baseUuid,
             ),
-            focusRevisionViewer(
+            selectRevisionViewer(
                 compareViewer,
-                focus.compareBounds,
-                focus.compareUuid,
+                targetId,
+                focus?.compareBounds,
+                focus?.compareUuid,
             ),
         ])
+            .then((applied) => {
+                if (generation === selectionGenerationRef.current) {
+                    logComparisonDebug("selection.side-by-side.complete", {
+                        generation,
+                        selection,
+                        targetId,
+                        applied: { base: applied[0], compare: applied[1] },
+                        base: viewerState(baseViewer),
+                        compare: viewerState(compareViewer),
+                    });
+                }
+                if (
+                    generation === selectionGenerationRef.current
+                    && selection
+                    && !applied.some(Boolean)
+                ) {
+                    setSelectionNotice(
+                        "This is a derived connectivity change with no standalone KiCad object to highlight.",
+                    );
+                }
+            })
             .catch((caught) => {
                 if (generation === selectionGenerationRef.current) {
+                    logComparisonDebugError(
+                        "selection.side-by-side.failed",
+                        caught,
+                        {
+                            generation,
+                            selection,
+                            targetId,
+                            focus,
+                            base: viewerState(baseViewer),
+                            compare: viewerState(compareViewer),
+                        },
+                    );
                     setSelectionDiagnostic(
                         caught instanceof Error
                             ? caught.message
@@ -701,10 +1636,127 @@ export function ComparisonPresentationShell({
         compareViewer,
         documentPath,
         presentationMode,
+        reviewGroups,
         selection,
         selectionKey,
         sidePageReady,
         sideReady,
+    ]);
+
+    useEffect(() => {
+        if (
+            presentationMode !== "old-new"
+            || !toggleRevisionReady
+            || !togglePageReady
+            || !toggleViewer
+        ) {
+            return;
+        }
+        const generation = ++selectionGenerationRef.current;
+        const applicationKey =
+            `${oldNewSide}:${baseRevisionKey}:${compareRevisionKey}:${documentPath}:${selectionKey}`;
+        if (lastToggleSelectionKeyRef.current === applicationKey) return;
+        lastToggleSelectionKeyRef.current = applicationKey;
+        const focus = resolveComparisonFocus(allChanges);
+        const targetId = revisionSelectionId(selection, reviewGroups);
+        if (!focus && !targetId) {
+            logComparisonDebug("selection.toggle.unresolved", {
+                selection,
+                selectionKey,
+                documentPath,
+                side: oldNewSide,
+                focus,
+                targetId,
+            });
+            setSelectionPending(false);
+            setSelectionDiagnostic(null);
+            setSelectionNotice(
+                selection
+                    ? "This is a derived connectivity change with no standalone KiCad object to highlight."
+                    : null,
+            );
+            return;
+        }
+        setSelectionPending(true);
+        setSelectionDiagnostic(null);
+        setSelectionNotice(null);
+        const bounds =
+            oldNewSide === "base" ? focus?.baseBounds : focus?.compareBounds;
+        const uuid =
+            oldNewSide === "base" ? focus?.baseUuid : focus?.compareUuid;
+        logComparisonDebug("selection.toggle.start", {
+            generation,
+            selection,
+            selectionKey,
+            documentPath,
+            side: oldNewSide,
+            targetId,
+            bounds,
+            uuid,
+            viewerState: viewerState(toggleViewer),
+        });
+        void selectRevisionViewer(toggleViewer, targetId, bounds, uuid)
+            .then((applied) => {
+                if (generation === selectionGenerationRef.current) {
+                    logComparisonDebug("selection.toggle.complete", {
+                        generation,
+                        selection,
+                        side: oldNewSide,
+                        targetId,
+                        applied,
+                        viewerState: viewerState(toggleViewer),
+                    });
+                }
+                if (
+                    generation === selectionGenerationRef.current
+                    && selection
+                    && !applied
+                ) {
+                    setSelectionNotice(
+                        "This is a derived connectivity change with no standalone KiCad object to highlight.",
+                    );
+                }
+            })
+            .catch((caught) => {
+                if (generation === selectionGenerationRef.current) {
+                    logComparisonDebugError(
+                        "selection.toggle.failed",
+                        caught,
+                        {
+                            generation,
+                            selection,
+                            side: oldNewSide,
+                            targetId,
+                            bounds,
+                            uuid,
+                            viewerState: viewerState(toggleViewer),
+                        },
+                    );
+                    setSelectionDiagnostic(
+                        caught instanceof Error
+                            ? caught.message
+                            : "Focus failed",
+                    );
+                }
+            })
+            .finally(() => {
+                if (generation === selectionGenerationRef.current) {
+                    setSelectionPending(false);
+                }
+            });
+    }, [
+        allChanges,
+        baseRevisionKey,
+        compareRevisionKey,
+        documentPath,
+        oldNewSide,
+        presentationMode,
+        reviewGroups,
+        selection,
+        selectionKey,
+        togglePageReady,
+        toggleRevisionReady,
+        toggleViewer,
     ]);
 
     useComparisonCameraSync(
@@ -718,6 +1770,9 @@ export function ComparisonPresentationShell({
         if (presentationMode === "composite") {
             return compositeViewer ? [compositeViewer] : [];
         }
+        if (presentationMode === "old-new") {
+            return toggleViewer ? [toggleViewer] : [];
+        }
         return [baseViewer, compareViewer].filter(
             (viewer): viewer is ECadViewerElement => Boolean(viewer),
         );
@@ -726,6 +1781,7 @@ export function ComparisonPresentationShell({
         compareViewer,
         compositeViewer,
         presentationMode,
+        toggleViewer,
     ]);
 
     useEffect(() => {
@@ -737,7 +1793,9 @@ export function ComparisonPresentationShell({
         const activeReady =
             presentationMode === "composite"
                 ? lifecycle.composite.phase === "ready"
-                : sideReady;
+                : presentationMode === "old-new"
+                    ? toggleRevisionReady
+                    : sideReady;
         if (!activeReady || !viewers.length) return;
 
         if (initialVisibleLayers.length) {
@@ -775,6 +1833,7 @@ export function ComparisonPresentationShell({
         lifecycle.composite.phase,
         presentationMode,
         sideReady,
+        toggleRevisionReady,
     ]);
 
     const toggleLayer = (name: string, visible: boolean) => {
@@ -813,11 +1872,16 @@ export function ComparisonPresentationShell({
     const sourceError = baseSources.error ?? compareSources.error;
     const compositeError = lifecycle.composite.error;
     const sideError = lifecycle.base.error ?? lifecycle.compare.error;
+    const toggleError = lifecycle.toggle.error;
     const activeError =
         sourceError
-        ?? (presentationMode === "composite" ? compositeError : sideError)
+        ?? (presentationMode === "composite"
+            ? compositeError
+            : presentationMode === "old-new"
+                ? toggleError
+                : sideError)
         ?? selectionDiagnostic;
-    const bannerMessage = activeError ?? oneSidedSheetNotice;
+    const bannerMessage = activeError ?? selectionNotice ?? oneSidedSheetNotice;
     const showBanner =
         Boolean(bannerMessage) && bannerMessage !== dismissedBanner;
     const bannerIsError = Boolean(activeError);
@@ -826,16 +1890,42 @@ export function ComparisonPresentationShell({
         || compareSources.loading
         || (presentationMode === "composite"
             ? lifecycle.composite.phase !== "ready"
-            : !sideReady || !sidePageReady);
+                && lifecycle.composite.phase !== "error"
+            : presentationMode === "old-new"
+                ? !toggleSettled || (toggleRevisionReady && !togglePageReady)
+                : !sideSettled || (sideReady && !sidePageReady));
     const diagnostics =
         preparation?.diagnostics.length
         ?? documentDiff.diagnostics.length;
 
     if (!activeDocument) {
         return (
-            <section className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-background p-8 text-center text-sm text-muted-foreground">
-                No native {domain === "pcb" ? "PCB" : "schematic"} document
-                differences are available.
+            <section className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center bg-background p-8 text-center">
+                <AlertCircle className="mb-3 h-10 w-10 text-muted-foreground/60" />
+                <h3 className="text-sm font-medium">
+                    No {domain === "pcb" ? "PCB" : "schematic"} document for this comparison
+                </h3>
+                <p className="mt-2 max-w-md text-xs text-muted-foreground">
+                    Neither revision exposes a native{" "}
+                    {domain === "pcb" ? ".kicad_pcb" : ".kicad_sch"} file for
+                    the selected changes. Try another tab or pick a different
+                    revision pair.
+                </p>
+            </section>
+        );
+    }
+
+    if (baseMissingRoot && compareMissingRoot) {
+        return (
+            <section className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center bg-background p-8 text-center">
+                <AlertCircle className="mb-3 h-10 w-10 text-muted-foreground/60" />
+                <h3 className="text-sm font-medium">
+                    Document missing in both revisions
+                </h3>
+                <p className="mt-2 max-w-md text-xs text-muted-foreground">
+                    {baseSources.rootName} is not present in base or compare.
+                    Pick another revision pair or switch tabs.
+                </p>
             </section>
         );
     }
@@ -858,10 +1948,10 @@ export function ComparisonPresentationShell({
                             Modified
                         </span>
                         <span className="mr-auto text-muted-foreground">
-                            Unchanged compare content is monochrome
+                            Unchanged content is desaturated toward the page
                         </span>
                     </>
-                ) : (
+                ) : presentationMode === "side-by-side" ? (
                     <>
                         <span className="rounded border bg-muted px-2 py-0.5 font-mono">
                             Base {shortSha(base)}
@@ -874,48 +1964,125 @@ export function ComparisonPresentationShell({
                             Cameras stay linked while you pan and zoom
                         </span>
                     </>
+                ) : (
+                    <>
+                        <div
+                            className="flex items-center gap-0.5 rounded-md border bg-background p-0.5"
+                            role="group"
+                            aria-label="Revision side"
+                        >
+                            <Button
+                                variant={oldNewSide === "base" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                    logComparisonDebug("control.old-new.click", {
+                                        from: oldNewSide,
+                                        to: "base",
+                                        documentPath,
+                                        selectionKey,
+                                        viewerState: viewerState(toggleViewer),
+                                    });
+                                    setOldNewSide("base");
+                                }}
+                                aria-pressed={oldNewSide === "base"}
+                            >
+                                Old ({shortSha(base)})
+                            </Button>
+                            <Button
+                                variant={oldNewSide === "compare" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                    logComparisonDebug("control.old-new.click", {
+                                        from: oldNewSide,
+                                        to: "compare",
+                                        documentPath,
+                                        selectionKey,
+                                        viewerState: viewerState(toggleViewer),
+                                    });
+                                    setOldNewSide("compare");
+                                }}
+                                aria-pressed={oldNewSide === "compare"}
+                            >
+                                New ({shortSha(compare)})
+                            </Button>
+                        </div>
+                        <span className="mr-auto text-muted-foreground">
+                            Toggle revisions in a single viewer
+                        </span>
+                    </>
                 )}
                 {domain === "pcb" && (
                     <ComparisonPcbLayersToggle
                         open={showLayers}
-                        onClick={() => setShowLayers((value) => !value)}
+                        onClick={() => onRightRailTabChange(
+                            showLayers ? null : "layers",
+                        )}
                     />
                 )}
             </div>
 
-            <div className="flex min-h-0 flex-1">
-                <div className="relative min-h-0 min-w-0 flex-1">
-                    <PresentationLayer
-                        active={presentationMode === "composite"}
-                    >
-                        <ComparisonViewerHost
-                            key={compositeHostKey}
-                            viewerKey={compositeHostKey}
-                            active={presentationMode === "composite"}
-                            onViewer={attachComposite}
-                            onLayoutReady={markCompositeLayout}
-                        />
-                    </PresentationLayer>
+            <div className="relative min-h-0 min-w-0 flex-1">
+                    {mountedModesRef.current.has("composite") && (
+                        <div
+                            className={cn(
+                                "absolute inset-0",
+                                presentationMode !== "composite"
+                                && "invisible pointer-events-none",
+                            )}
+                            aria-hidden={presentationMode !== "composite"}
+                        >
+                            <ComparisonViewerHost
+                                key={compositeHostKey}
+                                viewerKey={compositeHostKey}
+                                active={presentationMode === "composite"}
+                                onViewer={attachComposite}
+                                onLayoutReady={markCompositeLayout}
+                                viewportInsets={{ right: rightRailInset }}
+                            />
+                        </div>
+                    )}
 
-                    <PresentationLayer
-                        active={presentationMode === "side-by-side"}
-                    >
-                        <div className="grid h-full min-h-0 grid-cols-2 divide-x">
+                    {mountedModesRef.current.has("side-by-side") && (
+                        <div
+                            className={cn(
+                                "absolute inset-0 grid min-h-0 grid-cols-2 divide-x",
+                                presentationMode !== "side-by-side"
+                                && "invisible pointer-events-none",
+                            )}
+                            aria-hidden={presentationMode !== "side-by-side"}
+                        >
                             <div className="relative flex min-h-0 min-w-0 flex-col">
                                 <div className="shrink-0 border-b bg-muted/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                                     Base
                                 </div>
                                 <div className="relative min-h-0 flex-1">
-                                    <ComparisonViewerHost
-                                        key={baseHostKey}
-                                        viewerKey={baseHostKey}
-                                        active={
-                                            presentationMode
-                                            === "side-by-side"
-                                        }
-                                        onViewer={attachBase}
-                                        onLayoutReady={markBaseLayout}
-                                    />
+                                    <div
+                                        className={cn(
+                                            "absolute inset-0",
+                                            !baseHasDocument
+                                            && "invisible pointer-events-none",
+                                        )}
+                                        aria-hidden={!baseHasDocument}
+                                    >
+                                        <ComparisonViewerHost
+                                            key={baseHostKey}
+                                            viewerKey={baseHostKey}
+                                            active={
+                                                presentationMode === "side-by-side"
+                                                && baseHasDocument
+                                            }
+                                            onViewer={attachBase}
+                                            onLayoutReady={markBaseLayout}
+                                        />
+                                    </div>
+                                    {!baseHasDocument && documentPath && (
+                                        <MissingRevisionPane
+                                            side="base"
+                                            documentPath={documentPath}
+                                        />
+                                    )}
                                 </div>
                             </div>
                             <div className="relative flex min-h-0 min-w-0 flex-col">
@@ -923,20 +2090,85 @@ export function ComparisonPresentationShell({
                                     Compare
                                 </div>
                                 <div className="relative min-h-0 flex-1">
-                                    <ComparisonViewerHost
-                                        key={compareHostKey}
-                                        viewerKey={compareHostKey}
-                                        active={
-                                            presentationMode
-                                            === "side-by-side"
-                                        }
-                                        onViewer={attachCompare}
-                                        onLayoutReady={markCompareLayout}
-                                    />
+                                    <div
+                                        className={cn(
+                                            "absolute inset-0",
+                                            !compareHasDocument
+                                            && "invisible pointer-events-none",
+                                        )}
+                                        aria-hidden={!compareHasDocument}
+                                    >
+                                        <ComparisonViewerHost
+                                            key={compareHostKey}
+                                            viewerKey={compareHostKey}
+                                            active={
+                                                presentationMode === "side-by-side"
+                                                && compareHasDocument
+                                            }
+                                            onViewer={attachCompare}
+                                            onLayoutReady={markCompareLayout}
+                                            viewportInsets={{ right: rightRailInset }}
+                                        />
+                                    </div>
+                                    {!compareHasDocument && documentPath && (
+                                        <MissingRevisionPane
+                                            side="compare"
+                                            documentPath={documentPath}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         </div>
-                    </PresentationLayer>
+                    )}
+
+                    {mountedModesRef.current.has("old-new") && (
+                        <div
+                            className={cn(
+                                "absolute inset-0",
+                                presentationMode !== "old-new"
+                                && "invisible pointer-events-none",
+                            )}
+                            aria-hidden={presentationMode !== "old-new"}
+                        >
+                            <div
+                                className={cn(
+                                    "absolute inset-0",
+                                    (oldNewSide === "base"
+                                        ? !baseHasDocument
+                                        : !compareHasDocument)
+                                    && "invisible pointer-events-none",
+                                )}
+                                aria-hidden={
+                                    oldNewSide === "base"
+                                        ? !baseHasDocument
+                                        : !compareHasDocument
+                                }
+                            >
+                                <ComparisonViewerHost
+                                    key={toggleHostKey}
+                                    viewerKey={toggleHostKey}
+                                    active={
+                                        presentationMode === "old-new"
+                                        && (oldNewSide === "base"
+                                            ? baseHasDocument
+                                            : compareHasDocument)
+                                    }
+                                    onViewer={attachToggle}
+                                    onLayoutReady={markToggleLayout}
+                                    viewportInsets={{ right: rightRailInset }}
+                                />
+                            </div>
+                            {documentPath
+                                && !(oldNewSide === "base"
+                                    ? baseHasDocument
+                                    : compareHasDocument) && (
+                                <MissingRevisionPane
+                                    side={oldNewSide}
+                                    documentPath={documentPath}
+                                />
+                            )}
+                        </div>
+                    )}
 
                     {(loading || selectionPending) && (
                         <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
@@ -945,7 +2177,9 @@ export function ComparisonPresentationShell({
                                 {loading
                                     ? presentationMode === "composite"
                                         ? "Preparing native comparison…"
-                                        : "Loading side-by-side revisions…"
+                                        : presentationMode === "old-new"
+                                            ? "Loading revision…"
+                                            : "Loading side-by-side revisions…"
                                     : "Focusing change…"}
                             </div>
                         </div>
@@ -1001,18 +2235,46 @@ export function ComparisonPresentationShell({
                             </button>
                         </div>
                     )}
-                </div>
 
-                {domain === "pcb" && (
-                    <ComparisonPcbLayersPanel
-                        open={showLayers}
-                        onOpenChange={setShowLayers}
-                        layers={pcbLayers}
-                        onToggleVisibility={toggleLayer}
-                        onApplyPreset={applyPreset}
-                        onHighlight={highlightLayer}
-                    />
-                )}
+                <ViewerOverlayRail
+                    activeTab={rightRailTab}
+                    tabs={[
+                        ...(domain === "pcb"
+                            ? [{
+                                id: "layers" as const,
+                                label: "Layers",
+                                icon: <Layers3 className="mr-1.5 size-3.5" />,
+                            }]
+                            : []),
+                        {
+                            id: "discussion" as const,
+                            label: "Discussion",
+                            icon: <MessageSquare className="mr-1.5 size-3.5" />,
+                            badge: discussionCount > 0
+                                ? <span className="rounded-full bg-muted px-1.5 text-[10px]">{discussionCount}</span>
+                                : null,
+                        },
+                    ]}
+                    onTabChange={onRightRailTabChange}
+                    onClose={() => onRightRailTabChange(null)}
+                    onVisibleWidthChange={setRightRailInset}
+                    ariaLabel="Comparison tools"
+                    className="w-80"
+                >
+                    {rightRailTab === "layers" && domain === "pcb" ? (
+                        <ComparisonPcbLayersPanel
+                            open
+                            onOpenChange={(open) => {
+                                if (!open) onRightRailTabChange(null);
+                            }}
+                            layers={pcbLayers}
+                            onToggleVisibility={toggleLayer}
+                            onApplyPreset={applyPreset}
+                            onHighlight={highlightLayer}
+                            embedded
+                        />
+                    ) : discussionContent}
+                </ViewerOverlayRail>
             </div>
         </section>
     );

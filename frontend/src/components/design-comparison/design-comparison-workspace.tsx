@@ -14,6 +14,7 @@ import {
     MessageSquare,
     Search,
     Square,
+    ToggleLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,11 @@ import { fetchApi, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CATEGORY_META, mergedKind, type Category, type DiffKind } from "@/lib/diff-grouping";
 import { ComparisonPresentationShell } from "./comparison-presentation-shell";
+import type { ComparisonSelection } from "./comparison-selection-bridge";
+import {
+    logComparisonDebug,
+    startComparisonDebugSession,
+} from "./comparison-debug-log";
 import {
     applyWorkspaceComparisonParams,
     readComparisonUrlState,
@@ -44,7 +50,10 @@ import type {
     DesignCompareJobStatus,
     DesignCompareResult,
     RouteMetrics,
+    SemanticChangeGroup,
 } from "./types";
+
+const DIFFERENCES_PAGE_SIZE = 25;
 
 type WorkspaceTab = ComparisonUrlTab;
 export type PresentationMode = ComparisonPresentationMode;
@@ -89,10 +98,29 @@ function normalizeCategory(category: string): Category {
     return category in CATEGORY_META ? (category as Category) : "other";
 }
 
-export function groupChanges(changes: ChangeItem[], comments: Comment[]): ChangeGroup[] {
+const NET_REASON_CODES = new Set([
+    "connectivity-changed",
+    "net-renamed",
+    "label-count-changed",
+]);
+
+function semanticCategory(change: ChangeItem): Category {
+    if (
+        change.net
+        || change.reasons?.some((reason) => NET_REASON_CODES.has(reason))
+    ) {
+        return "nets";
+    }
+    return normalizeCategory(change.category);
+}
+
+export function groupChanges(
+    changes: ChangeItem[],
+    comments: Comment[] = [],
+): ChangeGroup[] {
     const buckets = new Map<string, ChangeGroup>();
     for (const change of changes) {
-        const category = normalizeCategory(change.category);
+        const category = semanticCategory(change);
         const identity =
             change.semantic_id
             ?? change.reference
@@ -112,9 +140,11 @@ export function groupChanges(changes: ChangeItem[], comments: Comment[]): Change
                 kind: change.kind,
                 label: change.label,
                 classification: change.classification ?? "primary",
-                unresolvedCount: comments.filter((comment) => (
-                    comment.status === "OPEN" && comment.semanticItemId === key
-                )).length,
+                unresolvedCount: comments.filter(
+                    (comment) =>
+                        comment.status === "OPEN"
+                        && comment.semanticItemId === key,
+                ).length,
                 changes: [change],
             });
         }
@@ -132,6 +162,96 @@ export function groupChanges(changes: ChangeItem[], comments: Comment[]): Change
     });
 }
 
+function hydrateServerGroups(
+    changes: ChangeItem[],
+    serverGroups: SemanticChangeGroup[],
+    comments: Comment[],
+): ChangeGroup[] {
+    const visible = new Map(changes.map((change) => [change.id, change]));
+    const hydrated: ChangeGroup[] = [];
+    const consumed = new Set<string>();
+    for (const serverGroup of serverGroups) {
+        const members = serverGroup.members
+            .map((id) => visible.get(id))
+            .filter((change): change is ChangeItem => Boolean(change));
+        if (!members.length) continue;
+        members.forEach((change) => consumed.add(change.id));
+        const first = members[0]!;
+        const category = members.some((change) => semanticCategory(change) === "nets")
+            ? "nets"
+            : normalizeCategory(serverGroup.category);
+        const identity = first.semantic_id ?? first.reference ?? first.net ?? serverGroup.id;
+        const id = `${first.domain}:${category}:${identity}`;
+        hydrated.push({
+            id,
+            category,
+            kind: serverGroup.status,
+            label: serverGroup.label,
+            classification: serverGroup.classification,
+            unresolvedCount: comments.filter(
+                (comment) => comment.status === "OPEN" && comment.semanticItemId === id,
+            ).length,
+            changes: members,
+        });
+    }
+    hydrated.push(
+        ...groupChanges(
+            changes.filter((change) => !consumed.has(change.id)),
+            comments,
+        ),
+    );
+    return hydrated.sort((left, right) => {
+        const classOrder = left.classification === right.classification
+            ? 0
+            : left.classification === "primary" ? -1 : 1;
+        return classOrder
+            || CATEGORY_META[left.category].order - CATEGORY_META[right.category].order
+            || left.label.localeCompare(right.label);
+    });
+}
+
+function changeSummary(change: ChangeItem): string {
+    const details = change.details;
+    const reason = change.reasons?.[0];
+    if (
+        (reason === "object-added" || reason === "object-removed")
+        && details?.netInstances
+    ) {
+        return `Instances ${details.netInstances.old} → ${details.netInstances.new}`;
+    }
+    if (reason === "instance-replaced") return "Instance replaced (same RefDes)";
+    if (reason === "instance-count-changed" && details?.instanceCount) {
+        return `Instances ${details.instanceCount.old} → ${details.instanceCount.new}`;
+    }
+    if (reason === "label-count-changed" && details?.labelInstances) {
+        return `Labels ${details.labelInstances.old} → ${details.labelInstances.new}`;
+    }
+    if (reason === "sheet-changed" && details?.sheetChange) {
+        return `Sheet ${details.sheetChange.old ?? "—"} → ${details.sheetChange.new ?? "—"}`;
+    }
+    if (reason === "connectivity-changed" && details?.connectivity) {
+        const added = details.connectivity.addedTerminals.map((value) => `+${value}`);
+        const removed = details.connectivity.removedTerminals.map((value) => `−${value}`);
+        return [...added, ...removed].join(", ") || "Connectivity changed";
+    }
+    if (reason === "net-renamed") {
+        const value = change.fields?.name;
+        if (value && typeof value === "object") {
+            return `Net ${String(value.old ?? "—")} → ${String(value.new ?? "—")}`;
+        }
+    }
+    const firstField = Object.entries(change.fields ?? {})[0];
+    if (firstField) {
+        const [field, value] = firstField;
+        if (value && typeof value === "object") {
+            return `${field}: ${String(value.old ?? "—")} → ${String(value.new ?? "—")}`;
+        }
+    }
+    if (change.kind === "added") return "Added";
+    if (change.kind === "removed") return "Removed";
+    return "Modified";
+}
+
 export function readInitialUrlState(
     search: string | URLSearchParams = window.location.search,
 ) {
@@ -147,6 +267,10 @@ export function readInitialUrlState(
 
 function DifferencesPane({
     groups,
+    totalGroups,
+    page,
+    pageSize,
+    onPageChange,
     statuses,
     onToggleStatus,
     search,
@@ -155,13 +279,20 @@ function DifferencesPane({
     onShowSecondaryChange,
     selectedChangeId,
     selectedGroupId,
+    selectedDocumentPath,
+    documentDiff,
     onSelectChange,
     onSelectGroup,
+    onPreviewChange,
     onPrevious,
     onNext,
     routeMetrics,
 }: {
     groups: ChangeGroup[];
+    totalGroups: number;
+    page: number;
+    pageSize: number;
+    onPageChange: (page: number) => void;
     statuses: Set<ChangeKind>;
     onToggleStatus: (kind: ChangeKind) => void;
     search: string;
@@ -170,12 +301,17 @@ function DifferencesPane({
     onShowSecondaryChange: (value: boolean) => void;
     selectedChangeId: string | null;
     selectedGroupId: string | null;
-    onSelectChange: (change: ChangeItem) => void;
+    selectedDocumentPath?: string;
+    documentDiff: DesignCompareResult["document_diff"];
+    onSelectChange: (change: ChangeItem, documentPath?: string) => void;
     onSelectGroup: (group: ChangeGroup) => void;
+    onPreviewChange: (selection: ComparisonSelection) => void;
     onPrevious: () => void;
     onNext: () => void;
     routeMetrics?: { base?: RouteMetrics; compare?: RouteMetrics } | null;
 }) {
+    const paneRef = useRef<HTMLElement | null>(null);
+    const totalPages = Math.max(1, Math.ceil(totalGroups / pageSize));
     const selectedGroup = groups.find((group) =>
         group.changes.some((change) => change.id === selectedChangeId)
     );
@@ -191,6 +327,21 @@ function DifferencesPane({
             return next;
         });
     }, [selectedGroup]);
+    useEffect(() => {
+        if (!selectedChangeId && !selectedGroupId) return;
+        const frame = requestAnimationFrame(() => {
+            const rows = paneRef.current?.querySelectorAll<HTMLElement>(
+                "[data-change-id], [data-group-id]",
+            );
+            const row = [...(rows ?? [])].find(
+                (candidate) =>
+                    candidate.dataset.changeId === selectedChangeId
+                    || candidate.dataset.groupId === selectedGroupId,
+            );
+            row?.scrollIntoView({ block: "nearest" });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [selectedChangeId, selectedGroupId, groups]);
     const byCategory = useMemo(() => {
         const result = new Map<Category, ChangeGroup[]>();
         for (const group of groups) {
@@ -202,7 +353,7 @@ function DifferencesPane({
     }, [groups]);
 
     return (
-        <aside className="flex h-full w-80 shrink-0 flex-col border-r bg-background max-md:w-64">
+        <aside ref={paneRef} className="flex h-full w-80 shrink-0 flex-col border-r bg-background max-md:w-64">
             <div className="space-y-2 border-b p-2">
                 <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
@@ -241,7 +392,12 @@ function DifferencesPane({
 
             <div className="flex items-center justify-between border-b px-2 py-1.5">
                 <span className="text-[11px] text-muted-foreground">
-                    {groups.length} group{groups.length === 1 ? "" : "s"}
+                    {totalGroups} group{totalGroups === 1 ? "" : "s"}
+                    {totalPages > 1 && (
+                        <span className="ml-1">
+                            · page {page + 1}/{totalPages}
+                        </span>
+                    )}
                 </span>
                 <div className="flex gap-1">
                     <Button
@@ -275,21 +431,29 @@ function DifferencesPane({
                 ) : (
                     [...byCategory.entries()]
                         .sort(([left], [right]) => CATEGORY_META[left].order - CATEGORY_META[right].order)
-                        .map(([category, categoryGroups]) => (
-                            <section key={category} className="mb-3">
-                                <h3 className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                    {CATEGORY_META[category].label}
-                                </h3>
+                        .map(([category, categoryGroups]) => {
+                            const secondaryCategory = categoryGroups.every(
+                                (group) => group.classification === "secondary",
+                            );
+                            return (
+                            <details key={category} className="mb-3" open={!secondaryCategory}>
+                                <summary className="mb-1 cursor-pointer px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                                    {secondaryCategory
+                                        ? "Physical / Graphics"
+                                        : CATEGORY_META[category].label}
+                                </summary>
                                 <div className="space-y-0.5">
                                     {categoryGroups.map((group) => {
                                         const expanded = expandedGroupIds.has(group.id);
                                         const selected = selectedGroupId === group.id
                                             || selectedGroup?.id === group.id;
                                         const status = STATUS_META.find((item) => item.id === group.kind)!;
+                                        const primaryChange = group.changes[0]!;
                                         return (
                                             <div key={group.id}>
                                                 <button
                                                     type="button"
+                                                    data-group-id={group.id}
                                                     className={cn(
                                                         "flex w-full items-center gap-2 border-l-2 px-2 py-2 text-left text-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                                         selected
@@ -305,69 +469,193 @@ function DifferencesPane({
                                                         });
                                                         onSelectGroup(group);
                                                     }}
+                                                    onMouseEnter={() =>
+                                                        onPreviewChange({ kind: "group", id: group.id })
+                                                    }
+                                                    onMouseLeave={() => onPreviewChange(null)}
+                                                    onKeyDown={(event) => {
+                                                        if (event.key === "ArrowUp") {
+                                                            event.preventDefault();
+                                                            onPrevious();
+                                                        } else if (event.key === "ArrowDown") {
+                                                            event.preventDefault();
+                                                            onNext();
+                                                        }
+                                                    }}
                                                     aria-expanded={expanded}
                                                 >
                                                     {expanded
                                                         ? <ChevronDown className="h-3 w-3 shrink-0" />
                                                         : <ChevronRight className="h-3 w-3 shrink-0" />}
-                                                    <span className={cn("h-2 w-2 shrink-0 rounded-full", status.marker)} />
-                                                    <span className="sr-only">{status.label}</span>
-                                                    <span className="min-w-0 flex-1 truncate">{group.label}</span>
+                                                    <span
+                                                        className={cn(
+                                                            "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-primary-foreground",
+                                                            status.marker,
+                                                        )}
+                                                        aria-label={status.label}
+                                                    >
+                                                        {group.kind === "added" ? "A" : group.kind === "removed" ? "R" : "M"}
+                                                    </span>
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="flex items-center gap-1.5">
+                                                            <span className="truncate font-medium">{group.label}</span>
+                                                            {primaryChange.page && (
+                                                                <span className="max-w-20 truncate rounded bg-muted px-1 text-[9px] text-muted-foreground">
+                                                                    {primaryChange.page.split("/").at(-1)}
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                                                            {changeSummary(primaryChange)}
+                                                        </span>
+                                                    </span>
+                                                    {group.unresolvedCount > 0 && (
+                                                        <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground">
+                                                            <MessageSquare className="h-2.5 w-2.5" />
+                                                            {group.unresolvedCount}
+                                                        </span>
+                                                    )}
                                                     {group.classification === "secondary" && (
                                                         <span className="rounded bg-muted px-1 text-[9px] uppercase text-muted-foreground">
                                                             secondary
                                                         </span>
                                                     )}
-                                                    {!!group.unresolvedCount && (
-                                                        <span className="rounded-full bg-destructive/15 px-1.5 text-[9px] text-destructive">
-                                                            {group.unresolvedCount}
-                                                        </span>
-                                                    )}
                                                 </button>
                                                 {expanded && (
                                                     <div className="ml-5 border-l py-1 pl-2">
-                                                        {group.changes.map((change) => (
-                                                            <button
-                                                                key={change.id}
-                                                                type="button"
-                                                                onClick={() => onSelectChange(change)}
-                                                                className={cn(
-                                                                    "block w-full rounded px-2 py-1.5 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                                                    selectedChangeId === change.id && "bg-primary/10 text-primary",
-                                                                )}
-                                                                aria-current={
-                                                                    selectedChangeId === change.id
-                                                                        ? "true"
-                                                                        : undefined
-                                                                }
-                                                            >
-                                                                <span className="block truncate font-medium">
-                                                                    {change.label}
-                                                                </span>
-                                                                <span className="block truncate text-[10px] text-muted-foreground">
-                                                                    {change.geometry?.kind
-                                                                        ?? change.oldGeometry?.kind
-                                                                        ?? change.category}
-                                                                    {change.layers?.length
-                                                                        ? ` · ${change.layers.join(", ")}`
-                                                                        : ""}
-                                                                </span>
-                                                            </button>
-                                                        ))}
+                                                        {group.changes.map((change) => {
+                                                            const navigation =
+                                                                documentDiff.navigation[change.id];
+                                                            const pageTargets = [
+                                                                ...new Map(
+                                                                    (
+                                                                        navigation?.documents
+                                                                        ?? (navigation
+                                                                            ? [navigation]
+                                                                            : [])
+                                                                    ).map((entry) => [
+                                                                        entry.documentPath,
+                                                                        entry,
+                                                                    ]),
+                                                                ).values(),
+                                                            ];
+                                                            return (
+                                                                <div key={change.id}>
+                                                                    <button
+                                                                        type="button"
+                                                                        data-change-id={change.id}
+                                                                        onClick={() => onSelectChange(change)}
+                                                                        onMouseEnter={() =>
+                                                                            onPreviewChange({ kind: "item", id: change.id })
+                                                                        }
+                                                                        onMouseLeave={() => onPreviewChange(null)}
+                                                                        className={cn(
+                                                                            "block w-full rounded px-2 py-1.5 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                                                            selectedChangeId === change.id && "bg-primary/10 text-primary",
+                                                                        )}
+                                                                        aria-current={
+                                                                            selectedChangeId === change.id
+                                                                                ? "true"
+                                                                                : undefined
+                                                                        }
+                                                                    >
+                                                                        <span className="block truncate font-medium">
+                                                                            {change.label}
+                                                                        </span>
+                                                                        <span className="block truncate text-[10px] text-muted-foreground">
+                                                                            {changeSummary(change)}
+                                                                        </span>
+                                                                    </button>
+                                                                    {pageTargets.length > 1 && (
+                                                                        <div className="ml-2 border-l pl-2">
+                                                                            {pageTargets.map((target) => {
+                                                                                const active =
+                                                                                    selectedChangeId === change.id
+                                                                                    && selectedDocumentPath === target.documentPath;
+                                                                                return (
+                                                                                    <button
+                                                                                        key={target.documentPath}
+                                                                                        type="button"
+                                                                                        onClick={() =>
+                                                                                            onSelectChange(
+                                                                                                change,
+                                                                                                target.documentPath,
+                                                                                            )
+                                                                                        }
+                                                                                        onMouseEnter={() =>
+                                                                                            onPreviewChange({
+                                                                                                kind: "item",
+                                                                                                id: change.id,
+                                                                                                documentPath: target.documentPath,
+                                                                                            })
+                                                                                        }
+                                                                                        onMouseLeave={() => onPreviewChange(null)}
+                                                                                        className={cn(
+                                                                                            "flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                                                                            active && "bg-primary/10 text-primary",
+                                                                                        )}
+                                                                                        aria-current={active ? "page" : undefined}
+                                                                                    >
+                                                                                        <FileText className="h-3 w-3 shrink-0" />
+                                                                                        <span className="truncate">
+                                                                                            {target.documentPath.split("/").at(-1)}
+                                                                                        </span>
+                                                                                    </button>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 )}
                                             </div>
                                         );
                                     })}
                                 </div>
-                            </section>
-                        ))
+                            </details>
+                            );
+                        })
                 )}
             </div>
+
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t px-2 py-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={page <= 0}
+                        onClick={() => onPageChange(page - 1)}
+                    >
+                        Previous page
+                    </Button>
+                    <span className="text-[10px] text-muted-foreground">
+                        {page * pageSize + 1}–{Math.min((page + 1) * pageSize, totalGroups)}
+                    </span>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={page >= totalPages - 1}
+                        onClick={() => onPageChange(page + 1)}
+                    >
+                        Next page
+                    </Button>
+                </div>
+            )}
 
             {selectedGroup && (
                 <div className="max-h-48 overflow-auto border-t bg-muted/10 p-3 text-xs">
                     <div className="font-medium">{selectedGroup.label}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                        {changeSummary(
+                            selectedGroup.changes.find(
+                                (change) => change.id === selectedChangeId,
+                            ) ?? selectedGroup.changes[0]!,
+                        )}
+                    </div>
                     {routeMetrics && (
                         <div className="mt-2 rounded border bg-background/60 p-2">
                             <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-1 tabular-nums">
@@ -380,29 +668,46 @@ function DifferencesPane({
                                 <span>Vias</span>
                                 <span>{routeMetrics.base?.via_count ?? "—"}</span>
                                 <span>{routeMetrics.compare?.via_count ?? "—"}</span>
-                                <span>Barrel</span>
-                                <span>
-                                    {routeMetrics.base?.via_barrel_length_mm?.toFixed(3) ?? "N/A"}
-                                </span>
-                                <span>
-                                    {routeMetrics.compare?.via_barrel_length_mm?.toFixed(3) ?? "N/A"}
-                                </span>
                             </div>
-                            <p className="mt-1.5 text-[10px] text-muted-foreground">
-                                Propagation delay is not available; Prism does not estimate it.
-                            </p>
                         </div>
                     )}
-                    {Object.entries(
+                    {!!Object.keys(
                         selectedGroup.changes.find((change) => change.id === selectedChangeId)?.fields ?? {},
-                    ).map(([field, value]) => (
-                        <div key={field} className="mt-2 grid grid-cols-[5rem_1fr] gap-2">
-                            <span className="text-muted-foreground">{field}</span>
-                            <span className="break-words font-mono text-[10px]">
-                                {typeof value === "object" ? JSON.stringify(value) : String(value ?? "")}
-                            </span>
+                    ).length && (
+                        <div className="mt-2 overflow-hidden rounded border bg-background/60">
+                            <div className="grid grid-cols-[minmax(4rem,1fr)_1fr_1fr] border-b px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                                <span>Field</span><span>Old</span><span>New</span>
+                            </div>
+                            {Object.entries(
+                                selectedGroup.changes.find((change) => change.id === selectedChangeId)?.fields ?? {},
+                            ).map(([field, value]) => {
+                                const delta = value && typeof value === "object" ? value : null;
+                                return (
+                                    <div key={field} className="grid grid-cols-[minmax(4rem,1fr)_1fr_1fr] gap-2 border-b px-2 py-1.5 last:border-0">
+                                        <span className="truncate text-muted-foreground">{field}</span>
+                                        <span className="break-words font-mono text-[10px]">{String(delta?.old ?? "—")}</span>
+                                        <span className="break-words font-mono text-[10px]">{String(delta?.new ?? "—")}</span>
+                                    </div>
+                                );
+                            })}
                         </div>
-                    ))}
+                    )}
+                    {(() => {
+                        const details = selectedGroup.changes.find(
+                            (change) => change.id === selectedChangeId,
+                        )?.details?.connectivity;
+                        if (!details) return null;
+                        return (
+                            <div className="mt-2 space-y-1 font-mono text-[10px]">
+                                {details.addedTerminals.map((terminal) => (
+                                    <div key={`add-${terminal}`} className="text-success">+ {terminal}</div>
+                                ))}
+                                {details.removedTerminals.map((terminal) => (
+                                    <div key={`remove-${terminal}`} className="text-destructive">− {terminal}</div>
+                                ))}
+                            </div>
+                        );
+                    })()}
                 </div>
             )}
         </aside>
@@ -418,7 +723,10 @@ export function DesignComparisonWorkspace({
     onClose,
 }: DesignComparisonWorkspaceProps) {
     const [searchParams, setSearchParams] = useSearchParams();
-    const initial = useMemo(() => readInitialUrlState(searchParams), []);
+    const initial = useMemo(
+        () => readInitialUrlState(searchParams),
+        [searchParams],
+    );
     const [jobId, setJobId] = useState<string | null>(null);
     const [jobStatus, setJobStatus] = useState<DesignCompareJobStatus | null>(null);
     const [result, setResult] = useState<DesignCompareResult | null>(null);
@@ -435,20 +743,55 @@ export function DesignComparisonWorkspace({
     const [selectedChangeId, setSelectedChangeId] = useState<string | null>(
         initial.selectedChangeId,
     );
-    const [reviewSelection, setReviewSelection] = useState<
-        { kind: "item" | "group"; id: string } | null
-    >(
+    const [reviewSelection, setReviewSelection] = useState<ComparisonSelection>(
         initial.selectedChangeId
             ? { kind: "item", id: initial.selectedChangeId }
             : null,
     );
     const [visibleLayers, setVisibleLayers] = useState<string[]>(initial.layers);
+    const [differencesPage, setDifferencesPage] = useState(0);
     const [comments, setComments] = useState<Comment[]>([]);
-    const [showDiscussion, setShowDiscussion] = useState(
-        () => !window.matchMedia("(max-width: 1023px)").matches,
-    );
+    const [comparisonRightRailTab, setComparisonRightRailTab] = useState<
+        "layers" | "discussion" | null
+    >(() => window.matchMedia("(max-width: 1023px)").matches
+        ? null
+        : "discussion");
+    const showDiscussion = comparisonRightRailTab === "discussion";
+    const [previewSelection, setPreviewSelection] =
+        useState<ComparisonSelection>(null);
     const jobIdRef = useRef<string | null>(null);
     const semanticFocusRef = useRef<SemanticFocus | null>(null);
+
+    useEffect(() => {
+        if (activeTab !== "pcb" && comparisonRightRailTab === "layers") {
+            setComparisonRightRailTab(null);
+        }
+    }, [activeTab, comparisonRightRailTab]);
+
+    useEffect(() => {
+        startComparisonDebugSession({ projectId, base, compare: head });
+        logComparisonDebug("workspace.mount", {
+            base,
+            compare: head,
+        });
+    }, [projectId, base, head]);
+
+    useEffect(() => {
+        logComparisonDebug("workspace.state", {
+            activeTab,
+            presentationMode,
+            selectedChangeId,
+            selectionKind: reviewSelection?.kind ?? null,
+            selectionId: reviewSelection?.id ?? null,
+            differencesPage,
+        });
+    }, [
+        activeTab,
+        differencesPage,
+        presentationMode,
+        reviewSelection,
+        selectedChangeId,
+    ]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -561,9 +904,6 @@ export function DesignComparisonWorkspace({
 
     useEffect(() => {
         const next = readComparisonUrlState(searchParams);
-        // Parent owns open/close via base+compare in the URL. Never call onClose
-        // here when params are briefly missing — that raced Compare and dismissed
-        // the dialog before open params landed.
         if (!next.base || !next.compare) return;
         setActiveTab((current) => (current === next.diff ? current : next.diff));
         setPresentationMode((current) =>
@@ -610,27 +950,71 @@ export function DesignComparisonWorkspace({
                 change.reference,
                 change.net,
                 change.category,
+                change.page,
+                changeSummary(change),
+                ...(change.reasons ?? []),
+                ...Object.keys(change.fields ?? {}),
                 ...(change.layers ?? []),
             ].some((value) => String(value ?? "").toLocaleLowerCase().includes(query));
         });
     }, [domainChanges, statuses, showSecondary, search]);
+    const domainServerGroups = useMemo(
+        () => activeTab === "sch"
+            ? result?.schematic.groups ?? []
+            : activeTab === "pcb"
+                ? result?.pcb.groups ?? []
+                : [],
+        [activeTab, result],
+    );
     const groups = useMemo(
-        () => groupChanges(filteredChanges, comments),
-        [filteredChanges, comments],
+        () => hydrateServerGroups(filteredChanges, domainServerGroups, comments),
+        [filteredChanges, domainServerGroups, comments],
+    );
+    const paginatedGroups = useMemo(
+        () => groups.slice(
+            differencesPage * DIFFERENCES_PAGE_SIZE,
+            (differencesPage + 1) * DIFFERENCES_PAGE_SIZE,
+        ),
+        [differencesPage, groups],
     );
     const navigationGroups = useMemo(
-        () => groupChanges(domainChanges, comments),
-        [domainChanges, comments],
+        () => hydrateServerGroups(domainChanges, domainServerGroups, comments),
+        [domainChanges, domainServerGroups, comments],
     );
+
+    useEffect(() => {
+        setDifferencesPage(0);
+    }, [search, showSecondary, statuses, activeTab]);
+
+    useEffect(() => {
+        const totalPages = Math.max(1, Math.ceil(groups.length / DIFFERENCES_PAGE_SIZE));
+        if (differencesPage >= totalPages) {
+            setDifferencesPage(Math.max(0, totalPages - 1));
+        }
+    }, [differencesPage, groups.length]);
+
+    useEffect(() => {
+        if (!selectedChangeId) return;
+        const index = groups.findIndex((group) =>
+            group.changes.some((change) => change.id === selectedChangeId),
+        );
+        if (index < 0) return;
+        const selectedPage = Math.floor(index / DIFFERENCES_PAGE_SIZE);
+        setDifferencesPage((current) =>
+            current === selectedPage ? current : selectedPage,
+        );
+    }, [groups, selectedChangeId]);
+
     const selectedChange = useMemo(
         () => domainChanges.find((change) => change.id === selectedChangeId) ?? null,
         [domainChanges, selectedChangeId],
     );
-    const selectedGroup = useMemo(
-        () => groups.find((group) =>
-            group.changes.some((change) => change.id === selectedChangeId)
+    const selectedReviewGroup = useMemo(
+        () => navigationGroups.find((group) =>
+            group.id === (reviewSelection?.kind === "group" ? reviewSelection.id : "")
+            || group.changes.some((change) => change.id === selectedChangeId),
         ) ?? null,
-        [groups, selectedChangeId],
+        [navigationGroups, reviewSelection, selectedChangeId],
     );
     const selectedRouteMetrics = useMemo(() => {
         if (activeTab !== "pcb" || !selectedChange?.net || !result?.pcb.route_metrics) {
@@ -642,19 +1026,62 @@ export function DesignComparisonWorkspace({
         };
     }, [activeTab, result, selectedChange]);
 
-    const selectChange = (change: ChangeItem) => {
+    const selectChange = (change: ChangeItem, documentPath?: string) => {
+        logComparisonDebug("difference.click", {
+            target: "item",
+            activeTab,
+            presentationMode,
+            change: {
+                id: change.id,
+                kind: change.kind,
+                category: change.category,
+                classification: change.classification,
+                label: change.label,
+                reference: change.reference,
+                net: change.net,
+                page: change.page,
+                reasons: change.reasons ?? [],
+                sourceIdBase: change.source_id_base,
+                sourceIdCompare: change.source_id_compare,
+                visualTargets: change.details?.visualTargets ?? [],
+            },
+            navigation: result?.document_diff.navigation[change.id] ?? null,
+            requestedDocumentPath: documentPath ?? null,
+        });
         semanticFocusRef.current = {
             semanticId: change.semantic_id,
             reference: change.reference,
             net: change.net,
         };
         setSelectedChangeId(change.id);
-        setReviewSelection({ kind: "item", id: change.id });
+        setReviewSelection({ kind: "item", id: change.id, documentPath });
     };
 
     const selectGroup = (group: ChangeGroup) => {
         const change = group.changes[0];
         if (!change) return;
+        logComparisonDebug("difference.click", {
+            target: "group",
+            activeTab,
+            presentationMode,
+            group: {
+                id: group.id,
+                category: group.category,
+                kind: group.kind,
+                classification: group.classification,
+                label: group.label,
+                memberIds: group.changes.map((member) => member.id),
+            },
+            primaryChange: {
+                id: change.id,
+                page: change.page,
+                reasons: change.reasons ?? [],
+                reference: change.reference,
+                net: change.net,
+                visualTargets: change.details?.visualTargets ?? [],
+            },
+            navigation: result?.document_diff.navigation[change.id] ?? null,
+        });
         semanticFocusRef.current = {
             semanticId: change.semantic_id,
             reference: change.reference,
@@ -665,9 +1092,6 @@ export function DesignComparisonWorkspace({
     };
 
     useEffect(() => {
-        // Preserve a deep-linked semantic item while the asynchronous comparison
-        // manifest is still loading. Clearing it against an empty domain would
-        // lose the exact page/object focus before the result becomes available.
         if (!result) return;
         const current = domainChanges.find((change) => change.id === selectedChangeId);
         if (current) {
@@ -718,6 +1142,8 @@ export function DesignComparisonWorkspace({
             ? 0
             : (current + direction + groups.length) % groups.length;
         selectGroup(groups[next]!);
+        const nextPage = Math.floor(next / DIFFERENCES_PAGE_SIZE);
+        if (nextPage !== differencesPage) setDifferencesPage(nextPage);
     };
 
     const tabs: Array<{ id: WorkspaceTab; label: string; icon: typeof Cpu; badge?: number }> = [
@@ -756,12 +1182,32 @@ export function DesignComparisonWorkspace({
             ? "Base revision is branch tip"
             : null;
 
+    const chooseTab = (next: WorkspaceTab) => {
+        logComparisonDebug("control.tab.click", {
+            from: activeTab,
+            to: next,
+            presentationMode,
+            selectedChangeId,
+        });
+        setActiveTab(next);
+    };
+
+    const choosePresentationMode = (next: PresentationMode) => {
+        logComparisonDebug("control.presentation.click", {
+            from: presentationMode,
+            to: next,
+            activeTab,
+            selectedChangeId,
+        });
+        setPresentationMode(next);
+    };
+
     return (
         <Dialog open onOpenChange={(open) => !open && handleClose()}>
             <DialogContent className="flex h-[96vh] w-[98vw] max-w-none flex-col gap-0 overflow-hidden p-0">
                 <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                        <DialogTitle>Semantic design review</DialogTitle>
+                        <DialogTitle>Design comparison</DialogTitle>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <span className="rounded border bg-muted px-2 py-1 font-mono">
                                 Base {base.slice(0, 10)}
@@ -792,7 +1238,7 @@ export function DesignComparisonWorkspace({
                                         key={tab.id}
                                         variant={activeTab === tab.id ? "secondary" : "ghost"}
                                         size="sm"
-                                        onClick={() => setActiveTab(tab.id)}
+                                        onClick={() => chooseTab(tab.id)}
                                         className="h-8 text-xs"
                                         aria-pressed={activeTab === tab.id}
                                     >
@@ -816,7 +1262,7 @@ export function DesignComparisonWorkspace({
                                         variant={presentationMode === "composite" ? "secondary" : "ghost"}
                                         size="sm"
                                         className="h-7 text-xs"
-                                        onClick={() => setPresentationMode("composite")}
+                                        onClick={() => choosePresentationMode("composite")}
                                         aria-pressed={presentationMode === "composite"}
                                     >
                                         <Square className="mr-1.5 h-3.5 w-3.5" />
@@ -826,24 +1272,36 @@ export function DesignComparisonWorkspace({
                                         variant={presentationMode === "side-by-side" ? "secondary" : "ghost"}
                                         size="sm"
                                         className="h-7 text-xs"
-                                        onClick={() => setPresentationMode("side-by-side")}
+                                        onClick={() => choosePresentationMode("side-by-side")}
                                         aria-pressed={presentationMode === "side-by-side"}
                                     >
                                         <Columns2 className="mr-1.5 h-3.5 w-3.5" />
                                         Side by side
+                                    </Button>
+                                    <Button
+                                        variant={presentationMode === "old-new" ? "secondary" : "ghost"}
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => choosePresentationMode("old-new")}
+                                        aria-pressed={presentationMode === "old-new"}
+                                    >
+                                        <ToggleLeft className="mr-1.5 h-3.5 w-3.5" />
+                                        Old / New
                                     </Button>
                                 </div>
                             )}
                             <Button
                                 variant={showDiscussion ? "secondary" : "ghost"}
                                 size="sm"
-                                onClick={() => setShowDiscussion((value) => !value)}
+                                onClick={() => setComparisonRightRailTab((tab) =>
+                                    tab === "discussion" ? null : "discussion"
+                                )}
                                 className="ml-auto h-8 text-xs"
                                 aria-pressed={showDiscussion}
                             >
                                 <MessageSquare className="mr-2 h-3.5 w-3.5" />
                                 Discussion
-                                {!!comments.filter((comment) => comment.status === "OPEN").length && (
+                                {comments.some((comment) => comment.status === "OPEN") && (
                                     <span className="ml-2 rounded-full bg-muted px-1.5 text-[10px]">
                                         {comments.filter((comment) => comment.status === "OPEN").length}
                                     </span>
@@ -855,7 +1313,11 @@ export function DesignComparisonWorkspace({
                             {(activeTab === "sch" || activeTab === "pcb") && (
                                 <>
                                     <DifferencesPane
-                                        groups={groups}
+                                        groups={paginatedGroups}
+                                        totalGroups={groups.length}
+                                        page={differencesPage}
+                                        pageSize={DIFFERENCES_PAGE_SIZE}
+                                        onPageChange={setDifferencesPage}
                                         statuses={statuses}
                                         onToggleStatus={(kind) => {
                                             setStatuses((current) => {
@@ -875,8 +1337,13 @@ export function DesignComparisonWorkspace({
                                                 ? reviewSelection.id
                                                 : null
                                         }
+                                        selectedDocumentPath={
+                                            reviewSelection?.documentPath
+                                        }
+                                        documentDiff={result.document_diff}
                                         onSelectChange={selectChange}
                                         onSelectGroup={selectGroup}
+                                        onPreviewChange={setPreviewSelection}
                                         onPrevious={() => navigate(-1)}
                                         onNext={() => navigate(1)}
                                         routeMetrics={selectedRouteMetrics}
@@ -893,8 +1360,32 @@ export function DesignComparisonWorkspace({
                                             files={result.files}
                                             reviewGroups={navigationGroups}
                                             selection={reviewSelection}
+                                            previewSelection={previewSelection}
                                             initialVisibleLayers={visibleLayers}
                                             onVisibleLayersChange={setVisibleLayers}
+                                            rightRailTab={comparisonRightRailTab}
+                                            onRightRailTabChange={setComparisonRightRailTab}
+                                            discussionCount={comments.filter((comment) => comment.status === "OPEN").length}
+                                            discussionContent={(
+                                                <ComparisonDiscussionRail
+                                                    projectId={projectId}
+                                                    base={base}
+                                                    compare={head}
+                                                    domain={activeTab === "pcb" ? "PCB" : "SCH"}
+                                                    anchor={selectedReviewGroup
+                                                        ? {
+                                                            id: selectedReviewGroup.id,
+                                                            label: selectedReviewGroup.label,
+                                                            page: selectedChange?.page,
+                                                        }
+                                                        : null}
+                                                    comments={comments}
+                                                    canComment={canComment}
+                                                    onCommentsChange={setComments}
+                                                    onClose={() => setComparisonRightRailTab(null)}
+                                                    embedded
+                                                />
+                                            )}
                                         />
                                     ) : (
                                         <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
@@ -909,23 +1400,24 @@ export function DesignComparisonWorkspace({
                             )}
                             {activeTab === "bom" && <BomPanel bom={result.bom} />}
                             {activeTab === "stackup" && <StackupPanel stackup={result.stackup} />}
-                            {showDiscussion && (
+                            {showDiscussion
+                                && (activeTab === "bom" || activeTab === "stackup") && (
                                 <ComparisonDiscussionRail
                                     projectId={projectId}
                                     base={base}
                                     compare={head}
-                                    domain={activeTab === "pcb" || activeTab === "stackup" ? "PCB" : "SCH"}
-                                    anchor={selectedGroup
+                                    domain={activeTab === "stackup" ? "PCB" : "SCH"}
+                                    anchor={selectedReviewGroup
                                         ? {
-                                            id: selectedGroup.id,
-                                            label: selectedGroup.label,
+                                            id: selectedReviewGroup.id,
+                                            label: selectedReviewGroup.label,
                                             page: selectedChange?.page,
                                         }
                                         : null}
                                     comments={comments}
                                     canComment={canComment}
                                     onCommentsChange={setComments}
-                                    onClose={() => setShowDiscussion(false)}
+                                    onClose={() => setComparisonRightRailTab(null)}
                                 />
                             )}
                         </div>
