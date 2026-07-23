@@ -48,8 +48,9 @@ The defaults match the production scheduler. They can also be controlled by:
 - `PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS` is the shared fallback when a
   stage-specific value is not set; use `1` for a low-memory operational mode.
 
-Both values are bounded to the two requested revisions. PCB workers scan
-native source geometry only; they do not retain concurrent parsed PCB ASTs.
+Both stage-specific worker counts are bounded to the two requested revisions.
+PCB workers scan native source geometry only; they do not retain concurrent
+parsed PCB ASTs.
 
 ## Reading a report
 
@@ -80,5 +81,6 @@ An uncontended native ARM64 Docker run on 2026-07-24, using the local
 
 The two schematic semantic passes overlapped at approximately 21 seconds each,
 and the two PCB geometry scans overlapped at approximately 7.1 seconds each.
-The full structured report is generated as
-`/tmp/design-compare-staged-arm64-clean.json` by the command above.
+The preserved reference report used
+`--output /tmp/design-compare-staged-arm64-clean.json`; choose any output path
+when reproducing the run.
