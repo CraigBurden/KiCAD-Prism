@@ -10,6 +10,39 @@ from app.services import semantic_index_service, semantic_visualizer_service
 
 
 class SemanticIndexServiceTests(unittest.TestCase):
+    def test_schematic_stage_does_not_materialize_lazy_pcb(self) -> None:
+        class FakeDesign:
+            def to_netlist(self):
+                return SimpleNamespace(components=[], nets=[])
+
+            @property
+            def pcb(self):
+                raise AssertionError("Stage 1 accessed the PCB")
+
+            def to_json(self, include_indexes=True, *, include_pcb=True):
+                self.include_indexes = include_indexes
+                self.include_pcb = include_pcb
+                return {"components": [], "nets": []}
+
+        design = FakeDesign()
+        class FakeKiCadDesign:
+            @staticmethod
+            def from_project_file(_path):
+                return design
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            sys.modules,
+            {"kicad_monkey": SimpleNamespace(KiCadDesign=FakeKiCadDesign)},
+        ):
+            payload = semantic_index_service.build_semantic_index(
+                Path(temporary) / "board.kicad_pro",
+                source_revision_key="revision-a",
+                include_pcb=False,
+            )
+
+        self.assertFalse(design.include_pcb)
+        self.assertEqual(payload["components"], [])
+
     def test_full_bundle_overlay_commits_bundle_json_last(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

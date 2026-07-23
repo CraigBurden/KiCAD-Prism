@@ -48,6 +48,7 @@ import {
     type ComparisonPresentationMode,
     type ComparisonUrlTab,
 } from "./comparison-url";
+import { comparisonDomainStatus } from "./comparison-readiness";
 import { BomPanel } from "./bom-panel";
 import { StackupPanel } from "./stackup-panel";
 import { ComparisonDiscussionRail } from "./comparison-discussion-rail";
@@ -768,6 +769,7 @@ export function DesignComparisonWorkspace({
     const [previewSelection, setPreviewSelection] =
         useState<ComparisonSelection>(null);
     const jobIdRef = useRef<string | null>(null);
+    const resultVersionRef = useRef(0);
     const semanticFocusRef = useRef<SemanticFocus | null>(null);
     const logRenderPerformance = useCallback<ProfilerOnRenderCallback>(
         (id, phase, actualDuration, baseDuration, startTime, commitTime) => {
@@ -817,6 +819,10 @@ export function DesignComparisonWorkspace({
 
     useEffect(() => {
         const controller = new AbortController();
+        setResult(null);
+        setJobStatus(null);
+        setError(null);
+        resultVersionRef.current = 0;
         void (async () => {
             try {
                 const response = await fetchApi(`/api/projects/${projectId}/design-compare`, {
@@ -854,7 +860,7 @@ export function DesignComparisonWorkspace({
     }, [projectId, base, head]);
 
     useEffect(() => {
-        if (!jobId || result) return;
+        if (!jobId) return;
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
         const poll = async () => {
@@ -864,16 +870,23 @@ export function DesignComparisonWorkspace({
                 const status = (await response.json()) as DesignCompareJobStatus;
                 if (cancelled) return;
                 setJobStatus(status);
-                if (status.status === "failed") {
-                    setError(status.message || "Semantic comparison failed");
-                } else if (status.status === "completed") {
+                const resultVersion = status.result_version ?? 0;
+                if (resultVersion > resultVersionRef.current) {
                     const resultResponse = await fetchApi(
                         `/api/projects/${projectId}/design-compare/${jobId}`,
                     );
                     if (!resultResponse.ok) {
                         throw new Error(await readApiError(resultResponse, "Failed to load comparison"));
                     }
-                    if (!cancelled) setResult((await resultResponse.json()) as DesignCompareResult);
+                    const nextResult = (await resultResponse.json()) as DesignCompareResult;
+                    if (cancelled) return;
+                    resultVersionRef.current = resultVersion;
+                    setResult(nextResult);
+                }
+                if (status.status === "failed") {
+                    setError(status.message || "Semantic comparison failed");
+                } else if (status.status === "completed") {
+                    return;
                 } else {
                     timer = setTimeout(poll, 800);
                 }
@@ -888,7 +901,7 @@ export function DesignComparisonWorkspace({
             cancelled = true;
             if (timer) clearTimeout(timer);
         };
-    }, [jobId, projectId, result]);
+    }, [jobId, projectId]);
 
     useEffect(() => {
         return () => {
@@ -1168,11 +1181,18 @@ export function DesignComparisonWorkspace({
         if (nextPage !== differencesPage) setDifferencesPage(nextPage);
     };
 
-    const tabs: Array<{ id: WorkspaceTab; label: string; icon: typeof Cpu; badge?: number }> = [
+    const tabs: Array<{
+        id: WorkspaceTab;
+        label: string;
+        icon: typeof Cpu;
+        badge?: number;
+        status: "pending" | "building" | "ready" | "failed";
+    }> = [
         {
             id: "sch",
             label: "Schematic",
             icon: Cpu,
+            status: comparisonDomainStatus(result, "schematic"),
             badge: result
                 ? result.schematic.summary.added
                     + result.schematic.summary.removed
@@ -1183,6 +1203,7 @@ export function DesignComparisonWorkspace({
             id: "pcb",
             label: "PCB",
             icon: CircuitBoard,
+            status: comparisonDomainStatus(result, "pcb"),
             badge: result
                 ? result.pcb.summary.added + result.pcb.summary.removed + result.pcb.summary.changed
                 : undefined,
@@ -1191,12 +1212,20 @@ export function DesignComparisonWorkspace({
             id: "bom",
             label: "BOM",
             icon: FileText,
+            status: comparisonDomainStatus(result, "bom"),
             badge: result?.bom
                 ? result.bom.summary.added + result.bom.summary.removed + result.bom.summary.changed
                 : undefined,
         },
-        { id: "stackup", label: "Stackup", icon: Layers3, badge: result?.stackup.changed ? 1 : undefined },
+        {
+            id: "stackup",
+            label: "Stackup",
+            icon: Layers3,
+            status: comparisonDomainStatus(result, "stackup"),
+            badge: result?.stackup.changed ? 1 : undefined,
+        },
     ];
+    const activeTabStatus = tabs.find((tab) => tab.id === activeTab)?.status ?? "ready";
 
     const branchTipLabel = branchTipSha === head
         ? "Compare revision is branch tip"
@@ -1263,9 +1292,13 @@ export function DesignComparisonWorkspace({
                                         onClick={() => chooseTab(tab.id)}
                                         className="h-8 text-xs"
                                         aria-pressed={activeTab === tab.id}
+                                        disabled={tab.status !== "ready"}
                                     >
                                         <Icon className="mr-2 h-3.5 w-3.5" />
                                         {tab.label}
+                                        {tab.status === "building" && (
+                                            <Loader2 className="ml-2 h-3 w-3 animate-spin" />
+                                        )}
                                         {!!tab.badge && (
                                             <span className="ml-2 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
                                                 {tab.badge}
@@ -1274,7 +1307,8 @@ export function DesignComparisonWorkspace({
                                     </Button>
                                 );
                             })}
-                            {(activeTab === "sch" || activeTab === "pcb") && (
+                            {(activeTab === "sch" || activeTab === "pcb")
+                                && activeTabStatus === "ready" && (
                                 <div
                                     className="ml-2 flex items-center gap-0.5 rounded-md border bg-background p-0.5"
                                     role="group"
@@ -1331,8 +1365,21 @@ export function DesignComparisonWorkspace({
                             </Button>
                         </nav>
 
+                        {error && (
+                            <div
+                                role="alert"
+                                className="flex shrink-0 items-center gap-2 border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive"
+                            >
+                                <AlertCircle className="h-4 w-4 shrink-0" />
+                                <span>
+                                    Schematic and BOM remain available, but the background comparison failed: {error}
+                                </span>
+                            </div>
+                        )}
+
                         <div className="flex min-h-0 flex-1">
-                            {(activeTab === "sch" || activeTab === "pcb") && (
+                            {(activeTab === "sch" || activeTab === "pcb")
+                                && activeTabStatus === "ready" && (
                                 <>
                                     <Profiler
                                         id="differences-pane"
@@ -1430,8 +1477,33 @@ export function DesignComparisonWorkspace({
                                     )}
                                 </>
                             )}
-                            {activeTab === "bom" && <BomPanel bom={result.bom} />}
-                            {activeTab === "stackup" && <StackupPanel stackup={result.stackup} />}
+                            {activeTabStatus !== "ready" && (
+                                <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
+                                    <div className="flex max-w-sm flex-col items-center gap-3">
+                                        {activeTabStatus === "failed" ? (
+                                            <AlertCircle className="h-8 w-8 text-destructive" />
+                                        ) : (
+                                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                        )}
+                                        <div>
+                                            <p className="text-sm font-medium">
+                                                {activeTabStatus === "failed"
+                                                    ? `${activeTab === "pcb" ? "PCB" : "Stackup"} comparison failed`
+                                                    : activeTab === "pcb"
+                                                        ? "Building PCB comparison"
+                                                        : "Building Stackup comparison"}
+                                            </p>
+                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                {activeTabStatus === "failed"
+                                                    ? "Schematic and BOM are still available. Retry the comparison to rebuild this domain."
+                                                    : "Schematic and BOM are ready while this domain finishes in the background."}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab === "bom" && activeTabStatus === "ready" && <BomPanel bom={result.bom} />}
+                            {activeTab === "stackup" && activeTabStatus === "ready" && <StackupPanel stackup={result.stackup} />}
                             {showDiscussion
                                 && (activeTab === "bom" || activeTab === "stackup") && (
                                 <ComparisonDiscussionRail

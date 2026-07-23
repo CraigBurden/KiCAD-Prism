@@ -1,3 +1,4 @@
+import copy
 import os
 import tempfile
 import threading
@@ -7,6 +8,7 @@ import subprocess
 from unittest import mock
 
 from app.services import bom_diff_service, design_compare_service
+from app.services.design_compare_benchmark import DesignCompareBenchmark
 
 
 class DesignCompareServiceTests(unittest.TestCase):
@@ -963,6 +965,352 @@ class DesignCompareServiceTests(unittest.TestCase):
             self.assertRegex(resolved, r"^[0-9a-f]{40}$")
             with self.assertRaises(ValueError):
                 design_compare_service._resolve_revision(root, "../not-a-revision")
+
+    def test_semantic_bom_projection_reuses_components_and_excludes_non_bom(self) -> None:
+        rows = design_compare_service._semantic_bom_rows({
+            "components": [
+                {
+                    "reference": "R1",
+                    "value": "10k",
+                    "footprint": "R_0402",
+                    "fields": {"Manufacturer": "ACME", "kicad_in_bom": "true"},
+                },
+                {
+                    "reference": "TP1",
+                    "fields": {"kicad_in_bom": "false"},
+                },
+            ],
+        })
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Reference"], "R1")
+        self.assertEqual(rows[0]["Manufacturer"], "ACME")
+
+    def test_initial_stage_workers_overlap_and_publish_both_revisions(self) -> None:
+        barrier = threading.Barrier(2)
+
+        def fake_initial(_project, _repo, _relative, commit, logs, **_kwargs):
+            barrier.wait(timeout=2)
+            logs.append(f"initial {commit}")
+            return {"commit": commit}
+
+        with mock.patch.dict(
+            os.environ,
+            {"PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS": "2"},
+        ), mock.patch.object(
+            design_compare_service,
+            "_load_or_build_initial_revision",
+            side_effect=fake_initial,
+        ):
+            revisions, logs = design_compare_service._build_initial_revisions(
+                "project",
+                Path("/repo"),
+                None,
+                "base",
+                "head",
+                lambda _message, _percent=None: None,
+            )
+
+        self.assertEqual(set(revisions), {"base", "head"})
+        self.assertEqual(logs["head"], ["initial head"])
+
+    def test_pcb_stage_workers_overlap_and_reuse_initial_revisions(self) -> None:
+        barrier = threading.Barrier(2)
+        received_initial = {}
+
+        def fake_pcb(_project, commit, initial, logs, **_kwargs):
+            received_initial[commit] = initial
+            barrier.wait(timeout=2)
+            logs.append(f"pcb {commit}")
+            return {"commit": commit, "initial": initial}
+
+        initial = {
+            "base": {"commit": "base", "stage": "initial"},
+            "head": {"commit": "head", "stage": "initial"},
+        }
+        with mock.patch.dict(
+            os.environ,
+            {"PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS": "2"},
+        ), mock.patch.object(
+            design_compare_service,
+            "_load_or_build_pcb_revision",
+            side_effect=fake_pcb,
+        ):
+            revisions, logs = design_compare_service._build_pcb_revisions(
+                "project",
+                "base",
+                "head",
+                initial,
+                lambda _message, _percent=None: None,
+            )
+
+        self.assertEqual(set(revisions), {"base", "head"})
+        self.assertIs(received_initial["base"], initial["base"])
+        self.assertIs(received_initial["head"], initial["head"])
+        self.assertEqual(logs["base"], ["pcb base"])
+
+    def test_stage_worker_count_honors_global_fallback_and_stage_override(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS": "1"},
+            clear=False,
+        ):
+            os.environ.pop("PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS", None)
+            os.environ.pop("PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS", None)
+            self.assertEqual(
+                design_compare_service._stage_worker_count("initial", 2),
+                1,
+            )
+            self.assertEqual(
+                design_compare_service._stage_worker_count("pcb", 2),
+                1,
+            )
+            os.environ["PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS"] = "2"
+            self.assertEqual(
+                design_compare_service._stage_worker_count("pcb", 2),
+                2,
+            )
+
+    def test_initial_assembly_marks_only_schematic_and_bom_ready(self) -> None:
+        revision = {
+            "semantic": self._design(),
+            "geometry": {"schematic": {}, "pcb": {}},
+            "sources": [{"filename": "root.kicad_sch", "path": "root.kicad_sch"}],
+            "bom_rows": [],
+        }
+        benchmark = DesignCompareBenchmark(job_id="staged-test")
+        result, _state = design_compare_service._assemble_initial_comparison(
+            project_id="project",
+            base="base",
+            head="head",
+            revisions={"base": revision, "head": revision},
+            include_unchanged=False,
+            benchmark=benchmark,
+        )
+        self.assertEqual(result["readiness"]["stage"], "initial-ready")
+        self.assertEqual(result["readiness"]["domains"]["schematic"], "ready")
+        self.assertEqual(result["readiness"]["domains"]["bom"], "ready")
+        self.assertEqual(result["readiness"]["domains"]["pcb"], "building")
+        self.assertEqual(result["readiness"]["domains"]["stackup"], "building")
+
+    def test_pcb_geometry_reuses_stage_one_component_and_net_identities(self) -> None:
+        semantic = {
+            "components": [{"componentUid": "cmp:u1", "reference": "U1"}],
+            "nets": [{"netUid": "net:sig", "name": "SIG"}],
+            "indexes": {
+                "componentByReference": {"U1": 0},
+                "componentByPcbFootprintUuid": {},
+                "netByName": {"SIG": 0},
+                "netByPcbUuid": {},
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "board.kicad_pcb").write_text(
+                '''(kicad_pcb
+                  (net 1 "SIG")
+                  (segment (start 1 2) (end 3 4) (width 0.2) (layer "F.Cu")
+                    (net 1) (uuid "11111111-1111-1111-1111-111111111111"))
+                  (footprint "Demo:Part" (layer "F.Cu") (at 10 20)
+                    (property "Reference" "U1")
+                    (uuid "22222222-2222-2222-2222-222222222222")))''',
+                encoding="utf-8",
+            )
+            geometry = design_compare_service._extract_geometry(root, semantic, {"pcb"})["pcb"]
+
+        self.assertEqual(
+            geometry["11111111-1111-1111-1111-111111111111"]["semantic_id"],
+            "net:sig",
+        )
+        footprint = geometry["22222222-2222-2222-2222-222222222222"]
+        self.assertEqual(footprint["semantic_id"], "cmp:u1")
+        self.assertEqual(footprint["reference"], "U1")
+
+    def test_job_publishes_initial_result_before_starting_background_stage(self) -> None:
+        events = []
+        job_id = "staged-job"
+        design_compare_service.design_compare_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "running",
+            "logs": [],
+            "result": None,
+        }
+        initial_result = {
+            "readiness": {
+                "stage": "initial-ready",
+                "domains": {
+                    "schematic": "ready",
+                    "bom": "ready",
+                    "pcb": "building",
+                    "stackup": "building",
+                },
+            },
+            "schematic": {"changes": []},
+            "pcb": {"changes": []},
+            "bom": {"changes": []},
+        }
+        complete_result = {
+            **initial_result,
+            "readiness": {
+                "stage": "complete",
+                "domains": {
+                    "schematic": "ready",
+                    "bom": "ready",
+                    "pcb": "ready",
+                    "stackup": "ready",
+                },
+            },
+        }
+
+        def publish(_job_id, job, result, *, version, benchmark):
+            del benchmark
+            events.append(f"publish-{version}")
+            job["result"] = result
+            job["result_version"] = version
+            job["readiness"] = result["readiness"]
+            result_path = design_compare_service._JOB_ROOT / _job_id / "result.json"
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+            result_path.write_text("{}", encoding="utf-8")
+            return result_path
+
+        def build_pcb(*_args, **_kwargs):
+            self.assertEqual(events, ["publish-1"])
+            events.append("pcb-start")
+            return {"base": {}, "head": {}}, {"base": [], "head": []}
+
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            design_compare_service,
+            "_JOB_ROOT",
+            Path(temporary),
+        ), mock.patch.object(
+            design_compare_service,
+            "_repo_paths",
+            return_value=(Path("/repo"), None, Path("/repo")),
+        ), mock.patch.object(
+            design_compare_service,
+            "_build_initial_revisions",
+            return_value=({"base": {}, "head": {}}, {"base": [], "head": []}),
+        ), mock.patch.object(
+            design_compare_service,
+            "_assemble_initial_comparison",
+            return_value=(initial_result, {"schematic_changes": []}),
+        ), mock.patch.object(
+            design_compare_service,
+            "_publish_comparison_result",
+            side_effect=publish,
+        ), mock.patch.object(
+            design_compare_service,
+            "_build_pcb_revisions",
+            side_effect=build_pcb,
+        ), mock.patch.object(
+            design_compare_service,
+            "_complete_comparison",
+            return_value=complete_result,
+        ), mock.patch.object(
+            design_compare_service,
+            "_persist_job",
+        ), mock.patch.object(
+            design_compare_service.logger,
+            "exception",
+        ):
+            design_compare_service._run_job(
+                job_id,
+                "project",
+                "base",
+                "head",
+                False,
+            )
+
+        self.assertEqual(events, ["publish-1", "pcb-start", "publish-2"])
+        self.assertEqual(design_compare_service.design_compare_jobs[job_id]["status"], "completed")
+        design_compare_service.design_compare_jobs.pop(job_id, None)
+
+    def test_background_failure_preserves_initial_result_and_marks_late_domains_failed(self) -> None:
+        job_id = "staged-background-failure"
+        design_compare_service.design_compare_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "running",
+            "logs": [],
+            "result": None,
+        }
+        initial_result = {
+            "readiness": {
+                "stage": "initial-ready",
+                "domains": {
+                    "schematic": "ready",
+                    "bom": "ready",
+                    "pcb": "building",
+                    "stackup": "building",
+                },
+            },
+            "schematic": {"changes": [{"id": "schematic-change"}]},
+            "pcb": {"changes": []},
+            "bom": {"changes": [{"ref": "R1"}]},
+        }
+        published = []
+
+        def publish(_job_id, job, result, *, version, benchmark):
+            del benchmark
+            published.append((version, copy.deepcopy(result)))
+            job["result"] = result
+            job["result_version"] = version
+            job["readiness"] = result["readiness"]
+            result_path = design_compare_service._JOB_ROOT / _job_id / "result.json"
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+            result_path.write_text("{}", encoding="utf-8")
+            return result_path
+
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            design_compare_service,
+            "_JOB_ROOT",
+            Path(temporary),
+        ), mock.patch.object(
+            design_compare_service,
+            "_repo_paths",
+            return_value=(Path("/repo"), None, Path("/repo")),
+        ), mock.patch.object(
+            design_compare_service,
+            "_build_initial_revisions",
+            return_value=({"base": {}, "head": {}}, {"base": [], "head": []}),
+        ), mock.patch.object(
+            design_compare_service,
+            "_assemble_initial_comparison",
+            return_value=(initial_result, {"schematic_changes": []}),
+        ), mock.patch.object(
+            design_compare_service,
+            "_publish_comparison_result",
+            side_effect=publish,
+        ), mock.patch.object(
+            design_compare_service,
+            "_build_pcb_revisions",
+            side_effect=RuntimeError("PCB worker failed"),
+        ), mock.patch.object(
+            design_compare_service,
+            "_persist_job",
+        ), mock.patch.object(
+            design_compare_service.logger,
+            "exception",
+        ):
+            design_compare_service._run_job(
+                job_id,
+                "project",
+                "base",
+                "head",
+                False,
+            )
+
+        self.assertEqual([version for version, _result in published], [1, 2])
+        failed_result = published[-1][1]
+        self.assertEqual(failed_result["readiness"]["stage"], "background-failed")
+        self.assertEqual(failed_result["readiness"]["domains"]["schematic"], "ready")
+        self.assertEqual(failed_result["readiness"]["domains"]["bom"], "ready")
+        self.assertEqual(failed_result["readiness"]["domains"]["pcb"], "failed")
+        self.assertEqual(failed_result["readiness"]["domains"]["stackup"], "failed")
+        self.assertEqual(failed_result["schematic"], initial_result["schematic"])
+        self.assertEqual(
+            design_compare_service.design_compare_jobs[job_id]["status"],
+            "failed",
+        )
+        design_compare_service.design_compare_jobs.pop(job_id, None)
 
 
 if __name__ == "__main__":

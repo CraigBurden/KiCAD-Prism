@@ -356,6 +356,7 @@ def build_semantic_index(
     source_revision_key: str,
     commit: str | None = None,
     timing_callback: Callable[[dict[str, Any]], None] | None = None,
+    include_pcb: bool = True,
 ) -> dict[str, Any]:
     def timed(phase: str, action: Callable[[], Any], **metadata: Any) -> Any:
         started_ns = time.perf_counter_ns()
@@ -383,16 +384,34 @@ def build_semantic_index(
         ) from exc
 
     design = timed("load-project", lambda: KiCadDesign.from_project_file(project_file))
-    netlist = timed("compile-netlist", design.to_netlist)
+    compile_netlist = getattr(design, "to_netlist", None)
+    netlist = timed("compile-netlist", compile_netlist) if callable(compile_netlist) else None
     # kicad_design_to_json materializes PnP data and therefore accesses the
     # lazily parsed board. Resolve it explicitly so benchmark output separates
     # the parser cost from the much smaller JSON projection cost.
-    pcb = timed("load-pcb", lambda: design.pcb)
+    pcb = timed("load-pcb", lambda: design.pcb) if include_pcb else None
+
+    def materialize_design_json() -> dict[str, Any]:
+        try:
+            return design.to_json(
+                include_indexes=True,
+                include_pcb=include_pcb,
+            )
+        except TypeError as exc:
+            # Compatibility with an older installed kicad-monkey. The local
+            # optimized tree supports include_pcb=False; upstream releases
+            # without it remain functional, although they cannot defer PCB
+            # parsing during Stage 1.
+            if "include_pcb" not in str(exc):
+                raise
+            return design.to_json(include_indexes=True)
+
     design_payload = timed(
         "materialize-design-json",
-        lambda: design.to_json(include_indexes=True),
-        components=len(netlist.components),
-        nets=len(netlist.nets),
+        materialize_design_json,
+        components=len(getattr(netlist, "components", ()) or ()),
+        nets=len(getattr(netlist, "nets", ()) or ()),
+        includePcb=include_pcb,
     )
     source_fields_by_uuid = timed(
         "scan-instance-fields",
@@ -663,7 +682,7 @@ def build_semantic_index(
             }
         )
 
-    return {
+    result = {
         "schema": SCHEMA,
         "sourceRevisionKey": source_revision_key,
         "commit": commit,
@@ -680,3 +699,4 @@ def build_semantic_index(
         "terminals": terminals,
         "indexes": indexes,
     }
+    return result

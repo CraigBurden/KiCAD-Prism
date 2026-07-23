@@ -270,7 +270,7 @@ export interface GeometrySnapshot {
 }
 
 export interface DesignCompareResult {
-    schema?: "prism.semantic_comparison_v2" | string;
+    schema?: "prism.semantic_comparison_v2" | "prism.semantic_comparison_v3" | string;
     base: string;
     head: string;
     compare?: string;
@@ -289,6 +289,15 @@ export interface DesignCompareResult {
         head: SourceFileRef[];
     };
     document_diff: KiCadProjectDiffBundle;
+    readiness?: DesignCompareReadiness;
+}
+
+export type DesignCompareDomain = "schematic" | "bom" | "pcb" | "stackup";
+export type DesignCompareDomainStatus = "pending" | "building" | "ready" | "failed";
+
+export interface DesignCompareReadiness {
+    stage: "building-initial" | "initial-ready" | "complete" | string;
+    domains: Record<DesignCompareDomain, DesignCompareDomainStatus>;
 }
 
 export interface DesignCompareJobStatus {
@@ -299,6 +308,9 @@ export interface DesignCompareJobStatus {
     logs: string[];
     base?: string;
     head?: string;
+    result_version?: number;
+    ready_domains?: DesignCompareDomain[];
+    readiness?: DesignCompareReadiness;
 }
 
 export type ViewerSide = "base" | "head";

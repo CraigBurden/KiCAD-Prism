@@ -6,6 +6,7 @@ Replaces raster kicad-cli SVG overlays for History Design Comparison.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -25,7 +26,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from app.services import (
     bom_diff_service,
     document_diff_service,
-    project_service,
     semantic_index_service,
 )
 from app.services.design_compare_benchmark import DesignCompareBenchmark
@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 design_compare_jobs: Dict[str, dict] = {}
 _CACHE_ROOT = Path(os.environ.get("PRISM_DESIGN_COMPARE_CACHE", "/tmp/prism_design_compare_cache"))
 _JOB_ROOT = Path(os.environ.get("PRISM_DESIGN_COMPARE_JOBS", "/tmp/prism_design_compare"))
-_CACHE_SCHEMA = "prism.design_compare_revision_v4"
+_CACHE_SCHEMA = "prism.design_compare_revision_v5"
+_INITIAL_CACHE_SCHEMA = "prism.design_compare_revision_initial_v1"
 _CACHE_LOCKS: Dict[str, threading.Lock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
 _GENERATED_PARTS = {
@@ -210,17 +211,77 @@ def _cache_lock(project_id: str, commit: str) -> threading.Lock:
         return _CACHE_LOCKS.setdefault(key, threading.Lock())
 
 
-def _read_revision_cache(marker: Path) -> Optional[Dict[str, Any]]:
+def _read_revision_cache(
+    marker: Path,
+    *,
+    schema: str = _CACHE_SCHEMA,
+) -> Optional[Dict[str, Any]]:
     try:
         payload = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if payload.get("schema") != _CACHE_SCHEMA:
+    if payload.get("schema") != schema:
         return None
     return payload
 
 
-def _load_or_build_revision(
+def _timed_revision_action(
+    *,
+    commit: str,
+    label: str,
+    action: Callable[[], Any],
+    logs: List[str],
+    timings: Dict[str, float],
+    benchmark: Optional[DesignCompareBenchmark],
+    stage: str,
+) -> Any:
+    started = time.perf_counter()
+    scope = f"revision:{commit}:{stage}"
+    if benchmark is None:
+        try:
+            return action()
+        finally:
+            elapsed = time.perf_counter() - started
+            timings[label] = elapsed
+            logs.append(f"Timing {commit[:7]} {stage}.{label}: {elapsed:.3f}s")
+    with benchmark.span(label, scope=scope):
+        try:
+            return action()
+        finally:
+            elapsed = time.perf_counter() - started
+            timings[label] = elapsed
+            logs.append(f"Timing {commit[:7]} {stage}.{label}: {elapsed:.3f}s")
+
+
+def _semantic_timing_callback(
+    benchmark: Optional[DesignCompareBenchmark],
+    *,
+    commit: str,
+    stage: str,
+) -> Optional[Callable[[Dict[str, Any]], None]]:
+    if benchmark is None:
+        return None
+
+    def record(event: Dict[str, Any]) -> None:
+        benchmark.record_duration(
+            event["phase"],
+            elapsed_ns=event["elapsedNs"],
+            cpu_ns=event["cpuNs"],
+            scope=f"revision:{commit}:{stage}:semantic",
+            metadata=event.get("metadata"),
+        )
+
+    return record
+
+
+def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+    temporary.replace(path)
+
+
+def _load_or_build_initial_revision(
     project_id: str,
     repo_path: Path,
     relative_path: Optional[str],
@@ -229,45 +290,64 @@ def _load_or_build_revision(
     on_progress: Optional[Any] = None,
     benchmark: Optional[DesignCompareBenchmark] = None,
 ) -> Dict[str, Any]:
+    """Build the Schematic+BOM revision stage without materializing the PCB."""
+
     revision_started = time.perf_counter()
     timings: Dict[str, float] = {}
 
     def timed(label: str, action: Callable[[], Any]) -> Any:
-        started = time.perf_counter()
-        if benchmark is None:
-            try:
-                return action()
-            finally:
-                elapsed = time.perf_counter() - started
-                timings[label] = elapsed
-                logs.append(f"Timing {commit[:7]} {label}: {elapsed:.3f}s")
-        with benchmark.span(label, scope=f"revision:{commit}"):
-            try:
-                return action()
-            finally:
-                elapsed = time.perf_counter() - started
-                timings[label] = elapsed
-                logs.append(f"Timing {commit[:7]} {label}: {elapsed:.3f}s")
+        return _timed_revision_action(
+            commit=commit,
+            label=label,
+            action=action,
+            logs=logs,
+            timings=timings,
+            benchmark=benchmark,
+            stage="initial",
+        )
 
     cache = _cache_dir(project_id, commit)
-    marker = cache / "revision.json"
-    cached = _read_revision_cache(marker) if marker.exists() else None
+    full_marker = cache / "revision.json"
+    initial_marker = cache / "initial.json"
+    cached = _read_revision_cache(full_marker) if full_marker.exists() else None
     if cached is not None:
-        logs.append(f"Cache hit for {commit[:7]}")
+        logs.append(f"Full cache hit for {commit[:7]}")
         if benchmark is not None:
-            benchmark.mark("cache-hit", scope=f"revision:{commit}")
+            benchmark.mark("full-cache-hit", scope=f"revision:{commit}:initial")
         if on_progress:
-            on_progress(f"Cache hit {commit[:7]}")
+            on_progress(f"Initial assets cached {commit[:7]}")
+        return cached
+    cached = (
+        _read_revision_cache(initial_marker, schema=_INITIAL_CACHE_SCHEMA)
+        if initial_marker.exists()
+        else None
+    )
+    if cached is not None:
+        logs.append(f"Initial cache hit for {commit[:7]}")
+        if benchmark is not None:
+            benchmark.mark("initial-cache-hit", scope=f"revision:{commit}:initial")
+        if on_progress:
+            on_progress(f"Initial assets cached {commit[:7]}")
         return cached
 
     with _cache_lock(project_id, commit):
-        cached = _read_revision_cache(marker) if marker.exists() else None
+        cached = _read_revision_cache(full_marker) if full_marker.exists() else None
         if cached is not None:
-            logs.append(f"Cache hit for {commit[:7]} after wait")
+            logs.append(f"Full cache hit for {commit[:7]} after wait")
             if benchmark is not None:
-                benchmark.mark("cache-hit-after-wait", scope=f"revision:{commit}")
+                benchmark.mark("full-cache-hit-after-wait", scope=f"revision:{commit}:initial")
             if on_progress:
-                on_progress(f"Cache hit {commit[:7]}")
+                on_progress(f"Initial assets cached {commit[:7]}")
+            return cached
+        cached = (
+            _read_revision_cache(initial_marker, schema=_INITIAL_CACHE_SCHEMA)
+            if initial_marker.exists()
+            else None
+        )
+        if cached is not None:
+            logs.append(f"Initial cache hit for {commit[:7]} after wait")
+            if benchmark is not None:
+                benchmark.mark("initial-cache-hit-after-wait", scope=f"revision:{commit}:initial")
             return cached
 
         snap = cache / "snapshot"
@@ -287,36 +367,27 @@ def _load_or_build_revision(
             "terminals": [],
             "indexes": {},
         }
-        geometry: Dict[str, Any] = {"schematic": {}, "pcb": {}}
-        stackup: Dict[str, Any] = {"present": False, "layers": []}
-        bom_csv = ""
-
         if pro:
             try:
                 if on_progress:
-                    on_progress(f"Building semantic index for {commit[:7]}…")
+                    on_progress(f"Building schematic semantics for {commit[:7]}…")
                 semantic_index = timed(
-                    "semantic-index",
+                    "schematic-semantic-index",
                     lambda: semantic_index_service.build_semantic_index(
                         pro,
                         source_revision_key=commit,
                         commit=commit,
-                        timing_callback=(
-                            None
-                            if benchmark is None
-                            else lambda event: benchmark.record_duration(
-                                event["phase"],
-                                elapsed_ns=event["elapsedNs"],
-                                cpu_ns=event["cpuNs"],
-                                scope=f"revision:{commit}:semantic",
-                                metadata=event.get("metadata"),
-                            )
+                        timing_callback=_semantic_timing_callback(
+                            benchmark,
+                            commit=commit,
+                            stage="initial",
                         ),
+                        include_pcb=False,
                     ),
                 )
-                logs.append(f"Built semantic index for {commit[:7]}")
+                logs.append(f"Built schematic semantic index for {commit[:7]}")
             except Exception as exc:
-                logs.append(f"Semantic index failed for {commit[:7]}: {exc}")
+                logs.append(f"Schematic semantic index failed for {commit[:7]}: {exc}")
                 semantic_index = {
                     "schema": "fallback",
                     "components": [],
@@ -326,62 +397,158 @@ def _load_or_build_revision(
                 }
 
             try:
-                stackup = timed("stackup", lambda: _extract_stackup(snap))
-            except Exception as exc:
-                logs.append(f"Stackup extract failed: {exc}")
-
-            try:
                 if on_progress:
-                    on_progress(f"Extracting geometry for {commit[:7]}…")
+                    on_progress(f"Extracting schematic geometry for {commit[:7]}…")
                 geometry = timed(
-                    "geometry",
-                    lambda: _extract_geometry(snap, semantic_index),
+                    "schematic-geometry",
+                    lambda: _extract_geometry(
+                        snap,
+                        semantic_index,
+                        {"schematic"},
+                    ),
                 )
                 logs.append(
-                    f"Geometry {commit[:7]}: "
-                    f"sch={len(geometry.get('schematic') or {})} "
-                    f"pcb={len(geometry.get('pcb') or {})}"
+                    f"Schematic geometry {commit[:7]}: "
+                    f"{len(geometry.get('schematic') or {})} objects"
                 )
             except Exception as exc:
-                logs.append(f"Geometry extract failed: {exc}")
-
-            try:
-                if on_progress:
-                    on_progress(f"Exporting BOM for {commit[:7]}…")
-                bom_csv = timed("bom", lambda: _export_bom_csv(snap, logs))
-            except Exception as exc:
-                logs.append(f"BOM export failed: {exc}")
+                logs.append(f"Schematic geometry extract failed: {exc}")
+                geometry = {"schematic": {}, "pcb": {}}
+        else:
+            geometry = {"schematic": {}, "pcb": {}}
 
         payload = {
-            "schema": _CACHE_SCHEMA,
+            "schema": _INITIAL_CACHE_SCHEMA,
             "commit": commit,
             "semantic": semantic_index,
             "geometry": geometry,
-            "stackup": stackup,
-            "bom_csv": bom_csv,
+            "stackup": {"present": False, "layers": []},
+            "bom_rows": timed(
+                "bom-projection",
+                lambda: _semantic_bom_rows(semantic_index),
+            ),
             "sources": timed("source-list", lambda: _list_kicad_sources(snap)),
             "timings": timings,
         }
-        cache.mkdir(parents=True, exist_ok=True)
-        temporary = marker.with_suffix(".json.tmp")
-        timed(
-            "cache-write",
-            lambda: (
-                temporary.write_text(
-                    json.dumps(payload, separators=(",", ":")),
-                    encoding="utf-8",
-                ),
-                temporary.replace(marker),
-            ),
-        )
+        timed("cache-write", lambda: _atomic_write_json(initial_marker, payload))
         total = time.perf_counter() - revision_started
         logs.append(
-            f"Timing {commit[:7]} total: {total:.3f}s; "
-            f"cache={marker.stat().st_size / (1024 * 1024):.1f}MiB"
+            f"Timing {commit[:7]} initial total: {total:.3f}s; "
+            f"cache={initial_marker.stat().st_size / (1024 * 1024):.1f}MiB"
         )
         if on_progress:
-            on_progress(f"Revision {commit[:7]} ready")
+            on_progress(f"Schematic and BOM ready for {commit[:7]}")
         return payload
+
+
+def _load_or_build_pcb_revision(
+    project_id: str,
+    commit: str,
+    initial: Dict[str, Any],
+    logs: List[str],
+    on_progress: Optional[Any] = None,
+    benchmark: Optional[DesignCompareBenchmark] = None,
+) -> Dict[str, Any]:
+    """Finish PCB+Stackup by scanning the existing Stage 1 snapshot."""
+
+    if initial.get("schema") == _CACHE_SCHEMA:
+        logs.append(f"PCB cache already loaded for {commit[:7]}")
+        if benchmark is not None:
+            benchmark.mark("pcb-cache-reused", scope=f"revision:{commit}:pcb")
+        return initial
+
+    timings = dict(initial.get("timings") or {})
+
+    def timed(label: str, action: Callable[[], Any]) -> Any:
+        return _timed_revision_action(
+            commit=commit,
+            label=label,
+            action=action,
+            logs=logs,
+            timings=timings,
+            benchmark=benchmark,
+            stage="pcb",
+        )
+
+    cache = _cache_dir(project_id, commit)
+    marker = cache / "revision.json"
+    cached = _read_revision_cache(marker) if marker.exists() else None
+    if cached is not None:
+        logs.append(f"PCB cache hit for {commit[:7]}")
+        if benchmark is not None:
+            benchmark.mark("pcb-cache-hit", scope=f"revision:{commit}:pcb")
+        return cached
+
+    with _cache_lock(project_id, commit):
+        cached = _read_revision_cache(marker) if marker.exists() else None
+        if cached is not None:
+            logs.append(f"PCB cache hit for {commit[:7]} after wait")
+            return cached
+
+        snap = cache / "snapshot"
+        semantic_index = copy.deepcopy(initial.get("semantic") or {})
+
+        geometry = copy.deepcopy(initial.get("geometry") or {"schematic": {}, "pcb": {}})
+        try:
+            if on_progress:
+                on_progress(f"Indexing PCB geometry for {commit[:7]}…")
+            pcb_geometry = timed(
+                "pcb-geometry",
+                lambda: _extract_geometry(snap, semantic_index, {"pcb"}),
+            )
+            geometry["pcb"] = pcb_geometry.get("pcb") or {}
+        except Exception as exc:
+            logs.append(f"PCB geometry extract failed for {commit[:7]}: {exc}")
+            geometry["pcb"] = {}
+
+        try:
+            stackup = timed("stackup", lambda: _extract_stackup(snap))
+        except Exception as exc:
+            logs.append(f"Stackup extract failed for {commit[:7]}: {exc}")
+            stackup = {"present": False, "layers": []}
+
+        payload = {
+            **initial,
+            "schema": _CACHE_SCHEMA,
+            "semantic": semantic_index,
+            "geometry": geometry,
+            "stackup": stackup,
+            "timings": timings,
+        }
+        timed("cache-write", lambda: _atomic_write_json(marker, payload))
+        if on_progress:
+            on_progress(f"PCB and Stackup ready for {commit[:7]}")
+        return payload
+
+
+def _load_or_build_revision(
+    project_id: str,
+    repo_path: Path,
+    relative_path: Optional[str],
+    commit: str,
+    logs: List[str],
+    on_progress: Optional[Any] = None,
+    benchmark: Optional[DesignCompareBenchmark] = None,
+) -> Dict[str, Any]:
+    """Compatibility full-revision entry point used by cache warmers/tests."""
+
+    initial = _load_or_build_initial_revision(
+        project_id,
+        repo_path,
+        relative_path,
+        commit,
+        logs,
+        on_progress=on_progress,
+        benchmark=benchmark,
+    )
+    return _load_or_build_pcb_revision(
+        project_id,
+        commit,
+        initial,
+        logs,
+        on_progress=on_progress,
+        benchmark=benchmark,
+    )
 
 
 def _list_kicad_sources(root: Path) -> List[Dict[str, str]]:
@@ -416,33 +583,38 @@ def _is_generated_kicad_path(path: Path, root: Path) -> bool:
     )
 
 
-def _export_bom_csv(snap: Path, logs: List[str]) -> str:
-    from app.services.diff_service import _get_cli_command
+def _semantic_bom_rows(semantic_index: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Project BOM rows projected from the already-compiled schematic model.
 
-    sch = project_service.find_schematic_file(str(snap))
-    if not sch:
-        return ""
-    out = snap / "_bom.csv"
-    cli = _get_cli_command()
-    # Request Reference explicitly. Default kicad-cli labels use "Refs", which
-    # historically caused every BOM row to be dropped by the Reference matcher.
-    bom_fields = ["Reference", "Value", "Footprint", "Datasheet"]
-    cmd = [
-        cli,
-        "sch",
-        "export",
-        "bom",
-        "--fields",
-        ",".join(bom_fields),
-        "--output",
-        str(out),
-        sch,
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0 or not out.exists():
-        logs.append(f"kicad-cli bom export failed: {proc.stderr[:200]}")
-        return ""
-    return out.read_text(encoding="utf-8", errors="replace")
+    Design Comparison used to invoke kicad-cli after kicad-monkey had already
+    parsed and compiled the same schematic hierarchy. Keeping the projection
+    in-process removes that second parser pass and preserves every canonical
+    and custom field exposed by the semantic index.
+    """
+
+    rows: List[Dict[str, str]] = []
+    for component in semantic_index.get("components") or []:
+        reference = str(component.get("reference") or "").strip()
+        if not reference:
+            continue
+        fields = {
+            str(key): "" if value is None else str(value)
+            for key, value in (component.get("fields") or {}).items()
+            if str(key)
+        }
+        if fields.get("kicad_in_bom", "true").strip().casefold() == "false":
+            continue
+        rows.append(
+            {
+                **fields,
+                "Reference": reference,
+                "Value": str(component.get("value") or fields.get("Value") or ""),
+                "Footprint": str(
+                    component.get("footprint") or fields.get("Footprint") or ""
+                ),
+            }
+        )
+    return sorted(rows, key=lambda row: row["Reference"])
 
 
 def _extract_stackup(snap: Path) -> Dict[str, Any]:
@@ -562,21 +734,44 @@ def _enrich_geometry(
     net_bucket = "netBySchematicUuid" if context == "schematic" else "netByPcbUuid"
     component = _semantic_lookup(semantic_index, component_bucket, source_id)
     net = _semantic_lookup(semantic_index, net_bucket, source_id)
+    if context == "pcb" and component is None and entry.get("reference"):
+        component = _semantic_lookup(
+            semantic_index,
+            "componentByReference",
+            str(entry["reference"]),
+        )
+    if context == "pcb" and net is None and entry.get("net"):
+        net = _semantic_lookup(
+            semantic_index,
+            "netByName",
+            str(entry["net"]),
+        )
     if component:
         entry["semantic_id"] = component.get("componentUid")
         entry["reference"] = component.get("reference")
     if net:
         entry["semantic_id"] = net.get("netUid")
         entry["net"] = net.get("name") or entry.get("net")
+    elif context == "pcb" and entry.get("net"):
+        entry["semantic_id"] = semantic_index_service._stable_uid(
+            "net",
+            entry["net"],
+        )
     return entry
 
 
-def _extract_geometry(snap: Path, semantic_index: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_geometry(
+    snap: Path,
+    semantic_index: Dict[str, Any],
+    domains: Optional[set[str]] = None,
+) -> Dict[str, Any]:
     """Compact native source-id → exact/fallback geometry sidecars."""
     sch_geom: Dict[str, Any] = {}
     pcb_geom: Dict[str, Any] = {}
+    requested = domains or {"schematic", "pcb"}
 
-    for sch in snap.rglob("*.kicad_sch"):
+    schematic_paths = snap.rglob("*.kicad_sch") if "schematic" in requested else ()
+    for sch in schematic_paths:
         if _is_generated_kicad_path(sch, snap):
             continue
         page = sch.relative_to(snap).as_posix()
@@ -675,7 +870,7 @@ def _extract_geometry(snap: Path, semantic_index: Dict[str, Any]) -> Dict[str, A
             if not _is_generated_kicad_path(path, snap)
         ),
         None,
-    )
+    ) if "pcb" in requested else None
     if pcb:
         text = pcb.read_text(encoding="utf-8", errors="replace")
         net_names = {
@@ -755,9 +950,14 @@ def _extract_geometry(snap: Path, semantic_index: Dict[str, Any]) -> Dict[str, A
             if not source_id or not at:
                 continue
             lib_id = re.match(r'\(footprint\s+"([^"]+)"', block)
+            reference_match = re.search(
+                r'\(property\s+"Reference"\s+"((?:\\.|[^"\\])*)"',
+                block,
+            )
             entry.update(
                 {
                     "lib_id": lib_id.group(1) if lib_id else "",
+                    "reference": reference_match.group(1) if reference_match else "",
                     "x": at[0],
                     "y": at[1],
                     "rotation": rotation or 0,
@@ -2164,6 +2364,365 @@ def _build_revisions(
     return revisions, revision_logs
 
 
+def _stage_worker_count(stage: str, revision_count: int) -> int:
+    # Both stages are bounded at two. Stage 1 overlaps the two independent
+    # schematic compiles; Stage 2 runs only lightweight source-geometry scans
+    # after parser sessions have been released (no concurrent PCB ASTs).
+    defaults = {"initial": 2, "pcb": 2}
+    variable = {
+        "initial": "PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS",
+        "pcb": "PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS",
+    }[stage]
+    configured_value = os.environ.get(
+        variable,
+        os.environ.get(
+            "PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS",
+            str(defaults[stage]),
+        ),
+    )
+    try:
+        configured = int(configured_value)
+    except ValueError:
+        configured = defaults[stage]
+    return max(1, min(2, configured, revision_count))
+
+
+def _build_initial_revisions(
+    project_id: str,
+    repo_path: Path,
+    relative_path: Optional[str],
+    base: str,
+    head: str,
+    heartbeat: Callable[[str, Optional[float]], None],
+    benchmark: Optional[DesignCompareBenchmark] = None,
+) -> tuple[
+    Dict[str, Dict[str, Any]],
+    Dict[str, List[str]],
+]:
+    unique_commits = list(dict.fromkeys((base, head)))
+    max_workers = _stage_worker_count("initial", len(unique_commits))
+    revisions: Dict[str, Dict[str, Any]] = {}
+    revision_logs: Dict[str, List[str]] = {}
+    completed = 0
+    state_lock = threading.Lock()
+
+    def build(commit: str) -> tuple[Dict[str, Any], List[str]]:
+        local_logs: List[str] = []
+
+        def report(message: str) -> None:
+            with state_lock:
+                progress = 10 + completed * 18
+            heartbeat(f"Initial {commit[:7]}: {message}", progress)
+
+        revision = _load_or_build_initial_revision(
+            project_id,
+            repo_path,
+            relative_path,
+            commit,
+            local_logs,
+            on_progress=report,
+            benchmark=benchmark,
+        )
+        return revision, local_logs
+
+    heartbeat("Building Schematic and BOM assets…", 10)
+    with ThreadPoolExecutor(
+        max_workers=max_workers,
+        thread_name_prefix="design-compare-initial",
+    ) as executor:
+        futures = {executor.submit(build, commit): commit for commit in unique_commits}
+        try:
+            for future in as_completed(futures):
+                commit = futures[future]
+                revision, local_logs = future.result()
+                revisions[commit] = revision
+                revision_logs[commit] = local_logs
+                with state_lock:
+                    completed += 1
+                    progress = 10 + completed * 18
+                heartbeat(f"Schematic and BOM ready for {commit[:7]}", progress)
+        except Exception:
+            for future in futures:
+                future.cancel()
+            raise
+    return revisions, revision_logs
+
+
+def _build_pcb_revisions(
+    project_id: str,
+    base: str,
+    head: str,
+    initial_revisions: Dict[str, Dict[str, Any]],
+    heartbeat: Callable[[str, Optional[float]], None],
+    benchmark: Optional[DesignCompareBenchmark] = None,
+) -> tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
+    unique_commits = list(dict.fromkeys((base, head)))
+    max_workers = _stage_worker_count("pcb", len(unique_commits))
+    revisions: Dict[str, Dict[str, Any]] = {}
+    revision_logs: Dict[str, List[str]] = {}
+    completed = 0
+    state_lock = threading.Lock()
+
+    def build(commit: str) -> tuple[Dict[str, Any], List[str]]:
+        local_logs: List[str] = []
+
+        def report(message: str) -> None:
+            with state_lock:
+                progress = 60 + completed * 16
+            heartbeat(f"Background {commit[:7]}: {message}", progress)
+
+        revision = _load_or_build_pcb_revision(
+            project_id,
+            commit,
+            initial_revisions[commit],
+            local_logs,
+            on_progress=report,
+            benchmark=benchmark,
+        )
+        return revision, local_logs
+
+    heartbeat("Schematic and BOM ready; building PCB and Stackup in background…", 60)
+    with ThreadPoolExecutor(
+        max_workers=max_workers,
+        thread_name_prefix="design-compare-pcb",
+    ) as executor:
+        futures = {executor.submit(build, commit): commit for commit in unique_commits}
+        try:
+            for future in as_completed(futures):
+                commit = futures[future]
+                revision, local_logs = future.result()
+                revisions[commit] = revision
+                revision_logs[commit] = local_logs
+                with state_lock:
+                    completed += 1
+                    progress = 60 + completed * 16
+                heartbeat(f"PCB and Stackup ready for {commit[:7]}", progress)
+        except Exception:
+            for future in futures:
+                future.cancel()
+            raise
+    return revisions, revision_logs
+
+
+def _revision_bom_rows(revision: Dict[str, Any]) -> List[Dict[str, str]]:
+    rows = revision.get("bom_rows")
+    if isinstance(rows, list):
+        return rows
+    return bom_diff_service.parse_bom_csv(revision.get("bom_csv") or "")
+
+
+def _comparison_bom_fields(project_id: str, head: str) -> List[str]:
+    fields = ["Reference", "Value", "Footprint", "Datasheet"]
+    try:
+        cfg_path = _cache_dir(project_id, head) / "snapshot" / ".prism.json"
+        if cfg_path.exists():
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            fields = cfg.get("bom", {}).get("fields") or fields
+    except Exception:
+        pass
+    return fields
+
+
+def _assemble_initial_comparison(
+    *,
+    project_id: str,
+    base: str,
+    head: str,
+    revisions: Dict[str, Dict[str, Any]],
+    include_unchanged: bool,
+    benchmark: DesignCompareBenchmark,
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    def assemble(phase: str, action: Callable[[], Any]) -> Any:
+        with benchmark.span(phase, scope="assembly:initial"):
+            return action()
+
+    base_rev = revisions[base]
+    head_rev = revisions[head]
+    sch_diff = assemble(
+        "schematic-semantic-diff",
+        lambda: _diff_designs(base_rev.get("semantic") or {}, head_rev.get("semantic") or {}),
+    )
+    sch_geometry_changes = assemble(
+        "schematic-geometry-diff",
+        lambda: _diff_geometry(
+            base_rev.get("geometry") or {},
+            head_rev.get("geometry") or {},
+            "schematic",
+        ),
+    )
+    schematic_changes = assemble(
+        "schematic-change-merge",
+        lambda: _merge_semantic_geometry_changes(sch_diff["changes"], sch_geometry_changes),
+    )
+    assemble(
+        "visual-target-hydration",
+        lambda: _hydrate_visual_target_pages_and_match_labels(
+            schematic_changes,
+            (base_rev.get("geometry") or {}).get("schematic") or {},
+            (head_rev.get("geometry") or {}).get("schematic") or {},
+        ),
+    )
+    bom = assemble(
+        "bom-diff",
+        lambda: bom_diff_service.diff_boms(
+            _revision_bom_rows(base_rev),
+            _revision_bom_rows(head_rev),
+            _comparison_bom_fields(project_id, head),
+            include_unchanged=include_unchanged,
+        ),
+    )
+    source_files = {
+        "base": base_rev.get("sources") or [],
+        "head": head_rev.get("sources") or [],
+    }
+    empty_pcb_changes: List[Dict[str, Any]] = []
+    document_diff = assemble(
+        "document-diff",
+        lambda: document_diff_service.build_project_diff(
+            schematic_changes=schematic_changes,
+            pcb_changes=empty_pcb_changes,
+            files=source_files,
+            geometry={
+                "base": base_rev.get("geometry") or {},
+                "head": head_rev.get("geometry") or {},
+            },
+        ),
+    )
+    sheets = sorted(
+        {
+            Path(source["filename"]).name
+            for source in source_files["base"] + source_files["head"]
+            if source["filename"].endswith(".kicad_sch")
+        }
+    )
+    result = {
+        "schema": "prism.semantic_comparison_v3",
+        "base": base,
+        "head": head,
+        "compare": head,
+        "diagnostics": [],
+        "readiness": {
+            "stage": "initial-ready",
+            "domains": {
+                "schematic": "ready",
+                "bom": "ready",
+                "pcb": "building",
+                "stackup": "building",
+            },
+        },
+        "files": source_files,
+        "document_diff": document_diff,
+        "schematic": {
+            "pages": sheets,
+            "changes": schematic_changes,
+            "groups": assemble("schematic-grouping", lambda: _group_changes(schematic_changes)),
+            "summary": _summary(schematic_changes),
+        },
+        "pcb": {
+            "changes": [],
+            "groups": [],
+            "summary": {"added": 0, "removed": 0, "changed": 0},
+            "route_metrics": {"base": {}, "compare": {}},
+        },
+        "bom": bom,
+        "stackup": {"base": [], "head": [], "changed": False, "present": False},
+    }
+    state = {"schematic_changes": schematic_changes}
+    return result, state
+
+
+def _complete_comparison(
+    *,
+    initial_result: Dict[str, Any],
+    assembly_state: Dict[str, Any],
+    base: str,
+    head: str,
+    revisions: Dict[str, Dict[str, Any]],
+    benchmark: DesignCompareBenchmark,
+) -> Dict[str, Any]:
+    def assemble(phase: str, action: Callable[[], Any]) -> Any:
+        with benchmark.span(phase, scope="assembly:pcb"):
+            return action()
+
+    base_rev = revisions[base]
+    head_rev = revisions[head]
+    pcb_changes = assemble(
+        "pcb-geometry-diff",
+        lambda: _diff_geometry(
+            base_rev.get("geometry") or {},
+            head_rev.get("geometry") or {},
+            "pcb",
+        ),
+    )
+    stackup = assemble(
+        "stackup-diff",
+        lambda: _diff_stackup(base_rev.get("stackup") or {}, head_rev.get("stackup") or {}),
+    )
+    route_metrics = assemble(
+        "route-metrics",
+        lambda: {
+            "base": _route_metrics(base_rev.get("geometry") or {}, base_rev.get("stackup") or {}),
+            "compare": _route_metrics(head_rev.get("geometry") or {}, head_rev.get("stackup") or {}),
+        },
+    )
+    source_files = initial_result["files"]
+    schematic_changes = assembly_state["schematic_changes"]
+    document_diff = assemble(
+        "document-diff",
+        lambda: document_diff_service.build_project_diff(
+            schematic_changes=schematic_changes,
+            pcb_changes=pcb_changes,
+            files=source_files,
+            geometry={
+                "base": base_rev.get("geometry") or {},
+                "head": head_rev.get("geometry") or {},
+            },
+        ),
+    )
+    return {
+        **initial_result,
+        "readiness": {
+            "stage": "complete",
+            "domains": {
+                "schematic": "ready",
+                "bom": "ready",
+                "pcb": "ready",
+                "stackup": "ready",
+            },
+        },
+        "document_diff": document_diff,
+        "pcb": {
+            "changes": pcb_changes,
+            "groups": assemble("pcb-grouping", lambda: _group_changes(pcb_changes)),
+            "summary": _summary(pcb_changes),
+            "route_metrics": route_metrics,
+        },
+        "stackup": stackup,
+    }
+
+
+def _publish_comparison_result(
+    job_id: str,
+    job: Dict[str, Any],
+    result: Dict[str, Any],
+    *,
+    version: int,
+    benchmark: DesignCompareBenchmark,
+) -> Path:
+    result_path = _JOB_ROOT / job_id / "result.json"
+    with benchmark.span(f"result-publish-v{version}"):
+        _atomic_write_json(result_path, result)
+    job["result"] = result
+    job["result_version"] = version
+    job["readiness"] = result["readiness"]
+    job["ready_domains"] = [
+        domain
+        for domain, status in result["readiness"]["domains"].items()
+        if status == "ready"
+    ]
+    return result_path
+
+
 def _run_job(
     job_id: str,
     project_id: str,
@@ -2171,6 +2730,8 @@ def _run_job(
     head: str,
     include_unchanged: bool,
 ) -> None:
+    """Publish Schematic+BOM first, then finish PCB+Stackup eagerly."""
+
     job = design_compare_jobs[job_id]
     logs: List[str] = job.setdefault("logs", [])
     job_lock = threading.Lock()
@@ -2181,11 +2742,10 @@ def _run_job(
             "projectId": project_id,
             "base": base,
             "compare": head,
-            "revisionWorkers": os.environ.get(
-                "PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS",
-                "2",
-            ),
+            "initialWorkers": _stage_worker_count("initial", len(set((base, head)))),
+            "pcbWorkers": _stage_worker_count("pcb", len(set((base, head)))),
             "semanticGenerator": semantic_index_service.generator_cache_tag(),
+            "pipeline": "staged-domain-v1",
         },
     )
 
@@ -2197,13 +2757,23 @@ def _run_job(
             job["logs"] = logs[-40:]
             _persist_job(job_id)
 
+    def append_revision_logs(
+        revision_logs: Dict[str, List[str]],
+        *,
+        stage: str,
+    ) -> None:
+        for commit in dict.fromkeys((base, head)):
+            side = "old/new" if base == head else "old" if commit == base else "new"
+            logs.extend(
+                f"[{stage}:{side}] {message}"
+                for message in revision_logs.get(commit, [])
+            )
+
     try:
         repo_path, relative_path, _checkout = _repo_paths(project_id)
-        heartbeat("Building revisions…", 10)
-
-        revisions_started = time.perf_counter()
-        with benchmark.span("revision-pipeline"):
-            revisions, revision_logs = _build_revisions(
+        initial_started = time.perf_counter()
+        with benchmark.span("initial-revision-pipeline"):
+            initial_revisions, initial_logs = _build_initial_revisions(
                 project_id,
                 repo_path,
                 relative_path,
@@ -2212,194 +2782,87 @@ def _run_job(
                 heartbeat,
                 benchmark=benchmark,
             )
-        for commit in dict.fromkeys((base, head)):
-            label = "old/new" if base == head else "old" if commit == base else "new"
-            logs.extend(
-                f"[{label}] {message}"
-                for message in revision_logs.get(commit, [])
+        append_revision_logs(initial_logs, stage="initial")
+
+        heartbeat("Assembling Schematic and BOM differences…", 50)
+        initial_result, assembly_state = _assemble_initial_comparison(
+            project_id=project_id,
+            base=base,
+            head=head,
+            revisions=initial_revisions,
+            include_unchanged=include_unchanged,
+            benchmark=benchmark,
+        )
+        result_path = _publish_comparison_result(
+            job_id,
+            job,
+            initial_result,
+            version=1,
+            benchmark=benchmark,
+        )
+        initial_elapsed = time.perf_counter() - initial_started
+        logs.append(f"Timing initial ready: {initial_elapsed:.3f}s")
+        benchmark.update_metadata(initialReadyMs=round(initial_elapsed * 1000, 3))
+        heartbeat(
+            "Schematic and BOM ready; building PCB and Stackup in background…",
+            60,
+        )
+        with benchmark.span("pcb-revision-pipeline"):
+            complete_revisions, pcb_logs = _build_pcb_revisions(
+                project_id,
+                base,
+                head,
+                initial_revisions,
+                heartbeat,
+                benchmark=benchmark,
             )
-        logs.append(
-            f"Timing revision pipeline: {time.perf_counter() - revisions_started:.3f}s"
+        append_revision_logs(pcb_logs, stage="pcb")
+        heartbeat("Assembling PCB and Stackup differences…", 92)
+        result = _complete_comparison(
+            initial_result=initial_result,
+            assembly_state=assembly_state,
+            base=base,
+            head=head,
+            revisions=complete_revisions,
+            benchmark=benchmark,
+        )
+        result_path = _publish_comparison_result(
+            job_id,
+            job,
+            result,
+            version=2,
+            benchmark=benchmark,
         )
 
-        heartbeat("Diffing designs…", 55)
-        assembly_started = time.perf_counter()
-
-        def assemble(phase: str, action: Callable[[], Any]) -> Any:
-            with benchmark.span(phase, scope="assembly"):
-                return action()
-
-        base_rev = revisions[base]
-        head_rev = revisions[head]
-        sch_diff = assemble(
-            "schematic-semantic-diff",
-            lambda: _diff_designs(
-                base_rev.get("semantic") or base_rev.get("design") or {},
-                head_rev.get("semantic") or head_rev.get("design") or {},
-            ),
-        )
-        sch_geometry_changes = assemble(
-            "schematic-geometry-diff",
-            lambda: _diff_geometry(
-                base_rev.get("geometry") or {},
-                head_rev.get("geometry") or {},
-                "schematic",
-            ),
-        )
-        schematic_changes = assemble(
-            "schematic-change-merge",
-            lambda: _merge_semantic_geometry_changes(
-                sch_diff["changes"],
-                sch_geometry_changes,
-            ),
-        )
-        assemble(
-            "visual-target-hydration",
-            lambda: _hydrate_visual_target_pages_and_match_labels(
-                schematic_changes,
-                (base_rev.get("geometry") or {}).get("schematic") or {},
-                (head_rev.get("geometry") or {}).get("schematic") or {},
-            ),
-        )
-        pcb_changes = assemble(
-            "pcb-geometry-diff",
-            lambda: _diff_geometry(
-                base_rev.get("geometry") or {},
-                head_rev.get("geometry") or {},
-                "pcb",
-            ),
-        )
-
-        # BOM
-        fields = ["Reference", "Value", "Footprint", "Datasheet"]
-        try:
-            cfg_path = _cache_dir(project_id, head) / "snapshot" / ".prism.json"
-            if cfg_path.exists():
-                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-                fields = cfg.get("bom", {}).get("fields") or fields
-        except Exception:
-            pass
-        def build_bom_diff() -> Dict[str, Any]:
-            old_bom = bom_diff_service.parse_bom_csv(base_rev.get("bom_csv") or "")
-            new_bom = bom_diff_service.parse_bom_csv(head_rev.get("bom_csv") or "")
-            return bom_diff_service.diff_boms(
-                old_bom,
-                new_bom,
-                fields,
-                include_unchanged=include_unchanged,
-            )
-
-        bom = assemble("bom-diff", build_bom_diff)
-
-        stackup = assemble(
-            "stackup-diff",
-            lambda: _diff_stackup(
-                base_rev.get("stackup") or {},
-                head_rev.get("stackup") or {},
-            ),
-        )
-        route_metrics = assemble(
-            "route-metrics",
-            lambda: {
-                "base": _route_metrics(
-                    base_rev.get("geometry") or {},
-                    base_rev.get("stackup") or {},
-                ),
-                "compare": _route_metrics(
-                    head_rev.get("geometry") or {},
-                    head_rev.get("stackup") or {},
-                ),
-            },
-        )
-
-        sheets = sorted(
-            {
-                Path(s["filename"]).name
-                for s in (head_rev.get("sources") or []) + (base_rev.get("sources") or [])
-                if s["filename"].endswith(".kicad_sch")
-            }
-        )
-
-        source_files = {
-            "base": base_rev.get("sources") or [],
-            "head": head_rev.get("sources") or [],
-        }
-        document_diff = assemble(
-            "document-diff",
-            lambda: document_diff_service.build_project_diff(
-                schematic_changes=schematic_changes,
-                pcb_changes=pcb_changes,
-                files=source_files,
-                geometry={
-                    "base": base_rev.get("geometry") or {},
-                    "head": head_rev.get("geometry") or {},
-                },
-            ),
-        )
-
-        schematic_groups = assemble(
-            "schematic-grouping",
-            lambda: _group_changes(schematic_changes),
-        )
-        pcb_groups = assemble("pcb-grouping", lambda: _group_changes(pcb_changes))
-
-        result = {
-            "schema": "prism.semantic_comparison_v2",
-            "base": base,
-            "head": head,
-            "compare": head,
-            "diagnostics": [],
-            "files": source_files,
-            "document_diff": document_diff,
-            "schematic": {
-                "pages": sheets,
-                "changes": schematic_changes,
-                "groups": schematic_groups,
-                "summary": _summary(schematic_changes),
-            },
-            "pcb": {
-                "changes": pcb_changes,
-                "groups": pcb_groups,
-                "summary": _summary(pcb_changes),
-                "route_metrics": route_metrics,
-            },
-            "bom": bom,
-            "stackup": stackup,
-        }
-        logs.append(
-            f"Timing diff assembly: {time.perf_counter() - assembly_started:.3f}s"
-        )
-
-        out = _JOB_ROOT / job_id
-        out.mkdir(parents=True, exist_ok=True)
-        publish_started = time.perf_counter()
-        result_path = out / "result.json"
-        with benchmark.span("result-publish"):
-            result_path.write_text(
-                json.dumps(result, separators=(",", ":")),
-                encoding="utf-8",
-            )
-        logs.append(
-            f"Timing result publish: {time.perf_counter() - publish_started:.3f}s; "
-            f"result={result_path.stat().st_size / (1024 * 1024):.1f}MiB"
-        )
-        logs.append(
-            f"Timing comparison total: {time.perf_counter() - job_started:.3f}s"
-        )
+        total_elapsed = time.perf_counter() - job_started
+        logs.append(f"Timing comparison total: {total_elapsed:.3f}s")
         benchmark.update_metadata(
+            totalReadyMs=round(total_elapsed * 1000, 3),
             resultBytes=result_path.stat().st_size,
-            schematicChanges=len(schematic_changes),
-            pcbChanges=len(pcb_changes),
-            bomChanges=len(bom.get("changes") or []),
+            schematicChanges=len(result["schematic"]["changes"]),
+            pcbChanges=len(result["pcb"]["changes"]),
+            bomChanges=len((result.get("bom") or {}).get("changes") or []),
         )
-
         job["status"] = "completed"
         job["message"] = "Design comparison ready"
         job["percent"] = 100
-        job["result"] = result
         job["logs"] = logs
     except Exception as exc:
-        logger.exception("design-compare failed")
+        logger.exception("staged design-compare failed")
+        if job.get("result"):
+            failed_result = copy.deepcopy(job["result"])
+            domains = failed_result.setdefault("readiness", {}).setdefault("domains", {})
+            for domain in ("pcb", "stackup"):
+                if domains.get(domain) != "ready":
+                    domains[domain] = "failed"
+            failed_result["readiness"]["stage"] = "background-failed"
+            _publish_comparison_result(
+                job_id,
+                job,
+                failed_result,
+                version=int(job.get("result_version") or 1) + 1,
+                benchmark=benchmark,
+            )
         job["status"] = "failed"
         job["message"] = str(exc)
         job["logs"] = logs + [str(exc)]
@@ -2409,9 +2872,7 @@ def _run_job(
         try:
             benchmark.write(benchmark_path)
             job["benchmark_path"] = str(benchmark_path)
-            job.setdefault("logs", []).append(
-                f"Structured benchmark: {benchmark_path}"
-            )
+            job.setdefault("logs", []).append(f"Structured benchmark: {benchmark_path}")
         except Exception:
             logger.exception("design-compare benchmark publish failed")
         _persist_job(job_id)
@@ -2451,6 +2912,17 @@ def start_design_compare_job(
         "percent": 0,
         "logs": [],
         "result": None,
+        "result_version": 0,
+        "ready_domains": [],
+        "readiness": {
+            "stage": "building-initial",
+            "domains": {
+                "schematic": "building",
+                "bom": "building",
+                "pcb": "pending",
+                "stackup": "pending",
+            },
+        },
     }
     workspace.create_job(
         job_id,
@@ -2515,6 +2987,9 @@ def get_job_status(job_id: str) -> Optional[dict]:
         "base": job.get("base"),
         "head": job.get("head"),
         "benchmark_path": job.get("benchmark_path"),
+        "result_version": job.get("result_version", 0),
+        "ready_domains": job.get("ready_domains") or [],
+        "readiness": job.get("readiness"),
     }
 
 

@@ -18,20 +18,18 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Callable
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-BACKEND_ROOT = REPOSITORY_ROOT / "backend"
+BACKEND_ROOT = (
+    REPOSITORY_ROOT
+    if (REPOSITORY_ROOT / "app").is_dir()
+    else REPOSITORY_ROOT / "backend"
+)
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services import (  # noqa: E402
-    bom_diff_service,
-    design_compare_service,
-    document_diff_service,
-    semantic_index_service,
-)
+from app.services import design_compare_service, semantic_index_service  # noqa: E402
 from app.services.design_compare_benchmark import DesignCompareBenchmark  # noqa: E402
 
 
@@ -66,106 +64,6 @@ def _snapshot_stats(root: Path) -> dict[str, int]:
     }
 
 
-def _measure_assembly(
-    recorder: DesignCompareBenchmark,
-    base_revision: dict[str, Any],
-    compare_revision: dict[str, Any],
-) -> dict[str, int]:
-    def measure(phase: str, action: Callable[[], Any]) -> Any:
-        with recorder.span(phase, scope="assembly"):
-            return action()
-
-    schematic_semantic = measure(
-        "schematic-semantic-diff",
-        lambda: design_compare_service._diff_designs(
-            base_revision.get("semantic") or {},
-            compare_revision.get("semantic") or {},
-        ),
-    )
-    schematic_geometry = measure(
-        "schematic-geometry-diff",
-        lambda: design_compare_service._diff_geometry(
-            base_revision.get("geometry") or {},
-            compare_revision.get("geometry") or {},
-            "schematic",
-        ),
-    )
-    schematic_changes = measure(
-        "schematic-change-merge",
-        lambda: design_compare_service._merge_semantic_geometry_changes(
-            schematic_semantic["changes"],
-            schematic_geometry,
-        ),
-    )
-    measure(
-        "visual-target-hydration",
-        lambda: design_compare_service._hydrate_visual_target_pages_and_match_labels(
-            schematic_changes,
-            (base_revision.get("geometry") or {}).get("schematic") or {},
-            (compare_revision.get("geometry") or {}).get("schematic") or {},
-        ),
-    )
-    pcb_changes = measure(
-        "pcb-geometry-diff",
-        lambda: design_compare_service._diff_geometry(
-            base_revision.get("geometry") or {},
-            compare_revision.get("geometry") or {},
-            "pcb",
-        ),
-    )
-    old_bom = measure(
-        "bom-parse-reference",
-        lambda: bom_diff_service.parse_bom_csv(base_revision.get("bom_csv") or ""),
-    )
-    new_bom = measure(
-        "bom-parse-comparison",
-        lambda: bom_diff_service.parse_bom_csv(compare_revision.get("bom_csv") or ""),
-    )
-    bom = measure(
-        "bom-diff",
-        lambda: bom_diff_service.diff_boms(
-            old_bom,
-            new_bom,
-            ["Reference", "Value", "Footprint", "Datasheet"],
-        ),
-    )
-    measure(
-        "stackup-diff",
-        lambda: design_compare_service._diff_stackup(
-            base_revision.get("stackup") or {},
-            compare_revision.get("stackup") or {},
-        ),
-    )
-    source_files = {
-        "base": base_revision.get("sources") or [],
-        "head": compare_revision.get("sources") or [],
-    }
-    measure(
-        "document-diff",
-        lambda: document_diff_service.build_project_diff(
-            schematic_changes=schematic_changes,
-            pcb_changes=pcb_changes,
-            files=source_files,
-            geometry={
-                "base": base_revision.get("geometry") or {},
-                "head": compare_revision.get("geometry") or {},
-            },
-        ),
-    )
-    measure(
-        "change-grouping",
-        lambda: (
-            design_compare_service._group_changes(schematic_changes),
-            design_compare_service._group_changes(pcb_changes),
-        ),
-    )
-    return {
-        "schematicChanges": len(schematic_changes),
-        "pcbChanges": len(pcb_changes),
-        "bomChanges": len(bom.get("changes") or []),
-    }
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("project", type=Path, help="KiCad .kicad_pro project")
@@ -178,7 +76,20 @@ def main() -> None:
         help="Persistent isolated cache. Existing entries are reused, never deleted.",
     )
     parser.add_argument("--warm", action="store_true", help="Also measure an immediate cache-hit run")
-    parser.add_argument("--workers", choices=(1, 2), type=int, default=2)
+    parser.add_argument(
+        "--initial-workers",
+        choices=(1, 2),
+        type=int,
+        default=2,
+        help="Schematic+BOM revision workers (default: 2)",
+    )
+    parser.add_argument(
+        "--pcb-workers",
+        choices=(1, 2),
+        type=int,
+        default=2,
+        help="PCB+Stackup geometry workers (default: 2)",
+    )
     args = parser.parse_args()
 
     project_file = args.project.resolve()
@@ -202,7 +113,8 @@ def main() -> None:
         cache_root.mkdir(parents=True, exist_ok=True)
 
     design_compare_service._CACHE_ROOT = cache_root
-    os.environ["PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS"] = str(args.workers)
+    os.environ["PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS"] = str(args.initial_workers)
+    os.environ["PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS"] = str(args.pcb_workers)
     semantic_index_service._add_kicad_monkey_import_paths()
     import kicad_monkey  # type: ignore[import-not-found]
 
@@ -213,7 +125,8 @@ def main() -> None:
             "repo": str(repo),
             "base": base,
             "compare": compare,
-            "workers": args.workers,
+            "initialWorkers": args.initial_workers,
+            "pcbWorkers": args.pcb_workers,
             "cacheRoot": str(cache_root),
             "semanticGenerator": semantic_index_service.generator_cache_tag(),
             "kicadMonkeyModule": str(Path(kicad_monkey.__file__).resolve()),
@@ -226,8 +139,9 @@ def main() -> None:
         progress.append(message)
         print(message, flush=True)
 
-    with recorder.span("cold-revision-pipeline"):
-        revisions, revision_logs = design_compare_service._build_revisions(
+    cold_started = time.perf_counter()
+    with recorder.span("cold-initial-revision-pipeline"):
+        initial_revisions, initial_logs = design_compare_service._build_initial_revisions(
             project_id,
             repo,
             relative_path,
@@ -236,8 +150,38 @@ def main() -> None:
             heartbeat,
             benchmark=recorder,
         )
-
-    counts = _measure_assembly(recorder, revisions[base], revisions[compare])
+    initial_result, assembly_state = design_compare_service._assemble_initial_comparison(
+        project_id=project_id,
+        base=base,
+        head=compare,
+        revisions=initial_revisions,
+        include_unchanged=False,
+        benchmark=recorder,
+    )
+    initial_ready_ms = round((time.perf_counter() - cold_started) * 1000, 3)
+    with recorder.span("cold-pcb-revision-pipeline"):
+        revisions, pcb_logs = design_compare_service._build_pcb_revisions(
+            project_id,
+            base,
+            compare,
+            initial_revisions,
+            heartbeat,
+            benchmark=recorder,
+        )
+    complete_result = design_compare_service._complete_comparison(
+        initial_result=initial_result,
+        assembly_state=assembly_state,
+        base=base,
+        head=compare,
+        revisions=revisions,
+        benchmark=recorder,
+    )
+    total_ready_ms = round((time.perf_counter() - cold_started) * 1000, 3)
+    counts = {
+        "schematicChanges": len(complete_result["schematic"]["changes"]),
+        "pcbChanges": len(complete_result["pcb"]["changes"]),
+        "bomChanges": len((complete_result.get("bom") or {}).get("changes") or []),
+    }
     snapshots = {
         revision: _snapshot_stats(
             design_compare_service._cache_dir(project_id, revision) / "snapshot"
@@ -248,8 +192,8 @@ def main() -> None:
     warm_elapsed_ms = None
     if args.warm:
         warm_started = time.perf_counter()
-        with recorder.span("warm-revision-pipeline"):
-            design_compare_service._build_revisions(
+        with recorder.span("warm-initial-revision-pipeline"):
+            warm_initial, _ = design_compare_service._build_initial_revisions(
                 project_id,
                 repo,
                 relative_path,
@@ -258,18 +202,35 @@ def main() -> None:
                 heartbeat,
                 benchmark=recorder,
             )
+        with recorder.span("warm-pcb-revision-pipeline"):
+            design_compare_service._build_pcb_revisions(
+                project_id,
+                base,
+                compare,
+                warm_initial,
+                heartbeat,
+                benchmark=recorder,
+            )
         warm_elapsed_ms = round((time.perf_counter() - warm_started) * 1000, 3)
 
     payload = recorder.snapshot()
     payload["summary"] = {
         **counts,
+        "initialReadyMs": initial_ready_ms,
+        "totalReadyMs": total_ready_ms,
         "warmElapsedMs": warm_elapsed_ms,
         "snapshots": snapshots,
         "revisionTimings": {
             revision: revisions[revision].get("timings") or {}
             for revision in dict.fromkeys((base, compare))
         },
-        "revisionLogs": revision_logs,
+        "revisionLogs": {
+            revision: [
+                *(initial_logs.get(revision) or []),
+                *(pcb_logs.get(revision) or []),
+            ]
+            for revision in dict.fromkeys((base, compare))
+        },
         "progress": progress,
     }
     output.parent.mkdir(parents=True, exist_ok=True)

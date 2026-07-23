@@ -122,7 +122,7 @@ async def design_compare_result(
     status = design_compare_service.get_job_status(job_id)
     if not status or status.get("project_id") != project_id:
         raise HTTPException(status_code=404, detail="Job not found")
-    if status.get("status") != "completed":
+    if status.get("status") != "completed" and not status.get("result_version"):
         raise HTTPException(status_code=409, detail=f"Job status: {status.get('status')}")
     result = design_compare_service.get_job_result(job_id)
     if not result:
