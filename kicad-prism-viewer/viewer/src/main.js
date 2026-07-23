@@ -662,7 +662,9 @@ async function loadTile(tile, token = activeViewerToken) {
   if (scene.loading.has(tile.id)) return scene.loading.get(tile.id);
   const promise = (async () => {
     try {
-      const loaded = await loadGltf(new URL(tile.path, scene.manifestUrl).toString());
+      const loaded = await loadGltf(new URL(tile.path, scene.manifestUrl).toString(), {
+        fetchCache: "no-store",
+      });
       if (!viewerSessionActive(token) || !renderer) return;
       state.loadedBytes += loaded.byteLength;
       const layer = scene.layers.find((item) => Number(item.id) === Number(tile.layerId));

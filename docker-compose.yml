@@ -20,7 +20,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    platform: linux/amd64
+      args:
+        KICAD_BASE_IMAGE: ${KICAD_BASE_IMAGE:-kicad/kicad:10.0.4-arm64-local}
+        KICAD_BASE_PLATFORM: ${KICAD_BASE_PLATFORM:-linux/arm64}
+    platform: ${DOCKER_PLATFORM:-linux/arm64}
     container_name: kicad-prism-backend
     restart: unless-stopped
     depends_on:
@@ -111,7 +114,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    platform: linux/amd64
+      args:
+        KICAD_BASE_IMAGE: ${KICAD_BASE_IMAGE:-kicad/kicad:10.0.4-arm64-local}
+        KICAD_BASE_PLATFORM: ${KICAD_BASE_PLATFORM:-linux/arm64}
+    platform: ${DOCKER_PLATFORM:-linux/arm64}
     container_name: kicad-prism-catalog-worker
     restart: unless-stopped
     depends_on:

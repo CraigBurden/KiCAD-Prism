@@ -22,6 +22,7 @@ from .pcb_geometry import (
     capsule,
     circle,
     clean_ring,
+    effective_pad_orient_deg,
     pad_rings,
     point_nm,
     sample_arc_op,
@@ -421,16 +422,23 @@ class SemanticGltfBuilder:
                 continue
             attrs = block.get("extra_attrs") or {}
             source_uid = str(block.get("data_uuid") or block.get("label") or "")
+            net_name = str(attrs.get("net") or "")
             layers = self._layers_for(op.get("layers") or block.get("layers") or [])
+            pad_op = {
+                **op,
+                "orient_deg": effective_pad_orient_deg(
+                    op,
+                    float(placement.get("angle_deg") or 0.0),
+                ),
+            }
             rings = [
                 [transform(point, origin, angle) for point in ring]
-                for ring in pad_rings(op)
+                for ring in pad_rings(pad_op)
             ]
             hole_info = pad_holes.get(source_uid) or {}
             drill = float(hole_info.get("drill_mm") or 0.0)
             center = transform(point_nm(op.get("x"), op.get("y")), origin, angle)
             holes = [circle(center, drill / 2.0)] if drill > 0 else []
-            net_name = str(attrs.get("net") or "")
             net_id = self.net_id_by_name.get(net_name, 0)
             layer_ids = [int(self.layer_by_name[layer]["id"]) for layer in layers]
             is_plated = drill > 0 and bool(hole_info.get("plated", True))
@@ -805,7 +813,7 @@ def build_semantic_gltf_scene(
         )
     if not cache_hit:
         shutil.rmtree(scene_dir, ignore_errors=True)
-        if persistent_scene_complete:
+        if persistent_scene_complete and not force_rebuild and not clean_cache:
             if progress:
                 progress(f"semantic GLTF persistent scene cache hit revision={payload['geometryRevision'][:12]}")
             started = time.perf_counter()

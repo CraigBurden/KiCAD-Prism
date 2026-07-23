@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EcadViewerControls } from "./ecad-viewer-controls";
@@ -99,5 +99,28 @@ describe("viewer overlay rails", () => {
             .toHaveClass("-translate-x-[calc(100%_-_2.75rem)]");
         expect(document.querySelector("[data-testid='viewer-host']"))
             .toHaveClass("absolute", "inset-0");
+    });
+
+    it("keeps the expand handle in the visible collapsed strip (left rail)", async () => {
+        const { getByRole } = render(
+            <div className="relative h-[600px] w-[900px] overflow-hidden">
+                <EcadViewerControls context="PCB" viewer={null} />
+            </div>,
+        );
+
+        const rail = getByRole("complementary", { name: "PCB display controls" });
+        const header = rail.querySelector(":scope > div");
+        expect(header).toBeTruthy();
+        const handle = header!.querySelector(".w-11");
+        expect(handle).toBeTruthy();
+        expect(header!.lastElementChild).toBe(handle);
+
+        fireEvent.click(within(rail).getByRole("button", { name: "Collapse viewer controls" }));
+
+        // Transform keeps the RIGHT strip visible; handle must remain the last child.
+        expect(rail.className).toContain("-translate-x-[calc(100%_-_2.75rem)]");
+        expect(header!.lastElementChild).toBe(handle);
+        expect(header!.firstElementChild).not.toBe(handle);
+        expect(within(rail).getByRole("button", { name: "Expand viewer controls" })).toBeTruthy();
     });
 });

@@ -2,16 +2,18 @@
 ARG KICAD_MONKEY_VARIANT=kicad-monkey-upstream
 
 # KiCad CLI runtime. Keep this aligned with the newest KiCad file format Prism imports.
-ARG KICAD_BASE_PLATFORM=linux/amd64
+# Override via docker compose build args (see KICAD_BASE_IMAGE / KICAD_BASE_PLATFORM in .env).
+ARG KICAD_BASE_PLATFORM=linux/arm64
+ARG KICAD_BASE_IMAGE=kicad/kicad:10.0.4-arm64-local
 
-FROM node:22-bookworm-slim AS remote-provider-panel
+FROM --platform=${KICAD_BASE_PLATFORM} node:22-bookworm-slim AS remote-provider-panel
 WORKDIR /panel
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ .
 RUN npm run build:panel
 
-FROM --platform=${KICAD_BASE_PLATFORM} kicad/kicad:10.0.0 AS prism-runtime
+FROM --platform=${KICAD_BASE_PLATFORM} ${KICAD_BASE_IMAGE} AS prism-runtime
 ARG KICAD_LIBRARY_UTILS_REF=7124a92887b2280f85cfe2d5abb216062978d5e1
 
 # Prevent interactive prompts
@@ -64,13 +66,19 @@ COPY kicad-prism-viewer/requirements-runtime.txt /opt/kicad-prism-viewer/
 RUN uv pip install --no-cache-dir -r /opt/kicad-prism-viewer/requirements-runtime.txt
 
 COPY kicad-prism-viewer/package*.json /opt/kicad-prism-viewer/
-RUN cd /opt/kicad-prism-viewer && npm ci --include=optional
+# package-lock optional deps may pin the wrong CPU arch when the image platform changes.
+RUN cd /opt/kicad-prism-viewer && npm ci --include=optional \
+    && ARCH="$(uname -m)" \
+    && case "$ARCH" in aarch64|arm64) SHARP_CPU=arm64 ;; *) SHARP_CPU=x64 ;; esac \
+    && npm install --include=optional --os=linux --cpu="${SHARP_CPU}" sharp
 
 COPY kicad-prism-viewer /opt/kicad-prism-viewer
 COPY scripts/build-prism-clipper2.sh /app/scripts/build-prism-clipper2.sh
-RUN PRISM_VIEWER_ROOT=/opt/kicad-prism-viewer /app/scripts/build-prism-clipper2.sh
-RUN cp /opt/kicad-prism-viewer/native/prism-clipper2/linux-x86_64/libprism_clipper2.so \
-    /usr/local/lib/libprism_clipper2.so
+RUN PRISM_VIEWER_ROOT=/opt/kicad-prism-viewer /app/scripts/build-prism-clipper2.sh \
+    && ARCH="$(uname -m)" \
+    && case "$ARCH" in aarch64|arm64) CLIPPER_ARCH=arm64 ;; *) CLIPPER_ARCH=x86_64 ;; esac \
+    && cp "/opt/kicad-prism-viewer/native/prism-clipper2/linux-${CLIPPER_ARCH}/libprism_clipper2.so" \
+        /usr/local/lib/libprism_clipper2.so
 RUN cd /opt/kicad-prism-viewer && npm run build
 
 COPY backend/ .

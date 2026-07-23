@@ -1,0 +1,1009 @@
+#!/usr/bin/env python3
+"""
+Load benchmark for KiCAD-Prism: simulates concurrent users browsing projects
+and using the Remote Symbol Panel.
+
+Usage:
+  python3 scripts/benchmark_concurrent_users.py \
+    --base-url http://127.0.0.1:8080 \
+    --users 20 \
+    --duration 180
+
+Requires: aiohttp (pip install aiohttp)
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import random
+import statistics
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote, urlparse
+
+try:
+    import aiohttp
+except ImportError:
+    print("Install aiohttp: pip install aiohttp", file=sys.stderr)
+    sys.exit(1)
+
+
+SEARCH_TERMS = [
+    "",
+    "zener",
+    "fuse",
+    "diode",
+    "tps",
+    "onsemi",
+    "cap",
+    "regulator",
+    "mosfet",
+    "connector",
+]
+
+PANEL_PATHS = [
+    "/.well-known/kicad-remote-provider",
+    "/remote-provider/panel",
+]
+
+DEFAULT_JTYU_PROJECT_ID = "prj_82934087bb0d"
+DEFAULT_DIFF_COMMIT_NEW = "aebbfebf290ab9f4a0f45e2546d229ad47f64cdb"
+DEFAULT_DIFF_COMMIT_OLD = "4b0a39a7f841648681d24daff8ca63bc0ba52c07"
+DEFAULT_WEBGPU_COMMIT = "aebbfebf290ab9f4a0f45e2546d229ad47f64cdb"
+FALLBACK_PREVIEW_COMPONENT_IDS = [
+    "985319d4-dcd7-4c00-b90f-6743add054d4",
+    "393107fc-6314-4992-aece-0046008c3b9d",
+    "bee24c61-3b0f-48a9-ba35-aa169e62ad0f",
+]
+
+
+@dataclass
+class RequestMetric:
+    endpoint: str
+    status: int
+    latency_ms: float
+    bytes_in: int
+    error: str | None = None
+
+
+@dataclass
+class ContainerSample:
+    timestamp: float
+    name: str
+    cpu_percent: float
+    mem_mib: float
+    mem_limit_mib: float
+    net_rx_mib: float
+    net_tx_mib: float
+    block_read_mib: float
+    block_write_mib: float
+
+
+@dataclass
+class BenchmarkResult:
+    config: dict[str, Any]
+    started_at: str
+    finished_at: str
+    duration_seconds: float
+    total_requests: int
+    failed_requests: int
+    requests_per_second: float
+    latency_ms: dict[str, float]
+    endpoint_stats: dict[str, dict[str, Any]]
+    container_stats: dict[str, dict[str, Any]]
+    disk_usage_gb: float | None = None
+    job_stats: dict[str, Any] = field(default_factory=dict)
+
+
+def resolve_url(base_url: str, url: str) -> str:
+    if not url:
+        return ""
+    if url.startswith("/"):
+        return f"{base_url.rstrip('/')}{url}"
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        return f"{base_url.rstrip('/')}{parsed.path}" + (f"?{parsed.query}" if parsed.query else "")
+    return url
+
+
+def parse_docker_size(value: str) -> float:
+    """Parse docker stats size strings like '437.2MiB' or '1.2GiB' to MiB."""
+    value = value.strip()
+    if not value or value == "--":
+        return 0.0
+    units = {
+        "B": 1 / (1024 * 1024),
+        "KiB": 1 / 1024,
+        "MiB": 1.0,
+        "GiB": 1024.0,
+        "Ki": 1 / 1024,
+        "Mi": 1.0,
+        "Gi": 1024.0,
+        "kB": 1 / 1024,
+        "MB": 1.0,
+        "GB": 1024.0,
+    }
+    for suffix, factor in sorted(units.items(), key=lambda item: -len(item[0])):
+        if value.endswith(suffix):
+            return float(value[: -len(suffix)]) * factor
+    return float(value)
+
+
+def parse_docker_io(value: str) -> tuple[float, float]:
+    """Parse '1.2MB / 3.4MB' to (rx_mib, tx_mib)."""
+    if not value or value == "--":
+        return 0.0, 0.0
+    parts = [part.strip() for part in value.split("/")]
+    if len(parts) != 2:
+        return 0.0, 0.0
+    return parse_docker_size(parts[0]), parse_docker_size(parts[1])
+
+
+def sample_docker_stats() -> list[ContainerSample]:
+    try:
+        proc = subprocess.run(
+            [
+                "docker",
+                "stats",
+                "--no-stream",
+                "--format",
+                "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return []
+
+    samples: list[ContainerSample] = []
+    now = time.time()
+    for line in proc.stdout.splitlines():
+        if not line.strip() or "kicad-prism" not in line:
+            continue
+        parts = line.split("\t")
+        if len(parts) != 5:
+            continue
+        name, cpu_raw, mem_raw, net_raw, block_raw = parts
+        cpu = float(cpu_raw.replace("%", "").strip() or "0")
+        mem_parts = [part.strip() for part in mem_raw.split("/")]
+        mem_mib = parse_docker_size(mem_parts[0]) if mem_parts else 0.0
+        mem_limit_mib = parse_docker_size(mem_parts[1]) if len(mem_parts) > 1 else 0.0
+        net_rx, net_tx = parse_docker_io(net_raw)
+        block_read, block_write = parse_docker_io(block_raw)
+        samples.append(
+            ContainerSample(
+                timestamp=now,
+                name=name,
+                cpu_percent=cpu,
+                mem_mib=mem_mib,
+                mem_limit_mib=mem_limit_mib,
+                net_rx_mib=net_rx,
+                net_tx_mib=net_tx,
+                block_read_mib=block_read,
+                block_write_mib=block_write,
+            )
+        )
+    return samples
+
+
+async def fetch_json(
+    session: aiohttp.ClientSession,
+    url: str,
+    metrics: list[RequestMetric],
+    endpoint: str,
+) -> dict[str, Any] | list[Any] | None:
+    start = time.perf_counter()
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+            body = await resp.read()
+            latency_ms = (time.perf_counter() - start) * 1000
+            metrics.append(
+                RequestMetric(
+                    endpoint=endpoint,
+                    status=resp.status,
+                    latency_ms=latency_ms,
+                    bytes_in=len(body),
+                    error=None if resp.status < 400 else body[:200].decode("utf-8", "replace"),
+                )
+            )
+            if resp.status >= 400:
+                return None
+            return json.loads(body)
+    except Exception as exc:  # noqa: BLE001
+        latency_ms = (time.perf_counter() - start) * 1000
+        metrics.append(
+            RequestMetric(
+                endpoint=endpoint,
+                status=0,
+                latency_ms=latency_ms,
+                bytes_in=0,
+                error=str(exc),
+            )
+        )
+        return None
+
+
+async def fetch_post_json(
+    session: aiohttp.ClientSession,
+    url: str,
+    payload: dict[str, Any],
+    metrics: list[RequestMetric],
+    endpoint: str,
+) -> dict[str, Any] | None:
+    start = time.perf_counter()
+    try:
+        async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+            body = await resp.read()
+            latency_ms = (time.perf_counter() - start) * 1000
+            metrics.append(
+                RequestMetric(
+                    endpoint=endpoint,
+                    status=resp.status,
+                    latency_ms=latency_ms,
+                    bytes_in=len(body),
+                    error=None if resp.status < 400 else body[:200].decode("utf-8", "replace"),
+                )
+            )
+            if resp.status >= 400:
+                return None
+            return json.loads(body)
+    except Exception as exc:  # noqa: BLE001
+        latency_ms = (time.perf_counter() - start) * 1000
+        metrics.append(
+            RequestMetric(
+                endpoint=endpoint,
+                status=0,
+                latency_ms=latency_ms,
+                bytes_in=0,
+                error=str(exc),
+            )
+        )
+        return None
+
+
+async def fetch_delete(
+    session: aiohttp.ClientSession,
+    url: str,
+    metrics: list[RequestMetric],
+    endpoint: str,
+) -> None:
+    start = time.perf_counter()
+    try:
+        async with session.delete(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+            body = await resp.read()
+            latency_ms = (time.perf_counter() - start) * 1000
+            metrics.append(
+                RequestMetric(
+                    endpoint=endpoint,
+                    status=resp.status,
+                    latency_ms=latency_ms,
+                    bytes_in=len(body),
+                    error=None if resp.status < 400 else body[:200].decode("utf-8", "replace"),
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        latency_ms = (time.perf_counter() - start) * 1000
+        metrics.append(
+            RequestMetric(
+                endpoint=endpoint,
+                status=0,
+                latency_ms=latency_ms,
+                bytes_in=0,
+                error=str(exc),
+            )
+        )
+
+
+async def fetch_preview_urls(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    component: dict[str, Any],
+    metrics: list[RequestMetric],
+) -> None:
+    for key, endpoint in (
+        ("symbol_preview_url", "remote.preview.symbol"),
+        ("footprint_preview_url", "remote.preview.footprint"),
+    ):
+        preview_url = resolve_url(base_url, str(component.get(key) or ""))
+        if preview_url:
+            await fetch_bytes(session, preview_url, metrics, endpoint)
+
+
+async def poll_job_status(
+    session: aiohttp.ClientSession,
+    status_url: str,
+    metrics: list[RequestMetric],
+    endpoint: str,
+    *,
+    timeout_seconds: float,
+    poll_interval: float,
+    terminal_statuses: set[str],
+) -> dict[str, Any] | None:
+    deadline = time.time() + timeout_seconds
+    last_payload: dict[str, Any] | None = None
+    while time.time() < deadline:
+        payload = await fetch_json(session, status_url, metrics, endpoint)
+        if not payload:
+            return last_payload
+        last_payload = payload if isinstance(payload, dict) else None
+        status = str((last_payload or {}).get("status") or "").lower()
+        if status in terminal_statuses:
+            return last_payload
+        await asyncio.sleep(poll_interval)
+    return last_payload
+
+
+async def run_visual_diff_job(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    metrics: list[RequestMetric],
+    *,
+    project_id: str,
+    commit_new: str,
+    commit_old: str,
+    job_timeout: float,
+    poll_interval: float,
+) -> str:
+    start_payload = await fetch_post_json(
+        session,
+        f"{base_url}/api/projects/{project_id}/diff",
+        {"commit1": commit_new, "commit2": commit_old},
+        metrics,
+        "projects.visual_diff.start",
+    )
+    if not start_payload or not start_payload.get("job_id"):
+        return "failed"
+    job_id = str(start_payload["job_id"])
+    final = await poll_job_status(
+        session,
+        f"{base_url}/api/projects/{project_id}/diff/{job_id}/status",
+        metrics,
+        "projects.visual_diff.status",
+        timeout_seconds=job_timeout,
+        poll_interval=poll_interval,
+        terminal_statuses={"completed", "failed"},
+    )
+    status = str((final or {}).get("status") or "").lower()
+    if status == "completed":
+        await fetch_json(
+            session,
+            f"{base_url}/api/projects/{project_id}/diff/{job_id}/manifest",
+            metrics,
+            "projects.visual_diff.manifest",
+        )
+        await fetch_delete(
+            session,
+            f"{base_url}/api/projects/{project_id}/diff/{job_id}",
+            metrics,
+            "projects.visual_diff.cleanup",
+        )
+        return "completed"
+    if status == "failed":
+        return "failed"
+    return "timeout"
+
+
+async def run_webgpu_3d_job(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    metrics: list[RequestMetric],
+    *,
+    project_id: str,
+    commit: str,
+    job_timeout: float,
+    poll_interval: float,
+) -> str:
+    start_payload = await fetch_post_json(
+        session,
+        f"{base_url}/api/projects/{project_id}/webgpu-3d/generate",
+        {"commit": commit, "force": False},
+        metrics,
+        "projects.webgpu_3d.start",
+    )
+    if not start_payload or not start_payload.get("job_id"):
+        return "failed"
+    job_id = str(start_payload["job_id"])
+    final = await poll_job_status(
+        session,
+        f"{base_url}/api/projects/jobs/{job_id}",
+        metrics,
+        "projects.webgpu_3d.status",
+        timeout_seconds=job_timeout,
+        poll_interval=poll_interval,
+        terminal_statuses={"completed", "failed"},
+    )
+    status = str((final or {}).get("status") or "").lower()
+    if status == "completed":
+        commit_query = quote(commit)
+        await fetch_json(
+            session,
+            f"{base_url}/api/projects/{project_id}/webgpu-3d/status?commit={commit_query}",
+            metrics,
+            "projects.webgpu_3d.readiness",
+        )
+        bundle_url = str((final or {}).get("bundle_url") or "")
+        if bundle_url:
+            await fetch_json(session, resolve_url(base_url, bundle_url), metrics, "projects.webgpu_3d.manifest")
+        return "completed"
+    if status == "failed":
+        return "failed"
+    return "timeout"
+
+
+async def simulate_standard_burst(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    metrics: list[RequestMetric],
+    project_ids: list[str],
+    component_ids: list[str],
+    categories: list[str],
+) -> None:
+    await fetch_json(session, f"{base_url}/api/workspace/bootstrap", metrics, "workspace.bootstrap")
+    await fetch_json(session, f"{base_url}/api/folders/tree", metrics, "folders.tree")
+
+    if project_ids:
+        project_id = random.choice(project_ids)
+        await fetch_json(
+            session,
+            f"{base_url}/api/projects/{project_id}/overview",
+            metrics,
+            "projects.overview",
+        )
+        await fetch_bytes(
+            session,
+            f"{base_url}/api/projects/{project_id}/thumbnail",
+            metrics,
+            "projects.thumbnail",
+        )
+        await fetch_json(
+            session,
+            f"{base_url}/api/projects/{project_id}/commits?limit=20",
+            metrics,
+            "projects.commits",
+        )
+
+    for path in PANEL_PATHS:
+        await fetch_bytes(session, f"{base_url}{path}", metrics, f"panel{path}")
+
+    await fetch_json(session, f"{base_url}/api/remote-provider/categories", metrics, "remote.categories")
+
+    for _ in range(random.randint(2, 4)):
+        query = random.choice(SEARCH_TERMS)
+        q = quote(query)
+        search_payload = await fetch_json(
+            session,
+            f"{base_url}/api/remote-provider/search?q={q}&page_size=50",
+            metrics,
+            "remote.search",
+        )
+        if isinstance(search_payload, dict):
+            for item in (search_payload.get("items") or [])[:3]:
+                if isinstance(item, dict):
+                    await fetch_preview_urls(session, base_url, item, metrics)
+
+    if categories:
+        category = random.choice(categories)
+        category_payload = await fetch_json(
+            session,
+            f"{base_url}/api/remote-provider/components-by-category?category={quote(category)}&page_size=200",
+            metrics,
+            "remote.components_by_category",
+        )
+        if isinstance(category_payload, dict):
+            for item in (category_payload.get("items") or [])[:3]:
+                if isinstance(item, dict):
+                    await fetch_preview_urls(session, base_url, item, metrics)
+
+    if component_ids:
+        for component_id in random.sample(
+            component_ids,
+            k=min(random.randint(2, 4), len(component_ids)),
+        ):
+            detail = await fetch_json(
+                session,
+                f"{base_url}/api/remote-provider/components/{component_id}",
+                metrics,
+                "remote.component_detail",
+            )
+            if isinstance(detail, dict):
+                await fetch_preview_urls(session, base_url, detail, metrics)
+            await fetch_json(
+                session,
+                f"{base_url}/api/remote-provider/parts/{component_id}",
+                metrics,
+                "remote.part_manifest",
+            )
+            await fetch_json(
+                session,
+                f"{base_url}/api/remote-provider/components/{component_id}/inline",
+                metrics,
+                "remote.inline_bundle",
+            )
+
+
+async def fetch_bytes(
+    session: aiohttp.ClientSession,
+    url: str,
+    metrics: list[RequestMetric],
+    endpoint: str,
+) -> None:
+    start = time.perf_counter()
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+            body = await resp.read()
+            latency_ms = (time.perf_counter() - start) * 1000
+            metrics.append(
+                RequestMetric(
+                    endpoint=endpoint,
+                    status=resp.status,
+                    latency_ms=latency_ms,
+                    bytes_in=len(body),
+                    error=None if resp.status < 400 else body[:200].decode("utf-8", "replace"),
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        latency_ms = (time.perf_counter() - start) * 1000
+        metrics.append(
+            RequestMetric(
+                endpoint=endpoint,
+                status=0,
+                latency_ms=latency_ms,
+                bytes_in=0,
+                error=str(exc),
+            )
+        )
+
+
+async def simulate_user(
+    user_id: int,
+    base_url: str,
+    metrics: list[RequestMetric],
+    project_ids: list[str],
+    component_ids: list[str],
+    categories: list[str],
+    stop_at: float,
+    *,
+    profile: str,
+    heavy_project_id: str,
+    diff_commit_new: str,
+    diff_commit_old: str,
+    webgpu_commit: str,
+    job_timeout: float,
+    poll_interval: float,
+    job_outcomes: list[dict[str, Any]],
+) -> None:
+    connector = aiohttp.TCPConnector(limit=8)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        while time.time() < stop_at:
+            if profile == "heavy":
+                job_kind = random.choice(["visual_diff", "webgpu_3d"])
+                if job_kind == "visual_diff":
+                    outcome = await run_visual_diff_job(
+                        session,
+                        base_url,
+                        metrics,
+                        project_id=heavy_project_id,
+                        commit_new=diff_commit_new,
+                        commit_old=diff_commit_old,
+                        job_timeout=job_timeout,
+                        poll_interval=poll_interval,
+                    )
+                    job_outcomes.append(
+                        {
+                            "user_id": user_id,
+                            "profile": profile,
+                            "job": "visual_diff",
+                            "outcome": outcome,
+                        }
+                    )
+                else:
+                    outcome = await run_webgpu_3d_job(
+                        session,
+                        base_url,
+                        metrics,
+                        project_id=heavy_project_id,
+                        commit=webgpu_commit,
+                        job_timeout=job_timeout,
+                        poll_interval=poll_interval,
+                    )
+                    job_outcomes.append(
+                        {
+                            "user_id": user_id,
+                            "profile": profile,
+                            "job": "webgpu_3d",
+                            "outcome": outcome,
+                        }
+                    )
+            else:
+                await simulate_standard_burst(
+                    session,
+                    base_url,
+                    metrics,
+                    project_ids,
+                    component_ids,
+                    categories,
+                )
+
+            await asyncio.sleep(random.uniform(1.0, 3.0))
+
+
+async def monitor_containers(
+    samples: list[ContainerSample],
+    stop_event: asyncio.Event,
+    interval: float,
+) -> None:
+    while not stop_event.is_set():
+        samples.extend(sample_docker_stats())
+        await asyncio.sleep(interval)
+
+
+def summarize_metrics(metrics: list[RequestMetric]) -> tuple[dict[str, float], dict[str, dict[str, Any]]]:
+    latencies = [m.latency_ms for m in metrics if m.status and m.status < 400]
+    failed = sum(1 for m in metrics if not m.status or m.status >= 400)
+
+    def pct(values: list[float], p: float) -> float:
+        if not values:
+            return 0.0
+        sorted_vals = sorted(values)
+        idx = min(len(sorted_vals) - 1, int(round((p / 100) * (len(sorted_vals) - 1))))
+        return sorted_vals[idx]
+
+    overall = {
+        "p50": pct(latencies, 50),
+        "p95": pct(latencies, 95),
+        "p99": pct(latencies, 99),
+        "max": max(latencies) if latencies else 0.0,
+        "mean": statistics.mean(latencies) if latencies else 0.0,
+    }
+
+    by_endpoint: dict[str, list[RequestMetric]] = {}
+    for metric in metrics:
+        by_endpoint.setdefault(metric.endpoint, []).append(metric)
+
+    endpoint_stats: dict[str, dict[str, Any]] = {}
+    for endpoint, items in sorted(by_endpoint.items()):
+        ok = [m for m in items if m.status and m.status < 400]
+        endpoint_stats[endpoint] = {
+            "count": len(items),
+            "errors": len(items) - len(ok),
+            "p50_ms": pct([m.latency_ms for m in ok], 50),
+            "p95_ms": pct([m.latency_ms for m in ok], 95),
+            "mean_ms": statistics.mean([m.latency_ms for m in ok]) if ok else 0.0,
+            "bytes_total": sum(m.bytes_in for m in ok),
+        }
+    return overall, endpoint_stats
+
+
+def summarize_container_samples(samples: list[ContainerSample]) -> dict[str, dict[str, Any]]:
+    by_name: dict[str, list[ContainerSample]] = {}
+    for sample in samples:
+        by_name.setdefault(sample.name, []).append(sample)
+
+    summary: dict[str, dict[str, Any]] = {}
+    for name, items in sorted(by_name.items()):
+        summary[name] = {
+            "cpu_percent_avg": round(statistics.mean(s.cpu_percent for s in items), 2),
+            "cpu_percent_peak": round(max(s.cpu_percent for s in items), 2),
+            "mem_mib_avg": round(statistics.mean(s.mem_mib for s in items), 1),
+            "mem_mib_peak": round(max(s.mem_mib for s in items), 1),
+            "net_rx_mib_total": round(max(s.net_rx_mib for s in items) - min(s.net_rx_mib for s in items), 2),
+            "net_tx_mib_total": round(max(s.net_tx_mib for s in items) - min(s.net_tx_mib for s in items), 2),
+            "block_read_mib_total": round(max(s.block_read_mib for s in items) - min(s.block_read_mib for s in items), 2),
+            "block_write_mib_total": round(max(s.block_write_mib for s in items) - min(s.block_write_mib for s in items), 2),
+            "samples": len(items),
+        }
+    return summary
+
+
+def measure_disk_usage_gb(data_dir: Path) -> float | None:
+    if not data_dir.exists():
+        return None
+    total = 0
+    for path in data_dir.rglob("*"):
+        if path.is_file():
+            try:
+                total += path.stat().st_size
+            except OSError:
+                pass
+    return round(total / (1024**3), 2)
+
+
+def summarize_job_outcomes(outcomes: list[dict[str, Any]]) -> dict[str, Any]:
+    by_job: dict[str, dict[str, int]] = {}
+    for item in outcomes:
+        job = str(item.get("job") or "unknown")
+        outcome = str(item.get("outcome") or "unknown")
+        by_job.setdefault(job, {})
+        by_job[job][outcome] = by_job[job].get(outcome, 0) + 1
+    return {
+        "total_jobs": len(outcomes),
+        "by_job": by_job,
+        "outcomes": outcomes,
+    }
+
+
+async def discover_catalog_context(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    metrics: list[RequestMetric],
+) -> tuple[list[str], list[str], list[str], int]:
+    bootstrap = await fetch_json(session, f"{base_url}/api/workspace/bootstrap", metrics, "setup.bootstrap")
+    categories_payload = await fetch_json(session, f"{base_url}/api/remote-provider/categories", metrics, "setup.categories")
+
+    project_ids = [p["id"] for p in (bootstrap or {}).get("projects", []) if isinstance(bootstrap, dict)]
+    categories = [
+        c["name"] for c in (categories_payload or {}).get("categories", []) if isinstance(categories_payload, dict)
+    ]
+
+    component_ids: list[str] = []
+    preview_component_ids: list[str] = []
+    seen: set[str] = set()
+    queries = list(SEARCH_TERMS) + (categories[:10] if categories else [])
+    random.shuffle(queries)
+
+    for query in queries:
+        q = quote(query)
+        search_payload = await fetch_json(
+            session,
+            f"{base_url}/api/remote-provider/search?q={q}&page_size=50",
+            metrics,
+            "setup.search",
+        )
+        if not isinstance(search_payload, dict):
+            continue
+        for item in search_payload.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            component_id = str(item.get("id") or "")
+            if not component_id or component_id in seen:
+                continue
+            seen.add(component_id)
+            component_ids.append(component_id)
+            if item.get("symbol_preview_url") or item.get("footprint_preview_url"):
+                preview_component_ids.append(component_id)
+
+    if len(preview_component_ids) < 10:
+        for component_id in component_ids[:100]:
+            detail = await fetch_json(
+                session,
+                f"{base_url}/api/remote-provider/components/{component_id}",
+                metrics,
+                "setup.component_detail",
+            )
+            if isinstance(detail, dict) and (
+                detail.get("symbol_preview_url") or detail.get("footprint_preview_url")
+            ):
+                preview_component_ids.append(component_id)
+
+    if preview_component_ids:
+        component_ids = preview_component_ids + [cid for cid in component_ids if cid not in preview_component_ids]
+    else:
+        for component_id in FALLBACK_PREVIEW_COMPONENT_IDS:
+            if component_id not in seen:
+                component_ids.insert(0, component_id)
+                preview_component_ids.append(component_id)
+
+    return project_ids, categories, component_ids[:200], len(preview_component_ids)
+
+
+async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
+    base_url = args.base_url.rstrip("/")
+    metrics: list[RequestMetric] = []
+    container_samples: list[ContainerSample] = []
+
+    async with aiohttp.ClientSession() as session:
+        project_ids, categories, component_ids, preview_component_count = await discover_catalog_context(
+            session, base_url, metrics
+        )
+
+    if not project_ids:
+        print("Warning: no projects found; project-browsing portion will be skipped.", file=sys.stderr)
+    if not component_ids:
+        print("Warning: no catalog components found; detail/manifest calls will be skipped.", file=sys.stderr)
+
+    stop_event = asyncio.Event()
+    monitor_task = asyncio.create_task(
+        monitor_containers(container_samples, stop_event, args.sample_interval)
+    )
+
+    started = time.time()
+    started_at = datetime.now(timezone.utc).isoformat()
+    stop_at = started + args.duration
+    job_outcomes: list[dict[str, Any]] = []
+
+    heavy_users = min(args.heavy_users, args.users)
+    user_profiles = ["heavy"] * heavy_users + ["standard"] * (args.users - heavy_users)
+    random.shuffle(user_profiles)
+
+    user_tasks = [
+        asyncio.create_task(
+            simulate_user(
+                user_id=i,
+                base_url=base_url,
+                metrics=metrics,
+                project_ids=project_ids,
+                component_ids=component_ids,
+                categories=categories,
+                stop_at=stop_at,
+                profile=user_profiles[i],
+                heavy_project_id=args.heavy_project_id,
+                diff_commit_new=args.diff_commit_new,
+                diff_commit_old=args.diff_commit_old,
+                webgpu_commit=args.webgpu_commit,
+                job_timeout=args.job_timeout,
+                poll_interval=args.poll_interval,
+                job_outcomes=job_outcomes,
+            )
+        )
+        for i in range(args.users)
+    ]
+
+    await asyncio.gather(*user_tasks)
+    stop_event.set()
+    try:
+        await monitor_task
+    except Exception as exc:  # noqa: BLE001
+        print(f"Warning: container monitoring stopped early: {exc}", file=sys.stderr)
+
+    finished = time.time()
+    finished_at = datetime.now(timezone.utc).isoformat()
+    elapsed = finished - started
+
+    overall_latency, endpoint_stats = summarize_metrics(metrics)
+    container_stats = summarize_container_samples(container_samples)
+    failed = sum(1 for m in metrics if not m.status or m.status >= 400)
+
+    data_dir = Path(args.data_dir) if args.data_dir else Path(__file__).resolve().parents[1] / "data" / "projects"
+
+    return BenchmarkResult(
+        config={
+            "base_url": base_url,
+            "users": args.users,
+            "heavy_users": heavy_users,
+            "duration_seconds": args.duration,
+            "sample_interval_seconds": args.sample_interval,
+            "job_timeout_seconds": args.job_timeout,
+            "poll_interval_seconds": args.poll_interval,
+            "heavy_project_id": args.heavy_project_id,
+            "diff_commit_new": args.diff_commit_new,
+            "diff_commit_old": args.diff_commit_old,
+            "webgpu_commit": args.webgpu_commit,
+            "network": "docker_internal" if "kicad-prism-frontend" in base_url else "localhost",
+            "projects": len(project_ids),
+            "categories": len(categories),
+            "catalog_components": len(component_ids),
+            "catalog_components_with_previews": preview_component_count,
+        },
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_seconds=round(elapsed, 2),
+        total_requests=len(metrics),
+        failed_requests=failed,
+        requests_per_second=round(len(metrics) / elapsed, 2) if elapsed else 0.0,
+        latency_ms=overall_latency,
+        endpoint_stats=endpoint_stats,
+        container_stats=container_stats,
+        disk_usage_gb=measure_disk_usage_gb(data_dir),
+        job_stats=summarize_job_outcomes(job_outcomes),
+    )
+
+
+def recommend_vm_specs(result: BenchmarkResult) -> dict[str, Any]:
+    containers = result.container_stats
+    total_mem_peak_mib = sum(c.get("mem_mib_peak", 0) for c in containers.values())
+    total_cpu_peak = sum(c.get("cpu_percent_peak", 0) for c in containers.values())
+    total_net_mib = sum(c.get("net_tx_mib_total", 0) for c in containers.values())
+
+    # Headroom: 2x memory, 1.5x CPU cores, +20GB disk beyond current data
+    mem_gb_recommended = max(4, round((total_mem_peak_mib * 2) / 1024 + 0.5))
+    cpu_cores_recommended = max(2, round((total_cpu_peak / 100) * 1.5 + 0.5))
+    disk_gb_recommended = max(40, round((result.disk_usage_gb or 20) * 1.5 + 20))
+
+    return {
+        "observed_peak_total_memory_mib": round(total_mem_peak_mib, 1),
+        "observed_peak_total_cpu_percent": round(total_cpu_peak, 1),
+        "observed_network_egress_mib_during_test": round(total_net_mib, 2),
+        "recommended_vm_specs": {
+            "cpu_cores": cpu_cores_recommended,
+            "ram_gb": mem_gb_recommended,
+            "disk_gb": disk_gb_recommended,
+            "notes": [
+                "Specs include ~2x memory headroom over observed Docker peak.",
+                "CPU recommendation assumes 1 vCPU ~= 100% of one core in docker stats.",
+                "Disk includes current project/catalog data plus growth headroom.",
+                "Place data/projects on local SSD/NVMe, not network storage.",
+                "Set UVICORN_WORKERS=4 on a 4-core VM for this load profile.",
+            ],
+        },
+    }
+
+
+def print_report(result: BenchmarkResult, recommendations: dict[str, Any]) -> None:
+    print("\n=== KiCAD-Prism Concurrent User Benchmark ===")
+    print(json.dumps(result.config, indent=2))
+    print(f"\nDuration: {result.duration_seconds}s")
+    print(f"Requests: {result.total_requests} ({result.requests_per_second}/s), failures: {result.failed_requests}")
+    print(
+        "Latency (ms): "
+        f"p50={result.latency_ms['p50']:.1f}, "
+        f"p95={result.latency_ms['p95']:.1f}, "
+        f"p99={result.latency_ms['p99']:.1f}, "
+        f"max={result.latency_ms['max']:.1f}"
+    )
+    if result.disk_usage_gb is not None:
+        print(f"Project/catalog disk usage: {result.disk_usage_gb} GB")
+
+    print("\n--- Per-endpoint ---")
+    for endpoint, stats in result.endpoint_stats.items():
+        print(
+            f"{endpoint:30s} count={stats['count']:4d} err={stats['errors']:3d} "
+            f"p50={stats['p50_ms']:7.1f}ms p95={stats['p95_ms']:7.1f}ms "
+            f"bytes={stats['bytes_total'] / (1024 * 1024):.2f} MiB"
+        )
+
+    print("\n--- Container resource usage ---")
+    for name, stats in result.container_stats.items():
+        print(
+            f"{name:28s} CPU avg/peak={stats['cpu_percent_avg']:5.1f}/{stats['cpu_percent_peak']:5.1f}% "
+            f"MEM avg/peak={stats['mem_mib_avg']:7.1f}/{stats['mem_mib_peak']:7.1f} MiB "
+            f"net_tx={stats['net_tx_mib_total']:.2f} MiB"
+        )
+
+    if result.job_stats.get("total_jobs"):
+        print("\n--- Heavy jobs (visual diff / WebGPU 3D) ---")
+        print(json.dumps(result.job_stats["by_job"], indent=2))
+
+    print("\n--- Recommended VM specs ---")
+    rec = recommendations["recommended_vm_specs"]
+    print(f"CPU:  {rec['cpu_cores']} vCPU")
+    print(f"RAM:  {rec['ram_gb']} GB")
+    print(f"Disk: {rec['disk_gb']} GB (local SSD/NVMe)")
+    for note in rec["notes"]:
+        print(f"  - {note}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Benchmark KiCAD-Prism under concurrent user load.")
+    parser.add_argument(
+        "--base-url",
+        default="http://kicad-prism-frontend:80",
+        help="Prism base URL (use http://kicad-prism-frontend:80 from another Docker container)",
+    )
+    parser.add_argument("--users", type=int, default=20)
+    parser.add_argument("--heavy-users", type=int, default=4, help="Users running visual diff / WebGPU 3D jobs")
+    parser.add_argument("--duration", type=int, default=180, help="Test duration in seconds")
+    parser.add_argument("--job-timeout", type=float, default=600.0, help="Max seconds to wait for heavy jobs")
+    parser.add_argument("--poll-interval", type=float, default=2.0, help="Job status polling interval")
+    parser.add_argument("--heavy-project-id", default=DEFAULT_JTYU_PROJECT_ID)
+    parser.add_argument("--diff-commit-new", default=DEFAULT_DIFF_COMMIT_NEW)
+    parser.add_argument("--diff-commit-old", default=DEFAULT_DIFF_COMMIT_OLD)
+    parser.add_argument("--webgpu-commit", default=DEFAULT_WEBGPU_COMMIT)
+    parser.add_argument("--sample-interval", type=float, default=2.0, help="Docker stats sampling interval")
+    parser.add_argument("--data-dir", default="", help="Path to data/projects for disk sizing")
+    parser.add_argument("--output", default="", help="Write JSON report to this path")
+    args = parser.parse_args()
+
+    result = asyncio.run(run_benchmark(args))
+    recommendations = recommend_vm_specs(result)
+    print_report(result, recommendations)
+
+    if args.output:
+        payload = {
+            "benchmark": result.__dict__,
+            "recommendations": recommendations,
+        }
+        Path(args.output).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"\nWrote report: {args.output}")
+
+
+if __name__ == "__main__":
+    main()

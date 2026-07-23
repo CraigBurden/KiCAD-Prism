@@ -65,6 +65,22 @@ def _compute_build_fingerprint() -> str:
 BUILD_FINGERPRINT = _compute_build_fingerprint()
 _BUILD_LOCKS: dict[str, threading.Lock] = {}
 _BUILD_LOCKS_GUARD = threading.Lock()
+
+
+def _prune_stale_bundles(project_id: str, source_hash: str, *, keep_build: str = BUILD_FINGERPRINT) -> list[str]:
+    parent = bundle_dir(project_id, source_hash, keep_build).parent
+    keep_dir = bundle_dir(project_id, source_hash, keep_build).resolve()
+    removed: list[str] = []
+    if not parent.is_dir():
+        return removed
+    for path in parent.iterdir():
+        if not path.is_dir() or path.resolve() == keep_dir:
+            continue
+        shutil.rmtree(path)
+        removed.append(path.name.rsplit("_", 1)[-1])
+    return removed
+
+
 SOURCE_SUFFIXES = {
     ".kicad_pro",
     ".kicad_sch",
@@ -261,9 +277,11 @@ def get_status_for_source(
                 "updated_at": bundle.get("generated_at"),
             }
             payload["readiness"] = readiness
-            payload["status"] = (
-                "ready" if readiness.get("stage") == "semantic-ready" else "building"
-            )
+            semantic_ready = readiness.get("stage") == "semantic-ready"
+            payload["status"] = "ready" if semantic_ready else "building"
+            if not semantic_ready:
+                payload["available"] = False
+                payload["bundle_url"] = None
             payload["generated_at"] = bundle.get("generated_at")
             payload["capabilities"] = bundle.get("capabilities", {})
             _validate_bundle_assets(current_bundle.parent, bundle)
@@ -974,6 +992,9 @@ def _build_visualizer_bundle_locked(
         _validate_bundle_assets(target, published_bundle)
         _record_perf(job, persist, "publish.validate_target", validate_started)
         _record_perf(job, persist, "publish.total", publish_started)
+        pruned = _prune_stale_bundles(project.id, source_hash)
+        if pruned:
+            job["logs"].append(f"Removed stale semantic bundles: {', '.join(pruned)}")
 
     job["percent"] = 100
     job["stage"] = "semantic-ready"

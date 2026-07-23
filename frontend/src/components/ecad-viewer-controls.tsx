@@ -157,12 +157,17 @@ export function EcadViewerControls({
             aria-label={context === "SCH" ? "Schematic pages" : "PCB display controls"}
         >
             <div className="flex h-10 shrink-0 items-center border-b">
-                {open && (
-                    <div className="flex min-w-0 flex-1 items-center gap-2 pl-3 text-xs font-medium">
-                        {context === "SCH" ? <ListFilter className="size-4" /> : <Layers3 className="size-4" />}
-                        <span>{context === "SCH" ? "Schematic pages" : "Board display"}</span>
-                    </div>
-                )}
+                {/* Always reserve the leading flex area so the collapse handle stays on the
+                    right edge of the panel. The closed transform keeps that right strip
+                    visible; putting the handle on the left would hide it off-screen. */}
+                <div className="flex min-w-0 flex-1 items-center gap-2 pl-3 text-xs font-medium">
+                    {open && (
+                        <>
+                            {context === "SCH" ? <ListFilter className="size-4" /> : <Layers3 className="size-4" />}
+                            <span>{context === "SCH" ? "Schematic pages" : "Board display"}</span>
+                        </>
+                    )}
+                </div>
                 <div ref={handleRef} className="flex w-11 shrink-0 justify-center">
                     <Button
                         variant="ghost"

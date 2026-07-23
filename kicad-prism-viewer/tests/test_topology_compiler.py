@@ -745,6 +745,100 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(barrel["layerMask"], 0b111)
         self.assertEqual(barrel["kind"], "plated_pad")
 
+    def test_ir_pad_restores_footprint_cancelled_orientation(self) -> None:
+        builder = SemanticGltfBuilder(self.semantic_topology())
+        builder.add_pcb_ir(
+            {
+                "records": [
+                    {
+                        "kind": "footprint",
+                        "placement": {
+                            "x_nm": 55_187_000,
+                            "y_nm": 77_750_000,
+                            "angle_deg": 90.0,
+                        },
+                        "operations": [
+                            {
+                                "kind": "StartBlock",
+                                "data_ref": "pad",
+                                "data_uuid": "pad-u9-24",
+                                "extra_attrs": {"net": "VR5510_AMUX"},
+                            },
+                            {
+                                "kind": "FlashPadOval",
+                                "x": 1_250_000,
+                                "y": 3_963_000,
+                                "size_x_nm": 250_000,
+                                "size_y_nm": 875_000,
+                                "orient_deg": 0.0,
+                                "layers": ["F.Cu"],
+                            },
+                            {"kind": "EndBlock"},
+                        ],
+                    }
+                ]
+            }
+        )
+        pad_objects = [item for item in builder.objects if item.get("layerName") == "F.Cu"]
+        self.assertEqual(len(pad_objects), 1)
+        outer = pad_objects[0]["polygons"][0]["outer"]
+        xs = [point[0] for point in outer]
+        ys = [point[1] for point in outer]
+        width = max(xs) - min(xs)
+        height = max(ys) - min(ys)
+        self.assertLess(width, height)
+        self.assertAlmostEqual(width, 0.25, delta=0.02)
+        self.assertAlmostEqual(height, 0.875, delta=0.02)
+        self.assertAlmostEqual((max(xs) + min(xs)) / 2.0, 59.15, delta=0.02)
+        self.assertAlmostEqual((max(ys) + min(ys)) / 2.0, 76.5, delta=0.02)
+
+    def test_ir_rect_pad_with_rotated_footprint_keeps_board_orientation(self) -> None:
+        builder = SemanticGltfBuilder(self.semantic_topology())
+        builder.add_pcb_ir(
+            {
+                "records": [
+                    {
+                        "kind": "footprint",
+                        "placement": {
+                            "x_nm": 30_063_443,
+                            "y_nm": 42_758_365,
+                            "angle_deg": -90.0,
+                        },
+                        "operations": [
+                            {
+                                "kind": "StartBlock",
+                                "data_ref": "pad",
+                                "data_uuid": "pad-r121-2",
+                                "extra_attrs": {"net": "Net-(U10-FB+)"},
+                            },
+                            {
+                                "kind": "FlashPadRect",
+                                "x": 540_000,
+                                "y": 0,
+                                "size_x_nm": 600_000,
+                                "size_y_nm": 800_000,
+                                "orient_deg": 0.0,
+                                "layers": ["F.Cu"],
+                            },
+                            {"kind": "EndBlock"},
+                        ],
+                    }
+                ]
+            }
+        )
+        pad_objects = [item for item in builder.objects if item.get("layerName") == "F.Cu"]
+        self.assertEqual(len(pad_objects), 1)
+        outer = pad_objects[0]["polygons"][0]["outer"]
+        xs = [point[0] for point in outer]
+        ys = [point[1] for point in outer]
+        width = max(xs) - min(xs)
+        height = max(ys) - min(ys)
+        self.assertLess(width, height)
+        self.assertAlmostEqual(width, 0.6, delta=0.02)
+        self.assertAlmostEqual(height, 0.8, delta=0.02)
+        self.assertAlmostEqual((max(xs) + min(xs)) / 2.0, 30.063, delta=0.02)
+        self.assertAlmostEqual((max(ys) + min(ys)) / 2.0, 43.298, delta=0.02)
+
     def test_build_input_contains_coordinate_bounds_and_component_features(self) -> None:
         builder = SemanticGltfBuilder(self.semantic_topology())
         builder.add_component_nodes([{"designator": "U1", "node_index": 4, "mesh_names": ["Body"]}])

@@ -30,6 +30,10 @@ dist/
 # Local Compose development overrides
 docker-compose.override.yml
 
+# Remote-panel loadtest secrets + reports
+loadtest/.env.loadtest
+loadtest/results/
+
 # Python packaging metadata
 *.egg-info/
 
