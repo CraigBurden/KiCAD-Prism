@@ -2904,7 +2904,11 @@ def _run_job(
     head: str,
     include_unchanged: bool,
 ) -> None:
-    """Publish Schematic+BOM first, then finish PCB+Stackup eagerly."""
+    """Legacy in-process runner retained for unit tests only.
+
+    Production work is enqueued through ``start_design_compare_job`` and executed
+    by ``run_design_compare_job_v3`` inside ``prism-worker``.
+    """
 
     job = design_compare_jobs[job_id]
     logs: List[str] = job.setdefault("logs", [])
@@ -3121,13 +3125,34 @@ def start_design_compare_job(
 
 def get_job_status(job_id: str) -> Optional[dict]:
     v3_job = v3_jobs.get(job_id)
-    job = design_compare_jobs.get(job_id) or v3_job or workspace.get_job(job_id, "design_compare")
+    if v3_job and v3_job.get("kind") == "design_compare":
+        metadata = dict(v3_job.get("result_metadata") or {})
+        payload = dict(v3_job.get("payload") or {})
+        return {
+            "job_id": job_id,
+            "status": v3_job.get("status"),
+            "message": v3_job.get("message"),
+            "percent": v3_job.get("percent", 0),
+            "logs": [],
+            "project_id": v3_job.get("project_id") or payload.get("project_id"),
+            "base": payload.get("base"),
+            "head": payload.get("head"),
+            "benchmark_path": metadata.get("benchmark_path"),
+            "result_version": metadata.get("result_version", 0),
+            "ready_domains": metadata.get("ready_domains") or [],
+            "readiness": metadata.get("readiness"),
+            "result_digest": v3_job.get("result_digest"),
+            "error": v3_job.get("error_message") or None,
+        }
+
+    # Legacy in-memory / pre-V3 rows are retained only for unit tests that still
+    # exercise _run_job directly. Production enqueue never populates this path.
+    job = design_compare_jobs.get(job_id) or workspace.get_job(job_id, "design_compare")
     if not job:
         return None
 
     status = job.get("status")
-    # Orphan detection: worker OOM/restart leaves DB row stuck at running forever.
-    if status == "running" and v3_job is None:
+    if status == "running" and job_id in design_compare_jobs:
         updated = job.get("updated_at")
         try:
             if updated is not None:
@@ -3146,10 +3171,8 @@ def get_job_status(job_id: str) -> Optional[dict]:
                     )
                     job["status"] = "failed"
                     job["message"] = msg
-                    if job_id in design_compare_jobs:
-                        design_compare_jobs[job_id]["status"] = "failed"
-                        design_compare_jobs[job_id]["message"] = msg
-                    workspace.update_job(job_id, status="failed", message=msg)
+                    design_compare_jobs[job_id]["status"] = "failed"
+                    design_compare_jobs[job_id]["message"] = msg
                     status = "failed"
         except Exception:
             logger.exception("stale design-compare check failed")
@@ -3171,14 +3194,14 @@ def get_job_status(job_id: str) -> Optional[dict]:
 
 
 def get_job_result(job_id: str) -> Optional[dict]:
-    job = design_compare_jobs.get(job_id)
-    if job and job.get("result"):
-        return job["result"]
     v3_job = v3_jobs.get(job_id)
     if v3_job and v3_job.get("result_path"):
         path = Path(str(v3_job["result_path"]))
         if path.is_file():
             return json.loads(path.read_text(encoding="utf-8"))
+    job = design_compare_jobs.get(job_id)
+    if job and job.get("result"):
+        return job["result"]
     path = _JOB_ROOT / job_id / "result.json"
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -3208,7 +3231,7 @@ def delete_job(job_id: str) -> None:
     try:
         workspace.delete_job(job_id)
     except Exception:
-        pass
+        logger.exception("Failed to delete legacy design-compare job %s", job_id)
 
 
 def run_design_compare_job_v3(context: JobContext) -> JobResult:

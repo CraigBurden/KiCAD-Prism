@@ -54,6 +54,12 @@ PRISM_IMPORT_CONCURRENCY=1
 PRISM_SEMANTIC_COMPILE_SLOTS=2
 ```
 
+These are PostgreSQL-backed slot caps, not host CPU reservations. Compose also
+applies per-service `cpus` / `mem_limit` **ceilings** so the API cannot be starved
+by an unbounded worker container, but Docker Desktop does not hard-guarantee CPU
+shares the way Kubernetes `requests` would. Tune slot counts and container
+limits together.
+
 Repository and project exclusion locks are also database-backed. Read-compatible
 jobs may overlap, while write/exclusive jobs cannot race a conflicting attempt
 in another worker process.
@@ -140,8 +146,13 @@ bearer token and exercises normal project/catalog reads alongside Design
 Comparison and WebGPU jobs. It records endpoint distributions, heavy-job
 outcomes, job/pool metrics, hardware details, and optional Docker samples.
 
-The repository benchmark image includes both load harnesses. A reproducible V3
-run can override its default remote-panel entrypoint:
+The repository benchmark image includes both load harnesses. For the full
+20-user capacity hammer (Design Comparison, WebGPU, remote search + asset
+download, VPN-like delay, EC2 sizing notes), see
+[`docs/V3_CAPACITY_HAMMER.md`](V3_CAPACITY_HAMMER.md) and
+`scripts/run_capacity_hammer.sh`.
+
+A reproducible Docker-network run:
 
 ```text
 docker build -f loadtest/Dockerfile -t kicad-prism-loadtest .
@@ -152,7 +163,8 @@ docker run --rm --network <prism-network> \
   kicad-prism-loadtest \
   /loadtest/benchmark_concurrent_users.py \
   --base-url http://frontend \
-  --users 20 --heavy-users 4 --duration 180 \
+  --users 20 --heavy-users 5 --duration 600 \
+  --network-delay-ms 45 --network-jitter-ms 25 \
   --output /results/v3-concurrent-users.json
 ```
 

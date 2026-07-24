@@ -196,6 +196,60 @@ class SemanticIndexServiceTests(unittest.TestCase):
         self.assertFalse(status["available"])
         self.assertEqual(status["status_selector"], "workspace:revision-8")
 
+    def test_webgpu_fast_status_never_invokes_git_for_symbolic_refs(self) -> None:
+        project = SimpleNamespace(
+            id="prj_test",
+            path="/must-not-resolve",
+            last_modified="revision-9",
+        )
+        with patch.object(
+            semantic_visualizer_service,
+            "_resolve_commit",
+            side_effect=AssertionError("fast status must not call git"),
+        ), patch.object(
+            semantic_visualizer_service.jobs,
+            "get_webgpu_ready",
+            side_effect=AssertionError("symbolic refs skip exact selector lookup"),
+        ):
+            status = semantic_visualizer_service.get_status_fast(project, commit="HEAD")
+
+        self.assertEqual(status["status"], "missing")
+        self.assertTrue(status["unresolved_ref"])
+        self.assertEqual(status["status_selector"], "ref:HEAD")
+
+    def test_webgpu_fast_status_uses_prefix_lookup_for_abbreviated_sha(self) -> None:
+        project = SimpleNamespace(
+            id="prj_test",
+            path="/must-not-resolve",
+            last_modified="revision-10",
+        )
+        ready = {
+            "status": "ready",
+            "available": True,
+            "commit": "abcdef0123456789abcdef0123456789abcdef01",
+            "status_selector": "commit:abcdef0123456789abcdef0123456789abcdef01",
+        }
+        with patch.object(
+            semantic_visualizer_service,
+            "_resolve_commit",
+            side_effect=AssertionError("fast status must not call git"),
+        ), patch.object(
+            semantic_visualizer_service.jobs,
+            "find_webgpu_ready_by_commit_prefix",
+            return_value=ready,
+        ) as lookup:
+            status = semantic_visualizer_service.get_status_fast(
+                project,
+                commit="abcdef012345",
+            )
+
+        self.assertEqual(status, ready)
+        lookup.assert_called_once_with(
+            "prj_test",
+            semantic_visualizer_service.BUILD_FINGERPRINT,
+            "abcdef012345",
+        )
+
     def test_source_revision_key_ignores_heavy_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

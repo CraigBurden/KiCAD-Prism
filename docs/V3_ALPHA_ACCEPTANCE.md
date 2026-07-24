@@ -22,10 +22,10 @@ benchmarks, and acceptance gates.
 | Cancellation | Pre-launch cancellation and supervised process-group termination tests | Pass |
 | Database outage | Worker heartbeat/read failure tests prevent false publication and terminate safely | Pass |
 | Disk/staging failure | Artifact promotion failure tests leave no authoritative partial artifact | Pass |
-| API/worker isolation | API and worker run as separate containers with independent DB pools | Pass |
-| Immutable completed artifacts | Digest object store, authenticated reads, cache hits, reconciliation, retention, and GC tests | Pass |
+| API/worker isolation | API and worker run as separate containers with independent DB pools and Compose `cpus`/`mem_limit` ceilings (limits, not Kubernetes-style reservations) | Pass |
+| Immutable completed artifacts | Digest object store, authenticated reads, cache hits with object validation, reconciliation, retention, and GC tests | Pass |
 | Design Comparison sidecars | Six fenced sidecars, authenticated immutable URLs, concurrent frontend loader, backend/frontend tests | Pass |
-| WebGPU O(1) readiness | Ready metadata table and fast status tests | Pass |
+| WebGPU O(1) readiness | Ready metadata table; fast status never invokes git or scans sources (full/abbrev SHA via DB; symbolic refs return unresolved) | Pass |
 | Workspace bootstrap/read cache | Versioned one-query bootstrap, ETag, role visibility, Git SHA caches, optional totals | Pass |
 | Remote-provider projection | Released-only projection, version/ETag, capped paging, projection-backed search/category reads | Pass |
 | Thumbnail path | Hashed immutable WebP, maximum 640×480, quality fallback to at most 250 KiB | Pass |

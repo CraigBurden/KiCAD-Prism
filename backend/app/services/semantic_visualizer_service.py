@@ -237,20 +237,46 @@ def get_status(project: Any, commit: str | None = None) -> Dict[str, Any]:
 
 
 def get_status_fast(project: Any, commit: str | None = None) -> Dict[str, Any]:
-    """Read readiness metadata only; never scan or parse generated assets."""
+    """Read readiness metadata only; never scan sources or invoke git."""
 
     resolved_commit: str | None = None
+    unresolved_ref = False
     if commit:
-        repo_root = _repo_root(Path(project.path))
-        resolved_commit = _resolve_commit(repo_root, commit)
-        selector = f"commit:{resolved_commit}"
+        normalized_commit = commit.strip().lower()
+        if re.fullmatch(r"[0-9a-f]{40}", normalized_commit):
+            resolved_commit = normalized_commit
+            selector = f"commit:{resolved_commit}"
+            cached = jobs.get_webgpu_ready(
+                str(project.id),
+                selector,
+                BUILD_FINGERPRINT,
+            )
+        elif re.fullmatch(r"[0-9a-f]{7,39}", normalized_commit):
+            cached = jobs.find_webgpu_ready_by_commit_prefix(
+                str(project.id),
+                BUILD_FINGERPRINT,
+                normalized_commit,
+            )
+            if cached and cached.get("commit"):
+                resolved_commit = str(cached["commit"])
+                selector = str(
+                    cached.get("status_selector") or f"commit:{resolved_commit}"
+                )
+            else:
+                selector = f"commit:{normalized_commit}"
+        else:
+            # Symbolic refs require git; keep the fast path O(1) and let
+            # diagnostic=true callers resolve through get_status().
+            unresolved_ref = True
+            selector = f"ref:{commit.strip()}"
+            cached = None
     else:
         selector = f"workspace:{getattr(project, 'last_modified', '') or ''}"
-    cached = jobs.get_webgpu_ready(
-        str(project.id),
-        selector,
-        BUILD_FINGERPRINT,
-    )
+        cached = jobs.get_webgpu_ready(
+            str(project.id),
+            selector,
+            BUILD_FINGERPRINT,
+        )
     if cached:
         return cached
     payload: Dict[str, Any] = {
@@ -272,6 +298,10 @@ def get_status_fast(project: Any, commit: str | None = None) -> Dict[str, Any]:
     }
     if resolved_commit:
         payload["commit"] = resolved_commit
+    elif commit:
+        payload["commit"] = commit.strip()
+    if unresolved_ref:
+        payload["unresolved_ref"] = True
     return payload
 
 

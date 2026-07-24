@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from app.services.postgres_database import database
@@ -73,6 +76,34 @@ class JobService:
             normalized[key] = "write" if mode == "write" or previous == "write" else "read"
         return [{"key": key, "mode": normalized[key]} for key in sorted(normalized)]
 
+    @staticmethod
+    def _artifact_file_valid(row: Mapping[str, Any]) -> tuple[bool, str]:
+        """Validate a cache pointer before returning it as an authoritative hit."""
+
+        path = Path(str(row.get("cache_object_path") or ""))
+        try:
+            stat = path.stat()
+        except OSError:
+            return False, "object_missing"
+        if not path.is_file():
+            return False, "object_not_file"
+        expected_size = int(row.get("cache_size_bytes") or 0)
+        if stat.st_size != expected_size:
+            return False, "object_size_mismatch"
+        expected_digest = str(row.get("cache_digest") or "")
+        if len(expected_digest) != 64:
+            return False, "object_digest_missing"
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as handle:
+                while chunk := handle.read(1024 * 1024):
+                    digest.update(chunk)
+        except OSError:
+            return False, "object_unreadable"
+        if digest.hexdigest() != expected_digest:
+            return False, "object_digest_mismatch"
+        return True, ""
+
     def configure_resource_slots(self, capacities: Mapping[str, int]) -> None:
         """Reconcile configured slot rows without evicting active leases."""
 
@@ -99,13 +130,7 @@ class JobService:
                 conn.execute(
                     """
                     DELETE FROM ws_job_resource_slots
-                    WHERE resource_name = %s
-                      AND slot_number > %s
-                      AND (
-                        job_id IS NULL
-                        OR lease_expires_at IS NULL
-                        OR lease_expires_at < NOW()
-                      )
+                    WHERE resource_name = %s AND slot_number > %s AND job_id IS NULL
                     """,
                     (resource_name, capacity),
                 )
@@ -169,7 +194,10 @@ class JobService:
                     return result
                 cached = conn.execute(
                     """
-                    SELECT job.*, artifact.id AS cache_artifact_id
+                    SELECT job.*, artifact.id AS cache_artifact_id,
+                           artifact.object_path AS cache_object_path,
+                           artifact.digest AS cache_digest,
+                           artifact.size_bytes AS cache_size_bytes
                     FROM ws_artifacts artifact
                     JOIN ws_jobs job
                       ON job.id = artifact.source_job_id
@@ -185,10 +213,32 @@ class JobService:
                     (normalized_kind, normalized_artifact),
                 ).fetchone()
                 if cached:
+                    valid, invalid_reason = self._artifact_file_valid(cached)
+                    if valid:
+                        conn.execute(
+                            """
+                            UPDATE ws_artifacts
+                            SET last_accessed_at = NOW()
+                            WHERE id = %s
+                            """,
+                            (cached["cache_artifact_id"],),
+                        )
+                        self._event(
+                            conn,
+                            str(cached["id"]),
+                            "cache_hit",
+                            details={"requested_by": requested_by},
+                        )
+                        conn.commit()
+                        result = self._decode(cached)
+                        result["deduplicated"] = False
+                        result["cache_hit"] = True
+                        return result
                     conn.execute(
                         """
                         UPDATE ws_artifacts
-                        SET last_accessed_at = NOW()
+                        SET invalidated_at = COALESCE(invalidated_at, NOW()),
+                            readiness = 'invalid'
                         WHERE id = %s
                         """,
                         (cached["cache_artifact_id"],),
@@ -196,14 +246,13 @@ class JobService:
                     self._event(
                         conn,
                         str(cached["id"]),
-                        "cache_hit",
-                        details={"requested_by": requested_by},
+                        "artifact_invalidated",
+                        details={
+                            "artifact_id": str(cached["cache_artifact_id"]),
+                            "reason": invalid_reason,
+                            "detected_by": "enqueue",
+                        },
                     )
-                    conn.commit()
-                    result = self._decode(cached)
-                    result["deduplicated"] = False
-                    result["cache_hit"] = True
-                    return result
 
             row = conn.execute(
                 """
@@ -256,9 +305,12 @@ class JobService:
             raise ValueError("lease_seconds must be at least 10")
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
-            candidates = conn.execute(
+            self._finalize_expired_cancellations(conn, worker_pool)
+            self._release_non_authoritative_claims(conn)
+            conn.commit()
+            candidate_ids = conn.execute(
                 """
-                SELECT *
+                SELECT id
                 FROM ws_jobs
                 WHERE worker_pool = %s
                   AND (
@@ -270,24 +322,54 @@ class JobService:
                         AND lease_expires_at < NOW()
                     )
                   )
-                ORDER BY priority ASC, available_at ASC, created_at ASC, id ASC
-                FOR UPDATE SKIP LOCKED
+                ORDER BY
+                    CASE WHEN status = 'running' THEN 0 ELSE 1 END,
+                    priority ASC, available_at ASC, created_at ASC, id ASC
                 LIMIT %s
                 """,
                 (worker_pool, max(1, min(128, int(candidate_limit)))),
             ).fetchall()
+            conn.commit()
 
-            for row in candidates:
-                job_id = str(row["id"])
+            for candidate in candidate_ids:
+                job_id = str(candidate["id"])
+                row = conn.execute(
+                    """
+                    SELECT *
+                    FROM ws_jobs
+                    WHERE id = %s
+                      AND worker_pool = %s
+                      AND (
+                        (status = 'queued' AND available_at <= NOW())
+                        OR (status = 'retry_wait' AND available_at <= NOW())
+                        OR (
+                            status = 'running'
+                            AND lease_expires_at IS NOT NULL
+                            AND lease_expires_at < NOW()
+                        )
+                      )
+                    FOR UPDATE SKIP LOCKED
+                    """,
+                    (job_id, worker_pool),
+                ).fetchone()
+                if not row:
+                    conn.commit()
+                    continue
                 resources = self._normalize_resources(
                     _loads(row["resource_requirements"], {})
                 )
                 locks = self._normalize_locks(_loads(row["lock_requirements"], []))
-                chosen_slots = self._find_slots(conn, resources)
+                old_status = str(row["status"])
+                reclaim_job_id = job_id if old_status == "running" else None
+                chosen_slots = self._find_slots(
+                    conn,
+                    resources,
+                    reclaim_job_id=reclaim_job_id,
+                )
                 if chosen_slots is None or not self._locks_available(conn, job_id, locks):
+                    conn.commit()
                     continue
 
-                old_status = str(row["status"])
                 old_fence = int(row["fence"] or 0)
                 fence = old_fence + 1
                 conn.execute(
@@ -321,6 +403,7 @@ class JobService:
                     (fence, worker_id, lease_seconds, job_id, old_fence),
                 ).fetchone()
                 if not claimed:
+                    conn.commit()
                     continue
                 self._assign_slots(
                     conn,
@@ -350,13 +433,14 @@ class JobService:
                 )
                 conn.commit()
                 return self._decode(claimed)
-            conn.commit()
         return None
 
     @staticmethod
     def _find_slots(
         conn: Any,
         resources: Mapping[str, int],
+        *,
+        reclaim_job_id: str | None = None,
     ) -> dict[str, list[int]] | None:
         selected: dict[str, list[int]] = {}
         for resource_name, count in sorted(resources.items()):
@@ -365,16 +449,12 @@ class JobService:
                 SELECT slot_number
                 FROM ws_job_resource_slots
                 WHERE resource_name = %s
-                  AND (
-                    job_id IS NULL
-                    OR lease_expires_at IS NULL
-                    OR lease_expires_at < NOW()
-                  )
+                  AND (job_id IS NULL OR job_id = %s)
                 ORDER BY slot_number
                 FOR UPDATE SKIP LOCKED
                 LIMIT %s
                 """,
-                (resource_name, count),
+                (resource_name, reclaim_job_id, count),
             ).fetchall()
             numbers = [int(row["slot_number"]) for row in rows]
             if len(numbers) != count:
@@ -394,10 +474,6 @@ class JobService:
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtext(%s))",
                 (f"prism-job-lock:{lock_key}",),
-            )
-            conn.execute(
-                "DELETE FROM ws_job_locks WHERE lock_key = %s AND lease_expires_at < NOW()",
-                (lock_key,),
             )
             if mode == "read":
                 conflict = conn.execute(
@@ -420,6 +496,77 @@ class JobService:
             if conflict:
                 return False
         return True
+
+    @staticmethod
+    def _release_non_authoritative_claims(conn: Any) -> None:
+        """Release only claims whose owning job has already lost authority."""
+
+        conn.execute(
+            """
+            UPDATE ws_job_resource_slots slot
+            SET job_id = NULL, fence = NULL, lease_owner = '',
+                lease_expires_at = NULL, updated_at = NOW()
+            FROM ws_jobs job
+            WHERE slot.job_id = job.id
+              AND (
+                job.status IN ('completed', 'failed', 'cancelled')
+                OR slot.fence IS DISTINCT FROM job.fence
+                OR slot.lease_owner IS DISTINCT FROM job.lease_owner
+              )
+            """
+        )
+        conn.execute(
+            """
+            DELETE FROM ws_job_locks lock
+            USING ws_jobs job
+            WHERE lock.job_id = job.id
+              AND (
+                job.status IN ('completed', 'failed', 'cancelled')
+                OR lock.fence IS DISTINCT FROM job.fence
+                OR lock.lease_owner IS DISTINCT FROM job.lease_owner
+              )
+            """
+        )
+
+    def _finalize_expired_cancellations(self, conn: Any, worker_pool: str) -> None:
+        """Fence dead cancelling attempts so they cannot block dedup or resources."""
+
+        rows = conn.execute(
+            """
+            SELECT id, fence
+            FROM ws_jobs
+            WHERE worker_pool = %s
+              AND status = 'cancel_requested'
+              AND lease_expires_at IS NOT NULL
+              AND lease_expires_at < NOW()
+            ORDER BY created_at, id
+            FOR UPDATE SKIP LOCKED
+            LIMIT 128
+            """,
+            (worker_pool,),
+        ).fetchall()
+        for row in rows:
+            job_id = str(row["id"])
+            old_fence = int(row["fence"] or 0)
+            conn.execute(
+                """
+                UPDATE ws_jobs
+                SET status = 'cancelled', stage = 'cancelled',
+                    message = 'Cancelled after worker lease expired',
+                    fence = fence + 1, completed_at = NOW(),
+                    heartbeat_at = NOW(), lease_owner = '',
+                    lease_expires_at = NULL, updated_at = NOW()
+                WHERE id = %s AND fence = %s AND status = 'cancel_requested'
+                """,
+                (job_id, old_fence),
+            )
+            self._release_claims(conn, job_id, old_fence)
+            self._event(
+                conn,
+                job_id,
+                "cancelled_after_lease_expiry",
+                details={"previous_fence": old_fence, "fence": old_fence + 1},
+            )
 
     @staticmethod
     def _assign_slots(
@@ -474,6 +621,76 @@ class JobService:
                 ),
             )
 
+    def _authoritative_claim(
+        self,
+        conn: Any,
+        job_id: str,
+        worker_id: str,
+        fence: int,
+        *,
+        statuses: Sequence[str] = ("running",),
+    ) -> Mapping[str, Any] | None:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM ws_jobs
+            WHERE id = %s
+              AND fence = %s
+              AND lease_owner = %s
+              AND status = ANY(%s)
+              AND lease_expires_at IS NOT NULL
+              AND lease_expires_at >= NOW()
+            FOR UPDATE
+            """,
+            (job_id, fence, worker_id, list(statuses)),
+        ).fetchone()
+        if not row:
+            return None
+
+        resources = self._normalize_resources(
+            _loads(row["resource_requirements"], {})
+        )
+        for resource_name, expected_count in resources.items():
+            held = conn.execute(
+                """
+                SELECT COUNT(*) AS held
+                FROM ws_job_resource_slots
+                WHERE resource_name = %s
+                  AND job_id = %s
+                  AND fence = %s
+                  AND lease_owner = %s
+                  AND lease_expires_at >= NOW()
+                """,
+                (resource_name, job_id, fence, worker_id),
+            ).fetchone()
+            if int((held or {}).get("held") or 0) != expected_count:
+                return None
+
+        locks = self._normalize_locks(_loads(row["lock_requirements"], []))
+        for requirement in locks:
+            held = conn.execute(
+                """
+                SELECT 1
+                FROM ws_job_locks
+                WHERE lock_key = %s
+                  AND job_id = %s
+                  AND fence = %s
+                  AND lease_owner = %s
+                  AND mode = %s
+                  AND lease_expires_at >= NOW()
+                """,
+                (
+                    requirement["key"],
+                    job_id,
+                    fence,
+                    worker_id,
+                    requirement["mode"],
+                ),
+            ).fetchone()
+            if not held:
+                return None
+        return row
+
     def heartbeat(
         self,
         job_id: str,
@@ -484,6 +701,16 @@ class JobService:
     ) -> bool:
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
+            authoritative = self._authoritative_claim(
+                conn,
+                job_id,
+                worker_id,
+                fence,
+                statuses=("running", "cancel_requested"),
+            )
+            if not authoritative:
+                conn.commit()
+                return False
             cursor = conn.execute(
                 """
                 UPDATE ws_jobs
@@ -494,6 +721,7 @@ class JobService:
                   AND fence = %s
                   AND lease_owner = %s
                   AND status IN ('running', 'cancel_requested')
+                  AND lease_expires_at >= NOW()
                 """,
                 (lease_seconds, job_id, fence, worker_id),
             )
@@ -549,11 +777,21 @@ class JobService:
         params.extend((job_id, fence, worker_id))
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
+            if not self._authoritative_claim(
+                conn,
+                job_id,
+                worker_id,
+                fence,
+                statuses=("running", "cancel_requested"),
+            ):
+                conn.commit()
+                return False
             cursor = conn.execute(
                 f"""
                 UPDATE ws_jobs SET {", ".join(fields)}
                 WHERE id = %s AND fence = %s AND lease_owner = %s
                   AND status IN ('running', 'cancel_requested')
+                  AND lease_expires_at >= NOW()
                 """,
                 tuple(params),
             )
@@ -578,12 +816,21 @@ class JobService:
     ) -> bool:
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
+            if not self._authoritative_claim(
+                conn,
+                job_id,
+                worker_id,
+                fence,
+            ):
+                conn.commit()
+                return False
             cursor = conn.execute(
                 """
                 UPDATE ws_jobs
                 SET log_path = %s, updated_at = NOW()
                 WHERE id = %s AND fence = %s AND lease_owner = %s
                   AND status = 'running'
+                  AND lease_expires_at >= NOW()
                 """,
                 (log_path, job_id, fence, worker_id),
             )
@@ -603,6 +850,14 @@ class JobService:
     ) -> bool:
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
+            if not self._authoritative_claim(
+                conn,
+                job_id,
+                worker_id,
+                fence,
+            ):
+                conn.commit()
+                return False
             cursor = conn.execute(
                 """
                 UPDATE ws_jobs
@@ -613,6 +868,7 @@ class JobService:
                     lease_owner = '', lease_expires_at = NULL, updated_at = NOW()
                 WHERE id = %s AND fence = %s AND lease_owner = %s
                   AND status = 'running'
+                  AND lease_expires_at >= NOW()
                 """,
                 (
                     message,
@@ -646,6 +902,14 @@ class JobService:
 
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
+            if not self._authoritative_claim(
+                conn,
+                job_id,
+                worker_id,
+                fence,
+            ):
+                conn.commit()
+                return False
             artifact_id = str(uuid.uuid4())
             cursor = conn.execute(
                 """
@@ -655,6 +919,7 @@ class JobService:
                     percent = %s, updated_at = NOW()
                 WHERE id = %s AND fence = %s AND lease_owner = %s
                   AND status = 'running'
+                  AND lease_expires_at >= NOW()
                 """,
                 (
                     artifact["object_path"],
@@ -700,6 +965,14 @@ class JobService:
     ) -> bool:
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
+            if not self._authoritative_claim(
+                conn,
+                job_id,
+                worker_id,
+                fence,
+            ):
+                conn.commit()
+                return False
             artifact_id = str(uuid.uuid4())
             cursor = conn.execute(
                 """
@@ -711,6 +984,7 @@ class JobService:
                     lease_expires_at = NULL, updated_at = NOW()
                 WHERE id = %s AND fence = %s AND lease_owner = %s
                   AND status = 'running'
+                  AND lease_expires_at >= NOW()
                 """,
                 (
                     message,
@@ -897,6 +1171,29 @@ class JobService:
                 created_at = NOW(),
                 last_accessed_at = NOW(),
                 invalidated_at = NULL
+            WHERE (
+                    (
+                        EXCLUDED.source_job_id = ws_webgpu_ready.source_job_id
+                        AND EXCLUDED.source_fence >= ws_webgpu_ready.source_fence
+                    )
+                    OR (
+                        SELECT created_at
+                        FROM ws_jobs
+                        WHERE id = EXCLUDED.source_job_id
+                    ) > (
+                        SELECT created_at
+                        FROM ws_jobs
+                        WHERE id = ws_webgpu_ready.source_job_id
+                    )
+                  )
+              AND (
+                    ws_webgpu_ready.invalidated_at IS NULL
+                    OR (
+                        SELECT created_at
+                        FROM ws_jobs
+                        WHERE id = EXCLUDED.source_job_id
+                    ) > ws_webgpu_ready.invalidated_at
+                  )
             """,
             (
                 project_id,
@@ -932,6 +1229,55 @@ class JobService:
                 RETURNING status_payload
                 """,
                 (project_id, selector_key, generator_build),
+            ).fetchone()
+            conn.commit()
+        if not row:
+            return None
+        return _loads(row["status_payload"], {})
+
+    def find_webgpu_ready_by_commit_prefix(
+        self,
+        project_id: str,
+        generator_build: str,
+        commit_prefix: str,
+    ) -> dict[str, Any] | None:
+        """Resolve readiness for an abbreviated SHA without calling git."""
+
+        normalized = commit_prefix.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{7,40}", normalized):
+            return None
+        self.initialize()
+        with self._connect() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            row = conn.execute(
+                """
+                UPDATE ws_webgpu_ready
+                SET last_accessed_at = NOW()
+                WHERE id = (
+                    SELECT id
+                    FROM ws_webgpu_ready
+                    WHERE project_id = %s
+                      AND generator_build = %s
+                      AND invalidated_at IS NULL
+                      AND (
+                        selector_key = %s
+                        OR lower(COALESCE(status_payload->>'commit', '')) LIKE %s
+                      )
+                    ORDER BY
+                        CASE WHEN selector_key = %s THEN 0 ELSE 1 END,
+                        created_at DESC
+                    LIMIT 1
+                    FOR UPDATE
+                )
+                RETURNING status_payload
+                """,
+                (
+                    project_id,
+                    generator_build,
+                    f"commit:{normalized}",
+                    f"{normalized}%",
+                    f"commit:{normalized}",
+                ),
             ).fetchone()
             conn.commit()
         if not row:
@@ -974,21 +1320,23 @@ class JobService:
     ) -> str | None:
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
-            row = conn.execute(
-                """
-                SELECT attempt, max_attempts
-                FROM ws_jobs
-                WHERE id = %s AND fence = %s AND lease_owner = %s
-                  AND status IN ('running', 'cancel_requested')
-                FOR UPDATE
-                """,
-                (job_id, fence, worker_id),
-            ).fetchone()
+            row = self._authoritative_claim(
+                conn,
+                job_id,
+                worker_id,
+                fence,
+                statuses=("running", "cancel_requested"),
+            )
             if not row:
                 conn.commit()
                 return None
-            retry = transient and int(row["attempt"]) < int(row["max_attempts"])
-            status = "retry_wait" if retry else "failed"
+            cancelling = str(row["status"]) == "cancel_requested"
+            retry = (
+                not cancelling
+                and transient
+                and int(row["attempt"]) < int(row["max_attempts"])
+            )
+            status = "cancelled" if cancelling else "retry_wait" if retry else "failed"
             conn.execute(
                 """
                 UPDATE ws_jobs
@@ -1001,11 +1349,12 @@ class JobService:
                     completed_at = CASE WHEN %s THEN NULL ELSE NOW() END,
                     lease_owner = '', lease_expires_at = NULL, updated_at = NOW()
                 WHERE id = %s AND fence = %s AND lease_owner = %s
+                  AND status = %s
                 """,
                 (
                     status,
                     status,
-                    "Retry scheduled" if retry else "Failed",
+                    "Cancelled" if cancelling else "Retry scheduled" if retry else "Failed",
                     error_code,
                     error_message,
                     retry,
@@ -1014,13 +1363,14 @@ class JobService:
                     job_id,
                     fence,
                     worker_id,
+                    row["status"],
                 ),
             )
             self._release_claims(conn, job_id, fence)
             self._event(
                 conn,
                 job_id,
-                "retry_scheduled" if retry else "failed",
+                "cancelled" if cancelling else "retry_scheduled" if retry else "failed",
                 details={"error_code": error_code, "error_message": error_message},
             )
             conn.commit()
@@ -1088,6 +1438,15 @@ class JobService:
     ) -> bool:
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
+            if not self._authoritative_claim(
+                conn,
+                job_id,
+                worker_id,
+                fence,
+                statuses=("running", "cancel_requested"),
+            ):
+                conn.commit()
+                return False
             cursor = conn.execute(
                 """
                 UPDATE ws_jobs
@@ -1096,6 +1455,7 @@ class JobService:
                     lease_owner = '', lease_expires_at = NULL, updated_at = NOW()
                 WHERE id = %s AND fence = %s AND lease_owner = %s
                   AND status IN ('running', 'cancel_requested')
+                  AND lease_expires_at >= NOW()
                 """,
                 (message, job_id, fence, worker_id),
             )

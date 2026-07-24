@@ -7,6 +7,7 @@ import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -15,9 +16,32 @@ from app.services.component_catalog_service_postgres import ComponentCatalogPost
 
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
+APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
+
+
+def _database_identity(url: str) -> tuple[str, str, int | None, str]:
+    parsed = urlsplit(url)
+    return (
+        parsed.username or "",
+        (parsed.hostname or "").lower(),
+        parsed.port,
+        parsed.path.lstrip("/"),
+    )
+
+
+SHARED_APPLICATION_DATABASE = bool(
+    POSTGRES_URL
+    and APPLICATION_POSTGRES_URL
+    and _database_identity(POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
+)
 
 
 @unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for PostgreSQL integration tests")
+@unittest.skipIf(
+    SHARED_APPLICATION_DATABASE,
+    "Component catalog integration tests require a dedicated PostgreSQL database; "
+    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
+)
 class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -29,10 +53,9 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.service.initialize()
 
     def tearDown(self) -> None:
-        # These tests may run against an explicitly supplied shared PostgreSQL
-        # instance. Never leave temporary-file-backed fixtures visible in the
-        # released remote-provider projection after their TemporaryDirectory is
-        # removed.
+        # The database is explicitly isolated from the application database.
+        # Deactivation keeps the test database's own audit chain valid while the
+        # test database remains disposable as a unit.
         for component_id in reversed(self.component_ids):
             self.assertTrue(
                 self.service.deactivate_component(

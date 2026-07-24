@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
 """
-Load benchmark for KiCAD-Prism: simulates concurrent users browsing projects
-and using the Remote Symbol Panel.
+Load benchmark for KiCAD-Prism: simulates concurrent users browsing projects,
+using the Remote Symbol Panel (search + signed asset downloads), and running
+heavy Design Comparison / WebGPU 3D jobs.
 
 Usage:
   python3 scripts/benchmark_concurrent_users.py \
     --base-url http://127.0.0.1:8080 \
-    --users 20 \
-    --duration 180
+    --users 20 --heavy-users 5 \
+    --duration 600 \
+    --network-delay-ms 45 --network-jitter-ms 25 \
+    --session-cookie "$PRISM_BENCHMARK_SESSION_COOKIE" \
+    --output /tmp/v3-capacity-hammer.json
+
+VPN-like delay:
+  --network-delay-ms / --network-jitter-ms inject one-way latency around each
+  HTTP call (excluded from server latency metrics, included in client latency).
+  For kernel-level netem (closer to real VPN), see docs/V3_CAPACITY_HAMMER.md.
 
 Requires: aiohttp (pip install aiohttp)
 """
@@ -65,6 +74,11 @@ FALLBACK_PREVIEW_COMPONENT_IDS = [
     "bee24c61-3b0f-48a9-ba35-aa169e62ad0f",
 ]
 
+# Tunables set by run_benchmark() for request helpers.
+NETWORK_DELAY_MS = 0.0
+NETWORK_JITTER_MS = 0.0
+NETWORK_LOSS_PCT = 0.0
+
 
 @dataclass
 class RequestMetric:
@@ -73,6 +87,11 @@ class RequestMetric:
     latency_ms: float
     bytes_in: int
     error: str | None = None
+    network_delay_ms: float = 0.0
+
+    @property
+    def client_latency_ms(self) -> float:
+        return self.latency_ms + self.network_delay_ms
 
 
 @dataclass
@@ -98,12 +117,28 @@ class BenchmarkResult:
     failed_requests: int
     requests_per_second: float
     latency_ms: dict[str, float]
+    client_latency_ms: dict[str, float]
     endpoint_stats: dict[str, dict[str, Any]]
     container_stats: dict[str, dict[str, Any]]
     disk_usage_gb: float | None = None
     job_stats: dict[str, Any] = field(default_factory=dict)
     operational_stats: dict[str, Any] = field(default_factory=dict)
     hardware_profile: dict[str, Any] = field(default_factory=dict)
+    place_stats: dict[str, Any] = field(default_factory=dict)
+
+
+async def apply_network_delay() -> float:
+    """Inject one-way VPN-like delay before an HTTP call. Returns delay in ms."""
+
+    if NETWORK_LOSS_PCT > 0 and random.random() * 100.0 < NETWORK_LOSS_PCT:
+        await asyncio.sleep(random.uniform(0.05, 0.25))
+        raise aiohttp.ClientConnectionError("simulated VPN packet loss")
+    if NETWORK_DELAY_MS <= 0 and NETWORK_JITTER_MS <= 0:
+        return 0.0
+    delay_ms = max(0.0, NETWORK_DELAY_MS + random.uniform(-NETWORK_JITTER_MS, NETWORK_JITTER_MS))
+    if delay_ms > 0:
+        await asyncio.sleep(delay_ms / 1000.0)
+    return delay_ms
 
 
 def resolve_url(base_url: str, url: str) -> str:
@@ -241,6 +276,20 @@ async def fetch_json(
     metrics: list[RequestMetric],
     endpoint: str,
 ) -> dict[str, Any] | list[Any] | None:
+    try:
+        network_delay_ms = await apply_network_delay()
+    except aiohttp.ClientConnectionError as exc:
+        metrics.append(
+            RequestMetric(
+                endpoint=endpoint,
+                status=0,
+                latency_ms=0.0,
+                bytes_in=0,
+                error=str(exc),
+                network_delay_ms=0.0,
+            )
+        )
+        return None
     start = time.perf_counter()
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
@@ -253,6 +302,7 @@ async def fetch_json(
                     latency_ms=latency_ms,
                     bytes_in=len(body),
                     error=None if resp.status < 400 else body[:200].decode("utf-8", "replace"),
+                    network_delay_ms=network_delay_ms,
                 )
             )
             if resp.status >= 400:
@@ -267,6 +317,7 @@ async def fetch_json(
                 latency_ms=latency_ms,
                 bytes_in=0,
                 error=str(exc),
+                network_delay_ms=network_delay_ms,
             )
         )
         return None
@@ -279,6 +330,20 @@ async def fetch_post_json(
     metrics: list[RequestMetric],
     endpoint: str,
 ) -> dict[str, Any] | None:
+    try:
+        network_delay_ms = await apply_network_delay()
+    except aiohttp.ClientConnectionError as exc:
+        metrics.append(
+            RequestMetric(
+                endpoint=endpoint,
+                status=0,
+                latency_ms=0.0,
+                bytes_in=0,
+                error=str(exc),
+                network_delay_ms=0.0,
+            )
+        )
+        return None
     start = time.perf_counter()
     try:
         async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as resp:
@@ -291,6 +356,7 @@ async def fetch_post_json(
                     latency_ms=latency_ms,
                     bytes_in=len(body),
                     error=None if resp.status < 400 else body[:200].decode("utf-8", "replace"),
+                    network_delay_ms=network_delay_ms,
                 )
             )
             if resp.status >= 400:
@@ -305,6 +371,7 @@ async def fetch_post_json(
                 latency_ms=latency_ms,
                 bytes_in=0,
                 error=str(exc),
+                network_delay_ms=network_delay_ms,
             )
         )
         return None
@@ -316,6 +383,19 @@ async def fetch_delete(
     metrics: list[RequestMetric],
     endpoint: str,
 ) -> None:
+    try:
+        network_delay_ms = await apply_network_delay()
+    except aiohttp.ClientConnectionError as exc:
+        metrics.append(
+            RequestMetric(
+                endpoint=endpoint,
+                status=0,
+                latency_ms=0.0,
+                bytes_in=0,
+                error=str(exc),
+            )
+        )
+        return
     start = time.perf_counter()
     try:
         async with session.delete(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
@@ -328,6 +408,7 @@ async def fetch_delete(
                     latency_ms=latency_ms,
                     bytes_in=len(body),
                     error=None if resp.status < 400 else body[:200].decode("utf-8", "replace"),
+                    network_delay_ms=network_delay_ms,
                 )
             )
     except Exception as exc:  # noqa: BLE001
@@ -339,8 +420,63 @@ async def fetch_delete(
                 latency_ms=latency_ms,
                 bytes_in=0,
                 error=str(exc),
+                network_delay_ms=network_delay_ms,
             )
         )
+
+
+async def fetch_bytes(
+    session: aiohttp.ClientSession,
+    url: str,
+    metrics: list[RequestMetric],
+    endpoint: str,
+    *,
+    timeout: float = 120.0,
+) -> bytes | None:
+    try:
+        network_delay_ms = await apply_network_delay()
+    except aiohttp.ClientConnectionError as exc:
+        metrics.append(
+            RequestMetric(
+                endpoint=endpoint,
+                status=0,
+                latency_ms=0.0,
+                bytes_in=0,
+                error=str(exc),
+            )
+        )
+        return None
+    start = time.perf_counter()
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
+            body = await resp.read()
+            latency_ms = (time.perf_counter() - start) * 1000
+            metrics.append(
+                RequestMetric(
+                    endpoint=endpoint,
+                    status=resp.status,
+                    latency_ms=latency_ms,
+                    bytes_in=len(body),
+                    error=None if resp.status < 400 else body[:200].decode("utf-8", "replace"),
+                    network_delay_ms=network_delay_ms,
+                )
+            )
+            if resp.status >= 400:
+                return None
+            return body
+    except Exception as exc:  # noqa: BLE001
+        latency_ms = (time.perf_counter() - start) * 1000
+        metrics.append(
+            RequestMetric(
+                endpoint=endpoint,
+                status=0,
+                latency_ms=latency_ms,
+                bytes_in=0,
+                error=str(exc),
+                network_delay_ms=network_delay_ms,
+            )
+        )
+        return None
 
 
 async def fetch_preview_urls(
@@ -490,6 +626,59 @@ async def run_webgpu_3d_job(
     return "timeout"
 
 
+async def place_with_asset_downloads(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    component_id: str,
+    metrics: list[RequestMetric],
+    place_stats: dict[str, int],
+) -> None:
+    """KiCad-like place path: part manifest then signed asset downloads."""
+
+    manifest = await fetch_json(
+        session,
+        f"{base_url}/api/remote-provider/parts/{component_id}",
+        metrics,
+        "remote.part_manifest",
+    )
+    if not isinstance(manifest, dict):
+        place_stats["manifest_failed"] += 1
+        return
+
+    assets = [a for a in (manifest.get("assets") or []) if isinstance(a, dict)]
+    if not assets:
+        place_stats["manifest_empty"] += 1
+        return
+
+    place_stats["manifest_ok"] += 1
+    downloaded = 0
+    failed = 0
+    for asset in assets:
+        asset_type = str(asset.get("asset_type") or "unknown")
+        download_url = resolve_url(base_url, str(asset.get("download_url") or ""))
+        if not download_url:
+            failed += 1
+            continue
+        body = await fetch_bytes(
+            session,
+            download_url,
+            metrics,
+            f"remote.asset.{asset_type}",
+            timeout=180.0,
+        )
+        if body is None:
+            failed += 1
+        else:
+            downloaded += 1
+            place_stats["asset_bytes"] += len(body)
+    place_stats["assets_downloaded"] += downloaded
+    place_stats["assets_failed"] += failed
+    if failed:
+        place_stats["place_partial"] += 1
+    else:
+        place_stats["place_ok"] += 1
+
+
 async def simulate_standard_burst(
     session: aiohttp.ClientSession,
     base_url: str,
@@ -497,6 +686,7 @@ async def simulate_standard_burst(
     project_ids: list[str],
     component_ids: list[str],
     categories: list[str],
+    place_stats: dict[str, int],
 ) -> None:
     await fetch_json(session, f"{base_url}/api/workspace/bootstrap", metrics, "workspace.bootstrap")
     await fetch_json(session, f"{base_url}/api/folders/tree", metrics, "folders.tree")
@@ -527,7 +717,7 @@ async def simulate_standard_burst(
 
     await fetch_json(session, f"{base_url}/api/remote-provider/categories", metrics, "remote.categories")
 
-    for _ in range(random.randint(2, 4)):
+    for _ in range(random.randint(2, 5)):
         query = random.choice(SEARCH_TERMS)
         q = quote(query)
         search_payload = await fetch_json(
@@ -567,51 +757,23 @@ async def simulate_standard_burst(
             )
             if isinstance(detail, dict):
                 await fetch_preview_urls(session, base_url, detail, metrics)
-            await fetch_json(
-                session,
-                f"{base_url}/api/remote-provider/parts/{component_id}",
-                metrics,
-                "remote.part_manifest",
-            )
-            await fetch_json(
-                session,
-                f"{base_url}/api/remote-provider/components/{component_id}/inline",
-                metrics,
-                "remote.inline_bundle",
-            )
-
-
-async def fetch_bytes(
-    session: aiohttp.ClientSession,
-    url: str,
-    metrics: list[RequestMetric],
-    endpoint: str,
-) -> None:
-    start = time.perf_counter()
-    try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-            body = await resp.read()
-            latency_ms = (time.perf_counter() - start) * 1000
-            metrics.append(
-                RequestMetric(
-                    endpoint=endpoint,
-                    status=resp.status,
-                    latency_ms=latency_ms,
-                    bytes_in=len(body),
-                    error=None if resp.status < 400 else body[:200].decode("utf-8", "replace"),
+            # Prefer signed asset downloads (~80%); inline fallback otherwise.
+            if random.random() < 0.8:
+                await place_with_asset_downloads(
+                    session,
+                    base_url,
+                    component_id,
+                    metrics,
+                    place_stats,
                 )
-            )
-    except Exception as exc:  # noqa: BLE001
-        latency_ms = (time.perf_counter() - start) * 1000
-        metrics.append(
-            RequestMetric(
-                endpoint=endpoint,
-                status=0,
-                latency_ms=latency_ms,
-                bytes_in=0,
-                error=str(exc),
-            )
-        )
+            else:
+                await fetch_json(
+                    session,
+                    f"{base_url}/api/remote-provider/components/{component_id}/inline",
+                    metrics,
+                    "remote.inline_bundle",
+                )
+                place_stats["inline_ok"] += 1
 
 
 async def simulate_user(
@@ -630,7 +792,9 @@ async def simulate_user(
     webgpu_commit: str,
     job_timeout: float,
     poll_interval: float,
+    design_compare_weight: float,
     job_outcomes: list[dict[str, Any]],
+    place_stats: dict[str, int],
     session_headers: dict[str, str],
 ) -> None:
     connector = aiohttp.TCPConnector(limit=8)
@@ -640,7 +804,11 @@ async def simulate_user(
     ) as session:
         while time.time() < stop_at:
             if profile == "heavy":
-                job_kind = random.choice(["design_compare", "webgpu_3d"])
+                job_kind = (
+                    "design_compare"
+                    if random.random() < design_compare_weight
+                    else "webgpu_3d"
+                )
                 if job_kind == "design_compare":
                     outcome = await run_design_compare_job(
                         session,
@@ -678,6 +846,16 @@ async def simulate_user(
                             "outcome": outcome,
                         }
                     )
+                # Heavy users also exercise interactive/catalog paths between jobs.
+                await simulate_standard_burst(
+                    session,
+                    base_url,
+                    metrics,
+                    project_ids,
+                    component_ids,
+                    categories,
+                    place_stats,
+                )
             else:
                 await simulate_standard_burst(
                     session,
@@ -686,9 +864,10 @@ async def simulate_user(
                     project_ids,
                     component_ids,
                     categories,
+                    place_stats,
                 )
 
-            await asyncio.sleep(random.uniform(1.0, 3.0))
+            await asyncio.sleep(random.uniform(0.5, 2.5))
 
 
 async def monitor_containers(
@@ -701,9 +880,13 @@ async def monitor_containers(
         await asyncio.sleep(interval)
 
 
-def summarize_metrics(metrics: list[RequestMetric]) -> tuple[dict[str, float], dict[str, dict[str, Any]]]:
+def summarize_metrics(
+    metrics: list[RequestMetric],
+) -> tuple[dict[str, float], dict[str, float], dict[str, dict[str, Any]]]:
     latencies = [m.latency_ms for m in metrics if m.status and m.status < 400]
-    failed = sum(1 for m in metrics if not m.status or m.status >= 400)
+    client_latencies = [
+        m.client_latency_ms for m in metrics if m.status and m.status < 400
+    ]
 
     def pct(values: list[float], p: float) -> float:
         if not values:
@@ -712,13 +895,14 @@ def summarize_metrics(metrics: list[RequestMetric]) -> tuple[dict[str, float], d
         idx = min(len(sorted_vals) - 1, int(round((p / 100) * (len(sorted_vals) - 1))))
         return sorted_vals[idx]
 
-    overall = {
-        "p50": pct(latencies, 50),
-        "p95": pct(latencies, 95),
-        "p99": pct(latencies, 99),
-        "max": max(latencies) if latencies else 0.0,
-        "mean": statistics.mean(latencies) if latencies else 0.0,
-    }
+    def summary(values: list[float]) -> dict[str, float]:
+        return {
+            "p50": pct(values, 50),
+            "p95": pct(values, 95),
+            "p99": pct(values, 99),
+            "max": max(values) if values else 0.0,
+            "mean": statistics.mean(values) if values else 0.0,
+        }
 
     by_endpoint: dict[str, list[RequestMetric]] = {}
     for metric in metrics:
@@ -732,10 +916,11 @@ def summarize_metrics(metrics: list[RequestMetric]) -> tuple[dict[str, float], d
             "errors": len(items) - len(ok),
             "p50_ms": pct([m.latency_ms for m in ok], 50),
             "p95_ms": pct([m.latency_ms for m in ok], 95),
+            "client_p95_ms": pct([m.client_latency_ms for m in ok], 95),
             "mean_ms": statistics.mean([m.latency_ms for m in ok]) if ok else 0.0,
             "bytes_total": sum(m.bytes_in for m in ok),
         }
-    return overall, endpoint_stats
+    return summary(latencies), summary(client_latencies), endpoint_stats
 
 
 def summarize_container_samples(samples: list[ContainerSample]) -> dict[str, dict[str, Any]]:
@@ -851,6 +1036,11 @@ async def discover_catalog_context(
 
 
 async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
+    global NETWORK_DELAY_MS, NETWORK_JITTER_MS, NETWORK_LOSS_PCT
+    NETWORK_DELAY_MS = float(args.network_delay_ms)
+    NETWORK_JITTER_MS = float(args.network_jitter_ms)
+    NETWORK_LOSS_PCT = float(args.network_loss_pct)
+
     base_url = args.base_url.rstrip("/")
     metrics: list[RequestMetric] = []
     container_samples: list[ContainerSample] = []
@@ -879,6 +1069,17 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
     started_at = datetime.now(timezone.utc).isoformat()
     stop_at = started + args.duration
     job_outcomes: list[dict[str, Any]] = []
+    place_stats: dict[str, int] = {
+        "manifest_ok": 0,
+        "manifest_failed": 0,
+        "manifest_empty": 0,
+        "assets_downloaded": 0,
+        "assets_failed": 0,
+        "asset_bytes": 0,
+        "place_ok": 0,
+        "place_partial": 0,
+        "inline_ok": 0,
+    }
 
     heavy_users = min(args.heavy_users, args.users)
     user_profiles = ["heavy"] * heavy_users + ["standard"] * (args.users - heavy_users)
@@ -901,7 +1102,9 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
                 webgpu_commit=args.webgpu_commit,
                 job_timeout=args.job_timeout,
                 poll_interval=args.poll_interval,
+                design_compare_weight=args.design_compare_weight,
                 job_outcomes=job_outcomes,
+                place_stats=place_stats,
                 session_headers=session_headers,
             )
         )
@@ -932,7 +1135,7 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
         operational_payload if isinstance(operational_payload, dict) else {}
     )
 
-    overall_latency, endpoint_stats = summarize_metrics(metrics)
+    overall_latency, client_latency, endpoint_stats = summarize_metrics(metrics)
     container_stats = summarize_container_samples(container_samples)
     failed = sum(1 for m in metrics if not m.status or m.status >= 400)
 
@@ -951,7 +1154,11 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
             "design_compare_base": args.design_compare_base,
             "design_compare_head": args.design_compare_head,
             "webgpu_commit": args.webgpu_commit,
-            "network": "docker_internal" if "kicad-prism-frontend" in base_url else "localhost",
+            "design_compare_weight": args.design_compare_weight,
+            "network_delay_ms": args.network_delay_ms,
+            "network_jitter_ms": args.network_jitter_ms,
+            "network_loss_pct": args.network_loss_pct,
+            "network": "docker_internal" if "kicad-prism-frontend" in base_url or base_url.endswith("//frontend") or "://frontend" in base_url else "localhost",
             "projects": len(project_ids),
             "categories": len(categories),
             "catalog_components": len(component_ids),
@@ -964,12 +1171,14 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
         failed_requests=failed,
         requests_per_second=round(len(metrics) / elapsed, 2) if elapsed else 0.0,
         latency_ms=overall_latency,
+        client_latency_ms=client_latency,
         endpoint_stats=endpoint_stats,
         container_stats=container_stats,
         disk_usage_gb=measure_disk_usage_gb(data_dir),
         job_stats=summarize_job_outcomes(job_outcomes),
         operational_stats=operational_stats,
         hardware_profile=collect_hardware_profile(),
+        place_stats=place_stats,
     )
 
 
@@ -978,27 +1187,62 @@ def recommend_vm_specs(result: BenchmarkResult) -> dict[str, Any]:
     total_mem_peak_mib = sum(c.get("mem_mib_peak", 0) for c in containers.values())
     total_cpu_peak = sum(c.get("cpu_percent_peak", 0) for c in containers.values())
     total_net_mib = sum(c.get("net_tx_mib_total", 0) for c in containers.values())
+    used_compose_ceilings = False
 
-    # Headroom: 2x memory, 1.5x CPU cores, +20GB disk beyond current data
-    mem_gb_recommended = max(4, round((total_mem_peak_mib * 2) / 1024 + 0.5))
-    cpu_cores_recommended = max(2, round((total_cpu_peak / 100) * 1.5 + 0.5))
-    disk_gb_recommended = max(40, round((result.disk_usage_gb or 20) * 1.5 + 20))
+    # When docker stats are unavailable (common in restricted CI/agent shells),
+    # fall back to a conservative but realistic envelope for the default Compose
+    # layout (API + prism-worker + catalog-worker + Postgres), not the arithmetic
+    # sum of every service ceiling (those do not all peg simultaneously).
+    if not containers or (total_mem_peak_mib <= 0 and total_cpu_peak <= 0):
+        used_compose_ceilings = True
+        total_cpu_peak = 800.0  # ~8 cores sustained under mixed heavy+interactive
+        total_mem_peak_mib = 20 * 1024  # ~20 GiB working set with headroom for spikes
 
+    # Headroom over observed peaks; compose-fallback path already embeds headroom.
+    if used_compose_ceilings:
+        mem_gb_recommended = 32
+        cpu_cores_recommended = 16
+    else:
+        mem_gb_recommended = max(8, round((total_mem_peak_mib * 2) / 1024 + 0.5))
+        cpu_cores_recommended = max(4, round((total_cpu_peak / 100) * 1.5 + 0.5))
+    disk_gb_recommended = max(80, round((result.disk_usage_gb or 20) * 1.5 + 40))
+
+    # Prefer known EC2 shapes that fit Prism's worker + API split.
+    if cpu_cores_recommended <= 4 and mem_gb_recommended <= 16:
+        instance_hint = "c7i.xlarge or m7i.xlarge (4 vCPU / 8–16 GiB)"
+    elif cpu_cores_recommended <= 8 and mem_gb_recommended <= 32:
+        instance_hint = "c7i.2xlarge or m7i.2xlarge (8 vCPU / 16–32 GiB)"
+    else:
+        instance_hint = "c7i.4xlarge or m7i.4xlarge (16 vCPU / 32–64 GiB)"
+
+    notes = [
+        "Specs include headroom over observed Docker peak (or Compose-based envelope when stats are missing).",
+        "CPU recommendation assumes 1 vCPU ~= 100% of one core in docker stats.",
+        "Disk includes project/catalog/.kicad-prism artifacts plus growth headroom; use local NVMe (gp3/io2), not EFS for the projects volume.",
+        "Keep UVICORN_WORKERS=1 for the API until multi-process API tests pass; scale prism-worker concurrency/slots instead.",
+        "Separate API and worker CPU ceilings in Compose/systemd so interactive traffic retains capacity during heavy jobs.",
+        "OIDC, TLS termination, backups, and monitoring are required before production EC2 exposure.",
+    ]
+    if used_compose_ceilings:
+        notes.insert(
+            0,
+            "Docker stats were unavailable; sizing uses a Compose-based envelope (16 vCPU / 32 GiB) sized for overlapping API + worker ceilings.",
+        )
+        notes.insert(
+            1,
+            "A tuned 8 vCPU / 16 GiB host can work if heavy job slots stay low and cold overlaps are rare — validate with live docker stats.",
+        )
     return {
         "observed_peak_total_memory_mib": round(total_mem_peak_mib, 1),
         "observed_peak_total_cpu_percent": round(total_cpu_peak, 1),
         "observed_network_egress_mib_during_test": round(total_net_mib, 2),
+        "sizing_basis": "compose_ceilings" if used_compose_ceilings else "docker_stats",
         "recommended_vm_specs": {
             "cpu_cores": cpu_cores_recommended,
             "ram_gb": mem_gb_recommended,
             "disk_gb": disk_gb_recommended,
-            "notes": [
-                "Specs include ~2x memory headroom over observed Docker peak.",
-                "CPU recommendation assumes 1 vCPU ~= 100% of one core in docker stats.",
-                "Disk includes current project/catalog data plus growth headroom.",
-                "Place data/projects on local SSD/NVMe, not network storage.",
-                "Set UVICORN_WORKERS=4 on a 4-core VM for this load profile.",
-            ],
+            "ec2_instance_hint": instance_hint,
+            "notes": notes,
         },
     }
 
@@ -1009,11 +1253,18 @@ def print_report(result: BenchmarkResult, recommendations: dict[str, Any]) -> No
     print(f"\nDuration: {result.duration_seconds}s")
     print(f"Requests: {result.total_requests} ({result.requests_per_second}/s), failures: {result.failed_requests}")
     print(
-        "Latency (ms): "
+        "Server latency (ms, excludes injected VPN delay): "
         f"p50={result.latency_ms['p50']:.1f}, "
         f"p95={result.latency_ms['p95']:.1f}, "
         f"p99={result.latency_ms['p99']:.1f}, "
         f"max={result.latency_ms['max']:.1f}"
+    )
+    print(
+        "Client latency (ms, includes injected VPN delay): "
+        f"p50={result.client_latency_ms['p50']:.1f}, "
+        f"p95={result.client_latency_ms['p95']:.1f}, "
+        f"p99={result.client_latency_ms['p99']:.1f}, "
+        f"max={result.client_latency_ms['max']:.1f}"
     )
     if result.disk_usage_gb is not None:
         print(f"Project/catalog disk usage: {result.disk_usage_gb} GB")
@@ -1021,8 +1272,9 @@ def print_report(result: BenchmarkResult, recommendations: dict[str, Any]) -> No
     print("\n--- Per-endpoint ---")
     for endpoint, stats in result.endpoint_stats.items():
         print(
-            f"{endpoint:30s} count={stats['count']:4d} err={stats['errors']:3d} "
+            f"{endpoint:40s} count={stats['count']:4d} err={stats['errors']:3d} "
             f"p50={stats['p50_ms']:7.1f}ms p95={stats['p95_ms']:7.1f}ms "
+            f"client_p95={stats['client_p95_ms']:7.1f}ms "
             f"bytes={stats['bytes_total'] / (1024 * 1024):.2f} MiB"
         )
 
@@ -1037,6 +1289,9 @@ def print_report(result: BenchmarkResult, recommendations: dict[str, Any]) -> No
     if result.job_stats.get("total_jobs"):
         print("\n--- Heavy jobs (Design Comparison / WebGPU 3D) ---")
         print(json.dumps(result.job_stats["by_job"], indent=2))
+    if result.place_stats:
+        print("\n--- Remote panel place / asset downloads ---")
+        print(json.dumps(result.place_stats, indent=2))
     if result.operational_stats:
         print("\n--- Queue / pool instrumentation ---")
         print(json.dumps(result.operational_stats, indent=2))
@@ -1048,6 +1303,7 @@ def print_report(result: BenchmarkResult, recommendations: dict[str, Any]) -> No
     print(f"CPU:  {rec['cpu_cores']} vCPU")
     print(f"RAM:  {rec['ram_gb']} GB")
     print(f"Disk: {rec['disk_gb']} GB (local SSD/NVMe)")
+    print(f"EC2:  {rec['ec2_instance_hint']}")
     for note in rec["notes"]:
         print(f"  - {note}")
 
@@ -1060,14 +1316,38 @@ def main() -> None:
         help="Prism base URL (use http://kicad-prism-frontend:80 from another Docker container)",
     )
     parser.add_argument("--users", type=int, default=20)
-    parser.add_argument("--heavy-users", type=int, default=4, help="Users running Design Comparison / WebGPU 3D jobs")
-    parser.add_argument("--duration", type=int, default=180, help="Test duration in seconds")
-    parser.add_argument("--job-timeout", type=float, default=600.0, help="Max seconds to wait for heavy jobs")
+    parser.add_argument("--heavy-users", type=int, default=5, help="Users running Design Comparison / WebGPU 3D jobs")
+    parser.add_argument("--duration", type=int, default=600, help="Test duration in seconds")
+    parser.add_argument("--job-timeout", type=float, default=900.0, help="Max seconds to wait for heavy jobs")
     parser.add_argument("--poll-interval", type=float, default=2.0, help="Job status polling interval")
     parser.add_argument("--heavy-project-id", default=DEFAULT_JTYU_PROJECT_ID)
     parser.add_argument("--design-compare-base", default=DEFAULT_COMPARE_BASE)
     parser.add_argument("--design-compare-head", default=DEFAULT_COMPARE_HEAD)
     parser.add_argument("--webgpu-commit", default=DEFAULT_WEBGPU_COMMIT)
+    parser.add_argument(
+        "--design-compare-weight",
+        type=float,
+        default=0.5,
+        help="Probability a heavy user picks Design Comparison vs WebGPU (0–1)",
+    )
+    parser.add_argument(
+        "--network-delay-ms",
+        type=float,
+        default=45.0,
+        help="One-way VPN-like delay injected before each HTTP call (ms). 45ms ≈ 90ms RTT.",
+    )
+    parser.add_argument(
+        "--network-jitter-ms",
+        type=float,
+        default=25.0,
+        help="Uniform jitter applied to network delay (ms)",
+    )
+    parser.add_argument(
+        "--network-loss-pct",
+        type=float,
+        default=0.1,
+        help="Simulated packet-loss percentage (0 disables)",
+    )
     parser.add_argument("--sample-interval", type=float, default=2.0, help="Docker stats sampling interval")
     parser.add_argument("--data-dir", default="", help="Path to data/projects for disk sizing")
     parser.add_argument("--output", default="", help="Write JSON report to this path")
@@ -1082,6 +1362,10 @@ def main() -> None:
         help="OAuth/service bearer token (or PRISM_BENCHMARK_BEARER_TOKEN).",
     )
     args = parser.parse_args()
+    if not 0.0 <= args.design_compare_weight <= 1.0:
+        parser.error("--design-compare-weight must be between 0 and 1")
+    if not args.session_cookie and not args.bearer_token:
+        parser.error("Provide --session-cookie or --bearer-token (or the matching env var)")
 
     result = asyncio.run(run_benchmark(args))
     recommendations = recommend_vm_specs(result)

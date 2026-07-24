@@ -130,30 +130,6 @@ class PrismWorkerTests(unittest.TestCase):
         terminate.assert_called_once_with(running, "lease_lost")
         self.assertIn(running.job_id, worker.running)
 
-    def test_exited_child_during_database_outage_is_left_for_lease_reclaim(self) -> None:
-        worker = prism_worker.PrismWorker()
-        process = mock.Mock(pid=12345)
-        process.poll.return_value = 1
-        running = prism_worker.RunningJob(
-            job_id="job-db-outage",
-            fence=3,
-            attempt=1,
-            process=process,
-            log_handle=mock.Mock(),
-            last_heartbeat=0,
-        )
-        worker.running[running.job_id] = running
-
-        with mock.patch.object(
-            prism_worker.jobs,
-            "get",
-            side_effect=RuntimeError("database unavailable"),
-        ):
-            worker.supervise()
-
-        running.log_handle.close.assert_called_once()
-        self.assertNotIn(running.job_id, worker.running)
-
     def test_launch_aborts_without_child_when_log_fence_cannot_be_recorded(
         self,
     ) -> None:
@@ -182,6 +158,60 @@ class PrismWorkerTests(unittest.TestCase):
 
         popen.assert_not_called()
         self.assertEqual(worker.running, {})
+        self.assertIn("job-db-outage", worker.pending_releases)
+
+    def test_pending_release_is_flushed_after_database_recovers(self) -> None:
+        worker = prism_worker.PrismWorker()
+        worker._queue_pending_release(
+            "job-recover",
+            4,
+            cancel=False,
+            error_code="launch_not_started",
+            error_message="outage",
+        )
+        current = {
+            "job_id": "job-recover",
+            "status": "running",
+            "fence": 4,
+            "lease_owner": worker.worker_id,
+        }
+        with (
+            mock.patch.object(prism_worker.jobs, "get", return_value=current),
+            mock.patch.object(
+                prism_worker.jobs,
+                "fail",
+                return_value="retry_wait",
+            ) as fail,
+        ):
+            worker.flush_pending_releases()
+
+        fail.assert_called_once()
+        self.assertEqual(worker.pending_releases, {})
+
+    def test_exited_child_during_database_outage_queues_pending_release(self) -> None:
+        worker = prism_worker.PrismWorker()
+        process = mock.Mock(pid=12345)
+        process.poll.return_value = 1
+        running = prism_worker.RunningJob(
+            job_id="job-db-outage",
+            fence=3,
+            attempt=1,
+            process=process,
+            log_handle=mock.Mock(),
+            last_heartbeat=0,
+        )
+        worker.running[running.job_id] = running
+
+        with mock.patch.object(
+            prism_worker.jobs,
+            "get",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            worker.supervise()
+
+        running.log_handle.close.assert_called_once()
+        self.assertNotIn(running.job_id, worker.running)
+        self.assertIn(running.job_id, worker.pending_releases)
 
 
 if __name__ == "__main__":
