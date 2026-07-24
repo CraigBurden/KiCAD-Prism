@@ -35,6 +35,36 @@ class ProjectServiceV3JobTests(unittest.TestCase):
         self.assertEqual(status["schema"], "prism.webgpu_3d_status_a0")
         self.assertTrue(status["available"])
 
+    def test_job_status_merges_staged_payload_for_pollers(self) -> None:
+        with mock.patch.object(
+            project_service.v3_jobs,
+            "get",
+            return_value={
+                "job_id": "job-webgpu",
+                "kind": "webgpu_3d",
+                "status": "running",
+                "stage": "compile-assets",
+                "payload": {
+                    "bundle_url": "/api/projects/p1/webgpu-3d/manifest/source/build",
+                    "readiness_stage": "board-ready",
+                    "readiness": {
+                        "stage": "board-ready",
+                        "progress": 35,
+                        "revision": "rev-1",
+                    },
+                    "logs": ["Published staged bundle: board-ready (board)"],
+                },
+                "result_metadata": {},
+                "error_message": "",
+            },
+        ):
+            status = project_service.get_job_status("job-webgpu")
+
+        self.assertEqual(status["status"], "running")
+        self.assertEqual(status["readiness_stage"], "board-ready")
+        self.assertIn("bundle_url", status)
+        self.assertEqual(len(status["logs"]), 1)
+
     def test_thumbnail_url_is_content_versioned_when_digest_is_available(self) -> None:
         self.assertEqual(
             project_service.thumbnail_url_for_row(
@@ -240,6 +270,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
             staging_dir = Path(temporary)
             context = SimpleNamespace(
                 job_id="job-webgpu",
+                fence=1,
                 payload={
                     "project_id": "project-1",
                     "commit": "abc123",
@@ -267,6 +298,17 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 state["stage"] = "compile-assets"
                 state["message"] = "Compiling"
                 state["percent"] = 55
+                state["bundle_url"] = "/api/projects/project-1/webgpu-3d/manifest/source/build"
+                state["readiness"] = {
+                    "schema": "prism.visualizer_readiness.a0",
+                    "stage": "board-ready",
+                    "progress": 35,
+                    "available_assets": ["board"],
+                    "revision": "rev-board",
+                }
+                state["readiness_stage"] = "board-ready"
+                state["sourceRevisionKey"] = "source"
+                state["source_fingerprint"] = "source"
                 assert callable(persist)
                 persist()
                 return {
@@ -289,7 +331,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 mock.patch.object(
                     project_service.workspace,
                     "get_project_by_id",
-                    return_value={"id": "project-1"},
+                    return_value={"id": "project-1", "last_modified": "rev-1"},
                 ),
                 mock.patch.object(
                     project_service,
@@ -311,8 +353,18 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                     "prepare_file",
                     return_value=prepared,
                 ),
+                mock.patch.object(
+                    semantic_visualizer_service,
+                    "sync_staged_webgpu_status",
+                    mock.Mock(),
+                ) as sync_staged,
             ):
                 result = project_service.run_webgpu_3d_job_v3(context)
+
+        sync_staged.assert_called()
+        payload_update = progress_updates[-1].get("payload_updates") or {}
+        self.assertIn("bundle_url", payload_update)
+        self.assertEqual(payload_update.get("readiness_stage"), "board-ready")
 
         self.assertEqual(
             result.details["performance"],

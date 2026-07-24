@@ -1235,6 +1235,26 @@ class JobService:
             return None
         return _loads(row["status_payload"], {})
 
+    def upsert_webgpu_ready_status(
+        self,
+        *,
+        job_id: str,
+        fence: int,
+        details: Mapping[str, Any],
+    ) -> None:
+        """Publish staged or completed WebGPU readiness for O(1) status reads."""
+
+        self.initialize()
+        with self._connect() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            self._upsert_webgpu_ready(
+                conn,
+                job_id=job_id,
+                fence=fence,
+                details=details,
+            )
+            conn.commit()
+
     def find_webgpu_ready_by_commit_prefix(
         self,
         project_id: str,

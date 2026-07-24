@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Mapping, Optional
 
 from app.core.config import settings
 from app.services import path_config_service
@@ -349,9 +349,8 @@ def get_status_for_source(
             payload["readiness"] = readiness
             semantic_ready = readiness.get("stage") == "semantic-ready"
             payload["status"] = "ready" if semantic_ready else "building"
-            if not semantic_ready:
-                payload["available"] = False
-                payload["bundle_url"] = None
+            payload["available"] = True
+            payload["bundle_url"] = bundle_url(project.id, source_hash)
             payload["generated_at"] = bundle.get("generated_at")
             payload["capabilities"] = bundle.get("capabilities", {})
             _validate_bundle_assets(current_bundle.parent, bundle)
@@ -758,6 +757,8 @@ def _publish_partial_bundle(
     job["stage"] = stage
     job["readiness_stage"] = stage
     job["readiness"] = readiness
+    job["sourceRevisionKey"] = source_hash
+    job["source_fingerprint"] = source_hash
     job["bundle_url"] = bundle_url(project.id, source_hash)
     job["percent"] = readiness["progress"]
     job["message"] = (
@@ -769,6 +770,49 @@ def _publish_partial_bundle(
         f"Published staged bundle: {stage} ({', '.join(available_assets)})"
     )
     persist()
+
+
+def sync_staged_webgpu_status(
+    *,
+    job_id: str,
+    fence: int,
+    project: Any,
+    state: Mapping[str, Any],
+) -> None:
+    """Mirror an in-flight partial bundle into ws_webgpu_ready for fast status reads."""
+
+    bundle_url_value = str(state.get("bundle_url") or "")
+    readiness = state.get("readiness")
+    source_hash = str(
+        state.get("sourceRevisionKey") or state.get("source_fingerprint") or ""
+    )
+    selector_key = str(state.get("status_selector") or "")
+    if not bundle_url_value or not isinstance(readiness, dict) or not source_hash or not selector_key:
+        return
+    stage = str(readiness.get("stage") or "")
+    semantic_ready = stage == "semantic-ready"
+    details: Dict[str, Any] = {
+        "schema": "prism.webgpu_3d_status_a0",
+        "project_id": str(project.id),
+        "source_fingerprint": source_hash,
+        "sourceRevisionKey": source_hash,
+        "build_fingerprint": BUILD_FINGERPRINT,
+        "generator": {
+            "name": GENERATOR_NAME,
+            "version": GENERATOR_VERSION,
+            "build": BUILD_FINGERPRINT,
+        },
+        "artifactScope": "3d-semantic",
+        "status": "ready" if semantic_ready else "building",
+        "available": True,
+        "bundle_url": bundle_url_value,
+        "readiness": readiness,
+        "status_selector": selector_key,
+    }
+    commit = state.get("commit")
+    if commit:
+        details["commit"] = commit
+    jobs.upsert_webgpu_ready_status(job_id=job_id, fence=fence, details=details)
 
 
 def _write_bundle(project: Any, output_dir: Path, source_hash: str) -> None:

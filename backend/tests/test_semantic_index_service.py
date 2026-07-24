@@ -115,10 +115,10 @@ class SemanticIndexServiceTests(unittest.TestCase):
             self.assertEqual(bundle["readiness"]["stage"], "board-ready")
             self.assertEqual(semantic["assets"], {"base_board_glb": "geometry/base_board.glb"})
             self.assertEqual(job["readiness_stage"], "board-ready")
-            self.assertEqual(
-                semantic_visualizer_service.get_status_for_source(project, source_hash)["status"],
-                "building",
-            )
+            source_status = semantic_visualizer_service.get_status_for_source(project, source_hash)
+            self.assertEqual(source_status["status"], "building")
+            self.assertTrue(source_status["available"])
+            self.assertIsNotNone(source_status["bundle_url"])
 
             (geometry / "components.glb").write_bytes(b"components")
             semantic_visualizer_service._publish_partial_bundle(
