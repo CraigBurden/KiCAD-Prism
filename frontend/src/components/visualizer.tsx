@@ -11,6 +11,7 @@ import { CommentCard } from "./comment-card";
 import { CommentPanel } from "./comment-panel";
 import { ViewerOverlayRail } from "./viewer-overlay-rail";
 import { fetchApi, readApiError } from "@/lib/api";
+import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { canWriteCatalog } from "@/lib/roles";
 import { crossProbeRequestForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
 import { usePrismCrossProbe } from "@/hooks/use-prism-cross-probe";
@@ -478,6 +479,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             if (!response.ok) {
                 throw new Error(await readApiError(response, "Failed to generate semantic identity index"));
             }
+            const payload = await response.json() as { job_id: string };
+            const job = await watchPrismJob(payload.job_id);
+            throwIfJobFailed(job, "Failed to generate semantic identity index");
             setSemanticIndexRetryToken((token) => token + 1);
         } catch (error) {
             setSemanticIndexError(error instanceof Error ? error.message : "Failed to generate semantic identity index");

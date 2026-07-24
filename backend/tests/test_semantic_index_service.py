@@ -149,6 +149,53 @@ class SemanticIndexServiceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     semantic_visualizer_service.bundle_dir("prj_test", source_key, build_key)
 
+    def test_webgpu_fast_status_reads_metadata_without_scanning_sources(self) -> None:
+        project = SimpleNamespace(
+            id="prj_test",
+            path="/must-not-be-scanned",
+            last_modified="revision-7",
+        )
+        ready = {
+            "status": "ready",
+            "available": True,
+            "sourceRevisionKey": "source-a",
+            "build_fingerprint": semantic_visualizer_service.BUILD_FINGERPRINT,
+        }
+        with patch.object(
+            semantic_visualizer_service.jobs,
+            "get_webgpu_ready",
+            return_value=ready,
+        ) as lookup, patch.object(
+            semantic_visualizer_service,
+            "source_fingerprint",
+            side_effect=AssertionError("fast status scanned project sources"),
+        ):
+            status = semantic_visualizer_service.get_status_fast(project)
+
+        self.assertEqual(status, ready)
+        lookup.assert_called_once_with(
+            "prj_test",
+            "workspace:revision-7",
+            semantic_visualizer_service.BUILD_FINGERPRINT,
+        )
+
+    def test_webgpu_fast_status_returns_metadata_only_missing_record(self) -> None:
+        project = SimpleNamespace(
+            id="prj_test",
+            path="/must-not-be-scanned",
+            last_modified="revision-8",
+        )
+        with patch.object(
+            semantic_visualizer_service.jobs,
+            "get_webgpu_ready",
+            return_value=None,
+        ):
+            status = semantic_visualizer_service.get_status_fast(project)
+
+        self.assertEqual(status["status"], "missing")
+        self.assertFalse(status["available"])
+        self.assertEqual(status["status_selector"], "workspace:revision-8")
+
     def test_source_revision_key_ignores_heavy_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

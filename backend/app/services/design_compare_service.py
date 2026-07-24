@@ -19,7 +19,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from collections import defaultdict
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -29,6 +29,9 @@ from app.services import (
     semantic_index_service,
 )
 from app.services.design_compare_benchmark import DesignCompareBenchmark
+from app.services.job_artifact_service import job_artifacts
+from app.services.job_runtime import JobContext, JobResult, job_state_root
+from app.services.job_service import jobs as v3_jobs
 from app.services.workspace_service import workspace
 
 logger = logging.getLogger(__name__)
@@ -1029,6 +1032,48 @@ def _terminal_pairs(index: Dict[str, Any], net_uid: str) -> set[tuple[str, str]]
     }
 
 
+def _semantic_lookups(index: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the revision's hot lookup tables once for linear-time matching."""
+
+    terminal_pairs_by_net: Dict[str, set[tuple[str, str]]] = defaultdict(set)
+    terminals_by_pair: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for terminal in index.get("terminals") or []:
+        pair = (
+            str(terminal.get("reference") or ""),
+            str(terminal.get("pin") or ""),
+        )
+        net_uid = str(terminal.get("netUid") or "")
+        if net_uid:
+            terminal_pairs_by_net[net_uid].add(pair)
+        terminals_by_pair.setdefault(pair, terminal)
+
+    components_by_reference: Dict[str, Dict[str, Any]] = {}
+    components_by_native_key: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for component in index.get("components") or []:
+        reference = str(component.get("reference") or "")
+        if reference:
+            components_by_reference.setdefault(reference, component)
+        for key in _component_native_keys(component):
+            components_by_native_key[key].append(component)
+
+    return {
+        "terminal_pairs_by_net": terminal_pairs_by_net,
+        "terminals_by_pair": terminals_by_pair,
+        "components_by_reference": components_by_reference,
+        "components_by_native_key": components_by_native_key,
+    }
+
+
+def _lookup_terminal_pairs(
+    index: Dict[str, Any],
+    net_uid: str,
+    lookups: Optional[Dict[str, Any]] = None,
+) -> set[tuple[str, str]]:
+    if lookups is None:
+        return _terminal_pairs(index, net_uid)
+    return set((lookups.get("terminal_pairs_by_net") or {}).get(str(net_uid), set()))
+
+
 def _terminal_names(pairs: set[tuple[str, str]]) -> List[str]:
     return sorted(f"{reference}.{pin}" for reference, pin in pairs)
 
@@ -1115,25 +1160,30 @@ def _terminal_visual_target(
     *,
     side: str,
     status: str,
+    lookups: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     reference, pin = pair
-    terminal = next(
-        (
-            item
-            for item in index.get("terminals") or []
-            if str(item.get("reference") or "") == reference
-            and str(item.get("pin") or "") == pin
-        ),
-        None,
-    )
-    component = next(
-        (
-            item
-            for item in index.get("components") or []
-            if str(item.get("reference") or "") == reference
-        ),
-        None,
-    )
+    if lookups is None:
+        terminal = next(
+            (
+                item
+                for item in index.get("terminals") or []
+                if str(item.get("reference") or "") == reference
+                and str(item.get("pin") or "") == pin
+            ),
+            None,
+        )
+        component = next(
+            (
+                item
+                for item in index.get("components") or []
+                if str(item.get("reference") or "") == reference
+            ),
+            None,
+        )
+    else:
+        terminal = (lookups.get("terminals_by_pair") or {}).get(pair)
+        component = (lookups.get("components_by_reference") or {}).get(reference)
     source_id = str((terminal or {}).get("schematicPinUuid") or "")
     parent_sources = _component_sources(component or {})
     parent_source_id = parent_sources[0] if parent_sources else None
@@ -1178,10 +1228,18 @@ def _dedupe_visual_targets(targets: Iterable[Dict[str, Any]]) -> List[Dict[str, 
 
 
 def _net_connectivity_fingerprint(
-    index: Dict[str, Any], net: Dict[str, Any]
+    index: Dict[str, Any],
+    net: Dict[str, Any],
+    lookups: Optional[Dict[str, Any]] = None,
 ) -> frozenset[tuple[str, str]]:
     """Cross-revision net identity from terminal/pad membership, not name."""
-    return frozenset(_terminal_pairs(index, str(net.get("netUid") or "")))
+    return frozenset(
+        _lookup_terminal_pairs(
+            index,
+            str(net.get("netUid") or ""),
+            lookups,
+        )
+    )
 
 
 def _net_source_id(net: Dict[str, Any], index: Dict[str, Any]) -> Optional[str]:
@@ -1223,25 +1281,30 @@ def _match_by_keys(
     head_items: List[Dict[str, Any]],
     keys_of,
 ) -> List[tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]]:
-    """Greedy 1:1 match: shared native keys first, then leftover unpaired."""
+    """Greedy 1:1 match using a prebuilt key index."""
     pairs: List[tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]] = []
-    head_unused = list(head_items)
+    head_by_key: Dict[str, deque[Dict[str, Any]]] = defaultdict(deque)
+    for candidate in head_items:
+        for key in keys_of(candidate):
+            head_by_key[str(key)].append(candidate)
+    used_head: set[int] = set()
     for old in base_items:
-        old_keys = keys_of(old)
-        match_idx = next(
-            (
-                index
-                for index, candidate in enumerate(head_unused)
-                if old_keys and old_keys & keys_of(candidate)
-            ),
-            None,
-        )
-        if match_idx is None:
+        match = None
+        for key in sorted(str(value) for value in keys_of(old)):
+            candidates = head_by_key.get(key) or []
+            while candidates and id(candidates[0]) in used_head:
+                candidates.popleft()
+            if candidates:
+                match = candidates.popleft()
+                break
+        if match is None:
             pairs.append((old, None))
             continue
-        pairs.append((old, head_unused.pop(match_idx)))
-    for new in head_unused:
-        pairs.append((None, new))
+        used_head.add(id(match))
+        pairs.append((old, match))
+    for new in head_items:
+        if id(new) not in used_head:
+            pairs.append((None, new))
     return pairs
 
 
@@ -1262,6 +1325,8 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
     """
     base_components = [item for item in base.get("components") or [] if item.get("reference")]
     head_components = [item for item in head.get("components") or [] if item.get("reference")]
+    base_lookups = _semantic_lookups(base)
+    head_lookups = _semantic_lookups(head)
     changes: List[Dict[str, Any]] = []
 
     def component_change(
@@ -1389,23 +1454,22 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
 
     # Match native identities first. This preserves renames and lets placement
     # changes disappear when fields, sheet, and connectivity are unchanged.
-    head_unused = list(head_components)
-    matched_pairs: List[tuple[Dict[str, Any], Dict[str, Any]]] = []
-    base_unmatched: List[Dict[str, Any]] = []
-    for old in base_components:
-        keys = _component_native_keys(old)
-        index = next(
-            (
-                offset
-                for offset, candidate in enumerate(head_unused)
-                if keys and keys & _component_native_keys(candidate)
-            ),
-            None,
-        )
-        if index is None:
-            base_unmatched.append(old)
-        else:
-            matched_pairs.append((old, head_unused.pop(index)))
+    native_pairs = _match_by_keys(
+        base_components,
+        head_components,
+        _component_native_keys,
+    )
+    matched_pairs = [
+        (old, new)
+        for old, new in native_pairs
+        if old is not None and new is not None
+    ]
+    base_unmatched = [
+        old for old, new in native_pairs if old is not None and new is None
+    ]
+    head_unused = [
+        new for old, new in native_pairs if old is None and new is not None
+    ]
 
     for old, new in matched_pairs:
         field_probe = component_change(old, new)
@@ -1515,11 +1579,11 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
     base_by_fp: Dict[frozenset[tuple[str, str]], List[Dict[str, Any]]] = {}
     head_by_fp: Dict[frozenset[tuple[str, str]], List[Dict[str, Any]]] = {}
     for net in base_nets:
-        fp = _net_connectivity_fingerprint(base, net)
+        fp = _net_connectivity_fingerprint(base, net, base_lookups)
         if fp:
             base_by_fp.setdefault(fp, []).append(net)
     for net in head_nets:
-        fp = _net_connectivity_fingerprint(head, net)
+        fp = _net_connectivity_fingerprint(head, net, head_lookups)
         if fp:
             head_by_fp.setdefault(fp, []).append(net)
 
@@ -1531,36 +1595,58 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
         base_group = list(base_by_fp[fp])
         head_group = list(head_by_fp[fp])
         # Disambiguate identical connectivity by net name when possible.
-        head_by_name = {str(item.get("name")): item for item in head_group}
+        head_by_name: Dict[str, deque[Dict[str, Any]]] = defaultdict(deque)
+        unmatched_heads: deque[Dict[str, Any]] = deque()
+        for item in head_group:
+            head_by_name[str(item.get("name"))].append(item)
+            unmatched_heads.append(item)
         for old in base_group:
-            named = head_by_name.pop(str(old.get("name")), None)
+            named_candidates = head_by_name.get(str(old.get("name")))
+            named = named_candidates.popleft() if named_candidates else None
             if named is not None:
                 net_pairs.append((old, named))
                 used_base.add(id(old))
                 used_head.add(id(named))
                 continue
-            if head_group:
-                # Prefer unmatched head with same fingerprint.
-                candidate = next(
-                    (item for item in head_group if id(item) not in used_head),
-                    None,
-                )
-                if candidate is not None:
-                    net_pairs.append((old, candidate))
-                    used_base.add(id(old))
-                    used_head.add(id(candidate))
+            while unmatched_heads and id(unmatched_heads[0]) in used_head:
+                unmatched_heads.popleft()
+            if unmatched_heads:
+                candidate = unmatched_heads.popleft()
+                net_pairs.append((old, candidate))
+                used_base.add(id(old))
+                used_head.add(id(candidate))
 
     leftover_base_nets = [net for net in base_nets if id(net) not in used_base]
     leftover_head_nets = [net for net in head_nets if id(net) not in used_head]
-    by_name_base = {str(item.get("name")): item for item in leftover_base_nets}
-    by_name_head = {str(item.get("name")): item for item in leftover_head_nets}
+    by_name_base: Dict[str, deque[Dict[str, Any]]] = defaultdict(deque)
+    by_name_head: Dict[str, deque[Dict[str, Any]]] = defaultdict(deque)
+    for item in leftover_base_nets:
+        by_name_base[str(item.get("name"))].append(item)
+    for item in leftover_head_nets:
+        by_name_head[str(item.get("name"))].append(item)
     for name in sorted(by_name_base.keys() | by_name_head.keys()):
-        net_pairs.append((by_name_base.get(name), by_name_head.get(name)))
+        old_group = by_name_base.get(name, deque())
+        new_group = by_name_head.get(name, deque())
+        while old_group or new_group:
+            net_pairs.append(
+                (
+                    old_group.popleft() if old_group else None,
+                    new_group.popleft() if new_group else None,
+                )
+            )
 
     for old, new in net_pairs:
         name = str((new or old or {}).get("name") or "")
-        old_pairs = _terminal_pairs(base, old.get("netUid")) if old else set()
-        new_pairs = _terminal_pairs(head, new.get("netUid")) if new else set()
+        old_pairs = (
+            _lookup_terminal_pairs(base, str(old.get("netUid") or ""), base_lookups)
+            if old
+            else set()
+        )
+        new_pairs = (
+            _lookup_terminal_pairs(head, str(new.get("netUid") or ""), head_lookups)
+            if new
+            else set()
+        )
         # Prefer compare-side identity for navigation; never use name-hash as UID.
         semantic_id = (new or old or {}).get("netUid")
         base_source = _net_source_id(old, base) if old else None
@@ -1629,6 +1715,7 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
                         pair,
                         side="comparison",
                         status="added",
+                        lookups=head_lookups,
                     )
                 )
             )
@@ -1649,6 +1736,7 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
                         pair,
                         side="reference",
                         status="removed",
+                        lookups=base_lookups,
                     )
                 )
             )
@@ -1678,6 +1766,7 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
                             pair,
                             side="reference",
                             status="removed",
+                            lookups=base_lookups,
                         )
                     )
                 )
@@ -1690,6 +1779,7 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
                             pair,
                             side="comparison",
                             status="added",
+                            lookups=head_lookups,
                         )
                     )
                 )
@@ -2701,6 +2791,90 @@ def _complete_comparison(
     }
 
 
+def _prepare_comparison_bundle(
+    context: JobContext,
+    result: Dict[str, Any],
+    *,
+    artifact_key: str,
+) -> tuple[Any, tuple[Any, ...]]:
+    """Split the completed result into immutable, independently served sidecars."""
+
+    core = {
+        key: result.get(key)
+        for key in (
+            "schema",
+            "base",
+            "head",
+            "compare",
+            "diagnostics",
+            "readiness",
+            "files",
+        )
+    }
+    payloads = {
+        "core": core,
+        "schematic": result.get("schematic") or {},
+        "pcb": result.get("pcb") or {},
+        "bom": result.get("bom"),
+        "stackup": result.get("stackup") or {},
+        "document_diff": result.get("document_diff") or {},
+    }
+    sidecars = []
+    manifest_sidecars: Dict[str, Dict[str, Any]] = {}
+    for name, payload in payloads.items():
+        prepared = job_artifacts.prepare_json(
+            context,
+            payload,
+            kind="design_compare_sidecar",
+            artifact_key=f"{artifact_key}:sidecar:{name}",
+            schema_version=str(result.get("schema") or ""),
+            generator_version=semantic_index_service.generator_cache_tag(),
+            readiness="sidecar",
+        )
+        sidecars.append(prepared)
+        manifest_sidecars[name] = {
+            "digest": prepared.digest,
+            "sizeBytes": prepared.size_bytes,
+            "mediaType": prepared.media_type,
+        }
+
+    manifest = {
+        "schema": "prism.design_compare_bundle_v1",
+        "resultSchema": result.get("schema"),
+        "base": result.get("base"),
+        "head": result.get("head"),
+        "compare": result.get("compare"),
+        "readiness": result.get("readiness"),
+        "domains": {
+            name: {
+                "summary": (
+                    (result.get(name) or {}).get("summary")
+                    if isinstance(result.get(name), dict)
+                    else None
+                ),
+                "changeCount": len((result.get(name) or {}).get("changes") or [])
+                if isinstance(result.get(name), dict)
+                else 0,
+                "groupCount": len((result.get(name) or {}).get("groups") or [])
+                if isinstance(result.get(name), dict)
+                else 0,
+            }
+            for name in ("schematic", "pcb", "bom", "stackup")
+        },
+        "sidecars": manifest_sidecars,
+    }
+    primary = job_artifacts.prepare_json(
+        context,
+        manifest,
+        kind="design_compare",
+        artifact_key=artifact_key,
+        schema_version="prism.design_compare_bundle_v1",
+        generator_version=semantic_index_service.generator_cache_tag(),
+        readiness="ready",
+    )
+    return primary, tuple(sidecars)
+
+
 def _publish_comparison_result(
     job_id: str,
     job: Dict[str, Any],
@@ -2896,61 +3070,64 @@ def start_design_compare_job(
     head: str,
     *,
     include_unchanged: bool = False,
+    requested_by: str = "",
 ) -> str:
-    repo_path, _relative_path, _checkout = _repo_paths(project_id)
-    resolved_base = _resolve_revision(repo_path, base)
-    resolved_head = _resolve_revision(repo_path, head)
-    job_id = str(uuid.uuid4())
-    design_compare_jobs[job_id] = {
-        "job_id": job_id,
-        "project_id": project_id,
-        "base": resolved_base,
-        "head": resolved_head,
-        "include_unchanged": include_unchanged,
-        "status": "running",
-        "message": "Queued",
-        "percent": 0,
-        "logs": [],
-        "result": None,
-        "result_version": 0,
-        "ready_domains": [],
-        "readiness": {
-            "stage": "building-initial",
-            "domains": {
-                "schematic": "building",
-                "bom": "building",
-                "pcb": "pending",
-                "stackup": "pending",
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError(f"Project '{project_id}' not found")
+    artifact_key = hashlib.sha256(
+        json.dumps(
+            {
+                "project": project_id,
+                "base": base,
+                "head": head,
+                "includeUnchanged": include_unchanged,
+                "cacheSchema": _CACHE_SCHEMA,
+                "initialCacheSchema": _INITIAL_CACHE_SCHEMA,
+                "generator": semantic_index_service.generator_cache_tag(),
             },
-        },
-    }
-    workspace.create_job(
-        job_id,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    repository_id = str(row.get("repo_id") or "")
+    queued = v3_jobs.enqueue(
         "design_compare",
-        status="running",
-        message="Queued",
-        percent=0,
+        {
+            "project_id": project_id,
+            "base": base,
+            "head": head,
+            "include_unchanged": include_unchanged,
+            "artifact_key": artifact_key,
+        },
+        worker_pool="prism",
+        artifact_key=artifact_key,
         project_id=project_id,
-        base=resolved_base,
-        head=resolved_head,
-        include_unchanged=include_unchanged,
+        repository_id=repository_id or None,
+        requested_by=requested_by,
+        resources={
+            "prism_worker": 1,
+            "design_compare": 1,
+            "semantic_compile": 2,
+        },
+        locks=(
+            [{"key": f"repository:{repository_id}", "mode": "read"}]
+            if repository_id
+            else [{"key": f"project:{project_id}", "mode": "read"}]
+        ),
     )
-    threading.Thread(
-        target=_run_job,
-        args=(job_id, project_id, resolved_base, resolved_head, include_unchanged),
-        daemon=True,
-    ).start()
-    return job_id
+    return str(queued["job_id"])
 
 
 def get_job_status(job_id: str) -> Optional[dict]:
-    job = design_compare_jobs.get(job_id) or workspace.get_job(job_id, "design_compare")
+    v3_job = v3_jobs.get(job_id)
+    job = design_compare_jobs.get(job_id) or v3_job or workspace.get_job(job_id, "design_compare")
     if not job:
         return None
 
     status = job.get("status")
     # Orphan detection: worker OOM/restart leaves DB row stuck at running forever.
-    if status == "running":
+    if status == "running" and v3_job is None:
         updated = job.get("updated_at")
         try:
             if updated is not None:
@@ -2984,12 +3161,12 @@ def get_job_status(job_id: str) -> Optional[dict]:
         "percent": job.get("percent", 0),
         "logs": job.get("logs") or [],
         "project_id": job.get("project_id"),
-        "base": job.get("base"),
-        "head": job.get("head"),
-        "benchmark_path": job.get("benchmark_path"),
-        "result_version": job.get("result_version", 0),
-        "ready_domains": job.get("ready_domains") or [],
-        "readiness": job.get("readiness"),
+        "base": job.get("base") or (job.get("payload") or {}).get("base"),
+        "head": job.get("head") or (job.get("payload") or {}).get("head"),
+        "benchmark_path": job.get("benchmark_path") or (job.get("result_metadata") or {}).get("benchmark_path"),
+        "result_version": job.get("result_version", 0) or (job.get("result_metadata") or {}).get("result_version", 0),
+        "ready_domains": job.get("ready_domains") or (job.get("result_metadata") or {}).get("ready_domains") or [],
+        "readiness": job.get("readiness") or (job.get("result_metadata") or {}).get("readiness"),
     }
 
 
@@ -2997,6 +3174,11 @@ def get_job_result(job_id: str) -> Optional[dict]:
     job = design_compare_jobs.get(job_id)
     if job and job.get("result"):
         return job["result"]
+    v3_job = v3_jobs.get(job_id)
+    if v3_job and v3_job.get("result_path"):
+        path = Path(str(v3_job["result_path"]))
+        if path.is_file():
+            return json.loads(path.read_text(encoding="utf-8"))
     path = _JOB_ROOT / job_id / "result.json"
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -3006,7 +3188,19 @@ def get_job_result(job_id: str) -> Optional[dict]:
     return None
 
 
+def get_job_sidecar(job_id: str, digest: str) -> Optional[dict]:
+    artifact = v3_jobs.get_artifact_for_job_digest(job_id, digest)
+    if not artifact or artifact.get("kind") != "design_compare_sidecar":
+        return None
+    return artifact
+
+
 def delete_job(job_id: str) -> None:
+    v3_job = v3_jobs.get(job_id)
+    if v3_job:
+        if v3_job.get("status") in {"queued", "running", "retry_wait", "cancel_requested"}:
+            v3_jobs.request_cancel(job_id)
+        return
     design_compare_jobs.pop(job_id, None)
     path = _JOB_ROOT / job_id
     if path.exists():
@@ -3015,3 +3209,166 @@ def delete_job(job_id: str) -> None:
         workspace.delete_job(job_id)
     except Exception:
         pass
+
+
+def run_design_compare_job_v3(context: JobContext) -> JobResult:
+    """Execute and publish a semantic comparison under a fenced worker lease."""
+
+    payload = context.payload
+    project_id = str(payload["project_id"])
+    requested_base = str(payload["base"])
+    requested_head = str(payload["head"])
+    include_unchanged = bool(payload.get("include_unchanged"))
+    artifact_key = str(payload["artifact_key"])
+    repo_path, relative_path, _checkout = _repo_paths(project_id)
+    base = _resolve_revision(repo_path, requested_base)
+    head = _resolve_revision(repo_path, requested_head)
+    logs: list[str] = []
+    started = time.perf_counter()
+    benchmark = DesignCompareBenchmark(
+        job_id=context.job_id,
+        metadata={
+            "projectId": project_id,
+            "base": base,
+            "compare": head,
+            "initialWorkers": _stage_worker_count("initial", len(set((base, head)))),
+            "pcbWorkers": _stage_worker_count("pcb", len(set((base, head)))),
+            "semanticGenerator": semantic_index_service.generator_cache_tag(),
+            "pipeline": "staged-domain-v3-worker",
+            "fence": context.fence,
+        },
+    )
+
+    def heartbeat(message: str, percent: Optional[float] = None) -> None:
+        print(message, flush=True)
+        context.progress(
+            stage="building",
+            message=message,
+            percent=percent,
+        )
+
+    def append_revision_logs(revision_logs: Dict[str, List[str]], stage: str) -> None:
+        for commit in dict.fromkeys((base, head)):
+            side = "old/new" if base == head else "old" if commit == base else "new"
+            for message in revision_logs.get(commit, []):
+                rendered = f"[{stage}:{side}] {message}"
+                logs.append(rendered)
+                print(rendered, flush=True)
+
+    try:
+        context.check_cancelled()
+        with benchmark.span("initial-revision-pipeline"):
+            initial_revisions, initial_logs = _build_initial_revisions(
+                project_id,
+                repo_path,
+                relative_path,
+                base,
+                head,
+                heartbeat,
+                benchmark=benchmark,
+            )
+        append_revision_logs(initial_logs, "initial")
+        context.check_cancelled()
+        heartbeat("Assembling Schematic and BOM differences…", 50)
+        initial_result, assembly_state = _assemble_initial_comparison(
+            project_id=project_id,
+            base=base,
+            head=head,
+            revisions=initial_revisions,
+            include_unchanged=include_unchanged,
+            benchmark=benchmark,
+        )
+        partial = job_artifacts.prepare_json(
+            context,
+            initial_result,
+            kind="design_compare",
+            artifact_key=artifact_key,
+            schema_version=str(initial_result.get("schema") or ""),
+            generator_version=semantic_index_service.generator_cache_tag(),
+            readiness="partial",
+        )
+        partial_details = {
+            "result_version": 1,
+            "ready_domains": ["schematic", "bom"],
+            "readiness": initial_result["readiness"],
+            "base": base,
+            "head": head,
+        }
+        if not v3_jobs.publish_partial_artifact(
+            context.job_id,
+            context.worker_id,
+            context.fence,
+            partial.__dict__,
+            stage="background-pcb",
+            message="Schematic and BOM ready; building PCB and Stackup in background…",
+            percent=60,
+            details=partial_details,
+        ):
+            raise RuntimeError("Fenced partial comparison publication was rejected")
+
+        context.check_cancelled()
+        with benchmark.span("pcb-revision-pipeline"):
+            complete_revisions, pcb_logs = _build_pcb_revisions(
+                project_id,
+                base,
+                head,
+                initial_revisions,
+                heartbeat,
+                benchmark=benchmark,
+            )
+        append_revision_logs(pcb_logs, "pcb")
+        context.check_cancelled()
+        heartbeat("Assembling PCB and Stackup differences…", 92)
+        result = _complete_comparison(
+            initial_result=initial_result,
+            assembly_state=assembly_state,
+            base=base,
+            head=head,
+            revisions=complete_revisions,
+            benchmark=benchmark,
+        )
+        elapsed = time.perf_counter() - started
+        benchmark.update_metadata(
+            totalReadyMs=round(elapsed * 1000, 3),
+            schematicChanges=len(result["schematic"]["changes"]),
+            pcbChanges=len(result["pcb"]["changes"]),
+            bomChanges=len((result.get("bom") or {}).get("changes") or []),
+        )
+        benchmark_path = (
+            job_state_root()
+            / "jobs"
+            / context.job_id
+            / f"benchmark-fence-{context.fence}.json"
+        )
+        benchmark.write(benchmark_path)
+        complete, sidecars = _prepare_comparison_bundle(
+            context,
+            result,
+            artifact_key=artifact_key,
+        )
+        return JobResult(
+            message="Design comparison ready",
+            artifact=complete,
+            sidecar_artifacts=sidecars,
+            details={
+                "result_version": 2,
+                "ready_domains": ["schematic", "bom", "pcb", "stackup"],
+                "readiness": result["readiness"],
+                "benchmark_path": str(benchmark_path),
+                "base": base,
+                "head": head,
+                "sidecar_count": len(sidecars),
+            },
+        )
+    except Exception:
+        try:
+            benchmark_path = (
+                job_state_root()
+                / "jobs"
+                / context.job_id
+                / f"benchmark-fence-{context.fence}.json"
+            )
+            benchmark.write(benchmark_path)
+        except Exception:
+            logger.exception("Could not publish failed V3 comparison benchmark")
+        raise

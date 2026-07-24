@@ -18,10 +18,8 @@ def get_project_or_404(project_id: str) -> project_service.Project:
 
 
 def get_project_for_role_or_404(project_id: str, role: Role) -> project_service.Project:
-    row = workspace.get_project_by_id(project_id)
+    row = workspace.get_project_for_role(project_id, role)
     if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if not workspace.is_folder_visible_to_role(row.get("folder_id"), role):
         raise HTTPException(status_code=404, detail="Project not found")
     return _row_to_project(row)
 
@@ -36,7 +34,7 @@ def _row_to_project(row: dict) -> project_service.Project:
         path=row.get("path", ""),
         last_modified=row.get("last_modified", ""),
         registered_at=row.get("registered_at"),
-        thumbnail_url=f"/api/projects/{row['id']}/thumbnail" if row.get("thumbnail_rel") else None,
+        thumbnail_url=project_service.thumbnail_url_for_row(row),
         sub_path=row.get("relative_path") if row.get("relative_path") != "." else None,
         parent_repo=row.get("parent_repo"),
         repo_url=row.get("repo_url"),
@@ -63,4 +61,3 @@ def resolve_path_within_root(root: str, relative_path: str, *, invalid_detail: s
         raise HTTPException(status_code=400, detail=invalid_detail) from error
 
     return target_path
-

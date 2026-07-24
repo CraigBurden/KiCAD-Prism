@@ -243,6 +243,22 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual(change["base_item"]["semantic_id"], "cmp:u1")
         self.assertEqual(change["fields"]["Value"], {"old": "A", "new": "B"})
 
+    def test_native_key_matching_builds_keys_once_per_item(self) -> None:
+        base = [{"key": f"key-{index}"} for index in range(500)]
+        compare = list(reversed(base))
+        calls = 0
+
+        def keys_of(item):
+            nonlocal calls
+            calls += 1
+            return {item["key"]}
+
+        pairs = design_compare_service._match_by_keys(base, compare, keys_of)
+
+        self.assertEqual(len(pairs), len(base))
+        self.assertEqual(calls, len(base) + len(compare))
+        self.assertTrue(all(old is not None and new is not None for old, new in pairs))
+
     def test_same_page_symbol_movement_and_wire_reroute_are_suppressed(self) -> None:
         component = self._component("U1", "u1")
         semantic = design_compare_service._diff_designs(

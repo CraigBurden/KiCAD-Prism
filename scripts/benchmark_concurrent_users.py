@@ -17,6 +17,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import platform
 import random
 import statistics
 import subprocess
@@ -54,8 +56,8 @@ PANEL_PATHS = [
 ]
 
 DEFAULT_JTYU_PROJECT_ID = "prj_82934087bb0d"
-DEFAULT_DIFF_COMMIT_NEW = "aebbfebf290ab9f4a0f45e2546d229ad47f64cdb"
-DEFAULT_DIFF_COMMIT_OLD = "4b0a39a7f841648681d24daff8ca63bc0ba52c07"
+DEFAULT_COMPARE_HEAD = "aebbfebf290ab9f4a0f45e2546d229ad47f64cdb"
+DEFAULT_COMPARE_BASE = "234e065b94ac1d0ee94d828aad093ab9a317f868"
 DEFAULT_WEBGPU_COMMIT = "aebbfebf290ab9f4a0f45e2546d229ad47f64cdb"
 FALLBACK_PREVIEW_COMPONENT_IDS = [
     "985319d4-dcd7-4c00-b90f-6743add054d4",
@@ -100,6 +102,8 @@ class BenchmarkResult:
     container_stats: dict[str, dict[str, Any]]
     disk_usage_gb: float | None = None
     job_stats: dict[str, Any] = field(default_factory=dict)
+    operational_stats: dict[str, Any] = field(default_factory=dict)
+    hardware_profile: dict[str, Any] = field(default_factory=dict)
 
 
 def resolve_url(base_url: str, url: str) -> str:
@@ -193,6 +197,42 @@ def sample_docker_stats() -> list[ContainerSample]:
             )
         )
     return samples
+
+
+def collect_hardware_profile() -> dict[str, Any]:
+    memory_bytes = 0
+    try:
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        pages = int(os.sysconf("SC_PHYS_PAGES"))
+        memory_bytes = page_size * pages
+    except (AttributeError, OSError, ValueError):
+        pass
+    profile = {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "logicalCpuCount": os.cpu_count() or 0,
+        "memoryGiB": round(memory_bytes / (1024**3), 2) if memory_bytes else None,
+        "python": platform.python_version(),
+    }
+    try:
+        docker = subprocess.run(
+            [
+                "docker",
+                "info",
+                "--format",
+                "{{json .DriverStatus}}|{{.NCPU}}|{{.MemTotal}}|{{.Architecture}}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        if docker.returncode == 0 and docker.stdout.strip():
+            profile["dockerHost"] = docker.stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        pass
+    return profile
 
 
 async def fetch_json(
@@ -342,52 +382,63 @@ async def poll_job_status(
     return last_payload
 
 
-async def run_visual_diff_job(
+async def run_design_compare_job(
     session: aiohttp.ClientSession,
     base_url: str,
     metrics: list[RequestMetric],
     *,
     project_id: str,
-    commit_new: str,
-    commit_old: str,
+    base_commit: str,
+    compare_commit: str,
     job_timeout: float,
     poll_interval: float,
 ) -> str:
     start_payload = await fetch_post_json(
         session,
-        f"{base_url}/api/projects/{project_id}/diff",
-        {"commit1": commit_new, "commit2": commit_old},
+        f"{base_url}/api/projects/{project_id}/design-compare",
+        {
+            "base": base_commit,
+            "head": compare_commit,
+            "include_unchanged": False,
+        },
         metrics,
-        "projects.visual_diff.start",
+        "projects.design_compare.start",
     )
     if not start_payload or not start_payload.get("job_id"):
         return "failed"
     job_id = str(start_payload["job_id"])
     final = await poll_job_status(
         session,
-        f"{base_url}/api/projects/{project_id}/diff/{job_id}/status",
+        f"{base_url}/api/jobs/{job_id}",
         metrics,
-        "projects.visual_diff.status",
+        "projects.design_compare.status",
         timeout_seconds=job_timeout,
         poll_interval=poll_interval,
-        terminal_statuses={"completed", "failed"},
+        terminal_statuses={"completed", "failed", "cancelled"},
     )
     status = str((final or {}).get("status") or "").lower()
     if status == "completed":
-        await fetch_json(
+        result = await fetch_json(
             session,
-            f"{base_url}/api/projects/{project_id}/diff/{job_id}/manifest",
+            f"{base_url}/api/projects/{project_id}/design-compare/{job_id}",
             metrics,
-            "projects.visual_diff.manifest",
+            "projects.design_compare.result",
         )
-        await fetch_delete(
-            session,
-            f"{base_url}/api/projects/{project_id}/diff/{job_id}",
-            metrics,
-            "projects.visual_diff.cleanup",
-        )
+        if isinstance(result, dict) and result.get("schema") == "prism.design_compare_bundle_v1":
+            await asyncio.gather(
+                *(
+                    fetch_json(
+                        session,
+                        resolve_url(base_url, str(descriptor.get("url") or "")),
+                        metrics,
+                        f"projects.design_compare.sidecar.{name}",
+                    )
+                    for name, descriptor in (result.get("sidecars") or {}).items()
+                    if isinstance(descriptor, dict) and descriptor.get("url")
+                )
+            )
         return "completed"
-    if status == "failed":
+    if status in {"failed", "cancelled"}:
         return "failed"
     return "timeout"
 
@@ -574,26 +625,30 @@ async def simulate_user(
     *,
     profile: str,
     heavy_project_id: str,
-    diff_commit_new: str,
-    diff_commit_old: str,
+    design_compare_base: str,
+    design_compare_head: str,
     webgpu_commit: str,
     job_timeout: float,
     poll_interval: float,
     job_outcomes: list[dict[str, Any]],
+    session_headers: dict[str, str],
 ) -> None:
     connector = aiohttp.TCPConnector(limit=8)
-    async with aiohttp.ClientSession(connector=connector) as session:
+    async with aiohttp.ClientSession(
+        connector=connector,
+        headers=session_headers,
+    ) as session:
         while time.time() < stop_at:
             if profile == "heavy":
-                job_kind = random.choice(["visual_diff", "webgpu_3d"])
-                if job_kind == "visual_diff":
-                    outcome = await run_visual_diff_job(
+                job_kind = random.choice(["design_compare", "webgpu_3d"])
+                if job_kind == "design_compare":
+                    outcome = await run_design_compare_job(
                         session,
                         base_url,
                         metrics,
                         project_id=heavy_project_id,
-                        commit_new=diff_commit_new,
-                        commit_old=diff_commit_old,
+                        base_commit=design_compare_base,
+                        compare_commit=design_compare_head,
                         job_timeout=job_timeout,
                         poll_interval=poll_interval,
                     )
@@ -601,7 +656,7 @@ async def simulate_user(
                         {
                             "user_id": user_id,
                             "profile": profile,
-                            "job": "visual_diff",
+                            "job": "design_compare",
                             "outcome": outcome,
                         }
                     )
@@ -799,8 +854,13 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
     base_url = args.base_url.rstrip("/")
     metrics: list[RequestMetric] = []
     container_samples: list[ContainerSample] = []
+    session_headers: dict[str, str] = {}
+    if args.bearer_token:
+        session_headers["Authorization"] = f"Bearer {args.bearer_token}"
+    elif args.session_cookie:
+        session_headers["Cookie"] = f"kicad_prism_session={args.session_cookie}"
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(headers=session_headers) as session:
         project_ids, categories, component_ids, preview_component_count = await discover_catalog_context(
             session, base_url, metrics
         )
@@ -836,12 +896,13 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
                 stop_at=stop_at,
                 profile=user_profiles[i],
                 heavy_project_id=args.heavy_project_id,
-                diff_commit_new=args.diff_commit_new,
-                diff_commit_old=args.diff_commit_old,
+                design_compare_base=args.design_compare_base,
+                design_compare_head=args.design_compare_head,
                 webgpu_commit=args.webgpu_commit,
                 job_timeout=args.job_timeout,
                 poll_interval=args.poll_interval,
                 job_outcomes=job_outcomes,
+                session_headers=session_headers,
             )
         )
         for i in range(args.users)
@@ -857,6 +918,19 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
     finished = time.time()
     finished_at = datetime.now(timezone.utc).isoformat()
     elapsed = finished - started
+    async with aiohttp.ClientSession(headers=session_headers) as session:
+        operational_payload = await fetch_json(
+            session,
+            (
+                f"{base_url}/api/jobs/benchmark-metrics"
+                f"?since={quote(started_at)}"
+            ),
+            metrics,
+            "jobs.benchmark_metrics",
+        )
+    operational_stats = (
+        operational_payload if isinstance(operational_payload, dict) else {}
+    )
 
     overall_latency, endpoint_stats = summarize_metrics(metrics)
     container_stats = summarize_container_samples(container_samples)
@@ -874,8 +948,8 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
             "job_timeout_seconds": args.job_timeout,
             "poll_interval_seconds": args.poll_interval,
             "heavy_project_id": args.heavy_project_id,
-            "diff_commit_new": args.diff_commit_new,
-            "diff_commit_old": args.diff_commit_old,
+            "design_compare_base": args.design_compare_base,
+            "design_compare_head": args.design_compare_head,
             "webgpu_commit": args.webgpu_commit,
             "network": "docker_internal" if "kicad-prism-frontend" in base_url else "localhost",
             "projects": len(project_ids),
@@ -894,6 +968,8 @@ async def run_benchmark(args: argparse.Namespace) -> BenchmarkResult:
         container_stats=container_stats,
         disk_usage_gb=measure_disk_usage_gb(data_dir),
         job_stats=summarize_job_outcomes(job_outcomes),
+        operational_stats=operational_stats,
+        hardware_profile=collect_hardware_profile(),
     )
 
 
@@ -959,8 +1035,13 @@ def print_report(result: BenchmarkResult, recommendations: dict[str, Any]) -> No
         )
 
     if result.job_stats.get("total_jobs"):
-        print("\n--- Heavy jobs (visual diff / WebGPU 3D) ---")
+        print("\n--- Heavy jobs (Design Comparison / WebGPU 3D) ---")
         print(json.dumps(result.job_stats["by_job"], indent=2))
+    if result.operational_stats:
+        print("\n--- Queue / pool instrumentation ---")
+        print(json.dumps(result.operational_stats, indent=2))
+    print("\n--- Hardware profile ---")
+    print(json.dumps(result.hardware_profile, indent=2))
 
     print("\n--- Recommended VM specs ---")
     rec = recommendations["recommended_vm_specs"]
@@ -979,17 +1060,27 @@ def main() -> None:
         help="Prism base URL (use http://kicad-prism-frontend:80 from another Docker container)",
     )
     parser.add_argument("--users", type=int, default=20)
-    parser.add_argument("--heavy-users", type=int, default=4, help="Users running visual diff / WebGPU 3D jobs")
+    parser.add_argument("--heavy-users", type=int, default=4, help="Users running Design Comparison / WebGPU 3D jobs")
     parser.add_argument("--duration", type=int, default=180, help="Test duration in seconds")
     parser.add_argument("--job-timeout", type=float, default=600.0, help="Max seconds to wait for heavy jobs")
     parser.add_argument("--poll-interval", type=float, default=2.0, help="Job status polling interval")
     parser.add_argument("--heavy-project-id", default=DEFAULT_JTYU_PROJECT_ID)
-    parser.add_argument("--diff-commit-new", default=DEFAULT_DIFF_COMMIT_NEW)
-    parser.add_argument("--diff-commit-old", default=DEFAULT_DIFF_COMMIT_OLD)
+    parser.add_argument("--design-compare-base", default=DEFAULT_COMPARE_BASE)
+    parser.add_argument("--design-compare-head", default=DEFAULT_COMPARE_HEAD)
     parser.add_argument("--webgpu-commit", default=DEFAULT_WEBGPU_COMMIT)
     parser.add_argument("--sample-interval", type=float, default=2.0, help="Docker stats sampling interval")
     parser.add_argument("--data-dir", default="", help="Path to data/projects for disk sizing")
     parser.add_argument("--output", default="", help="Write JSON report to this path")
+    parser.add_argument(
+        "--session-cookie",
+        default=os.environ.get("PRISM_BENCHMARK_SESSION_COOKIE", ""),
+        help="Signed kicad_prism_session value (or PRISM_BENCHMARK_SESSION_COOKIE).",
+    )
+    parser.add_argument(
+        "--bearer-token",
+        default=os.environ.get("PRISM_BENCHMARK_BEARER_TOKEN", ""),
+        help="OAuth/service bearer token (or PRISM_BENCHMARK_BEARER_TOKEN).",
+    )
     args = parser.parse_args()
 
     result = asyncio.run(run_benchmark(args))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any, Iterator
 
@@ -20,6 +21,10 @@ class PostgresDatabase:
     def __init__(self) -> None:
         self._pool: Any | None = None
         self._lock = threading.Lock()
+        self._metrics_lock = threading.Lock()
+        self._wait_count = 0
+        self._wait_total_seconds = 0.0
+        self._wait_max_seconds = 0.0
 
     def pool(self) -> Any:
         if self._pool is not None:
@@ -47,8 +52,31 @@ class PostgresDatabase:
 
     @contextmanager
     def connection(self) -> Iterator[Any]:
+        started = time.perf_counter()
         with self.pool().connection() as connection:
+            waited = time.perf_counter() - started
+            with self._metrics_lock:
+                self._wait_count += 1
+                self._wait_total_seconds += waited
+                self._wait_max_seconds = max(self._wait_max_seconds, waited)
             yield connection
+
+    def metrics_snapshot(self) -> dict[str, Any]:
+        pool = self.pool()
+        with self._metrics_lock:
+            count = self._wait_count
+            total = self._wait_total_seconds
+            maximum = self._wait_max_seconds
+        try:
+            pool_stats = dict(pool.get_stats())
+        except Exception:
+            pool_stats = {}
+        return {
+            "connectionWaitCount": count,
+            "connectionWaitMeanMs": (total / count * 1000) if count else 0.0,
+            "connectionWaitMaxMs": maximum * 1000,
+            "pool": pool_stats,
+        }
 
     @contextmanager
     def transaction(self) -> Iterator[Any]:

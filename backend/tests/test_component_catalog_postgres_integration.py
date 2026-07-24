@@ -21,6 +21,7 @@ POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
 class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
+        self.component_ids: list[str] = []
         self.service = ComponentCatalogPostgresService(
             store_root=Path(self.tempdir.name) / "components",
             database_url=POSTGRES_URL,
@@ -28,12 +29,28 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.service.initialize()
 
     def tearDown(self) -> None:
+        # These tests may run against an explicitly supplied shared PostgreSQL
+        # instance. Never leave temporary-file-backed fixtures visible in the
+        # released remote-provider projection after their TemporaryDirectory is
+        # removed.
+        for component_id in reversed(self.component_ids):
+            self.assertTrue(
+                self.service.deactivate_component(
+                    component_id,
+                    actor="integration-test@local",
+                    reason="PostgreSQL integration-test cleanup",
+                ),
+                f"failed to deactivate integration fixture {component_id}",
+            )
+            component = self.service.get_component(component_id)
+            self.assertIsNotNone(component)
+            self.assertFalse(bool((component or {}).get("is_active")))
         self.service.close()
         self.tempdir.cleanup()
 
     def _component(self, suffix: str = "") -> dict:
         token = suffix or uuid.uuid4().hex[:10]
-        return self.service.create_manual_component(
+        component = self.service.create_manual_component(
             value="10k",
             description="PostgreSQL catalog integration component",
             datasheet="https://example.com/r.pdf",
@@ -41,6 +58,8 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             manufacturer_part_number=f"PG-R-{token}",
             actor="author@example.com",
         )
+        self.component_ids.append(str(component["id"]))
+        return component
 
     def test_concurrent_edits_serialize_head_and_audit(self) -> None:
         component = self._component("concurrent-" + uuid.uuid4().hex[:8])
@@ -246,6 +265,17 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             expected_manifest_hash=approved["manifest_hash"],
         )
         self.assertEqual(released["release_status"], "released")
+        remote = self.service.list_remote_component_heads(
+            query=released["mpn"],
+            page=1,
+            page_size=1,
+            include_total=False,
+        )
+        self.assertEqual(remote["items"][0]["id"], component["id"])
+        self.assertIsNone(remote["total"])
+        self.assertFalse(remote["has_more"])
+        self.assertTrue(remote["items"][0]["place_enabled"])
+        self.assertNotEqual(remote["projection_version"], "0")
         records = self.service.list_component_release_records(component["id"])
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["manifest_hash"], released["manifest_hash"])
@@ -331,7 +361,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                     """
                     SELECT table_name, column_name, data_type
                     FROM information_schema.columns
-                    WHERE table_schema = 'public' AND (
+                    WHERE table_schema = 'catalog' AND (
                         (table_name = 'components' AND column_name = 'stock_quantity') OR
                         (table_name = 'assets' AND column_name = 'size_bytes') OR
                         (table_name = 'catalog_audit_events' AND column_name = 'sequence') OR

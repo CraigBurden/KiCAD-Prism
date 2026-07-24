@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
 import {
@@ -65,11 +66,6 @@ interface ProjectBranchesResponse {
 
 interface WorkflowJobResponse {
     job_id: string;
-}
-
-interface WorkflowJobStatus {
-    status: string;
-    logs?: string[];
 }
 
 type Section = "overview" | "history" | "visualizers" | "assets" | "documentation" | "workflows";
@@ -171,12 +167,20 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         setSyncMessage(null);
 
         try {
-            const data = await fetchJson<{ message?: string }>(
+            const data = await fetchJson<{ job_id: string; message?: string }>(
                 `/api/projects/${projectId}/sync`,
                 { method: "POST" },
                 "Sync failed"
             );
-            setSyncMessage(data.message || "Sync completed.");
+            const job = await watchPrismJob(data.job_id, {
+                onUpdate: (update) => {
+                    setSyncMessage(
+                        `${update.message || "Syncing repository"} (${Math.round(update.percent)}%)`,
+                    );
+                },
+            });
+            throwIfJobFailed(job, "Sync failed");
+            setSyncMessage(job.message || "Sync completed.");
             // Refresh project data and readme without full reload
             setRefreshKey((prev) => prev + 1);
         } catch (err) {
@@ -649,36 +653,24 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
     const [status, setStatus] = useState<string>("idle");
 
     useEffect(() => {
-        let pollInterval: ReturnType<typeof window.setInterval> | null = null;
-
-        if (runningJob) {
-            pollInterval = setInterval(async () => {
-                try {
-                    const job = await fetchJson<WorkflowJobStatus>(`/api/projects/jobs/${runningJob.id}`);
-                    setLogs(job.logs || []);
-                    setStatus(job.status);
-
-                    if (job.status === 'completed' || job.status === 'failed') {
-                        // Keep logs visible but stop polling after a short delay to ensure final update
-                        setTimeout(() => {
-                            if (pollInterval) {
-                                clearInterval(pollInterval);
-                                pollInterval = null;
-                            }
-                            // Optional: Reset running job after some time? No, let user see result.
-                        }, 1000);
-                    }
-                } catch (e) {
-                    console.error("Poll error", e);
-                }
-            }, 1000);
-        }
-
-        return () => {
-            if (pollInterval) {
-                clearInterval(pollInterval);
-            }
-        };
+        if (!runningJob) return;
+        const controller = new AbortController();
+        void watchPrismJob(runningJob.id, {
+            signal: controller.signal,
+            includeLogs: true,
+            onUpdate: (job, nextLogs) => {
+                setLogs(nextLogs);
+                setStatus(job.status);
+            },
+        }).catch((error: unknown) => {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+            setStatus("failed");
+            setLogs((current) => [
+                ...current,
+                error instanceof Error ? error.message : "Failed to poll workflow",
+            ]);
+        });
+        return () => controller.abort();
     }, [runningJob]);
 
     const runWorkflow = async (type: string) => {

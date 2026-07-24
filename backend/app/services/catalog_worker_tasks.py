@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Callable
 from datetime import datetime, timedelta, timezone
 
-from app.core.config import settings
-from app.services.catalog_job_service import CatalogJobService
 from app.services.component_catalog_service import catalog_service
+from app.services.job_artifact_service import job_artifacts
+from app.services.git_read_cache_service import git_read_cache
+from app.services.job_service import jobs as context_jobs
+from app.services.job_runtime import (
+    JobCancelled,
+    JobContext,
+    JobResult,
+    LostJobLease,
+    RetryableJobError,
+)
 from app.services.project_component_import_service import run_project_import_session
 from app.services.library_folder_import_service import run_folder_import_session
 from app.services.local_artifact_store import artifact_store
@@ -105,13 +114,43 @@ def run_folder_import(job: dict[str, Any], progress: Progress) -> dict[str, Any]
 def run_artifact_maintenance(job: dict[str, Any], progress: Progress) -> dict[str, Any]:
     progress(progress=10, message="Applying local artifact retention")
     result = artifact_store.run_retention()
-    progress(progress=80, message="Purging superseded STEP payloads", result=result)
+    progress(progress=45, message="Reconciling fenced job artifacts", result=result)
+    reconciliation = job_artifacts.reconcile_registered_artifacts()
+    metadata_rows_pruned = context_jobs.prune_artifact_metadata(
+        retention_seconds=max(
+            0,
+            int(os.environ.get("PRISM_JOB_ARTIFACT_RETENTION_DAYS", "30")),
+        )
+        * 24
+        * 60
+        * 60,
+        partial_retention_seconds=max(
+            0,
+            int(os.environ.get("PRISM_JOB_PARTIAL_RETENTION_HOURS", "24")),
+        )
+        * 60
+        * 60,
+    )
+    progress(
+        progress=60,
+        message="Collecting unreferenced job artifacts",
+        result={**result, **reconciliation},
+    )
+    garbage_collection = job_artifacts.collect_unreferenced_objects()
+    staging_cleanup = job_artifacts.cleanup_stale_staging()
+    git_cache_rows_purged = git_read_cache.prune()
+    progress(progress=80, message="Purging superseded STEP payloads")
     step_result = catalog_service.purge_superseded_step_files()
     staging = catalog_service.cleanup_resolved_import_staging(
         older_than=(datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     )
     return {
         **result,
+        **reconciliation,
+        **garbage_collection,
+        **staging_cleanup,
+        "job_artifact_metadata_rows_pruned": metadata_rows_pruned,
+        "git_cache_rows_purged": git_cache_rows_purged,
         "superseded_steps_purged": step_result["purged"],
         "staging_sessions_removed": staging["removed"],
     }
@@ -158,18 +197,79 @@ KICAD_HEAVY_JOB_TYPES = {
 }
 
 
-def execute_job(job: dict[str, Any], service: CatalogJobService, worker_id: str) -> None:
-    handler = HANDLERS.get(str(job["job_type"]))
+def run_catalog_job_v3(context: JobContext) -> JobResult:
+    envelope = context.payload
+    job_type = str(context.job["kind"])
+    handler = HANDLERS.get(job_type)
     if handler is None:
-        raise RuntimeError(f"Unsupported catalog job type: {job['job_type']}")
+        raise RuntimeError(f"Unsupported catalog job type: {job_type}")
+
+    catalog_service.initialize()
+    artifact_store.initialize()
+    checkpoint = dict(envelope.get("catalog_checkpoint") or {})
+    accumulated_result = dict(envelope.get("catalog_result") or {})
+    legacy_job = {
+        "id": context.job_id,
+        "job_type": job_type,
+        "payload": dict(envelope.get("catalog_payload") or {}),
+        "checkpoint": checkpoint,
+        "result": accumulated_result,
+        "created_by": str(envelope.get("created_by") or ""),
+    }
 
     def progress(**values: Any) -> bool:
-        return service.progress(
-            str(job["id"]),
-            worker_id,
-            lease_seconds=settings.CATALOG_JOB_LEASE_SECONDS,
-            **values,
+        nonlocal checkpoint, accumulated_result
+        context.check_cancelled()
+        next_checkpoint = values.get("checkpoint")
+        if next_checkpoint is not None:
+            checkpoint = dict(next_checkpoint)
+            legacy_job["checkpoint"] = checkpoint
+        next_result = values.get("result")
+        if next_result is not None:
+            accumulated_result.update(dict(next_result))
+            legacy_job["result"] = accumulated_result
+        context.progress(
+            stage="catalog",
+            message=str(values.get("message") or "Processing catalog job"),
+            percent=(
+                float(values["progress"])
+                if values.get("progress") is not None
+                else None
+            ),
+            payload_updates={
+                "catalog_checkpoint": dict(checkpoint),
+                "catalog_result": dict(accumulated_result),
+            },
         )
+        return True
 
-    result = handler(job, progress)
-    service.complete(str(job["id"]), worker_id, result)
+    try:
+        result = handler(legacy_job, progress)
+    except (JobCancelled, LostJobLease, RetryableJobError):
+        raise
+    except Exception as error:
+        raise RetryableJobError(
+            str(error),
+            code="catalog_job_failed",
+            retry_after_seconds=5,
+        ) from error
+    accumulated_result.update(dict(result or {}))
+    context.check_cancelled()
+    artifact_key = str(envelope.get("catalog_artifact_key") or "")
+    if artifact_key:
+        artifact = job_artifacts.prepare_json(
+            context,
+            accumulated_result,
+            kind=job_type,
+            artifact_key=artifact_key,
+            schema_version="prism.catalog_job_result.a0",
+        )
+        return JobResult(
+            message="Catalog job completed",
+            artifact=artifact,
+            details=accumulated_result,
+        )
+    return JobResult(
+        message="Catalog job completed",
+        details=accumulated_result,
+    )

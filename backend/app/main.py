@@ -13,10 +13,12 @@ from app.api.provider_oauth import router as provider_oauth_router
 from app.api.catalog_admin import router as catalog_admin_router
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
+from app.api.jobs import router as jobs_router
 from app.services.comments_store_service import initialize_comments_store
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
 from app.services.workspace_service import workspace
+from app.services.job_service import jobs
 from app.core.config import settings
 import subprocess
 import os
@@ -112,6 +114,7 @@ async def lifespan(app: FastAPI):
     initialize_comments_store()
     catalog_service.initialize()
     workspace.initialize()
+    jobs.initialize()
     try:
         yield
     finally:
@@ -138,6 +141,7 @@ app.include_router(design_compare_router, prefix="/api/projects", tags=["design-
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])
+app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(catalog_admin_router)
 app.include_router(oauth_router)
 app.include_router(service_clients_router)

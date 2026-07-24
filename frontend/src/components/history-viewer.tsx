@@ -66,14 +66,16 @@ interface Commit {
 
 interface ReleasesResponse {
     releases: Release[];
-    total: number;
+    total: number | null;
+    has_more: boolean;
     limit: number;
     offset: number;
 }
 
 interface CommitsResponse {
     commits: Commit[];
-    total: number;
+    total: number | null;
+    has_more: boolean;
     limit: number;
     offset: number;
 }
@@ -421,8 +423,8 @@ export function HistoryViewer({
     );
     const [releases, setReleases] = useState<Release[]>([]);
     const [commits, setCommits] = useState<Commit[]>([]);
-    const [commitsTotal, setCommitsTotal] = useState(0);
-    const [releasesTotal, setReleasesTotal] = useState(0);
+    const [commitsHasMore, setCommitsHasMore] = useState(false);
+    const [releasesHasMore, setReleasesHasMore] = useState(false);
     const [commitsPage, setCommitsPage] = useState(0);
     const [releasesPage, setReleasesPage] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -531,12 +533,14 @@ export function HistoryViewer({
             if (branchRef) params.set("ref", branchRef);
             params.set("limit", String(COMMITS_PAGE_SIZE));
             params.set("offset", String(commitsPage * COMMITS_PAGE_SIZE));
+            params.set("include_total", "false");
             const commitsQuery = params.toString();
 
             const releaseParams = new URLSearchParams();
             if (branchRef) releaseParams.set("ref", branchRef);
             releaseParams.set("limit", String(RELEASES_PAGE_SIZE));
             releaseParams.set("offset", String(releasesPage * RELEASES_PAGE_SIZE));
+            releaseParams.set("include_total", "false");
             const releasesQuery = releaseParams.toString();
 
             const [releasesResult, commitsResult] = await Promise.allSettled([
@@ -558,10 +562,10 @@ export function HistoryViewer({
 
             if (releasesResult.status === "fulfilled") {
                 setReleases(releasesResult.value.releases || []);
-                setReleasesTotal(releasesResult.value.total ?? releasesResult.value.releases?.length ?? 0);
+                setReleasesHasMore(Boolean(releasesResult.value.has_more));
             } else {
                 setReleases([]);
-                setReleasesTotal(0);
+                setReleasesHasMore(false);
             }
 
             if (commitsResult.status === "fulfilled") {
@@ -571,10 +575,10 @@ export function HistoryViewer({
                         commitsResult.value.commits?.[0]?.full_hash ?? null,
                     );
                 }
-                setCommitsTotal(commitsResult.value.total ?? commitsResult.value.commits?.length ?? 0);
+                setCommitsHasMore(Boolean(commitsResult.value.has_more));
             } else {
                 setCommits([]);
-                setCommitsTotal(0);
+                setCommitsHasMore(false);
             }
 
             if (releasesResult.status === "rejected" && commitsResult.status === "rejected") {
@@ -715,7 +719,7 @@ export function HistoryViewer({
                             </div>
                         ))}
                     </div>
-                    {releasesTotal > RELEASES_PAGE_SIZE && (
+                    {(releasesPage > 0 || releasesHasMore) && (
                         <div className="flex items-center justify-between pt-2">
                             <Button
                                 variant="outline"
@@ -726,12 +730,12 @@ export function HistoryViewer({
                                 Previous
                             </Button>
                             <span className="text-xs text-muted-foreground">
-                                Page {releasesPage + 1} of {Math.ceil(releasesTotal / RELEASES_PAGE_SIZE)}
+                                Page {releasesPage + 1}
                             </span>
                             <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={(releasesPage + 1) * RELEASES_PAGE_SIZE >= releasesTotal}
+                                disabled={!releasesHasMore}
                                 onClick={() => setReleasesPage((page) => page + 1)}
                             >
                                 Next
@@ -779,7 +783,7 @@ export function HistoryViewer({
                         ))}
                     </div>
                 )}
-                {commitsTotal > COMMITS_PAGE_SIZE && (
+                {(commitsPage > 0 || commitsHasMore) && (
                     <div className="flex items-center justify-between pt-2">
                         <Button
                             variant="outline"
@@ -790,12 +794,12 @@ export function HistoryViewer({
                             Previous
                         </Button>
                         <span className="text-xs text-muted-foreground">
-                            Page {commitsPage + 1} of {Math.ceil(commitsTotal / COMMITS_PAGE_SIZE)}
+                            Page {commitsPage + 1}
                         </span>
                         <Button
                             variant="outline"
                             size="sm"
-                            disabled={(commitsPage + 1) * COMMITS_PAGE_SIZE >= commitsTotal}
+                            disabled={!commitsHasMore}
                             onClick={() => setCommitsPage((page) => page + 1)}
                         >
                             Next

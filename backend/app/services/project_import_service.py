@@ -4,16 +4,19 @@ Project Import Service for KiCAD Prism
 Handles Type-1 (single project) and Type-2 (multiple projects) imports.
 """
 import os
+import hashlib
+import json
+import mimetypes
 import subprocess
 import shutil
 import tempfile
-import uuid
-import threading
 from pathlib import Path
 from typing import List, Optional, Dict
 from dataclasses import dataclass
 from git import Repo, RemoteProgress
 from app.services import project_service, path_config_service
+from app.services.job_runtime import JobContext, JobResult
+from app.services.job_service import jobs as v3_jobs
 from app.services.workspace_service import workspace
 
 
@@ -85,6 +88,26 @@ class CloneProgress(RemoteProgress):
             if message:
                 job['logs'].append(f"[GIT] {message}")
             _persist_job(self.job_id)
+
+
+class V3CloneProgress(RemoteProgress):
+    def __init__(self, context: JobContext, *, stage: str) -> None:
+        super().__init__()
+        self.context = context
+        self.stage = stage
+
+    def update(self, op_code, cur_count, max_count=None, message=""):
+        self.context.check_cancelled()
+        percent = 0.0
+        if max_count and max_count > 0:
+            percent = min((float(cur_count) / float(max_count)) * 75.0, 75.0)
+        if message:
+            print(f"[git] {message}", flush=True)
+        self.context.progress(
+            stage=self.stage,
+            message=message or f"Cloning repository ({percent:.0f}%)",
+            percent=percent,
+        )
 
 
 def is_excluded_directory(dir_name: str) -> bool:
@@ -304,6 +327,9 @@ def resolve_cached_paths(project_path: str) -> dict:
                 return None
         # Thumbnail: resolve to first image if directory
         thumb_rel = None
+        thumbnail_digest = None
+        thumbnail_media_type = None
+        thumbnail_size_bytes = None
         if thumb:
             if os.path.isfile(thumb):
                 thumb_rel = _rel(thumb)
@@ -312,6 +338,15 @@ def resolve_cached_paths(project_path: str) -> dict:
                     if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
                         thumb_rel = _rel(os.path.join(thumb, f))
                         break
+        if thumb_rel:
+            thumbnail_file = Path(project_path) / thumb_rel
+            if thumbnail_file.is_file():
+                thumbnail_digest = hashlib.sha256(thumbnail_file.read_bytes()).hexdigest()
+                thumbnail_media_type = (
+                    mimetypes.guess_type(thumbnail_file.name)[0]
+                    or "application/octet-stream"
+                )
+                thumbnail_size_bytes = thumbnail_file.stat().st_size
         design_dir = resolved.design_outputs_dir
         has_3d = False
         has_ibom = False
@@ -331,6 +366,9 @@ def resolve_cached_paths(project_path: str) -> dict:
             'schematic_rel': _rel(sch),
             'pcb_rel': _rel(pcb),
             'thumbnail_rel': thumb_rel,
+            'thumbnail_digest': thumbnail_digest,
+            'thumbnail_media_type': thumbnail_media_type,
+            'thumbnail_size_bytes': thumbnail_size_bytes,
             'jobset_rel': _rel(jobset),
             'has_3d_model': has_3d,
             'has_ibom': has_ibom,
@@ -344,6 +382,8 @@ def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[s
     Find the main .kicad_pcb file and run kicad-cli pcb render to generate a thumbnail.
     """
     try:
+        from PIL import Image
+
         resolved = path_config_service.resolve_paths(project_path)
         pcb_file = resolved.pcb
         if not pcb_file or not os.path.exists(pcb_file):
@@ -376,7 +416,13 @@ def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[s
         # Create assets/thumbnail directory
         thumbnail_dir = Path(project_path) / "assets" / "thumbnail"
         thumbnail_dir.mkdir(parents=True, exist_ok=True)
-        output_path = thumbnail_dir / "thumbnail.png"
+        with tempfile.NamedTemporaryFile(
+            dir=thumbnail_dir,
+            prefix=".thumbnail-render-",
+            suffix=".png",
+            delete=False,
+        ) as temporary_render:
+            render_path = Path(temporary_render.name)
         
         cmd = [
             cli_path,
@@ -388,7 +434,7 @@ def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[s
             "--rotate", "-45,0,45",
             "--width", "800",
             "--height", "600",
-            "-o", str(output_path),
+            "-o", str(render_path),
             pcb_file
         ]
         
@@ -403,10 +449,45 @@ def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[s
         if result.returncode != 0:
             if logs_list is not None:
                 logs_list.append(f"kicad-cli render failed (code {result.returncode}): {result.stderr[:400]}")
+            render_path.unlink(missing_ok=True)
             return False
-            
+
+        with tempfile.NamedTemporaryFile(
+            dir=thumbnail_dir,
+            prefix=".thumbnail-encode-",
+            suffix=".webp",
+            delete=False,
+        ) as temporary_webp:
+            webp_path = Path(temporary_webp.name)
+        try:
+            with Image.open(render_path) as image:
+                image.thumbnail((640, 480), Image.Resampling.LANCZOS)
+                for quality in (78, 68, 58):
+                    image.save(
+                        webp_path,
+                        format="WEBP",
+                        quality=quality,
+                        method=6,
+                    )
+                    if webp_path.stat().st_size <= 250 * 1024:
+                        break
+            encoded = webp_path.read_bytes()
+            digest = hashlib.sha256(encoded).hexdigest()
+            output_path = thumbnail_dir / f"thumbnail.{digest[:16]}.webp"
+            os.replace(webp_path, output_path)
+            for stale in thumbnail_dir.glob("thumbnail.*.webp"):
+                if stale != output_path:
+                    stale.unlink(missing_ok=True)
+            (thumbnail_dir / "thumbnail.png").unlink(missing_ok=True)
+        finally:
+            render_path.unlink(missing_ok=True)
+            webp_path.unlink(missing_ok=True)
+
         if logs_list is not None:
-            logs_list.append(f"Successfully generated thumbnail at {output_path}")
+            logs_list.append(
+                f"Successfully generated WebP thumbnail at {output_path} "
+                f"({output_path.stat().st_size} bytes)"
+            )
         return True
         
     except Exception as e:
@@ -565,41 +646,40 @@ def start_import_job(repo_url: str, import_type: str,
     Start an asynchronous import job.
     Returns job ID for polling.
     """
-    job_id = str(uuid.uuid4())
-    
-    jobs[job_id] = {
-        "job_id": job_id,
-        "status": "running",
-        "message": "Starting import...",
-        "percent": 0,
-        "project_ids": [],
-        "error": None,
-        "logs": [f"Starting import of {repo_url}"],
-        "type": "import",
-        "repo_url": repo_url,
-        "import_type": import_type
-    }
-    workspace.create_job(
-        job_id,
-        "import",
-        status=jobs[job_id]["status"],
-        message=jobs[job_id]["message"],
-        percent=jobs[job_id]["percent"],
-        **{
-            key: value
-            for key, value in jobs[job_id].items()
-            if key not in {"job_id", "status", "message", "percent"}
+    if import_type not in {"type1", "type2"}:
+        raise ValueError("Import type must be type1 or type2")
+    normalized_url = repo_url.strip().rstrip("/")
+    active_key = hashlib.sha256(
+        json.dumps(
+            {
+                "repo_url": normalized_url,
+                "import_type": import_type,
+                "selected_paths": sorted(selected_paths or []),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    queued = v3_jobs.enqueue(
+        "project_import",
+        {
+            "repo_url": normalized_url,
+            "import_type": import_type,
+            "selected_paths": list(selected_paths or []),
         },
+        worker_pool="prism",
+        artifact_key=active_key,
+        requested_by="project-import",
+        max_attempts=1,
+        resources={"prism_worker": 1, "import": 1},
+        locks=[
+            {
+                "key": f"repository-import:{hashlib.sha256(normalized_url.encode('utf-8')).hexdigest()}",
+                "mode": "write",
+            }
+        ],
     )
-    
-    thread = threading.Thread(
-        target=_run_import_job,
-        args=(job_id, repo_url, import_type, selected_paths)
-    )
-    thread.daemon = True
-    thread.start()
-    
-    return job_id
+    return str(queued["job_id"])
 
 
 def start_analyze_job(repo_url: str) -> str:
@@ -607,50 +687,283 @@ def start_analyze_job(repo_url: str) -> str:
     Start an asynchronous analysis job.
     Returns job ID.
     """
-    job_id = str(uuid.uuid4())
-    
-    jobs[job_id] = {
-        "job_id": job_id,
-        "status": "running",
-        "message": "Starting analysis...",
-        "percent": 0,
-        "error": None,
-        "logs": [f"Starting analysis of {repo_url}"],
-        "type": "analyze",
-        "repo_url": repo_url
-    }
-    workspace.create_job(
-        job_id,
-        "analyze",
-        status=jobs[job_id]["status"],
-        message=jobs[job_id]["message"],
-        percent=jobs[job_id]["percent"],
-        **{
-            key: value
-            for key, value in jobs[job_id].items()
-            if key not in {"job_id", "status", "message", "percent"}
-        },
+    normalized_url = repo_url.strip().rstrip("/")
+    active_key = hashlib.sha256(normalized_url.encode("utf-8")).hexdigest()
+    queued = v3_jobs.enqueue(
+        "project_analyze",
+        {"repo_url": normalized_url},
+        worker_pool="prism",
+        artifact_key=active_key,
+        requested_by="project-import",
+        max_attempts=2,
+        resources={"prism_worker": 1, "import": 1},
+        locks=[
+            {
+                "key": f"repository-import:{active_key}",
+                "mode": "read",
+            }
+        ],
     )
-    
-    thread = threading.Thread(
-        target=_run_analyze_job,
-        args=(job_id, repo_url)
-    )
-    thread.daemon = True
-    thread.start()
-    
-    return job_id
+    return str(queued["job_id"])
 
 
 def get_job_status(job_id: str) -> Optional[dict]:
     """Get the current status of an import or workflow job."""
+    v3_job = v3_jobs.get(job_id)
+    if v3_job:
+        metadata = dict(v3_job.get("result_metadata") or {})
+        return {
+            **v3_job,
+            **metadata,
+            "type": v3_job.get("kind"),
+            "error": v3_job.get("error_message") or None,
+            "logs": [],
+        }
     # Check import jobs first
     job = jobs.get(job_id)
     if job:
         return job
     
-    # Then check workflow jobs from project_service
-    return workspace.get_job(job_id) or project_service.jobs.get(job_id)
+    return workspace.get_job(job_id)
+
+
+def run_project_analyze_job_v3(context: JobContext) -> JobResult:
+    repo_url = str(context.payload["repo_url"])
+    repo_name = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
+    temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
+    clone_path = Path(temp_dir) / repo_name
+    context.progress(
+        stage="clone-metadata",
+        message="Cloning repository metadata",
+        percent=0,
+        force=True,
+    )
+    try:
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+        repo = Repo.clone_from(
+            repo_url,
+            str(clone_path),
+            depth=1,
+            single_branch=True,
+            no_checkout=True,
+            filter="blob:none",
+            progress=V3CloneProgress(context, stage="clone-metadata"),
+            env=env,
+        )
+        context.check_cancelled()
+        context.progress(
+            stage="discover-projects",
+            message="Discovering KiCad projects",
+            percent=85,
+            force=True,
+        )
+        projects = discover_projects_from_repo(repo)
+        import_type = (
+            "type1"
+            if len(projects) == 1 and projects[0].relative_path == "."
+            else "type2"
+        )
+        result = {
+            "repo_name": repo_name,
+            "repo_url": repo_url,
+            "import_type": import_type,
+            "projects": [
+                {
+                    "name": project.name,
+                    "relative_path": project.relative_path,
+                    "has_schematic": project.has_schematic,
+                    "has_pcb": project.has_pcb,
+                }
+                for project in projects
+            ],
+        }
+        print(
+            f"Found {len(projects)} project(s); classified repository as {import_type}",
+            flush=True,
+        )
+        return JobResult(
+            message="Analysis complete",
+            details={"result": result},
+        )
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def run_project_import_job_v3(context: JobContext) -> JobResult:
+    payload = context.payload
+    repo_url = str(payload["repo_url"])
+    import_type = str(payload["import_type"])
+    selected_paths = [str(path) for path in payload.get("selected_paths") or []]
+    repo_name = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
+    base_path = (
+        Path(project_service.PROJECTS_ROOT) / "type1"
+        if import_type == "type1"
+        else Path(project_service.PROJECTS_ROOT) / "type2"
+    )
+    target_path = base_path / repo_name
+    cloned_in_job = False
+    thumbnail_logs: list[str] = []
+
+    context.progress(
+        stage="validate-import",
+        message="Validating repository import",
+        percent=0,
+        force=True,
+    )
+    existing_repo = workspace.get_repository_by_url(repo_url)
+    if existing_repo:
+        raise ValueError(f"Repository '{repo_name}' is already imported")
+
+    try:
+        adopted_checkout = False
+        if target_path.exists():
+            existing_checkout = Repo(str(target_path))
+
+            def normalize(value: str) -> str:
+                return value.strip().rstrip("/").removesuffix(".git").casefold()
+
+            remotes = {normalize(remote.url) for remote in existing_checkout.remotes}
+            if normalize(repo_url) not in remotes:
+                raise ValueError(
+                    f"Existing checkout at {target_path} belongs to a different remote"
+                )
+            adopted_checkout = True
+            print(f"Adopting existing checkout: {target_path}", flush=True)
+
+        base_path.mkdir(parents=True, exist_ok=True)
+        if not adopted_checkout:
+            context.progress(
+                stage="clone-repository",
+                message="Cloning repository",
+                percent=1,
+                force=True,
+            )
+            env = os.environ.copy()
+            env["GIT_TERMINAL_PROMPT"] = "0"
+            env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+            Repo.clone_from(
+                repo_url,
+                str(target_path),
+                progress=V3CloneProgress(context, stage="clone-repository"),
+                env=env,
+            )
+            cloned_in_job = True
+
+        context.check_cancelled()
+        context.progress(
+            stage="register-projects",
+            message="Registering imported projects",
+            percent=80,
+            force=True,
+        )
+        repo_id = workspace.register_repository(
+            name=repo_name,
+            url=repo_url,
+            clone_path_abs=str(target_path),
+            import_type="single" if import_type == "type1" else "multi",
+        )
+        imported_ids: list[str] = []
+        if import_type == "type1":
+            generate_thumbnail_for_project(str(target_path), thumbnail_logs)
+            cached = resolve_cached_paths(str(target_path))
+            imported_ids.append(
+                workspace.register_project(
+                    repo_id=repo_id,
+                    name=repo_name,
+                    relative_path=".",
+                    description=f"Project {repo_name}",
+                    **cached,
+                )
+            )
+        else:
+            if not selected_paths:
+                raise ValueError("No projects selected for Type-2 import")
+            for index, relative_path in enumerate(selected_paths):
+                context.check_cancelled()
+                full_project_path = target_path / relative_path
+                generate_thumbnail_for_project(str(full_project_path), thumbnail_logs)
+                pro_files = sorted(full_project_path.glob("*.kicad_pro"))
+                board_name = (
+                    pro_files[0].stem if pro_files else os.path.basename(relative_path)
+                )
+                cached = resolve_cached_paths(str(full_project_path))
+                imported_ids.append(
+                    workspace.register_project(
+                        repo_id=repo_id,
+                        name=board_name,
+                        relative_path=relative_path,
+                        description=f"{repo_name} / {board_name}",
+                        **cached,
+                    )
+                )
+                context.progress(
+                    stage="register-projects",
+                    message=f"Registered {index + 1} of {len(selected_paths)} projects",
+                    percent=80 + (15 * (index + 1) / len(selected_paths)),
+                )
+        for line in thumbnail_logs:
+            print(line, flush=True)
+        return JobResult(
+            message=f"Imported {len(imported_ids)} project(s)",
+            details={
+                "project_ids": imported_ids,
+                "repo_id": repo_id,
+                "repo_url": repo_url,
+                "import_type": import_type,
+            },
+        )
+    except Exception:
+        if cloned_in_job:
+            shutil.rmtree(target_path, ignore_errors=True)
+        raise
+
+
+def start_sync_job(project_id: str, *, requested_by: str = "") -> str:
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError("Project not found")
+    repository_id = str(row.get("repo_id") or "")
+    active_key = hashlib.sha256(f"sync:{project_id}".encode("utf-8")).hexdigest()
+    queued = v3_jobs.enqueue(
+        "project_sync",
+        {"project_id": project_id},
+        worker_pool="prism",
+        artifact_key=active_key,
+        project_id=project_id,
+        repository_id=repository_id or None,
+        requested_by=requested_by,
+        max_attempts=2,
+        resources={"prism_worker": 1, "import": 1},
+        locks=(
+            [{"key": f"repository:{repository_id}", "mode": "write"}]
+            if repository_id
+            else [{"key": f"project:{project_id}", "mode": "write"}]
+        ),
+    )
+    return str(queued["job_id"])
+
+
+def run_project_sync_job_v3(context: JobContext) -> JobResult:
+    project_id = str(context.payload["project_id"])
+    context.progress(
+        stage="fetch",
+        message="Fetching repository updates",
+        percent=5,
+        force=True,
+    )
+    result = sync_project(project_id)
+    context.check_cancelled()
+    if result.get("status") == "error":
+        raise RuntimeError(str(result.get("message") or "Project sync failed"))
+    from app.services import file_service
+
+    file_service.invalidate_file_listing_cache()
+    return JobResult(
+        message=str(result.get("message") or "Sync completed"),
+        details=dict(result),
+    )
 
 
 def sync_project(project_id: str) -> dict:

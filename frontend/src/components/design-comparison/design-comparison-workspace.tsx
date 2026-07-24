@@ -49,6 +49,7 @@ import {
     type ComparisonUrlTab,
 } from "./comparison-url";
 import { comparisonDomainStatus } from "./comparison-readiness";
+import { hydrateDesignComparePayload } from "./comparison-result-loader";
 import { BomPanel } from "./bom-panel";
 import { StackupPanel } from "./stackup-panel";
 import { ComparisonDiscussionRail } from "./comparison-discussion-rail";
@@ -56,6 +57,7 @@ import type { Comment, CommentsFile } from "@/types/comments";
 import type {
     ChangeItem,
     ChangeKind,
+    DesignCompareBundle,
     DesignCompareJobStatus,
     DesignCompareResult,
     RouteMetrics,
@@ -861,6 +863,7 @@ export function DesignComparisonWorkspace({
 
     useEffect(() => {
         if (!jobId) return;
+        const controller = new AbortController();
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
         const poll = async () => {
@@ -878,7 +881,13 @@ export function DesignComparisonWorkspace({
                     if (!resultResponse.ok) {
                         throw new Error(await readApiError(resultResponse, "Failed to load comparison"));
                     }
-                    const nextResult = (await resultResponse.json()) as DesignCompareResult;
+                    const resultPayload = (await resultResponse.json()) as
+                        | DesignCompareResult
+                        | DesignCompareBundle;
+                    const nextResult = await hydrateDesignComparePayload(
+                        resultPayload,
+                        controller.signal,
+                    );
                     if (cancelled) return;
                     resultVersionRef.current = resultVersion;
                     setResult(nextResult);
@@ -899,6 +908,7 @@ export function DesignComparisonWorkspace({
         void poll();
         return () => {
             cancelled = true;
+            controller.abort();
             if (timer) clearTimeout(timer);
         };
     }, [jobId, projectId]);

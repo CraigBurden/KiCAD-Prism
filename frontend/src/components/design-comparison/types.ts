@@ -292,6 +292,32 @@ export interface DesignCompareResult {
     readiness?: DesignCompareReadiness;
 }
 
+export interface DesignCompareBundle {
+    schema: "prism.design_compare_bundle_v1";
+    resultSchema?: string;
+    base: string;
+    head: string;
+    compare?: string;
+    readiness?: DesignCompareReadiness;
+    domains: Record<
+        DesignCompareDomain,
+        {
+            summary?: { added: number; removed: number; changed: number } | null;
+            changeCount: number;
+            groupCount: number;
+        }
+    >;
+    sidecars: Record<
+        "core" | "schematic" | "pcb" | "bom" | "stackup" | "document_diff",
+        {
+            digest: string;
+            sizeBytes: number;
+            mediaType: string;
+            url: string;
+        }
+    >;
+}
+
 export type DesignCompareDomain = "schematic" | "bom" | "pcb" | "stackup";
 export type DesignCompareDomainStatus = "pending" | "building" | "ready" | "failed";
 

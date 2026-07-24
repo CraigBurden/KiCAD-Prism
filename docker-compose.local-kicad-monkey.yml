@@ -20,3 +20,12 @@ services:
         kicad_monkey: ../kicad_monkey
       args:
         KICAD_MONKEY_VARIANT: kicad-monkey-local
+
+  prism-worker:
+    build:
+      additional_contexts:
+        kicad_monkey: ../kicad_monkey
+      args:
+        KICAD_MONKEY_VARIANT: kicad-monkey-local
+    environment:
+      - PRISM_COPPER_EMIT_ENABLED=true

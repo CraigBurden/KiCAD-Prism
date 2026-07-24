@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, Optional
 
 from app.core.config import settings
 from app.services import path_config_service
+from app.services.job_service import jobs
 from app.services.semantic_viewer_runtime import find_viewer_repo_root, pythonpath as semantic_viewer_pythonpath
 
 SCHEMA = "prism.visualizer_bundle.a0"
@@ -233,6 +234,45 @@ def get_status(project: Any, commit: str | None = None) -> Dict[str, Any]:
         return get_status_for_commit(project, commit)
     current_source = source_fingerprint(project.path)
     return get_status_for_source(project, current_source)
+
+
+def get_status_fast(project: Any, commit: str | None = None) -> Dict[str, Any]:
+    """Read readiness metadata only; never scan or parse generated assets."""
+
+    resolved_commit: str | None = None
+    if commit:
+        repo_root = _repo_root(Path(project.path))
+        resolved_commit = _resolve_commit(repo_root, commit)
+        selector = f"commit:{resolved_commit}"
+    else:
+        selector = f"workspace:{getattr(project, 'last_modified', '') or ''}"
+    cached = jobs.get_webgpu_ready(
+        str(project.id),
+        selector,
+        BUILD_FINGERPRINT,
+    )
+    if cached:
+        return cached
+    payload: Dict[str, Any] = {
+        "schema": "prism.webgpu_3d_status_a0",
+        "project_id": project.id,
+        "source_fingerprint": None,
+        "sourceRevisionKey": None,
+        "build_fingerprint": BUILD_FINGERPRINT,
+        "generator": {
+            "name": GENERATOR_NAME,
+            "version": GENERATOR_VERSION,
+            "build": BUILD_FINGERPRINT,
+        },
+        "artifactScope": "3d-semantic",
+        "status": "missing",
+        "available": False,
+        "bundle_url": None,
+        "status_selector": selector,
+    }
+    if resolved_commit:
+        payload["commit"] = resolved_commit
+    return payload
 
 
 def get_status_for_source(

@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.api._helpers import get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
+from app.core.config import settings
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services import (
     file_service,
@@ -36,6 +37,7 @@ from app.services.git_service import (
     get_releases_filtered,
 )
 from app.services.path_config_service import PathConfig
+from app.services.job_service import jobs as v3_jobs
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
@@ -533,7 +535,7 @@ async def search_projects(
             "parent_repo": r.get("parent_repo"),
             "sub_path": r.get("relative_path") if r.get("relative_path") != "." else None,
             "last_modified": r.get("last_modified", ""),
-            "thumbnail_url": f"/api/projects/{r['id']}/thumbnail" if r.get("thumbnail_rel") else None,
+            "thumbnail_url": project_service.thumbnail_url_for_row(r),
         })
     return {"results": results}
 
@@ -552,7 +554,10 @@ async def analyze_repository(request: AnalyzeRequest):
     Returns Type-1 or Type-2 classification and project list.
     """
     try:
-        job_id = project_import_service.start_analyze_job(request.url)
+        job_id = await asyncio.to_thread(
+            project_import_service.start_analyze_job,
+            request.url,
+        )
         return {"job_id": job_id, "status": "started"}
         
     except Exception as e:
@@ -566,10 +571,11 @@ async def import_project(request: ImportRequest):
     For Type-2: imports selected subprojects.
     """
     try:
-        job_id = project_import_service.start_import_job(
+        job_id = await asyncio.to_thread(
+            project_import_service.start_import_job,
             repo_url=request.url,
             import_type=request.import_type,
-            selected_paths=request.selected_paths
+            selected_paths=request.selected_paths,
         )
         return {"job_id": job_id, "status": "started"}
     except ValueError as e:
@@ -582,7 +588,9 @@ async def get_job_status(job_id: str):
     """
     Get the status of an import job.
     """
-    status = project_service.get_job_status(job_id) or project_import_service.get_job_status(job_id)
+    status = await asyncio.to_thread(project_service.get_job_status, job_id)
+    if not status:
+        status = await asyncio.to_thread(project_import_service.get_job_status, job_id)
     if not status:
         raise HTTPException(status_code=404, detail="Job not found")
     return status
@@ -595,14 +603,16 @@ async def sync_project_endpoint(project_id: str, user: AuthenticatedUser = Depen
     Type-2: pulls the parent repo.
     """
     _ = get_project_for_role_or_404(project_id, user.role)
-    result = project_import_service.sync_project(project_id)
-    
-    if result["status"] == "error":
-        raise HTTPException(status_code=400, detail=result["message"])
-
-    file_service.invalidate_file_listing_cache()
-    
-    return result
+    job_id = await asyncio.to_thread(
+        project_import_service.start_sync_job,
+        project_id,
+        requested_by=user.email,
+    )
+    return {
+        "job_id": job_id,
+        "status": "started",
+        "message": "Sync queued",
+    }
 
 class WorkflowRequest(BaseModel):
     type: str # design, manufacturing, render, webgpu_3d
@@ -625,7 +635,8 @@ async def trigger_workflow(
         
     try:
         _ = get_project_for_role_or_404(project_id, user.role)
-        job_id = project_service.start_workflow_job(
+        job_id = await asyncio.to_thread(
+            project_service.start_workflow_job,
             project_id,
             request.type,
             request.author,
@@ -663,19 +674,16 @@ async def generate_semantic_index(
     request: SemanticIndexGenerateRequest,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    project = get_project_for_role_or_404(project_id, user.role)
+    _ = get_project_for_role_or_404(project_id, user.role)
     try:
-        payload = await asyncio.to_thread(
-            semantic_index_service.generate,
-            project,
-            request.commit,
+        job_id = await asyncio.to_thread(
+            project_service.start_semantic_index_job,
+            project_id,
+            commit=request.commit,
             force=request.force,
+            requested_by=user.email,
         )
-        return {
-            "available": True,
-            "sourceRevisionKey": payload.get("sourceRevisionKey"),
-            "generator": payload.get("generator"),
-        }
+        return {"job_id": job_id, "status": "started"}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except RuntimeError as error:
@@ -713,11 +721,20 @@ async def get_semantic_index_identity(
 async def get_webgpu_3d_status(
     project_id: str,
     commit: Optional[str] = Query(default=None),
+    diagnostic: bool = Query(
+        default=False,
+        description="Perform full bundle validation instead of metadata-only readiness.",
+    ),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
     try:
-        return await asyncio.to_thread(semantic_visualizer_service.get_status, project, commit)
+        status_reader = (
+            semantic_visualizer_service.get_status
+            if diagnostic
+            else semantic_visualizer_service.get_status_fast
+        )
+        return await asyncio.to_thread(status_reader, project, commit)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -734,10 +751,11 @@ async def generate_webgpu_3d(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     _ = get_project_for_role_or_404(project_id, user.role)
-    job_id = project_service.start_workflow_job(
+    job_id = await asyncio.to_thread(
+        project_service.start_workflow_job,
         project_id,
         "webgpu_3d",
-        user.name or "anonymous",
+        user.email,
         force=request.force,
         commit=request.commit,
     )
@@ -751,7 +769,11 @@ async def get_webgpu_3d_manifest(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
-    status = await asyncio.to_thread(semantic_visualizer_service.get_status, project, commit)
+    status = await asyncio.to_thread(
+        semantic_visualizer_service.get_status_fast,
+        project,
+        commit,
+    )
     if not status.get("available"):
         raise HTTPException(status_code=404, detail="WebGPU 3D assets are not available for this revision")
     path = semantic_visualizer_service.bundle_path(
@@ -759,6 +781,16 @@ async def get_webgpu_3d_manifest(
         status["source_fingerprint"],
         status["build_fingerprint"],
     )
+    if not path.is_file():
+        selector = str(status.get("status_selector") or "")
+        if selector:
+            await asyncio.to_thread(
+                v3_jobs.invalidate_webgpu_ready,
+                project_id,
+                selector,
+                str(status["build_fingerprint"]),
+            )
+        raise HTTPException(status_code=404, detail="WebGPU 3D assets are not available for this revision")
     return FileResponse(path, media_type="application/json", headers={"Cache-Control": "private, max-age=300"})
 
 
@@ -805,14 +837,82 @@ async def get_project_thumbnail(project_id: str, user: AuthenticatedUser = Depen
     row = workspace.get_project_by_id(project_id)
     thumbnail_rel = row.get("thumbnail_rel") if row else None
     if thumbnail_rel:
-        abs_path = os.path.join(project.path, thumbnail_rel)
-        if os.path.isfile(abs_path):
-            return FileResponse(abs_path, headers={"Cache-Control": "public, max-age=300"})
+        abs_path = resolve_path_within_root(
+            project.path,
+            thumbnail_rel,
+            invalid_detail="Invalid thumbnail path",
+        )
+        if abs_path.is_file():
+            return _thumbnail_response(
+                abs_path,
+                digest=str(row.get("thumbnail_digest") or ""),
+                media_type=str(row.get("thumbnail_media_type") or ""),
+                immutable=False,
+            )
     # Fallback: live filesystem detection
     path = project_service.get_project_thumbnail_path(project_id)
     if not path:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
-    return FileResponse(path, headers={"Cache-Control": "public, max-age=300"})
+    return _thumbnail_response(Path(path), immutable=False)
+
+
+@router.get("/{project_id}/thumbnail/{thumbnail_digest}")
+async def get_project_thumbnail_version(
+    project_id: str,
+    thumbnail_digest: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    project = get_project_for_role_or_404(project_id, user.role)
+    row = await asyncio.to_thread(workspace.get_project_by_id, project_id)
+    if (
+        not row
+        or not row.get("thumbnail_rel")
+        or str(row.get("thumbnail_digest") or "") != thumbnail_digest
+    ):
+        raise HTTPException(status_code=404, detail="Thumbnail version not found")
+    path = resolve_path_within_root(
+        project.path,
+        str(row["thumbnail_rel"]),
+        invalid_detail="Invalid thumbnail path",
+    )
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return _thumbnail_response(
+        path,
+        digest=thumbnail_digest,
+        media_type=str(row.get("thumbnail_media_type") or ""),
+        immutable=True,
+    )
+
+
+def _thumbnail_response(
+    path: Path,
+    *,
+    digest: str = "",
+    media_type: str = "",
+    immutable: bool,
+) -> FileResponse:
+    resolved = path.resolve()
+    projects_root = Path(settings.KICAD_PROJECTS_ROOT).resolve()
+    try:
+        relative = resolved.relative_to(projects_root).as_posix()
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail="Thumbnail not found") from error
+    headers = {
+        "Cache-Control": (
+            "private, max-age=31536000, immutable"
+            if immutable
+            else "private, max-age=300"
+        ),
+        "X-Accel-Redirect": f"/_protected_projects/{quote(relative, safe='/')}",
+    }
+    if digest:
+        headers["ETag"] = f'"{digest}"'
+    return FileResponse(
+        resolved,
+        media_type=media_type or mimetypes.guess_type(resolved.name)[0],
+        headers=headers,
+    )
 
 @router.post("/{project_id}/thumbnail/regenerate", dependencies=[Depends(require_designer)])
 async def regenerate_project_thumbnail(project_id: str, user: AuthenticatedUser = Depends(require_designer)):
@@ -1162,6 +1262,7 @@ async def get_project_releases(
     ref: Optional[str] = None,
     limit: int = Query(default=9, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    include_total: bool = Query(default=True),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
@@ -1172,15 +1273,31 @@ async def get_project_releases(
     
     repo_path, relative_path = _repo_context(project)
     if relative_path:
-        page = get_releases_filtered(repo_path, relative_path, ref, limit, offset)
+        page = await asyncio.to_thread(
+            get_releases_filtered,
+            repo_path,
+            relative_path,
+            ref,
+            limit,
+            offset,
+            include_total,
+        )
     else:
-        page = get_releases(project.path, ref, limit, offset)
+        page = await asyncio.to_thread(
+            get_releases,
+            project.path,
+            ref,
+            limit,
+            offset,
+            include_total,
+        )
     
     if isinstance(page, dict):
         return page
     return {
         "releases": page,
-        "total": len(page),
+        "total": len(page) if include_total else None,
+        "has_more": False,
         "limit": limit,
         "offset": offset,
     }
@@ -1199,7 +1316,13 @@ async def get_project_commit_distance(
     project = get_project_for_role_or_404(project_id, user.role)
 
     repo_path, relative_path = _repo_context(project)
-    commits_behind = get_commit_distance(repo_path, commit, relative_path, ref)
+    commits_behind = await asyncio.to_thread(
+        get_commit_distance,
+        repo_path,
+        commit,
+        relative_path,
+        ref,
+    )
     return {"commits_behind": commits_behind}
 
 @router.get("/{project_id}/commits")
@@ -1208,6 +1331,7 @@ async def get_project_commits(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     ref: Optional[str] = None,
+    include_total: bool = Query(default=True),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
@@ -1218,9 +1342,24 @@ async def get_project_commits(
     
     repo_path, relative_path = _repo_context(project)
     if relative_path:
-        page = get_commits_list_filtered(repo_path, relative_path, limit, ref, offset)
+        page = await asyncio.to_thread(
+            get_commits_list_filtered,
+            repo_path,
+            relative_path,
+            limit,
+            ref,
+            offset,
+            include_total,
+        )
     else:
-        page = get_commits_list(project.path, limit, ref, offset)
+        page = await asyncio.to_thread(
+            get_commits_list,
+            project.path,
+            limit,
+            ref,
+            offset,
+            include_total,
+        )
     
     return page
 

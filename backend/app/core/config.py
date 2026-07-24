@@ -290,6 +290,13 @@ class Settings(BaseSettings):
         description="Maximum catalog jobs executed concurrently by the local worker.",
     )
 
+    CATALOG_KICAD_CONCURRENCY: int = Field(
+        default=1,
+        ge=1,
+        le=8,
+        description="Global fenced slot count for KiCad-heavy catalog jobs.",
+    )
+
     CATALOG_WORKER_POLL_SECONDS: float = Field(
         default=1.0,
         ge=0.1,
@@ -303,6 +310,55 @@ class Settings(BaseSettings):
         le=3600,
         description="Duration of a catalog worker lease before an abandoned job is reclaimable.",
     )
+
+    PRISM_WORKER_CONCURRENCY: int = Field(
+        default=4,
+        ge=1,
+        le=16,
+        description="Maximum number of supervised user jobs run by prism-worker.",
+    )
+
+    PRISM_WORKER_POLL_SECONDS: float = Field(
+        default=0.5,
+        ge=0.1,
+        le=30.0,
+        description="PostgreSQL queue polling interval for prism-worker.",
+    )
+
+    PRISM_JOB_LEASE_SECONDS: int = Field(
+        default=30,
+        ge=10,
+        le=3600,
+        description="Duration of a fenced Prism worker lease.",
+    )
+
+    PRISM_JOB_HEARTBEAT_SECONDS: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=300.0,
+        description="Lease-renewal interval for supervised Prism jobs.",
+    )
+
+    PRISM_JOB_CANCEL_GRACE_SECONDS: float = Field(
+        default=10.0,
+        ge=0.0,
+        le=120.0,
+        description="Grace period before a cancelled job process group is killed.",
+    )
+
+    PRISM_JOB_ARTIFACT_ROOT: str = Field(
+        default="",
+        description=(
+            "Root for immutable V3 job artifacts and attempt logs. Defaults to "
+            "KICAD_PROJECTS_ROOT/.kicad-prism."
+        ),
+    )
+
+    PRISM_WEBGPU_CONCURRENCY: int = Field(default=1, ge=1, le=8)
+    PRISM_DESIGN_COMPARE_CONCURRENCY: int = Field(default=1, ge=1, le=8)
+    PRISM_WORKFLOW_CONCURRENCY: int = Field(default=1, ge=1, le=8)
+    PRISM_IMPORT_CONCURRENCY: int = Field(default=1, ge=1, le=8)
+    PRISM_SEMANTIC_COMPILE_SLOTS: int = Field(default=2, ge=1, le=8)
 
     CATALOG_ARTIFACT_ROOT: str = Field(
         default="",

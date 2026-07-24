@@ -2168,20 +2168,11 @@ class ComponentCatalogDomainService:
                     else "removed"
                     if new_asset is None
                     else "unchanged"
-                    # A newly-linked derived preview must not turn an unchanged CAD file
-                    # into a diff. When both revisions intentionally carry preview
-                    # evidence, however, a changed rendered unit remains reviewable.
-                    if old_asset["sha256"] == new_asset["sha256"] and (
-                        not old_asset["previews"]
-                        or not new_asset["previews"]
-                        or [
-                            (preview["unit"], preview["previewSha256"], preview["previewGeneratorFingerprint"])
-                            for preview in old_asset["previews"]
-                        ] == [
-                            (preview["unit"], preview["previewSha256"], preview["previewGeneratorFingerprint"])
-                            for preview in new_asset["previews"]
-                        ]
-                    )
+                    # Preview bytes are derived and may be regenerated with
+                    # nondeterministic SVG metadata. The immutable CAD asset hash
+                    # is the authoring identity; preview churn is never a design
+                    # modification on its own.
+                    if old_asset["sha256"] == new_asset["sha256"]
                     else "modified"
                 )
                 asset_changes.append({"key": key, "before": old_asset, "after": new_asset, "status": status})
@@ -3440,6 +3431,210 @@ class ComponentCatalogDomainService:
             released_only=True,
             lightweight=True,
         )
+
+    def list_remote_component_heads(
+        self,
+        *,
+        query: str = "",
+        category: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+        include_total: bool = True,
+    ) -> dict[str, Any]:
+        """Read the released KiCad-provider projection without hydrating revisions."""
+
+        self.initialize()
+        normalized_page = max(1, int(page))
+        normalized_size = max(1, min(200, int(page_size)))
+        offset = (normalized_page - 1) * normalized_size
+        filters: list[str] = []
+        params: list[Any] = []
+        query_text = query.strip()
+        if category is not None:
+            filters.append("category = %s")
+            params.append(category)
+        if query_text:
+            filters.append(
+                "(LOWER(search_document) LIKE LOWER(%s) "
+                "OR LOWER(mpn) LIKE LOWER(%s) "
+                "OR LOWER(name) LIKE LOWER(%s))"
+            )
+            wildcard = f"%{query_text}%"
+            params.extend([wildcard, wildcard, wildcard])
+        where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
+        if query_text:
+            order_sql = (
+                "ORDER BY CASE "
+                "WHEN LOWER(mpn) = LOWER(%s) THEN 0 "
+                "WHEN LOWER(mpn) LIKE LOWER(%s) THEN 1 "
+                "WHEN LOWER(name) LIKE LOWER(%s) THEN 2 "
+                "ELSE 3 END, updated_at DESC"
+            )
+            order_params: list[Any] = [
+                query_text,
+                f"{query_text}%",
+                f"{query_text}%",
+            ]
+        else:
+            order_sql = "ORDER BY updated_at DESC"
+            order_params = []
+
+        with self._connect() as conn:
+            total: int | None = None
+            if include_total:
+                total = int(
+                    conn.execute(
+                        f"SELECT COUNT(1) AS total FROM remote_component_heads {where_sql}",
+                        tuple(params),
+                    ).fetchone()["total"]
+                )
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM remote_component_heads
+                {where_sql}
+                {order_sql}
+                LIMIT %s OFFSET %s
+                """,
+                tuple(params + order_params + [normalized_size + 1, offset]),
+            ).fetchall()
+            version_row = conn.execute(
+                "SELECT value FROM catalog_meta "
+                "WHERE key = 'remote_component_heads_version'"
+            ).fetchone()
+
+        has_more = len(rows) > normalized_size
+        if has_more:
+            rows = rows[:normalized_size]
+        if total is not None:
+            has_more = offset + len(rows) < total
+        items: list[dict[str, Any]] = []
+        for raw in rows:
+            row = dict(raw)
+            has_symbol = bool(row.get("has_symbol"))
+            has_footprint = bool(row.get("has_footprint"))
+            missing_assets = [
+                kind
+                for kind, present in (
+                    ("symbol", has_symbol),
+                    ("footprint", has_footprint),
+                )
+                if not present
+            ]
+            if has_symbol and has_footprint:
+                availability_state = STATE_PLACE_READY
+            elif has_symbol or has_footprint:
+                availability_state = STATE_FILES_PARTIAL
+            else:
+                availability_state = STATE_METADATA_ONLY
+            assets: list[dict[str, Any]] = []
+            if has_symbol:
+                assets.append(
+                    {
+                        "asset_type": "symbol",
+                        "target_library": str(row.get("symbol_library") or ""),
+                        "target_name": str(row.get("symbol_name") or ""),
+                    }
+                )
+            if has_footprint:
+                assets.append({"asset_type": "footprint"})
+            previews: list[dict[str, Any]] = []
+            for kind in ("symbol", "footprint"):
+                preview_id = str(row.get(f"{kind}_preview_id") or "")
+                if preview_id:
+                    previews.append(
+                        {
+                            "id": preview_id,
+                            "kind": kind,
+                            "status": PREVIEW_STATUS_READY,
+                            "file_path": "projected",
+                            "generation_error": "",
+                        }
+                    )
+            items.append(
+                {
+                    "id": str(row["component_id"]),
+                    "slug": str(row["slug"]),
+                    "name": str(row["name"]),
+                    "manufacturer": str(row["manufacturer"]),
+                    "mpn": str(row["mpn"]),
+                    "description": str(row["description"]),
+                    "package_name": str(row["package_name"]),
+                    "category": str(row["category"]),
+                    "datasheet_url": str(row["datasheet_url"]),
+                    "summary": str(row["summary"]),
+                    "version": f"{int(row['version'])}.0.0",
+                    "library_name": str(row.get("symbol_library") or ""),
+                    "symbol_name": str(row.get("symbol_name") or ""),
+                    "assets": assets,
+                    "previews": previews,
+                    "availability_state": availability_state,
+                    "missing_assets": missing_assets,
+                    "place_enabled": has_symbol and has_footprint,
+                    "release_status": "released",
+                    "workflow_stage": "released",
+                    "stock_quantity": float(row["stock_quantity"]),
+                    "stock_uom": str(row["stock_uom"]),
+                    "inventory_status": str(row["inventory_status"]),
+                    "extra_fields": _json_loads(row.get("extra_fields"), {}),
+                }
+            )
+        return {
+            "items": items,
+            "total": total,
+            "has_more": has_more,
+            "page": normalized_page,
+            "page_size": normalized_size,
+            "pages": (
+                max(1, (total + normalized_size - 1) // normalized_size)
+                if total is not None
+                else None
+            ),
+            "projection_version": (
+                str(version_row["value"])
+                if version_row
+                else "0"
+            ),
+        }
+
+    def list_remote_categories(self) -> dict[str, Any]:
+        self.initialize()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT category AS name, COUNT(1) AS count
+                FROM remote_component_heads
+                GROUP BY category
+                ORDER BY category
+                """
+            ).fetchall()
+            version_row = conn.execute(
+                "SELECT value FROM catalog_meta "
+                "WHERE key = 'remote_component_heads_version'"
+            ).fetchone()
+        return {
+            "categories": [
+                {
+                    "name": str(row["name"] or ""),
+                    "count": int(row["count"]),
+                }
+                for row in rows
+            ],
+            "projection_version": (
+                str(version_row["value"])
+                if version_row
+                else "0"
+            ),
+        }
+
+    def remote_projection_version(self) -> str:
+        self.initialize()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM catalog_meta "
+                "WHERE key = 'remote_component_heads_version'"
+            ).fetchone()
+        return str(row["value"]) if row else "0"
 
     def list_categories(self) -> list[dict[str, Any]]:
         self.initialize()

@@ -1,4 +1,5 @@
 import logging
+import hashlib
 import os
 import re
 from fastapi import HTTPException
@@ -6,6 +7,8 @@ from git import Repo
 from git.exc import BadName, GitCommandError
 from typing import Dict, Any
 import datetime
+
+from app.services.git_read_cache_service import git_read_cache
 
 logger = logging.getLogger(__name__)
 
@@ -56,33 +59,49 @@ def _get_commits(
     relative_path: str = None,
     ref: str = None,
     offset: int = 0,
+    include_total: bool = True,
 ):
     repo = _open_repo(repo_path)
-    iter_kwargs = {"max_count": limit, "skip": max(0, offset)}
-    if ref:
-        _resolve_commit(repo, ref)
-        iter_kwargs["rev"] = ref
+    resolved_ref_sha = _resolve_commit(repo, ref).hexsha
+    normalized_limit = max(1, int(limit))
+    normalized_offset = max(0, int(offset))
+    cache_parameters = {
+        "relative_path": relative_path or "",
+        "limit": normalized_limit,
+        "offset": normalized_offset,
+        "include_total": bool(include_total),
+    }
+    cached = git_read_cache.unwrap(
+        git_read_cache.get(
+            "commits",
+            os.path.realpath(repo_path),
+            resolved_ref_sha,
+            cache_parameters,
+        )
+    )
+    if isinstance(cached, dict):
+        return cached
+
+    iter_kwargs = {
+        "max_count": normalized_limit + (0 if include_total else 1),
+        "skip": normalized_offset,
+        "rev": resolved_ref_sha,
+    }
     if relative_path:
         iter_kwargs["paths"] = relative_path
 
     try:
         commits = [_serialize_commit(commit) for commit in repo.iter_commits(**iter_kwargs)]
-        count_args = ["rev-list", "--count"]
-        if relative_path:
-            # Path-scoped totals still walk the ref; approximate with filtered walk
-            # when paths are set by counting matching commits up to a soft cap.
-            total = None
-        else:
-            count_target = ref or "HEAD"
-            total = int(repo.git.execute(["git", *count_args, count_target]))
-        if total is None:
-            # Filtered histories: count via rev-list --count -- <path>
-            count_target = ref or "HEAD"
-            total = int(
-                repo.git.execute(
-                    ["git", "rev-list", "--count", count_target, "--", relative_path]
-                )
-            )
+        has_more = len(commits) > normalized_limit
+        if has_more:
+            commits = commits[:normalized_limit]
+        total = None
+        if include_total:
+            count_args = ["rev-list", "--count", resolved_ref_sha]
+            if relative_path:
+                count_args.extend(["--", relative_path])
+            total = int(repo.git.execute(["git", *count_args]))
+            has_more = normalized_offset + len(commits) < total
     except HTTPException:
         raise
     except Exception as error:
@@ -101,7 +120,22 @@ def _get_commits(
         for c in commits:
             c.setdefault("kicad_changes", {"sch": 0, "pcb": 0, "pro": 0, "other": 0})
 
-    return {"commits": commits, "total": total, "limit": limit, "offset": max(0, offset)}
+    result = {
+        "commits": commits,
+        "total": total,
+        "has_more": has_more,
+        "limit": normalized_limit,
+        "offset": normalized_offset,
+        "resolved_ref_sha": resolved_ref_sha,
+    }
+    git_read_cache.put(
+        "commits",
+        os.path.realpath(repo_path),
+        resolved_ref_sha,
+        cache_parameters,
+        result,
+    )
+    return result
 
 
 def _kicad_change_flags(
@@ -153,13 +187,21 @@ def get_commits_list_filtered(
     limit: int = 50,
     ref: str = None,
     offset: int = 0,
+    include_total: bool = True,
 ):
     """
     Get paginated commits from repository, optionally filtered to a subdirectory.
     For Type-2 projects, relative_path scopes commits to the subproject.
     Returns {commits, total, limit, offset}.
     """
-    return _get_commits(repo_path, limit, relative_path, ref, offset)
+    return _get_commits(
+        repo_path,
+        limit,
+        relative_path,
+        ref,
+        offset,
+        include_total,
+    )
 
 
 def _count_tree_entries(commit, relative_path: str) -> int | None:
@@ -197,38 +239,72 @@ def _get_releases(
     ref: str = None,
     limit: int | None = None,
     offset: int = 0,
+    include_total: bool = True,
 ):
     repo = _open_repo(repo_path)
-    releases = []
+    resolved_ref_sha = _resolve_commit(repo, ref).hexsha
     try:
-        resolved_ref = _resolve_commit(repo, ref).hexsha if ref else None
-        for tag in repo.tags:
-            commit = tag.commit
-            if resolved_ref and not _is_ancestor(repo, commit.hexsha, resolved_ref):
-                continue
-            if relative_path and not _commit_touches_path(repo, commit, relative_path):
-                continue
-            release = {
-                "tag": tag.name,
-                "commit_hash": commit.hexsha[:7],
-                "full_hash": commit.hexsha,
-                "date": datetime.datetime.fromtimestamp(commit.committed_date).isoformat(),
-                "message": commit.message.strip(),
-            }
-            if relative_path:
-                release["subproject_files_changed"] = _count_tree_entries(commit, relative_path)
-            releases.append(release)
+        tag_state = repo.git.for_each_ref(
+            "--format=%(refname):%(objectname)",
+            "refs/tags",
+        )
+    except GitCommandError:
+        tag_state = ""
+    tag_fingerprint = hashlib.sha256(tag_state.encode("utf-8")).hexdigest()
+    cache_parameters = {
+        "relative_path": relative_path or "",
+        "filter_to_ref": bool(ref),
+        "tag_fingerprint": tag_fingerprint,
+    }
+    cached = git_read_cache.unwrap(
+        git_read_cache.get(
+            "releases",
+            os.path.realpath(repo_path),
+            resolved_ref_sha,
+            cache_parameters,
+        )
+    )
+    releases = list(cached) if isinstance(cached, list) else []
+    try:
+        if not isinstance(cached, list):
+            for tag in repo.tags:
+                commit = tag.commit
+                if ref and not _is_ancestor(repo, commit.hexsha, resolved_ref_sha):
+                    continue
+                if relative_path and not _commit_touches_path(repo, commit, relative_path):
+                    continue
+                release = {
+                    "tag": tag.name,
+                    "commit_hash": commit.hexsha[:7],
+                    "full_hash": commit.hexsha,
+                    "date": datetime.datetime.fromtimestamp(commit.committed_date).isoformat(),
+                    "message": commit.message.strip(),
+                }
+                if relative_path:
+                    release["subproject_files_changed"] = _count_tree_entries(commit, relative_path)
+                releases.append(release)
 
-        releases.sort(key=lambda item: item["date"], reverse=True)
+            releases.sort(key=lambda item: item["date"], reverse=True)
+            git_read_cache.put(
+                "releases",
+                os.path.realpath(repo_path),
+                resolved_ref_sha,
+                cache_parameters,
+                releases,
+            )
         total = len(releases)
         start = max(0, offset)
         if limit is None:
             return releases if start == 0 else releases[start:]
+        normalized_limit = max(0, int(limit))
+        page = releases[start : start + normalized_limit]
         return {
-            "releases": releases[start : start + max(0, limit)],
-            "total": total,
-            "limit": limit,
+            "releases": page,
+            "total": total if include_total else None,
+            "has_more": start + len(page) < total,
+            "limit": normalized_limit,
             "offset": start,
+            "resolved_ref_sha": resolved_ref_sha,
         }
     except HTTPException:
         raise
@@ -242,13 +318,21 @@ def get_releases_filtered(
     ref: str = None,
     limit: int | None = None,
     offset: int = 0,
+    include_total: bool = True,
 ):
     """
     Get Git tags/releases from repository.
     For Type-2 projects, shows file count under relative_path for each tag.
     When limit is set, returns {releases, total, limit, offset}; otherwise a list.
     """
-    return _get_releases(repo_path, relative_path, ref, limit, offset)
+    return _get_releases(
+        repo_path,
+        relative_path,
+        ref,
+        limit,
+        offset,
+        include_total,
+    )
 
 
 def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None) -> str:
@@ -298,19 +382,43 @@ def file_exists_in_commit_with_prefix(repo_path: str, commit_hash: str, file_pat
     except:
         return False
 
-def get_releases(repo_path: str, ref: str = None, limit: int | None = None, offset: int = 0):
+def get_releases(
+    repo_path: str,
+    ref: str = None,
+    limit: int | None = None,
+    offset: int = 0,
+    include_total: bool = True,
+):
     """
     Get list of Git tags/releases from repository.
     When limit is set, returns {releases, total, limit, offset}; otherwise a list.
     """
-    return _get_releases(repo_path, ref=ref, limit=limit, offset=offset)
+    return _get_releases(
+        repo_path,
+        ref=ref,
+        limit=limit,
+        offset=offset,
+        include_total=include_total,
+    )
 
-def get_commits_list(repo_path: str, limit: int = 50, ref: str = None, offset: int = 0):
+def get_commits_list(
+    repo_path: str,
+    limit: int = 50,
+    ref: str = None,
+    offset: int = 0,
+    include_total: bool = True,
+):
     """
     Get paginated commits from repository.
     Returns {commits, total, limit, offset}.
     """
-    return _get_commits(repo_path, limit, ref=ref, offset=offset)
+    return _get_commits(
+        repo_path,
+        limit,
+        ref=ref,
+        offset=offset,
+        include_total=include_total,
+    )
 
 
 def get_commit_distance(repo_path: str, commit_hash: str, relative_path: str = None, ref: str = None) -> int:
@@ -320,15 +428,36 @@ def get_commit_distance(repo_path: str, commit_hash: str, relative_path: str = N
     """
     try:
         repo = _open_repo(repo_path)
-        repo.commit(commit_hash)
-        target_ref = ref or "HEAD"
-        repo.commit(target_ref)
+        commit_sha = repo.commit(commit_hash).hexsha
+        target_sha = repo.commit(ref or "HEAD").hexsha
+        cache_parameters = {
+            "commit_sha": commit_sha,
+            "relative_path": relative_path or "",
+        }
+        cached = git_read_cache.unwrap(
+            git_read_cache.get(
+                "commit_distance",
+                os.path.realpath(repo_path),
+                target_sha,
+                cache_parameters,
+            )
+        )
+        if isinstance(cached, int):
+            return cached
 
-        rev_list_args = ["--count", f"{commit_hash}..{target_ref}"]
+        rev_list_args = ["--count", f"{commit_sha}..{target_sha}"]
         if relative_path:
             rev_list_args.extend(["--", relative_path])
 
-        return int(repo.git.rev_list(*rev_list_args).strip() or "0")
+        result = int(repo.git.rev_list(*rev_list_args).strip() or "0")
+        git_read_cache.put(
+            "commit_distance",
+            os.path.realpath(repo_path),
+            target_sha,
+            cache_parameters,
+            result,
+        )
+        return result
     except BadName as error:
         raise HTTPException(status_code=404, detail=f"Commit not found: {commit_hash}") from error
     except GitCommandError as error:

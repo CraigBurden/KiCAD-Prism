@@ -25,6 +25,8 @@ services:
         KICAD_BASE_PLATFORM: ${KICAD_BASE_PLATFORM:-linux/arm64}
     platform: ${DOCKER_PLATFORM:-linux/arm64}
     container_name: kicad-prism-backend
+    cpus: ${PRISM_BACKEND_CPU_LIMIT:-2.0}
+    mem_limit: ${PRISM_BACKEND_MEMORY_LIMIT:-4g}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -103,6 +105,8 @@ services:
       - PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS=${PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS=${PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS:-2}
       - PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS=${PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS:-2}
+      - PRISM_DESIGN_COMPARE_CACHE=${PRISM_DESIGN_COMPARE_CACHE:-/app/projects/.kicad-prism/design-compare/revision-cache}
+      - PRISM_SEMANTIC_VIEWER_CACHE=${PRISM_SEMANTIC_VIEWER_CACHE:-/app/projects/.kicad-prism/semantic-cache}
     command: >
       sh -c '/app/venv/bin/python -m uvicorn app.main:app
       --host 0.0.0.0
@@ -120,6 +124,8 @@ services:
     platform: ${DOCKER_PLATFORM:-linux/arm64}
     container_name: kicad-prism-catalog-worker
     restart: unless-stopped
+    cpus: ${CATALOG_WORKER_CPU_LIMIT:-4.0}
+    mem_limit: ${CATALOG_WORKER_MEMORY_LIMIT:-8g}
     depends_on:
       postgres:
         condition: service_healthy
@@ -132,8 +138,15 @@ services:
       - PRISM_DATABASE_POOL_MIN_SIZE=${PRISM_DATABASE_POOL_MIN_SIZE:-1}
       - PRISM_DATABASE_POOL_MAX_SIZE=${CATALOG_WORKER_DATABASE_POOL_MAX_SIZE:-4}
       - CATALOG_WORKER_CONCURRENCY=${CATALOG_WORKER_CONCURRENCY:-2}
+      - CATALOG_KICAD_CONCURRENCY=${CATALOG_KICAD_CONCURRENCY:-1}
       - CATALOG_WORKER_POLL_SECONDS=${CATALOG_WORKER_POLL_SECONDS:-1}
       - CATALOG_JOB_LEASE_SECONDS=${CATALOG_JOB_LEASE_SECONDS:-120}
+      - PRISM_JOB_HEARTBEAT_SECONDS=${PRISM_JOB_HEARTBEAT_SECONDS:-10}
+      - PRISM_JOB_CANCEL_GRACE_SECONDS=${PRISM_JOB_CANCEL_GRACE_SECONDS:-10}
+      - PRISM_JOB_ARTIFACT_ROOT=${PRISM_JOB_ARTIFACT_ROOT:-/app/projects/.kicad-prism}
+      - PRISM_JOB_ARTIFACT_RETENTION_DAYS=${PRISM_JOB_ARTIFACT_RETENTION_DAYS:-30}
+      - PRISM_JOB_PARTIAL_RETENTION_HOURS=${PRISM_JOB_PARTIAL_RETENTION_HOURS:-24}
+      - PRISM_SEMANTIC_COMPILE_SLOTS=${PRISM_SEMANTIC_COMPILE_SLOTS:-2}
       - CATALOG_ARTIFACT_ROOT=${CATALOG_ARTIFACT_ROOT:-/app/projects/.kicad-prism/artifacts}
       - CATALOG_IMPORT_ROOTS=${CATALOG_IMPORT_ROOTS:-}
       - CATALOG_RETENTION_ENABLED=${CATALOG_RETENTION_ENABLED:-true}
@@ -152,7 +165,56 @@ services:
     command:
       - /app/venv/bin/python
       - -m
-      - app.catalog_worker
+      - app.prism_worker
+      - --pool
+      - catalog
+
+  prism-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        KICAD_BASE_IMAGE: ${KICAD_BASE_IMAGE:-kicad/kicad:10.0.4-arm64-local}
+        KICAD_BASE_PLATFORM: ${KICAD_BASE_PLATFORM:-linux/arm64}
+    platform: ${DOCKER_PLATFORM:-linux/arm64}
+    container_name: kicad-prism-worker
+    restart: unless-stopped
+    cpus: ${PRISM_WORKER_CPU_LIMIT:-6.0}
+    mem_limit: ${PRISM_WORKER_MEMORY_LIMIT:-12g}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data/projects:/app/projects
+      - ./data/ssh:/root/.ssh:rw
+    environment:
+      - PYTHONUNBUFFERED=1
+      - KICAD_PROJECTS_ROOT=/app/projects
+      - PRISM_DATABASE_URL=${PRISM_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
+      - PRISM_DATABASE_POOL_MIN_SIZE=1
+      - PRISM_DATABASE_POOL_MAX_SIZE=${PRISM_WORKER_DATABASE_POOL_MAX_SIZE:-6}
+      - PRISM_WORKER_CONCURRENCY=${PRISM_WORKER_CONCURRENCY:-4}
+      - PRISM_WORKER_POLL_SECONDS=${PRISM_WORKER_POLL_SECONDS:-0.5}
+      - PRISM_JOB_LEASE_SECONDS=${PRISM_JOB_LEASE_SECONDS:-30}
+      - PRISM_JOB_HEARTBEAT_SECONDS=${PRISM_JOB_HEARTBEAT_SECONDS:-10}
+      - PRISM_JOB_CANCEL_GRACE_SECONDS=${PRISM_JOB_CANCEL_GRACE_SECONDS:-10}
+      - PRISM_JOB_ARTIFACT_ROOT=${PRISM_JOB_ARTIFACT_ROOT:-/app/projects/.kicad-prism}
+      - PRISM_WEBGPU_CONCURRENCY=${PRISM_WEBGPU_CONCURRENCY:-1}
+      - PRISM_DESIGN_COMPARE_CONCURRENCY=${PRISM_DESIGN_COMPARE_CONCURRENCY:-1}
+      - PRISM_WORKFLOW_CONCURRENCY=${PRISM_WORKFLOW_CONCURRENCY:-1}
+      - PRISM_IMPORT_CONCURRENCY=${PRISM_IMPORT_CONCURRENCY:-1}
+      - PRISM_SEMANTIC_COMPILE_SLOTS=${PRISM_SEMANTIC_COMPILE_SLOTS:-2}
+      - CATALOG_WORKER_CONCURRENCY=${CATALOG_WORKER_CONCURRENCY:-2}
+      - CATALOG_KICAD_CONCURRENCY=${CATALOG_KICAD_CONCURRENCY:-1}
+      - PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS=${PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS:-2}
+      - PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS=${PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS:-2}
+      - PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS=${PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS:-2}
+      - PRISM_DESIGN_COMPARE_CACHE=${PRISM_DESIGN_COMPARE_CACHE:-/app/projects/.kicad-prism/design-compare/revision-cache}
+      - PRISM_SEMANTIC_VIEWER_CACHE=${PRISM_SEMANTIC_VIEWER_CACHE:-/app/projects/.kicad-prism/semantic-cache}
+    command:
+      - /app/venv/bin/python
+      - -m
+      - app.prism_worker
 
   frontend:
     build: ./frontend
@@ -162,6 +224,8 @@ services:
       - "8080:80"
     depends_on:
       - backend
+    volumes:
+      - ./data/projects:/srv/prism-projects:ro
 
 volumes:
   prism-postgres-data:

@@ -13,9 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 POSTGRES_SCHEMA_VERSION = "catalog-postgres-v6"
-POSTGRES_SEARCH_VERSION = "catalog-search-v1"
+POSTGRES_SEARCH_VERSION = "catalog-search-v2"
 POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v3"
 POSTGRES_HEAD_PROJECTION_VERSION = "catalog-component-heads-v2"
+POSTGRES_REMOTE_HEAD_PROJECTION_VERSION = "catalog-remote-heads-v1"
+POSTGRES_PORTABLE_TYPES_VERSION = "catalog-portable-types-v1"
 
 def _postgres_dsn(value: str) -> str:
     """Accept both native and SQLAlchemy-style psycopg URLs."""
@@ -173,11 +175,43 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                             "Run scripts/reset_prism_postgres.py with destructive confirmation."
                         )
                 self._ensure_component_heads_projection(conn)
+                self._ensure_remote_component_heads_projection(conn)
+                self._ensure_portable_column_types(conn)
                 conn.commit()
             self._ensure_postgres_search_indexes()
             self._ensure_postgres_integrity_guards()
             self._fts_available = False
             self._initialized = True
+
+    def _ensure_portable_column_types(self, conn: _CatalogConnection) -> None:
+        marker = conn.execute(
+            "SELECT value FROM catalog_meta WHERE key = %s",
+            ("postgres_portable_types_version",),
+        ).fetchone()
+        if marker and str(marker["value"]) == POSTGRES_PORTABLE_TYPES_VERSION:
+            return
+        for table, column, target in (
+            ("components", "stock_quantity", "DOUBLE PRECISION"),
+            ("component_heads", "stock_quantity", "DOUBLE PRECISION"),
+            ("remote_component_heads", "stock_quantity", "DOUBLE PRECISION"),
+            ("assets", "size_bytes", "BIGINT"),
+            ("asset_preview_versions", "size_bytes", "BIGINT"),
+            ("catalog_audit_events", "sequence", "BIGINT"),
+            ("oauth_auth_codes", "exp", "BIGINT"),
+            ("oauth_revoked_tokens", "exp", "BIGINT"),
+        ):
+            conn.execute(
+                f"ALTER TABLE {table} ALTER COLUMN {column} "
+                f"TYPE {target} USING {column}::{target}"
+            )
+        conn.execute(
+            """
+            INSERT INTO catalog_meta (key, value)
+            VALUES (%s, %s)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            ("postgres_portable_types_version", POSTGRES_PORTABLE_TYPES_VERSION),
+        )
 
     def _ensure_component_heads_projection(self, conn: _CatalogConnection) -> None:
         """Install the current-head read model and its transactional refresh hooks."""
@@ -195,7 +229,7 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 slug TEXT NOT NULL,
                 source TEXT NOT NULL,
                 is_active INTEGER NOT NULL,
-                stock_quantity REAL NOT NULL,
+                stock_quantity DOUBLE PRECISION NOT NULL,
                 stock_uom TEXT NOT NULL,
                 inventory_status TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -359,6 +393,231 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
             ("postgres_head_projection_version", POSTGRES_HEAD_PROJECTION_VERSION),
         )
 
+    def _ensure_remote_component_heads_projection(self, conn: _CatalogConnection) -> None:
+        """Install the released-only read model used by the KiCad provider."""
+
+        marker = conn.execute(
+            "SELECT value FROM catalog_meta WHERE key = %s",
+            ("postgres_remote_head_projection_version",),
+        ).fetchone()
+        if marker and str(marker["value"]) == POSTGRES_REMOTE_HEAD_PROJECTION_VERSION:
+            return
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS remote_component_heads (
+                component_id TEXT PRIMARY KEY REFERENCES components(id) ON DELETE CASCADE,
+                revision_id TEXT NOT NULL,
+                slug TEXT NOT NULL,
+                source TEXT NOT NULL,
+                is_active INTEGER NOT NULL,
+                stock_quantity DOUBLE PRECISION NOT NULL,
+                stock_uom TEXT NOT NULL,
+                inventory_status TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                datasheet_url TEXT NOT NULL,
+                manufacturer TEXT NOT NULL,
+                mpn TEXT NOT NULL,
+                category TEXT NOT NULL,
+                package_name TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                extra_fields TEXT NOT NULL,
+                search_document TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                has_symbol INTEGER NOT NULL DEFAULT 0,
+                has_footprint INTEGER NOT NULL DEFAULT 0,
+                symbol_library TEXT NOT NULL DEFAULT '',
+                symbol_name TEXT NOT NULL DEFAULT '',
+                symbol_preview_id TEXT NOT NULL DEFAULT '',
+                footprint_preview_id TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_remote_component_heads_updated "
+            "ON remote_component_heads(updated_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_remote_component_heads_category "
+            "ON remote_component_heads(category, updated_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_remote_component_heads_search_lower "
+            "ON remote_component_heads(lower(search_document))"
+        )
+        conn.execute(
+            """
+            CREATE OR REPLACE FUNCTION prism_refresh_remote_component_head(
+                target_component_id TEXT
+            )
+            RETURNS void
+            LANGUAGE plpgsql
+            SET search_path = catalog, public
+            AS $$
+            BEGIN
+                DELETE FROM remote_component_heads
+                WHERE component_id = target_component_id;
+                INSERT INTO remote_component_heads (
+                    component_id, revision_id, slug, source, is_active,
+                    stock_quantity, stock_uom, inventory_status, version,
+                    name, description, datasheet_url, manufacturer, mpn,
+                    category, package_name, summary, extra_fields,
+                    search_document, updated_at, has_symbol, has_footprint,
+                    symbol_library, symbol_name, symbol_preview_id,
+                    footprint_preview_id
+                )
+                SELECT
+                    component.id, revision.id, component.slug, component.source,
+                    component.is_active, component.stock_quantity,
+                    component.stock_uom, component.inventory_status,
+                    revision.version, revision.name, revision.description,
+                    revision.datasheet_url, revision.manufacturer, revision.mpn,
+                    revision.category, revision.package_name, revision.summary,
+                    revision.extra_fields, revision.search_document,
+                    revision.updated_at,
+                    CASE WHEN symbol.asset_id IS NULL THEN 0 ELSE 1 END,
+                    CASE WHEN footprint.asset_id IS NULL THEN 0 ELSE 1 END,
+                    COALESCE(symbol.target_library, ''),
+                    COALESCE(symbol.target_name, ''),
+                    COALESCE(symbol_preview.preview_id, ''),
+                    COALESCE(footprint_preview.preview_id, '')
+                FROM components component
+                JOIN component_revisions revision
+                  ON revision.id = component.released_revision_id
+                LEFT JOIN LATERAL (
+                    SELECT link.asset_id, asset.target_library, asset.target_name
+                    FROM revision_assets link
+                    JOIN assets asset ON asset.id = link.asset_id
+                    WHERE link.revision_id = revision.id
+                      AND link.asset_type = 'symbol'
+                    ORDER BY asset.id
+                    LIMIT 1
+                ) symbol ON true
+                LEFT JOIN LATERAL (
+                    SELECT link.asset_id
+                    FROM revision_assets link
+                    WHERE link.revision_id = revision.id
+                      AND link.asset_type = 'footprint'
+                    ORDER BY link.asset_id
+                    LIMIT 1
+                ) footprint ON true
+                LEFT JOIN LATERAL (
+                    SELECT preview.id AS preview_id
+                    FROM revision_previews link
+                    JOIN asset_preview_versions preview
+                      ON preview.id = link.preview_id
+                    WHERE link.revision_id = revision.id
+                      AND link.kind = 'symbol'
+                      AND preview.status = 'ready'
+                      AND preview.file_path <> ''
+                    ORDER BY preview.created_at DESC
+                    LIMIT 1
+                ) symbol_preview ON true
+                LEFT JOIN LATERAL (
+                    SELECT preview.id AS preview_id
+                    FROM revision_previews link
+                    JOIN asset_preview_versions preview
+                      ON preview.id = link.preview_id
+                    WHERE link.revision_id = revision.id
+                      AND link.kind = 'footprint'
+                      AND preview.status = 'ready'
+                      AND preview.file_path <> ''
+                    ORDER BY preview.created_at DESC
+                    LIMIT 1
+                ) footprint_preview ON true
+                WHERE component.id = target_component_id
+                  AND component.is_active = 1
+                  AND component.released_revision_id <> ''
+                  AND revision.release_status = 'released';
+                INSERT INTO catalog_meta(key, value)
+                VALUES (
+                    'remote_component_heads_version',
+                    EXTRACT(EPOCH FROM clock_timestamp())::text
+                )
+                ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value;
+            END;
+            $$
+            """
+        )
+        conn.execute(
+            """
+            CREATE OR REPLACE FUNCTION prism_refresh_remote_head_trigger()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            SET search_path = catalog, public
+            AS $$
+            DECLARE
+                target_component_id TEXT;
+                target_revision_id TEXT;
+            BEGIN
+                IF TG_TABLE_NAME = 'components' THEN
+                    target_component_id :=
+                        CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END;
+                ELSIF TG_TABLE_NAME = 'component_revisions' THEN
+                    target_component_id :=
+                        CASE WHEN TG_OP = 'DELETE'
+                             THEN OLD.component_id ELSE NEW.component_id END;
+                ELSE
+                    target_revision_id :=
+                        CASE WHEN TG_OP = 'DELETE'
+                             THEN OLD.revision_id ELSE NEW.revision_id END;
+                    SELECT component_id INTO target_component_id
+                    FROM component_revisions
+                    WHERE id = target_revision_id;
+                END IF;
+                IF target_component_id IS NOT NULL THEN
+                    PERFORM catalog.prism_refresh_remote_component_head(
+                        target_component_id
+                    );
+                END IF;
+                RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+            END;
+            $$
+            """
+        )
+        for trigger_name, table, events in (
+            (
+                "trg_remote_heads_components",
+                "components",
+                "INSERT OR UPDATE",
+            ),
+            (
+                "trg_remote_heads_revisions",
+                "component_revisions",
+                "INSERT OR UPDATE",
+            ),
+            (
+                "trg_remote_heads_assets",
+                "revision_assets",
+                "INSERT OR UPDATE OR DELETE",
+            ),
+            (
+                "trg_remote_heads_previews",
+                "revision_previews",
+                "INSERT OR UPDATE OR DELETE",
+            ),
+        ):
+            conn.execute(f"DROP TRIGGER IF EXISTS {trigger_name} ON {table}")
+            conn.execute(
+                f"CREATE TRIGGER {trigger_name} AFTER {events} ON {table} "
+                "FOR EACH ROW EXECUTE FUNCTION prism_refresh_remote_head_trigger()"
+            )
+        conn.execute(
+            "SELECT catalog.prism_refresh_remote_component_head(id) FROM components"
+        )
+        conn.execute(
+            """
+            INSERT INTO catalog_meta(key, value)
+            VALUES (%s, %s)
+            ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+            """,
+            (
+                "postgres_remote_head_projection_version",
+                POSTGRES_REMOTE_HEAD_PROJECTION_VERSION,
+            ),
+        )
+
     def _ensure_postgres_search_indexes(self) -> None:
         # Trigram search keeps the existing forgiving catalog query behavior while
         # avoiding full scans at tens of thousands of components. Extension creation
@@ -384,6 +643,15 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_revisions_mpn_trgm "
                     "ON component_revisions USING GIN (lower(mpn) gin_trgm_ops)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_remote_heads_search_trgm "
+                    "ON remote_component_heads USING GIN "
+                    "(lower(search_document) gin_trgm_ops)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_remote_heads_mpn_trgm "
+                    "ON remote_component_heads USING GIN (lower(mpn) gin_trgm_ops)"
                 )
                 conn.execute(
                     """

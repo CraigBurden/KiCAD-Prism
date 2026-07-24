@@ -16,6 +16,7 @@ from typing import Any, Dict, Iterator, List, Optional
 from app.core.config import settings
 from app.core.roles import Role, role_matches_allowed_role
 from app.services.postgres_database import database
+from app.services.workspace_schema_migrations import apply_workspace_migrations
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class WorkspaceService:
             with self._connect() as conn:
                 conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
                 self._create_schema(conn)
+                apply_workspace_migrations(conn)
                 conn.commit()
             self._initialized = True
             logger.info("Workspace service initialized in PostgreSQL schema workspace")
@@ -251,6 +253,9 @@ class WorkspaceService:
         schematic_rel: Optional[str] = None,
         pcb_rel: Optional[str] = None,
         thumbnail_rel: Optional[str] = None,
+        thumbnail_digest: Optional[str] = None,
+        thumbnail_media_type: Optional[str] = None,
+        thumbnail_size_bytes: Optional[int] = None,
         jobset_rel: Optional[str] = None,
         has_3d_model: bool = False,
         has_ibom: bool = False,
@@ -262,12 +267,14 @@ class WorkspaceService:
             conn.execute(
                 """INSERT INTO ws_projects
                    (id,repo_id,name,display_name,description,relative_path,folder_id,
-                    schematic_rel,pcb_rel,thumbnail_rel,jobset_rel,
+                    schematic_rel,pcb_rel,thumbnail_rel,thumbnail_digest,
+                    thumbnail_media_type,thumbnail_size_bytes,jobset_rel,
                     has_3d_model,has_ibom,registered_at,last_modified,prism_json_hash)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     project_id, repo_id, name, display_name, description, relative_path, folder_id,
-                    schematic_rel, pcb_rel, thumbnail_rel, jobset_rel,
+                    schematic_rel, pcb_rel, thumbnail_rel, thumbnail_digest,
+                    thumbnail_media_type, thumbnail_size_bytes, jobset_rel,
                     has_3d_model, has_ibom, now, now, prism_json_hash,
                 ),
             )
@@ -319,6 +326,35 @@ class WorkspaceService:
             ).fetchone()
         return self._project_row_to_dict(row) if row else None
 
+    def get_project_for_role(
+        self,
+        project_id: str,
+        user_role: Role,
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve and authorize a project in one PostgreSQL query."""
+
+        viewer_fallback = user_role in {"viewer", "component_designer", "component_qa"}
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
+                       r.name AS parent_repo, r.import_type
+                FROM ws_projects p
+                JOIN ws_repositories r ON r.id = p.repo_id
+                LEFT JOIN ws_folders f ON f.id = p.folder_id
+                WHERE p.id = %s
+                  AND (
+                    f.id IS NULL
+                    OR f.visibility_mode IS DISTINCT FROM 'roles'
+                    OR jsonb_array_length(COALESCE(f.allowed_roles, '[]'::jsonb)) = 0
+                    OR COALESCE(f.allowed_roles, '[]'::jsonb) ? %s
+                    OR (%s AND COALESCE(f.allowed_roles, '[]'::jsonb) ? 'viewer')
+                  )
+                """,
+                (project_id, user_role, viewer_fallback),
+            ).fetchone()
+        return self._project_row_to_dict(row) if row else None
+
     def get_projects_by_repo(self, repo_id: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -337,6 +373,7 @@ class WorkspaceService:
         allowed = {
             "name", "display_name", "description", "folder_id",
             "schematic_rel", "pcb_rel", "thumbnail_rel", "jobset_rel",
+            "thumbnail_digest", "thumbnail_media_type", "thumbnail_size_bytes",
             "has_3d_model", "has_ibom", "last_modified", "prism_json_hash",
         }
         fields = {k: v for k, v in kwargs.items() if k in allowed}
@@ -612,26 +649,25 @@ class WorkspaceService:
             conn.commit()
         return True
 
-    def get_folder_tree(self, user_role: Optional[Role] = None) -> List[Dict[str, Any]]:
-        with self._connect() as conn:
-            folders = conn.execute("SELECT * FROM ws_folders ORDER BY name").fetchall()
-            counts = conn.execute(
-                "SELECT folder_id, COUNT(*) AS cnt FROM ws_projects WHERE folder_id IS NOT NULL GROUP BY folder_id"
-            ).fetchall()
+    def _build_folder_tree(
+        self,
+        folders: List[Any],
+        counts: List[Any],
+        user_role: Optional[Role] = None,
+    ) -> List[Dict[str, Any]]:
+        """Build the API folder tree from rows already fetched in one snapshot."""
+
         count_map = {r["folder_id"]: r["cnt"] for r in counts}
         folder_list = [self._row_to_dict(f) for f in folders]
         for f in folder_list:
             raw_roles = f.get("allowed_roles") or []
             f["allowed_roles"] = json.loads(raw_roles) if isinstance(raw_roles, str) else raw_roles
-        # Filter by role
         if user_role is not None:
             folder_list = [f for f in folder_list if self._is_folder_visible(f, user_role)]
         visible_ids = {f["id"] for f in folder_list}
-        # Build children map
         children_map: Dict[Optional[str], List[Dict]] = {}
         for f in folder_list:
             children_map.setdefault(f["parent_id"], []).append(f)
-        # DFS to build flat tree
         result: List[Dict[str, Any]] = []
 
         def _walk(pid: Optional[str], depth: int) -> int:
@@ -655,6 +691,14 @@ class WorkspaceService:
 
         _walk(None, 0)
         return result
+
+    def get_folder_tree(self, user_role: Optional[Role] = None) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            folders = conn.execute("SELECT * FROM ws_folders ORDER BY name").fetchall()
+            counts = conn.execute(
+                "SELECT folder_id, COUNT(*) AS cnt FROM ws_projects WHERE folder_id IS NOT NULL GROUP BY folder_id"
+            ).fetchall()
+        return self._build_folder_tree(folders, counts, user_role)
 
     def get_folder_contents(self, folder_id: Optional[str], user_role: Optional[Role] = None) -> Dict[str, Any]:
         with self._connect() as conn:
@@ -704,9 +748,74 @@ class WorkspaceService:
     # ------------------------------------------------------------------
 
     def get_bootstrap_data(self, user_role: Optional[Role] = None) -> Dict[str, Any]:
+        role = user_role or "admin"
+        bypass_visibility = user_role is None
+        viewer_fallback = role in {"viewer", "component_designer", "component_qa"}
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                WITH visible_folders AS (
+                    SELECT f.*
+                    FROM ws_folders f
+                    WHERE %s
+                       OR f.visibility_mode IS DISTINCT FROM 'roles'
+                       OR jsonb_array_length(COALESCE(f.allowed_roles, '[]'::jsonb)) = 0
+                       OR COALESCE(f.allowed_roles, '[]'::jsonb) ? %s
+                       OR (%s AND COALESCE(f.allowed_roles, '[]'::jsonb) ? 'viewer')
+                ),
+                project_rows AS (
+                    SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
+                           r.name AS parent_repo, r.import_type,
+                           r.last_synced_at AS repo_last_synced,
+                           f.visibility_mode, f.allowed_roles
+                    FROM ws_projects p
+                    JOIN ws_repositories r ON r.id = p.repo_id
+                    LEFT JOIN ws_folders f ON f.id = p.folder_id
+                    WHERE f.id IS NULL
+                       OR %s
+                       OR f.id IN (SELECT id FROM visible_folders)
+                ),
+                folder_counts AS (
+                    SELECT folder_id, COUNT(*) AS cnt
+                    FROM project_rows
+                    WHERE folder_id IS NOT NULL
+                    GROUP BY folder_id
+                )
+                SELECT
+                    COALESCE(
+                        (SELECT jsonb_agg(to_jsonb(project_rows) ORDER BY name)
+                         FROM project_rows),
+                        '[]'::jsonb
+                    ) AS projects,
+                    COALESCE(
+                        (SELECT jsonb_agg(to_jsonb(visible_folders) ORDER BY name)
+                         FROM visible_folders),
+                        '[]'::jsonb
+                    ) AS folders,
+                    COALESCE(
+                        (SELECT jsonb_agg(to_jsonb(folder_counts))
+                         FROM folder_counts),
+                        '[]'::jsonb
+                    ) AS counts,
+                    COALESCE(
+                        (SELECT version FROM ws_workspace_state WHERE id = 1),
+                        1
+                    ) AS version
+                """,
+                (bypass_visibility, role, viewer_fallback, bypass_visibility),
+            ).fetchone()
+        projects = [
+            self._project_row_to_dict(project)
+            for project in list(row["projects"] or [])
+        ]
         return {
-            "projects": self.get_all_projects(user_role),
-            "folders": self.get_folder_tree(user_role),
+            "projects": projects,
+            "folders": self._build_folder_tree(
+                list(row["folders"] or []),
+                list(row["counts"] or []),
+                None,
+            ),
+            "version": int(row["version"] or 1),
         }
 
 
