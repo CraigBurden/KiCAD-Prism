@@ -389,16 +389,31 @@ def get_job_status(job_id: str):
     v3_job = v3_jobs.get(job_id)
     if v3_job:
         metadata = dict(v3_job.get("result_metadata") or {})
+        payload_compat = dict(v3_job.get("payload") or {})
+        staged_keys = (
+            "bundle_url",
+            "readiness",
+            "readiness_stage",
+            "sourceRevisionKey",
+            "source_fingerprint",
+            "status_selector",
+            "commit",
+        )
+        staged_fields = {
+            key: payload_compat[key]
+            for key in staged_keys
+            if key in payload_compat and payload_compat[key] is not None
+        }
+        logs = payload_compat.get("logs")
+        if not isinstance(logs, list):
+            logs = []
         return {
             **metadata,
-            # Result metadata may describe an artifact with its own lifecycle
-            # (for example WebGPU's "ready" status).  The compatibility job
-            # endpoint must keep the authoritative queue status so pollers can
-            # observe terminal "completed"/"failed"/"cancelled" states.
+            **staged_fields,
             **v3_job,
             "type": v3_job.get("kind"),
             "error": v3_job.get("error_message") or None,
-            "logs": [],
+            "logs": logs,
         }
     return workspace.get_job(job_id)
 
@@ -561,6 +576,9 @@ def run_webgpu_3d_job_v3(context: JobContext) -> JobResult:
     commit = payload.get("commit")
     force = bool(payload.get("force"))
     artifact_key = str(payload["artifact_key"])
+    status_selector = (
+        f"commit:{commit}" if commit else f"workspace:{row.get('last_modified') or ''}"
+    )
     state: dict[str, Any] = {
         "job_id": context.job_id,
         "status": "running",
@@ -568,10 +586,14 @@ def run_webgpu_3d_job_v3(context: JobContext) -> JobResult:
         "message": "Generating WebGPU 3D assets...",
         "percent": 0,
         "project_id": project_id,
+        "status_selector": status_selector,
         "logs": [],
         "performance": [],
     }
+    if commit:
+        state["commit"] = commit
     emitted_logs = 0
+    last_readiness_stage: dict[str, str | None] = {"value": None}
 
     def persist() -> None:
         nonlocal emitted_logs
@@ -579,10 +601,41 @@ def run_webgpu_3d_job_v3(context: JobContext) -> JobResult:
         for line in logs[emitted_logs:]:
             print(str(line), flush=True)
         emitted_logs = len(logs)
+        readiness_stage = state.get("readiness_stage")
+        milestone = (
+            isinstance(readiness_stage, str)
+            and readiness_stage
+            and readiness_stage != last_readiness_stage["value"]
+        )
+        if milestone:
+            last_readiness_stage["value"] = str(readiness_stage)
+        payload_updates: dict[str, Any] = {}
+        for key in (
+            "bundle_url",
+            "readiness",
+            "readiness_stage",
+            "sourceRevisionKey",
+            "source_fingerprint",
+            "status_selector",
+            "commit",
+        ):
+            if key in state and state[key] is not None:
+                payload_updates[key] = state[key]
+        if logs:
+            payload_updates["logs"] = logs[-80:]
+        if state.get("bundle_url") and state.get("readiness"):
+            semantic_visualizer_service.sync_staged_webgpu_status(
+                job_id=context.job_id,
+                fence=context.fence,
+                project=project,
+                state=state,
+            )
         context.progress(
             stage=str(state.get("stage") or "building"),
             message=str(state.get("message") or "Generating WebGPU 3D assets..."),
             percent=float(state.get("percent") or 0),
+            payload_updates=payload_updates or None,
+            force=bool(milestone),
         )
 
     context.check_cancelled()

@@ -512,6 +512,46 @@ class JobServicePostgresTests(unittest.TestCase):
         )
         self.assertEqual(prefixed["commit"], "a" * 40)
 
+    def test_webgpu_staged_upsert_exposes_building_status_via_fast_read(self) -> None:
+        selector = f"workspace:staged-{self.suffix}"
+        project_id = f"project-staged-{self.suffix}"
+        queued = self.service.enqueue(
+            "webgpu_3d",
+            {"test": True},
+            worker_pool=self.pool,
+            artifact_key=f"webgpu-staged-{self.suffix}",
+        )
+        self.job_ids.append(str(queued["job_id"]))
+        claim = self.service.claim("worker-a", worker_pool=self.pool)
+        readiness = {
+            "schema": "prism.visualizer_readiness.a0",
+            "stage": "board-ready",
+            "progress": 35,
+            "available_assets": ["board"],
+            "revision": "rev-partial",
+        }
+        self.service.upsert_webgpu_ready_status(
+            job_id=str(queued["job_id"]),
+            fence=int(claim["fence"]),
+            details={
+                "schema": "prism.webgpu_3d_status_a0",
+                "project_id": project_id,
+                "status_selector": selector,
+                "source_fingerprint": "source-partial",
+                "sourceRevisionKey": "source-partial",
+                "build_fingerprint": "build-a",
+                "bundle_url": "/partial/bundle.json",
+                "status": "building",
+                "available": True,
+                "readiness": readiness,
+            },
+        )
+        ready = self.service.get_webgpu_ready(project_id, selector, "build-a")
+        self.assertIsNotNone(ready)
+        self.assertEqual(ready["status"], "building")
+        self.assertTrue(ready["available"])
+        self.assertEqual(ready["readiness"]["stage"], "board-ready")
+
     def test_webgpu_ready_upsert_respects_invalidation_and_recency(self) -> None:
         selector = f"commit:webgpu-race-{self.suffix}"
         project_id = f"project-race-{self.suffix}"

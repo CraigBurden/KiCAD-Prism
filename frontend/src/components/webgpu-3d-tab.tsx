@@ -62,6 +62,7 @@ interface WorkflowJob {
     readiness_stage?: string;
     readiness?: WebGpu3dReadiness;
     bundle_url?: string;
+    sourceRevisionKey?: string;
 }
 
 interface GenerateResponse {
@@ -184,6 +185,7 @@ export function WebGpu3dTab({
                     && nextReadinessRevision !== readinessRevisionRef.current
                 ) {
                     readinessRevisionRef.current = nextReadinessRevision;
+                    setViewerRevision((revision) => revision + 1);
                     await refreshStatus();
                 }
                 if (next.status === "completed") {
@@ -314,7 +316,7 @@ export function WebGpu3dTab({
         };
     }, [onClearSelection, onSelection, projectId, status?.sourceRevisionKey, viewerElement]);
 
-    const readiness = status?.readiness;
+    const readiness = job?.readiness ?? status?.readiness;
     const readinessStage = readiness?.stage || (status?.status === "ready" ? "semantic-ready" : "generating");
     const readinessProgress = job?.readiness?.progress ?? readiness?.progress ?? job?.percent ?? 0;
     const stageLabel = {
@@ -323,8 +325,18 @@ export function WebGpu3dTab({
         "semantic-ready": "Semantic scene ready",
         generating: "Generating 3D assets",
     }[readinessStage] || readinessStage;
-    const bundleUrl = status?.bundle_url
-        ? `${status.bundle_url}${status.bundle_url.includes("?") ? "&" : "?"}viewer=${encodeURIComponent(readiness?.revision || status.generated_at || status.sourceRevisionKey)}`
+    const resolvedBundleUrl = status?.bundle_url ?? job?.bundle_url;
+    const canShowViewer = Boolean(
+        resolvedBundleUrl
+        && (
+            status?.available
+            || status?.status === "building"
+            || status?.status === "ready"
+            || Boolean(job?.bundle_url && job?.readiness)
+        ),
+    );
+    const bundleUrl = resolvedBundleUrl
+        ? `${resolvedBundleUrl}${resolvedBundleUrl.includes("?") ? "&" : "?"}viewer=${encodeURIComponent(readiness?.revision || status?.generated_at || status?.sourceRevisionKey || "staged")}`
         : undefined;
 
     if (loading && !status) {
@@ -338,7 +350,7 @@ export function WebGpu3dTab({
         );
     }
 
-    if (!status?.available || !status.bundle_url) {
+    if (!canShowViewer) {
         return (
             <div className="flex h-full items-center justify-center bg-muted/20 p-6">
                 <Card className="w-full max-w-2xl" size="sm">
@@ -411,7 +423,7 @@ export function WebGpu3dTab({
     return (
         <div className="relative h-full min-h-0 overflow-hidden bg-muted/20">
             <prism-semantic-viewer
-                key={`${status.sourceRevisionKey}-${status.generator.build}-${readiness?.revision || viewerRevision}`}
+                key={`${status?.sourceRevisionKey ?? job?.sourceRevisionKey ?? projectId}-${status?.generator?.build ?? "build"}-${readiness?.revision || viewerRevision}`}
                 ref={attachViewer}
                 bundle-url={bundleUrl}
                 workspace={workspace}
@@ -453,7 +465,7 @@ export function WebGpu3dTab({
                     </Button>
                 )}
             </div>
-            {(jobId || status.status === "building") && (
+            {(jobId || status?.status === "building") && (
                 <div className="pointer-events-none absolute bottom-3 left-3 right-3 mx-auto max-w-xl border bg-background/95 p-3 shadow-sm backdrop-blur-sm">
                     <div className="mb-2 flex items-center justify-between gap-3 text-xs">
                         <span className="font-medium text-foreground">{job?.message || stageLabel}</span>
