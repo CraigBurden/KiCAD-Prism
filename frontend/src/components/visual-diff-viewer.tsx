@@ -173,26 +173,26 @@ return (
 <Button
 variant={filters.added ? "secondary" : "outline"}
 size="sm"
-className={`flex items-center gap-1.5 h-8 ${filters.added ? "bg-green-500/10 border-green-500 text-green-700" : ""}`}
+className={`flex items-center gap-1.5 h-8 ${filters.added ? "bg-success/10 border-success text-success" : ""}`}
 onClick={() => setFilters(f => ({ ...f, added: !f.added }))}
 >
-<div className={`w-2 h-2 rounded-full ${filters.added ? "bg-green-500" : "bg-muted-foreground"}`} /> Added ({bom.summary.added})
+<div className={`w-2 h-2 rounded-full ${filters.added ? "bg-success" : "bg-muted-foreground"}`} /> Added ({bom.summary.added})
 </Button>
 <Button
 variant={filters.removed ? "secondary" : "outline"}
 size="sm"
-className={`flex items-center gap-1.5 h-8 ${filters.removed ? "bg-red-500/10 border-red-500 text-red-700" : ""}`}
+className={`flex items-center gap-1.5 h-8 ${filters.removed ? "bg-destructive/10 border-destructive text-destructive" : ""}`}
 onClick={() => setFilters(f => ({ ...f, removed: !f.removed }))}
 >
-<div className={`w-2 h-2 rounded-full ${filters.removed ? "bg-red-500" : "bg-muted-foreground"}`} /> Removed ({bom.summary.removed})
+<div className={`w-2 h-2 rounded-full ${filters.removed ? "bg-destructive" : "bg-muted-foreground"}`} /> Removed ({bom.summary.removed})
 </Button>
 <Button
 variant={filters.changed ? "secondary" : "outline"}
 size="sm"
-className={`flex items-center gap-1.5 h-8 ${filters.changed ? "bg-orange-500/10 border-orange-500 text-orange-700" : ""}`}
+className={`flex items-center gap-1.5 h-8 ${filters.changed ? "bg-warning/10 border-warning text-warning" : ""}`}
 onClick={() => setFilters(f => ({ ...f, changed: !f.changed }))}
 >
-<div className={`w-2 h-2 rounded-full ${filters.changed ? "bg-orange-500" : "bg-muted-foreground"}`} /> Changed ({bom.summary.changed})
+<div className={`w-2 h-2 rounded-full ${filters.changed ? "bg-warning" : "bg-muted-foreground"}`} /> Changed ({bom.summary.changed})
 </Button>
 </div>
 <div className="flex-1 overflow-auto">
@@ -212,9 +212,9 @@ const isRemoved = item.status === "removed";
 const isChanged = item.status === "changed";
 
 let rowClass = "border-b ";
-if (isAdded) rowClass += "bg-green-500/10 text-green-900";
-if (isRemoved) rowClass += "bg-red-500/10 text-red-900 italic line-through opacity-70";
-if (isChanged) rowClass += "bg-orange-500/5";
+if (isAdded) rowClass += "bg-success/10 text-success";
+if (isRemoved) rowClass += "bg-destructive/10 text-destructive italic line-through opacity-70";
+if (isChanged) rowClass += "bg-warning/5";
 
 return (
 <tr key={idx} className={rowClass}>
@@ -228,12 +228,12 @@ const fieldDiff = item.diffs?.[f];
 
 if (isChanged && fieldDiff) {
 return (
-<td key={f} className="px-4 py-2 border-r bg-orange-500/5">
+<td key={f} className="px-4 py-2 border-r bg-warning/5">
 <div className="flex flex-col gap-1">
-<div className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] line-through w-fit">
+<div className="px-1.5 py-0.5 rounded bg-destructive/15 text-destructive text-[10px] line-through w-fit">
 {fieldDiff.old}
 </div>
-<div className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-xs font-medium w-fit">
+<div className="px-1.5 py-0.5 rounded bg-success/15 text-success text-xs font-medium w-fit">
 {fieldDiff.new}
 </div>
 </div>
@@ -330,9 +330,9 @@ return (
 <div className="flex items-center gap-4">
 <h2 className="text-lg font-semibold">Visual Diff</h2>
 <div className="text-sm text-muted-foreground flex gap-2">
-<span className="bg-red-100 text-red-700 px-2 py-0.5 rounded border border-red-200">{commit2.slice(0, 7)} (Old)</span>
+<span className="bg-destructive/15 text-destructive px-2 py-0.5 rounded border border-destructive/30">{commit2.slice(0, 7)} (Old)</span>
 <span>vs</span>
-<span className="bg-green-100 text-green-700 px-2 py-0.5 rounded border border-green-200">{commit1.slice(0, 7)} (New)</span>
+<span className="bg-success/15 text-success px-2 py-0.5 rounded border border-success/30">{commit1.slice(0, 7)} (New)</span>
 </div>
 </div>
 <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
@@ -400,7 +400,7 @@ disabled={!manifest.bom}
 {viewMode !== "bom" && (
 <div className="flex items-center gap-3 w-64 bg-background border px-4 py-2 rounded-full shadow-sm">
 <Eye className="h-4 w-4 text-muted-foreground" />
-<span className="text-xs font-semibold w-8 text-right text-red-600">Old</span>
+<span className="text-xs font-semibold w-8 text-right text-destructive">Old</span>
 <Slider
 value={opacity}
 onValueChange={setOpacity}
@@ -408,7 +408,7 @@ max={100}
 step={1}
 className="flex-1"
 />
-<span className="text-xs font-semibold w-8 text-green-600">New</span>
+<span className="text-xs font-semibold w-8 text-success">New</span>
 </div>
 )}
 </div>

@@ -455,9 +455,9 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
             {/* Version Banner */}
             {(currentCommit || selectedBranch) && (
-                <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-3 flex items-center justify-between">
+                <div className="bg-warning/10 border-b border-warning/20 px-6 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm">
-                        <GitBranch className="h-4 w-4 text-amber-500" />
+                        <GitBranch className="h-4 w-4 text-warning" />
                         <span className="font-medium">
                             {currentCommit
                                 ? `Viewing commit ${currentCommit.substring(0, 7)}`
@@ -723,9 +723,9 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
                 <div className="bg-zinc-950 rounded-lg border border-zinc-800 p-4 font-mono text-xs md:text-sm h-96 overflow-auto shadow-inner text-zinc-300">
                     <div className="flex items-center justify-between mb-2 text-zinc-500 border-b border-zinc-800 pb-2">
                         <span>Job: {runningJob.type.toUpperCase()} ({status})</span>
-                        {status === 'running' && <span className="animate-pulse text-amber-500">Running...</span>}
-                        {status === 'completed' && <span className="text-green-500">Completed</span>}
-                        {status === 'failed' && <span className="text-red-500">Failed</span>}
+                        {status === 'running' && <span className="animate-pulse text-warning">Running...</span>}
+                        {status === 'completed' && <span className="text-success">Completed</span>}
+                        {status === 'failed' && <span className="text-destructive">Failed</span>}
                     </div>
                     <div className="space-y-1">
                         {logs.map((log, i) => (

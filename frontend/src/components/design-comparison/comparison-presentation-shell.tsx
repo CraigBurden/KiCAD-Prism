@@ -2191,7 +2191,7 @@ export function ComparisonPresentationShell({
                                 "absolute inset-x-3 bottom-3 flex items-start gap-2 rounded border bg-background/95 p-3 text-xs shadow-sm",
                                 bannerIsError
                                     ? "border-destructive/30 text-destructive"
-                                    : "border-amber-500/30 text-amber-800 dark:text-amber-200",
+                                    : "border-warning/30 text-warning text-warning",
                             )}
                         >
                             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -2204,7 +2204,7 @@ export function ComparisonPresentationShell({
                                     "shrink-0 rounded p-0.5 transition-colors",
                                     bannerIsError
                                         ? "text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
-                                        : "text-amber-700/70 hover:bg-amber-500/10 hover:text-amber-900 dark:text-amber-200/70 dark:hover:text-amber-100",
+                                        : "text-warning/70 hover:bg-warning/10 hover:text-warning text-warning/70 hover:text-warning",
                                 )}
                                 aria-label="Dismiss warning"
                                 onClick={() =>

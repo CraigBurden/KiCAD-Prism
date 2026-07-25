@@ -713,7 +713,7 @@ export function LibraryImportRemediationGrid({
                 </div>
                 <div className="flex h-9 items-center justify-center border-r">
                   {problems.length === 0 ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-500" aria-label="Ready to import" />
+                    <Check className="h-3.5 w-3.5 text-success" aria-label="Ready to import" />
                   ) : (
                     <span title={problems.join("\n")} className="cursor-help">
                       <AlertTriangle

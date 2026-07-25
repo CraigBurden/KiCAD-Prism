@@ -235,7 +235,7 @@ function PanelCommentCard({
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className={`h-6 px-2 text-xs ${isResolved ? "text-green-600" : "text-muted-foreground"}`}
+                                className={`h-6 px-2 text-xs ${isResolved ? "text-success" : "text-muted-foreground"}`}
                                 onClick={() => onResolve(comment.id, !isResolved)}
                             >
                                 {isResolved ? (

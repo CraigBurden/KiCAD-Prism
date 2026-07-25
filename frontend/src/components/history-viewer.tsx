@@ -125,10 +125,10 @@ function formatDate(isoDate: string): string {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-    added: "text-green-500",
-    removed: "text-red-500",
-    modified: "text-amber-500",
-    renamed: "text-blue-500",
+    added: "text-success",
+    removed: "text-destructive",
+    modified: "text-warning",
+    renamed: "text-primary",
 };
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
@@ -152,8 +152,8 @@ function fileSortRank(filename: string): number {
 // File-type icon picker. Returns the icon + a colour class so KiCad files
 // stand out from generic ones in the file list.
 function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string } {
-    if (filename.endsWith(".kicad_sch")) return { Icon: CircuitBoard, color: "text-blue-500" };
-    if (filename.endsWith(".kicad_pcb")) return { Icon: Cpu, color: "text-emerald-500" };
+    if (filename.endsWith(".kicad_sch")) return { Icon: CircuitBoard, color: "text-primary" };
+    if (filename.endsWith(".kicad_pcb")) return { Icon: Cpu, color: "text-success" };
     if (filename.endsWith(".kicad_pro")) return { Icon: Settings, color: "text-violet-500" };
     if (filename.endsWith(".kicad_sym") || filename.endsWith(".kicad_mod")) {
         return { Icon: FileCode, color: "text-cyan-500" };
@@ -197,8 +197,8 @@ function SemanticBucketChips({ buckets }: { buckets: SemanticBuckets }) {
                     <span className="uppercase tracking-wider text-[10px] text-muted-foreground/70">
                         {CATEGORY_META[category].label}
                     </span>
-                    {b.added > 0 && <span className="text-green-500 font-medium">+{b.added}</span>}
-                    {b.removed > 0 && <span className="text-red-500 font-medium">−{b.removed}</span>}
+                    {b.added > 0 && <span className="text-success font-medium">+{b.added}</span>}
+                    {b.removed > 0 && <span className="text-destructive font-medium">−{b.removed}</span>}
                 </span>
             ))}
         </div>
@@ -297,7 +297,7 @@ function CommitItem({
                                 title="Copy full hash"
                             >
                                 {copied ? (
-                                    <Check className="h-3 w-3 text-green-500" />
+                                    <Check className="h-3 w-3 text-success" />
                                 ) : (
                                     <Copy className="h-3 w-3" />
                                 )}
@@ -344,8 +344,8 @@ function CommitItem({
                         </div>
                         {commit.kicad_changes && (
                             <div className="flex items-center gap-1">
-                                <KicadChip icon={CircuitBoard} label="Schematic" count={commit.kicad_changes.sch} color="text-blue-500" />
-                                <KicadChip icon={Cpu} label="PCB" count={commit.kicad_changes.pcb} color="text-emerald-500" />
+                                <KicadChip icon={CircuitBoard} label="Schematic" count={commit.kicad_changes.sch} color="text-primary" />
+                                <KicadChip icon={Cpu} label="PCB" count={commit.kicad_changes.pcb} color="text-success" />
                                 <KicadChip icon={Settings} label="Project" count={commit.kicad_changes.pro} color="text-violet-500" />
                             </div>
                         )}
@@ -391,10 +391,10 @@ function CommitItem({
                                         {(file.additions !== null || file.deletions !== null) && (
                                             <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
                                                 {file.additions !== null && file.additions > 0 && (
-                                                    <span className="text-green-500">+{file.additions}</span>
+                                                    <span className="text-success">+{file.additions}</span>
                                                 )}
                                                 {file.deletions !== null && file.deletions > 0 && (
-                                                    <span className="text-red-500">-{file.deletions}</span>
+                                                    <span className="text-destructive">-{file.deletions}</span>
                                                 )}
                                             </span>
                                         )}
@@ -629,7 +629,7 @@ export function HistoryViewer({
     return (
         <div className="space-y-8">
             {error && (
-                <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-500">
+                <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive">
                     {error}
                 </div>
             )}
@@ -661,7 +661,7 @@ export function HistoryViewer({
                             >
                                 <div className="flex items-start justify-between mb-2">
                                     <div className="flex items-center gap-2">
-                                        <Tag className="h-4 w-4 text-green-500" />
+                                        <Tag className="h-4 w-4 text-success" />
                                         <span className="font-semibold">{release.tag}</span>
                                     </div>
                                     <div className="flex items-center gap-1">

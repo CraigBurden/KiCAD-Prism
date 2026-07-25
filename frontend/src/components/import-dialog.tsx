@@ -529,7 +529,7 @@ export function ImportDialog({
                     />
                   )}
                   {state.analysis.import_type === "type1" && (
-                    <Check className="h-4 w-4 text-green-500" />
+                    <Check className="h-4 w-4 text-success" />
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{project.name}</p>
@@ -608,12 +608,12 @@ export function ImportDialog({
             </DialogHeader>
             <div className="flex items-center justify-center py-6">
               {state.success ? (
-                <div className="h-16 w-16 rounded-full bg-green-100 flex items-center justify-center">
-                  <Check className="h-8 w-8 text-green-600" />
+                <div className="h-16 w-16 rounded-full bg-success/15 flex items-center justify-center">
+                  <Check className="h-8 w-8 text-success" />
                 </div>
               ) : (
-                <div className="h-16 w-16 rounded-full bg-red-100 flex items-center justify-center">
-                  <AlertCircle className="h-8 w-8 text-red-600" />
+                <div className="h-16 w-16 rounded-full bg-destructive/15 flex items-center justify-center">
+                  <AlertCircle className="h-8 w-8 text-destructive" />
                 </div>
               )}
             </div>
