@@ -73,9 +73,9 @@ function ReadinessCell({ component }: { component: CatalogComponent }) {
     );
   }
   return (
-    <div>
-      <span className="inline-flex items-center gap-1 text-xs font-medium"><PackageCheck className="h-3.5 w-3.5 text-primary" /> CAD complete</span>
-      <p className="text-xs text-muted-foreground">Symbol and footprint attached</p>
+    <div className="min-w-0">
+      <span className="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium"><PackageCheck className="h-3.5 w-3.5 shrink-0 text-primary" /> CAD complete</span>
+      <p className="truncate text-xs text-muted-foreground">Symbol and footprint attached</p>
     </div>
   );
 }
@@ -83,9 +83,9 @@ function ReadinessCell({ component }: { component: CatalogComponent }) {
 function ValidationCell({ component }: { component: CatalogComponent }) {
   const failed = component.validation.status === "failed";
   return (
-    <div>
-      <span className={cn("inline-flex items-center gap-1 text-xs font-medium", failed && "text-destructive")}>
-        {failed ? <CircleAlert className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5 text-primary" />}
+    <div className="min-w-0">
+      <span className={cn("inline-flex max-w-full items-center gap-1 truncate text-xs font-medium", failed && "text-destructive")}>
+        {failed ? <CircleAlert className="h-3.5 w-3.5 shrink-0" /> : <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" />}
         {VALIDATION_LABELS[component.validation.status]}
       </span>
       <p className="text-xs text-muted-foreground">{component.validation.error_count} errors · {component.validation.warning_count} warnings</p>
@@ -252,16 +252,16 @@ export function LibraryReleaseQueue({ onOpenComponent }: { onOpenComponent: (com
                       <p className="truncate text-sm font-medium">{component.name}</p>
                       <p className="truncate text-xs text-muted-foreground">{component.manufacturer || "Unspecified manufacturer"} · {component.mpn || component.value || "No MPN"}</p>
                     </div>
-                    <div className="lg:col-span-2">
-                      <Badge variant={stage === "done" ? "secondary" : "outline"}>{STAGE_LABELS[stage]}</Badge>
-                      <p className="mt-1 text-xs text-muted-foreground">Updated {formatDate(component.revision_updated_at)}</p>
+                    <div className="min-w-0 lg:col-span-2">
+                      <Badge variant={stage === "done" ? "secondary" : "outline"} className="max-w-full truncate">{STAGE_LABELS[stage]}</Badge>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">Updated {formatDate(component.revision_updated_at)}</p>
                     </div>
                     <div className="min-w-0 lg:col-span-2">
                       <p className="text-xs font-medium">v{component.revision}</p>
                       <p className="truncate text-xs text-muted-foreground" title={component.created_by}>{component.created_by || "Unknown author"}</p>
                     </div>
-                    <div className="lg:col-span-2"><ReadinessCell component={component} /></div>
-                    <div className="lg:col-span-2"><ValidationCell component={component} /></div>
+                    <div className="min-w-0 lg:col-span-2"><ReadinessCell component={component} /></div>
+                    <div className="min-w-0 lg:col-span-2"><ValidationCell component={component} /></div>
                     <div className="flex items-center justify-end gap-2 text-xs font-medium text-primary lg:col-span-1">Open <ArrowRight className="h-3.5 w-3.5" /></div>
                   </button>
                 );
