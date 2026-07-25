@@ -313,6 +313,37 @@ export interface ProjectComponentImportProposal {
     componentUid: string;
   }>;
   findings: Array<{ code: string; severity: "warning" | "error"; message: string }>;
+  draft?: ImportProposalDraft;
+}
+
+/** Unaccepted remediation edits, persisted server-side so they survive a reload. */
+export interface ImportProposalDraft {
+  metadata_overrides?: Record<string, string>;
+  asset_selections?: Record<string, string[]>;
+  /** asset_type -> existing catalog asset id, linked by reference rather than copied. */
+  asset_links?: Record<string, string>;
+}
+
+export interface CatalogAssetSummary {
+  id: string;
+  asset_type: "symbol" | "footprint" | "3dmodel" | "spice";
+  name: string;
+  target_library: string;
+  target_name: string;
+  sha256: string;
+  size_bytes: number;
+  usage_count: number;
+}
+
+export interface BulkAcceptResult {
+  accepted: number;
+  failed: number;
+  results: Array<{
+    proposal_id: string;
+    status: "accepted" | "failed";
+    component_id?: string;
+    error?: string;
+  }>;
 }
 
 export interface ProjectComponentImportSession {

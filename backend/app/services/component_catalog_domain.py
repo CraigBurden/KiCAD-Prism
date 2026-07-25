@@ -623,6 +623,7 @@ class ComponentCatalogDomainService:
                 findings_json TEXT NOT NULL DEFAULT '[]',
                 status TEXT NOT NULL DEFAULT 'candidate',
                 accepted_component_id TEXT NOT NULL DEFAULT '',
+                draft_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(session_id, dedupe_key)
@@ -2415,6 +2416,7 @@ class ComponentCatalogDomainService:
                 proposal["assets"] = _json_loads(proposal.pop("assets_json"), [])
                 proposal["provenance"] = _json_loads(proposal.pop("provenance_json"), [])
                 proposal["findings"] = _json_loads(proposal.pop("findings_json"), [])
+                proposal["draft"] = _json_loads(proposal.pop("draft_json", "{}"), {})
                 proposals.append(proposal)
             return proposals
 
@@ -2432,7 +2434,130 @@ class ComponentCatalogDomainService:
             proposal["assets"] = _json_loads(proposal.pop("assets_json"), [])
             proposal["provenance"] = _json_loads(proposal.pop("provenance_json"), [])
             proposal["findings"] = _json_loads(proposal.pop("findings_json"), [])
+            proposal["draft"] = _json_loads(proposal.pop("draft_json", "{}"), {})
             return proposal
+
+    def save_project_import_drafts(
+        self, session_id: str, drafts: dict[str, dict[str, Any]]
+    ) -> int:
+        """Persist unaccepted grid edits so remediation survives a reload.
+
+        A large import is rarely resolved in one sitting. Keeping the edits on the
+        proposal, rather than in browser state, also lets a second reviewer pick up
+        where the first stopped.
+        """
+        self.initialize()
+        if not drafts:
+            return 0
+        now = _utc_now_iso()
+        with self._connect() as conn:
+            updated = 0
+            for proposal_id, draft in drafts.items():
+                cursor = conn.execute(
+                    """
+                    UPDATE project_component_import_proposals
+                    SET draft_json = %s, updated_at = %s
+                    WHERE id = %s AND session_id = %s AND status = 'candidate'
+                    """,
+                    (json.dumps(draft or {}, separators=(",", ":")), now, proposal_id, session_id),
+                )
+                updated += cursor.rowcount
+            conn.commit()
+        return updated
+
+    def _resolve_import_asset_links(self, asset_links: dict[str, str]) -> dict[str, dict[str, Any]]:
+        """Load existing catalog assets an import wants to reference by id."""
+        resolved: dict[str, dict[str, Any]] = {}
+        requested = {
+            str(asset_type): str(asset_id).strip()
+            for asset_type, asset_id in (asset_links or {}).items()
+            if str(asset_id or "").strip()
+        }
+        if not requested:
+            return resolved
+
+        with self._connect() as conn:
+            for asset_type, asset_id in requested.items():
+                row = conn.execute(
+                    "SELECT * FROM assets WHERE id = %s",
+                    (asset_id,),
+                ).fetchone()
+                if not row:
+                    raise ValueError(f"Linked {asset_type} asset was not found in the catalog")
+                asset = dict(row)
+                if str(asset["asset_type"]) != asset_type:
+                    raise ValueError(
+                        f"Linked asset {asset_id} is a {asset['asset_type']}, not a {asset_type}"
+                    )
+                resolved[asset_type] = asset
+        return resolved
+
+    def search_assets(
+        self,
+        *,
+        asset_type: str,
+        query: str = "",
+        limit: int = 25,
+    ) -> list[dict[str, Any]]:
+        """Find existing catalog assets so an import can reuse one instead of copying it.
+
+        `revision_assets` is a join table onto content-addressed `assets`, so linking
+        an existing row is a genuine reference: one 0603 footprint is shared by every
+        component that uses it rather than duplicated per import.
+        """
+        self.initialize()
+        normalized_type = str(asset_type or "").strip().lower()
+        if normalized_type not in {"symbol", "footprint", "3dmodel", "spice"}:
+            raise ValueError("Unsupported asset type")
+
+        term = re.sub(r"\s+", " ", str(query or "").strip())
+        like = f"%{term.lower()}%"
+        bounded_limit = max(1, min(int(limit or 25), 100))
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    a.id,
+                    a.asset_type,
+                    a.name,
+                    a.target_library,
+                    a.target_name,
+                    a.sha256,
+                    a.size_bytes,
+                    COUNT(DISTINCT c.id) AS usage_count
+                FROM assets a
+                LEFT JOIN revision_assets ra ON ra.asset_id = a.id
+                LEFT JOIN component_revisions r ON r.id = ra.revision_id
+                LEFT JOIN components c ON c.id = r.component_id AND c.is_active = 1
+                WHERE a.asset_type = %s
+                  AND (
+                    %s = ''
+                    OR lower(a.name) LIKE %s
+                    OR lower(a.target_name) LIKE %s
+                    OR lower(a.target_library) LIKE %s
+                  )
+                GROUP BY a.id, a.asset_type, a.name, a.target_library, a.target_name,
+                         a.sha256, a.size_bytes
+                ORDER BY usage_count DESC, lower(a.target_name), a.name
+                LIMIT %s
+                """,
+                (normalized_type, term.lower(), like, like, like, bounded_limit),
+            ).fetchall()
+
+        return [
+            {
+                "id": str(row["id"]),
+                "asset_type": str(row["asset_type"]),
+                "name": str(row["name"]),
+                "target_library": str(row["target_library"] or ""),
+                "target_name": str(row["target_name"] or ""),
+                "sha256": str(row["sha256"]),
+                "size_bytes": int(row["size_bytes"] or 0),
+                "usage_count": int(row["usage_count"] or 0),
+            }
+            for row in rows
+        ]
 
     def _record_component_usage(
         self,
@@ -2649,6 +2774,7 @@ class ComponentCatalogDomainService:
         *,
         metadata_overrides: dict[str, Any] | None = None,
         asset_selections: dict[str, list[str]] | None = None,
+        asset_links: dict[str, str] | None = None,
         actor: str = "",
         change_summary: str = "Import component from project",
     ) -> dict[str, Any]:
@@ -2684,9 +2810,18 @@ class ComponentCatalogDomainService:
         by_type: dict[str, list[dict[str, Any]]] = {}
         for asset in assets:
             by_type.setdefault(str(asset.get("asset_type") or ""), []).append(asset)
+        # An asset type may instead be satisfied by an existing catalog asset. That is
+        # a reference, not a copy: the same assets row is linked into this revision, so
+        # one shared 0603 footprint serves every part that uses it.
+        linked_assets = self._resolve_import_asset_links(asset_links or {})
+
         selected_by_type: dict[str, list[dict[str, Any]]] = {}
         requested_selections = asset_selections or {}
         for asset_type, candidates in by_type.items():
+            if asset_type in linked_assets:
+                # The reviewer chose an existing catalog asset; the project's own
+                # candidates for this type are deliberately not imported.
+                continue
             selection_was_explicit = asset_type in requested_selections
             selected_hashes = set(requested_selections.get(asset_type) or [])
             selected = [candidate for candidate in candidates if str(candidate.get("sha256") or "") in selected_hashes]
@@ -2703,14 +2838,22 @@ class ComponentCatalogDomainService:
                 # simulation or mechanical files from the managed library.
                 selected_by_type[asset_type] = selected if selection_was_explicit else candidates
         by_type = selected_by_type
-        if not by_type.get("symbol") or not by_type.get("footprint"):
-            raise ValueError("A symbol and footprint are required before accepting a project import")
+        for required_type in PLACE_REQUIRED_ASSET_TYPES:
+            if not by_type.get(required_type) and required_type not in linked_assets:
+                raise ValueError(
+                    "A symbol and footprint are required before accepting a project import"
+                )
+        # "<asset_type>_not_resolved" means the extractor could not find that asset in
+        # the project. Linking an existing catalog asset is exactly the remedy, so a
+        # supplied link clears the finding it answers.
+        resolved_by_link = {f"{asset_type}_not_resolved" for asset_type in linked_assets}
         blocking = [
             finding
             for finding in proposal["findings"]
             if finding.get("severity") == "error"
             and not str(finding.get("code") or "").startswith("missing_metadata_")
             and not str(finding.get("code") or "").startswith("conflicting_")
+            and str(finding.get("code") or "") not in resolved_by_link
         ]
         if blocking:
             raise ValueError("Resolve blocking import findings before accepting this proposal")
@@ -2808,6 +2951,13 @@ class ComponentCatalogDomainService:
                             registered,
                             required=asset_type in PLACE_REQUIRED_ASSET_TYPES,
                         )
+                for asset_type, existing_asset in linked_assets.items():
+                    self._link_asset_to_revision(
+                        conn,
+                        revision_id,
+                        existing_asset,
+                        required=asset_type in PLACE_REQUIRED_ASSET_TYPES,
+                    )
                 self._finalize_revision(
                     conn,
                     component_id=component_id,
@@ -3008,6 +3158,9 @@ class ComponentCatalogDomainService:
             "released_view": released_view,
             "revision_id": str(revision_row["id"]),
             "revision_updated_at": str(revision_row["updated_at"]),
+            # Who authored the current revision. Stored all along, but omitted here,
+            # so every catalog row rendered as "Unknown author".
+            "created_by": str(revision_row.get("created_by") or ""),
             "component_updated_at": str(component_row["updated_at"]),
             "assets": [],
             "previews": [],

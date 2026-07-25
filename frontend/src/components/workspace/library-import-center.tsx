@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronRight, FolderOpen, FolderSearch, HardDrive, LoaderCircle, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Rows3, Table2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import type { LibraryFolderDiscovery, ProjectComponentImportProposal, ProjectCom
 import type { Project } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { LibraryImportRemediationDialog, type ProposalRemediation } from "./library-import-remediation-dialog";
+import { LibraryImportRemediationGrid } from "./library-import-remediation-grid";
 import { LibraryFolderDiscoveryDialog } from "./library-folder-discovery-dialog";
 
 interface LibraryImportCenterProps {
@@ -109,6 +110,10 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const [serverSubpath, setServerSubpath] = useState("");
   const [proposalActionId, setProposalActionId] = useState("");
   const [remediationProposal, setRemediationProposal] = useState<ProjectComponentImportProposal | null>(null);
+  // The grid is the primary path; the card list stays for per-component findings.
+  const [reviewMode, setReviewMode] = useState<"grid" | "cards">("grid");
+  // The grid is wide; collapsing the session rail gives it back ~15rem.
+  const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
   const canWrite = canWriteCatalog(user?.role);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const directoryInputProps: InputHTMLAttributes<HTMLInputElement> & {
@@ -449,11 +454,42 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         )}
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)]">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 transition-[grid-template-columns] duration-200",
+          sessionsCollapsed ? "grid-cols-[3rem_minmax(0,1fr)]" : "grid-cols-[18rem_minmax(0,1fr)]"
+        )}
+      >
         <aside className="min-h-0 overflow-y-auto border-r p-2">
+          {sessionsCollapsed ? (
+            <div className="flex flex-col items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Expand import sessions"
+                title="Expand import sessions"
+                onClick={() => setSessionsCollapsed(false)}
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </Button>
+              <Badge variant="outline" className="px-1 text-[10px]">{sessions.length}</Badge>
+            </div>
+          ) : (
+            <>
           <div className="mb-2 flex items-center justify-between px-2 py-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Import sessions</span>
-            <Button variant="ghost" size="icon-sm" aria-label="Refresh imports" onClick={() => void loadSessions()}><RefreshCw className="h-3.5 w-3.5" /></Button>
+            <div className="flex items-center">
+              <Button variant="ghost" size="icon-sm" aria-label="Refresh imports" onClick={() => void loadSessions()}><RefreshCw className="h-3.5 w-3.5" /></Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Collapse import sessions"
+                title="Collapse import sessions"
+                onClick={() => setSessionsCollapsed(true)}
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
           {sessions.length === 0 ? (
             <p className="p-3 text-sm text-muted-foreground">No imports yet.</p>
@@ -473,6 +509,8 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
               </div>
             </button>
           ))}
+            </>
+          )}
         </aside>
 
         <section className="min-h-0 overflow-y-auto p-4">
@@ -482,8 +520,33 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
             <div className="border border-destructive/40 bg-destructive/5 p-4"><h3 className="font-medium text-destructive">Import scan failed</h3><p className="mt-2 text-sm text-muted-foreground">{selectedSession.error_message}</p></div>
           ) : proposals.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{selectedSession.status === "staged" ? "No components were discovered." : selectedSession.scope === "folder" ? "Resolving symbols, footprints, and referenced 3D models…" : "Scanning captured project revisions…"}</div>
+          ) : reviewMode === "grid" ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  Resolve missing metadata and footprints across every row, then import in bulk.
+                </p>
+                <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewMode("cards")}>
+                  <Rows3 className="mr-1.5 h-3.5 w-3.5" />Detail view
+                </Button>
+              </div>
+              <LibraryImportRemediationGrid
+                sessionId={selectedSession.id}
+                proposals={proposals}
+                canWrite={canWrite}
+                onRefresh={async () => {
+                  await Promise.all([loadSessions(), loadProposals(selectedSession.id)]);
+                }}
+              />
+            </div>
           ) : (
             <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">Per-component findings and provenance.</p>
+                <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewMode("grid")}>
+                  <Table2 className="mr-1.5 h-3.5 w-3.5" />Bulk edit grid
+                </Button>
+              </div>
               {proposals.map((proposal) => {
                 const metadata = proposal.metadata as { value?: string; manufacturer?: string; manufacturer_part_number?: string; footprint?: string; references?: string[] };
                 const blocking = proposal.findings.filter((finding) => finding.severity === "error").length;

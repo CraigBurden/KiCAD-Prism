@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 from itertools import chain
 from pathlib import Path
 from typing import Any
@@ -201,7 +203,23 @@ class ServerFolderImportRequest(BaseModel):
 class AcceptProjectImportProposalRequest(BaseModel):
     metadata_overrides: dict[str, Any] = Field(default_factory=dict)
     asset_selections: dict[str, list[str]] = Field(default_factory=dict)
+    # asset_type -> existing catalog asset id. Linking reuses that asset rather than
+    # importing a duplicate copy of the project's own file.
+    asset_links: dict[str, str] = Field(default_factory=dict)
     change_summary: str = "Import component from project"
+
+
+class BulkAcceptItem(AcceptProjectImportProposalRequest):
+    proposal_id: str = Field(min_length=1)
+
+
+class BulkAcceptRequest(BaseModel):
+    items: list[BulkAcceptItem] = Field(default_factory=list, max_length=500)
+
+
+class SaveImportDraftsRequest(BaseModel):
+    # proposal_id -> {metadata_overrides, asset_selections, asset_links}
+    drafts: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 @router.get("/components")
@@ -512,16 +530,21 @@ def list_project_import_sessions(user: AuthenticatedUser = Depends(require_catal
     }
 
 
-@router.get("/import-sessions/{session_id}/proposals")
-def list_project_import_proposals(
-    session_id: str,
-    user: AuthenticatedUser = Depends(require_catalog_reader),
-):
+def _import_session_for_user(session_id: str, user: AuthenticatedUser) -> dict[str, Any]:
     session = catalog_service.get_project_import_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Import session not found")
     if user.role != "admin" and str(session.get("created_by") or "") != user.email:
         raise HTTPException(status_code=403, detail="Import session access denied")
+    return session
+
+
+@router.get("/import-sessions/{session_id}/proposals")
+def list_project_import_proposals(
+    session_id: str,
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    _import_session_for_user(session_id, user)
     return {"items": catalog_service.list_project_import_proposals(session_id)}
 
 
@@ -549,9 +572,215 @@ def accept_project_import_proposal(
             proposal_id,
             metadata_overrides=payload.metadata_overrides,
             asset_selections=payload.asset_selections,
+            asset_links=payload.asset_links,
             actor=user.email,
             change_summary=payload.change_summary,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/import-sessions/{session_id}/proposals/bulk-accept")
+def bulk_accept_project_import_proposals(
+    session_id: str,
+    payload: BulkAcceptRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    """Accept many remediated rows in one request.
+
+    Rows are independent: one failure reports against that row and the rest still
+    import. Resolving a 400-part board should not be an all-or-nothing action.
+    """
+    _import_session_for_user(session_id, user)
+
+    results: list[dict[str, Any]] = []
+    for item in payload.items:
+        proposal = catalog_service.get_project_import_proposal(item.proposal_id)
+        if not proposal or str(proposal.get("session_id") or "") != session_id:
+            results.append(
+                {"proposal_id": item.proposal_id, "status": "failed", "error": "Import proposal not found"}
+            )
+            continue
+        try:
+            accepted = catalog_service.accept_project_import_proposal(
+                item.proposal_id,
+                metadata_overrides=item.metadata_overrides,
+                asset_selections=item.asset_selections,
+                asset_links=item.asset_links,
+                actor=user.email,
+                change_summary=item.change_summary,
+            )
+        except ValueError as exc:
+            results.append({"proposal_id": item.proposal_id, "status": "failed", "error": str(exc)})
+            continue
+        component = accepted.get("component") or {}
+        results.append(
+            {
+                "proposal_id": item.proposal_id,
+                "status": "accepted",
+                "component_id": str(component.get("id") or ""),
+            }
+        )
+
+    accepted_count = sum(1 for result in results if result["status"] == "accepted")
+    return {
+        "accepted": accepted_count,
+        "failed": len(results) - accepted_count,
+        "results": results,
+    }
+
+
+@router.put("/import-sessions/{session_id}/proposals/drafts")
+def save_import_proposal_drafts(
+    session_id: str,
+    payload: SaveImportDraftsRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    """Persist in-progress remediation so a long import survives a reload."""
+    _import_session_for_user(session_id, user)
+    saved = catalog_service.save_project_import_drafts(session_id, payload.drafts)
+    return {"saved": saved}
+
+
+IMPORT_CSV_COLUMNS = (
+    "proposal_id",
+    "reference",
+    "value",
+    "manufacturer",
+    "manufacturer_part_number",
+    "description",
+    "datasheet",
+    "package_name",
+    "footprint_asset_id",
+    "status",
+    "blocking_findings",
+)
+
+
+def _import_csv_row(proposal: dict[str, Any]) -> dict[str, str]:
+    metadata = dict(proposal.get("metadata") or {})
+    draft = dict(proposal.get("draft") or {})
+    overrides = dict(draft.get("metadata_overrides") or {})
+    links = dict(draft.get("asset_links") or {})
+
+    def value_for(key: str, *, fallback_key: str = "") -> str:
+        if key in overrides:
+            return str(overrides[key] or "")
+        return str(metadata.get(fallback_key or key) or "")
+
+    blocking = [
+        str(finding.get("code") or "")
+        for finding in proposal.get("findings") or []
+        if finding.get("severity") == "error"
+    ]
+    return {
+        "proposal_id": str(proposal.get("id") or ""),
+        "reference": str(proposal.get("reference") or ""),
+        "value": value_for("value"),
+        "manufacturer": value_for("manufacturer"),
+        "manufacturer_part_number": value_for("manufacturer_part_number"),
+        "description": value_for("description"),
+        "datasheet": value_for("datasheet"),
+        "package_name": value_for("package_name", fallback_key="footprint"),
+        "footprint_asset_id": str(links.get("footprint") or ""),
+        "status": str(proposal.get("status") or ""),
+        "blocking_findings": " ".join(sorted(set(blocking))),
+    }
+
+
+@router.get("/import-sessions/{session_id}/proposals.csv")
+def export_import_proposals_csv(
+    session_id: str,
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    """Export the remediation grid so it can be completed in a spreadsheet."""
+    _import_session_for_user(session_id, user)
+    proposals = catalog_service.list_project_import_proposals(session_id)
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(IMPORT_CSV_COLUMNS), lineterminator="\n")
+    writer.writeheader()
+    for proposal in proposals:
+        writer.writerow(_import_csv_row(proposal))
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="prism-import-{session_id}.csv"',
+        },
+    )
+
+
+@router.post("/import-sessions/{session_id}/proposals.csv")
+async def import_proposals_csv(
+    session_id: str,
+    file: UploadFile = File(...),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    """Apply an edited CSV back onto the session's drafts.
+
+    Rows are matched by proposal_id and nothing is accepted here: the reviewer still
+    sees the result in the grid and decides what to import.
+    """
+    _import_session_for_user(session_id, user)
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="CSV must be UTF-8 encoded") from exc
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames or "proposal_id" not in reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV must include a proposal_id column")
+
+    known_ids = {
+        str(proposal["id"]) for proposal in catalog_service.list_project_import_proposals(session_id)
+    }
+    metadata_columns = (
+        "value",
+        "manufacturer",
+        "manufacturer_part_number",
+        "description",
+        "datasheet",
+        "package_name",
+    )
+
+    drafts: dict[str, dict[str, Any]] = {}
+    unknown_rows = 0
+    for row in reader:
+        proposal_id = str(row.get("proposal_id") or "").strip()
+        if not proposal_id:
+            continue
+        if proposal_id not in known_ids:
+            unknown_rows += 1
+            continue
+        overrides = {
+            column: str(row.get(column) or "").strip()
+            for column in metadata_columns
+            if row.get(column) is not None
+        }
+        draft: dict[str, Any] = {"metadata_overrides": overrides}
+        footprint_asset_id = str(row.get("footprint_asset_id") or "").strip()
+        if footprint_asset_id:
+            draft["asset_links"] = {"footprint": footprint_asset_id}
+        drafts[proposal_id] = draft
+
+    saved = catalog_service.save_project_import_drafts(session_id, drafts)
+    return {"saved": saved, "skipped_unknown_rows": unknown_rows}
+
+
+@router.get("/assets/search")
+def search_catalog_assets(
+    asset_type: str = Query(default="footprint"),
+    q: str = Query(default=""),
+    limit: int = Query(default=25, ge=1, le=100),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
+    """Search existing catalog assets so an import can reference one instead of copying it."""
+    try:
+        return {"items": catalog_service.search_assets(asset_type=asset_type, query=q, limit=limit)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

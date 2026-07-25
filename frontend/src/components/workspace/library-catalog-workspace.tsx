@@ -16,6 +16,8 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  ShieldQuestion,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +43,14 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/api";
+import {
+  AVAILABILITY_BADGE_TITLE,
+  AVAILABILITY_BADGE_VARIANT,
+  VALIDATION_BADGE_TITLE,
+  VALIDATION_BADGE_VARIANT,
+  WORKFLOW_BADGE_TITLE,
+  WORKFLOW_BADGE_VARIANT,
+} from "@/lib/catalog-badges";
 import { canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -149,14 +159,36 @@ function SortControl({
   );
 }
 
+// Badges sit in narrow adaptive columns. They must clip inside their own cell
+// rather than spill across the next column's content.
+const BADGE_CELL = "min-w-0 max-w-full shrink";
+
 function AvailabilityBadge({ state }: { state: AvailabilityState }) {
   const Icon = state === "place_ready" ? PackageCheck : state === "files_partial" ? Package : CircleDashed;
-  return <Badge variant="outline"><Icon className="h-3 w-3" />{AVAILABILITY_LABELS[state]}</Badge>;
+  return (
+    <Badge variant={AVAILABILITY_BADGE_VARIANT[state]} className={BADGE_CELL} title={AVAILABILITY_BADGE_TITLE[state]}>
+      <Icon className="h-3 w-3 shrink-0" />
+      <span className="truncate">{AVAILABILITY_LABELS[state]}</span>
+    </Badge>
+  );
+}
+
+function WorkflowBadge({ stage }: { stage: WorkflowStage }) {
+  return (
+    <Badge variant={WORKFLOW_BADGE_VARIANT[stage]} className={BADGE_CELL} title={WORKFLOW_BADGE_TITLE[stage]}>
+      <span className="truncate">{WORKFLOW_LABELS[stage]}</span>
+    </Badge>
+  );
 }
 
 function ValidationBadge({ status }: { status: CatalogValidationStatus }) {
-  const failed = status === "failed";
-  return <Badge variant={failed ? "destructive" : "outline"}>{failed ? <CircleAlert className="h-3 w-3" /> : <ShieldCheck className="h-3 w-3" />}{VALIDATION_LABELS[status]}</Badge>;
+  const Icon = status === "failed" ? CircleAlert : status === "warning" ? TriangleAlert : status === "passed" ? ShieldCheck : ShieldQuestion;
+  return (
+    <Badge variant={VALIDATION_BADGE_VARIANT[status]} className={BADGE_CELL} title={VALIDATION_BADGE_TITLE[status]}>
+      <Icon className="h-3 w-3 shrink-0" />
+      <span className="truncate">{VALIDATION_LABELS[status]}</span>
+    </Badge>
+  );
 }
 
 function CatalogEmpty({ filtered, onClear }: { filtered: boolean; onClear: () => void }) {
@@ -380,8 +412,17 @@ export function LibraryCatalogWorkspace({
     setCatalogViewport((current) => ({ ...current, scrollTop: 0 }));
   }, [availability, category, page, sortDirection, sortKey, urlQuery, validation, workflow]);
 
+  const [pageInput, setPageInput] = useState("");
   const activeFilterCount = [workflow, availability, validation, category].filter((value) => value !== "all").length;
   const isFiltered = Boolean(urlQuery || activeFilterCount);
+  // Twelve equal columns gave the badge columns a single 1/12 slice, far narrower
+  // than "CAD complete" or "Not run", so they overflowed into their neighbour.
+  // Each column now has a floor wide enough for its content and grows from there.
+  // With the detail panel open the same columns stay present but narrow, so a row
+  // never changes shape under the reader while they are comparing components.
+  const catalogGridTemplate = selectedComponentId
+    ? "minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(112px,0.9fr) minmax(96px,0.8fr) minmax(96px,0.8fr) minmax(0,1.1fr)"
+    : "minmax(0,2.4fr) minmax(0,1.5fr) minmax(0,1.5fr) minmax(124px,1fr) minmax(104px,0.9fr) minmax(104px,0.9fr) minmax(0,1.6fr)";
   const firstItem = total ? (page - 1) * PAGE_SIZE + 1 : 0;
   const lastItem = Math.min(page * PAGE_SIZE, total);
   const firstVisibleRow = Math.max(0, Math.floor(catalogViewport.scrollTop / CATALOG_ROW_HEIGHT) - CATALOG_OVERSCAN);
@@ -454,14 +495,14 @@ export function LibraryCatalogWorkspace({
           <div className="flex min-h-64 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading catalog page from the server…</div>
         ) : items.length === 0 ? <CatalogEmpty filtered={isFiltered} onClear={clearFilters} /> : (
           <div className={cn("flex min-h-0 flex-1 flex-col border transition-opacity", loading && "pointer-events-none opacity-60")} aria-busy={loading}>
-            <div className="hidden shrink-0 grid-cols-12 gap-3 border-b bg-muted/30 px-3 py-2 lg:grid">
-              <span className="col-span-3"><SortControl label="Component / MPN" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className={cn("col-span-2", selectedComponentId && "hidden")}><SortControl label="Manufacturer" sortKey="manufacturer" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className={cn("col-span-2", selectedComponentId && "hidden")}><SortControl label="Category / Package" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className={selectedComponentId ? "col-span-2" : "col-span-1"}><SortControl label="CAD" sortKey="availability_state" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className={selectedComponentId ? "col-span-2" : "col-span-1"}><SortControl label="Workflow" sortKey="workflow_stage" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
-              <span className={cn("text-xs font-medium text-muted-foreground", selectedComponentId ? "col-span-2" : "col-span-1")}>Validation</span>
-              <span className={selectedComponentId ? "col-span-3" : "col-span-2"}><SortControl label="Revision / Updated" sortKey="updated_at" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+            <div className="hidden shrink-0 gap-3 border-b bg-muted/30 px-3 py-2 lg:grid" style={{ gridTemplateColumns: catalogGridTemplate }}>
+              <span className="min-w-0"><SortControl label="Component / MPN" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className="min-w-0"><SortControl label="Manufacturer" sortKey="manufacturer" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className="min-w-0"><SortControl label="Category / Package" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className="min-w-0"><SortControl label="CAD" sortKey="availability_state" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className="min-w-0"><SortControl label="Workflow" sortKey="workflow_stage" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
+              <span className="min-w-0 text-xs font-medium text-muted-foreground">Validation</span>
+              <span className="min-w-0"><SortControl label="Revision / Updated" sortKey="updated_at" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
             </div>
             <div
               ref={catalogViewportRef}
@@ -473,18 +514,18 @@ export function LibraryCatalogWorkspace({
                 <button
                   key={component.id}
                   type="button"
-                  className={cn("absolute inset-x-0 grid h-16 w-full grid-cols-12 items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary")}
-                  style={{ transform: `translateY(${(firstVisibleRow + visibleIndex) * CATALOG_ROW_HEIGHT}px)` }}
+                  className={cn("absolute inset-x-0 grid h-16 w-full items-center gap-3 border-b px-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", selectedComponentId === component.id && "bg-secondary")}
+                  style={{ transform: `translateY(${(firstVisibleRow + visibleIndex) * CATALOG_ROW_HEIGHT}px)`, gridTemplateColumns: catalogGridTemplate }}
                   onClick={() => selectComponent(component)}
                   aria-pressed={selectedComponentId === component.id}
                 >
-                  <div className="col-span-3 min-w-0"><p className="truncate text-sm font-medium">{component.name}</p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
-                  <div className={cn("col-span-2 min-w-0", selectedComponentId && "hidden")}><p className="truncate text-xs">{component.manufacturer || "—"}</p><p className="truncate text-xs text-muted-foreground">{component.vendor || component.source}</p></div>
-                  <div className={cn("col-span-2 min-w-0", selectedComponentId && "hidden")}><p className="truncate text-xs">{component.category || "Uncategorized"}</p><p className="truncate text-xs text-muted-foreground">{component.package_name || "No package"}</p></div>
-                  <div className={selectedComponentId ? "col-span-2" : "col-span-1"}><AvailabilityBadge state={component.availability_state} /></div>
-                  <div className={selectedComponentId ? "col-span-2" : "col-span-1"}><Badge variant="outline">{WORKFLOW_LABELS[component.workflow_stage]}</Badge></div>
-                  <div className={selectedComponentId ? "col-span-2" : "col-span-1"}><ValidationBadge status={component.validation.status} /></div>
-                  <div className={cn("min-w-0", selectedComponentId ? "col-span-3" : "col-span-2")}><p className="text-xs font-medium">v{component.revision}</p><p className="truncate text-xs text-muted-foreground" title={component.created_by}>{formatDate(component.revision_updated_at)} · {component.created_by || "Unknown author"}</p></div>
+                  <div className="min-w-0"><p className="truncate text-sm font-medium">{component.name}</p><p className="truncate text-xs text-muted-foreground">{component.mpn || component.value || "No part number"}</p></div>
+                  <div className="min-w-0"><p className="truncate text-xs">{component.manufacturer || "—"}</p><p className="truncate text-xs text-muted-foreground">{component.vendor || component.source}</p></div>
+                  <div className="min-w-0"><p className="truncate text-xs">{component.category || "Uncategorized"}</p><p className="truncate text-xs text-muted-foreground">{component.package_name || "No package"}</p></div>
+                  <div className="flex min-w-0"><AvailabilityBadge state={component.availability_state} /></div>
+                  <div className="flex min-w-0"><WorkflowBadge stage={component.workflow_stage} /></div>
+                  <div className="flex min-w-0"><ValidationBadge status={component.validation.status} /></div>
+                  <div className="min-w-0"><p className="text-xs font-medium">v{component.revision}</p><p className="truncate text-xs text-muted-foreground" title={component.created_by}>{formatDate(component.revision_updated_at)} · {component.created_by || "Unknown author"}</p></div>
                 </button>
               ))}
               </div>
@@ -494,6 +535,31 @@ export function LibraryCatalogWorkspace({
               <nav className="flex items-center gap-1" aria-label="Catalog pagination">
                 <Button size="sm" variant="outline" className="h-7" disabled={loading || page <= 1} onClick={() => updateCatalogParams({ catalogPage: null })}>First</Button>
                 <Button size="sm" variant="outline" className="h-7" disabled={loading || page <= 1} onClick={() => updateCatalogParams({ catalogPage: page - 1 > 1 ? String(page - 1) : null })}>Previous</Button>
+                {/* Stepping to page 173 of 240 one click at a time is not a workflow. */}
+                <form
+                  className="flex items-center gap-1 px-1"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const requested = Number(pageInput);
+                    if (!Number.isFinite(requested)) return;
+                    const target = Math.min(pages, Math.max(1, Math.trunc(requested)));
+                    updateCatalogParams({ catalogPage: target > 1 ? String(target) : null });
+                    setPageInput("");
+                  }}
+                >
+                  <label htmlFor="catalog-page-input" className="sr-only">Go to page</label>
+                  <Input
+                    id="catalog-page-input"
+                    className="h-7 w-16 text-center text-xs"
+                    inputMode="numeric"
+                    disabled={loading || pages <= 1}
+                    value={pageInput}
+                    placeholder={String(page)}
+                    onChange={(event) => setPageInput(event.target.value.replace(/[^0-9]/g, ""))}
+                    aria-label={`Go to page, ${pages} pages available`}
+                  />
+                  <Button type="submit" size="sm" variant="outline" className="h-7" disabled={loading || !pageInput}>Go</Button>
+                </form>
                 <Button size="sm" variant="outline" className="h-7" disabled={loading || page >= pages} onClick={() => updateCatalogParams({ catalogPage: String(Math.min(pages, page + 1)) })}>Next</Button>
                 <Button size="sm" variant="outline" className="h-7" disabled={loading || page >= pages} onClick={() => updateCatalogParams({ catalogPage: String(pages) })}>Last</Button>
               </nav>
