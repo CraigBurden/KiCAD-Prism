@@ -13,6 +13,19 @@ from typing import List
 import os
 
 
+# Placeholders that appear in this repository's examples and in copy-pasted guides.
+# None of them may sign a real session.
+_WEAK_SESSION_SECRETS = {
+    "change-me",
+    "changeme",
+    "secret",
+    "kicad-prism",
+    "kicad-prism-local",
+    "your-session-secret",
+    "replace-with-a-long-random-string",
+}
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
@@ -153,10 +166,36 @@ class Settings(BaseSettings):
         description="Session expiration (hours)"
     )
 
-    # Cookie secure flag (set true behind HTTPS).
-    SESSION_COOKIE_SECURE: bool = Field(
-        default=False,
-        description="Whether session cookie should be marked Secure"
+    # Idle timeout. A session unused for this long is revoked even before TTL.
+    SESSION_IDLE_TIMEOUT_MINUTES: int = Field(
+        default=0,
+        ge=0,
+        le=10080,
+        description="Revoke a session after this many minutes without use. 0 disables idle expiry."
+    )
+
+    # Cookie secure flag. Left unset, Prism derives it from PUBLIC_BASE_URL.
+    SESSION_COOKIE_SECURE_OVERRIDE: bool | None = Field(
+        default=None,
+        alias="SESSION_COOKIE_SECURE",
+        description=(
+            "Force the session cookie Secure flag. When unset, Prism marks the cookie Secure "
+            "for any deployment whose PUBLIC_BASE_URL is HTTPS."
+        ),
+    )
+
+    AUTH_LOGIN_RATE_LIMIT: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        description="Maximum authentication attempts per client per window."
+    )
+
+    AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=300,
+        ge=10,
+        le=3600,
+        description="Sliding window for authentication attempt rate limiting."
     )
 
     # Comma-separated browser origins allowed to make credentialed API requests.
@@ -170,7 +209,16 @@ class Settings(BaseSettings):
     # ===========================================
     DEV_MODE: bool = Field(
         default=True,
-        description="Enable development mode. When True, bypasses authentication."
+        description=(
+            "Enable development affordances (verbose errors, the login page's local bypass "
+            "hint). This flag no longer disables authentication on its own; set AUTH_ENABLED=false "
+            "for that, which is an explicit and loudly logged choice."
+        )
+    )
+
+    DEV_GUEST_ROLE: str = Field(
+        default="admin",
+        description="Role granted to the implicit guest user when AUTH_ENABLED is false."
     )
     
     # ===========================================
@@ -514,22 +562,73 @@ class Settings(BaseSettings):
     @property
     def AUTH_ENABLED(self) -> bool:
         """
-        Authentication is enabled only if:
-        1. AUTH_ENABLED env var is True (default), AND
-        2. Valid OIDC/OAuth client credentials are configured, AND
-        3. DEV_MODE is False
+        Authentication follows the AUTH_ENABLED env var and nothing else.
+
+        Incomplete OIDC configuration used to silently disable authentication, which
+        turned any misconfiguration into an unauthenticated admin console. Prism now
+        refuses to start in that state instead - see validate_auth_configuration().
         """
-        # If explicitly disabled via env var, it's off.
-        if not self.AUTH_ENABLED_OVERRIDE:
-            return False
-            
-        return (
-            bool(self.EFFECTIVE_OIDC_ISSUER_URL)
-            and bool(self.EFFECTIVE_OIDC_CLIENT_ID)
-            and bool(self.EFFECTIVE_OIDC_CLIENT_SECRET)
-            and not self.DEV_MODE
-        )
-    
+        return self.AUTH_ENABLED_OVERRIDE
+
+    @property
+    def SESSION_COOKIE_SECURE(self) -> bool:
+        """Mark the session cookie Secure unless an operator explicitly opts out."""
+        if self.SESSION_COOKIE_SECURE_OVERRIDE is not None:
+            return self.SESSION_COOKIE_SECURE_OVERRIDE
+        return self.PUBLIC_BASE_URL.strip().lower().startswith("https://")
+
+    def auth_configuration_errors(self) -> List[str]:
+        """Return every reason this deployment must not serve authenticated traffic."""
+        if not self.AUTH_ENABLED:
+            return []
+
+        errors: List[str] = []
+        if not self.EFFECTIVE_OIDC_ISSUER_URL:
+            errors.append("OIDC_ISSUER_URL is required when AUTH_ENABLED=true")
+        elif not self.EFFECTIVE_OIDC_ISSUER_URL.startswith("https://"):
+            errors.append("OIDC_ISSUER_URL must use https://")
+        if not self.EFFECTIVE_OIDC_CLIENT_ID:
+            errors.append("OIDC_CLIENT_ID is required when AUTH_ENABLED=true")
+        if not self.EFFECTIVE_OIDC_CLIENT_SECRET:
+            errors.append("OIDC_CLIENT_SECRET is required when AUTH_ENABLED=true")
+        if self.OIDC_TOKEN_AUTH_METHOD.strip().lower() not in {"client_secret_post", "client_secret_basic"}:
+            errors.append("OIDC_TOKEN_AUTH_METHOD must be client_secret_post or client_secret_basic")
+
+        secret = self.SESSION_SECRET.strip()
+        if not secret:
+            errors.append("SESSION_SECRET is required when AUTH_ENABLED=true")
+        elif len(secret) < 32:
+            errors.append("SESSION_SECRET must be at least 32 characters")
+        elif len(set(secret)) < 8:
+            errors.append("SESSION_SECRET is not sufficiently random")
+        elif secret.lower() in _WEAK_SESSION_SECRETS:
+            errors.append("SESSION_SECRET is a well-known placeholder value")
+
+        if not self.PRISM_DATABASE_URL.strip():
+            errors.append("PRISM_DATABASE_URL is required to store revocable sessions")
+
+        if self.OAUTH_EXTERNAL_JWT_ISSUER_URL.strip() and not self.OAUTH_EXTERNAL_JWT_AUDIENCE.strip():
+            errors.append(
+                "OAUTH_EXTERNAL_JWT_AUDIENCE is required whenever OAUTH_EXTERNAL_JWT_ISSUER_URL is set; "
+                "without it Prism would accept any token that issuer minted for any audience"
+            )
+
+        for origin in self.CORS_ORIGINS:
+            if origin == "*":
+                errors.append("CORS_ORIGINS_STR must not contain '*' because Prism sends credentials")
+
+        return errors
+
+    def validate_auth_configuration(self) -> None:
+        """Fail closed at startup rather than serving an unauthenticated admin console."""
+        errors = self.auth_configuration_errors()
+        if errors:
+            raise RuntimeError(
+                "Refusing to start with an unsafe authentication configuration:\n  - "
+                + "\n  - ".join(errors)
+            )
+
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -14,6 +14,7 @@ from app.api.catalog_admin import router as catalog_admin_router
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
+from app.services import rate_limit_service, session_store_service
 from app.services.comments_store_service import initialize_comments_store
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
@@ -22,6 +23,7 @@ from app.services.job_service import jobs
 from app.core.config import settings
 import subprocess
 import os
+import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -106,15 +108,86 @@ def ensure_ssh_dir():
     except OSError as error:
         logger.error("Failed to configure SSH directory: %s", error)
 
+RULE = "=" * 74
+
+
+def verify_auth_configuration_or_exit() -> None:
+    """Stop before the server exists rather than deep inside ASGI startup.
+
+    Running this at import keeps a configuration mistake readable: whoever is
+    deploying Prism sees a short list of what to fix, not sixty frames of nested
+    lifespan traceback with the real message buried at the bottom.
+    """
+    errors = settings.auth_configuration_errors()
+    if not errors:
+        return
+
+    report = [
+        "",
+        RULE,
+        "  KiCAD Prism did not start: unsafe authentication configuration",
+        RULE,
+        "",
+        "  Refusing to serve requests, because starting anyway would expose every",
+        "  project in this workspace without a login.",
+        "",
+    ]
+    report += [f"    x  {error}" for error in errors]
+    report += [
+        "",
+        "  Set these in your .env file, then start again:",
+        "",
+        "      docker compose up -d backend",
+        "",
+        "  Configuration guide:  docs/OIDC_OAUTH_INTEGRATION.md",
+        "  Generate a secret:    openssl rand -base64 48",
+        "",
+        "  To run a local instance with no authentication at all, set",
+        "  AUTH_ENABLED=false. Never do this on a shared or reachable host.",
+        RULE,
+        "",
+    ]
+    print("\n".join(report), file=sys.stderr, flush=True)
+    raise SystemExit(3)
+
+
+def announce_auth_posture() -> None:
+    if settings.AUTH_ENABLED:
+        logger.info(
+            "Authentication enabled. Issuer=%s cookie_secure=%s session_ttl=%sh",
+            settings.EFFECTIVE_OIDC_ISSUER_URL,
+            settings.SESSION_COOKIE_SECURE,
+            settings.SESSION_TTL_HOURS,
+        )
+        return
+
+    logger.warning(
+        "\n%s\n  AUTHENTICATION IS DISABLED (AUTH_ENABLED=false).\n"
+        "  Every request is served as the built-in guest user with the '%s' role.\n"
+        "  Never expose this deployment beyond a trusted development machine.\n%s",
+        RULE,
+        settings.DEV_GUEST_ROLE,
+        RULE,
+    )
+
+
+verify_auth_configuration_or_exit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    announce_auth_posture()
     configure_git()
     ensure_ssh_dir()
     initialize_comments_store()
     catalog_service.initialize()
     workspace.initialize()
     jobs.initialize()
+    if settings.AUTH_ENABLED:
+        session_store_service.initialize_session_store()
+        session_store_service.prune_expired_sessions()
+        rate_limit_service.initialize_rate_limit_store()
     try:
         yield
     finally:
@@ -122,6 +195,25 @@ async def lifespan(app: FastAPI):
         database.close()
 
 app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def apply_security_headers(request, call_next):
+    """Baseline browser hardening for a deployment that hosts customer PCB IP."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault(
+        "Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=()"
+    )
+    if settings.SESSION_COOKIE_SECURE:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
 
 # Configure CORS
 app.add_middleware(
