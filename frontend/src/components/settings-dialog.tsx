@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -87,6 +88,7 @@ function GitSettings({ user }: { user: User | null }) {
     const [sshKey, setSshKey] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
+    const [confirmRegenerate, setConfirmRegenerate] = useState(false);
     const [email] = useState(user?.email || "kicad-prism@example.com");
 
     const fetchSshKey = useCallback(async (signal?: AbortSignal) => {
@@ -117,8 +119,7 @@ function GitSettings({ user }: { user: User | null }) {
     }, [fetchSshKey]);
 
     const generateKey = async () => {
-        if (!window.confirm("This will overwrite any existing SSH key. Continue?")) return;
-
+        setConfirmRegenerate(false);
         setGenerating(true);
         try {
             const res = await fetchApi("/api/settings/ssh-key/generate", {
@@ -167,7 +168,7 @@ function GitSettings({ user }: { user: User | null }) {
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={generateKey}
+                        onClick={() => (sshKey ? setConfirmRegenerate(true) : void generateKey())}
                         disabled={generating}
                     >
                         {generating ? "Generating..." : "Generate New Key"}
@@ -199,6 +200,20 @@ function GitSettings({ user }: { user: User | null }) {
                     </div>
                 )}
             </div>
+
+            {/* Only asked when a key already exists: replacing one breaks every
+                remote that trusts it, creating the first one breaks nothing. */}
+            <ConfirmDialog
+                open={confirmRegenerate}
+                onOpenChange={setConfirmRegenerate}
+                title="Replace SSH key"
+                description="The existing key is overwritten and cannot be recovered. Every Git remote that trusts it will refuse this workspace until the new key is registered."
+                confirmLabel="Hold to replace key"
+                requireHold
+                busy={generating}
+                busyLabel="Generating…"
+                onConfirm={() => void generateKey()}
+            />
         </div>
     );
 }
@@ -208,6 +223,8 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
     const [assignments, setAssignments] = useState<RoleAssignment[]>([]);
     const [newEmail, setNewEmail] = useState("");
     const [newRole, setNewRole] = useState<UserRole>("viewer");
+    // The dialog names the person, so it holds the email rather than a boolean.
+    const removalTarget = useConfirmTarget<string>();
 
     const loadAssignments = useCallback(async () => {
         if (!isAdmin) {
@@ -261,10 +278,7 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
     };
 
     const removeRole = async (email: string) => {
-        if (!window.confirm(`Remove role assignment for ${email}?`)) {
-            return;
-        }
-
+        removalTarget.clear();
         try {
             const response = await fetchApi(`/api/settings/access/users/${encodeURIComponent(email)}`, {
                 method: "DELETE",
@@ -358,7 +372,7 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
                                         variant="ghost"
                                         size="icon"
                                         disabled={isBootstrap}
-                                        onClick={() => void removeRole(assignment.email)}
+                                        onClick={() => removalTarget.request(assignment.email)}
                                         aria-label={`Remove role assignment for ${assignment.email}`}
                                     >
                                         <Trash2 className="h-4 w-4" />
@@ -369,6 +383,16 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
                     })
                 )}
             </div>
+
+            <ConfirmDialog
+                open={removalTarget.open}
+                onOpenChange={(next) => { if (!next) removalTarget.clear(); }}
+                title="Remove role assignment"
+                description={`${removalTarget.target ?? ""} loses their assigned role and falls back to the workspace default. Any project or catalog access that depended on it stops immediately.`}
+                confirmLabel="Hold to remove access"
+                requireHold
+                onConfirm={() => { if (removalTarget.target) void removeRole(removalTarget.target); }}
+            />
         </div>
     );
 }

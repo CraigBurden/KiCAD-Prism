@@ -7,6 +7,7 @@ import {
     X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ export function CommentCard({
     const [replyOpen, setReplyOpen] = useState(false);
     const [replyContent, setReplyContent] = useState("");
     const [busy, setBusy] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
     const isResolved = comment.status === "RESOLVED";
 
     const style: CSSProperties = screenPosition
@@ -186,16 +188,24 @@ export function CommentCard({
                         size="icon"
                         className="h-8 w-8 text-muted-foreground hover:text-destructive"
                         aria-label="Delete comment"
-                        onClick={() => {
-                            if (window.confirm("Delete this comment?")) {
-                                void onDelete(comment.id);
-                            }
-                        }}
+                        onClick={() => setConfirmDelete(true)}
                     >
                         <Trash2 className="h-4 w-4" />
                     </Button>
                 </div>
             )}
+
+            <ConfirmDialog
+                open={confirmDelete}
+                onOpenChange={setConfirmDelete}
+                title="Delete comment"
+                description="This removes the comment and its replies from the review thread. It cannot be undone."
+                confirmLabel="Delete comment"
+                onConfirm={() => {
+                    setConfirmDelete(false);
+                    void onDelete(comment.id);
+                }}
+            />
         </div>
     );
 }
