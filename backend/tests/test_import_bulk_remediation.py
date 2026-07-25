@@ -103,7 +103,14 @@ class ImportBulkRemediationTests(unittest.TestCase):
             "target_name": Path(name).stem,
         }
 
-    def _stage_proposal(self, *, reference: str, mpn: str, with_footprint: bool = True):
+    def _stage_proposal(
+        self,
+        *,
+        reference: str,
+        mpn: str,
+        with_footprint: bool = True,
+        findings: list[dict[str, str]] | None = None,
+    ):
         session = self.service.create_project_import_session(
             scope="project", project_id="proj-1", actor="tester@example.com"
         )
@@ -130,7 +137,7 @@ class ImportBulkRemediationTests(unittest.TestCase):
                     },
                     "assets": assets,
                     "provenance": [{"projectId": "proj-1", "sourceRevision": "abc123"}],
-                    "findings": [],
+                    "findings": findings or [],
                 }
             ],
         )
@@ -246,6 +253,75 @@ class ImportBulkRemediationTests(unittest.TestCase):
         component_id = str(result["component"]["id"])
         self.component_ids.append(component_id)
         self.assertEqual(self._revision_asset_ids(component_id, "footprint"), [shared_asset_id])
+
+    def test_linking_clears_the_not_resolved_finding_it_answers(self) -> None:
+        """A footprint the extractor could not find is resolved by linking one.
+
+        The finding is severity 'error' and was treated as a permanent blocker, so a
+        fully remediated row stayed stuck at "needs attention" and could not import.
+        """
+        _, seed = self._stage_proposal(reference="R1", mpn="RC0603-FINDING-SEED")
+        seed_result = self.service.accept_project_import_proposal(
+            str(seed["id"]), actor="tester@example.com"
+        )
+        seed_component_id = str(seed_result["component"]["id"])
+        self.component_ids.append(seed_component_id)
+        shared_asset_id = self._revision_asset_ids(seed_component_id, "footprint")[0]
+
+        _, blocked = self._stage_proposal(
+            reference="C149",
+            mpn="RC0603-FINDING",
+            with_footprint=False,
+            findings=[
+                {
+                    "code": "footprint_not_resolved",
+                    "severity": "error",
+                    "message": "Embedded footprint for C149 was not found.",
+                }
+            ],
+        )
+
+        with self.assertRaises(ValueError):
+            self.service.accept_project_import_proposal(
+                str(blocked["id"]), actor="tester@example.com"
+            )
+
+        result = self.service.accept_project_import_proposal(
+            str(blocked["id"]),
+            asset_links={"footprint": shared_asset_id},
+            actor="tester@example.com",
+        )
+        component_id = str(result["component"]["id"])
+        self.component_ids.append(component_id)
+        self.assertEqual(self._revision_asset_ids(component_id, "footprint"), [shared_asset_id])
+
+    def test_an_unrelated_error_finding_still_blocks_after_linking(self) -> None:
+        _, seed = self._stage_proposal(reference="R1", mpn="RC0603-STILL-BLOCKED-SEED")
+        seed_result = self.service.accept_project_import_proposal(
+            str(seed["id"]), actor="tester@example.com"
+        )
+        seed_component_id = str(seed_result["component"]["id"])
+        self.component_ids.append(seed_component_id)
+        shared_asset_id = self._revision_asset_ids(seed_component_id, "footprint")[0]
+
+        _, blocked = self._stage_proposal(
+            reference="U7",
+            mpn="RC0603-STILL-BLOCKED",
+            findings=[
+                {
+                    "code": "symbol_not_resolved",
+                    "severity": "error",
+                    "message": "Embedded symbol for U7 was not found.",
+                }
+            ],
+        )
+        with self.assertRaises(ValueError):
+            # Linking a footprint must not excuse an unresolved symbol.
+            self.service.accept_project_import_proposal(
+                str(blocked["id"]),
+                asset_links={"footprint": shared_asset_id},
+                actor="tester@example.com",
+            )
 
     def test_unknown_or_mistyped_asset_links_are_rejected(self) -> None:
         _, seed = self._stage_proposal(reference="R1", mpn="RC0603-TYPES")

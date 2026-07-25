@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, ArrowDownToLine, Check, CheckCheck, Download, Loader2, Save, Upload, X,
+  AlertTriangle, ArrowDownToLine, Check, CheckCheck, Download, Loader2, Redo2, Save, Undo2, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,7 +47,10 @@ const COLUMNS: ColumnDef[] = [
 ];
 
 /** Local edits keyed by proposal id. */
-type RowEdits = Record<string, { metadata: Partial<Record<EditableField, string>>; footprintAssetId?: string }>;
+export type RowEdits = Record<
+  string,
+  { metadata: Partial<Record<EditableField, string>>; footprintAssetId?: string }
+>;
 
 function metadataValue(proposal: ProjectComponentImportProposal, field: EditableField): string {
   const source = proposal.metadata as Record<string, unknown>;
@@ -85,17 +88,29 @@ function hasOwnAsset(proposal: ProjectComponentImportProposal, assetType: string
   return proposal.assets.some((asset) => asset.asset_type === assetType);
 }
 
-/** Blocking findings the grid cannot fix; metadata and conflict findings are resolvable here. */
-function unresolvableFindings(proposal: ProjectComponentImportProposal) {
+/**
+ * Blocking findings the grid cannot fix.
+ *
+ * Metadata and conflict findings are edited away in the cells. An
+ * "<asset_type>_not_resolved" finding means the extractor could not locate that
+ * asset in the project, which is precisely what linking an existing catalog asset
+ * answers - so a supplied link clears it. The backend applies the same rule when
+ * accepting, and the two must agree or a row would read as ready and then fail.
+ */
+function unresolvableFindings(
+  proposal: ProjectComponentImportProposal,
+  linkedAssetTypes: Set<string>
+) {
   return proposal.findings.filter(
     (finding) =>
       finding.severity === "error" &&
       !finding.code.startsWith("missing_metadata_") &&
-      !finding.code.startsWith("conflicting_")
+      !finding.code.startsWith("conflicting_") &&
+      !linkedAssetTypes.has(finding.code.replace(/_not_resolved$/, ""))
   );
 }
 
-function rowProblems(
+export function rowProblems(
   proposal: ProjectComponentImportProposal,
   edits: RowEdits
 ): string[] {
@@ -108,11 +123,16 @@ function rowProblems(
   const datasheet = effectiveValue(proposal, "datasheet", edits).trim();
   if (datasheet && !/^https?:\/\//i.test(datasheet)) problems.push("Datasheet must be an HTTP(S) URL");
 
+  const footprintLink = effectiveFootprintLink(proposal, edits);
+  const linkedAssetTypes = new Set(footprintLink ? ["footprint"] : []);
+
   if (!hasOwnAsset(proposal, "symbol")) problems.push("No symbol was extracted");
-  if (!hasOwnAsset(proposal, "footprint") && !effectiveFootprintLink(proposal, edits)) {
+  if (!hasOwnAsset(proposal, "footprint") && !footprintLink) {
     problems.push("Link an existing footprint or re-import with one");
   }
-  problems.push(...unresolvableFindings(proposal).map((finding) => finding.message));
+  problems.push(
+    ...unresolvableFindings(proposal, linkedAssetTypes).map((finding) => finding.message)
+  );
   return problems;
 }
 
@@ -123,6 +143,10 @@ export function LibraryImportRemediationGrid({
   onRefresh,
 }: LibraryImportRemediationGridProps) {
   const [edits, setEdits] = useState<RowEdits>({});
+  // Every cell edit, fill-down, and link change pushes the previous state here so a
+  // mis-aimed fill-down across 300 rows is one keystroke to undo.
+  const [undoStack, setUndoStack] = useState<RowEdits[]>([]);
+  const [redoStack, setRedoStack] = useState<RowEdits[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [accepting, setAccepting] = useState(false);
@@ -172,22 +196,63 @@ export function LibraryImportRemediationGrid({
     });
   }, [candidates]);
 
-  const setCell = useCallback((proposalId: string, field: EditableField, value: string) => {
-    setEdits((current) => ({
-      ...current,
-      [proposalId]: {
-        ...current[proposalId],
-        metadata: { ...current[proposalId]?.metadata, [field]: value },
-      },
-    }));
+  /** Apply an edit through the history so it can be undone. */
+  const commitEdits = useCallback((update: (current: RowEdits) => RowEdits) => {
+    setEdits((current) => {
+      const next = update(current);
+      if (next === current) return current;
+      setUndoStack((stack) => [...stack.slice(-49), current]);
+      setRedoStack([]);
+      return next;
+    });
   }, []);
 
-  const setFootprintLink = useCallback((proposalId: string, assetId: string) => {
-    setEdits((current) => ({
-      ...current,
-      [proposalId]: { ...current[proposalId], footprintAssetId: assetId },
-    }));
+  const undo = useCallback(() => {
+    setUndoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const previous = stack[stack.length - 1];
+      setEdits((current) => {
+        setRedoStack((redo) => [...redo, current]);
+        return previous;
+      });
+      return stack.slice(0, -1);
+    });
   }, []);
+
+  const redo = useCallback(() => {
+    setRedoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const next = stack[stack.length - 1];
+      setEdits((current) => {
+        setUndoStack((undoEntries) => [...undoEntries, current]);
+        return next;
+      });
+      return stack.slice(0, -1);
+    });
+  }, []);
+
+  const setCell = useCallback(
+    (proposalId: string, field: EditableField, value: string) => {
+      commitEdits((current) => ({
+        ...current,
+        [proposalId]: {
+          ...current[proposalId],
+          metadata: { ...current[proposalId]?.metadata, [field]: value },
+        },
+      }));
+    },
+    [commitEdits]
+  );
+
+  const setFootprintLink = useCallback(
+    (proposalId: string, assetId: string) => {
+      commitEdits((current) => ({
+        ...current,
+        [proposalId]: { ...current[proposalId], footprintAssetId: assetId },
+      }));
+    },
+    [commitEdits]
+  );
 
   /** Copy the focused row's value down every selected row - the spreadsheet staple. */
   const fillDown = useCallback(
@@ -196,16 +261,18 @@ export function LibraryImportRemediationGrid({
       if (!source) return;
       const value = effectiveValue(source, field, edits);
       const targets = selected.size > 0 ? [...selected] : visibleRows.map((row) => row.id);
-      setEdits((current) => {
+      commitEdits((current) => {
         const next = { ...current };
         for (const id of targets) {
           next[id] = { ...next[id], metadata: { ...next[id]?.metadata, [field]: value } };
         }
         return next;
       });
-      toast.success(`Filled ${field.replace(/_/g, " ")} into ${targets.length} rows`);
+      toast.success(`Filled ${field.replace(/_/g, " ")} into ${targets.length} rows`, {
+        description: "Press ⌘Z to undo",
+      });
     },
-    [candidates, edits, selected, visibleRows]
+    [candidates, commitEdits, edits, selected, visibleRows]
   );
 
   const buildDrafts = useCallback(() => {
@@ -233,6 +300,11 @@ export function LibraryImportRemediationGrid({
         "Failed to save import edits"
       );
       setEdits({});
+      setUndoStack([]);
+      setRedoStack([]);
+      // Saved edits are no longer pending, so a stale selection would leave the
+      // "Import selected" count disagreeing with the checkboxes.
+      setSelected(new Set());
       await onRefresh();
       toast.success("Import edits saved");
     } catch (error) {
@@ -327,6 +399,27 @@ export function LibraryImportRemediationGrid({
     [onRefresh, sessionId]
   );
 
+  useEffect(() => {
+    if (!canWrite) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+      } else if (key === "y") {
+        event.preventDefault();
+        redo();
+      } else if (key === "s") {
+        event.preventDefault();
+        void saveDrafts();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canWrite, redo, saveDrafts, undo]);
+
   const toggleAll = (checked: boolean) => {
     setSelected(checked ? new Set(visibleRows.map((row) => row.id)) : new Set());
   };
@@ -344,7 +437,9 @@ export function LibraryImportRemediationGrid({
     );
   }
 
-  const gridTemplate = `36px 120px ${COLUMNS.map((column) => `${column.width}px`).join(" ")} 200px 40px`;
+  // Status leads the row so a scan down the left edge shows what still needs work,
+  // which matters most when the "needs attention" filter is off.
+  const gridTemplate = `36px 40px 120px ${COLUMNS.map((column) => `${column.width}px`).join(" ")} 200px`;
 
   return (
     <div className="space-y-3">
@@ -366,6 +461,27 @@ export function LibraryImportRemediationGrid({
         </Button>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            title="Undo (⌘Z)"
+            disabled={!canWrite || undoStack.length === 0}
+            onClick={undo}
+          >
+            <Undo2 className="mr-1.5 h-3.5 w-3.5" /> Undo
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            title="Redo (⇧⌘Z)"
+            disabled={!canWrite || redoStack.length === 0}
+            onClick={redo}
+          >
+            <Redo2 className="h-3.5 w-3.5" />
+            <span className="sr-only">Redo</span>
+          </Button>
           <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportCsv}>
             <Download className="mr-1.5 h-3.5 w-3.5" /> Export CSV
           </Button>
@@ -438,6 +554,9 @@ export function LibraryImportRemediationGrid({
                 aria-label="Select all visible rows"
               />
             </div>
+            <div className="flex h-9 items-center justify-center border-r" title="Row status">
+              <span className="sr-only">Status</span>
+            </div>
             <div className="flex h-9 items-center border-r px-2">Reference</div>
             {COLUMNS.map((column) => (
               <div key={column.key} className="flex h-9 items-center gap-1 border-r px-2">
@@ -445,8 +564,7 @@ export function LibraryImportRemediationGrid({
                 {column.required ? <span className="text-destructive">*</span> : null}
               </div>
             ))}
-            <div className="flex h-9 items-center border-r px-2">Footprint</div>
-            <div className="flex h-9 items-center justify-center" title="Row status" />
+            <div className="flex h-9 items-center px-2">Footprint</div>
           </div>
 
           {visibleRows.map((proposal) => {
@@ -475,6 +593,18 @@ export function LibraryImportRemediationGrid({
                     }
                     aria-label={`Select ${proposal.reference || "row"}`}
                   />
+                </div>
+                <div className="flex h-9 items-center justify-center border-r">
+                  {problems.length === 0 ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-500" aria-label="Ready to import" />
+                  ) : (
+                    <span title={problems.join("\n")} className="cursor-help">
+                      <AlertTriangle
+                        className="h-3.5 w-3.5 text-destructive"
+                        aria-label={`Needs attention: ${problems.join(", ")}`}
+                      />
+                    </span>
+                  )}
                 </div>
                 <div className="flex h-9 items-center border-r px-2 font-medium">
                   <span className="truncate" title={proposal.reference}>
@@ -524,16 +654,6 @@ export function LibraryImportRemediationGrid({
                   suggestQuery={effectiveValue(proposal, "package_name", edits)}
                   onChange={(assetId) => setFootprintLink(proposal.id, assetId)}
                 />
-
-                <div className="flex h-9 items-center justify-center">
-                  {problems.length === 0 ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-500" aria-label="Ready to import" />
-                  ) : (
-                    <span title={problems.join("\n")}>
-                      <X className="h-3.5 w-3.5 text-destructive" aria-label={problems.join(", ")} />
-                    </span>
-                  )}
-                </div>
               </div>
             );
           })}

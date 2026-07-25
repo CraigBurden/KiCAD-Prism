@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronRight, FolderOpen, FolderSearch, HardDrive, LoaderCircle, RefreshCw, Rows3, Table2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Rows3, Table2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +112,8 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const [remediationProposal, setRemediationProposal] = useState<ProjectComponentImportProposal | null>(null);
   // The grid is the primary path; the card list stays for per-component findings.
   const [reviewMode, setReviewMode] = useState<"grid" | "cards">("grid");
+  // The grid is wide; collapsing the session rail gives it back ~15rem.
+  const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
   const canWrite = canWriteCatalog(user?.role);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const directoryInputProps: InputHTMLAttributes<HTMLInputElement> & {
@@ -452,11 +454,42 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         )}
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)]">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 transition-[grid-template-columns] duration-200",
+          sessionsCollapsed ? "grid-cols-[3rem_minmax(0,1fr)]" : "grid-cols-[18rem_minmax(0,1fr)]"
+        )}
+      >
         <aside className="min-h-0 overflow-y-auto border-r p-2">
+          {sessionsCollapsed ? (
+            <div className="flex flex-col items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Expand import sessions"
+                title="Expand import sessions"
+                onClick={() => setSessionsCollapsed(false)}
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </Button>
+              <Badge variant="outline" className="px-1 text-[10px]">{sessions.length}</Badge>
+            </div>
+          ) : (
+            <>
           <div className="mb-2 flex items-center justify-between px-2 py-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Import sessions</span>
-            <Button variant="ghost" size="icon-sm" aria-label="Refresh imports" onClick={() => void loadSessions()}><RefreshCw className="h-3.5 w-3.5" /></Button>
+            <div className="flex items-center">
+              <Button variant="ghost" size="icon-sm" aria-label="Refresh imports" onClick={() => void loadSessions()}><RefreshCw className="h-3.5 w-3.5" /></Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Collapse import sessions"
+                title="Collapse import sessions"
+                onClick={() => setSessionsCollapsed(true)}
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
           {sessions.length === 0 ? (
             <p className="p-3 text-sm text-muted-foreground">No imports yet.</p>
@@ -476,6 +509,8 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
               </div>
             </button>
           ))}
+            </>
+          )}
         </aside>
 
         <section className="min-h-0 overflow-y-auto p-4">

@@ -2843,12 +2843,17 @@ class ComponentCatalogDomainService:
                 raise ValueError(
                     "A symbol and footprint are required before accepting a project import"
                 )
+        # "<asset_type>_not_resolved" means the extractor could not find that asset in
+        # the project. Linking an existing catalog asset is exactly the remedy, so a
+        # supplied link clears the finding it answers.
+        resolved_by_link = {f"{asset_type}_not_resolved" for asset_type in linked_assets}
         blocking = [
             finding
             for finding in proposal["findings"]
             if finding.get("severity") == "error"
             and not str(finding.get("code") or "").startswith("missing_metadata_")
             and not str(finding.get("code") or "").startswith("conflicting_")
+            and str(finding.get("code") or "") not in resolved_by_link
         ]
         if blocking:
             raise ValueError("Resolve blocking import findings before accepting this proposal")
