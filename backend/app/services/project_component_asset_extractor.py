@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
+from app.services import kicad_footprint_normalizer
+
 
 def _balanced_end(text: str, start: int) -> int | None:
     depth = 0
@@ -404,6 +406,35 @@ class ProjectAssetSnapshotIndex:
         if footprint_result:
             target_name, payload, model_paths = _sanitize_footprint(footprint_result.block, footprint_ref)
             pcb_path = footprint_result.source_path
+
+            # A part placed on the back of the board is stored mirrored. Library
+            # footprints are front-side by convention, so undo the placement flip
+            # before the bytes become an immutable catalog asset.
+            normalized = kicad_footprint_normalizer.normalize_to_front(payload, target_name)
+            if normalized.changed:
+                payload = normalized.payload
+                findings.append(
+                    {
+                        "code": "footprint_side_normalized",
+                        "severity": "warning",
+                        "message": (
+                            f"{reference} is placed on the back of the board. Its footprint was "
+                            "flipped to the front so the library copy matches KiCad convention."
+                        ),
+                    }
+                )
+            elif normalized.error:
+                findings.append(
+                    {
+                        "code": "footprint_side_normalization_failed",
+                        "severity": "warning",
+                        "message": (
+                            f"{reference} is placed on the back of the board and its footprint could "
+                            f"not be flipped to the front ({normalized.error}). It will import mirrored."
+                        ),
+                    }
+                )
+
             library_name = (
                 footprint_ref.rsplit(":", 1)[0] if ":" in footprint_ref else "Prism_Project_Footprints"
             )

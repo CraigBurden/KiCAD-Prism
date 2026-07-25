@@ -3158,6 +3158,9 @@ class ComponentCatalogDomainService:
             "released_view": released_view,
             "revision_id": str(revision_row["id"]),
             "revision_updated_at": str(revision_row["updated_at"]),
+            # Who authored the current revision. Stored all along, but omitted here,
+            # so every catalog row rendered as "Unknown author".
+            "created_by": str(revision_row.get("created_by") or ""),
             "component_updated_at": str(component_row["updated_at"]),
             "assets": [],
             "previews": [],
