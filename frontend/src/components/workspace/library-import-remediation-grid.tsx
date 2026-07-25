@@ -1,0 +1,553 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle, ArrowDownToLine, Check, CheckCheck, Download, Loader2, Save, Upload, X,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import type {
+  BulkAcceptResult, ImportProposalDraft, ProjectComponentImportProposal,
+} from "@/types/catalog";
+import { LibraryAssetLinkPicker } from "./library-asset-link-picker";
+
+interface LibraryImportRemediationGridProps {
+  sessionId: string;
+  proposals: ProjectComponentImportProposal[];
+  canWrite: boolean;
+  onRefresh: () => Promise<void> | void;
+}
+
+type EditableField =
+  | "value"
+  | "manufacturer"
+  | "manufacturer_part_number"
+  | "description"
+  | "datasheet"
+  | "package_name";
+
+interface ColumnDef {
+  key: EditableField;
+  label: string;
+  width: number;
+  required: boolean;
+}
+
+const COLUMNS: ColumnDef[] = [
+  { key: "value", label: "Value", width: 130, required: true },
+  { key: "manufacturer", label: "Manufacturer", width: 150, required: true },
+  { key: "manufacturer_part_number", label: "MPN", width: 170, required: true },
+  { key: "description", label: "Description", width: 240, required: true },
+  { key: "datasheet", label: "Datasheet", width: 220, required: true },
+  { key: "package_name", label: "Package", width: 170, required: false },
+];
+
+/** Local edits keyed by proposal id. */
+type RowEdits = Record<string, { metadata: Partial<Record<EditableField, string>>; footprintAssetId?: string }>;
+
+function metadataValue(proposal: ProjectComponentImportProposal, field: EditableField): string {
+  const source = proposal.metadata as Record<string, unknown>;
+  if (field === "package_name") return String(source.footprint ?? "");
+  return String(source[field] ?? "");
+}
+
+function draftOf(proposal: ProjectComponentImportProposal): ImportProposalDraft {
+  return proposal.draft ?? {};
+}
+
+/** Effective value: local edit wins, then a saved draft, then the scanned metadata. */
+function effectiveValue(
+  proposal: ProjectComponentImportProposal,
+  field: EditableField,
+  edits: RowEdits
+): string {
+  const local = edits[proposal.id]?.metadata?.[field];
+  if (local !== undefined) return local;
+  const drafted = draftOf(proposal).metadata_overrides?.[field];
+  if (drafted !== undefined) return drafted;
+  return metadataValue(proposal, field);
+}
+
+function effectiveFootprintLink(
+  proposal: ProjectComponentImportProposal,
+  edits: RowEdits
+): string {
+  const local = edits[proposal.id]?.footprintAssetId;
+  if (local !== undefined) return local;
+  return draftOf(proposal).asset_links?.footprint ?? "";
+}
+
+function hasOwnAsset(proposal: ProjectComponentImportProposal, assetType: string): boolean {
+  return proposal.assets.some((asset) => asset.asset_type === assetType);
+}
+
+/** Blocking findings the grid cannot fix; metadata and conflict findings are resolvable here. */
+function unresolvableFindings(proposal: ProjectComponentImportProposal) {
+  return proposal.findings.filter(
+    (finding) =>
+      finding.severity === "error" &&
+      !finding.code.startsWith("missing_metadata_") &&
+      !finding.code.startsWith("conflicting_")
+  );
+}
+
+function rowProblems(
+  proposal: ProjectComponentImportProposal,
+  edits: RowEdits
+): string[] {
+  const problems: string[] = [];
+  for (const column of COLUMNS) {
+    if (column.required && !effectiveValue(proposal, column.key, edits).trim()) {
+      problems.push(`${column.label} is required`);
+    }
+  }
+  const datasheet = effectiveValue(proposal, "datasheet", edits).trim();
+  if (datasheet && !/^https?:\/\//i.test(datasheet)) problems.push("Datasheet must be an HTTP(S) URL");
+
+  if (!hasOwnAsset(proposal, "symbol")) problems.push("No symbol was extracted");
+  if (!hasOwnAsset(proposal, "footprint") && !effectiveFootprintLink(proposal, edits)) {
+    problems.push("Link an existing footprint or re-import with one");
+  }
+  problems.push(...unresolvableFindings(proposal).map((finding) => finding.message));
+  return problems;
+}
+
+export function LibraryImportRemediationGrid({
+  sessionId,
+  proposals,
+  canWrite,
+  onRefresh,
+}: LibraryImportRemediationGridProps) {
+  const [edits, setEdits] = useState<RowEdits>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [onlyProblems, setOnlyProblems] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const candidates = useMemo(
+    () => proposals.filter((proposal) => proposal.status === "candidate"),
+    [proposals]
+  );
+
+  const problemsByRow = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const proposal of candidates) map.set(proposal.id, rowProblems(proposal, edits));
+    return map;
+  }, [candidates, edits]);
+
+  const visibleRows = useMemo(() => {
+    const term = filter.trim().toLowerCase();
+    return candidates.filter((proposal) => {
+      if (onlyProblems && (problemsByRow.get(proposal.id)?.length ?? 0) === 0) return false;
+      if (!term) return true;
+      const haystack = [
+        proposal.reference,
+        ...COLUMNS.map((column) => effectiveValue(proposal, column.key, edits)),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [candidates, edits, filter, onlyProblems, problemsByRow]);
+
+  const readyRows = useMemo(
+    () => candidates.filter((proposal) => (problemsByRow.get(proposal.id)?.length ?? 0) === 0),
+    [candidates, problemsByRow]
+  );
+
+  const dirtyCount = Object.keys(edits).length;
+
+  useEffect(() => {
+    // Drop selections for rows that are no longer candidates after a refresh.
+    setSelected((current) => {
+      const live = new Set(candidates.map((proposal) => proposal.id));
+      const next = new Set([...current].filter((id) => live.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [candidates]);
+
+  const setCell = useCallback((proposalId: string, field: EditableField, value: string) => {
+    setEdits((current) => ({
+      ...current,
+      [proposalId]: {
+        ...current[proposalId],
+        metadata: { ...current[proposalId]?.metadata, [field]: value },
+      },
+    }));
+  }, []);
+
+  const setFootprintLink = useCallback((proposalId: string, assetId: string) => {
+    setEdits((current) => ({
+      ...current,
+      [proposalId]: { ...current[proposalId], footprintAssetId: assetId },
+    }));
+  }, []);
+
+  /** Copy the focused row's value down every selected row - the spreadsheet staple. */
+  const fillDown = useCallback(
+    (proposalId: string, field: EditableField) => {
+      const source = candidates.find((proposal) => proposal.id === proposalId);
+      if (!source) return;
+      const value = effectiveValue(source, field, edits);
+      const targets = selected.size > 0 ? [...selected] : visibleRows.map((row) => row.id);
+      setEdits((current) => {
+        const next = { ...current };
+        for (const id of targets) {
+          next[id] = { ...next[id], metadata: { ...next[id]?.metadata, [field]: value } };
+        }
+        return next;
+      });
+      toast.success(`Filled ${field.replace(/_/g, " ")} into ${targets.length} rows`);
+    },
+    [candidates, edits, selected, visibleRows]
+  );
+
+  const buildDrafts = useCallback(() => {
+    const drafts: Record<string, ImportProposalDraft> = {};
+    for (const [proposalId, edit] of Object.entries(edits)) {
+      const draft: ImportProposalDraft = {};
+      if (edit.metadata && Object.keys(edit.metadata).length > 0) {
+        draft.metadata_overrides = edit.metadata as Record<string, string>;
+      }
+      if (edit.footprintAssetId !== undefined) {
+        draft.asset_links = edit.footprintAssetId ? { footprint: edit.footprintAssetId } : {};
+      }
+      drafts[proposalId] = draft;
+    }
+    return drafts;
+  }, [edits]);
+
+  const saveDrafts = useCallback(async () => {
+    if (dirtyCount === 0) return;
+    setSaving(true);
+    try {
+      await fetchJson<{ saved: number }>(
+        `/api/catalog/import-sessions/${sessionId}/proposals/drafts`,
+        { method: "PUT", body: JSON.stringify({ drafts: buildDrafts() }) },
+        "Failed to save import edits"
+      );
+      setEdits({});
+      await onRefresh();
+      toast.success("Import edits saved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save import edits");
+    } finally {
+      setSaving(false);
+    }
+  }, [buildDrafts, dirtyCount, onRefresh, sessionId]);
+
+  const acceptRows = useCallback(
+    async (rows: ProjectComponentImportProposal[]) => {
+      if (rows.length === 0) return;
+      setAccepting(true);
+      try {
+        const items = rows.map((proposal) => {
+          const metadata_overrides: Record<string, string> = {};
+          for (const column of COLUMNS) {
+            metadata_overrides[column.key] = effectiveValue(proposal, column.key, edits);
+          }
+          const footprintAssetId = effectiveFootprintLink(proposal, edits);
+          return {
+            proposal_id: proposal.id,
+            metadata_overrides,
+            asset_links: footprintAssetId ? { footprint: footprintAssetId } : {},
+            change_summary: `Import ${proposal.reference || "component"} from Prism project`,
+          };
+        });
+
+        const result = await fetchJson<BulkAcceptResult>(
+          `/api/catalog/import-sessions/${sessionId}/proposals/bulk-accept`,
+          { method: "POST", body: JSON.stringify({ items }) },
+          "Failed to accept import rows"
+        );
+
+        setEdits((current) => {
+          const next = { ...current };
+          for (const entry of result.results) {
+            if (entry.status === "accepted") delete next[entry.proposal_id];
+          }
+          return next;
+        });
+        setSelected(new Set());
+        await onRefresh();
+
+        if (result.failed === 0) {
+          toast.success(`Imported ${result.accepted} component${result.accepted === 1 ? "" : "s"}`);
+        } else {
+          const firstError = result.results.find((entry) => entry.status === "failed")?.error;
+          toast.warning(
+            `Imported ${result.accepted}, ${result.failed} failed. ${firstError ?? ""}`.trim()
+          );
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to accept import rows");
+      } finally {
+        setAccepting(false);
+      }
+    },
+    [edits, onRefresh, sessionId]
+  );
+
+  const exportCsv = useCallback(() => {
+    window.location.href = `/api/catalog/import-sessions/${sessionId}/proposals.csv`;
+  }, [sessionId]);
+
+  const importCsv = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return;
+      setSaving(true);
+      try {
+        const form = new FormData();
+        form.append("file", file, file.name);
+        const response = await fetchApi(
+          `/api/catalog/import-sessions/${sessionId}/proposals.csv`,
+          { method: "POST", body: form }
+        );
+        if (!response.ok) throw new Error(await readApiError(response, "Failed to import CSV"));
+        const result = (await response.json()) as { saved: number; skipped_unknown_rows: number };
+        setEdits({});
+        await onRefresh();
+        toast.success(
+          `Applied ${result.saved} rows` +
+            (result.skipped_unknown_rows ? `, skipped ${result.skipped_unknown_rows} unknown` : "")
+        );
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to import CSV");
+      } finally {
+        setSaving(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [onRefresh, sessionId]
+  );
+
+  const toggleAll = (checked: boolean) => {
+    setSelected(checked ? new Set(visibleRows.map((row) => row.id)) : new Set());
+  };
+
+  const selectedRows = candidates.filter((proposal) => selected.has(proposal.id));
+  const selectedReady = selectedRows.filter(
+    (proposal) => (problemsByRow.get(proposal.id)?.length ?? 0) === 0
+  );
+
+  if (candidates.length === 0) {
+    return (
+      <p className="border p-6 text-center text-sm text-muted-foreground">
+        No components are awaiting review in this session.
+      </p>
+    );
+  }
+
+  const gridTemplate = `36px 120px ${COLUMNS.map((column) => `${column.width}px`).join(" ")} 200px 40px`;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+          placeholder="Filter rows"
+          className="h-8 w-56 text-xs"
+        />
+        <Button
+          variant={onlyProblems ? "default" : "outline"}
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => setOnlyProblems((current) => !current)}
+        >
+          <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
+          Needs attention ({candidates.length - readyRows.length})
+        </Button>
+
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportCsv}>
+            <Download className="mr-1.5 h-3.5 w-3.5" /> Export CSV
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(event) => void importCsv(event.target.files?.[0])}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            disabled={!canWrite || saving}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="mr-1.5 h-3.5 w-3.5" /> Import CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            disabled={!canWrite || saving || dirtyCount === 0}
+            onClick={() => void saveDrafts()}
+          >
+            {saving ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Save edits{dirtyCount > 0 ? ` (${dirtyCount})` : ""}
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 text-xs"
+            disabled={!canWrite || accepting || selectedReady.length === 0}
+            onClick={() => void acceptRows(selectedReady)}
+          >
+            {accepting ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Check className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Import selected ({selectedReady.length})
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 text-xs"
+            disabled={!canWrite || accepting || readyRows.length === 0}
+            onClick={() => void acceptRows(readyRows)}
+          >
+            <CheckCheck className="mr-1.5 h-3.5 w-3.5" />
+            Import all ready ({readyRows.length})
+          </Button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto border">
+        <div className="min-w-max">
+          <div
+            className="sticky top-0 z-20 grid items-center border-b bg-muted/60 text-xs font-medium"
+            style={{ gridTemplateColumns: gridTemplate }}
+          >
+            <div className="flex h-9 items-center justify-center border-r">
+              <Checkbox
+                checked={visibleRows.length > 0 && selected.size === visibleRows.length}
+                onCheckedChange={(checked) => toggleAll(checked === true)}
+                aria-label="Select all visible rows"
+              />
+            </div>
+            <div className="flex h-9 items-center border-r px-2">Reference</div>
+            {COLUMNS.map((column) => (
+              <div key={column.key} className="flex h-9 items-center gap-1 border-r px-2">
+                <span className="truncate">{column.label}</span>
+                {column.required ? <span className="text-destructive">*</span> : null}
+              </div>
+            ))}
+            <div className="flex h-9 items-center border-r px-2">Footprint</div>
+            <div className="flex h-9 items-center justify-center" title="Row status" />
+          </div>
+
+          {visibleRows.map((proposal) => {
+            const problems = problemsByRow.get(proposal.id) ?? [];
+            const linkedFootprint = effectiveFootprintLink(proposal, edits);
+            const isSelected = selected.has(proposal.id);
+            return (
+              <div
+                key={proposal.id}
+                className={cn(
+                  "grid items-center border-b text-xs last:border-b-0",
+                  isSelected && "bg-primary/5"
+                )}
+                style={{ gridTemplateColumns: gridTemplate }}
+              >
+                <div className="flex h-9 items-center justify-center border-r">
+                  <Checkbox
+                    checked={isSelected}
+                    onCheckedChange={(checked) =>
+                      setSelected((current) => {
+                        const next = new Set(current);
+                        if (checked === true) next.add(proposal.id);
+                        else next.delete(proposal.id);
+                        return next;
+                      })
+                    }
+                    aria-label={`Select ${proposal.reference || "row"}`}
+                  />
+                </div>
+                <div className="flex h-9 items-center border-r px-2 font-medium">
+                  <span className="truncate" title={proposal.reference}>
+                    {proposal.reference || "—"}
+                  </span>
+                </div>
+
+                {COLUMNS.map((column) => {
+                  const value = effectiveValue(proposal, column.key, edits);
+                  const invalid = column.required && !value.trim();
+                  return (
+                    <div
+                      key={column.key}
+                      className={cn("group relative h-9 border-r p-0.5", invalid && "bg-destructive/10")}
+                    >
+                      <input
+                        className="h-full w-full bg-transparent px-1.5 text-xs outline-none focus:bg-background focus:ring-1 focus:ring-inset focus:ring-ring disabled:cursor-default"
+                        value={value}
+                        disabled={!canWrite}
+                        aria-invalid={invalid}
+                        aria-label={`${column.label} for ${proposal.reference || "row"}`}
+                        onChange={(event) => setCell(proposal.id, column.key, event.target.value)}
+                      />
+                      {canWrite ? (
+                        <button
+                          type="button"
+                          title="Fill this value down into selected rows"
+                          onClick={() => fillDown(proposal.id, column.key)}
+                          className="absolute right-0.5 top-1/2 hidden -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground group-focus-within:block"
+                        >
+                          <ArrowDownToLine className="h-3 w-3" />
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+
+                <LibraryAssetLinkPicker
+                  assetType="footprint"
+                  value={linkedFootprint}
+                  disabled={!canWrite}
+                  placeholder={
+                    hasOwnAsset(proposal, "footprint")
+                      ? "Importing own footprint"
+                      : "Link a footprint"
+                  }
+                  suggestQuery={effectiveValue(proposal, "package_name", edits)}
+                  onChange={(assetId) => setFootprintLink(proposal.id, assetId)}
+                />
+
+                <div className="flex h-9 items-center justify-center">
+                  {problems.length === 0 ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-500" aria-label="Ready to import" />
+                  ) : (
+                    <span title={problems.join("\n")}>
+                      <X className="h-3.5 w-3.5 text-destructive" aria-label={problems.join(", ")} />
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <Badge variant="outline">{visibleRows.length} shown</Badge>
+        <Badge variant="outline">{readyRows.length} ready</Badge>
+        <Badge variant="outline">{candidates.length - readyRows.length} need attention</Badge>
+        <span>
+          Linking a footprint reuses the catalog asset instead of importing a duplicate copy.
+        </span>
+      </div>
+    </div>
+  );
+}

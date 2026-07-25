@@ -177,11 +177,19 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 self._ensure_component_heads_projection(conn)
                 self._ensure_remote_component_heads_projection(conn)
                 self._ensure_portable_column_types(conn)
+                self._ensure_import_proposal_draft_column(conn)
                 conn.commit()
             self._ensure_postgres_search_indexes()
             self._ensure_postgres_integrity_guards()
             self._fts_available = False
             self._initialized = True
+
+    def _ensure_import_proposal_draft_column(self, conn: _CatalogConnection) -> None:
+        """Add the column that keeps in-progress import remediation edits."""
+        conn.execute(
+            "ALTER TABLE project_component_import_proposals "
+            "ADD COLUMN IF NOT EXISTS draft_json TEXT NOT NULL DEFAULT '{}'"
+        )
 
     def _ensure_portable_column_types(self, conn: _CatalogConnection) -> None:
         marker = conn.execute(
