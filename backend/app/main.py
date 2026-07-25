@@ -14,6 +14,7 @@ from app.api.catalog_admin import router as catalog_admin_router
 from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
+from app.services import rate_limit_service, session_store_service
 from app.services.comments_store_service import initialize_comments_store
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
@@ -106,15 +107,42 @@ def ensure_ssh_dir():
     except OSError as error:
         logger.error("Failed to configure SSH directory: %s", error)
 
+def announce_auth_posture() -> None:
+    """Refuse to serve authenticated traffic from an unsafe configuration."""
+    settings.validate_auth_configuration()
+    if settings.AUTH_ENABLED:
+        logger.info(
+            "Authentication enabled. Issuer=%s cookie_secure=%s session_ttl=%sh",
+            settings.EFFECTIVE_OIDC_ISSUER_URL,
+            settings.SESSION_COOKIE_SECURE,
+            settings.SESSION_TTL_HOURS,
+        )
+        return
+
+    logger.warning(
+        "=" * 78
+        + "\nAUTHENTICATION IS DISABLED (AUTH_ENABLED=false).\n"
+        "Every request is served as the built-in guest user with the '%s' role.\n"
+        "Never expose this deployment beyond a trusted development machine.\n"
+        + "=" * 78,
+        settings.DEV_GUEST_ROLE,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    announce_auth_posture()
     configure_git()
     ensure_ssh_dir()
     initialize_comments_store()
     catalog_service.initialize()
     workspace.initialize()
     jobs.initialize()
+    if settings.AUTH_ENABLED:
+        session_store_service.initialize_session_store()
+        session_store_service.prune_expired_sessions()
+        rate_limit_service.initialize_rate_limit_store()
     try:
         yield
     finally:
@@ -122,6 +150,25 @@ async def lifespan(app: FastAPI):
         database.close()
 
 app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def apply_security_headers(request, call_next):
+    """Baseline browser hardening for a deployment that hosts customer PCB IP."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault(
+        "Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=()"
+    )
+    if settings.SESSION_COOKIE_SECURE:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
 
 # Configure CORS
 app.add_middleware(

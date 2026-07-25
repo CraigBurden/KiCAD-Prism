@@ -9,7 +9,7 @@ import logging
 
 from app.core.roles import ROLE_LABELS, Role, normalize_role
 from app.core.security import AuthenticatedUser, require_admin
-from app.services import access_service
+from app.services import access_service, session_store_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -156,4 +156,7 @@ async def delete_access_user(email: str, user: AuthenticatedUser = Depends(requi
     if not deleted:
         raise HTTPException(status_code=404, detail="User role assignment not found")
 
-    return {"deleted": email.strip().lower()}
+    # Withdrawing access must end access now, not when the browser cookie expires.
+    revoked = session_store_service.revoke_sessions_for_email(email, reason=f"access_revoked:{user.email}")
+
+    return {"deleted": email.strip().lower(), "sessions_revoked": revoked}

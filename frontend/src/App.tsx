@@ -145,13 +145,10 @@ function App() {
             </Suspense>
         );
     }
-    // If auth is enabled and no user, show login page
+    // If auth is enabled and no user, show login page. The backend refuses to start
+    // with incomplete OIDC configuration, so there is no misconfigured state to
+    // detect here any more.
     if (authConfig.auth_enabled && !user) {
-        // Fallback for missing client ID in config
-        if (!authConfig.oidc_authorization_endpoint || !authConfig.oidc_client_id) {
-            return <FullScreenMessage message="Error: Missing OIDC client configuration in backend configuration." isError />;
-        }
-
         return (
             <Suspense fallback={<RouteFallback />}>
                 <LoginPage
