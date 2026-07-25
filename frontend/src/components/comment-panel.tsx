@@ -13,6 +13,7 @@ import {
 import { commentClassLabel, type Comment } from "@/types/comments";
 import { CommentSeverityBadge } from "@/components/comment-severity-badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -146,6 +147,7 @@ function PanelCommentCard({
     const [replyContent, setReplyContent] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [expanded, setExpanded] = useState(true);
+    const [confirmDelete, setConfirmDelete] = useState(false);
     const isResolved = comment.status === "RESOLVED";
 
     const handleReply = async () => {
@@ -223,9 +225,7 @@ function PanelCommentCard({
                                     className="h-6 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        if (window.confirm("Are you sure you want to delete this comment?")) {
-                                            void onDelete(comment.id);
-                                        }
+                                        setConfirmDelete(true);
                                     }}
                                 >
                                     <Trash2 className="mr-1 h-3 w-3" />
@@ -314,6 +314,18 @@ function PanelCommentCard({
                     )}
                 </div>
             )}
+
+            <ConfirmDialog
+                open={confirmDelete}
+                onOpenChange={setConfirmDelete}
+                title="Delete comment"
+                description="This removes the comment and its replies from the review thread. It cannot be undone."
+                confirmLabel="Delete comment"
+                onConfirm={() => {
+                    setConfirmDelete(false);
+                    void onDelete(comment.id);
+                }}
+            />
         </div>
     );
 }

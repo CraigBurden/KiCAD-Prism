@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
@@ -84,7 +85,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [searchParams, setSearchParams] = useSearchParams();
     const [commitsBehind, setCommitsBehind] = useState<number>(0);
     const [syncing, setSyncing] = useState(false);
-    const [syncMessage, setSyncMessage] = useState<string | null>(null);
     const [visualizerLoaded, setVisualizerLoaded] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [pathConfigOpen, setPathConfigOpen] = useState(false);
@@ -164,7 +164,10 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         if (!projectId || syncing || !canMutateProject) return;
 
         setSyncing(true);
-        setSyncMessage(null);
+        // One toast, updated in place, so progress and outcome share a slot
+        // instead of the app having two feedback systems. Success and failure
+        // come from the job's own state rather than from reading its prose.
+        const toastId = toast.loading("Syncing repository");
 
         try {
             const data = await fetchJson<{ job_id: string; message?: string }>(
@@ -174,18 +177,19 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
             );
             const job = await watchPrismJob(data.job_id, {
                 onUpdate: (update) => {
-                    setSyncMessage(
+                    toast.loading(
                         `${update.message || "Syncing repository"} (${Math.round(update.percent)}%)`,
+                        { id: toastId },
                     );
                 },
             });
             throwIfJobFailed(job, "Sync failed");
-            setSyncMessage(job.message || "Sync completed.");
+            toast.success(job.message || "Sync completed", { id: toastId });
             // Refresh project data and readme without full reload
             setRefreshKey((prev) => prev + 1);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Sync failed";
-            setSyncMessage(`Sync failed: ${message}`);
+            toast.error(message, { id: toastId });
         } finally {
             setSyncing(false);
         }
@@ -449,24 +453,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                 )}
             </header>
 
-            {/* Sync Message Banner */}
-            {syncMessage && (
-                <div className={cn(
-                    "px-6 py-2 text-sm border-b",
-                    syncMessage.includes('failed')
-                        ? "bg-red-500/10 border-red-500/20 text-red-500"
-                        : "bg-green-500/10 border-green-500/20 text-green-500"
-                )}>
-                    {syncMessage}
-                    <button
-                        onClick={() => setSyncMessage(null)}
-                        className="ml-2 text-xs underline"
-                    >
-                        Dismiss
-                    </button>
-                </div>
-            )}
-
             {/* Version Banner */}
             {(currentCommit || selectedBranch) && (
                 <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-3 flex items-center justify-between">
@@ -675,7 +661,7 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
 
     const runWorkflow = async (type: string) => {
         if (!canRun) {
-            alert("You do not have permission to run workflows.");
+            toast.error("Your role does not allow you to run workflows.");
             return;
         }
         setLogs([]);
@@ -695,12 +681,12 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
                 setRunningJob({ id: data.job_id, type });
             } else {
                 const message = await readApiError(res, "Failed to start workflow");
-                alert(`Error: ${message}`);
+                toast.error(message);
                 setStatus("idle");
             }
         } catch (e) {
             const message = e instanceof Error ? e.message : "Failed to start workflow";
-            alert(message);
+            toast.error(message);
             setStatus("idle");
         }
     };
