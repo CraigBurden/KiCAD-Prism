@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus } from "lucide-react";
+import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EngineeringBomTable } from "./engineering-bom-table";
 import { SelectionInspector, type LabelInstanceRef } from "./selection-inspector";
@@ -40,6 +40,19 @@ interface VisualizerProps {
 
 type VisualizerTab = "sch" | "pcb" | "3d" | "bom" | "stackup" | "assembly";
 type ViewerRightRailTab = "selection" | "comments";
+
+/**
+ * Toolbar order is also the shortcut order: pressing 1 through 6 selects the
+ * nth tab, so the two must be defined together and never drift apart.
+ */
+const VISUALIZER_TABS: { id: VisualizerTab; label: string; icon: LucideIcon }[] = [
+    { id: "sch", label: "Schematic", icon: Cpu },
+    { id: "pcb", label: "PCB", icon: CircuitBoard },
+    { id: "3d", label: "3D", icon: Box },
+    { id: "bom", label: "BOM", icon: FileText },
+    { id: "stackup", label: "Stackup", icon: Layers3 },
+    { id: "assembly", label: "Assembly Assistant", icon: PackageCheck },
+];
 
 const isAbortError = (error: unknown): boolean =>
     error instanceof DOMException && error.name === "AbortError";
@@ -1024,6 +1037,16 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 lastSelectionRef.current = null;
                 return;
             }
+            // Number keys jump straight to a tab. Modifiers are excluded so the
+            // browser keeps Cmd/Ctrl+1..9 for its own tab switching.
+            if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+                const tabIndex = Number.parseInt(event.code.startsWith("Digit") ? event.code.slice(5) : event.key, 10);
+                if (Number.isInteger(tabIndex) && tabIndex >= 1 && tabIndex <= VISUALIZER_TABS.length) {
+                    setActiveTab(VISUALIZER_TABS[tabIndex - 1].id);
+                    event.preventDefault();
+                    return;
+                }
+            }
             if (
                 canModifyComments
                 && (activeTab === "sch" || activeTab === "pcb")
@@ -1099,21 +1122,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const schematicViewerKey = buildViewerKey("schematic", projectId, commit);
     const pcbViewerKey = buildViewerKey("pcb", projectId, commit);
 
-    // Tab Config
-    const tabs: { id: VisualizerTab; label: string; icon: any }[] = [
-        { id: "sch", label: "Schematic", icon: Cpu },
-        { id: "pcb", label: "PCB", icon: CircuitBoard },
-        { id: "3d", label: "3D", icon: Box },
-        { id: "bom", label: "BOM", icon: FileText },
-        { id: "stackup", label: "Stackup", icon: Layers3 },
-        { id: "assembly", label: "Assembly Assistant", icon: PackageCheck },
-    ];
-
     return (
         <div className="relative flex h-full min-h-0 flex-col bg-background">
             {/* Toolbar */}
             <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b bg-muted/20 px-2 py-1">
-                {tabs.map(tab => {
+                {VISUALIZER_TABS.map((tab, index) => {
                     const Icon = tab.icon;
                     return (
                         <Button
@@ -1122,6 +1135,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             size="sm"
                             data-visualizer-tab={tab.id}
                             onClick={() => setActiveTab(tab.id)}
+                            title={`${tab.label} (${index + 1})`}
                             className="text-xs h-8"
                         >
                             <Icon className="w-3 h-3 mr-2" />

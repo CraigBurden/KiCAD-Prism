@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Archive,
   ArrowLeft,
   ArrowRight,
   Boxes,
@@ -36,6 +37,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { HoldToConfirmButton } from "@/components/ui/hold-to-confirm-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -2159,10 +2161,22 @@ export function LibraryComponentWorkspace({
           </div>
           <DialogFooter>
             <Button variant="outline" disabled={transitioning} onClick={() => setTransitionTarget(null)}>Cancel</Button>
-            <Button variant={transitionTarget === "archived" ? "destructive" : "default"} disabled={transitioning} onClick={() => void handleTransition()}>
-              {transitioning ? <Loader2 className="h-4 w-4 animate-spin" /> : transitionTarget === "done" || transitionTarget === "released" ? <PackageCheck className="h-4 w-4" /> : <FileCheck2 className="h-4 w-4" />}
-              Confirm decision
-            </Button>
+            {/* Archiving pulls a component out of the library for every project
+                that references it, and unlike the other transitions it is not
+                part of a forward review path — so it is the one decision here
+                that has to be held rather than clicked. Approve and release keep
+                a plain button: their review note is already the deliberate step. */}
+            {transitionTarget === "archived" ? (
+              <HoldToConfirmButton disabled={transitioning} onConfirm={() => void handleTransition()} holdingLabel="Hold to archive…">
+                {transitioning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                {transitioning ? "Archiving…" : "Hold to archive"}
+              </HoldToConfirmButton>
+            ) : (
+              <Button variant="default" disabled={transitioning} onClick={() => void handleTransition()}>
+                {transitioning ? <Loader2 className="h-4 w-4 animate-spin" /> : transitionTarget === "done" || transitionTarget === "released" ? <PackageCheck className="h-4 w-4" /> : <FileCheck2 className="h-4 w-4" />}
+                Confirm decision
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
