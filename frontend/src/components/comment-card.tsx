@@ -173,7 +173,7 @@ export function CommentCard({
                     <Button
                         variant="ghost"
                         size="icon"
-                        className={cn("h-8 w-8", isResolved && "text-green-600")}
+                        className={cn("h-8 w-8", isResolved && "text-success")}
                         aria-label={isResolved ? "Reopen comment" : "Resolve comment"}
                         onClick={() => onResolve(comment.id, !isResolved)}
                     >
