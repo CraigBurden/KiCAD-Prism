@@ -323,6 +323,46 @@ class ImportBulkRemediationTests(unittest.TestCase):
                 actor="tester@example.com",
             )
 
+    def test_same_mpn_rows_converge_on_one_component(self) -> None:
+        """Two references remediated to the same MPN must not create two components.
+
+        Scan-time dedupe only groups by MPN when the project symbol already carries
+        manufacturer and MPN fields. When a reviewer supplies them during remediation
+        the proposals stay separate, so accepting both has to converge here.
+        """
+        _, first = self._stage_proposal(reference="C149", mpn="")
+        _, second = self._stage_proposal(reference="C150", mpn="")
+
+        shared = {
+            "value": "22uF_25V_1210",
+            "manufacturer": "TDK Corporation",
+            "manufacturer_part_number": "CGA6P3X7R1E226M250AE",
+            "description": "Unpolarized capacitor, small symbol",
+            "datasheet": "https://product.tdk.com/en/datasheet.pdf",
+            "package_name": "Pixxel_Capacitors:CAP1210",
+        }
+
+        first_result = self.service.accept_project_import_proposal(
+            str(first["id"]), metadata_overrides=dict(shared), actor="tester@example.com"
+        )
+        second_result = self.service.accept_project_import_proposal(
+            str(second["id"]), metadata_overrides=dict(shared), actor="tester@example.com"
+        )
+
+        first_id = str(first_result["component"]["id"])
+        second_id = str(second_result["component"]["id"])
+        self.component_ids.append(first_id)
+
+        self.assertEqual(
+            first_id,
+            second_id,
+            "both references must resolve to the same catalog component",
+        )
+
+        # Identical content must not spawn a second revision either.
+        revisions = self.service.list_component_revisions(first_id)
+        self.assertEqual(len(revisions), 1, "identical remediation should not add a revision")
+
     def test_unknown_or_mistyped_asset_links_are_rejected(self) -> None:
         _, seed = self._stage_proposal(reference="R1", mpn="RC0603-TYPES")
         seed_result = self.service.accept_project_import_proposal(
