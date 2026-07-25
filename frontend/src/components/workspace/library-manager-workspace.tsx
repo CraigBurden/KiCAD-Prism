@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Plug } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
@@ -67,7 +69,21 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
     <div className="flex h-full min-h-0 flex-col">
       <nav className="flex shrink-0 items-center gap-1 border-b bg-card px-3 py-2" aria-label="Library Manager sections">
         {(["catalog", "bulk-edit", "imports", "releases", "connectors"] as LibraryView[]).map((item) => (
-          <Button key={item} size="sm" variant="ghost" className={cn("capitalize", view === item && "bg-secondary")} aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>{item === "bulk-edit" ? "Bulk Edit" : item === "imports" ? "Import Center" : item === "releases" ? "Release Queue" : item}</Button>
+          <Button
+            key={item}
+            size="sm"
+            variant="ghost"
+            className={cn("capitalize", view === item && "bg-secondary")}
+            aria-current={view === item ? "page" : undefined}
+            onClick={() => setView(item)}
+          >
+            {item === "bulk-edit" ? "Bulk Edit" : item === "imports" ? "Import Center" : item === "releases" ? "Release Queue" : item}
+            {item === "connectors" ? (
+              <Badge variant="outline" className="ml-1.5 px-1 text-[10px] font-normal text-muted-foreground">
+                Coming soon
+              </Badge>
+            ) : null}
+          </Button>
         ))}
       </nav>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading library workspace…</div>}>
@@ -76,7 +92,16 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
         {view === "bulk-edit" && <LibraryBulkEditWorkspace user={user} />}
         {view === "imports" && <LibraryImportCenter projects={projects} user={user} initialSessionId={searchParams.get("session") || undefined} />}
         {view === "releases" && <LibraryReleaseQueue onOpenComponent={(id) => openComponent(id, "review", "releases")} />}
-        {view === "connectors" && <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Connector configuration will appear here as integrations are enabled.</div>}
+        {view === "connectors" && (
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+            <Plug className="h-8 w-8 text-muted-foreground" />
+            <p className="text-sm font-medium">Connectors are not available yet</p>
+            <p className="max-w-md text-sm text-muted-foreground">
+              PLM and MRP integrations will be configured here. Machine access is already
+              possible today through OAuth2 service clients.
+            </p>
+          </div>
+        )}
       </div>
       </Suspense>
     </div>

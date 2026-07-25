@@ -274,6 +274,9 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const [gridViewport, setGridViewport] = useState({ height: 640, scrollTop: 0 });
   const isAdmin = user?.role === "admin";
   const canEdit = canWriteCatalog(user?.role);
+  // An empty grid means something different when filters are active than when the
+  // catalog itself is empty, and the fix differs too.
+  const bulkEditIsFiltered = Boolean(query.trim() || category !== "all" || showArchived);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { setDebouncedQuery(query.trim()); setPage(1); }, 250);
@@ -541,7 +544,29 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
               {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} readOnly={!canEdit} active={activeCell?.row === rowIndex && activeCell.column === columnIndex} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCellValue(component, field, value)} onActivate={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
             </div>; })}
             {lastVisibleRow < items.length ? <div aria-hidden="true" style={{ height: (items.length - lastVisibleRow) * GRID_ROW_HEIGHT }} /> : null}
-            {!loading && !items.length ? <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">No components match the current filters.</div> : null}
+            {!loading && !items.length ? (
+              <div className="sticky left-0 flex h-64 flex-col items-center justify-center gap-2 p-8 text-center">
+                <FilePenLine className="h-8 w-8 text-muted-foreground" />
+                <p className="text-sm font-medium">
+                  {bulkEditIsFiltered ? "No components match the current filters" : "There is nothing to bulk edit yet"}
+                </p>
+                <p className="max-w-md text-xs text-muted-foreground">
+                  {bulkEditIsFiltered
+                    ? "Search and filters run on the server. Clear them to edit the whole catalog."
+                    : "Import components from a KiCad project or library folder, then return here to edit their metadata as a spreadsheet."}
+                </p>
+                {bulkEditIsFiltered ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-1"
+                    onClick={() => { setQuery(""); setCategory("all"); setShowArchived(false); setPage(1); }}
+                  >
+                    <FilterX className="h-3.5 w-3.5" /> Clear search and filters
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="mt-2 flex items-center justify-between"><span className="text-xs text-muted-foreground">Page {page} of {pages}</span><div className="flex gap-1"><Button size="sm" variant="outline" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft className="h-3.5 w-3.5" /> Previous</Button><Button size="sm" variant="outline" disabled={page >= pages || loading} onClick={() => setPage((value) => Math.min(pages, value + 1))}>Next <ChevronRight className="h-3.5 w-3.5" /></Button></div></div>
