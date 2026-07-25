@@ -21,6 +21,7 @@ from app.services.postgres_database import database
 from app.services.workspace_service import workspace
 from app.services.job_service import jobs
 from app.core.config import settings
+from app.core.security_headers import apply_security_headers
 import subprocess
 import os
 import sys
@@ -197,22 +198,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
 
 
-@app.middleware("http")
-async def apply_security_headers(request, call_next):
-    """Baseline browser hardening for a deployment that hosts customer PCB IP."""
-    response = await call_next(request)
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
-    response.headers.setdefault(
-        "Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=()"
-    )
-    if settings.SESSION_COOKIE_SECURE:
-        response.headers.setdefault(
-            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
-        )
-    return response
+app.middleware("http")(apply_security_headers)
 
 
 # Configure CORS
