@@ -1,9 +1,8 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plug } from "lucide-react";
+import { Database, DownloadCloud, PackageCheck, Plug, Table2, type LucideIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import type { User } from "@/types/auth";
 import type { Project } from "@/types/project";
 import { cn } from "@/lib/utils";
@@ -15,6 +14,22 @@ const LibraryImportCenter = lazy(() => import("./library-import-center").then((m
 const LibraryReleaseQueue = lazy(() => import("./library-release-queue").then((module) => ({ default: module.LibraryReleaseQueue })));
 
 type LibraryView = "catalog" | "bulk-edit" | "imports" | "releases" | "connectors";
+
+const VIEW_LABELS: Record<LibraryView, string> = {
+  catalog: "Catalog",
+  "bulk-edit": "Bulk Edit",
+  imports: "Import Center",
+  releases: "Release Queue",
+  connectors: "Connectors",
+};
+
+const VIEW_ICONS: Record<LibraryView, LucideIcon> = {
+  catalog: Database,
+  "bulk-edit": Table2,
+  imports: DownloadCloud,
+  releases: PackageCheck,
+  connectors: Plug,
+};
 
 export function LibraryManagerWorkspace({ user, projects }: { user: User | null; projects: Project[] }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -67,24 +82,40 @@ export function LibraryManagerWorkspace({ user, projects }: { user: User | null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <nav className="flex shrink-0 items-center gap-1 border-b bg-card px-3 py-2" aria-label="Library Manager sections">
-        {(["catalog", "bulk-edit", "imports", "releases", "connectors"] as LibraryView[]).map((item) => (
-          <Button
-            key={item}
-            size="sm"
-            variant="ghost"
-            className={cn("capitalize", view === item && "bg-secondary")}
-            aria-current={view === item ? "page" : undefined}
-            onClick={() => setView(item)}
-          >
-            {item === "bulk-edit" ? "Bulk Edit" : item === "imports" ? "Import Center" : item === "releases" ? "Release Queue" : item}
-            {item === "connectors" ? (
-              <Badge variant="outline" className="ml-1.5 px-1 text-[10px] font-normal text-muted-foreground">
-                Coming soon
-              </Badge>
-            ) : null}
-          </Button>
-        ))}
+      {/* Ghost buttons in a row did not read as switchable sections. These are drawn
+          as a real tab strip: each tab is a bordered surface sitting on the divider,
+          and the selected one joins the content below by breaking that divider. */}
+      <nav
+        className="flex shrink-0 items-end gap-1 border-b bg-muted/30 px-3 pt-2"
+        aria-label="Library Manager sections"
+      >
+        {(["catalog", "bulk-edit", "imports", "releases", "connectors"] as LibraryView[]).map((item) => {
+          const active = view === item;
+          const Icon = VIEW_ICONS[item];
+          return (
+            <button
+              key={item}
+              type="button"
+              aria-current={active ? "page" : undefined}
+              onClick={() => setView(item)}
+              className={cn(
+                "-mb-px flex items-center gap-2 rounded-t-md border border-b-0 px-3 py-2 text-sm font-medium transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                active
+                  ? "border-border bg-background text-foreground shadow-[inset_0_2px_0_0_hsl(var(--primary))]"
+                  : "border-transparent text-muted-foreground hover:bg-background/60 hover:text-foreground"
+              )}
+            >
+              <Icon className={cn("h-4 w-4", active ? "text-primary" : "text-muted-foreground")} />
+              {VIEW_LABELS[item]}
+              {item === "connectors" ? (
+                <Badge variant="outline" className="px-1 text-[10px] font-normal text-muted-foreground">
+                  Coming soon
+                </Badge>
+              ) : null}
+            </button>
+          );
+        })}
       </nav>
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading library workspace…</div>}>
       <div className="min-h-0 flex-1 overflow-hidden">

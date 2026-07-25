@@ -16,6 +16,8 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  ShieldQuestion,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +43,14 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/api";
+import {
+  AVAILABILITY_BADGE_TITLE,
+  AVAILABILITY_BADGE_VARIANT,
+  VALIDATION_BADGE_TITLE,
+  VALIDATION_BADGE_VARIANT,
+  WORKFLOW_BADGE_TITLE,
+  WORKFLOW_BADGE_VARIANT,
+} from "@/lib/catalog-badges";
 import { canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -156,18 +166,26 @@ const BADGE_CELL = "min-w-0 max-w-full shrink";
 function AvailabilityBadge({ state }: { state: AvailabilityState }) {
   const Icon = state === "place_ready" ? PackageCheck : state === "files_partial" ? Package : CircleDashed;
   return (
-    <Badge variant="outline" className={BADGE_CELL} title={AVAILABILITY_LABELS[state]}>
+    <Badge variant={AVAILABILITY_BADGE_VARIANT[state]} className={BADGE_CELL} title={AVAILABILITY_BADGE_TITLE[state]}>
       <Icon className="h-3 w-3 shrink-0" />
       <span className="truncate">{AVAILABILITY_LABELS[state]}</span>
     </Badge>
   );
 }
 
-function ValidationBadge({ status }: { status: CatalogValidationStatus }) {
-  const failed = status === "failed";
+function WorkflowBadge({ stage }: { stage: WorkflowStage }) {
   return (
-    <Badge variant={failed ? "destructive" : "outline"} className={BADGE_CELL} title={VALIDATION_LABELS[status]}>
-      {failed ? <CircleAlert className="h-3 w-3 shrink-0" /> : <ShieldCheck className="h-3 w-3 shrink-0" />}
+    <Badge variant={WORKFLOW_BADGE_VARIANT[stage]} className={BADGE_CELL} title={WORKFLOW_BADGE_TITLE[stage]}>
+      <span className="truncate">{WORKFLOW_LABELS[stage]}</span>
+    </Badge>
+  );
+}
+
+function ValidationBadge({ status }: { status: CatalogValidationStatus }) {
+  const Icon = status === "failed" ? CircleAlert : status === "warning" ? TriangleAlert : status === "passed" ? ShieldCheck : ShieldQuestion;
+  return (
+    <Badge variant={VALIDATION_BADGE_VARIANT[status]} className={BADGE_CELL} title={VALIDATION_BADGE_TITLE[status]}>
+      <Icon className="h-3 w-3 shrink-0" />
       <span className="truncate">{VALIDATION_LABELS[status]}</span>
     </Badge>
   );
@@ -505,7 +523,7 @@ export function LibraryCatalogWorkspace({
                   <div className="min-w-0"><p className="truncate text-xs">{component.manufacturer || "—"}</p><p className="truncate text-xs text-muted-foreground">{component.vendor || component.source}</p></div>
                   <div className="min-w-0"><p className="truncate text-xs">{component.category || "Uncategorized"}</p><p className="truncate text-xs text-muted-foreground">{component.package_name || "No package"}</p></div>
                   <div className="flex min-w-0"><AvailabilityBadge state={component.availability_state} /></div>
-                  <div className="flex min-w-0"><Badge variant="outline" className="min-w-0 max-w-full truncate">{WORKFLOW_LABELS[component.workflow_stage]}</Badge></div>
+                  <div className="flex min-w-0"><WorkflowBadge stage={component.workflow_stage} /></div>
                   <div className="flex min-w-0"><ValidationBadge status={component.validation.status} /></div>
                   <div className="min-w-0"><p className="text-xs font-medium">v{component.revision}</p><p className="truncate text-xs text-muted-foreground" title={component.created_by}>{formatDate(component.revision_updated_at)} · {component.created_by || "Unknown author"}</p></div>
                 </button>
