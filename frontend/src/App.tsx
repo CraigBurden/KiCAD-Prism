@@ -1,13 +1,17 @@
-import { Suspense, lazy, useDeferredValue, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import type { User, AuthConfig } from './types/auth';
 import { Button } from '@/components/ui/button';
 import { Toaster } from 'sonner';
 import { Input } from '@/components/ui/input';
-import { Search } from 'lucide-react';
+import { Command, Search } from 'lucide-react';
 import { ApiHttpError, fetchApi } from '@/lib/api';
 import { fetchAuthConfig, fetchCurrentUser, isAuthCallbackPath } from '@/lib/auth';
 import { roleLabel } from '@/lib/roles';
+import { IS_APPLE_PLATFORM } from '@/lib/shortcuts';
+import { useHotkeys } from '@/hooks/use-hotkeys';
+import { CommandPalette } from '@/components/command-palette';
+import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import prismLogoMark from './assets/branding/kicad-prism/kicad-prism-icon.svg';
 
 const LoginPage = lazy(() =>
@@ -47,6 +51,27 @@ function App() {
     const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState("");
     const deferredWorkspaceSearchQuery = useDeferredValue(workspaceSearchQuery);
     const isAuthCallbackRoute = typeof window !== "undefined" && isAuthCallbackPath();
+    const [paletteOpen, setPaletteOpen] = useState(false);
+    const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+    /**
+     * Screens mark their own search box with `data-shortcut-search`. "/" focuses
+     * the innermost one, so pressing it in the Library Manager reaches the
+     * catalog filter rather than the global project search in the header.
+     */
+    const focusSearchField = useCallback(() => {
+        const candidates = document.querySelectorAll<HTMLElement>('[data-shortcut-search]');
+        const target = candidates[candidates.length - 1];
+        if (!target) return;
+        target.focus();
+        if (target instanceof HTMLInputElement) target.select();
+    }, []);
+
+    useHotkeys([
+        { combo: 'mod+k', handler: () => setPaletteOpen(true), allowInInputs: true },
+        { combo: 'shift+/', handler: () => setShortcutsOpen(true) },
+        { combo: '/', handler: focusSearchField },
+    ]);
 
     const loadCurrentUser = async (config: AuthConfig, signal?: AbortSignal) => {
         try {
@@ -169,6 +194,14 @@ function App() {
     return (
         <BrowserRouter>
             <Toaster richColors position="top-right" />
+            <CommandPalette
+                open={paletteOpen}
+                onOpenChange={setPaletteOpen}
+                user={user}
+                onShowShortcuts={() => setShortcutsOpen(true)}
+                onLogout={handleLogout}
+            />
+            <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
             <Routes>
                 <Route path="/" element={
                     <div className="min-h-screen bg-background text-foreground">
@@ -183,15 +216,29 @@ function App() {
                                     <div className="relative w-full max-w-2xl">
                                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                         <Input
+                                            data-shortcut-search
                                             value={workspaceSearchQuery}
                                             onChange={(event) => setWorkspaceSearchQuery(event.target.value)}
                                             placeholder="Search projects by name, description, and metadata"
-                                            className="pl-10"
+                                            className="pl-10 pr-10"
                                         />
+                                        <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 border bg-muted px-1 text-[11px] text-muted-foreground">
+                                            /
+                                        </kbd>
                                     </div>
                                 </div>
 
                                 <div className="flex items-center gap-4">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setPaletteOpen(true)}
+                                        aria-label="Open command palette"
+                                        className="hidden gap-1.5 text-muted-foreground lg:inline-flex"
+                                    >
+                                        <Command className="h-3.5 w-3.5" />
+                                        {IS_APPLE_PLATFORM ? '⌘K' : 'Ctrl K'}
+                                    </Button>
                                     {user && user.email !== 'guest@local' && (
                                         <>
                                             <span className="text-sm text-muted-foreground">

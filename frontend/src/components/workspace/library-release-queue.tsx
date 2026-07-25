@@ -216,7 +216,7 @@ export function LibraryReleaseQueue({ onOpenComponent }: { onOpenComponent: (com
           </div>
           <div className="relative w-full sm:w-72">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input aria-label="Search release queue" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search part, MPN, package, author…" className="h-8 pl-8 pr-8 text-xs" />
+            <Input data-shortcut-search aria-label="Search release queue" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search part, MPN, package, author…" className="h-8 pl-8 pr-8 text-xs" />
             {query ? <button type="button" aria-label="Clear release queue search" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setQuery("")}><X className="h-3.5 w-3.5" /></button> : null}
           </div>
         </div>

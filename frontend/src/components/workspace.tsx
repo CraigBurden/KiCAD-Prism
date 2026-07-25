@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { FolderPlus, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import type { User } from "@/types/auth";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useWorkspaceData } from "@/hooks/use-workspace-data";
 import { useWorkspaceSearch } from "@/hooks/use-workspace-search";
 import { canManageProjects as roleCanManageProjects, canOpenLibraryManager } from "@/lib/roles";
+import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
@@ -181,6 +182,30 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
+
+  // Actions that need this screen's dialog state, published to the ⌘K palette
+  // for as long as the workspace is mounted.
+  useEffect(() => {
+    const commands: PaletteCommand[] = [];
+    if (canManageProjects) {
+      commands.push(
+        { id: "workspace:import", label: "Import project", group: "Workspace", icon: FolderPlus, keywords: "add new repository clone", run: () => setIsImportOpen(true) },
+        { id: "workspace:new-folder", label: "New folder", group: "Workspace", icon: FolderPlus, keywords: "create directory", run: () => setIsCreateFolderOpen(true) },
+      );
+    }
+    commands.push({
+      id: "workspace:view-mode",
+      label: "Toggle gallery / list view",
+      group: "Workspace",
+      icon: LayoutGrid,
+      run: () => setViewMode((current) => (current === "gallery" ? "list" : "gallery")),
+    });
+    commands.push({ id: "workspace:refresh", label: "Refresh workspace", group: "Workspace", icon: RefreshCw, run: () => void refresh() });
+    if (canOpenSettings) {
+      commands.push({ id: "workspace:settings", label: "Open settings", group: "Workspace", icon: Settings, run: () => setIsSettingsOpen(true) });
+    }
+    return registerPaletteCommands(commands);
+  }, [canManageProjects, canOpenSettings, refresh]);
 
   const openProject = (project: Project) => {
     navigate(`/project/${project.id}`);
