@@ -1273,8 +1273,8 @@ class JobService:
                 """
                 UPDATE ws_webgpu_ready
                 SET last_accessed_at = NOW()
-                WHERE id = (
-                    SELECT id
+                WHERE (project_id, selector_key, generator_build) = (
+                    SELECT project_id, selector_key, generator_build
                     FROM ws_webgpu_ready
                     WHERE project_id = %s
                       AND generator_build = %s
