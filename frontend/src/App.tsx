@@ -4,7 +4,7 @@ import type { User, AuthConfig } from './types/auth';
 import { Button } from '@/components/ui/button';
 import { Toaster } from 'sonner';
 import { Input } from '@/components/ui/input';
-import { Command, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { ApiHttpError, fetchApi } from '@/lib/api';
 import { fetchAuthConfig, fetchCurrentUser, isAuthCallbackPath } from '@/lib/auth';
 import { roleLabel } from '@/lib/roles';
@@ -38,7 +38,7 @@ function RouteFallback() {
 function FullScreenMessage({ message, isError = false }: { message: string; isError?: boolean }) {
     return (
         <div className="flex items-center justify-center h-screen bg-background">
-            <div className={isError ? "text-red-500" : "text-muted-foreground"}>{message}</div>
+            <div className={isError ? "text-destructive" : "text-muted-foreground"}>{message}</div>
         </div>
     );
 }
@@ -236,7 +236,11 @@ function App() {
                                         aria-label="Open command palette"
                                         className="hidden gap-1.5 text-muted-foreground lg:inline-flex"
                                     >
-                                        <Command className="h-3.5 w-3.5" />
+                                        {/* The label already carries ⌘ on Apple platforms, so the
+                                            Command icon that used to sit here rendered the glyph twice.
+                                            A search icon says what the button does; the shortcut says
+                                            how to skip it. */}
+                                        <Search className="h-3.5 w-3.5" />
                                         {IS_APPLE_PLATFORM ? '⌘K' : 'Ctrl K'}
                                     </Button>
                                     {user && user.email !== 'guest@local' && (
