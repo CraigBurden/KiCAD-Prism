@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
@@ -258,6 +259,8 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const [fieldQuery, setFieldQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+  // Archiving a field hides it from every component; the dialog names it.
+  const fieldArchiveTarget = useConfirmTarget<CatalogMetadataField>();
   const [staged, setStaged] = useState<StagedRows>({});
   const [reviewOpen, setReviewOpen] = useState(false);
   const [batch, setBatch] = useState<CatalogMetadataBatch | null>(null);
@@ -428,7 +431,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   };
 
   const archiveField = async (field: CatalogMetadataField) => {
-    if (!window.confirm(`${field.archived ? "Restore" : "Archive"} ${field.label}? Existing revision values will be preserved.`)) return;
+    fieldArchiveTarget.clear();
     try { await fetchJson(`/api/catalog/metadata/fields/${field.id}/${field.archived ? "restore" : "archive"}`, { method: "POST" }); await loadFieldsAndPreferences(); } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to update field"); }
   };
 
@@ -524,7 +527,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
             <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{field.label}{field.unit ? ` (${field.unit})` : ""}</p><p className="truncate text-[10px] text-muted-foreground">{field.type} · {field.key}</p></div>
             {!field.archived ? <div className="hidden items-center group-hover:flex"><Button size="icon-xs" variant="ghost" aria-label={`Move ${field.label} up`} onClick={() => moveField(field.key, -1)}><ArrowUp className="h-3 w-3" /></Button><Button size="icon-xs" variant="ghost" aria-label={`Move ${field.label} down`} onClick={() => moveField(field.key, 1)}><ArrowDown className="h-3 w-3" /></Button></div> : null}
             {!field.archived && preferences.visible.includes(field.key) ? <Button size="icon-xs" variant={preferences.pinned.includes(field.key) ? "secondary" : "ghost"} aria-label={`${preferences.pinned.includes(field.key) ? "Unpin" : "Pin"} ${field.label}`} onClick={() => togglePinned(field.key)}><Pin className="h-3 w-3" /></Button> : null}
-            {isAdmin && !field.built_in ? <><Button size="icon-xs" variant="ghost" aria-label={`Edit ${field.label}`} onClick={() => { setEditingField(field); setFieldDialogOpen(true); }}><Pencil className="h-3 w-3" /></Button><Button size="icon-xs" variant="ghost" aria-label={`${field.archived ? "Restore" : "Archive"} ${field.label}`} onClick={() => void archiveField(field)}>{field.archived ? <RotateCcw className="h-3 w-3" /> : <Archive className="h-3 w-3" />}</Button></> : null}
+            {isAdmin && !field.built_in ? <><Button size="icon-xs" variant="ghost" aria-label={`Edit ${field.label}`} onClick={() => { setEditingField(field); setFieldDialogOpen(true); }}><Pencil className="h-3 w-3" /></Button><Button size="icon-xs" variant="ghost" aria-label={`${field.archived ? "Restore" : "Archive"} ${field.label}`} onClick={() => fieldArchiveTarget.request(field)}>{field.archived ? <RotateCcw className="h-3 w-3" /> : <Archive className="h-3 w-3" />}</Button></> : null}
           </div>)}</div></section>)}
         </div></ScrollArea>
         <div className="border-t p-2"><Button className="w-full" size="sm" variant="ghost" onClick={() => setPreferences((current) => ({ ...current, visible: activeFields.map((field) => field.key), order: activeFields.map((field) => field.key), widths: {}, pinned: [] }))}><RotateCcw className="h-3.5 w-3.5" /> Reset layout</Button></div>
@@ -574,6 +577,18 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
     </div>
 
     <FieldDefinitionDialog open={fieldDialogOpen} field={editingField} saving={busy} onOpenChange={(open) => { setFieldDialogOpen(open); if (!open) setEditingField(null); }} onSave={(draft) => void saveField(draft)} />
+    <ConfirmDialog
+      open={fieldArchiveTarget.open}
+      onOpenChange={(open) => { if (!open) fieldArchiveTarget.clear(); }}
+      title={fieldArchiveTarget.target?.archived ? "Restore field" : "Archive field"}
+      description={fieldArchiveTarget.target?.archived
+        ? `${fieldArchiveTarget.target.label} becomes editable again on every component. Values recorded while it was archived are unchanged.`
+        : `${fieldArchiveTarget.target?.label ?? "This field"} disappears from the grid and from component metadata forms. Values already recorded on revisions are preserved, and the field can be restored later.`}
+      confirmLabel={fieldArchiveTarget.target?.archived ? "Restore field" : "Hold to archive"}
+      destructive={!fieldArchiveTarget.target?.archived}
+      requireHold={!fieldArchiveTarget.target?.archived}
+      onConfirm={() => { if (fieldArchiveTarget.target) void archiveField(fieldArchiveTarget.target); }}
+    />
     <BatchReviewDialog open={reviewOpen} batch={batch} localCount={Object.keys(staged).length} summary={changeSummary} busy={busy} isAdmin={isAdmin} onSummaryChange={setChangeSummary} onOpenChange={(open) => { if (!busy) { setReviewOpen(open); if (!open) setBatch(null); } }} onValidate={() => void validateSpreadsheet()} onApproveFields={() => void approveFields()} onApply={(ids) => void applyBatch(ids)} />
   </div>;
 }
