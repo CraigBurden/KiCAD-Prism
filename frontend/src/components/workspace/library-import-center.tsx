@@ -11,6 +11,7 @@ import { canWriteCatalog } from "@/lib/roles";
 import type { User } from "@/types/auth";
 import type { LibraryFolderDiscovery, ProjectComponentImportProposal, ProjectComponentImportSession } from "@/types/catalog";
 import type { Project } from "@/types/project";
+import { PermissionHint } from "@/components/ui/permission-hint";
 import { cn } from "@/lib/utils";
 import { LibraryImportRemediationDialog, type ProposalRemediation } from "./library-import-remediation-dialog";
 import { LibraryImportRemediationGrid } from "./library-import-remediation-grid";
@@ -409,7 +410,15 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
             <h2 className="text-lg font-semibold">Import Center</h2>
             <p className="mt-1 text-sm text-muted-foreground">Capture KiCad library folders or extract components from Prism projects. Every result remains staged for review.</p>
           </div>
-          <div className="flex max-w-4xl flex-wrap items-center justify-end gap-2">
+          {/* One hint for the whole cluster: six identical tooltips on six
+              adjacent buttons is noise, and the reason is the same for all. */}
+          <PermissionHint
+            blocked={!canWrite}
+            action="import components into the catalog"
+            allowedRoles={["component_designer", "admin"]}
+            className="max-w-4xl"
+          >
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <input
               ref={folderInputRef}
               type="file"
@@ -442,6 +451,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
             <Button variant="outline" onClick={() => void createSession("project")} disabled={!canWrite || !projectId || creating}>Import project</Button>
             <Button onClick={() => void createSession("all-projects")} disabled={!canWrite || creating}>Import all projects</Button>
           </div>
+          </PermissionHint>
         </div>
         {folderProgress && (
           <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
