@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { PermissionHint } from "@/components/ui/permission-hint";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { cn } from "@/lib/utils";
 import type {
@@ -575,7 +576,13 @@ export function LibraryImportRemediationGrid({
           {groupByMpn && mergedGroupCount > 0 ? ` (${mergedGroupCount} merged)` : ""}
         </Button>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <PermissionHint
+          blocked={!canWrite}
+          action="edit or accept import proposals"
+          allowedRoles={["component_designer", "admin"]}
+          className="ml-auto"
+        >
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -654,6 +661,7 @@ export function LibraryImportRemediationGrid({
             Import all ready ({readyRows.length})
           </Button>
         </div>
+        </PermissionHint>
       </div>
 
       <div className="overflow-x-auto border">

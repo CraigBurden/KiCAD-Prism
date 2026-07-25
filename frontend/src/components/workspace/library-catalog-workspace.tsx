@@ -51,6 +51,7 @@ import {
   WORKFLOW_BADGE_TITLE,
   WORKFLOW_BADGE_VARIANT,
 } from "@/lib/catalog-badges";
+import { PermissionHint } from "@/components/ui/permission-hint";
 import { canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -463,7 +464,12 @@ export function LibraryCatalogWorkspace({
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" aria-label="Refresh component catalog" disabled={loading} onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
-            {canCreate ? <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> New component</Button> : null}
+            {/* Shown disabled rather than hidden: a reader who cannot find the
+                button assumes the feature is missing, where a disabled one that
+                explains itself tells them exactly what to ask for. */}
+            <PermissionHint blocked={!canCreate} action="create catalog components" allowedRoles={["component_designer", "admin"]}>
+              <Button size="sm" disabled={!canCreate} onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> New component</Button>
+            </PermissionHint>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t px-4 py-2">

@@ -2062,6 +2062,13 @@ export function LibraryComponentWorkspace({
           </div>
         </div>
 
+        {!historical && !canMutate ? (
+          <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+            You have read-only access to this component. Editing metadata, attaching assets, and workflow
+            decisions need the Component Designer or Admin role.
+          </div>
+        ) : null}
         {historical ? (
           <div className="flex items-center justify-between gap-3 border-t bg-muted/30 px-4 py-2 text-xs">
             <span className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5" /> Viewing immutable revision v{activeComponent.revision}. Editing and workflow actions are disabled.</span>
