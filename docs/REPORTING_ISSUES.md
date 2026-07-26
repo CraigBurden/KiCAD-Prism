@@ -9,6 +9,8 @@ one.
 Include:
 
 - the Prism commit SHA or release tag;
+- whether the installation uses a release bundle or a source build;
+- the `VERSION` value and sanitized image digests for a release bundle;
 - deployment architecture and operating system;
 - browser and KiCad versions where relevant;
 - affected project surface;

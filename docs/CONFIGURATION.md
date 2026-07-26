@@ -1,8 +1,16 @@
 # Configuration
 
-Docker Compose reads the repository-root `.env` file and passes settings to the
-Prism services. The authoritative list and defaults live in `.env.example`.
-Keep production values in a secret store or host-local file; never commit them.
+Prism has two Compose entry points:
+
+- a stable release bundle reads its bundle-local `.env`;
+- a source build reads the repository-root `.env`.
+
+In both cases, start from the adjacent `.env.example`. Keep deployed values in a
+secret store or host-local file and never commit them.
+
+Release bundles contain exact `PRISM_BACKEND_IMAGE` and
+`PRISM_FRONTEND_IMAGE` digests. Preserve those values when configuring a release.
+Source builds use Docker build arguments instead.
 
 ## Core groups
 
@@ -69,14 +77,26 @@ reaches Prism.
 
 ### Docker and KiCad runtime
 
+Release-bundle users do not select a KiCad base image; it is already embedded in
+the tested backend image. The generated environment pins:
+
 ```env
-KICAD_BASE_IMAGE=kicad/kicad:10.0.4
+PRISM_BACKEND_IMAGE=ghcr.io/krishna-swaroop/kicad-prism-backend@sha256:<digest>
+PRISM_FRONTEND_IMAGE=ghcr.io/krishna-swaroop/kicad-prism-frontend@sha256:<digest>
+```
+
+Do not replace these with `latest`.
+
+Source builds use:
+
+```env
 KICAD_BASE_PLATFORM=linux/amd64
 DOCKER_PLATFORM=linux/amd64
 ```
 
-The documented public source-build and deployment target is Linux AMD64. Keep
-these three values consistent.
+The repository default also pins `KICAD_BASE_IMAGE` to the selected stable KiCad
+AMD64 manifest digest. The public source-build and release targets are Linux
+AMD64.
 
 ## Project-level `.prism.json`
 
@@ -127,15 +147,24 @@ fixed workflow types.
 
 1. Back up the current `.env`.
 2. Compare it with the new `.env.example`.
-3. change one setting group at a time;
-4. render Compose before restart:
+3. Preserve the new release image digests.
+4. Change one setting group at a time.
+5. Render Compose before restart.
+
+For a release bundle:
+
+```bash
+docker compose --env-file .env -f compose.yml config --quiet
+```
+
+For a source build:
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml config --quiet
 ```
 
-5. restart and inspect backend and worker logs;
-6. verify authentication and one representative project operation.
+6. Restart and inspect backend and worker logs.
+7. Verify authentication and one representative project operation.
 
 Changing `SESSION_SECRET` revokes sessions and invalidates signed provider
 tokens. Changing database or artifact roots without moving their data creates an

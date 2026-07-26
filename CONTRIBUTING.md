@@ -17,8 +17,9 @@ behavior.
 
 ## Branches and pull requests
 
-The `dev` branch is protected. All changes must arrive through a pull request
-whose required quality gate passes.
+The `dev` and `main` branches are protected. Normal changes target `dev` through
+a pull request whose required quality gate passes. Only reviewed release
+promotion moves tested `dev` into `main`.
 
 Start from current `dev` and use one purpose per branch:
 
@@ -94,8 +95,22 @@ docker compose --env-file .env.example \
 ```
 
 For a full local application, follow
-[Getting started](docs/GETTING_STARTED.md). Use a native KiCad image for the
-host architecture.
+[Getting started](docs/GETTING_STARTED.md). The supported public source-build
+default is Linux AMD64.
+
+### Release tooling
+
+Changes to the release contract must also run:
+
+```bash
+python3 -m unittest scripts.test_release_bundle
+POSTGRES_PASSWORD=ci-release-validation PRISM_ENV_FILE=.env.example \
+  docker compose --env-file deploy/release/.env.example \
+  -f deploy/release/compose.yml config --quiet
+```
+
+The tagged release workflow is not a developer image builder. Pull requests and
+branch pushes never publish images. See [Release process](docs/RELEASES.md).
 
 ## Code changes
 
@@ -130,7 +145,9 @@ matters to a user's decision, state it directly.
 - No secrets, private design data, generated builds, or local caches are added.
 - Breaking or feature-freeze changes have explicit maintainer approval.
 
-The repository quality gate runs on every pull request to `dev`. Keep the branch
+The repository quality gate runs for pull requests and pushes targeting `dev`
+or `main`. Contributor pull requests target `dev`; maintainers promote a tested
+release through a separate `dev` to `main` pull request. Keep feature branches
 current with `dev` before merge.
 
 ## Reporting and conduct

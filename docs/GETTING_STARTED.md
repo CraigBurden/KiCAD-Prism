@@ -1,27 +1,71 @@
 # Getting started
 
-This guide starts a local KiCAD Prism evaluation from source. It is not a
-production deployment guide.
+This guide covers a private evaluation of KiCAD Prism. Shared installations must
+use OIDC and HTTPS and follow [Deployment](DEPLOYMENT.md).
 
-## Prerequisites
+## Choose an evaluation path
 
-- Git
-- Docker Engine with Docker Compose v2, or Docker Desktop
-- a Linux AMD64 Docker host
-- enough memory and disk for the projects you intend to import
+Use:
 
-Prism runs KiCad tooling inside its backend and workers. The documented public
-source-build path uses the stable AMD64 KiCad runtime image from Docker Hub.
+- a stable release bundle when the selected GitHub Release provides one;
+- a source build from `dev` when contributing or evaluating unreleased work;
+- a source build from a stable tag only for releases that predate deployment
+  bundles.
 
-## 1. Clone and configure
+The supported public runtime target is Linux AMD64. Docker Desktop may emulate
+AMD64 on other host architectures, but native ARM64 release images are not
+currently provided.
+
+## Stable release bundle
+
+Download the archive and checksum from the
+[latest stable release](https://github.com/krishna-swaroop/KiCAD-Prism/releases/latest),
+then verify and extract them:
 
 ```bash
-git clone https://github.com/krishna-swaroop/KiCAD-Prism.git
+sha256sum -c kicad-prism-vX.Y.Z-linux-amd64.tar.gz.sha256
+tar -xzf kicad-prism-vX.Y.Z-linux-amd64.tar.gz
+cd kicad-prism-vX.Y.Z-linux-amd64
+sha256sum -c SHA256SUMS
+cp .env.example .env
+```
+
+For a private, single-user evaluation, edit `.env`:
+
+```env
+POSTGRES_PASSWORD=<random-local-password>
+AUTH_ENABLED=false
+DEV_GUEST_ROLE=admin
+UVICORN_WORKERS=1
+PRISM_WORKER_CONCURRENCY=1
+CATALOG_WORKER_CONCURRENCY=1
+```
+
+This grants every visitor administrator access. Use it only on a private
+machine with the frontend bound to loopback.
+
+Start the digest-pinned images:
+
+```bash
+docker compose pull
+docker compose up -d --wait
+docker compose ps
+```
+
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
+
+## Source development from `dev`
+
+Contributors and testers of unreleased behavior build the root Compose project
+from source:
+
+```bash
+git clone --branch dev https://github.com/krishna-swaroop/KiCAD-Prism.git
 cd KiCAD-Prism
 cp .env.example .env
 ```
 
-For a single-user local evaluation, set:
+Set the same private evaluation posture:
 
 ```env
 AUTH_ENABLED=false
@@ -29,35 +73,26 @@ DEV_GUEST_ROLE=admin
 UVICORN_WORKERS=1
 ```
 
-This gives every visitor administrator access. Never use that configuration on
-an interface reachable by other people.
-
-## 2. Select the KiCad runtime image
-
-Use the stable public KiCad image built for AMD64:
+The root configuration defaults to the pinned stable AMD64 KiCad base:
 
 ```env
-KICAD_BASE_IMAGE=kicad/kicad:10.0.4
 KICAD_BASE_PLATFORM=linux/amd64
 DOCKER_PLATFORM=linux/amd64
 ```
 
-Verify the image architecture and KiCad version before building Prism:
-
-```bash
-docker pull --platform linux/amd64 kicad/kicad:10.0.4
-docker image inspect kicad/kicad:10.0.4 --format '{{.Architecture}}'
-docker run --rm --platform linux/amd64 kicad/kicad:10.0.4 kicad-cli --version
-```
-
-## 3. Start Prism
+Build and start:
 
 ```bash
 docker compose up --build -d
 docker compose ps
 ```
 
-All five services should be running and PostgreSQL should report healthy:
+Do not deploy `dev` as the stable team service. It is the integration branch and
+can contain alpha changes between releases.
+
+## Verify the evaluation
+
+All five application services should be running:
 
 - `kicad-prism-postgres`
 - `kicad-prism-backend`
@@ -65,70 +100,91 @@ All five services should be running and PostgreSQL should report healthy:
 - `kicad-prism-catalog-worker`
 - `kicad-prism-frontend`
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
+Check:
 
-## 4. Import a project
+```bash
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/api/health/ready
+docker compose logs --tail=100 backend prism-worker catalog-worker
+```
+
+## Import a project
 
 1. Select **Import Project**.
 2. Paste an HTTPS or SSH clone URL.
 3. Wait for repository analysis.
-4. Select the discovered project paths you want to register.
-5. Start import and wait for the queued job to complete.
-6. Open the project and inspect its Overview, Visualizers, History, Workflows,
-   Assets, and Documentation sections.
+4. Select the discovered project paths to register.
+5. Start import and wait for its queued job.
+6. Open the project and inspect Overview, Visualizers, History, Workflows,
+   Assets, and Documentation.
 
-For private repositories, configure SSH from Settings or provide the deployment
-with appropriate Git credentials. See [Project workflows](PROJECT_WORKFLOWS.md).
+For private repositories, configure SSH in Settings or provide an appropriate
+Git credential. See [Project workflows](PROJECT_WORKFLOWS.md).
 
-## 5. Stop or reset
+## Stop or reset
 
-Stop the application without removing PostgreSQL data:
+Stop without removing PostgreSQL:
 
 ```bash
 docker compose down
 ```
 
-Do not add `--volumes` unless you intentionally want to destroy the PostgreSQL
-database. Project and SSH data are stored in `./data` and are not removed by
-`docker compose down`.
+Do not add `--volumes` unless database deletion is intentional.
+`data/projects` and `data/ssh` are bind-mounted and remain after `down`.
 
 ## Troubleshooting
 
-### Backend image cannot be resolved
+### Image pull fails
 
-The configured `KICAD_BASE_IMAGE` does not exist locally and cannot be pulled.
-Confirm that the configured stable KiCad tag exists in the public registry.
+Confirm registry access and inspect the configured image reference:
 
-### Docker host architecture is unsupported
+```bash
+docker compose config --images
+docker compose pull
+```
 
-Confirm that the Docker host reports AMD64:
+Release bundles use exact Prism image digests. Do not replace them with `latest`
+to work around a registry or permission failure.
+
+### Source build cannot resolve the KiCad base
+
+Confirm the pinned public AMD64 image is reachable:
+
+```bash
+docker pull --platform linux/amd64 kicad/kicad:10.0.4
+docker run --rm --platform linux/amd64 \
+  kicad/kicad:10.0.4 kicad-cli --version
+```
+
+### Host architecture differs
+
+The supported public image architecture is AMD64:
 
 ```bash
 docker info --format '{{.Architecture}}'
-docker image inspect kicad/kicad:10.0.4 \
-  --format '{{.Architecture}}'
 ```
 
-Both commands should report `amd64`. Set all three Docker/KiCad variables to the
-documented AMD64 values and rebuild.
+Docker Desktop may emulate it on Apple Silicon, but the backend and KiCad tooling
+will not run natively.
 
 ### Frontend returns 502
 
-The frontend is up but the backend is not ready. Inspect:
+The frontend is running but the API is unavailable:
 
 ```bash
-docker compose logs --tail=200 backend
-docker compose logs --tail=200 postgres
+docker compose logs --tail=200 backend postgres
+curl -i http://127.0.0.1:8080/api/health/ready
 ```
 
-### Authentication startup failure
+### Authentication startup fails
 
-`AUTH_ENABLED=true` fails closed when OIDC, session secret, or database settings
-are incomplete. Use explicit guest mode only for a private local evaluation, or
-complete [Authentication and access](AUTHENTICATION_AND_ACCESS.md).
+`AUTH_ENABLED=true` fails closed when OIDC, session, or database settings are
+incomplete. Use guest mode only for a private evaluation or complete
+[Authentication and access](AUTHENTICATION_AND_ACCESS.md).
 
 ## Next
 
 - [Deployment](DEPLOYMENT.md)
 - [Team adoption](TEAM_ADOPTION.md)
 - [Configuration](CONFIGURATION.md)
+- [Release process](RELEASES.md)

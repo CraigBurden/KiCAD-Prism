@@ -1,53 +1,54 @@
 # KiCAD Prism documentation
 
-This documentation describes the current `dev` branch as it approaches the
-V3.0.0 alpha. Start with the path that matches what you are trying to do.
+Stable operators should start from the latest GitHub Release. Contributors and
+testers of unreleased behavior work from `dev`.
 
 ## Evaluate Prism
 
-- [Platform overview](OVERVIEW.md) explains what Prism does, where it fits, and
-  its current boundaries.
-- [Architecture](ARCHITECTURE.md) describes the runtime services, persistent
-  data, and trust boundaries.
-- [Team adoption](TEAM_ADOPTION.md) proposes a staged rollout for project
-  review and component governance.
+- [Platform overview](OVERVIEW.md) explains capabilities and current boundaries.
+- [Getting started](GETTING_STARTED.md) covers stable-bundle and source-based
+  private evaluations.
+- [Architecture](ARCHITECTURE.md) describes services, persistence, jobs, and
+  trust boundaries.
+- [Team adoption](TEAM_ADOPTION.md) proposes a staged team rollout.
 
 ## Install and operate Prism
 
-- [Getting started](GETTING_STARTED.md) covers a local evaluation.
-- [Deployment](DEPLOYMENT.md) covers a shared HTTPS deployment.
-- [Configuration](CONFIGURATION.md) is the environment and `.prism.json`
-  reference.
+- [Deployment](DEPLOYMENT.md) covers the digest-pinned stable release bundle,
+  OIDC, TLS, storage, sizing, and legacy source fallback.
+- [Configuration](CONFIGURATION.md) explains release and source environment
+  settings plus project-level `.prism.json`.
 - [Authentication and access](AUTHENTICATION_AND_ACCESS.md) covers OIDC,
   sessions, roles, and service clients.
-- [Operations](OPERATIONS.md) covers backups, restores, upgrades, logs, and
-  troubleshooting.
+- [Operations](OPERATIONS.md) covers backup, restore, bundle upgrades, rollback,
+  capacity, and diagnosis.
+- [Release process](RELEASES.md) documents `dev` to `main` promotion, tag
+  validation, image policy, and release assets.
 
 ## Use Prism
 
-- [Project workflows](PROJECT_WORKFLOWS.md) covers import, sync, browser review,
-  comments, comparisons, jobsets, and assets.
-- [Library Manager](LIBRARY_MANAGER.md) covers component import, revision, QA,
+- [Project workflows](PROJECT_WORKFLOWS.md) covers import, synchronization,
+  browser review, comments, comparisons, jobsets, and assets.
+- [Library Manager](LIBRARY_MANAGER.md) covers component import, revisions, QA,
   release, KLC checks, and DBL export.
 - [Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md) covers connecting desktop
   KiCad and placing released components.
 
 ## Participate
 
-- [Contributing](../CONTRIBUTING.md) explains the development and pull-request
-  workflow.
-- [Reporting issues](REPORTING_ISSUES.md) explains where and how to report bugs,
-  feature requests, documentation gaps, and security concerns.
+- [Contributing](../CONTRIBUTING.md) explains development branches, checks, and
+  pull requests.
+- [Reporting issues](REPORTING_ISSUES.md) covers bugs, features, documentation,
+  and security reports.
 - [Security policy](../SECURITY.md) explains private vulnerability reporting.
 
 ## Documentation policy
 
-The documents above are user and operator documentation. Temporary implementation
-plans, benchmark transcripts, conference notes, and completed migration records
-do not belong in this directory. Keep that material in a tracking issue,
-discussion, pull request, or release artifact where its date and status remain
-clear.
+These files describe supported user, contributor, and operator behavior.
+Temporary plans, benchmark transcripts, conference notes, and completed
+migration records belong in an issue, discussion, pull request, or release
+artifact where their date and status remain clear.
 
-When behavior changes, update the relevant document in the same pull request.
-Examples must use placeholders instead of real credentials, internal hostnames,
-or production data.
+Update documentation in the same pull request as behavior or configuration.
+Examples must use placeholders rather than credentials, internal hostnames, or
+production data.
