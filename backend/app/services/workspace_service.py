@@ -261,7 +261,7 @@ class WorkspaceService:
         schematic_rel: Optional[str] = None,
         pcb_rel: Optional[str] = None,
         thumbnail_rel: Optional[str] = None,
-        thumbnail_source: str = "repository",
+        thumbnail_source: str = "generated",
         thumbnail_digest: Optional[str] = None,
         thumbnail_media_type: Optional[str] = None,
         thumbnail_size_bytes: Optional[int] = None,

@@ -27,6 +27,11 @@ class Project(BaseModel):
     last_modified: str
     registered_at: Optional[str] = None
     thumbnail_url: Optional[str] = None
+    # Where the thumbnail came from: "generated" (kicad-cli render), "custom"
+    # (uploaded in the workspace) or "repository" (an image committed in the
+    # repo, used only when there is nothing to render). The workspace needs
+    # this to know which thumbnail actions to offer.
+    thumbnail_source: Optional[str] = None
     sub_path: Optional[str] = None  # Relative path within parent repo
     parent_repo: Optional[str] = None  # Parent monorepo name
     repo_url: Optional[str] = None  # Original Git URL
@@ -376,6 +381,7 @@ def _workspace_row_to_project(row: dict) -> Project:
         last_modified=row.get("last_modified", ""),
         registered_at=row.get("registered_at"),
         thumbnail_url=thumbnail_url_for_row(row),
+        thumbnail_source=row.get("thumbnail_source") or "generated",
         sub_path=row.get("relative_path") if row.get("relative_path") != "." else None,
         parent_repo=row.get("parent_repo"),
         repo_url=row.get("repo_url"),

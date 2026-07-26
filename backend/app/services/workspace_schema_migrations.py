@@ -301,6 +301,22 @@ def _thumbnail_source(conn: Any) -> None:
     )
 
 
+def _generated_thumbnail_default(conn: Any) -> None:
+    """Make Prism's own render the default a project falls back to.
+
+    A project now shows a render of its board rather than whatever image happens
+    to sit in the repository. Rows already pointing at a committed image keep
+    doing so until the next render replaces it, so nothing goes blank in the
+    meantime; only the column default changes here.
+    """
+    conn.execute(
+        """
+        ALTER TABLE ws_projects
+            ALTER COLUMN thumbnail_source SET DEFAULT 'generated'
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -308,6 +324,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (4, "webgpu_ready_metadata", _webgpu_ready_metadata),
     (5, "thumbnail_metadata", _thumbnail_metadata),
     (6, "thumbnail_source", _thumbnail_source),
+    (7, "generated_thumbnail_default", _generated_thumbnail_default),
 )
 
 
