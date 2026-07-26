@@ -92,6 +92,30 @@ class SyncFastForwardsOnly(unittest.TestCase):
         self.repo.git.merge.assert_not_called()
         self.assertIn("no upstream", result["message"])
 
+    def test_sync_requires_a_pinned_host_key(self) -> None:
+        """Sync built its own environment and kept `accept-new` after import
+        moved to pinned keys. Sync is the operation that runs unattended and
+        repeatedly, so it is the one an attacker has the most chances at."""
+        project_import_service.sync_project("prj_1")
+        env = self.origin.fetch.call_args.kwargs["env"]
+        self.assertIn("StrictHostKeyChecking=yes", env["GIT_SSH_COMMAND"])
+        self.assertNotIn("accept-new", env["GIT_SSH_COMMAND"])
+
+    def test_sync_never_waits_on_a_credential_prompt(self) -> None:
+        # No terminal is attached to a worker, so a prompt is a hung job.
+        project_import_service.sync_project("prj_1")
+        env = self.origin.fetch.call_args.kwargs["env"]
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+        self.assertIn("BatchMode=yes", env["GIT_SSH_COMMAND"])
+
+    def test_sync_uses_the_same_environment_as_every_other_remote_call(self) -> None:
+        # Built locally, it drifts. This is what let the policies diverge.
+        project_import_service.sync_project("prj_1")
+        env = self.origin.fetch.call_args.kwargs["env"]
+        expected = project_import_service.git_env()
+        self.assertEqual(env["GIT_SSH_COMMAND"], expected["GIT_SSH_COMMAND"])
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], expected["GIT_TERMINAL_PROMPT"])
+
     def test_sync_clears_legacy_in_tree_thumbnails(self) -> None:
         # A checkout carrying thumbnails from an older Prism cannot fast-forward
         # until they are gone.
@@ -100,6 +124,43 @@ class SyncFastForwardsOnly(unittest.TestCase):
         ) as purge:
             project_import_service.sync_project("prj_1")
         purge.assert_called_once()
+
+
+class NoHostKeyPolicyIsWrittenByHand(unittest.TestCase):
+    """The policy diverged twice, in two different modules, because each place
+    that talked to a remote spelled out its own ssh options. Nothing outside
+    git_env may name a host key policy at all."""
+
+    #: app/ is a namespace package with no __file__, so anchor on a module in it.
+    SOURCE_ROOT = Path(project_import_service.__file__).resolve().parents[1]
+
+    def _matching_lines(self, needle: str, *, skip: tuple[str, ...] = ()) -> list[str]:
+        found: list[str] = []
+        for path in sorted(self.SOURCE_ROOT.rglob("*.py")):
+            if path.name in skip:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for number, line in enumerate(text.splitlines(), start=1):
+                if needle in line and not line.lstrip().startswith("#"):
+                    found.append(f"{path.relative_to(self.SOURCE_ROOT)}:{number}")
+        return found
+
+    def test_only_git_env_sets_a_host_key_policy(self) -> None:
+        offenders = self._matching_lines(
+            "StrictHostKeyChecking",
+            # git_env is the single definition; git_failures only matches on the
+            # string when explaining a failure it did not cause.
+            skip=("project_import_service.py", "git_failures.py"),
+        )
+        self.assertEqual(
+            offenders,
+            [],
+            "call git_env() instead of writing an ssh host key policy inline",
+        )
+
+    def test_nothing_accepts_an_unknown_host_key(self) -> None:
+        offenders = self._matching_lines("accept-new")
+        self.assertEqual(offenders, [], "accept-new trusts whatever key answers first")
 
 
 if __name__ == "__main__":
