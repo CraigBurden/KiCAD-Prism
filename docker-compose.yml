@@ -140,6 +140,14 @@ services:
         condition: service_healthy
     volumes:
       - ./data/projects:/app/projects
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -r /proc/1/cmdline && grep -aq 'app.prism_worker' /proc/1/cmdline
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
     environment:
       - PYTHONUNBUFFERED=1
       - KICAD_PROJECTS_ROOT=/app/projects
@@ -197,6 +205,14 @@ services:
     volumes:
       - ./data/projects:/app/projects
       - ./data/ssh:/root/.ssh:rw
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -r /proc/1/cmdline && grep -aq 'app.prism_worker' /proc/1/cmdline
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
     environment:
       - PYTHONUNBUFFERED=1
       - KICAD_PROJECTS_ROOT=/app/projects
