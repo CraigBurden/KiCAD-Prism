@@ -8,7 +8,7 @@ Example docker-compose.proxy.yml volume additions:
   - ./deploy/certs:/certs:ro
 
 Distribute deploy/certs/corp-root-ca.crt (or your real root) to every
-KiCad workstation OS trust store. See docs/HTTPS_AND_TLS.md.
+KiCad workstation OS trust store. See docs/DEPLOYMENT.md.
 
 kicad-prism.corp.internal {
 	tls /certs/prism.crt /certs/prism.key

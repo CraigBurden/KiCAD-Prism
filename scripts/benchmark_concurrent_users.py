@@ -16,7 +16,7 @@ Usage:
 VPN-like delay:
   --network-delay-ms / --network-jitter-ms inject one-way latency around each
   HTTP call (excluded from server latency metrics, included in client latency).
-  For kernel-level netem (closer to real VPN), see docs/V3_CAPACITY_HAMMER.md.
+  Use a dedicated load environment; see docs/OPERATIONS.md for operational guidance.
 
 Requires: aiohttp (pip install aiohttp)
 """
