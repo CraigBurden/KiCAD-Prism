@@ -12,4 +12,4 @@ Typical files in this directory (not committed):
 - `prism.key`
 - `corp-root-ca.crt` (distribute to KiCad workstations)
 
-See `../../docs/HTTPS_AND_TLS.md`.
+See `../../docs/DEPLOYMENT.md`.
