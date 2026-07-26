@@ -17,6 +17,7 @@ from app.api._helpers import get_project_for_role_or_404, _row_to_project, requi
 from app.core.config import settings
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services import (
+    derived_assets,
     file_service,
     path_config_service,
     project_import_service,
@@ -835,25 +836,38 @@ async def get_project_branches(
     repo_path, relative_path = _repo_context(project)
     return await asyncio.to_thread(get_branches, repo_path, relative_path)
 
+def _resolve_thumbnail_file(project, row: Optional[dict]) -> Optional[Path]:
+    """Locate a project's thumbnail, wherever it is kept.
+
+    A thumbnail committed to the repository resolves inside the checkout. One
+    Prism rendered itself lives in the derived asset store, outside every
+    checkout, so that generating it never dirties the working tree.
+    """
+    if not row or not row.get("thumbnail_rel"):
+        return None
+    if str(row.get("thumbnail_source") or "repository") == "generated":
+        return derived_assets.find_thumbnail(project.path)
+    abs_path = resolve_path_within_root(
+        project.path,
+        str(row["thumbnail_rel"]),
+        invalid_detail="Invalid thumbnail path",
+    )
+    return abs_path if abs_path.is_file() else None
+
+
 @router.get("/{project_id}/thumbnail")
 async def get_project_thumbnail(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     project = get_project_for_role_or_404(project_id, user.role)
     # Use cached thumbnail path from DB, fallback to filesystem detection
     row = workspace.get_project_by_id(project_id)
-    thumbnail_rel = row.get("thumbnail_rel") if row else None
-    if thumbnail_rel:
-        abs_path = resolve_path_within_root(
-            project.path,
-            thumbnail_rel,
-            invalid_detail="Invalid thumbnail path",
+    abs_path = _resolve_thumbnail_file(project, row)
+    if abs_path is not None and abs_path.is_file():
+        return _thumbnail_response(
+            abs_path,
+            digest=str((row or {}).get("thumbnail_digest") or ""),
+            media_type=str((row or {}).get("thumbnail_media_type") or ""),
+            immutable=False,
         )
-        if abs_path.is_file():
-            return _thumbnail_response(
-                abs_path,
-                digest=str(row.get("thumbnail_digest") or ""),
-                media_type=str(row.get("thumbnail_media_type") or ""),
-                immutable=False,
-            )
     # Fallback: live filesystem detection
     path = project_service.get_project_thumbnail_path(project_id)
     if not path:
@@ -875,12 +889,8 @@ async def get_project_thumbnail_version(
         or str(row.get("thumbnail_digest") or "") != thumbnail_digest
     ):
         raise HTTPException(status_code=404, detail="Thumbnail version not found")
-    path = resolve_path_within_root(
-        project.path,
-        str(row["thumbnail_rel"]),
-        invalid_detail="Invalid thumbnail path",
-    )
-    if not path.is_file():
+    path = _resolve_thumbnail_file(project, row)
+    if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     return _thumbnail_response(
         path,

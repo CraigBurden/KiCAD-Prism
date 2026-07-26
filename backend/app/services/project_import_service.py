@@ -14,7 +14,7 @@ from typing import List, Optional
 from dataclasses import dataclass
 from git import Repo, RemoteProgress
 from app.core.config import settings
-from app.services import project_service, path_config_service
+from app.services import derived_assets, project_service, path_config_service
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult
 from app.services.job_service import jobs as v3_jobs
@@ -163,8 +163,10 @@ def resolve_cached_paths(project_path: str) -> dict:
                 return os.path.relpath(abs_path, project_path)
             except ValueError:
                 return None
-        # Thumbnail: resolve to first image if directory
+        # A thumbnail committed to the repository is the team's own choice and
+        # always wins. Only when there is none does Prism's render get used.
         thumb_rel = None
+        thumbnail_source = "repository"
         thumbnail_digest = None
         thumbnail_media_type = None
         thumbnail_size_bytes = None
@@ -176,15 +178,23 @@ def resolve_cached_paths(project_path: str) -> dict:
                     if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
                         thumb_rel = _rel(os.path.join(thumb, f))
                         break
-        if thumb_rel:
-            thumbnail_file = Path(project_path) / thumb_rel
-            if thumbnail_file.is_file():
-                thumbnail_digest = hashlib.sha256(thumbnail_file.read_bytes()).hexdigest()
-                thumbnail_media_type = (
-                    mimetypes.guess_type(thumbnail_file.name)[0]
-                    or "application/octet-stream"
-                )
-                thumbnail_size_bytes = thumbnail_file.stat().st_size
+        thumbnail_file = Path(project_path) / thumb_rel if thumb_rel else None
+        if thumbnail_file is None or not thumbnail_file.is_file():
+            generated = derived_assets.find_thumbnail(project_path)
+            if generated is not None:
+                thumbnail_file = generated
+                thumb_rel = generated.name
+                thumbnail_source = "generated"
+            else:
+                thumbnail_file = None
+                thumb_rel = None
+        if thumbnail_file is not None:
+            thumbnail_digest = hashlib.sha256(thumbnail_file.read_bytes()).hexdigest()
+            thumbnail_media_type = (
+                mimetypes.guess_type(thumbnail_file.name)[0]
+                or "application/octet-stream"
+            )
+            thumbnail_size_bytes = thumbnail_file.stat().st_size
         design_dir = resolved.design_outputs_dir
         has_3d = False
         has_ibom = False
@@ -204,6 +214,7 @@ def resolve_cached_paths(project_path: str) -> dict:
             'schematic_rel': _rel(sch),
             'pcb_rel': _rel(pcb),
             'thumbnail_rel': thumb_rel,
+            'thumbnail_source': thumbnail_source,
             'thumbnail_digest': thumbnail_digest,
             'thumbnail_media_type': thumbnail_media_type,
             'thumbnail_size_bytes': thumbnail_size_bytes,
@@ -251,17 +262,19 @@ def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[s
         if logs_list is not None:
             logs_list.append(f"Generating thumbnail using {cli_path} for PCB: {pcb_file}")
 
-        # Create assets/thumbnail directory
-        thumbnail_dir = Path(project_path) / "assets" / "thumbnail"
-        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+        # Render into a scratch directory outside the checkout. Nothing this
+        # function does may leave a file inside the user's working tree.
+        staging_dir = derived_assets.thumbnail_dir(project_path)
+        staging_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
-            dir=thumbnail_dir,
+            dir=staging_dir,
             prefix=".thumbnail-render-",
             suffix=".png",
             delete=False,
         ) as temporary_render:
             render_path = Path(temporary_render.name)
-        
+
+
         cmd = [
             cli_path,
             "pcb",
@@ -291,7 +304,7 @@ def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[s
             return False
 
         with tempfile.NamedTemporaryFile(
-            dir=thumbnail_dir,
+            dir=staging_dir,
             prefix=".thumbnail-encode-",
             suffix=".webp",
             delete=False,
@@ -309,14 +322,9 @@ def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[s
                     )
                     if webp_path.stat().st_size <= 250 * 1024:
                         break
-            encoded = webp_path.read_bytes()
-            digest = hashlib.sha256(encoded).hexdigest()
-            output_path = thumbnail_dir / f"thumbnail.{digest[:16]}.webp"
-            os.replace(webp_path, output_path)
-            for stale in thumbnail_dir.glob("thumbnail.*.webp"):
-                if stale != output_path:
-                    stale.unlink(missing_ok=True)
-            (thumbnail_dir / "thumbnail.png").unlink(missing_ok=True)
+            output_path, _digest, _size = derived_assets.store_thumbnail(
+                project_path, webp_path
+            )
         finally:
             render_path.unlink(missing_ok=True)
             webp_path.unlink(missing_ok=True)
@@ -556,6 +564,9 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 )
             adopted_checkout = True
             print(f"Adopting existing checkout: {target_path}", flush=True)
+            derived_assets.purge_legacy_in_tree_thumbnails(
+                target_path, existing_checkout
+            )
 
         base_path.mkdir(parents=True, exist_ok=True)
         if not adopted_checkout:
@@ -697,8 +708,12 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
 def sync_project(project_id: str) -> dict:
     """
     Sync a project with its remote repository.
-    For Type-1: pulls the project repo.
-    For Type-2: pulls the parent repo.
+    For Type-1: syncs the project repo.
+    For Type-2: syncs the parent repo.
+
+    Prism's checkout is a read-only mirror of the remote. Sync fetches every ref
+    and fast-forwards the current branch; it never merges, never rebases and
+    never commits, so the checkout cannot diverge from what the team pushed.
     """
     row = workspace.get_project_by_id(project_id)
     if not row:
@@ -713,13 +728,34 @@ def sync_project(project_id: str) -> dict:
     try:
         repo = Repo(sync_path)
         origin = repo.remote('origin')
-        
+
         env = os.environ.copy()
         env['GIT_TERMINAL_PROMPT'] = '0'
         env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
-        fetch_info = origin.fetch(env=env)
-        origin.pull(env=env)
+
+        # Clear out thumbnails an older Prism wrote into the tree, so a checkout
+        # carrying them can still fast-forward.
+        derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)
+
+        # Prune so branches deleted upstream stop showing up in the branch list,
+        # and fetch all refs rather than only the checked-out branch, so design
+        # comparison can reach any branch without a second network round trip.
+        fetch_info = origin.fetch(env=env, prune=True)
+
+        if repo.head.is_detached:
+            message = "Fetched refs; checkout is on a detached HEAD so nothing was advanced"
+        elif repo.is_dirty(untracked_files=False):
+            # Prism never writes into the tree, so a dirty checkout means someone
+            # edited it directly. Report rather than clobber their work.
+            message = "Fetched refs; local changes in the checkout block a fast-forward"
+        else:
+            branch = repo.active_branch
+            tracking = branch.tracking_branch()
+            if tracking is None:
+                message = f"Fetched refs; '{branch.name}' has no upstream to fast-forward from"
+            else:
+                repo.git.merge("--ff-only", tracking.name)
+                message = f"Synced {len(fetch_info)} ref(s)"
 
         # Refresh cached paths after sync
         path_config_service.clear_config_cache()
@@ -732,12 +768,12 @@ def sync_project(project_id: str) -> dict:
 
         # Update repo last_synced_at
         workspace.update_repository_synced(row.get('repo_id', ''))
-        
+
         return {
             "status": "success",
-            "message": f"Synced {len(fetch_info)} ref(s)",
+            "message": message,
             "path": sync_path
         }
-        
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
