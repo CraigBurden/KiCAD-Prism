@@ -68,6 +68,27 @@ def openssh_tools() -> dict[str, bool]:
     """
     return {tool: shutil.which(tool) is not None for tool in ("ssh", "ssh-keygen", "ssh-keyscan")}
 
+
+def warn_if_openssh_missing(component: str) -> list[str]:
+    """Log which OpenSSH binaries are absent, and return their names.
+
+    Every process that clones needs its own copy: the API and the workers run
+    from the same image but are rebuilt independently, so one of them can end up
+    without `ssh` while the others have it. That failure only shows up when
+    somebody imports a repository, and it looks like a permissions problem. Say
+    it at startup instead, where it is a one-line fix.
+    """
+    missing = sorted(tool for tool, present in openssh_tools().items() if not present)
+    if missing:
+        logger.warning(
+            "%s has no %s. SSH Git remotes will fail here until openssh-client "
+            "is installed in this image. If other Prism containers do have it, "
+            "this image is stale — rebuild it.",
+            component,
+            ", ".join(missing),
+        )
+    return missing
+
 # Hosts Prism knows how to talk about. Anything else is treated as a
 # self-hosted server: still supported, just without the tailored instructions.
 FORGES: dict[str, dict[str, str]] = {

@@ -44,6 +44,29 @@ class _Rule:
 # ones. "Repository not found" must beat the generic authentication signals,
 # because GitHub returns it for private repositories the caller cannot see.
 _RULES: tuple[_Rule, ...] = (
+    # First, because this one is Prism's fault and not the remote's. git runs
+    # GIT_SSH_COMMAND through a shell, so a missing binary surfaces as the
+    # shell's "not found" followed by git's stock "make sure you have the
+    # correct access rights" — which sends the reader off checking keys and
+    # permissions that were never the problem.
+    _Rule(
+        reason="ssh-unavailable",
+        signals=(
+            "ssh: not found",
+            "ssh: command not found",
+            "cannot run ssh",
+            "cannot spawn ssh",
+        ),
+        template=(
+            "The Prism server has no SSH client, so it cannot use an SSH Git "
+            "remote at all.\n\n"
+            "This is a problem with the Prism deployment, not with {target} or "
+            "with your key. An administrator needs to install the "
+            "openssh-client package in the backend and worker images and "
+            "restart them. Until then, an HTTPS URL will still work for public "
+            "repositories."
+        ),
+    ),
     _Rule(
         reason="ssh-key-not-authorized",
         signals=("permission denied (publickey", "permission denied, please try again"),
