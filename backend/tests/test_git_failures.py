@@ -1,0 +1,179 @@
+"""Git failures have to arrive as something the user can act on.
+
+The failure this replaces read, in full:
+
+    Cmd('git') failed due to: exit code(128)
+      cmdline: git clone -v --depth=1 --single-branch --no-checkout
+      --filter=blob:none --progress -- https://github.com/org/repo.git
+      /tmp/kicad_analyze_ujfs8p8z/repo
+
+which says nothing about the cause, nothing about the fix, and leaks the
+server's temporary paths into the UI.
+"""
+
+from __future__ import annotations
+
+import unittest
+
+from app.services.git_failures import describe_git_failure, git_failure_message
+
+
+class FakeGitError(Exception):
+    """Stands in for GitPython's GitCommandError, which carries stderr."""
+
+    def __init__(self, stderr: str) -> None:
+        super().__init__(
+            "Cmd('git') failed due to: exit code(128)\n  cmdline: git clone -v "
+            "--depth=1 -- https://github.com/org/repo.git /tmp/kicad_analyze_x/repo"
+        )
+        self.stderr = stderr
+
+
+class IdentifiesTheCause(unittest.TestCase):
+    def test_private_repository_without_access(self) -> None:
+        reason, message = describe_git_failure(
+            FakeGitError("remote: Repository not found.\nfatal: repository not found"),
+            target="github.com/pixxelhq/JTYU-IN",
+        )
+        self.assertEqual(reason, "repository-not-found")
+        self.assertIn("github.com/pixxelhq/JTYU-IN", message)
+        # The important insight: a forge hides private repos rather than saying
+        # "denied", so "not found" is what a missing permission looks like.
+        self.assertIn("private", message)
+
+    def test_ssh_key_not_authorized(self) -> None:
+        reason, message = describe_git_failure(
+            FakeGitError("git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository."),
+            target="github.com/org/repo",
+        )
+        self.assertEqual(reason, "ssh-key-not-authorized")
+        self.assertIn("deploy key", message)
+
+    def test_https_private_repository_needs_credentials(self) -> None:
+        reason, message = describe_git_failure(
+            FakeGitError("fatal: could not read Username for 'https://github.com': terminal prompts disabled"),
+            target="github.com/org/repo",
+            host="github.com",
+        )
+        self.assertEqual(reason, "credentials-required")
+        self.assertIn("git@github.com", message)
+
+    def test_unresolvable_host(self) -> None:
+        reason, message = describe_git_failure(
+            FakeGitError("fatal: unable to access 'https://git.internal/': Could not resolve host: git.internal"),
+            host="git.internal",
+        )
+        self.assertEqual(reason, "host-unresolved")
+        self.assertIn("git.internal", message)
+        # A container not sharing the user's VPN is the usual cause.
+        self.assertIn("container", message)
+
+    def test_unreachable_host(self) -> None:
+        reason, _ = describe_git_failure(
+            FakeGitError("ssh: connect to host git.internal port 22: Connection refused")
+        )
+        self.assertEqual(reason, "host-unreachable")
+
+    def test_unverified_host_key(self) -> None:
+        reason, message = describe_git_failure(
+            FakeGitError("Host key verification failed.\nfatal: Could not read from remote repository."),
+            host="git.internal",
+        )
+        self.assertEqual(reason, "host-key-unverified")
+        self.assertIn("git.internal", message)
+
+    def test_missing_branch(self) -> None:
+        reason, _ = describe_git_failure(
+            FakeGitError("fatal: Remote branch release/v9 not found in upstream origin")
+        )
+        self.assertEqual(reason, "branch-not-found")
+
+    def test_empty_repository(self) -> None:
+        reason, message = describe_git_failure(
+            FakeGitError("warning: You appear to have cloned an empty repository."),
+            target="github.com/org/repo",
+        )
+        self.assertEqual(reason, "empty-repository")
+        self.assertIn("empty", message)
+
+    def test_disk_full(self) -> None:
+        reason, _ = describe_git_failure(
+            FakeGitError("fatal: write error: No space left on device")
+        )
+        self.assertEqual(reason, "disk-full")
+
+    def test_not_found_beats_the_generic_auth_signals(self) -> None:
+        # GitHub emits both for a private repository; the specific one must win.
+        reason, _ = describe_git_failure(
+            FakeGitError(
+                "remote: Repository not found.\n"
+                "fatal: Authentication failed for 'https://github.com/org/repo.git/'"
+            )
+        )
+        self.assertEqual(reason, "repository-not-found")
+
+
+class FallsBackReadably(unittest.TestCase):
+    def test_unrecognised_failure_quotes_git_without_the_command_line(self) -> None:
+        message = git_failure_message(
+            FakeGitError("fatal: something entirely new went wrong"),
+            target="github.com/org/repo",
+        )
+        self.assertIn("something entirely new went wrong", message)
+        # None of GitPython's wrapper noise should reach the user.
+        self.assertNotIn("cmdline:", message)
+        self.assertNotIn("Cmd('git')", message)
+        self.assertNotIn("exit code", message)
+
+    def test_server_temporary_paths_are_not_leaked(self) -> None:
+        message = git_failure_message(
+            FakeGitError("fatal: could not create work tree dir '/tmp/kicad_analyze_ujfs8p8z/repo'")
+        )
+        self.assertNotIn("kicad_analyze_ujfs8p8z", message)
+
+    def test_an_error_without_stderr_still_produces_a_message(self) -> None:
+        message = git_failure_message(RuntimeError("boom"), target="github.com/org/repo")
+        self.assertIn("github.com/org/repo", message)
+        self.assertTrue(message.strip())
+
+
+
+class AccessFailureDetection(unittest.TestCase):
+    """The dialog offers a guided fix off this flag, so it has to track the
+    messages `describe_git_failure` actually writes."""
+
+    def test_every_access_reason_is_recognised(self) -> None:
+        from app.services.project_import_service import (
+            ACCESS_FAILURE_REASONS,
+            _is_access_failure,
+        )
+
+        samples = {
+            "ssh-key-not-authorized": "git@github.com: Permission denied (publickey).",
+            "repository-not-found": "remote: Repository not found.",
+            "credentials-required": "could not read Username for 'https://github.com'",
+            "host-key-unverified": "Host key verification failed.",
+        }
+        self.assertEqual(set(samples), set(ACCESS_FAILURE_REASONS))
+
+        for reason, stderr in samples.items():
+            with self.subTest(reason=reason):
+                actual_reason, message = describe_git_failure(FakeGitError(stderr))
+                self.assertEqual(actual_reason, reason)
+                # The flag is derived from the message, so they must agree.
+                self.assertTrue(
+                    _is_access_failure(message),
+                    f"{reason} message is not detected as an access failure",
+                )
+
+    def test_unrelated_failures_are_not_flagged(self) -> None:
+        from app.services.project_import_service import _is_access_failure
+
+        _, message = describe_git_failure(FakeGitError("fatal: write error: No space left on device"))
+        self.assertFalse(_is_access_failure(message))
+        self.assertFalse(_is_access_failure(None))
+        self.assertFalse(_is_access_failure(""))
+
+
+if __name__ == "__main__":
+    unittest.main()

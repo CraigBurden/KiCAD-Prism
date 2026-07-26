@@ -19,6 +19,7 @@ from app.core.security import AuthenticatedUser, require_designer, require_viewe
 from app.services import (
     derived_assets,
     file_service,
+    git_access_service,
     path_config_service,
     project_import_service,
     project_properties_service,
@@ -37,7 +38,8 @@ from app.services.git_service import (
     get_releases,
     get_releases_filtered,
 )
-from app.services.git_remote_url import RemoteUrlError
+from app.services.git_failures import GitAccessError
+from app.services.git_remote_url import RemoteUrlError, parse_remote_url
 from app.services.path_config_service import PathConfig
 from app.services.job_service import jobs as v3_jobs
 
@@ -566,12 +568,41 @@ async def analyze_repository(request: AnalyzeRequest):
         )
         return {"job_id": job_id, "status": "started"}
 
-    except RemoteUrlError as e:
-        # A rejected URL is the caller's mistake and the message explains how to
-        # fix it, so it must not be flattened into a generic 500.
+    except (RemoteUrlError, GitAccessError) as e:
+        # A rejected URL or an access failure is something the caller can fix, and
+        # the message says how, so it must not be flattened into a generic 500.
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+
+@router.post("/access-help", dependencies=[Depends(require_designer)])
+async def import_access_help(request: AnalyzeRequest):
+    """What to do about a repository Prism cannot read.
+
+    The import dialog calls this after a permission failure so it can show the
+    key to register and a link to the right page on the detected forge, instead
+    of leaving the user with a message and nowhere to go.
+    """
+    try:
+        parsed = parse_remote_url(request.url, project_import_service.remote_url_policy())
+    except RemoteUrlError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+    key = await asyncio.to_thread(git_access_service.describe_key)
+    guidance = git_access_service.guidance_for(parsed)
+    return {
+        "forge": guidance.forge,
+        "deploy_key_url": guidance.deploy_key_url,
+        "account_key_url": guidance.account_key_url,
+        "instructions": guidance.instructions,
+        "public_key": key.public_key,
+        "fingerprint": key.fingerprint,
+        "key_exists": key.exists,
+        "host": parsed.host,
+        "host_trusted": git_access_service.is_host_trusted(parsed.host),
+    }
+
 
 @router.post("/import", dependencies=[Depends(require_designer)])
 async def import_project(request: ImportRequest):
@@ -589,7 +620,7 @@ async def import_project(request: ImportRequest):
             ref=request.ref,
         )
         return {"job_id": job_id, "status": "started"}
-    except (RemoteUrlError, ValueError) as e:
+    except (RemoteUrlError, GitAccessError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

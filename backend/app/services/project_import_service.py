@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from git import Git, Repo, RemoteProgress
 from app.core.config import settings
 from app.services import derived_assets, project_service, path_config_service
+from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult
 from app.services.job_service import jobs as v3_jobs
@@ -65,11 +66,21 @@ def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
     return None
 
 
-def _git_env() -> dict:
+def _describe_target(parsed: ParsedRemote) -> str:
+    """How a repository should be named in a message to the user."""
+    return f"{parsed.host}/{parsed.path.strip('/').removesuffix('.git')}"
+
+
+def git_env() -> dict:
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
-    # Trust On First Use for SSH host keys.
-    env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+    # Host keys must already be pinned. This used to be `accept-new`, which
+    # trusts whatever key the first connection is offered -- a window in which a
+    # host on the path can present its own key and read every repository the
+    # workspace pulls. Trusting a new host is now a deliberate administrator
+    # action, taken after comparing the fingerprint against what the Git server's
+    # operator publishes.
+    env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=yes -o BatchMode=yes"
     return env
 
 
@@ -81,11 +92,16 @@ def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]
     has committed to importing anything.
     """
     git = Git()
-    git.update_environment(**_git_env())
+    git.update_environment(**git_env())
     try:
         head_output = git.ls_remote("--symref", parsed.url, "HEAD")
-    except Exception:
-        return [], None
+    except Exception as error:
+        # This is the first thing that touches the remote, so it is where a
+        # wrong URL or a missing permission shows up. Reporting it here gives a
+        # far better message than letting the clone fail later.
+        raise as_access_error(
+            error, target=_describe_target(parsed), host=parsed.host
+        ) from error
 
     default_branch: Optional[str] = None
     for line in head_output.splitlines():
@@ -528,19 +544,54 @@ def start_analyze_job(repo_url: str, ref: Optional[str] = None) -> str:
     return str(queued["job_id"])
 
 
+#: Failure reasons the import dialog can offer a guided fix for.
+ACCESS_FAILURE_REASONS = frozenset(
+    {
+        "ssh-key-not-authorized",
+        "repository-not-found",
+        "credentials-required",
+        "host-key-unverified",
+    }
+)
+
+
 def get_job_status(job_id: str) -> Optional[dict]:
     """Get the current status of an import or workflow job."""
     v3_job = v3_jobs.get(job_id)
     if v3_job:
         metadata = dict(v3_job.get("result_metadata") or {})
+        error_message = v3_job.get("error_message") or None
         return {
             **v3_job,
             **metadata,
             "type": v3_job.get("kind"),
-            "error": v3_job.get("error_message") or None,
+            "error": error_message,
+            # Lets the dialog offer the right fix without matching on prose.
+            "access_failure": _is_access_failure(error_message),
             "logs": [],
         }
     return workspace.get_job(job_id)
+
+
+def _is_access_failure(error_message: Optional[str]) -> bool:
+    """Whether a failure is one the user can fix by granting Prism access.
+
+    The worker records only the exception's message, so the reason is recovered
+    by matching the phrases `git_failures` writes rather than by plumbing a new
+    column through the job table for a purely presentational hint.
+    """
+    if not error_message:
+        return False
+    text = error_message.casefold()
+    return any(
+        phrase in text
+        for phrase in (
+            "refused prism's ssh key",
+            "could not be found, or prism has no access",
+            "needs credentials that prism does not have",
+            "could not verify the ssh host key",
+        )
+    )
 
 
 def run_project_analyze_job_v3(context: JobContext) -> JobResult:
@@ -642,17 +693,24 @@ def _discover_remote_projects(
         clone_options = {}
         if ref:
             clone_options["branch"] = ref
-        repo = Repo.clone_from(
-            parsed.url,
-            str(clone_path),
-            depth=1,
-            single_branch=True,
-            no_checkout=True,
-            filter="blob:none",
-            progress=V3CloneProgress(context, stage=stage),
-            env=_git_env(),
-            **clone_options,
-        )
+        try:
+            repo = Repo.clone_from(
+                parsed.url,
+                str(clone_path),
+                depth=1,
+                single_branch=True,
+                no_checkout=True,
+                filter="blob:none",
+                progress=V3CloneProgress(context, stage=stage),
+                env=git_env(),
+                **clone_options,
+            )
+        except GitAccessError:
+            raise
+        except Exception as error:
+            raise as_access_error(
+                error, target=_describe_target(parsed), host=parsed.host
+            ) from error
         context.check_cancelled()
         context.progress(
             stage="discover-projects",
@@ -762,13 +820,20 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 force=True,
             )
             clone_options = {"branch": ref} if ref else {}
-            Repo.clone_from(
-                repo_url,
-                str(target_path),
-                progress=V3CloneProgress(context, stage="clone-repository"),
-                env=_git_env(),
-                **clone_options,
-            )
+            try:
+                Repo.clone_from(
+                    repo_url,
+                    str(target_path),
+                    progress=V3CloneProgress(context, stage="clone-repository"),
+                    env=git_env(),
+                    **clone_options,
+                )
+            except GitAccessError:
+                raise
+            except Exception as error:
+                raise as_access_error(
+                    error, target=_describe_target(parsed), host=parsed.host
+                ) from error
             cloned_in_job = True
 
         context.check_cancelled()
