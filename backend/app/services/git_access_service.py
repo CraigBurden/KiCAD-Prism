@@ -16,9 +16,13 @@ hosts are trusted, and whether a given repository can actually be read.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import logging
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +34,39 @@ from app.services.git_remote_url import ParsedRemote
 logger = logging.getLogger(__name__)
 
 SUBPROCESS_TIMEOUT_SECONDS = 20
+
+
+class MissingSSHToolError(RuntimeError):
+    """An operation needs an OpenSSH binary that is not installed.
+
+    Worth its own type because the bare OSError for this reads
+    ``[Errno 2] No such file or directory: 'ssh-keygen'``, which tells an
+    operator nothing about which feature broke or how to restore it.
+    """
+
+    def __init__(self, tool: str) -> None:
+        super().__init__(
+            f"'{tool}' is not installed on the Prism server, so this action is "
+            "unavailable. Install the openssh-client package in the backend "
+            "image and restart it."
+        )
+        self.tool = tool
+
+
+def _require_tool(tool: str) -> str:
+    path = shutil.which(tool)
+    if not path:
+        raise MissingSSHToolError(tool)
+    return path
+
+
+def openssh_tools() -> dict[str, bool]:
+    """Which OpenSSH binaries this deployment actually has.
+
+    Surfaced so the UI can say a feature is unavailable and why, rather than
+    letting a FileNotFoundError reach the user.
+    """
+    return {tool: shutil.which(tool) is not None for tool in ("ssh", "ssh-keygen", "ssh-keyscan")}
 
 # Hosts Prism knows how to talk about. Anything else is treated as a
 # self-hosted server: still supported, just without the tailored instructions.
@@ -80,6 +117,69 @@ class KeyInfo:
     created_at: Optional[str] = None
 
 
+def fingerprint_of_public_key(line: str) -> Optional[str]:
+    """SHA256 fingerprint of an OpenSSH public key line.
+
+    This is the same value ``ssh-keygen -lf`` prints, computed directly: the
+    base64 key blob hashed with SHA-256 and re-encoded without padding. Doing it
+    in Python rather than shelling out means fingerprints still work on a server
+    that has no OpenSSH binaries installed.
+    """
+    parts = line.split()
+    if len(parts) < 2:
+        return None
+    try:
+        blob = base64.b64decode(parts[1], validate=True)
+    except Exception:
+        return None
+    digest = hashlib.sha256(blob).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def generate_key(comment: str) -> KeyInfo:
+    """Create the workspace's Ed25519 key, replacing any existing one.
+
+    Written with `cryptography` rather than by running ``ssh-keygen``. The
+    backend image ships without openssh-client, so shelling out failed with
+    ``[Errno 2] No such file or directory: 'ssh-keygen'`` and key generation
+    could not work in a container at all.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    directory = ssh_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    os.chmod(directory, 0o700)
+
+    private = ed25519.Ed25519PrivateKey.generate()
+    private_bytes = private.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.OpenSSH,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_bytes = private.public_key().public_bytes(
+        encoding=serialization.Encoding.OpenSSH,
+        format=serialization.PublicFormat.OpenSSH,
+    )
+    public_line = public_bytes.decode("ascii")
+    if comment.strip():
+        public_line = f"{public_line} {comment.strip()}"
+
+    private_path = private_key_path()
+    # Create the private key unreadable by anyone else from the outset; ssh
+    # refuses to use a key whose file is group or world readable.
+    descriptor = os.open(private_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(private_bytes)
+    os.chmod(private_path, 0o600)
+
+    public_key_path().write_text(public_line + "\n", encoding="utf-8")
+    os.chmod(public_key_path(), 0o644)
+
+    logger.info("Generated a new Ed25519 key for the workspace")
+    return describe_key()
+
+
 def describe_key() -> KeyInfo:
     """Read the workspace key and its fingerprint.
 
@@ -101,23 +201,6 @@ def describe_key() -> KeyInfo:
     key_type = parts[0] if parts else None
     comment = parts[2] if len(parts) > 2 else None
 
-    fingerprint = None
-    try:
-        result = subprocess.run(
-            ["ssh-keygen", "-lf", str(public_key)],
-            capture_output=True,
-            text=True,
-            timeout=SUBPROCESS_TIMEOUT_SECONDS,
-            check=False,
-        )
-        if result.returncode == 0:
-            # "256 SHA256:abc… comment (ED25519)"
-            fields = result.stdout.split()
-            if len(fields) >= 2:
-                fingerprint = fields[1]
-    except (subprocess.SubprocessError, OSError) as error:
-        logger.warning("Could not fingerprint public key: %s", error)
-
     created_at = None
     try:
         created_at = _isoformat(public_key.stat().st_mtime)
@@ -127,7 +210,7 @@ def describe_key() -> KeyInfo:
     return KeyInfo(
         exists=True,
         public_key=content,
-        fingerprint=fingerprint,
+        fingerprint=fingerprint_of_public_key(content),
         key_type=key_type,
         comment=comment,
         created_at=created_at,
@@ -167,23 +250,62 @@ def trusted_hosts() -> list[str]:
     return sorted(hosts)
 
 
+def _known_hosts_lines() -> list[str]:
+    path = known_hosts_path()
+    if not path.is_file():
+        return []
+    try:
+        return [
+            line.strip()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+    except OSError as error:
+        logger.warning("Could not read known_hosts: %s", error)
+        return []
+
+
+def _line_matches_host(line: str, host: str) -> bool:
+    """Whether a known_hosts line covers ``host``.
+
+    Understands OpenSSH's hashed form (``|1|salt|hash``, an HMAC-SHA1 of the
+    host name keyed by the salt) as well as plain names, so this replaces
+    ``ssh-keygen -F`` without losing anything.
+    """
+    pattern = line.split()[0] if line.split() else ""
+    if not pattern:
+        return False
+
+    if pattern.startswith("|1|"):
+        try:
+            _, _, salt_b64, hash_b64 = pattern.split("|", 3)
+            salt = base64.b64decode(salt_b64)
+        except Exception:
+            return False
+        digest = hmac.new(salt, host.encode("utf-8"), hashlib.sha1).digest()
+        return hmac.compare_digest(base64.b64encode(digest).decode("ascii"), hash_b64)
+
+    for name in pattern.split(","):
+        candidate = name.strip()
+        # `[host]:port` for a non-default SSH port.
+        if candidate.startswith("["):
+            candidate = candidate[1:].split("]")[0]
+        if candidate.casefold() == host.casefold():
+            return True
+    return False
+
+
 def is_host_trusted(host: str) -> bool:
     """Whether ssh already has a pinned key for ``host``.
 
-    Uses ``ssh-keygen -F``, which understands hashed entries, rather than
-    matching text.
+    Reads known_hosts directly rather than running ``ssh-keygen -F``: the
+    backend image has no openssh-client, and this check gates whether SSH
+    remotes are usable at all, so it must not depend on a binary that may be
+    absent.
     """
-    try:
-        result = subprocess.run(
-            ["ssh-keygen", "-F", host],
-            capture_output=True,
-            timeout=SUBPROCESS_TIMEOUT_SECONDS,
-            check=False,
-        )
-        return result.returncode == 0
-    except (subprocess.SubprocessError, OSError) as error:
-        logger.warning("Could not check known_hosts for %s: %s", host, error)
+    if not host:
         return False
+    return any(_line_matches_host(line, host) for line in _known_hosts_lines())
 
 
 @dataclass(frozen=True)
@@ -202,7 +324,9 @@ def scan_host_key(host: str, port: int = 22) -> HostKeyCandidate:
     operator publishes before it is pinned.
     """
     _require_safe_host(host)
-    command = ["ssh-keyscan"]
+    # Fetching a key requires speaking SSH to the host, which is the one thing
+    # here that cannot be done in Python; missing tooling is reported as such.
+    command = [_require_tool("ssh-keyscan")]
     if port != 22:
         command += ["-p", str(port)]
     command.append(host)
@@ -229,22 +353,20 @@ def scan_host_key(host: str, port: int = 22) -> HostKeyCandidate:
 
 
 def _fingerprints_of(entries: str) -> list[str]:
-    try:
-        result = subprocess.run(
-            ["ssh-keygen", "-lf", "-"],
-            input=entries,
-            capture_output=True,
-            text=True,
-            timeout=SUBPROCESS_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (subprocess.SubprocessError, OSError):
-        return []
-    fingerprints = []
-    for line in result.stdout.splitlines():
+    """Fingerprint each known_hosts line, computed in Python.
+
+    A known_hosts line is ``<host-pattern> <key-type> <base64-blob>``, so the
+    public key part is the last two fields.
+    """
+    fingerprints: list[str] = []
+    for line in entries.splitlines():
         fields = line.split()
-        if len(fields) >= 2:
-            fingerprints.append(f"{fields[1]} ({fields[-1].strip('()')})")
+        if len(fields) < 3:
+            continue
+        key_type, blob = fields[1], fields[2]
+        fingerprint = fingerprint_of_public_key(f"{key_type} {blob}")
+        if fingerprint:
+            fingerprints.append(f"{fingerprint} ({key_type})")
     return fingerprints
 
 
@@ -261,21 +383,19 @@ def trust_host(candidate: HostKeyCandidate) -> None:
 
 
 def forget_host(host: str) -> bool:
-    """Remove a pinned host key."""
+    """Remove a pinned host key. Returns whether anything was removed."""
     _require_safe_host(host)
-    if not known_hosts_path().is_file():
+    path = known_hosts_path()
+    if not path.is_file():
         return False
-    try:
-        result = subprocess.run(
-            ["ssh-keygen", "-R", host, "-f", str(known_hosts_path())],
-            capture_output=True,
-            timeout=SUBPROCESS_TIMEOUT_SECONDS,
-            check=False,
-        )
-        return result.returncode == 0
-    except (subprocess.SubprocessError, OSError) as error:
-        logger.warning("Could not remove host key for %s: %s", host, error)
+    lines = _known_hosts_lines()
+    kept = [line for line in lines if not _line_matches_host(line, host)]
+    if len(kept) == len(lines):
         return False
+    path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+    os.chmod(path, 0o644)
+    logger.info("Removed pinned SSH host key for %s", host)
+    return True
 
 
 _HOST_RE = re.compile(r"^[A-Za-z0-9._\-]+$")
