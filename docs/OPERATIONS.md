@@ -1,36 +1,50 @@
 # Operations
 
-This runbook covers the minimum operational practices for a shared KiCAD Prism
-installation.
+This runbook covers backup, restore, upgrades, rollback, capacity, and diagnosis
+for a shared KiCAD Prism installation.
 
-## What must be backed up
+Run commands from the active deployment directory containing `compose.yml` and
+`.env`. Source-built installations use `docker-compose.yml` instead.
 
-A recoverable backup contains one consistent set of:
+## Record the deployed state
 
-1. PostgreSQL;
-2. `data/projects`;
-3. `data/ssh`;
-4. the deployed `.env` from the host secret store;
-5. the deployed Prism commit SHA and KiCad base-image identity.
+For a release-bundle installation:
 
-PostgreSQL alone cannot restore component assets or imported repositories.
-Project storage alone cannot restore roles, sessions, comments, catalog
-metadata, jobs, or audit records.
+```bash
+cat VERSION
+grep '^PRISM_.*_IMAGE=' .env
+docker compose images
+```
 
-## Logical backup
-
-Choose a maintenance window or otherwise ensure the database dump and filesystem
-snapshot represent a known point in time.
-
-Record the version:
+For a source-built legacy installation:
 
 ```bash
 git rev-parse HEAD
 docker compose images
 ```
 
-Create a PostgreSQL custom-format dump, substituting the configured database and
-user:
+Keep this record with every backup.
+
+## What must be backed up
+
+A recoverable backup contains one consistent set of:
+
+1. the `prism-postgres-data` PostgreSQL volume;
+2. `data/projects`;
+3. `data/ssh`;
+4. the deployed `.env`;
+5. the release bundle or source revision record.
+
+PostgreSQL alone cannot restore component assets or imported repositories.
+Project storage alone cannot restore users, roles, comments, catalog metadata,
+jobs, audit records, or sessions.
+
+## Logical backup
+
+Choose a maintenance window or otherwise ensure the database dump and filesystem
+archive represent a known point in time.
+
+Create a PostgreSQL custom-format dump:
 
 ```bash
 docker compose exec -T postgres \
@@ -38,31 +52,33 @@ docker compose exec -T postgres \
   > prism-postgres.dump
 ```
 
+Substitute the configured PostgreSQL user and database when they differ from
+the defaults.
+
 Archive persistent files:
 
 ```bash
 tar -C data -czf prism-files.tar.gz projects ssh
 ```
 
-Copy the dump, archive, environment configuration, and version record to storage
-that is not on the Prism host. Encrypt backups according to company policy
-because repositories, catalog assets, and SSH private keys may be confidential.
+Store the dump, file archive, `.env`, release bundle, version record, and
+checksums away from the Prism host. Encrypt the backup because it can contain
+source repositories, component assets, tokens, and SSH private keys.
 
 ## Restore test
 
-Test restores on an isolated host:
+Test restores on an isolated AMD64 host:
 
-1. check out the recorded Prism revision;
-2. restore `.env` without exposing the test host publicly;
-3. start only PostgreSQL;
-4. restore `data/projects` and `data/ssh`;
+1. install the recorded release bundle;
+2. restore `.env` without exposing the test host;
+3. restore `data/projects` and `data/ssh`;
+4. start PostgreSQL only;
 5. restore the database;
-6. start backend and workers;
-7. start frontend;
-8. verify login, one project, comments, one comparison, Library Manager, and one
-   Remote Symbol placement.
+6. start the remaining services;
+7. verify login, a project, comments, comparison, Library Manager, and Remote
+   Symbol placement.
 
-Example database restore into the fresh configured database:
+Example database restore into a fresh configured database:
 
 ```bash
 docker compose up -d postgres
@@ -71,37 +87,90 @@ docker compose exec -T postgres \
   < prism-postgres.dump
 ```
 
-Run this only against the isolated restore target. `--clean` replaces objects in
-the target database.
+Run `--clean` only against the isolated restore target; it replaces objects in
+that database.
 
-## Upgrade
+## Upgrade a release bundle
 
-1. read the release notes and identify schema, environment, image, and session
-   changes;
-2. create and verify a fresh backup;
-3. record the current commit and image digests;
-4. fetch and check out the target tag or commit;
-5. compare `.env.example` with the deployed `.env`;
-6. render Compose with `docker compose config --quiet`;
-7. rebuild and start;
-8. watch PostgreSQL, backend, and worker logs;
-9. run the post-upgrade verification checklist.
+Release bundles use relative `data/` bind mounts and a stable Compose project
+name. Upgrade the existing installation directory so it continues to reference
+the same filesystem data and PostgreSQL volume.
+
+1. Download and verify the next stable bundle and its external checksum.
+2. Read the release notes.
+3. Back up PostgreSQL, `data/projects`, `data/ssh`, `.env`, and the active
+   deployment files.
+4. Extract the new bundle to a staging directory.
+5. Start from the new `.env.example`; migrate site-specific values from the old
+   `.env`.
+6. Keep the new `PRISM_BACKEND_IMAGE` and `PRISM_FRONTEND_IMAGE` digest values.
+7. Validate the staged configuration.
+8. Stop the active stack.
+9. Replace `compose.yml`, `.env.example`, Caddy templates, `README.md`,
+   `VERSION`, and `SHA256SUMS` in the active directory. Install the prepared
+   `.env`.
+10. Pull and start the new release.
+11. Run the post-change checklist.
+
+Do not copy the old `.env` wholesale: doing so also copies the old image digests.
+Do not run the next bundle from a new directory unless its `data/` paths have
+been deliberately mapped to the existing storage.
+
+Validation and startup:
 
 ```bash
-docker compose up --build -d
+docker compose --env-file .env -f compose.yml config --quiet
+docker compose pull
+docker compose up -d --wait
 docker compose logs --tail=200 postgres backend prism-worker catalog-worker
 ```
 
-Do not assume an older application can read a database after a forward schema
-migration. A rollback may require restoring the pre-upgrade PostgreSQL and file
-backup together.
+## Rollback
+
+Application rollback and data rollback are separate decisions.
+
+If no incompatible schema or data change occurred:
+
+1. stop the current stack;
+2. restore the previous bundle's deployment files and `.env` in the same active
+   installation directory;
+3. run `docker compose pull`;
+4. start with `docker compose up -d --wait`;
+5. run the verification checklist.
+
+If the release changed data incompatibly, restore PostgreSQL, `data/projects`,
+and `data/ssh` from the same pre-upgrade backup before starting the older
+application.
+
+Never move or recreate a published Git tag to perform a rollback. The previous
+bundle retains the original Prism image digests.
+
+## Upgrade a legacy source deployment
+
+For a stable release that predates bundles:
+
+1. back up all state;
+2. fetch and check out the target stable tag;
+3. compare the new `.env.example` with `.env`;
+4. render Compose;
+5. rebuild and start;
+6. record the resulting commit and images.
+
+```bash
+docker compose --env-file .env -f docker-compose.yml config --quiet
+docker compose up --build -d
+```
+
+Prefer migration to the release-bundle contract when a later stable release
+provides one.
 
 ## Post-change verification
 
+- frontend and API health endpoints
 - OIDC login and logout
 - viewer and designer permissions
 - repository import or synchronization
-- schematic, PCB, and BOM display
+- schematic, PCB, 3D, and BOM display
 - Design Comparison completion
 - comment creation and resolution
 - one jobset and artifact download
@@ -120,9 +189,8 @@ docker compose logs --tail=200 postgres
 docker compose logs --tail=200 frontend
 ```
 
-For a failed user job, capture its job identifier, type, requested project or
-component, attempt logs, worker logs, and the source commit. Retrying without
-capturing those details makes intermittent failures difficult to diagnose.
+For a failed job, capture its job ID, type, project or component, attempt logs,
+worker logs, release version, and source commit. Record evidence before retrying.
 
 ## Capacity and retention
 
@@ -131,43 +199,50 @@ Monitor:
 - host and Docker disk usage;
 - PostgreSQL volume growth;
 - `data/projects/.kicad-prism` artifact growth;
-- worker memory during the largest designs;
+- worker memory on the largest projects;
 - queued and repeatedly retried jobs;
-- catalog import and validation duration.
+- catalog import and validation duration;
+- PostgreSQL connection-pool saturation.
 
-Use the configured artifact and partial-output retention settings. Do not delete
-unknown directories inside `.kicad-prism` by hand. Confirm whether an item is
-authoritative data or a regenerable cache first.
+Use configured artifact and partial-output retention. Do not delete unknown
+content inside `.kicad-prism` manually. Confirm whether it is authoritative data
+or a regenerable cache first.
 
 ## Common failures
 
 ### Frontend returns 502
 
-Inspect backend startup. Common causes are invalid auth settings, PostgreSQL
-unavailability, or a migration/startup exception.
+Inspect `/api/health/ready` and backend startup. Common causes are invalid OIDC
+settings, PostgreSQL unavailability, unwritable project storage, or a startup
+exception.
+
+### A release starts with old code
+
+Inspect `PRISM_BACKEND_IMAGE` and `PRISM_FRONTEND_IMAGE` in `.env`. Copying an
+old environment file during upgrade also copies its old digest pins.
 
 ### Imported projects disappear
 
-Verify the host's `data/projects` mount, permissions, and restored content. Then
-verify workspace rows in PostgreSQL; both are required.
+Verify the active installation directory and its `data/projects` mount. Then
+verify project rows in PostgreSQL; both are required.
 
 ### Authentication loops
 
-Check exact redirect URIs, `PUBLIC_BASE_URL`, CORS, proxy headers, cookie Secure
+Check redirect URIs, `PUBLIC_BASE_URL`, CORS, proxy headers, cookie Secure
 behavior, and the host clock.
 
 ### Jobs remain queued
 
-Confirm the appropriate worker is running and connected to the same
-`PRISM_DATABASE_URL`. Inspect leases and worker logs before restarting.
+Confirm both workers are healthy and use the same `PRISM_DATABASE_URL`. Inspect
+leases and worker logs before restarting.
 
 ### Catalog metadata exists but placement fails
 
-Verify the released revision's asset files exist in persistent storage and that
-provider metadata advertises the correct origin.
+Verify released asset files in persistent storage and confirm provider metadata
+advertises the correct public origin.
 
 ### Disk is full
 
 Stop new imports and generation. Preserve PostgreSQL and authoritative assets
-before removing anything. Move or expire known generated job artifacts through a
-documented retention path rather than deleting arbitrary directories.
+before removing anything. Expire known generated artifacts through a documented
+retention path instead of deleting arbitrary directories.

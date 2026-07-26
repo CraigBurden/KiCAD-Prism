@@ -1,12 +1,11 @@
 # KiCAD Prism
 
-KiCAD Prism is an open-source, self-hosted collaboration and component-governance
-platform for teams that use KiCad and Git.
+KiCAD Prism is an open-source, self-hosted collaboration and
+component-governance platform for teams using KiCad and Git.
 
-KiCad remains the desktop editor. Git remains the source of truth for design
-files and revisions. Prism adds browser review, visual comparison, generated
-assets, comments, and a governed component library without requiring a
-proprietary ECAD cloud.
+KiCad remains the desktop editor. Git remains the source of truth. Prism adds
+browser review, visual comparison, generated assets, comments, and governed
+component libraries without requiring a proprietary ECAD cloud.
 
 ![KiCAD Prism workspace](assets/KiCAD-Prism-New-Workspace.png)
 
@@ -28,8 +27,6 @@ proprietary ECAD cloud.
 
 ## Runtime
 
-The Docker Compose application contains:
-
 | Service | Purpose |
 | --- | --- |
 | `frontend` | React application and Nginx reverse proxy |
@@ -38,40 +35,67 @@ The Docker Compose application contains:
 | `catalog-worker` | catalog import, validation, preview, and release work |
 | `postgres` | workspace, comments, catalog, jobs, audit, and session data |
 
-Imported Git repositories and generated assets live under `data/projects`.
-Prism's Git SSH identity lives under `data/ssh`. All three persistence domains,
-including PostgreSQL, are required for complete recovery.
+The API and both workers reuse one Prism backend image. Imported repositories
+and generated assets live under `data/projects`; Git SSH state lives under
+`data/ssh`. PostgreSQL and both directories are required for complete recovery.
 
 See [Architecture](docs/ARCHITECTURE.md).
 
-## Quick local evaluation
+## Deploy the latest stable release
+
+Normal users should open the
+[latest stable GitHub Release](https://github.com/krishna-swaroop/KiCAD-Prism/releases/latest)
+and download its Linux AMD64 deployment archive and checksum.
+
+Each generated bundle contains a pull-only Compose file and exact Prism image
+digests:
 
 ```bash
-git clone https://github.com/krishna-swaroop/KiCAD-Prism.git
+sha256sum -c kicad-prism-vX.Y.Z-linux-amd64.tar.gz.sha256
+tar -xzf kicad-prism-vX.Y.Z-linux-amd64.tar.gz
+cd kicad-prism-vX.Y.Z-linux-amd64
+sha256sum -c SHA256SUMS
+cp .env.example .env
+# Configure authentication, domain, database password, and session secret.
+docker compose pull
+docker compose up -d --wait
+```
+
+The supported public deployment target is Linux AMD64. Native ARM64 release
+images are not currently published.
+
+Follow [Deployment](docs/DEPLOYMENT.md) for OIDC, TLS, storage, sizing, and
+production checks. If a historical release predates deployment bundles, build
+that stable tag from source as documented there.
+
+## Develop from source
+
+All feature development and source testing happen through `dev`:
+
+```bash
+git clone --branch dev https://github.com/krishna-swaroop/KiCAD-Prism.git
 cd KiCAD-Prism
 cp .env.example .env
-```
-
-For a private single-user evaluation:
-
-```env
-AUTH_ENABLED=false
-DEV_GUEST_ROLE=admin
-UVICORN_WORKERS=1
-```
-
-The documented source-build path targets a Linux AMD64 Docker host and uses the
-public KiCad runtime image selected in `.env`.
-
-```bash
 docker compose up --build -d
 ```
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
+For a private local evaluation, explicitly set `AUTH_ENABLED=false`. Never use
+guest administrator mode on a shared or reachable host.
 
-Follow [Getting started](docs/GETTING_STARTED.md) for setup and verification.
-For any shared installation, use OIDC and HTTPS and follow
-[Deployment](docs/DEPLOYMENT.md).
+See [Getting started](docs/GETTING_STARTED.md) and
+[Contributing](CONTRIBUTING.md).
+
+## Branch and release model
+
+- Feature, fix, documentation, and refactor branches merge into protected
+  `dev` through pull requests.
+- `dev` is the integration branch for the next release.
+- Tested release scope is merged from `dev` into protected `main`.
+- A semantic-version tag on a quality-gated `main` commit builds, smoke-tests,
+  and publishes the AMD64 images and deployment bundle.
+- Pull requests and ordinary branch pushes never publish container images.
+
+See [Release process](docs/RELEASES.md).
 
 ## Documentation
 
@@ -86,17 +110,18 @@ For any shared installation, use OIDC and HTTPS and follow
 - [Remote Symbol Provider](docs/REMOTE_SYMBOL_PROVIDER.md)
 - [Team adoption](docs/TEAM_ADOPTION.md)
 - [Operations](docs/OPERATIONS.md)
+- [Release process](docs/RELEASES.md)
 
 ## Project status
 
-The `dev` branch is heading toward a V3.0.0 alpha. Expect alpha-level changes,
-and pin deployments to a reviewed tag or commit.
+`main` contains stable release history. `dev` is heading toward the V3.0.0
+alpha and may change between releases.
 
 Current boundaries include:
 
 - one role per user rather than composable workspace and catalog permissions;
 - project-scoped standard comments;
-- no mention notifications or Git forge webhook/status integration;
+- no mention notifications or Git-forge webhook/status integration;
 - fixed workflow types rather than first-class arbitrary workflows;
 - no real-time multi-user ECAD editing;
 - no complete in-product approved/changes-requested project state.
@@ -109,9 +134,9 @@ See [Platform overview](docs/OVERVIEW.md) before planning a team rollout.
 - [Reporting issues](docs/REPORTING_ISSUES.md)
 - [Security policy](SECURITY.md)
 
-Changes target the protected `dev` branch through pull requests. The required
-quality gate validates frontend, backend, semantic viewer, and Compose
-configuration.
+Changes target protected `dev` through pull requests. The required quality gate
+validates frontend, backend, semantic viewer, source Compose, and release
+deployment configuration.
 
 ## Acknowledgements
 
@@ -124,5 +149,4 @@ Prism builds on work from the KiCad ecosystem, including:
 
 ## License
 
-KiCAD Prism is licensed under the
-[Apache License 2.0](LICENSE).
+KiCAD Prism is licensed under the [Apache License 2.0](LICENSE).
