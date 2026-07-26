@@ -543,11 +543,14 @@ async def search_projects(
 
 class AnalyzeRequest(BaseModel):
     url: str
+    # Branch to inspect. Defaults to the remote's HEAD.
+    ref: Optional[str] = None
 
 class ImportRequest(BaseModel):
     url: str
     import_type: str  # "type1" or "type2"
     selected_paths: Optional[List[str]] = None
+    ref: Optional[str] = None
 
 @router.post("/analyze", dependencies=[Depends(require_designer)])
 async def analyze_repository(request: AnalyzeRequest):
@@ -559,6 +562,7 @@ async def analyze_repository(request: AnalyzeRequest):
         job_id = await asyncio.to_thread(
             project_import_service.start_analyze_job,
             request.url,
+            request.ref,
         )
         return {"job_id": job_id, "status": "started"}
 
@@ -582,6 +586,7 @@ async def import_project(request: ImportRequest):
             repo_url=request.url,
             import_type=request.import_type,
             selected_paths=request.selected_paths,
+            ref=request.ref,
         )
         return {"job_id": job_id, "status": "started"}
     except (RemoteUrlError, ValueError) as e:

@@ -30,6 +30,12 @@ interface AnalysisResult {
   projects: DiscoveredProject[];
   /** Present only when nothing was found, explaining what was looked for. */
   empty_reason?: string;
+  branches?: string[];
+  default_branch?: string | null;
+  ref?: string | null;
+  already_imported?: boolean;
+  /** Relative paths already registered, so they can be shown as done. */
+  imported_paths?: string[];
 }
 
 interface JobStatus {
@@ -79,6 +85,8 @@ export function ImportDialog({
   const [state, setState] = useState<ImportState>({ step: "input" });
   const [url, setUrl] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  // Empty means "whatever the remote's HEAD points at".
+  const [ref, setRef] = useState("");
   const pollTimeoutRef = useRef<number | null>(null);
   const pollControllerRef = useRef<AbortController | null>(null);
   const pollingTokenRef = useRef(0);
@@ -116,6 +124,7 @@ export function ImportDialog({
     setState({ step: "input" });
     setUrl("");
     setSelectedPaths(new Set());
+    setRef("");
   };
 
   const handleClose = () => {
@@ -123,9 +132,10 @@ export function ImportDialog({
     onOpenChange(false);
   };
 
-  const analyzeRepo = async () => {
+  const analyzeRepo = async (branchOverride?: string) => {
     if (!url.trim()) return;
 
+    const branch = branchOverride ?? ref;
     stopPolling();
     setState({ step: "analyzing", url });
 
@@ -133,7 +143,7 @@ export function ImportDialog({
       const res = await fetch("/api/projects/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, ref: branch.trim() || null }),
       });
 
       if (!res.ok) {
@@ -186,6 +196,13 @@ export function ImportDialog({
           // Auto-select type1
           if (result.import_type === "type1" && result.projects.length === 1) {
             setSelectedPaths(new Set([result.projects[0].relative_path]));
+          } else {
+            // Adding to an existing repository: preselect nothing, so the user
+            // picks only what they actually want on top of what is there.
+            setSelectedPaths(new Set());
+          }
+          if (result.ref) {
+            setRef(result.ref);
           }
 
           setState({ step: "review", url: repoUrl, analysis: result });
@@ -240,6 +257,7 @@ export function ImportDialog({
           url,
           import_type: analysis.import_type,
           selected_paths: pathsToImport,
+          ref: analysis.ref ?? null,
         }),
       });
 
@@ -360,11 +378,17 @@ export function ImportDialog({
     });
   };
 
+  const importablePaths =
+    state.step === "review"
+      ? state.analysis.projects
+          .map((p) => p.relative_path)
+          .filter((path) => !(state.analysis.imported_paths ?? []).includes(path))
+      : [];
+  const importableCount = importablePaths.length;
+
   const selectAll = () => {
-    if (state.step === "review") {
-      const allPaths = state.analysis.projects.map((p) => p.relative_path);
-      setSelectedPaths(new Set(allPaths));
-    }
+    // Already-imported projects are not selectable, so "all" means the rest.
+    setSelectedPaths(new Set(importablePaths));
   };
 
   const deselectAll = () => {
@@ -413,19 +437,37 @@ export function ImportDialog({
             <DialogHeader>
               <DialogTitle>Import Project</DialogTitle>
               <DialogDescription>
-                Enter the URL of a GitHub repository containing KiCAD projects.
+                Enter the URL of a Git repository containing KiCad projects. GitHub, GitLab and self-hosted remotes are all supported.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="url" className="text-right">
-                  GitHub URL
+                  Repository
                 </Label>
                 <Input
                   id="url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://github.com/username/repo"
+                  placeholder="https://github.com/org/repo.git or git@host:org/repo.git"
+                  className="col-span-3"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && url.trim()) {
+                      e.preventDefault();
+                      void analyzeRepo();
+                    }
+                  }}
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="import-ref" className="text-right">
+                  Branch
+                </Label>
+                <Input
+                  id="import-ref"
+                  value={ref}
+                  onChange={(e) => setRef(e.target.value)}
+                  placeholder="Default branch"
                   className="col-span-3"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && url.trim()) {
@@ -440,7 +482,7 @@ export function ImportDialog({
               <Button variant="outline" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button onClick={analyzeRepo} disabled={!url.trim()}>
+              <Button onClick={() => void analyzeRepo()} disabled={!url.trim()}>
                 Analyze
               </Button>
             </div>
@@ -503,11 +545,42 @@ export function ImportDialog({
               </DialogDescription>
             </DialogHeader>
 
+            {(state.analysis.branches?.length ?? 0) > 1 && (
+              <div className="flex items-center gap-2 py-2">
+                <Label htmlFor="import-branch" className="text-sm shrink-0">
+                  Branch
+                </Label>
+                <select
+                  id="import-branch"
+                  className="h-9 flex-1 rounded-md border bg-background px-2 text-sm"
+                  value={state.analysis.ref ?? ""}
+                  onChange={(event) => {
+                    setRef(event.target.value);
+                    // Re-analyse: a different branch can hold different boards.
+                    void analyzeRepo(event.target.value);
+                  }}
+                >
+                  {state.analysis.branches?.map((branch) => (
+                    <option key={branch} value={branch}>
+                      {branch}
+                      {branch === state.analysis.default_branch ? " (default)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {state.analysis.already_imported && (
+              <p className="text-sm text-muted-foreground">
+                This repository is already imported. Projects that are already in
+                the workspace are marked below; select any others to add them.
+              </p>
+            )}
+
             {state.analysis.import_type === "type2" && (
               <div className="flex items-center justify-between py-2">
                 <span className="text-sm text-muted-foreground">
-                  {selectedPaths.size} of {state.analysis.projects.length}{" "}
-                  selected
+                  {selectedPaths.size} of {importableCount} selected
                 </span>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={selectAll}>
@@ -521,14 +594,26 @@ export function ImportDialog({
             )}
 
             <div className="max-h-64 overflow-y-auto border rounded-md">
-              {state.analysis.projects.map((project) => (
+              {state.analysis.projects.map((project) => {
+                const alreadyImported =
+                  state.analysis.imported_paths?.includes(project.relative_path) ??
+                  false;
+                return (
                 <div
                   key={project.relative_path}
                   className="flex items-center gap-3 p-3 border-b last:border-b-0 hover:bg-muted/50"
                 >
                   {state.analysis.import_type === "type2" && (
                     <Checkbox
-                      checked={selectedPaths.has(project.relative_path)}
+                      checked={
+                        alreadyImported || selectedPaths.has(project.relative_path)
+                      }
+                      disabled={alreadyImported}
+                      aria-label={
+                        alreadyImported
+                          ? `${project.name} is already imported`
+                          : `Select ${project.name}`
+                      }
                       onCheckedChange={() =>
                         toggleProjectSelection(project.relative_path)
                       }
@@ -567,9 +652,15 @@ export function ImportDialog({
                         No .kicad_pro
                       </span>
                     )}
+                    {alreadyImported && (
+                      <span className="px-2 py-1 bg-secondary rounded">
+                        Imported
+                      </span>
+                    )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="flex justify-end gap-2">
@@ -580,6 +671,7 @@ export function ImportDialog({
                 onClick={startImport}
                 disabled={
                   state.analysis.projects.length === 0 ||
+                  importableCount === 0 ||
                   (state.analysis.import_type === "type2" &&
                     selectedPaths.size === 0)
                 }

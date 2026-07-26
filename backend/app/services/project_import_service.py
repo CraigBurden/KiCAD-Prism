@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 from dataclasses import dataclass
-from git import Repo, RemoteProgress
+from git import Git, Repo, RemoteProgress
 from app.core.config import settings
 from app.services import derived_assets, project_service, path_config_service
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
@@ -63,6 +63,61 @@ def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
             if stored.strip() == parsed.url:
                 return repository
     return None
+
+
+def _git_env() -> dict:
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    # Trust On First Use for SSH host keys.
+    env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+    return env
+
+
+def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]]:
+    """Return the remote's branch names and its default branch.
+
+    Uses ``ls-remote`` rather than a clone: enumerating refs costs one round
+    trip and no disk, so the dialog can offer a branch picker before the user
+    has committed to importing anything.
+    """
+    git = Git()
+    git.update_environment(**_git_env())
+    try:
+        head_output = git.ls_remote("--symref", parsed.url, "HEAD")
+    except Exception:
+        return [], None
+
+    default_branch: Optional[str] = None
+    for line in head_output.splitlines():
+        if line.startswith("ref:"):
+            target = line.split()[1]
+            default_branch = target.removeprefix("refs/heads/")
+            break
+
+    try:
+        heads_output = git.ls_remote("--heads", parsed.url)
+    except Exception:
+        return ([default_branch] if default_branch else []), default_branch
+
+    branches = []
+    for line in heads_output.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].startswith("refs/heads/"):
+            branches.append(parts[1].removeprefix("refs/heads/"))
+    branches.sort(key=lambda name: (name != default_branch, name.casefold()))
+    return branches, default_branch
+
+
+def _validate_ref(ref: Optional[str]) -> Optional[str]:
+    """Reject anything that git would read as an option rather than a ref."""
+    if ref is None:
+        return None
+    candidate = ref.strip()
+    if not candidate:
+        return None
+    if candidate.startswith("-") or any(char.isspace() for char in candidate):
+        raise ValueError(f"Invalid branch name: {ref!r}")
+    return candidate
 
 
 class V3CloneProgress(RemoteProgress):
@@ -413,7 +468,8 @@ def _repository_lock_key(parsed: ParsedRemote) -> str:
 
 
 def start_import_job(repo_url: str, import_type: str,
-                     selected_paths: Optional[List[str]] = None) -> str:
+                     selected_paths: Optional[List[str]] = None,
+                     ref: Optional[str] = None) -> str:
     """
     Start an asynchronous import job.
     Returns job ID for polling.
@@ -424,9 +480,12 @@ def start_import_job(repo_url: str, import_type: str,
     if import_type not in {"type1", "type2"}:
         raise ValueError("Import type must be type1 or type2")
     parsed = parse_remote_url(repo_url, remote_url_policy())
+    validated_ref = _validate_ref(ref)
     paths = sorted(selected_paths or [])
     active_key = hashlib.sha256(
-        "\x1f".join([parsed.dedup_key, import_type, *paths]).encode("utf-8")
+        "\x1f".join(
+            [parsed.dedup_key, import_type, validated_ref or "", *paths]
+        ).encode("utf-8")
     ).hexdigest()
     queued = v3_jobs.enqueue(
         "project_import",
@@ -434,6 +493,7 @@ def start_import_job(repo_url: str, import_type: str,
             "repo_url": parsed.url,
             "import_type": import_type,
             "selected_paths": list(selected_paths or []),
+            "ref": validated_ref,
         },
         worker_pool="prism",
         artifact_key=active_key,
@@ -445,16 +505,19 @@ def start_import_job(repo_url: str, import_type: str,
     return str(queued["job_id"])
 
 
-def start_analyze_job(repo_url: str) -> str:
+def start_analyze_job(repo_url: str, ref: Optional[str] = None) -> str:
     """
     Start an asynchronous analysis job.
     Returns job ID.
     """
     parsed = parse_remote_url(repo_url, remote_url_policy())
-    active_key = hashlib.sha256(parsed.dedup_key.encode("utf-8")).hexdigest()
+    validated_ref = _validate_ref(ref)
+    active_key = hashlib.sha256(
+        "\x1f".join([parsed.dedup_key, validated_ref or ""]).encode("utf-8")
+    ).hexdigest()
     queued = v3_jobs.enqueue(
         "project_analyze",
-        {"repo_url": parsed.url},
+        {"repo_url": parsed.url, "ref": validated_ref},
         worker_pool="prism",
         artifact_key=active_key,
         requested_by="project-import",
@@ -482,13 +545,43 @@ def get_job_status(job_id: str) -> Optional[dict]:
 
 def run_project_analyze_job_v3(context: JobContext) -> JobResult:
     parsed = parse_remote_url(str(context.payload["repo_url"]), remote_url_policy())
-    projects, import_type = _discover_remote_projects(
-        context, parsed, stage="clone-metadata", percent_ceiling=85.0
+    requested_ref = _validate_ref(context.payload.get("ref"))
+
+    context.progress(
+        stage="list-branches", message="Listing remote branches", percent=0, force=True
     )
+    branches, default_branch = list_remote_branches(parsed)
+    if requested_ref and branches and requested_ref not in branches:
+        raise ValueError(f"Branch '{requested_ref}' does not exist on this remote")
+    selected_ref = requested_ref or default_branch
+
+    projects, import_type = _discover_remote_projects(
+        context,
+        parsed,
+        stage="clone-metadata",
+        percent_ceiling=85.0,
+        ref=requested_ref,
+    )
+
+    # An already-imported repository is not an error any more: the dialog uses
+    # this to offer the projects that are not registered yet.
+    existing_repo = find_existing_repository(parsed)
+    imported_paths: list[str] = []
+    if existing_repo:
+        imported_paths = [
+            str(row.get("relative_path") or ".")
+            for row in workspace.get_projects_by_repo(str(existing_repo["id"]))
+        ]
+
     result = {
         "repo_name": parsed.repo_name,
         "repo_url": parsed.url,
         "import_type": import_type,
+        "branches": branches,
+        "default_branch": default_branch,
+        "ref": selected_ref,
+        "already_imported": bool(existing_repo),
+        "imported_paths": imported_paths,
         "projects": [
             {
                 "name": project.name,
@@ -529,6 +622,7 @@ def _discover_remote_projects(
     *,
     stage: str,
     percent_ceiling: float,
+    ref: Optional[str] = None,
 ) -> tuple[List[DiscoveredProject], str]:
     """Clone just enough of a remote to enumerate the KiCad projects inside it.
 
@@ -540,14 +634,14 @@ def _discover_remote_projects(
     clone_path = Path(temp_dir) / parsed.repo_name
     context.progress(
         stage=stage,
-        message="Cloning repository metadata",
+        message=f"Cloning repository metadata ({ref})" if ref else "Cloning repository metadata",
         percent=0,
         force=True,
     )
     try:
-        env = os.environ.copy()
-        env["GIT_TERMINAL_PROMPT"] = "0"
-        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+        clone_options = {}
+        if ref:
+            clone_options["branch"] = ref
         repo = Repo.clone_from(
             parsed.url,
             str(clone_path),
@@ -556,7 +650,8 @@ def _discover_remote_projects(
             no_checkout=True,
             filter="blob:none",
             progress=V3CloneProgress(context, stage=stage),
-            env=env,
+            env=_git_env(),
+            **clone_options,
         )
         context.check_cancelled()
         context.progress(
@@ -577,6 +672,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
     repo_url = parsed.url
     repo_name = parsed.repo_name
     requested_paths = [str(path) for path in payload.get("selected_paths") or []]
+    ref = _validate_ref(payload.get("ref"))
     cloned_in_job = False
     thumbnail_logs: list[str] = []
 
@@ -587,17 +683,13 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
         force=True,
     )
     existing_repo = find_existing_repository(parsed)
-    if existing_repo:
-        raise ValueError(
-            f"Repository '{existing_repo.get('name') or repo_name}' is already imported"
-        )
 
     # The client's import_type and selected_paths are hints. Re-derive both from
     # the repository itself before choosing a target directory, so a crafted
     # request cannot pick the on-disk layout or escape the checkout with a
     # relative path like "../../etc".
     discovered, import_type = _discover_remote_projects(
-        context, parsed, stage="validate-import", percent_ceiling=8.0
+        context, parsed, stage="validate-import", percent_ceiling=8.0, ref=ref
     )
     if not discovered:
         raise ValueError(
@@ -605,23 +697,42 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             "directories containing a .kicad_pro, .kicad_pcb or .kicad_sch file."
         )
 
+    # Importing three boards out of twenty used to make the other seventeen
+    # unreachable: the repository was registered, and every later import of the
+    # same URL failed as a duplicate. Adding to an existing repository is now
+    # the normal path, and only the projects not yet registered are imported.
+    already_imported: set[str] = set()
+    if existing_repo:
+        already_imported = {
+            str(row.get("relative_path") or ".")
+            for row in workspace.get_projects_by_repo(str(existing_repo["id"]))
+        }
+
     discovered_paths = {project.relative_path for project in discovered}
     discovered_names = {project.relative_path: project.name for project in discovered}
     if import_type == "type1":
-        selected_paths = ["."]
-    else:
-        selected_paths = [path for path in requested_paths if path in discovered_paths]
-        unknown = sorted(set(requested_paths) - discovered_paths)
-        if unknown:
+        requested_paths = ["."]
+    unknown = sorted(set(requested_paths) - discovered_paths)
+    if unknown:
+        raise ValueError(
+            "Selected paths are not KiCad projects in this repository: "
+            + ", ".join(unknown)
+        )
+    selected_paths = [path for path in requested_paths if path not in already_imported]
+    if not selected_paths:
+        if requested_paths and already_imported:
             raise ValueError(
-                "Selected paths are not KiCad projects in this repository: "
-                + ", ".join(unknown)
+                f"Every selected project is already imported from "
+                f"'{existing_repo.get('name') or repo_name}'."
             )
-        if not selected_paths:
-            raise ValueError("No projects selected for Type-2 import")
+        raise ValueError("No projects selected for import")
 
-    base_path = Path(project_service.PROJECTS_ROOT) / import_type
-    target_path = base_path / repo_name
+    if existing_repo:
+        target_path = Path(workspace.repository_clone_path(existing_repo))
+        base_path = target_path.parent
+    else:
+        base_path = Path(project_service.PROJECTS_ROOT) / import_type
+        target_path = base_path / repo_name
 
     try:
         adopted_checkout = False
@@ -651,14 +762,13 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 percent=10,
                 force=True,
             )
-            env = os.environ.copy()
-            env["GIT_TERMINAL_PROMPT"] = "0"
-            env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
+            clone_options = {"branch": ref} if ref else {}
             Repo.clone_from(
                 repo_url,
                 str(target_path),
                 progress=V3CloneProgress(context, stage="clone-repository"),
-                env=env,
+                env=_git_env(),
+                **clone_options,
             )
             cloned_in_job = True
 
@@ -669,12 +779,15 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             percent=80,
             force=True,
         )
-        repo_id = workspace.register_repository(
-            name=repo_name,
-            url=repo_url,
-            clone_path_abs=str(target_path),
-            import_type="single" if import_type == "type1" else "multi",
-        )
+        if existing_repo:
+            repo_id = str(existing_repo["id"])
+        else:
+            repo_id = workspace.register_repository(
+                name=repo_name,
+                url=repo_url,
+                clone_path_abs=str(target_path),
+                import_type="single" if import_type == "type1" else "multi",
+            )
         imported_ids: list[str] = []
         if import_type == "type1":
             generate_thumbnail_for_project(str(target_path), thumbnail_logs)

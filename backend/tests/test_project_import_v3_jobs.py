@@ -117,11 +117,20 @@ class ProjectImportV3JobTests(unittest.TestCase):
                 "discover_projects_from_repo",
                 return_value=projects,
             ),
+            mock.patch.object(
+                project_import_service,
+                "list_remote_branches",
+                return_value=(["main", "release/v2"], "main"),
+            ),
+            mock.patch.object(
+                project_import_service, "find_existing_repository", return_value=None
+            ),
         ):
             result = project_import_service.run_project_analyze_job_v3(context)
 
         self.assertEqual(result.details["result"]["import_type"], "type1")
         self.assertEqual(result.details["result"]["projects"][0]["name"], "board")
+        self.assertEqual(result.details["result"]["default_branch"], "main")
         self.assertEqual(progress_updates[-1]["stage"], "discover-projects")
 
     def test_import_handler_registers_type1_project_in_worker(self) -> None:
