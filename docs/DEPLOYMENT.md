@@ -10,7 +10,7 @@ installation.
 Before exposing Prism to a team, prepare:
 
 - a Linux host or workstation with Docker Compose;
-- a native KiCad runtime image for the host architecture;
+- a Linux AMD64 Docker host and the stable public KiCad runtime image;
 - durable local storage for PostgreSQL, project data, and SSH state;
 - a DNS name and TLS certificate;
 - an OIDC client;
@@ -33,14 +33,18 @@ cp .env.example .env
 
 Do not deploy a moving branch without recording its commit SHA.
 
-## 2. Configure architecture
+## 2. Configure the KiCad runtime
 
-Set `KICAD_BASE_IMAGE`, `KICAD_BASE_PLATFORM`, and `DOCKER_PLATFORM` to one
-native architecture. The local Apple Silicon flow intentionally uses the
-locally built `kicad/kicad:10.0.4-arm64-local` image. AMD64 servers need an
-AMD64 KiCad image.
+The documented deployment target is Linux AMD64:
 
-Never rely on transparent CPU emulation for the backend or workers.
+```env
+KICAD_BASE_IMAGE=kicad/kicad:10.0.4
+KICAD_BASE_PLATFORM=linux/amd64
+DOCKER_PLATFORM=linux/amd64
+```
+
+Record the selected KiCad tag alongside the Prism release or commit used by the
+installation.
 
 ## 3. Configure PostgreSQL and storage
 

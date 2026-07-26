@@ -67,23 +67,16 @@ REMOTE_PROVIDER_DESTINATION_DIR=$${KIPRJMOD}/RemoteLibrary
 The doubled dollar sign prevents Compose from expanding the value before it
 reaches Prism.
 
-### Architecture
-
-The following values must describe one native platform:
+### Docker and KiCad runtime
 
 ```env
-KICAD_BASE_IMAGE=<native-kicad-image>
-KICAD_BASE_PLATFORM=linux/arm64
-DOCKER_PLATFORM=linux/arm64
-```
-
-or:
-
-```env
-KICAD_BASE_IMAGE=<native-kicad-image>
+KICAD_BASE_IMAGE=kicad/kicad:10.0.4
 KICAD_BASE_PLATFORM=linux/amd64
 DOCKER_PLATFORM=linux/amd64
 ```
+
+The documented public source-build and deployment target is Linux AMD64. Keep
+these three values consistent.
 
 ## Project-level `.prism.json`
 
