@@ -113,3 +113,17 @@ RUN --mount=from=kicad_monkey,source=/,target=/tmp/kicad-monkey,ro \
 ENV PRISM_KICAD_MONKEY_SOURCE=local-working-tree
 
 FROM ${KICAD_MONKEY_VARIANT} AS final
+ARG PRISM_RELEASE=development
+ARG PRISM_REVISION=unknown
+ARG PRISM_BUILD_DATE=unknown
+ENV PRISM_RELEASE=${PRISM_RELEASE}
+ENV PRISM_REVISION=${PRISM_REVISION}
+ENV PRISM_BUILD_DATE=${PRISM_BUILD_DATE}
+LABEL org.opencontainers.image.title="KiCAD Prism backend" \
+    org.opencontainers.image.version="${PRISM_RELEASE}" \
+    org.opencontainers.image.revision="${PRISM_REVISION}" \
+    org.opencontainers.image.created="${PRISM_BUILD_DATE}" \
+    org.opencontainers.image.source="https://github.com/krishna-swaroop/KiCAD-Prism" \
+    org.opencontainers.image.licenses="Apache-2.0"
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=10 \
+    CMD curl -fsS http://127.0.0.1:8000/api/health/ready >/dev/null || exit 1
