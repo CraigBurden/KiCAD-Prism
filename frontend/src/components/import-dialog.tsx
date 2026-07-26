@@ -45,6 +45,8 @@ interface JobStatus {
   percent: number;
   /** Coarse phase, e.g. "clone-repository". Set by the job handler. */
   stage?: string;
+  /** True when the failure is one the user can fix by granting Prism access. */
+  access_failure?: boolean;
   project_ids?: string[];
   error?: string;
 }
@@ -66,6 +68,18 @@ function describeJob(status: JobStatus | undefined, fallback: string): string {
   if (status.stage && STAGE_LABELS[status.stage]) return STAGE_LABELS[status.stage];
   if (status.status === "queued") return "Waiting for a free worker…";
   return fallback;
+}
+
+interface AccessHelp {
+  forge: string;
+  deploy_key_url: string | null;
+  account_key_url: string | null;
+  instructions: string;
+  public_key: string | null;
+  fingerprint: string | null;
+  key_exists: boolean;
+  host: string;
+  host_trusted: boolean;
 }
 
 interface CommentsSourceUrls {
@@ -95,6 +109,10 @@ type ImportState =
       success: boolean;
       message: string;
       commentsSourceUrls?: CommentsSourceUrls[];
+      /** Set when the failure is one the user can fix by granting access. */
+      accessHelp?: AccessHelp;
+      /** Present on a fixable failure so the user can retry without retyping. */
+      retryUrl?: string;
     };
 
 export function ImportDialog({
@@ -152,18 +170,21 @@ export function ImportDialog({
     onOpenChange(false);
   };
 
-  const analyzeRepo = async (branchOverride?: string) => {
-    if (!url.trim()) return;
+  const analyzeRepo = async (branchOverride?: string, urlOverride?: string) => {
+    // Retry passes the URL explicitly: a setUrl() in the same tick has not been
+    // applied yet, so reading state here would analyse the previous value.
+    const target = (urlOverride ?? url).trim();
+    if (!target) return;
 
     const branch = branchOverride ?? ref;
     stopPolling();
-    setState({ step: "analyzing", url });
+    setState({ step: "analyzing", url: target });
 
     try {
       const res = await fetch("/api/projects/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, ref: branch.trim() || null }),
+        body: JSON.stringify({ url: target, ref: branch.trim() || null }),
       });
 
       if (!res.ok) {
@@ -174,7 +195,7 @@ export function ImportDialog({
       const { job_id } = await res.json();
 
       // Start polling analysis job
-      pollAnalysisJob(job_id, url);
+      pollAnalysisJob(job_id, target);
 
     } catch (error: any) {
       setState({
@@ -228,6 +249,11 @@ export function ImportDialog({
           setState({ step: "review", url: repoUrl, analysis: result });
 
         } else if (status.status === "failed" || status.status === "cancelled") {
+          const accessHelp =
+            status.status === "failed" && status.access_failure
+              ? await loadAccessHelp(repoUrl)
+              : undefined;
+          if (pollingTokenRef.current !== pollingToken) return;
           setState({
             step: "complete",
             success: false,
@@ -235,6 +261,8 @@ export function ImportDialog({
               status.status === "cancelled"
                 ? "Analysis cancelled."
                 : status.error || "Analysis failed",
+            accessHelp,
+            retryUrl: status.status === "failed" ? repoUrl : undefined,
           });
         } else {
           // Continue polling
@@ -356,6 +384,11 @@ export function ImportDialog({
           });
           onImportComplete();
         } else if (status.status === "failed" || status.status === "cancelled") {
+          const accessHelp =
+            status.status === "failed" && status.access_failure
+              ? await loadAccessHelp(repoUrl)
+              : undefined;
+          if (pollingTokenRef.current !== pollingToken) return;
           setState({
             step: "complete",
             success: false,
@@ -364,6 +397,8 @@ export function ImportDialog({
                 ? "Import cancelled."
                 : status.error || "Import failed",
             commentsSourceUrls: undefined,
+            accessHelp,
+            retryUrl: status.status === "failed" ? repoUrl : undefined,
           });
         } else {
           // Continue polling
@@ -390,6 +425,26 @@ export function ImportDialog({
     };
 
     void poll();
+  };
+
+  const loadAccessHelp = async (repoUrl: string): Promise<AccessHelp | undefined> => {
+    try {
+      const res = await fetch("/api/projects/access-help", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: repoUrl }),
+      });
+      if (!res.ok) return undefined;
+      return (await res.json()) as AccessHelp;
+    } catch {
+      // The failure message still stands on its own; the guided fix is a bonus.
+      return undefined;
+    }
+  };
+
+  const retryAnalysis = (repoUrl: string) => {
+    setUrl(repoUrl);
+    void analyzeRepo("", repoUrl);
   };
 
   const cancelRunningJob = async () => {
@@ -785,7 +840,77 @@ export function ImportDialog({
               </div>
             )}
 
-            <div className="flex justify-end">
+            {state.accessHelp && (
+              <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+                <p className="text-sm font-medium">Grant Prism access</p>
+                <p className="whitespace-pre-line text-xs text-muted-foreground">
+                  {state.accessHelp.instructions}
+                </p>
+
+                {state.accessHelp.key_exists && state.accessHelp.public_key ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium">
+                        Prism&apos;s public key
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(
+                            state.accessHelp?.public_key ?? "",
+                          );
+                        }}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                    <pre className="max-h-20 overflow-auto rounded bg-background p-2 text-[11px] font-mono break-all whitespace-pre-wrap">
+                      {state.accessHelp.public_key}
+                    </pre>
+                    {state.accessHelp.fingerprint && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Fingerprint {state.accessHelp.fingerprint}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-destructive">
+                    This workspace has no SSH key yet. An administrator can create
+                    one in Settings, under Git &amp; SSH.
+                  </p>
+                )}
+
+                {!state.accessHelp.host_trusted && (
+                  <p className="text-xs text-destructive">
+                    {state.accessHelp.host} is not a trusted host yet. An
+                    administrator needs to add its host key in Settings before
+                    Prism can connect over SSH.
+                  </p>
+                )}
+
+                {state.accessHelp.deploy_key_url && (
+                  <a
+                    className="inline-block text-xs underline"
+                    href={state.accessHelp.deploy_key_url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    Open deploy key settings on {state.accessHelp.forge}
+                  </a>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              {state.retryUrl && (
+                <Button
+                  variant="outline"
+                  onClick={() => retryAnalysis(state.retryUrl as string)}
+                >
+                  Try again
+                </Button>
+              )}
               <Button onClick={handleClose}>Close</Button>
             </div>
           </>

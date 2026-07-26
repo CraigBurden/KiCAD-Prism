@@ -53,48 +53,28 @@ def configure_git():
             logger.error("Failed to configure Git with token: %s", error)
 
 def scan_known_hosts():
-    """Scan and add GitHub/GitLab to known_hosts if missing."""
-    ssh_dir = Path.home() / ".ssh"
-    known_hosts = ssh_dir / "known_hosts"
-    
-    # Ensure known_hosts exists
-    if not known_hosts.exists():
-        try:
-            known_hosts.touch(mode=0o644)
-        except Exception as e:
-            logger.error(f"Failed to create known_hosts file: {e}")
-            return
+    """Pin the hosted forges' SSH host keys, verifying them before trusting.
 
-    for host in KNOWN_GIT_HOSTS:
-        try:
-            # Check if host is already known using ssh-keygen -F (Find)
-            # This checks hashed hosts too
-            result = subprocess.run(
-                ["ssh-keygen", "-F", host],
-                capture_output=True,
-                timeout=SUBPROCESS_TIMEOUT_SECONDS,
-            )
-            
-            if result.returncode != 0:
-                logger.info(f"Host {host} not found in known_hosts. Scanning...")
-                # Scan and append to known_hosts
-                scan = subprocess.run(
-                    ["ssh-keyscan", "-H", host],
-                    capture_output=True,
-                    text=True,
-                    timeout=SUBPROCESS_TIMEOUT_SECONDS,
-                )
-                if scan.returncode == 0 and scan.stdout:
-                    with open(known_hosts, "a", encoding="utf-8") as f:
-                        f.write(scan.stdout)
-                    logger.info(f"Successfully added {host} to known_hosts.")
-                else:
-                    logger.warning(f"Failed to scan {host}. Error: {scan.stderr}")
-            else:
-                logger.debug(f"Host {host} already in known_hosts.")
-                
-        except (subprocess.SubprocessError, OSError) as error:
-            logger.error("Error checking/scanning host %s: %s", host, error)
+    This used to run a bare `ssh-keyscan` and append whatever came back, which
+    trusts the network the scan ran over. The scan is now checked against the
+    fingerprints GitHub and GitLab publish out of band, and a host that does not
+    match is left untrusted for an administrator to look at.
+    """
+    from app.services.git_access_service import bootstrap_known_hosts
+
+    try:
+        outcomes = bootstrap_known_hosts()
+    except Exception as error:  # never block startup on host key bootstrapping
+        logger.error("Could not bootstrap known_hosts: %s", error)
+        return
+    for host, outcome in outcomes.items():
+        if outcome == "pinned":
+            logger.info("Pinned verified SSH host key for %s.", host)
+        elif outcome == "already-trusted":
+            logger.debug("Host %s already pinned.", host)
+        else:
+            logger.warning("Did not pin %s: %s", host, outcome)
+
 
 def ensure_ssh_dir():
     """Ensure ~/.ssh exists and has correct permissions."""

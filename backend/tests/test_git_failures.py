@@ -137,5 +137,43 @@ class FallsBackReadably(unittest.TestCase):
         self.assertTrue(message.strip())
 
 
+
+class AccessFailureDetection(unittest.TestCase):
+    """The dialog offers a guided fix off this flag, so it has to track the
+    messages `describe_git_failure` actually writes."""
+
+    def test_every_access_reason_is_recognised(self) -> None:
+        from app.services.project_import_service import (
+            ACCESS_FAILURE_REASONS,
+            _is_access_failure,
+        )
+
+        samples = {
+            "ssh-key-not-authorized": "git@github.com: Permission denied (publickey).",
+            "repository-not-found": "remote: Repository not found.",
+            "credentials-required": "could not read Username for 'https://github.com'",
+            "host-key-unverified": "Host key verification failed.",
+        }
+        self.assertEqual(set(samples), set(ACCESS_FAILURE_REASONS))
+
+        for reason, stderr in samples.items():
+            with self.subTest(reason=reason):
+                actual_reason, message = describe_git_failure(FakeGitError(stderr))
+                self.assertEqual(actual_reason, reason)
+                # The flag is derived from the message, so they must agree.
+                self.assertTrue(
+                    _is_access_failure(message),
+                    f"{reason} message is not detected as an access failure",
+                )
+
+    def test_unrelated_failures_are_not_flagged(self) -> None:
+        from app.services.project_import_service import _is_access_failure
+
+        _, message = describe_git_failure(FakeGitError("fatal: write error: No space left on device"))
+        self.assertFalse(_is_access_failure(message))
+        self.assertFalse(_is_access_failure(None))
+        self.assertFalse(_is_access_failure(""))
+
+
 if __name__ == "__main__":
     unittest.main()
