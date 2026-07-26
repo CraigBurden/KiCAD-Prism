@@ -29,6 +29,10 @@ class DiscoveredProject:
     full_path: str
     has_schematic: bool
     has_pcb: bool
+    # False when the directory holds design files but no .kicad_pro. Plenty of
+    # teams gitignore the project file because KiCad rewrites it on every open,
+    # so its absence must not hide the board.
+    has_project_file: bool = True
 
 
 def remote_url_policy() -> RemoteUrlPolicy:
@@ -91,10 +95,19 @@ def is_excluded_directory(dir_name: str) -> bool:
     return dir_name.lower() in excluded or dir_name.startswith('.')
 
 
+def _directory_depth(relative_path: str) -> int:
+    return 0 if relative_path == "." else len(relative_path.split("/"))
+
+
 def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
     """
     Discover KiCAD projects by inspecting the Git tree directly (no-checkout).
     Returns list of DiscoveredProject.
+
+    A directory counts as a project when it holds a ``.kicad_pro``, a
+    ``.kicad_pcb`` or a ``.kicad_sch``. Requiring ``.kicad_pro`` used to make
+    whole repositories import as nothing at all, because KiCad rewrites that
+    file on every open and teams routinely gitignore it.
     """
     # Get all files in the repo recursively
     try:
@@ -102,48 +115,99 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
     except Exception:
         # Fallback for empty repos or other issues
         return []
-    
+
     # Map directory -> list of filenames
-    dir_map = {}
+    dir_map: dict[str, list[str]] = {}
     for fpath in all_files:
         p = Path(fpath)
         # Handle relative path correctly (relative to repo root)
         dir_path = p.parent.as_posix() # Use as_posix for consistency
-        filename = p.name
-        
-        if dir_path not in dir_map:
-            dir_map[dir_path] = []
-        dir_map[dir_path].append(filename)
-        
-    projects = []
-    for dir_path, filenames in dir_map.items():
-        # Skip if any part of the path is excluded
-        should_exclude = False
-        parts = dir_path.split('/')
-        if dir_path != ".":
-            for part in parts:
-                if is_excluded_directory(part):
-                    should_exclude = True
-                    break
-        if should_exclude:
+        dir_map.setdefault(dir_path, []).append(p.name)
+
+    def is_visible(dir_path: str) -> bool:
+        if dir_path == ".":
+            return True
+        return not any(is_excluded_directory(part) for part in dir_path.split("/"))
+
+    visible = {path: names for path, names in dir_map.items() if is_visible(path)}
+
+    def descendants(root: str) -> list[str]:
+        """Directories at or beneath ``root``, root included."""
+        if root == ".":
+            return list(visible)
+        prefix = f"{root}/"
+        return [path for path in visible if path == root or path.startswith(prefix)]
+
+    projects: List[DiscoveredProject] = []
+    for dir_path, filenames in visible.items():
+        pro_files = sorted(f for f in filenames if f.endswith(".kicad_pro"))
+        pcb_files = sorted(f for f in filenames if f.endswith(".kicad_pcb"))
+        sch_files = sorted(f for f in filenames if f.endswith(".kicad_sch"))
+        if not (pro_files or pcb_files or sch_files):
             continue
-            
-        pro_files = [f for f in filenames if f.endswith(".kicad_pro")]
-        for pro_file in pro_files:
-            has_sch = any(f.endswith(".kicad_sch") for f in filenames)
-            has_pcb = any(f.endswith(".kicad_pcb") for f in filenames)
-            
-            projects.append(DiscoveredProject(
-                name=Path(pro_file).stem,
-                relative_path=dir_path if dir_path != "." else ".",
-                full_path="", # No checkout path
-                has_schematic=has_sch,
-                has_pcb=has_pcb
-            ))
-            
+
+        # Design files often live one level down (Subsheets/, sch/), so look
+        # through the subtree rather than only at this directory. Without this a
+        # board with hierarchical sheets reported "no schematic".
+        subtree = descendants(dir_path)
+        has_sch = any(
+            name.endswith(".kicad_sch") for path in subtree for name in visible[path]
+        )
+        has_pcb = any(
+            name.endswith(".kicad_pcb") for path in subtree for name in visible[path]
+        )
+
+        relative_path = dir_path if dir_path != "." else "."
+        if pro_files:
+            for pro_file in pro_files:
+                projects.append(DiscoveredProject(
+                    name=Path(pro_file).stem,
+                    relative_path=relative_path,
+                    full_path="", # No checkout path
+                    has_schematic=has_sch,
+                    has_pcb=has_pcb,
+                    has_project_file=True,
+                ))
+            continue
+
+        # No .kicad_pro: name the project after its board, or its schematic when
+        # there is no board. KiCad regenerates the project file with this stem.
+        anchor = (pcb_files or sch_files)[0]
+        projects.append(DiscoveredProject(
+            name=Path(anchor).stem,
+            relative_path=relative_path,
+            full_path="",
+            has_schematic=has_sch,
+            has_pcb=has_pcb,
+            has_project_file=False,
+        ))
+
+    # A `Subsheets/` or `sch/` directory sits inside a project and holds that
+    # project's own sheets; it is not a second board. Drop any project-file-less
+    # directory that lives beneath another discovered project.
+    project_paths = {project.relative_path for project in projects}
+
+    def has_ancestor_project(relative_path: str) -> bool:
+        if relative_path == ".":
+            return False
+        parent = Path(relative_path).parent
+        while True:
+            candidate = parent.as_posix()
+            if candidate in project_paths:
+                return True
+            if candidate in (".", ""):
+                return False
+            parent = parent.parent
+
+    projects = [
+        project
+        for project in projects
+        if project.has_project_file or not has_ancestor_project(project.relative_path)
+    ]
+
     # Sort by path depth (shallow first) then by name
-    projects.sort(key=lambda p: (0 if p.relative_path == "." else len(p.relative_path.split('/')), p.name.lower()))
-    
+    projects.sort(key=lambda p: (_directory_depth(p.relative_path), p.name.lower()))
+
     return projects
 
 
@@ -431,10 +495,20 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
                 "relative_path": project.relative_path,
                 "has_schematic": project.has_schematic,
                 "has_pcb": project.has_pcb,
+                "has_project_file": project.has_project_file,
             }
             for project in projects
         ],
     }
+    if not projects:
+        # An empty list on its own leaves the dialog with nothing to say. Tell
+        # the user what was looked for so they can tell a wrong URL from a
+        # wrong branch from a repository that genuinely holds no boards.
+        result["empty_reason"] = (
+            "No KiCad design files were found on the default branch. Prism looks "
+            "for directories containing a .kicad_pro, .kicad_pcb or .kicad_sch "
+            "file, ignoring archive, backup and hidden directories."
+        )
     print(
         f"Found {len(projects)} project(s); classified repository as {import_type}",
         flush=True,
@@ -527,11 +601,12 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
     )
     if not discovered:
         raise ValueError(
-            f"No KiCad projects found in '{repo_name}'. "
-            "Prism looks for a directory containing a .kicad_pro file."
+            f"No KiCad projects found in '{repo_name}'. Prism looks for "
+            "directories containing a .kicad_pro, .kicad_pcb or .kicad_sch file."
         )
 
     discovered_paths = {project.relative_path for project in discovered}
+    discovered_names = {project.relative_path: project.name for project in discovered}
     if import_type == "type1":
         selected_paths = ["."]
     else:
@@ -623,9 +698,10 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 if not full_project_path.resolve().is_relative_to(checkout_root):
                     raise ValueError(f"Project path escapes the checkout: {relative_path}")
                 generate_thumbnail_for_project(str(full_project_path), thumbnail_logs)
-                pro_files = sorted(full_project_path.glob("*.kicad_pro"))
-                board_name = (
-                    pro_files[0].stem if pro_files else os.path.basename(relative_path)
+                # Discovery already worked out the board name, including for
+                # directories whose .kicad_pro is gitignored.
+                board_name = discovered_names.get(
+                    relative_path, os.path.basename(relative_path)
                 )
                 cached = resolve_cached_paths(str(full_project_path))
                 imported_ids.append(

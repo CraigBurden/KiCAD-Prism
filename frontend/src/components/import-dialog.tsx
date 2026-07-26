@@ -20,6 +20,7 @@ interface DiscoveredProject {
   relative_path: string;
   has_schematic: boolean;
   has_pcb: boolean;
+  has_project_file?: boolean;
 }
 
 interface AnalysisResult {
@@ -27,6 +28,8 @@ interface AnalysisResult {
   repo_url: string;
   import_type: "type1" | "type2";
   projects: DiscoveredProject[];
+  /** Present only when nothing was found, explaining what was looked for. */
+  empty_reason?: string;
 }
 
 interface JobStatus {
@@ -491,9 +494,12 @@ export function ImportDialog({
                   : "Multiple Projects Detected"}
               </DialogTitle>
               <DialogDescription>
-                {state.analysis.import_type === "type1"
-                  ? `Found 1 KiCAD project at the root of ${state.analysis.repo_name}.`
-                  : `Found ${state.analysis.projects.length} KiCAD projects in ${state.analysis.repo_name}. Select which to import.`}
+                {state.analysis.projects.length === 0
+                  ? state.analysis.empty_reason ??
+                    `No KiCad projects were found in ${state.analysis.repo_name}.`
+                  : state.analysis.import_type === "type1"
+                    ? `Found 1 KiCad project at the root of ${state.analysis.repo_name}.`
+                    : `Found ${state.analysis.projects.length} KiCad projects in ${state.analysis.repo_name}. Select which to import.`}
               </DialogDescription>
             </DialogHeader>
 
@@ -550,6 +556,17 @@ export function ImportDialog({
                         PCB
                       </span>
                     )}
+                    {project.has_project_file === false && (
+                      // Common when .kicad_pro is gitignored. Worth surfacing:
+                      // KiCad regenerates it, but the project name comes from
+                      // the board file until it does.
+                      <span
+                        className="px-2 py-1 bg-secondary rounded"
+                        title="No .kicad_pro committed. KiCad will recreate it on first open."
+                      >
+                        No .kicad_pro
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -562,8 +579,9 @@ export function ImportDialog({
               <Button
                 onClick={startImport}
                 disabled={
-                  state.analysis.import_type === "type2" &&
-                  selectedPaths.size === 0
+                  state.analysis.projects.length === 0 ||
+                  (state.analysis.import_type === "type2" &&
+                    selectedPaths.size === 0)
                 }
               >
                 Import
