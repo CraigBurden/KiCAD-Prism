@@ -68,26 +68,6 @@ function describeJob(status: JobStatus | undefined, fallback: string): string {
   return fallback;
 }
 
-/** Turn a raw git failure into something a user can act on. */
-function explainImportError(message: string): string {
-  const text = message.toLowerCase();
-  if (
-    text.includes("permission denied") ||
-    text.includes("authentication failed") ||
-    text.includes("could not read from remote repository")
-  ) {
-    return (
-      `${message}\n\nPrism authenticates to private repositories with an SSH key on ` +
-      `the server. Add a deploy key for this repository and use an ssh:// or ` +
-      `git@host:org/repo.git URL.`
-    );
-  }
-  if (text.includes("could not resolve host") || text.includes("name or service not known")) {
-    return `${message}\n\nThe server could not reach that host. Check the URL and that the Git server is reachable from Prism.`;
-  }
-  return message;
-}
-
 interface CommentsSourceUrls {
   project_id: string;
   project_name: string;
@@ -200,7 +180,7 @@ export function ImportDialog({
       setState({
         step: "complete",
         success: false,
-        message: explainImportError(error.message || "Failed to start analysis"),
+        message: error.message || "Failed to start analysis",
       });
     }
   };
@@ -254,7 +234,7 @@ export function ImportDialog({
             message:
               status.status === "cancelled"
                 ? "Analysis cancelled."
-                : explainImportError(status.error || "Analysis failed"),
+                : status.error || "Analysis failed",
           });
         } else {
           // Continue polling
@@ -317,7 +297,7 @@ export function ImportDialog({
       setState({
         step: "complete",
         success: false,
-        message: explainImportError(error.message || "Failed to start import"),
+        message: error.message || "Failed to start import",
       });
     }
   };
@@ -382,7 +362,7 @@ export function ImportDialog({
             message:
               status.status === "cancelled"
                 ? "Import cancelled."
-                : explainImportError(status.error || "Import failed"),
+                : status.error || "Import failed",
             commentsSourceUrls: undefined,
           });
         } else {
@@ -523,24 +503,6 @@ export function ImportDialog({
                   }}
                 />
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="import-ref" className="text-right">
-                  Branch
-                </Label>
-                <Input
-                  id="import-ref"
-                  value={ref}
-                  onChange={(e) => setRef(e.target.value)}
-                  placeholder="Default branch"
-                  className="col-span-3"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && url.trim()) {
-                      e.preventDefault();
-                      void analyzeRepo();
-                    }
-                  }}
-                />
-              </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={handleClose}>
@@ -607,7 +569,9 @@ export function ImportDialog({
               </DialogDescription>
             </DialogHeader>
 
-            {(state.analysis.branches?.length ?? 0) > 1 && (
+            {/* Shown even for a single branch, so the user can always see which
+                one the listed projects came from. */}
+            {(state.analysis.branches?.length ?? 0) > 0 && (
               <div className="flex items-center gap-2 py-2">
                 <Label htmlFor="import-branch" className="text-sm shrink-0">
                   Branch

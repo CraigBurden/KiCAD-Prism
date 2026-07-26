@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from git import Git, Repo, RemoteProgress
 from app.core.config import settings
 from app.services import derived_assets, project_service, path_config_service
+from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult
 from app.services.job_service import jobs as v3_jobs
@@ -65,6 +66,11 @@ def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
     return None
 
 
+def _describe_target(parsed: ParsedRemote) -> str:
+    """How a repository should be named in a message to the user."""
+    return f"{parsed.host}/{parsed.path.strip('/').removesuffix('.git')}"
+
+
 def _git_env() -> dict:
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
@@ -84,8 +90,13 @@ def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]
     git.update_environment(**_git_env())
     try:
         head_output = git.ls_remote("--symref", parsed.url, "HEAD")
-    except Exception:
-        return [], None
+    except Exception as error:
+        # This is the first thing that touches the remote, so it is where a
+        # wrong URL or a missing permission shows up. Reporting it here gives a
+        # far better message than letting the clone fail later.
+        raise as_access_error(
+            error, target=_describe_target(parsed), host=parsed.host
+        ) from error
 
     default_branch: Optional[str] = None
     for line in head_output.splitlines():
@@ -642,17 +653,24 @@ def _discover_remote_projects(
         clone_options = {}
         if ref:
             clone_options["branch"] = ref
-        repo = Repo.clone_from(
-            parsed.url,
-            str(clone_path),
-            depth=1,
-            single_branch=True,
-            no_checkout=True,
-            filter="blob:none",
-            progress=V3CloneProgress(context, stage=stage),
-            env=_git_env(),
-            **clone_options,
-        )
+        try:
+            repo = Repo.clone_from(
+                parsed.url,
+                str(clone_path),
+                depth=1,
+                single_branch=True,
+                no_checkout=True,
+                filter="blob:none",
+                progress=V3CloneProgress(context, stage=stage),
+                env=_git_env(),
+                **clone_options,
+            )
+        except GitAccessError:
+            raise
+        except Exception as error:
+            raise as_access_error(
+                error, target=_describe_target(parsed), host=parsed.host
+            ) from error
         context.check_cancelled()
         context.progress(
             stage="discover-projects",
@@ -762,13 +780,20 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 force=True,
             )
             clone_options = {"branch": ref} if ref else {}
-            Repo.clone_from(
-                repo_url,
-                str(target_path),
-                progress=V3CloneProgress(context, stage="clone-repository"),
-                env=_git_env(),
-                **clone_options,
-            )
+            try:
+                Repo.clone_from(
+                    repo_url,
+                    str(target_path),
+                    progress=V3CloneProgress(context, stage="clone-repository"),
+                    env=_git_env(),
+                    **clone_options,
+                )
+            except GitAccessError:
+                raise
+            except Exception as error:
+                raise as_access_error(
+                    error, target=_describe_target(parsed), host=parsed.host
+                ) from error
             cloned_in_job = True
 
         context.check_cancelled()
