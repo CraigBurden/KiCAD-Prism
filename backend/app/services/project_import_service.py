@@ -674,7 +674,6 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
     requested_paths = [str(path) for path in payload.get("selected_paths") or []]
     ref = _validate_ref(payload.get("ref"))
     cloned_in_job = False
-    thumbnail_logs: list[str] = []
 
     context.progress(
         stage="validate-import",
@@ -790,7 +789,6 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             )
         imported_ids: list[str] = []
         if import_type == "type1":
-            generate_thumbnail_for_project(str(target_path), thumbnail_logs)
             cached = resolve_cached_paths(str(target_path))
             imported_ids.append(
                 workspace.register_project(
@@ -810,7 +808,6 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 # guarantee local to the place that does the filesystem write.
                 if not full_project_path.resolve().is_relative_to(checkout_root):
                     raise ValueError(f"Project path escapes the checkout: {relative_path}")
-                generate_thumbnail_for_project(str(full_project_path), thumbnail_logs)
                 # Discovery already worked out the board name, including for
                 # directories whose .kicad_pro is gitignored.
                 board_name = discovered_names.get(
@@ -831,8 +828,27 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                     message=f"Registered {index + 1} of {len(selected_paths)} projects",
                     percent=80 + (15 * (index + 1) / len(selected_paths)),
                 )
-        for line in thumbnail_logs:
-            print(line, flush=True)
+        # Render boards in their own jobs. The projects are registered and
+        # browsable now; thumbnails fill in as each render finishes, rather than
+        # holding the import open for two minutes per board.
+        context.progress(
+            stage="queue-thumbnails",
+            message="Queueing board renders",
+            percent=97,
+            force=True,
+        )
+        thumbnail_job_ids: list[str] = []
+        for imported_id in imported_ids:
+            try:
+                job_id = start_thumbnail_job(imported_id, requested_by="project-import")
+            except Exception as error:
+                # A thumbnail is cosmetic; failing to queue one must not undo an
+                # otherwise complete import.
+                print(f"Could not queue thumbnail for {imported_id}: {error}", flush=True)
+                continue
+            if job_id:
+                thumbnail_job_ids.append(job_id)
+
         return JobResult(
             message=f"Imported {len(imported_ids)} project(s)",
             details={
@@ -840,12 +856,79 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 "repo_id": repo_id,
                 "repo_url": repo_url,
                 "import_type": import_type,
+                "thumbnail_job_ids": thumbnail_job_ids,
             },
         )
     except Exception:
         if cloned_in_job:
             shutil.rmtree(target_path, ignore_errors=True)
         raise
+
+
+def start_thumbnail_job(project_id: str, *, requested_by: str = "") -> Optional[str]:
+    """Queue a board render for one project.
+
+    Rendering used to happen inline inside the import job: one `kicad-cli`
+    invocation per project, sequentially, each with a two minute timeout, while
+    the job held an import slot and its progress sat at 80%. Importing a twenty
+    board monorepo could therefore occupy a worker for the better part of an
+    hour with nothing to show for it. One job per project renders them
+    independently, and the project appears in the workspace immediately.
+    """
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        return None
+    repository_id = str(row.get("repo_id") or "")
+    queued = v3_jobs.enqueue(
+        "project_thumbnail",
+        {"project_id": project_id},
+        worker_pool="prism",
+        artifact_key=hashlib.sha256(f"thumbnail:{project_id}".encode("utf-8")).hexdigest(),
+        project_id=project_id,
+        repository_id=repository_id or None,
+        requested_by=requested_by,
+        max_attempts=2,
+        resources={"prism_worker": 1},
+        # A read lock on the repository, so a render cannot observe the checkout
+        # halfway through a sync fast-forward.
+        locks=(
+            [{"key": f"repository:{repository_id}", "mode": "read"}]
+            if repository_id
+            else []
+        ),
+    )
+    return str(queued["job_id"])
+
+
+def run_project_thumbnail_job_v3(context: JobContext) -> JobResult:
+    project_id = str(context.payload["project_id"])
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError("Project not found")
+    project_path = str(row.get("path") or "")
+    if not project_path or not os.path.isdir(project_path):
+        raise ValueError(f"Project path not found: {project_path}")
+
+    context.progress(
+        stage="render-thumbnail",
+        message="Rendering board thumbnail",
+        percent=10,
+        force=True,
+    )
+    logs: list[str] = []
+    rendered = generate_thumbnail_for_project(project_path, logs)
+    for line in logs:
+        print(line, flush=True)
+    context.check_cancelled()
+
+    context.progress(
+        stage="record-thumbnail", message="Recording thumbnail", percent=90, force=True
+    )
+    workspace.update_project(project_id, **resolve_cached_paths(project_path))
+    return JobResult(
+        message="Thumbnail rendered" if rendered else "No board to render",
+        details={"project_id": project_id, "rendered": rendered},
+    )
 
 
 def start_sync_job(project_id: str, *, requested_by: str = "") -> str:
@@ -888,6 +971,12 @@ def run_project_sync_job_v3(context: JobContext) -> JobResult:
     from app.services import file_service
 
     file_service.invalidate_file_listing_cache()
+    # Re-render in its own job: a `kicad-cli` render can take two minutes, and
+    # sync holds a write lock on the whole repository while it runs.
+    try:
+        start_thumbnail_job(project_id, requested_by="project-sync")
+    except Exception as error:
+        print(f"Could not queue thumbnail refresh for {project_id}: {error}", flush=True)
     return JobResult(
         message=str(result.get("message") or "Sync completed"),
         details=dict(result),
@@ -950,10 +1039,7 @@ def sync_project(project_id: str) -> dict:
         path_config_service.clear_config_cache()
         project_path = row.get('path', '')
         if project_path and os.path.isdir(project_path):
-            # Generate/refresh thumbnail on sync
-            generate_thumbnail_for_project(project_path)
-            cached = resolve_cached_paths(project_path)
-            workspace.update_project(project_id, **cached)
+            workspace.update_project(project_id, **resolve_cached_paths(project_path))
 
         # Update repo last_synced_at
         workspace.update_repository_synced(row.get('repo_id', ''))

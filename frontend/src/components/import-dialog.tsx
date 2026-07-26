@@ -40,12 +40,52 @@ interface AnalysisResult {
 
 interface JobStatus {
   job_id: string;
-  status: "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
   message: string;
   percent: number;
+  /** Coarse phase, e.g. "clone-repository". Set by the job handler. */
+  stage?: string;
   project_ids?: string[];
   error?: string;
-  logs?: string[];
+}
+
+/** Human wording for the stages the analyse and import jobs report. */
+const STAGE_LABELS: Record<string, string> = {
+  "list-branches": "Listing branches",
+  "clone-metadata": "Reading repository",
+  "discover-projects": "Looking for KiCad projects",
+  "validate-import": "Checking the repository",
+  "clone-repository": "Cloning repository",
+  "register-projects": "Registering projects",
+  "queue-thumbnails": "Queueing board renders",
+};
+
+function describeJob(status: JobStatus | undefined, fallback: string): string {
+  if (!status) return fallback;
+  if (status.message) return status.message;
+  if (status.stage && STAGE_LABELS[status.stage]) return STAGE_LABELS[status.stage];
+  if (status.status === "queued") return "Waiting for a free worker…";
+  return fallback;
+}
+
+/** Turn a raw git failure into something a user can act on. */
+function explainImportError(message: string): string {
+  const text = message.toLowerCase();
+  if (
+    text.includes("permission denied") ||
+    text.includes("authentication failed") ||
+    text.includes("could not read from remote repository")
+  ) {
+    return (
+      `${message}\n\nPrism authenticates to private repositories with an SSH key on ` +
+      `the server. Add a deploy key for this repository and use an ssh:// or ` +
+      `git@host:org/repo.git URL.`
+    );
+  }
+  if (text.includes("could not resolve host") || text.includes("name or service not known")) {
+    return `${message}\n\nThe server could not reach that host. Check the URL and that the Git server is reachable from Prism.`;
+  }
+  return message;
 }
 
 interface CommentsSourceUrls {
@@ -160,7 +200,7 @@ export function ImportDialog({
       setState({
         step: "complete",
         success: false,
-        message: error.message || "Failed to start analysis",
+        message: explainImportError(error.message || "Failed to start analysis"),
       });
     }
   };
@@ -207,11 +247,14 @@ export function ImportDialog({
 
           setState({ step: "review", url: repoUrl, analysis: result });
 
-        } else if (status.status === "failed") {
+        } else if (status.status === "failed" || status.status === "cancelled") {
           setState({
             step: "complete",
             success: false,
-            message: status.error || "Analysis failed",
+            message:
+              status.status === "cancelled"
+                ? "Analysis cancelled."
+                : explainImportError(status.error || "Analysis failed"),
           });
         } else {
           // Continue polling
@@ -274,7 +317,7 @@ export function ImportDialog({
       setState({
         step: "complete",
         success: false,
-        message: error.message || "Failed to start import",
+        message: explainImportError(error.message || "Failed to start import"),
       });
     }
   };
@@ -332,11 +375,14 @@ export function ImportDialog({
             commentsSourceUrls,
           });
           onImportComplete();
-        } else if (status.status === "failed") {
+        } else if (status.status === "failed" || status.status === "cancelled") {
           setState({
             step: "complete",
             success: false,
-            message: status.error || "Import failed",
+            message:
+              status.status === "cancelled"
+                ? "Import cancelled."
+                : explainImportError(status.error || "Import failed"),
             commentsSourceUrls: undefined,
           });
         } else {
@@ -364,6 +410,24 @@ export function ImportDialog({
     };
 
     void poll();
+  };
+
+  const cancelRunningJob = async () => {
+    const jobId =
+      state.step === "analyzing" || state.step === "importing"
+        ? state.jobId
+        : undefined;
+    stopPolling();
+    if (jobId) {
+      // Best effort: the job may already have finished, and the dialog should
+      // close either way.
+      try {
+        await fetch(`/api/jobs/${jobId}/cancel`, { method: "POST" });
+      } catch {
+        // Ignore; the user asked to stop watching, not to guarantee a rollback.
+      }
+    }
+    handleClose();
   };
 
   const toggleProjectSelection = (relativePath: string) => {
@@ -494,36 +558,34 @@ export function ImportDialog({
             <DialogHeader>
               <DialogTitle>Analyzing Repository</DialogTitle>
               <DialogDescription>
-                {state.status?.message || "Starting analysis..."}
+                {describeJob(state.status, "Starting analysis…")}
               </DialogDescription>
             </DialogHeader>
 
-            {!state.status ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <div className="space-y-4 py-4">
+            <div className="space-y-4 py-4">
+              {state.status ? (
                 <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                  {/* Analysis involves cloning which has progress, so we can use state.status.percent if available */}
                   <div
                     className="h-full bg-primary transition-all duration-300"
                     style={{ width: `${state.status.percent || 0}%` }}
                   />
                 </div>
-
-                <div className="max-h-32 overflow-y-auto text-sm font-mono bg-muted p-2 rounded">
-                  {state.status.logs?.slice(-5).map((log, i) => (
-                    <div key={i} className="text-muted-foreground">
-                      {log}
-                    </div>
-                  ))}
-                  {(!state.status.logs || state.status.logs.length === 0) && (
-                    <span className="text-muted-foreground italic">Starting analysis...</span>
-                  )}
+              ) : (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
-              </div>
-            )}
+              )}
+              <p className="text-sm text-muted-foreground">
+                Prism reads the repository without downloading its file contents,
+                so this is quick even for a large history.
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => void cancelRunningJob()}>
+                Cancel
+              </Button>
+            </div>
           </>
         )}
 
@@ -688,7 +750,9 @@ export function ImportDialog({
           <>
             <DialogHeader>
               <DialogTitle>Importing Projects</DialogTitle>
-              <DialogDescription>{state.status.message}</DialogDescription>
+              <DialogDescription>
+                {describeJob(state.status, "Starting import…")}
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
@@ -697,13 +761,16 @@ export function ImportDialog({
                   style={{ width: `${state.status.percent}%` }}
                 />
               </div>
-              <div className="max-h-32 overflow-y-auto text-sm font-mono bg-muted p-2 rounded">
-                {state.status.logs?.slice(-5).map((log, i) => (
-                  <div key={i} className="text-muted-foreground">
-                    {log}
-                  </div>
-                ))}
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Board renders are queued separately, so projects appear in the
+                workspace before their thumbnails finish.
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => void cancelRunningJob()}>
+                Cancel
+              </Button>
             </div>
           </>
         )}
@@ -714,7 +781,9 @@ export function ImportDialog({
               <DialogTitle>
                 {state.success ? "Import Complete" : "Import Failed"}
               </DialogTitle>
-              <DialogDescription>{state.message}</DialogDescription>
+              <DialogDescription className="whitespace-pre-line">
+                {state.message}
+              </DialogDescription>
             </DialogHeader>
             <div className="flex items-center justify-center py-6">
               {state.success ? (
