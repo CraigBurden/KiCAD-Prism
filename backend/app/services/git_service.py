@@ -9,7 +9,6 @@ from typing import Dict, Any
 import datetime
 
 from app.services.git_read_cache_service import git_read_cache
-from app.services.project_import_service import git_env
 
 logger = logging.getLogger(__name__)
 
@@ -715,60 +714,3 @@ def get_commit_file_summary(
         raise
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Git error: {str(error)}") from error
-
-
-def sync_with_remote(repo_path: str) -> Dict[str, Any]:
-    """
-    Sync local repository with remote by performing a git pull.
-    
-    This fetches and merges the latest changes from the remote tracking branch.
-    
-    Returns:
-        Dict with sync status information including:
-        - success: bool
-        - previous_commit: str
-        - current_commit: str
-        - commits_pulled: int
-        - message: str
-    """
-    if not os.path.exists(repo_path):
-        raise HTTPException(status_code=404, detail=f"Repository not found at {repo_path}")
-    
-    try:
-        repo = Repo(repo_path)
-        
-        # Get current HEAD before sync
-        previous_commit = repo.head.commit.hexsha
-        
-        # Perform git pull
-        origin = repo.remotes.origin
-        
-        # Host keys must already be pinned; see git_env(). This carried a
-        # trust-on-first-use policy long after the rest of Prism stopped
-        # accepting one, which would have handed any host on the path a window
-        # to present its own key.
-        env = git_env()
-
-        pull_info = origin.pull(env=env)
-        
-        # Get new HEAD after sync
-        current_commit = repo.head.commit.hexsha
-        
-        # Count how many commits were pulled
-        commits_pulled = 0
-        if previous_commit != current_commit:
-            try:
-                commits_pulled = len(list(repo.iter_commits(f'{previous_commit}..{current_commit}')))
-            except Exception:
-                commits_pulled = 1  # At least one if heads differ
-        
-        return {
-            "success": True,
-            "previous_commit": previous_commit[:7],
-            "current_commit": current_commit[:7],
-            "commits_pulled": commits_pulled,
-            "message": f"Successfully pulled {commits_pulled} commit(s) from remote."
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
