@@ -3,6 +3,7 @@ user's Git checkout untouched."""
 
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -69,6 +70,113 @@ class ThumbnailStorageStaysOutsideTheCheckout(unittest.TestCase):
         derived_assets.store_thumbnail(self.checkout, self._write_render())
         derived_assets.discard(self.checkout)
         self.assertIsNone(derived_assets.find_thumbnail(self.checkout))
+
+
+try:  # Pillow is a hard requirement of the app; a bare dev venv may lack it.
+    from PIL import Image as _pillow_image
+except ImportError:  # pragma: no cover - exercised only on an incomplete venv
+    _pillow_image = None
+
+
+@unittest.skipIf(_pillow_image is None, "Pillow is not installed")
+class UploadedThumbnailsLiveBesideTheRender(unittest.TestCase):
+    """An upload must not destroy the render, so reverting is instant."""
+
+    def setUp(self) -> None:
+        self._temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self._temporary.name)
+        patcher = mock.patch.object(
+            derived_assets, "derived_root", return_value=self.root / "derived"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self._temporary.cleanup)
+        self.checkout = self.root / "projects" / "type1" / "board"
+        self.checkout.mkdir(parents=True)
+
+    def _png(self, size: tuple[int, int] = (900, 700), colour: str = "red") -> bytes:
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", size, colour).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    def _store_render(self, content: bytes = b"render") -> None:
+        staging = derived_assets.thumbnail_dir(self.checkout)
+        staging.mkdir(parents=True, exist_ok=True)
+        source = staging / ".tmp.webp"
+        source.write_bytes(content)
+        derived_assets.store_thumbnail(self.checkout, source)
+
+    def test_upload_is_stored_and_found_as_custom(self) -> None:
+        stored, digest, size = derived_assets.store_uploaded_thumbnail(
+            self.checkout, self._png()
+        )
+        self.assertEqual(derived_assets.find_thumbnail(self.checkout, kind="custom"), stored)
+        self.assertTrue(digest)
+        self.assertGreater(size, 0)
+
+    def test_upload_is_re_encoded_rather_than_stored_as_received(self) -> None:
+        """Prism serves this back to the whole workspace; only pixels survive."""
+        from PIL import Image
+
+        stored, _, _ = derived_assets.store_uploaded_thumbnail(self.checkout, self._png())
+        with Image.open(stored) as image:
+            self.assertEqual(image.format, "WEBP")
+            # Also downscaled into the thumbnail box rather than kept at 900x700.
+            self.assertLessEqual(image.width, derived_assets.THUMBNAIL_BOX[0])
+            self.assertLessEqual(image.height, derived_assets.THUMBNAIL_BOX[1])
+
+    def test_upload_does_not_disturb_the_render(self) -> None:
+        self._store_render(b"the-render")
+        derived_assets.store_uploaded_thumbnail(self.checkout, self._png())
+        render = derived_assets.find_thumbnail(self.checkout)
+        assert render is not None
+        self.assertEqual(render.read_bytes(), b"the-render")
+
+    def test_discarding_the_upload_leaves_the_render(self) -> None:
+        self._store_render(b"the-render")
+        derived_assets.store_uploaded_thumbnail(self.checkout, self._png())
+        self.assertTrue(derived_assets.discard_thumbnail(self.checkout, kind="custom"))
+        self.assertIsNone(derived_assets.find_thumbnail(self.checkout, kind="custom"))
+        self.assertIsNotNone(derived_assets.find_thumbnail(self.checkout))
+
+    def test_replacing_an_upload_does_not_accumulate(self) -> None:
+        derived_assets.store_uploaded_thumbnail(self.checkout, self._png(colour="red"))
+        derived_assets.store_uploaded_thumbnail(self.checkout, self._png(colour="blue"))
+        directory = derived_assets.thumbnail_dir(self.checkout)
+        self.assertEqual(len(list(directory.glob("custom.*.webp"))), 1)
+
+    def test_transparency_is_flattened_onto_white(self) -> None:
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGBA", (100, 100), (0, 0, 0, 0)).save(buffer, format="PNG")
+        stored, _, _ = derived_assets.store_uploaded_thumbnail(
+            self.checkout, buffer.getvalue()
+        )
+        with Image.open(stored) as image:
+            self.assertEqual(image.convert("RGB").getpixel((5, 5)), (255, 255, 255))
+
+    def test_a_non_image_is_refused(self) -> None:
+        with self.assertRaises(derived_assets.ThumbnailImageError):
+            derived_assets.store_uploaded_thumbnail(self.checkout, b"#!/bin/sh\nrm -rf /")
+
+    def test_an_empty_upload_is_refused(self) -> None:
+        with self.assertRaises(derived_assets.ThumbnailImageError):
+            derived_assets.store_uploaded_thumbnail(self.checkout, b"")
+
+    def test_an_oversized_upload_is_refused_before_decoding(self) -> None:
+        oversized = b"\x00" * (derived_assets.MAX_UPLOAD_BYTES + 1)
+        with self.assertRaises(derived_assets.ThumbnailImageError) as caught:
+            derived_assets.store_uploaded_thumbnail(self.checkout, oversized)
+        self.assertIn("MB", str(caught.exception))
+
+    def test_a_failed_upload_leaves_no_partial_file_behind(self) -> None:
+        with self.assertRaises(derived_assets.ThumbnailImageError):
+            derived_assets.store_uploaded_thumbnail(self.checkout, b"not an image")
+        directory = derived_assets.thumbnail_dir(self.checkout)
+        self.assertEqual(list(directory.glob("*")), [])
 
 
 class LegacyInTreeThumbnailCleanup(unittest.TestCase):

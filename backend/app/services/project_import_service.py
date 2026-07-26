@@ -282,8 +282,12 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
     return projects
 
 
-def resolve_cached_paths(project_path: str) -> dict:
-    """Resolve and return cached path info for a project directory."""
+def resolve_cached_paths(project_path: str, *, current_source: Optional[str] = None) -> dict:
+    """Resolve and return cached path info for a project directory.
+
+    ``current_source`` is the project's recorded ``thumbnail_source``, so a
+    thumbnail the user chose deliberately survives a re-scan.
+    """
     try:
         resolved = path_config_service.resolve_paths(project_path)
         sch = resolved.schematic
@@ -298,31 +302,48 @@ def resolve_cached_paths(project_path: str) -> dict:
                 return os.path.relpath(abs_path, project_path)
             except ValueError:
                 return None
-        # A thumbnail committed to the repository is the team's own choice and
-        # always wins. Only when there is none does Prism's render get used.
+        # Prism's own render is what a project shows. An image committed under
+        # assets/thumbnail used to win, which meant a stale hand-drawn picture
+        # outranked a render of the board as it actually is now — and a repo
+        # with no such image looked, wrongly, like a project Prism could not
+        # render. The committed image is now only a stand-in for a project with
+        # nothing to render, and any deliberate choice is made in the workspace.
         thumb_rel = None
-        thumbnail_source = "repository"
+        thumbnail_source = "generated"
         thumbnail_digest = None
         thumbnail_media_type = None
         thumbnail_size_bytes = None
-        if thumb:
-            if os.path.isfile(thumb):
-                thumb_rel = _rel(thumb)
-            elif os.path.isdir(thumb):
-                for f in sorted(os.listdir(thumb)):
-                    if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                        thumb_rel = _rel(os.path.join(thumb, f))
-                        break
-        thumbnail_file = Path(project_path) / thumb_rel if thumb_rel else None
-        if thumbnail_file is None or not thumbnail_file.is_file():
+
+        thumbnail_file = None
+        if current_source == "custom":
+            uploaded = derived_assets.find_thumbnail(project_path, kind="custom")
+            if uploaded is not None:
+                thumbnail_file = uploaded
+                thumb_rel = uploaded.name
+                thumbnail_source = "custom"
+
+        if thumbnail_file is None:
             generated = derived_assets.find_thumbnail(project_path)
             if generated is not None:
                 thumbnail_file = generated
                 thumb_rel = generated.name
                 thumbnail_source = "generated"
-            else:
-                thumbnail_file = None
-                thumb_rel = None
+
+        if thumbnail_file is None and thumb:
+            repository_rel = None
+            if os.path.isfile(thumb):
+                repository_rel = _rel(thumb)
+            elif os.path.isdir(thumb):
+                for f in sorted(os.listdir(thumb)):
+                    if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                        repository_rel = _rel(os.path.join(thumb, f))
+                        break
+            candidate = Path(project_path) / repository_rel if repository_rel else None
+            if candidate is not None and candidate.is_file():
+                thumbnail_file = candidate
+                thumb_rel = repository_rel
+                thumbnail_source = "repository"
+
         if thumbnail_file is not None:
             thumbnail_digest = hashlib.sha256(thumbnail_file.read_bytes()).hexdigest()
             thumbnail_media_type = (
@@ -359,6 +380,26 @@ def resolve_cached_paths(project_path: str) -> dict:
         }
     except Exception:
         return {}
+
+
+def refresh_project_assets(project_id: str) -> dict:
+    """Re-scan a registered project's files, preserving its thumbnail choice.
+
+    Every re-scan has to be told what the project's thumbnail is currently set
+    to, or it would decide afresh each time and quietly discard an image the
+    user uploaded. Reading the row here keeps that from being something each
+    caller has to remember.
+    """
+    row = workspace.get_project_by_id(project_id) or {}
+    project_path = str(row.get("path") or "")
+    if not project_path:
+        return {}
+    cached = resolve_cached_paths(
+        project_path, current_source=str(row.get("thumbnail_source") or "") or None
+    )
+    if cached:
+        workspace.update_project(project_id, **cached)
+    return cached
 
 
 def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[str]] = None) -> bool:
@@ -989,7 +1030,10 @@ def run_project_thumbnail_job_v3(context: JobContext) -> JobResult:
     context.progress(
         stage="record-thumbnail", message="Recording thumbnail", percent=90, force=True
     )
-    workspace.update_project(project_id, **resolve_cached_paths(project_path))
+    # The render is stored either way; refresh_project_assets decides whether it
+    # becomes the visible thumbnail, so a user's uploaded image stays in place
+    # and is simply backed by a current render if they ever revert.
+    refresh_project_assets(project_id)
     return JobResult(
         message="Thumbnail rendered" if rendered else "No board to render",
         details={"project_id": project_id, "rendered": rendered},
@@ -1104,7 +1148,7 @@ def sync_project(project_id: str) -> dict:
         path_config_service.clear_config_cache()
         project_path = row.get('path', '')
         if project_path and os.path.isdir(project_path):
-            workspace.update_project(project_id, **resolve_cached_paths(project_path))
+            refresh_project_assets(project_id)
 
         # Update repo last_synced_at
         workspace.update_repository_synced(row.get('repo_id', ''))

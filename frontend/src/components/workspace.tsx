@@ -11,6 +11,7 @@ import { useWorkspaceSearch } from "@/hooks/use-workspace-search";
 import { canManageProjects as roleCanManageProjects, canOpenLibraryManager } from "@/lib/roles";
 import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
+import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
 import { WorkspaceListView } from "./workspace/workspace-list-view";
@@ -341,23 +342,89 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       return;
     }
 
-    const toastId = toast.loading(`Regenerating thumbnail for "${getProjectDisplayName(project)}"...`);
+    const toastId = toast.loading(`Rendering thumbnail for "${getProjectDisplayName(project)}"...`);
     try {
       const response = await fetchApi(`/api/projects/${project.id}/thumbnail/regenerate`, {
         method: "POST",
       });
 
       if (!response.ok) {
-        const error = await readApiError(response, "Failed to regenerate thumbnail");
+        const error = await readApiError(response, "Failed to render thumbnail");
         toast.error(error, { id: toastId });
         return;
       }
 
-      toast.success("Thumbnail regenerated successfully", { id: toastId });
-      // Refresh the workspace to reload the updated thumbnail
+      // The render runs on a worker rather than in the request, so the result
+      // arrives with the job rather than with this response.
+      const { job_id: jobId } = (await response.json()) as { job_id?: string };
+      if (jobId) {
+        const job = await watchPrismJob(jobId);
+        throwIfJobFailed(job, "Failed to render thumbnail");
+      }
+
+      toast.success("Thumbnail rendered", { id: toastId });
       await refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to regenerate thumbnail", { id: toastId });
+      toast.error(err instanceof Error ? err.message : "Failed to render thumbnail", { id: toastId });
+    }
+  };
+
+  const handleUploadThumbnail = async (project: Project, file: File) => {
+    if (!canManageProjects) {
+      toast.error("You do not have permission to change thumbnails");
+      return;
+    }
+
+    const toastId = toast.loading(`Uploading thumbnail for "${getProjectDisplayName(project)}"...`);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const response = await fetchApi(`/api/projects/${project.id}/thumbnail`, {
+        method: "PUT",
+        body,
+      });
+
+      if (!response.ok) {
+        toast.error(await readApiError(response, "Failed to upload thumbnail"), { id: toastId });
+        return;
+      }
+
+      toast.success("Thumbnail updated", { id: toastId });
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload thumbnail", { id: toastId });
+    }
+  };
+
+  const handleRevertThumbnail = async (project: Project) => {
+    if (!canManageProjects) {
+      toast.error("You do not have permission to change thumbnails");
+      return;
+    }
+
+    const toastId = toast.loading("Restoring the rendered board image...");
+    try {
+      const response = await fetchApi(`/api/projects/${project.id}/thumbnail`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        toast.error(await readApiError(response, "Failed to restore the rendered image"), { id: toastId });
+        return;
+      }
+
+      // Nothing had been rendered for this project yet, so the server queued
+      // the render this is reverting to.
+      const { job_id: jobId } = (await response.json()) as { job_id?: string | null };
+      if (jobId) {
+        const job = await watchPrismJob(jobId);
+        throwIfJobFailed(job, "Failed to render thumbnail");
+      }
+
+      toast.success("Using the rendered board image", { id: toastId });
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to restore the rendered image", { id: toastId });
     }
   };
 
@@ -523,6 +590,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           }
                         }}
                         onOpenProject={openProject}
+                        canManageProjects={canManageProjects}
+                        onRegenerateThumbnail={handleRegenerateThumbnail}
+                        onUploadThumbnail={handleUploadThumbnail}
+                        onRevertThumbnail={handleRevertThumbnail}
                       />
                     </div>
                   </div>

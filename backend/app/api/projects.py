@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
@@ -876,13 +876,14 @@ def _resolve_thumbnail_file(project, row: Optional[dict]) -> Optional[Path]:
     """Locate a project's thumbnail, wherever it is kept.
 
     A thumbnail committed to the repository resolves inside the checkout. One
-    Prism rendered itself lives in the derived asset store, outside every
-    checkout, so that generating it never dirties the working tree.
+    Prism rendered itself, or one somebody uploaded, lives in the derived asset
+    store outside every checkout, so that neither dirties the working tree.
     """
     if not row or not row.get("thumbnail_rel"):
         return None
-    if str(row.get("thumbnail_source") or "repository") == "generated":
-        return derived_assets.find_thumbnail(project.path)
+    source = str(row.get("thumbnail_source") or "generated")
+    if source in ("generated", "custom"):
+        return derived_assets.find_thumbnail(project.path, kind=source)
     abs_path = resolve_path_within_root(
         project.path,
         str(row["thumbnail_rel"]),
@@ -967,19 +968,93 @@ def _thumbnail_response(
 
 @router.post("/{project_id}/thumbnail/regenerate", dependencies=[Depends(require_designer)])
 async def regenerate_project_thumbnail(project_id: str, user: AuthenticatedUser = Depends(require_designer)):
+    """Queue a fresh board render for this project.
+
+    This used to run `kicad-cli` inline, holding an API worker for up to two
+    minutes per board while the browser waited on a request that could not
+    report progress. Renders already have a job type; use it, and let the
+    caller watch the job.
+    """
+    get_project_for_role_or_404(project_id, user.role)
+    job_id = await asyncio.to_thread(
+        project_import_service.start_thumbnail_job,
+        project_id,
+        requested_by=user.email,
+    )
+    if not job_id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {
+        "status": "queued",
+        "job_id": job_id,
+        "message": "Rendering the board thumbnail",
+    }
+
+
+@router.put("/{project_id}/thumbnail", dependencies=[Depends(require_designer)])
+async def upload_project_thumbnail(
+    project_id: str,
+    file: UploadFile = File(...),
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Replace this project's thumbnail with an uploaded image.
+
+    Stored alongside the render rather than instead of it, so reverting is
+    immediate and does not need kicad-cli to run again.
+    """
     project = get_project_for_role_or_404(project_id, user.role)
-    
-    logs = []
-    success = project_import_service.generate_thumbnail_for_project(project.path, logs)
-    
-    if not success:
-        error_msg = logs[-1] if logs else "Failed to render PCB"
-        raise HTTPException(status_code=500, detail=f"Failed to generate thumbnail: {error_msg}")
-        
-    cached = project_import_service.resolve_cached_paths(project.path)
-    workspace.update_project(project_id, **cached)
-    
-    return {"status": "success", "message": "Thumbnail regenerated successfully"}
+    # Read one byte past the cap so an oversized upload is refused on its size
+    # rather than after the whole thing is in memory.
+    data = await file.read(derived_assets.MAX_UPLOAD_BYTES + 1)
+    try:
+        stored, digest, size = await asyncio.to_thread(
+            derived_assets.store_uploaded_thumbnail, project.path, data
+        )
+    except derived_assets.ThumbnailImageError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    await asyncio.to_thread(
+        workspace.update_project,
+        project_id,
+        thumbnail_rel=stored.name,
+        thumbnail_source="custom",
+        thumbnail_digest=digest,
+        thumbnail_media_type=derived_assets.THUMBNAIL_MEDIA_TYPE,
+        thumbnail_size_bytes=size,
+    )
+    return {
+        "status": "success",
+        "thumbnail_source": "custom",
+        "message": "Thumbnail updated",
+    }
+
+
+@router.delete("/{project_id}/thumbnail", dependencies=[Depends(require_designer)])
+async def clear_project_thumbnail(
+    project_id: str,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Drop an uploaded thumbnail and go back to the rendered board."""
+    project = get_project_for_role_or_404(project_id, user.role)
+    await asyncio.to_thread(
+        derived_assets.discard_thumbnail, project.path, kind="custom"
+    )
+    cached = await asyncio.to_thread(project_import_service.refresh_project_assets, project_id)
+
+    job_id = None
+    if str(cached.get("thumbnail_source") or "") != "generated":
+        # Nothing has been rendered for this project yet, so reverting would
+        # leave it blank. Queue the render the user is asking to fall back to.
+        job_id = await asyncio.to_thread(
+            project_import_service.start_thumbnail_job,
+            project_id,
+            requested_by=user.email,
+        )
+    return {
+        "status": "success",
+        "thumbnail_source": cached.get("thumbnail_source") or "generated",
+        "job_id": job_id,
+        "message": "Rendering the board thumbnail" if job_id else "Using the rendered board image",
+    }
 
 @router.get("/{project_id}", response_model=project_service.Project)
 async def get_project_detail(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
