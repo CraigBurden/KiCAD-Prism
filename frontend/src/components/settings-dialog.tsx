@@ -109,6 +109,8 @@ interface GitAccessState {
     key: GitAccessKey;
     trusted_hosts: string[];
     repositories: GitAccessRepository[];
+    /** Which OpenSSH binaries the server has. Missing ones disable features. */
+    tools?: { ssh: boolean; "ssh-keygen": boolean; "ssh-keyscan": boolean };
 }
 
 interface AccessCheckResult {
@@ -432,6 +434,14 @@ function GitSettings({ user }: { user: User | null }) {
                     </div>
                 )}
 
+                {access?.tools && !access.tools["ssh-keyscan"] && (
+                    <p className="text-xs text-destructive">
+                        The Prism server has no openssh-client installed, so it cannot read
+                        host keys or connect to SSH remotes. Install it in the backend image
+                        and restart.
+                    </p>
+                )}
+
                 <div className="flex gap-2">
                     <Input
                         value={newHost}
@@ -439,7 +449,11 @@ function GitSettings({ user }: { user: User | null }) {
                         placeholder="git.internal.example"
                         className="flex-1"
                     />
-                    <Button variant="outline" onClick={() => void scanHost()} disabled={!newHost.trim()}>
+                    <Button
+                        variant="outline"
+                        onClick={() => void scanHost()}
+                        disabled={!newHost.trim() || access?.tools?.["ssh-keyscan"] === false}
+                    >
                         Read host key
                     </Button>
                 </div>

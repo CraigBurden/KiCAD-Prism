@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -216,37 +221,152 @@ class ForgeGuidance(unittest.TestCase):
         self.assertIn("deploy key", guidance.instructions)
 
 
-class KeyDescription(unittest.TestCase):
+class KeyGenerationAndFingerprints(unittest.TestCase):
+    """Key handling must not depend on OpenSSH binaries.
+
+    The backend image ships without openssh-client, so shelling out to
+    ssh-keygen failed with `[Errno 2] No such file or directory: 'ssh-keygen'`
+    and the workspace could not create a key at all.
+    """
+
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
-        self.public = Path(self._temporary.name) / "id_ed25519.pub"
+        self.root = Path(self._temporary.name)
         self.addCleanup(self._temporary.cleanup)
-        patcher = mock.patch.object(
-            git_access_service, "public_key_path", return_value=self.public
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def test_missing_key_reports_absent(self) -> None:
-        self.assertFalse(git_access_service.describe_key().exists)
-
-    def test_key_is_described_with_its_fingerprint(self) -> None:
-        self.public.write_text("ssh-ed25519 AAAAC3Nz prism@workspace\n", encoding="utf-8")
-        with mock.patch.object(
-            git_access_service.subprocess,
-            "run",
-            return_value=mock.Mock(
-                returncode=0, stdout="256 SHA256:abcdef prism@workspace (ED25519)\n"
-            ),
+        for name, filename in (
+            ("ssh_dir", ""),
+            ("private_key_path", "id_ed25519"),
+            ("public_key_path", "id_ed25519.pub"),
         ):
-            info = git_access_service.describe_key()
+            patcher = mock.patch.object(
+                git_access_service,
+                name,
+                return_value=self.root / filename if filename else self.root,
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_key_generation_needs_no_external_binary(self) -> None:
+        with mock.patch.object(
+            git_access_service.shutil, "which", return_value=None
+        ):
+            info = git_access_service.generate_key("prism@workspace")
 
         self.assertTrue(info.exists)
         self.assertEqual(info.key_type, "ssh-ed25519")
         self.assertEqual(info.comment, "prism@workspace")
-        # The fingerprint is what a forge shows beside an authorised key, so it
-        # is the only way to confirm the pasted key is the one Prism uses.
-        self.assertEqual(info.fingerprint, "SHA256:abcdef")
+        self.assertTrue((info.fingerprint or "").startswith("SHA256:"))
+
+    def test_private_key_is_not_readable_by_others(self) -> None:
+        # ssh refuses to use a key whose file is group or world readable.
+        git_access_service.generate_key("prism@workspace")
+        mode = (self.root / "id_ed25519").stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+
+    def test_generating_again_replaces_the_previous_key(self) -> None:
+        first = git_access_service.generate_key("prism@workspace")
+        second = git_access_service.generate_key("prism@workspace")
+        self.assertNotEqual(first.public_key, second.public_key)
+        self.assertEqual(git_access_service.describe_key().public_key, second.public_key)
+
+    @unittest.skipIf(shutil.which("ssh-keygen") is None, "ssh-keygen not installed")
+    def test_fingerprint_matches_ssh_keygen(self) -> None:
+        # The value has to be byte-identical to what a forge displays, so it is
+        # checked against the real tool wherever that tool is available.
+        info = git_access_service.generate_key("prism@workspace")
+        result = subprocess.run(
+            ["ssh-keygen", "-lf", str(self.root / "id_ed25519.pub")],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(info.fingerprint, result.stdout.split()[1])
+
+    def test_malformed_public_key_has_no_fingerprint(self) -> None:
+        self.assertIsNone(git_access_service.fingerprint_of_public_key("not-a-key"))
+        self.assertIsNone(git_access_service.fingerprint_of_public_key("ssh-ed25519 !!!!"))
+
+    def test_missing_key_reports_absent(self) -> None:
+        self.assertFalse(git_access_service.describe_key().exists)
+
+
+class HostMatchingWithoutSSHKeygen(unittest.TestCase):
+    """`is_host_trusted` gates whether SSH remotes work, so it cannot depend on
+    a binary that may be absent."""
+
+    def setUp(self) -> None:
+        self._temporary = tempfile.TemporaryDirectory()
+        self.path = Path(self._temporary.name) / "known_hosts"
+        self.addCleanup(self._temporary.cleanup)
+        patcher = mock.patch.object(
+            git_access_service, "known_hosts_path", return_value=self.path
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_plain_host_is_matched(self) -> None:
+        self.path.write_text("github.com ssh-ed25519 AAAA\n", encoding="utf-8")
+        self.assertTrue(git_access_service.is_host_trusted("github.com"))
+        self.assertFalse(git_access_service.is_host_trusted("gitlab.com"))
+
+    def test_comma_separated_and_bracketed_hosts_are_matched(self) -> None:
+        self.path.write_text(
+            "gitlab.com,172.65.251.78 ssh-ed25519 AAAA\n"
+            "[git.internal.example]:2222 ssh-rsa BBBB\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(git_access_service.is_host_trusted("gitlab.com"))
+        self.assertTrue(git_access_service.is_host_trusted("172.65.251.78"))
+        self.assertTrue(git_access_service.is_host_trusted("git.internal.example"))
+
+    def test_hashed_entries_are_matched(self) -> None:
+        # OpenSSH hashes host names by default; the replacement for
+        # `ssh-keygen -F` has to understand that form or every hashed entry
+        # would read as untrusted.
+        salt = b"0123456789abcdef0123"
+        digest = hmac.new(salt, b"git.internal.example", hashlib.sha1).digest()
+        pattern = (
+            "|1|"
+            + base64.b64encode(salt).decode()
+            + "|"
+            + base64.b64encode(digest).decode()
+        )
+        self.path.write_text(f"{pattern} ssh-ed25519 AAAA\n", encoding="utf-8")
+        self.assertTrue(git_access_service.is_host_trusted("git.internal.example"))
+        self.assertFalse(git_access_service.is_host_trusted("other.example"))
+
+    def test_forgetting_a_host_removes_only_that_host(self) -> None:
+        self.path.write_text(
+            "github.com ssh-ed25519 AAAA\ngitlab.com ssh-ed25519 BBBB\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(git_access_service.forget_host("github.com"))
+        self.assertFalse(git_access_service.is_host_trusted("github.com"))
+        self.assertTrue(git_access_service.is_host_trusted("gitlab.com"))
+
+    def test_forgetting_an_unknown_host_reports_no_change(self) -> None:
+        self.path.write_text("github.com ssh-ed25519 AAAA\n", encoding="utf-8")
+        self.assertFalse(git_access_service.forget_host("nowhere.example"))
+
+    def test_no_known_hosts_file_means_nothing_is_trusted(self) -> None:
+        self.assertFalse(git_access_service.is_host_trusted("github.com"))
+
+
+class MissingToolReporting(unittest.TestCase):
+    def test_scanning_without_ssh_keyscan_names_the_missing_package(self) -> None:
+        # The bare OSError reads "[Errno 2] No such file or directory:
+        # 'ssh-keyscan'", which says nothing about which feature broke.
+        with mock.patch.object(git_access_service.shutil, "which", return_value=None):
+            with self.assertRaises(git_access_service.MissingSSHToolError) as caught:
+                git_access_service.scan_host_key("git.internal.example")
+        self.assertIn("openssh-client", str(caught.exception))
+
+    def test_tool_availability_is_reportable(self) -> None:
+        with mock.patch.object(git_access_service.shutil, "which", return_value=None):
+            self.assertEqual(
+                git_access_service.openssh_tools(),
+                {"ssh": False, "ssh-keygen": False, "ssh-keyscan": False},
+            )
 
 
 if __name__ == "__main__":

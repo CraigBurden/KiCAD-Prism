@@ -22,10 +22,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 USER root
 
 # ─── System dependencies ────────────────────────────────────────────
+# openssh-client provides ssh (which git needs for any ssh:// or git@host
+# remote) and ssh-keyscan (used to read a host key before pinning it). Without
+# it the image could only ever clone over HTTPS, and reading a host key failed
+# with a bare "No such file or directory: 'ssh-keyscan'".
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     git \
+    openssh-client \
     g++ \
     cmake \
     make \
