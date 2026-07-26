@@ -1,10 +1,11 @@
 # Backend Dockerfile
 ARG KICAD_MONKEY_VARIANT=kicad-monkey-upstream
 
-# KiCad CLI runtime. Keep this aligned with the newest KiCad file format Prism imports.
-# Override via docker compose build args (see KICAD_BASE_IMAGE / KICAD_BASE_PLATFORM in .env).
-ARG KICAD_BASE_PLATFORM=linux/arm64
-ARG KICAD_BASE_IMAGE=kicad/kicad:10.0.4-arm64-local
+# KiCad CLI runtime. Release/source defaults are reproducible and AMD64-only.
+# Developers can override both build args in an uncommitted .env when testing
+# another native runtime.
+ARG KICAD_BASE_PLATFORM=linux/amd64
+ARG KICAD_BASE_IMAGE=kicad/kicad:10.0.4@sha256:ee71e88396f8563168eb1ef282cda9ff2670fe86a677c63dd78b35e3d464454c
 
 FROM --platform=${KICAD_BASE_PLATFORM} node:22-bookworm-slim AS remote-provider-panel
 WORKDIR /panel
