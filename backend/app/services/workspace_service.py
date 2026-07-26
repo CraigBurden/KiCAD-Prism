@@ -219,6 +219,14 @@ class WorkspaceService:
             row = conn.execute("SELECT * FROM ws_repositories WHERE id=%s", (repo_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
+    def repository_clone_path(self, repository: Dict[str, Any]) -> str:
+        """Absolute checkout path for a repository row.
+
+        Rows carry `clone_path` relative to the projects root so the workspace
+        stays portable; callers that touch the filesystem need it resolved.
+        """
+        return self._abs_clone_path(str(repository.get("clone_path") or ""))
+
     def get_repositories(self, import_type: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             if import_type:
