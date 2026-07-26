@@ -183,9 +183,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
                     side_effect=clone,
                 ),
                 mock.patch.object(
-                    project_import_service,
-                    "generate_thumbnail_for_project",
-                    return_value=False,
+                    project_import_service, "start_thumbnail_job", return_value=None
                 ),
                 mock.patch.object(
                     project_import_service,
@@ -208,7 +206,8 @@ class ProjectImportV3JobTests(unittest.TestCase):
         self.assertEqual(result.details["project_ids"], ["project-1"])
         register_repository.assert_called_once()
         register_project.assert_called_once()
-        self.assertEqual(progress_updates[-1]["stage"], "register-projects")
+        # Renders are queued after registration, so that is the closing stage.
+        self.assertEqual(progress_updates[-1]["stage"], "queue-thumbnails")
 
 
 class ImportHandlerReDerivesClientClaims(unittest.TestCase):
