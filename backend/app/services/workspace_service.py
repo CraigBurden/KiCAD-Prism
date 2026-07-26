@@ -253,6 +253,7 @@ class WorkspaceService:
         schematic_rel: Optional[str] = None,
         pcb_rel: Optional[str] = None,
         thumbnail_rel: Optional[str] = None,
+        thumbnail_source: str = "repository",
         thumbnail_digest: Optional[str] = None,
         thumbnail_media_type: Optional[str] = None,
         thumbnail_size_bytes: Optional[int] = None,
@@ -267,13 +268,13 @@ class WorkspaceService:
             conn.execute(
                 """INSERT INTO ws_projects
                    (id,repo_id,name,display_name,description,relative_path,folder_id,
-                    schematic_rel,pcb_rel,thumbnail_rel,thumbnail_digest,
+                    schematic_rel,pcb_rel,thumbnail_rel,thumbnail_source,thumbnail_digest,
                     thumbnail_media_type,thumbnail_size_bytes,jobset_rel,
                     has_3d_model,has_ibom,registered_at,last_modified,prism_json_hash)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     project_id, repo_id, name, display_name, description, relative_path, folder_id,
-                    schematic_rel, pcb_rel, thumbnail_rel, thumbnail_digest,
+                    schematic_rel, pcb_rel, thumbnail_rel, thumbnail_source, thumbnail_digest,
                     thumbnail_media_type, thumbnail_size_bytes, jobset_rel,
                     has_3d_model, has_ibom, now, now, prism_json_hash,
                 ),
@@ -373,7 +374,8 @@ class WorkspaceService:
         allowed = {
             "name", "display_name", "description", "folder_id",
             "schematic_rel", "pcb_rel", "thumbnail_rel", "jobset_rel",
-            "thumbnail_digest", "thumbnail_media_type", "thumbnail_size_bytes",
+            "thumbnail_source", "thumbnail_digest", "thumbnail_media_type",
+            "thumbnail_size_bytes",
             "has_3d_model", "has_ibom", "last_modified", "prism_json_hash",
         }
         fields = {k: v for k, v in kwargs.items() if k in allowed}
