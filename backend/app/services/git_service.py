@@ -9,6 +9,7 @@ from typing import Dict, Any
 import datetime
 
 from app.services.git_read_cache_service import git_read_cache
+from app.services.project_import_service import git_env
 
 logger = logging.getLogger(__name__)
 
@@ -742,11 +743,12 @@ def sync_with_remote(repo_path: str) -> Dict[str, Any]:
         # Perform git pull
         origin = repo.remotes.origin
         
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
+        # Host keys must already be pinned; see git_env(). This carried a
+        # trust-on-first-use policy long after the rest of Prism stopped
+        # accepting one, which would have handed any host on the path a window
+        # to present its own key.
+        env = git_env()
+
         pull_info = origin.pull(env=env)
         
         # Get new HEAD after sync

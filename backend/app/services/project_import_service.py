@@ -1116,9 +1116,13 @@ def sync_project(project_id: str) -> dict:
         repo = Repo(sync_path)
         origin = repo.remote('origin')
 
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
+        # Sync must reach the remote on the same terms as the clone that created
+        # this checkout. Building the environment here meant it kept an
+        # `accept-new` host key policy after import moved to pinned keys, so an
+        # operator who deliberately pinned a host was still exposed on every
+        # sync -- and sync is the operation that runs unattended, repeatedly,
+        # for the life of the project.
+        env = git_env()
 
         # Clear out thumbnails an older Prism wrote into the tree, so a checkout
         # carrying them can still fast-forward.
