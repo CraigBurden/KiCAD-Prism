@@ -60,8 +60,9 @@ def scan_known_hosts():
     fingerprints GitHub and GitLab publish out of band, and a host that does not
     match is left untrusted for an administrator to look at.
     """
-    from app.services.git_access_service import bootstrap_known_hosts
+    from app.services.git_access_service import bootstrap_known_hosts, warn_if_openssh_missing
 
+    warn_if_openssh_missing("The Prism API")
     try:
         outcomes = bootstrap_known_hosts()
     except Exception as error:  # never block startup on host key bootstrapping

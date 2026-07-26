@@ -546,6 +546,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run a supervised Prism worker pool")
     parser.add_argument("--pool", choices=("prism", "catalog"), default="prism")
     args = parser.parse_args()
+    # Workers do the cloning, so a worker image without ssh breaks imports even
+    # when the API image has it.
+    from app.services.git_access_service import warn_if_openssh_missing
+
+    warn_if_openssh_missing(f"The {args.pool} worker")
     worker = PrismWorker(args.pool)
     signal.signal(signal.SIGTERM, worker.request_stop)
     signal.signal(signal.SIGINT, worker.request_stop)

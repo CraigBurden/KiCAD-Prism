@@ -30,6 +30,39 @@ class FakeGitError(Exception):
 
 
 class IdentifiesTheCause(unittest.TestCase):
+    # Verbatim from a worker container built without openssh-client. git runs
+    # GIT_SSH_COMMAND through /bin/sh, so the shell reports the missing binary
+    # and git then adds its stock advice about access rights.
+    MISSING_SSH_STDERR = (
+        "ssh -o StrictHostKeyChecking=yes -o BatchMode=yes: 1: ssh: not found\n"
+        "fatal: Could not read from remote repository.\n\n"
+        "Please make sure you have the correct access rights and the repository exists."
+    )
+
+    def test_missing_ssh_client_blames_the_server_not_the_remote(self) -> None:
+        reason, message = describe_git_failure(
+            FakeGitError(self.MISSING_SSH_STDERR),
+            target="github.com/pixxelhq/JTYU-IN",
+            host="github.com",
+        )
+        self.assertEqual(reason, "ssh-unavailable")
+        self.assertIn("openssh-client", message)
+        # git's own advice points at keys and permissions, which is exactly
+        # wrong here; the message must not send the reader down that path.
+        self.assertNotIn("deploy key", message)
+        self.assertIn("not with github.com/pixxelhq/JTYU-IN", message)
+
+    def test_missing_ssh_client_wins_over_the_generic_fallback(self) -> None:
+        """The stderr also contains git's 'could not read from remote' line."""
+        _, message = describe_git_failure(FakeGitError(self.MISSING_SSH_STDERR))
+        self.assertNotIn("The Git server said", message)
+
+    def test_bash_style_not_found_is_recognised_too(self) -> None:
+        reason, _ = describe_git_failure(
+            FakeGitError("sh: ssh: command not found\nfatal: Could not read from remote repository.")
+        )
+        self.assertEqual(reason, "ssh-unavailable")
+
     def test_private_repository_without_access(self) -> None:
         reason, message = describe_git_failure(
             FakeGitError("remote: Repository not found.\nfatal: repository not found"),
@@ -165,6 +198,15 @@ class AccessFailureDetection(unittest.TestCase):
                     _is_access_failure(message),
                     f"{reason} message is not detected as an access failure",
                 )
+
+    def test_missing_ssh_client_is_not_offered_a_guided_fix(self) -> None:
+        """Nothing the user does to their keys or permissions would help."""
+        from app.services.project_import_service import _is_access_failure
+
+        _, message = describe_git_failure(
+            FakeGitError(IdentifiesTheCause.MISSING_SSH_STDERR)
+        )
+        self.assertFalse(_is_access_failure(message))
 
     def test_unrelated_failures_are_not_flagged(self) -> None:
         from app.services.project_import_service import _is_access_failure

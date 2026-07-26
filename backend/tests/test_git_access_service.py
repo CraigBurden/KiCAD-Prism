@@ -361,6 +361,23 @@ class MissingToolReporting(unittest.TestCase):
                 git_access_service.scan_host_key("git.internal.example")
         self.assertIn("openssh-client", str(caught.exception))
 
+    def test_startup_names_the_missing_binaries_and_the_stale_image(self) -> None:
+        with mock.patch.object(git_access_service.shutil, "which", return_value=None):
+            with self.assertLogs(git_access_service.logger, level="WARNING") as logs:
+                missing = git_access_service.warn_if_openssh_missing("The prism worker")
+        self.assertEqual(missing, ["ssh", "ssh-keygen", "ssh-keyscan"])
+        warning = "\n".join(logs.output)
+        self.assertIn("The prism worker", warning)
+        self.assertIn("openssh-client", warning)
+        # The realistic case is one stale image out of several built from the
+        # same Dockerfile, so the log has to suggest a rebuild.
+        self.assertIn("rebuild", warning)
+
+    def test_startup_is_silent_when_openssh_is_present(self) -> None:
+        with mock.patch.object(git_access_service.shutil, "which", return_value="/usr/bin/ssh"):
+            with self.assertNoLogs(git_access_service.logger, level="WARNING"):
+                self.assertEqual(git_access_service.warn_if_openssh_missing("The API"), [])
+
     def test_tool_availability_is_reportable(self) -> None:
         with mock.patch.object(git_access_service.shutil, "which", return_value=None):
             self.assertEqual(
