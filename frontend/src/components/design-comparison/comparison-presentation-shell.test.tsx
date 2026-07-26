@@ -84,10 +84,42 @@ class FakeEcadViewer extends HTMLElement {
     );
 
     private cameraState: CameraState | null = null;
+    /**
+     * How many "camerachange" listeners are attached right now.
+     *
+     * Camera sync arms only once both panes report layout readiness, which
+     * travels a different async path than source loading does. A test that
+     * dispatches before the listener exists loses the event outright -- nothing
+     * re-fires it -- so this is the signal to wait on. Counted rather than
+     * flagged, so a detach is visible too.
+     */
+    cameraListenerCount = 0;
 
     constructor() {
         super();
         FakeEcadViewer.instances.push(this);
+    }
+
+    override addEventListener(
+        type: string,
+        listener: EventListenerOrEventListenerObject | null,
+        options?: boolean | AddEventListenerOptions,
+    ): void {
+        if (type === "camerachange" && listener) {
+            this.cameraListenerCount += 1;
+        }
+        super.addEventListener(type, listener, options);
+    }
+
+    override removeEventListener(
+        type: string,
+        listener: EventListenerOrEventListenerObject | null,
+        options?: boolean | EventListenerOptions,
+    ): void {
+        if (type === "camerachange" && listener) {
+            this.cameraListenerCount -= 1;
+        }
+        super.removeEventListener(type, listener, options);
     }
 
     override get clientWidth(): number {
@@ -345,15 +377,26 @@ describe("ComparisonPresentationShell", () => {
             ).toBe("project:compare-revision:schematic");
         });
 
+        // ecadReadyRevision is written straight onto the element, while camera
+        // sync arms from a React effect that cannot run until the lifecycle
+        // reducer's "ready" state has been committed. Waiting on the dataset
+        // therefore samples a different clock than the listener does, and under
+        // a loaded suite the poll lands in the gap between them -- measured at
+        // roughly one run in eight. The event is one-shot, so dispatching into
+        // that gap drops it for good and leaves the assertion polling a value
+        // nothing will ever change. Wait on the listener itself.
+        await waitFor(() => {
+            expect(FakeEcadViewer.instances[0]?.cameraListenerCount)
+                .toBeGreaterThan(0);
+        });
+
         const camera: CameraState = { x: 12, y: 24, zoom: 3, rotation: 0 };
         FakeEcadViewer.instances[0]?.dispatchEvent(
             new CustomEvent("camerachange", { detail: camera }),
         );
-        await waitFor(() => {
-            expect(
-                FakeEcadViewer.instances[1]?.cameraAssignments,
-            ).toContainEqual(camera);
-        });
+        // Sync is synchronous once armed, so this needs no polling at all.
+        expect(FakeEcadViewer.instances[1]?.cameraAssignments)
+            .toContainEqual(camera);
     });
 
     it("cross-probes a selected difference in both side-by-side panes", async () => {
