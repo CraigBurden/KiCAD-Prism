@@ -102,10 +102,10 @@ class FakeEcadViewer extends HTMLElement {
 
     override addEventListener(
         type: string,
-        listener: EventListenerOrEventListenerObject | null,
+        listener: EventListenerOrEventListenerObject,
         options?: boolean | AddEventListenerOptions,
     ): void {
-        if (type === "camerachange" && listener) {
+        if (type === "camerachange") {
             this.cameraListenerCount += 1;
         }
         super.addEventListener(type, listener, options);
@@ -113,10 +113,10 @@ class FakeEcadViewer extends HTMLElement {
 
     override removeEventListener(
         type: string,
-        listener: EventListenerOrEventListenerObject | null,
+        listener: EventListenerOrEventListenerObject,
         options?: boolean | EventListenerOptions,
     ): void {
-        if (type === "camerachange" && listener) {
+        if (type === "camerachange") {
             this.cameraListenerCount -= 1;
         }
         super.removeEventListener(type, listener, options);
