@@ -507,7 +507,20 @@ class Settings(BaseSettings):
         default=False,
         description="Run ssh-keyscan for common Git hosts during backend startup.",
     )
-    
+
+    # Comma-separated list of Git hosts projects may be imported from.
+    # Empty means any host, which suits a single-operator deployment.
+    IMPORT_ALLOWED_HOSTS_STR: str = Field(
+        default="",
+        description="Comma-separated list of Git hosts allowed for project import",
+    )
+
+    # Plaintext HTTP clone URLs, for an internal Git server that has no TLS.
+    IMPORT_ALLOW_INSECURE_HTTP: bool = Field(
+        default=False,
+        description="Allow http:// repository URLs during project import",
+    )
+
     # ===========================================
     # Computed Properties
     # ===========================================
@@ -520,6 +533,11 @@ class Settings(BaseSettings):
     def ALLOWED_DOMAINS(self) -> List[str]:
         """Parse allowed domains from comma-separated string."""
         return [d.strip().lower() for d in self.ALLOWED_DOMAINS_STR.split(",") if d.strip()]
+
+    @property
+    def IMPORT_ALLOWED_HOSTS(self) -> List[str]:
+        """Parse allowed import hosts from comma-separated string."""
+        return [h.strip().lower() for h in self.IMPORT_ALLOWED_HOSTS_STR.split(",") if h.strip()]
 
     @property
     def BOOTSTRAP_ADMIN_USERS(self) -> List[str]:

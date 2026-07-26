@@ -36,6 +36,7 @@ from app.services.git_service import (
     get_releases,
     get_releases_filtered,
 )
+from app.services.git_remote_url import RemoteUrlError
 from app.services.path_config_service import PathConfig
 from app.services.job_service import jobs as v3_jobs
 
@@ -559,7 +560,11 @@ async def analyze_repository(request: AnalyzeRequest):
             request.url,
         )
         return {"job_id": job_id, "status": "started"}
-        
+
+    except RemoteUrlError as e:
+        # A rejected URL is the caller's mistake and the message explains how to
+        # fix it, so it must not be flattened into a generic 500.
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
@@ -578,7 +583,7 @@ async def import_project(request: ImportRequest):
             selected_paths=request.selected_paths,
         )
         return {"job_id": job_id, "status": "started"}
-    except ValueError as e:
+    except (RemoteUrlError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

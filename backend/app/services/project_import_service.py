@@ -5,16 +5,17 @@ Handles Type-1 (single project) and Type-2 (multiple projects) imports.
 """
 import os
 import hashlib
-import json
 import mimetypes
 import subprocess
 import shutil
 import tempfile
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional
 from dataclasses import dataclass
 from git import Repo, RemoteProgress
+from app.core.config import settings
 from app.services import project_service, path_config_service
+from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult
 from app.services.job_service import jobs as v3_jobs
 from app.services.workspace_service import workspace
@@ -30,64 +31,34 @@ class DiscoveredProject:
     has_pcb: bool
 
 
-@dataclass
-class AnalysisResult:
-    """Result of analyzing a repository for import."""
-    repo_name: str
-    repo_url: str
-    import_type: str  # "type1" or "type2"
-    projects: List[DiscoveredProject]
-    temp_path: Optional[str] = None  # For cleanup after analysis
+def remote_url_policy() -> RemoteUrlPolicy:
+    """Build the clone-URL policy for this deployment."""
+    return RemoteUrlPolicy.build(
+        allowed_hosts=settings.IMPORT_ALLOWED_HOSTS,
+        allow_insecure_http=settings.IMPORT_ALLOW_INSECURE_HTTP,
+    )
 
 
-# Global job store for import operations
-jobs: Dict[str, dict] = {}
+def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
+    """Find an already-imported repository that resolves to the same remote.
 
-
-def _persist_job(job_id: str) -> None:
-    job = jobs.get(job_id)
-    if job:
-        workspace.update_job(
-            job_id,
-            status=job.get("status", "running"),
-            message=job.get("message", ""),
-            percent=job.get("percent", 0),
-            **{
-                key: value
-                for key, value in job.items()
-                if key not in {"job_id", "status", "message", "percent"}
-            },
-        )
-
-
-def has_ssh_key() -> bool:
-    """Check if a default SSH key exists."""
-    ssh_dir = Path.home() / ".ssh"
-    key_types = ["id_ed25519", "id_rsa"]
-    for kt in key_types:
-        if (ssh_dir / kt).exists():
-            return True
-    return False
-
-
-class CloneProgress(RemoteProgress):
-    """Git progress callback for clone operations."""
-    
-    def __init__(self, job_id: str):
-        super().__init__()
-        self.job_id = job_id
-    
-    def update(self, op_code, cur_count, max_count=None, message=''):
-        if self.job_id in jobs:
-            job = jobs[self.job_id]
-            percent = 0
-            if max_count and max_count > 0:
-                percent = min((cur_count / max_count) * 100, 99)
-            job['percent'] = int(percent)
-            job['message'] = message or f"Cloning... {int(percent)}%"
-            if message:
-                job['logs'].append(f"[GIT] {message}")
-            _persist_job(self.job_id)
+    Compares canonical identities rather than URL strings, so importing
+    ``git@github.com:org/repo.git`` after ``https://github.com/org/repo`` is
+    recognised as the same repository instead of cloning it twice.
+    """
+    target = parsed.dedup_key
+    for repository in workspace.get_repositories():
+        stored = str(repository.get("url") or "")
+        if not stored:
+            continue
+        try:
+            if parse_remote_url(stored).dedup_key == target:
+                return repository
+        except Exception:
+            # A row predating URL validation should not block a valid import.
+            if stored.strip() == parsed.url:
+                return repository
+    return None
 
 
 class V3CloneProgress(RemoteProgress):
@@ -174,139 +145,6 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
     projects.sort(key=lambda p: (0 if p.relative_path == "." else len(p.relative_path.split('/')), p.name.lower()))
     
     return projects
-
-
-def analyze_repository(repo_url: str) -> AnalysisResult:
-    """
-    Analyze a repository to determine import type and discover projects.
-    Performs a shallow clone to a temporary directory.
-    """
-    repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
-    
-    # Create temp directory for analysis
-    temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
-    clone_path = Path(temp_dir) / repo_name
-    
-    try:
-        # Shallow clone for analysis
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        # Trust On First Use (TOFU) for SSH
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
-        repo = Repo.clone_from(
-            repo_url,
-            str(clone_path),
-            depth=1,
-            single_branch=True,
-            no_checkout=True,
-            filter='blob:none',
-            env=env
-        )
-        
-        # Discover projects from tree
-        projects = discover_projects_from_repo(repo)
-        
-        # Determine import type
-        # Type-1: Single .kicad_pro at root (relative_path == ".")
-        # Type-2: Multiple projects or project not at root
-        import_type = "type2"
-        if len(projects) == 1 and projects[0].relative_path == ".":
-            import_type = "type1"
-        
-        return AnalysisResult(
-            repo_name=repo_name,
-            repo_url=repo_url,
-            import_type=import_type,
-            projects=projects,
-            temp_path=temp_dir
-        )
-        
-    except Exception:
-        # Cleanup on error
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        raise
-
-
-def _run_analyze_job(job_id: str, repo_url: str):
-    """
-    Background job: Analyze repository.
-    """
-    job = jobs[job_id]
-    
-    try:
-        job['logs'].append(f"Analyzing {repo_url}...")
-        _persist_job(job_id)
-        
-        repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
-        temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
-        clone_path = Path(temp_dir) / repo_name
-        
-        job['logs'].append("Cloning repository (blobless/no-checkout)...")
-        
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-        
-        repo = Repo.clone_from(
-            repo_url,
-            str(clone_path),
-            depth=1,
-            single_branch=True,
-            no_checkout=True,
-            filter='blob:none',
-            progress=CloneProgress(job_id),
-            env=env
-        )
-        
-        job['logs'].append("Discovering KiCAD projects from tree...")
-        _persist_job(job_id)
-        projects = discover_projects_from_repo(repo)
-        
-        import_type = "type2"
-        if len(projects) == 1 and projects[0].relative_path == ".":
-            import_type = "type1"
-            
-        job['logs'].append(f"Found {len(projects)} project(s). Type: {import_type}")
-        
-        # Store result in job
-        job['result'] = {
-            "repo_name": repo_name,
-            "repo_url": repo_url,
-            "import_type": import_type,
-            "projects": [
-                {
-                    "name": p.name,
-                    "relative_path": p.relative_path,
-                    "has_schematic": p.has_schematic,
-                    "has_pcb": p.has_pcb
-                }
-                for p in projects
-            ],
-            # We don't pass temp_path here as we'll cleanup immediately or handled differently
-        }
-        
-        # Cleanup temp dir immediately since we have the metadata
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            
-        job['status'] = 'completed'
-        job['percent'] = 100
-        job['message'] = "Analysis complete."
-        _persist_job(job_id)
-        
-    except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
-        _persist_job(job_id)
-
-
-def cleanup_analysis_temp(analysis: AnalysisResult):
-    """Clean up temporary directory used for analysis."""
-    if analysis.temp_path and os.path.exists(analysis.temp_path):
-        shutil.rmtree(analysis.temp_path, ignore_errors=True)
 
 
 def resolve_cached_paths(project_path: str) -> dict:
@@ -497,173 +335,31 @@ def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[s
 
 
 
-def _run_import_job(job_id: str, repo_url: str, import_type: str,
-                    selected_paths: Optional[List[str]] = None):
-    """
-    Background job: Clone repository and register projects.
-    """
-    job = jobs[job_id]
-    
-    cloned_in_job = False
-    try:
-        # Extract repo name
-        repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
-        
-        # Determine target directory based on type
-        if import_type == "type1":
-            base_path = Path(project_service.PROJECTS_ROOT) / "type1"
-        else:
-            base_path = Path(project_service.PROJECTS_ROOT) / "type2"
-        
-        target_path = base_path / repo_name
-        target_path_abs = str(target_path.resolve())
-        
-        # Check if already exists via workspace DB
-        existing_repo = workspace.get_repository_by_url(repo_url)
-        if existing_repo:
-            job['status'] = 'failed'
-            job['error'] = f"Repository '{repo_name}' is already imported"
-            job['logs'].append(f"Error: Repository with URL {repo_url} already exists")
-            _persist_job(job_id)
-            return
-
-        adopted_checkout = False
-        if target_path.exists():
-            try:
-                existing_checkout = Repo(str(target_path))
-                remotes = [remote.url for remote in existing_checkout.remotes]
-                normalize = lambda value: value.strip().rstrip('/').removesuffix('.git').casefold()
-                if normalize(repo_url) not in {normalize(value) for value in remotes}:
-                    raise ValueError(
-                        f"Existing checkout at {target_path} belongs to a different remote"
-                    )
-                adopted_checkout = True
-                job['logs'].append(f"Adopting existing checkout: {target_path}")
-                _persist_job(job_id)
-            except Exception as error:
-                job['status'] = 'failed'
-                job['error'] = str(error)
-                job['logs'].append(f"Cannot adopt existing checkout: {error}")
-                _persist_job(job_id)
-                return
-        
-        # Ensure base directory exists
-        base_path.mkdir(parents=True, exist_ok=True)
-        
-        # Clone repository
-        if not adopted_checkout:
-            job['logs'].append(f"Cloning {repo_url}...")
-            _persist_job(job_id)
-            env = os.environ.copy()
-            env['GIT_TERMINAL_PROMPT'] = '0'
-            # Trust On First Use (TOFU) for SSH
-            env['GIT_SSH_COMMAND'] = 'ssh -o StrictHostKeyChecking=accept-new'
-
-            Repo.clone_from(
-                repo_url,
-                str(target_path),
-                progress=CloneProgress(job_id),
-                env=env
-            )
-            cloned_in_job = True
-
-        job['logs'].append("Checkout ready. Registering projects...")
-        _persist_job(job_id)
-        
-        # Register repository in workspace DB
-        repo_id = workspace.register_repository(
-            name=repo_name,
-            url=repo_url,
-            clone_path_abs=str(target_path),
-            import_type='single' if import_type == 'type1' else 'multi',
-        )
-        
-        imported_ids = []
-        
-        if import_type == "type1":
-            # Generate thumbnail before resolving paths
-            generate_thumbnail_for_project(str(target_path), job['logs'])
-            cached = resolve_cached_paths(str(target_path))
-            project_id = workspace.register_project(
-                repo_id=repo_id,
-                name=repo_name,
-                relative_path='.',
-                description=f"Project {repo_name}",
-                **cached,
-            )
-            imported_ids.append(project_id)
-            job['logs'].append(f"Registered Type-1 project: {project_id}")
-            
-        else:
-            # Type-2: Register selected subprojects
-            if not selected_paths:
-                job['status'] = 'failed'
-                job['error'] = "No projects selected for Type-2 import"
-                _persist_job(job_id)
-                return
-            
-            for rel_path in selected_paths:
-                full_project_path = target_path / rel_path
-                # Generate thumbnail before resolving paths
-                generate_thumbnail_for_project(str(full_project_path), job['logs'])
-                pro_files = list(full_project_path.glob("*.kicad_pro"))
-                board_name = pro_files[0].stem if pro_files else os.path.basename(rel_path)
-                cached = resolve_cached_paths(str(full_project_path))
-                project_id = workspace.register_project(
-                    repo_id=repo_id,
-                    name=board_name,
-                    relative_path=rel_path,
-                    description=f"{repo_name} / {board_name}",
-                    **cached,
-                )
-                imported_ids.append(project_id)
-                job['logs'].append(f"Registered Type-2 subproject: {project_id}")
-        
-        job['project_ids'] = imported_ids
-        job['status'] = 'completed'
-        job['percent'] = 100
-        job['message'] = f"Imported {len(imported_ids)} project(s)"
-        job['logs'].append("Import completed successfully.")
-        _persist_job(job_id)
-        
-    except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
-        _persist_job(job_id)
-        
-        # Cleanup on failure
-        if cloned_in_job and target_path.exists():
-            try:
-                shutil.rmtree(target_path)
-            except:
-                pass
+def _repository_lock_key(parsed: ParsedRemote) -> str:
+    """Lock on repository identity, so the two spellings of one remote serialise."""
+    return f"repository-import:{hashlib.sha256(parsed.dedup_key.encode('utf-8')).hexdigest()}"
 
 
-def start_import_job(repo_url: str, import_type: str, 
+def start_import_job(repo_url: str, import_type: str,
                      selected_paths: Optional[List[str]] = None) -> str:
     """
     Start an asynchronous import job.
     Returns job ID for polling.
+
+    ``import_type`` and ``selected_paths`` are client-supplied hints only. The
+    job re-derives both from the repository before anything is written to disk.
     """
     if import_type not in {"type1", "type2"}:
         raise ValueError("Import type must be type1 or type2")
-    normalized_url = repo_url.strip().rstrip("/")
+    parsed = parse_remote_url(repo_url, remote_url_policy())
+    paths = sorted(selected_paths or [])
     active_key = hashlib.sha256(
-        json.dumps(
-            {
-                "repo_url": normalized_url,
-                "import_type": import_type,
-                "selected_paths": sorted(selected_paths or []),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        "\x1f".join([parsed.dedup_key, import_type, *paths]).encode("utf-8")
     ).hexdigest()
     queued = v3_jobs.enqueue(
         "project_import",
         {
-            "repo_url": normalized_url,
+            "repo_url": parsed.url,
             "import_type": import_type,
             "selected_paths": list(selected_paths or []),
         },
@@ -672,12 +368,7 @@ def start_import_job(repo_url: str, import_type: str,
         requested_by="project-import",
         max_attempts=1,
         resources={"prism_worker": 1, "import": 1},
-        locks=[
-            {
-                "key": f"repository-import:{hashlib.sha256(normalized_url.encode('utf-8')).hexdigest()}",
-                "mode": "write",
-            }
-        ],
+        locks=[{"key": _repository_lock_key(parsed), "mode": "write"}],
     )
     return str(queued["job_id"])
 
@@ -687,22 +378,17 @@ def start_analyze_job(repo_url: str) -> str:
     Start an asynchronous analysis job.
     Returns job ID.
     """
-    normalized_url = repo_url.strip().rstrip("/")
-    active_key = hashlib.sha256(normalized_url.encode("utf-8")).hexdigest()
+    parsed = parse_remote_url(repo_url, remote_url_policy())
+    active_key = hashlib.sha256(parsed.dedup_key.encode("utf-8")).hexdigest()
     queued = v3_jobs.enqueue(
         "project_analyze",
-        {"repo_url": normalized_url},
+        {"repo_url": parsed.url},
         worker_pool="prism",
         artifact_key=active_key,
         requested_by="project-import",
         max_attempts=2,
         resources={"prism_worker": 1, "import": 1},
-        locks=[
-            {
-                "key": f"repository-import:{active_key}",
-                "mode": "read",
-            }
-        ],
+        locks=[{"key": _repository_lock_key(parsed), "mode": "read"}],
     )
     return str(queued["job_id"])
 
@@ -719,21 +405,59 @@ def get_job_status(job_id: str) -> Optional[dict]:
             "error": v3_job.get("error_message") or None,
             "logs": [],
         }
-    # Check import jobs first
-    job = jobs.get(job_id)
-    if job:
-        return job
-    
     return workspace.get_job(job_id)
 
 
 def run_project_analyze_job_v3(context: JobContext) -> JobResult:
-    repo_url = str(context.payload["repo_url"])
-    repo_name = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
+    parsed = parse_remote_url(str(context.payload["repo_url"]), remote_url_policy())
+    projects, import_type = _discover_remote_projects(
+        context, parsed, stage="clone-metadata", percent_ceiling=85.0
+    )
+    result = {
+        "repo_name": parsed.repo_name,
+        "repo_url": parsed.url,
+        "import_type": import_type,
+        "projects": [
+            {
+                "name": project.name,
+                "relative_path": project.relative_path,
+                "has_schematic": project.has_schematic,
+                "has_pcb": project.has_pcb,
+            }
+            for project in projects
+        ],
+    }
+    print(
+        f"Found {len(projects)} project(s); classified repository as {import_type}",
+        flush=True,
+    )
+    return JobResult(message="Analysis complete", details={"result": result})
+
+
+def classify_import_type(projects: List[DiscoveredProject]) -> str:
+    """A single project at the repository root is Type-1; anything else Type-2."""
+    if len(projects) == 1 and projects[0].relative_path == ".":
+        return "type1"
+    return "type2"
+
+
+def _discover_remote_projects(
+    context: JobContext,
+    parsed: ParsedRemote,
+    *,
+    stage: str,
+    percent_ceiling: float,
+) -> tuple[List[DiscoveredProject], str]:
+    """Clone just enough of a remote to enumerate the KiCad projects inside it.
+
+    Blobless, single-branch, no-checkout: the tree listing is all that is
+    needed, so this stays cheap even against a repository with gigabytes of
+    history.
+    """
     temp_dir = tempfile.mkdtemp(prefix="kicad_analyze_")
-    clone_path = Path(temp_dir) / repo_name
+    clone_path = Path(temp_dir) / parsed.repo_name
     context.progress(
-        stage="clone-metadata",
+        stage=stage,
         message="Cloning repository metadata",
         percent=0,
         force=True,
@@ -743,66 +467,34 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new"
         repo = Repo.clone_from(
-            repo_url,
+            parsed.url,
             str(clone_path),
             depth=1,
             single_branch=True,
             no_checkout=True,
             filter="blob:none",
-            progress=V3CloneProgress(context, stage="clone-metadata"),
+            progress=V3CloneProgress(context, stage=stage),
             env=env,
         )
         context.check_cancelled()
         context.progress(
             stage="discover-projects",
             message="Discovering KiCad projects",
-            percent=85,
+            percent=percent_ceiling,
             force=True,
         )
         projects = discover_projects_from_repo(repo)
-        import_type = (
-            "type1"
-            if len(projects) == 1 and projects[0].relative_path == "."
-            else "type2"
-        )
-        result = {
-            "repo_name": repo_name,
-            "repo_url": repo_url,
-            "import_type": import_type,
-            "projects": [
-                {
-                    "name": project.name,
-                    "relative_path": project.relative_path,
-                    "has_schematic": project.has_schematic,
-                    "has_pcb": project.has_pcb,
-                }
-                for project in projects
-            ],
-        }
-        print(
-            f"Found {len(projects)} project(s); classified repository as {import_type}",
-            flush=True,
-        )
-        return JobResult(
-            message="Analysis complete",
-            details={"result": result},
-        )
+        return projects, classify_import_type(projects)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def run_project_import_job_v3(context: JobContext) -> JobResult:
     payload = context.payload
-    repo_url = str(payload["repo_url"])
-    import_type = str(payload["import_type"])
-    selected_paths = [str(path) for path in payload.get("selected_paths") or []]
-    repo_name = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
-    base_path = (
-        Path(project_service.PROJECTS_ROOT) / "type1"
-        if import_type == "type1"
-        else Path(project_service.PROJECTS_ROOT) / "type2"
-    )
-    target_path = base_path / repo_name
+    parsed = parse_remote_url(str(payload["repo_url"]), remote_url_policy())
+    repo_url = parsed.url
+    repo_name = parsed.repo_name
+    requested_paths = [str(path) for path in payload.get("selected_paths") or []]
     cloned_in_job = False
     thumbnail_logs: list[str] = []
 
@@ -812,20 +504,53 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
         percent=0,
         force=True,
     )
-    existing_repo = workspace.get_repository_by_url(repo_url)
+    existing_repo = find_existing_repository(parsed)
     if existing_repo:
-        raise ValueError(f"Repository '{repo_name}' is already imported")
+        raise ValueError(
+            f"Repository '{existing_repo.get('name') or repo_name}' is already imported"
+        )
+
+    # The client's import_type and selected_paths are hints. Re-derive both from
+    # the repository itself before choosing a target directory, so a crafted
+    # request cannot pick the on-disk layout or escape the checkout with a
+    # relative path like "../../etc".
+    discovered, import_type = _discover_remote_projects(
+        context, parsed, stage="validate-import", percent_ceiling=8.0
+    )
+    if not discovered:
+        raise ValueError(
+            f"No KiCad projects found in '{repo_name}'. "
+            "Prism looks for a directory containing a .kicad_pro file."
+        )
+
+    discovered_paths = {project.relative_path for project in discovered}
+    if import_type == "type1":
+        selected_paths = ["."]
+    else:
+        selected_paths = [path for path in requested_paths if path in discovered_paths]
+        unknown = sorted(set(requested_paths) - discovered_paths)
+        if unknown:
+            raise ValueError(
+                "Selected paths are not KiCad projects in this repository: "
+                + ", ".join(unknown)
+            )
+        if not selected_paths:
+            raise ValueError("No projects selected for Type-2 import")
+
+    base_path = Path(project_service.PROJECTS_ROOT) / import_type
+    target_path = base_path / repo_name
 
     try:
         adopted_checkout = False
         if target_path.exists():
             existing_checkout = Repo(str(target_path))
-
-            def normalize(value: str) -> str:
-                return value.strip().rstrip("/").removesuffix(".git").casefold()
-
-            remotes = {normalize(remote.url) for remote in existing_checkout.remotes}
-            if normalize(repo_url) not in remotes:
+            remotes = set()
+            for remote in existing_checkout.remotes:
+                try:
+                    remotes.add(parse_remote_url(remote.url).dedup_key)
+                except Exception:
+                    continue
+            if parsed.dedup_key not in remotes:
                 raise ValueError(
                     f"Existing checkout at {target_path} belongs to a different remote"
                 )
@@ -837,7 +562,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             context.progress(
                 stage="clone-repository",
                 message="Cloning repository",
-                percent=1,
+                percent=10,
                 force=True,
             )
             env = os.environ.copy()
@@ -878,11 +603,14 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 )
             )
         else:
-            if not selected_paths:
-                raise ValueError("No projects selected for Type-2 import")
+            checkout_root = target_path.resolve()
             for index, relative_path in enumerate(selected_paths):
                 context.check_cancelled()
                 full_project_path = target_path / relative_path
+                # Paths are already validated against discovery; this keeps the
+                # guarantee local to the place that does the filesystem write.
+                if not full_project_path.resolve().is_relative_to(checkout_root):
+                    raise ValueError(f"Project path escapes the checkout: {relative_path}")
                 generate_thumbnail_for_project(str(full_project_path), thumbnail_logs)
                 pro_files = sorted(full_project_path.glob("*.kicad_pro"))
                 board_name = (
