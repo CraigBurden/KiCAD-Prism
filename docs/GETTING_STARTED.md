@@ -7,12 +7,11 @@ production deployment guide.
 
 - Git
 - Docker Engine with Docker Compose v2, or Docker Desktop
-- a native KiCad runtime image compatible with the host architecture
+- a Linux AMD64 Docker host
 - enough memory and disk for the projects you intend to import
 
-Prism runs KiCad tooling inside its backend and workers. The backend must use a
-native image; running an AMD64 KiCad image through emulation on an ARM64 host is
-not a supported performance profile.
+Prism runs KiCad tooling inside its backend and workers. The documented public
+source-build path uses the stable AMD64 KiCad runtime image from Docker Hub.
 
 ## 1. Clone and configure
 
@@ -33,50 +32,23 @@ UVICORN_WORKERS=1
 This gives every visitor administrator access. Never use that configuration on
 an interface reachable by other people.
 
-## 2. Select the KiCad image architecture
+## 2. Select the KiCad runtime image
 
-### Apple Silicon and other ARM64 development hosts
-
-The repository defaults to a locally built native image:
+Use the stable public KiCad image built for AMD64:
 
 ```env
-KICAD_BASE_IMAGE=kicad/kicad:10.0.4-arm64-local
-KICAD_BASE_PLATFORM=linux/arm64
-DOCKER_PLATFORM=linux/arm64
-```
-
-That tag is intentionally local and is not pulled from a public registry. In the
-KiCAD-Platform workspace, build it from the existing KiCad checkout:
-
-```bash
-cd ../kicad-docker
-./Build-KiCad-Native-Arm64.sh --ref 10.0.4
-```
-
-If Prism was cloned by itself, provide an equivalent native ARM64 KiCad image
-under the configured tag before building Prism.
-
-Verify:
-
-```bash
-docker image inspect kicad/kicad:10.0.4-arm64-local
-docker image inspect kicad/kicad:10.0.4-arm64-local --format '{{.Architecture}}'
-```
-
-The reported architecture should be `arm64`.
-
-### AMD64 Linux host
-
-Choose an available KiCad image built for AMD64:
-
-```env
-KICAD_BASE_IMAGE=kicad/kicad:10.0.0
+KICAD_BASE_IMAGE=kicad/kicad:10.0.4
 KICAD_BASE_PLATFORM=linux/amd64
 DOCKER_PLATFORM=linux/amd64
 ```
 
-Verify that the selected tag exists and contains the `kicad-cli` version your
-team expects before building Prism.
+Verify the image architecture and KiCad version before building Prism:
+
+```bash
+docker pull --platform linux/amd64 kicad/kicad:10.0.4
+docker image inspect kicad/kicad:10.0.4 --format '{{.Architecture}}'
+docker run --rm --platform linux/amd64 kicad/kicad:10.0.4 kicad-cli --version
+```
 
 ## 3. Start Prism
 
@@ -125,19 +97,20 @@ database. Project and SSH data are stored in `./data` and are not removed by
 ### Backend image cannot be resolved
 
 The configured `KICAD_BASE_IMAGE` does not exist locally and cannot be pulled.
-Build the ARM64 image or select a valid native image for the host.
+Confirm that the configured stable KiCad tag exists in the public registry.
 
-### Backend is running under emulation
+### Docker host architecture is unsupported
 
-Compare the Docker host with the configured image, substituting its tag:
+Confirm that the Docker host reports AMD64:
 
 ```bash
 docker info --format '{{.Architecture}}'
-docker image inspect kicad/kicad:10.0.4-arm64-local \
+docker image inspect kicad/kicad:10.0.4 \
   --format '{{.Architecture}}'
 ```
 
-Set all three architecture variables consistently and rebuild.
+Both commands should report `amd64`. Set all three Docker/KiCad variables to the
+documented AMD64 values and rebuild.
 
 ### Frontend returns 502
 

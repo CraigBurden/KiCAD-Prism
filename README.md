@@ -60,10 +60,8 @@ DEV_GUEST_ROLE=admin
 UVICORN_WORKERS=1
 ```
 
-Select a native KiCad image for the Docker host. The repository default is the
-locally built Apple Silicon image `kicad/kicad:10.0.4-arm64-local`; that tag is
-intentional and is not available from a public registry. AMD64 hosts must select
-an AMD64 KiCad image.
+The documented source-build path targets a Linux AMD64 Docker host and uses the
+public KiCad runtime image selected in `.env`.
 
 ```bash
 docker compose up --build -d
@@ -71,8 +69,8 @@ docker compose up --build -d
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
 
-Follow [Getting started](docs/GETTING_STARTED.md) for architecture setup and
-verification. For any shared installation, use OIDC and HTTPS and follow
+Follow [Getting started](docs/GETTING_STARTED.md) for setup and verification.
+For any shared installation, use OIDC and HTTPS and follow
 [Deployment](docs/DEPLOYMENT.md).
 
 ## Documentation
