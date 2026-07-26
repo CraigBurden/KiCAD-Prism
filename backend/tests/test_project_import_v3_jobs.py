@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from app.services import project_import_service
+from app.services.git_remote_url import RemoteUrlError
 
 
 class ProjectImportV3JobTests(unittest.TestCase):
@@ -141,6 +142,16 @@ class ProjectImportV3JobTests(unittest.TestCase):
                 Path(target).mkdir(parents=True)
                 return mock.Mock()
 
+            discovered = [
+                project_import_service.DiscoveredProject(
+                    name="boards",
+                    relative_path=".",
+                    full_path="",
+                    has_schematic=True,
+                    has_pcb=True,
+                )
+            ]
+
             with (
                 mock.patch.object(
                     project_import_service.project_service,
@@ -148,9 +159,14 @@ class ProjectImportV3JobTests(unittest.TestCase):
                     str(project_root),
                 ),
                 mock.patch.object(
-                    project_import_service.workspace,
-                    "get_repository_by_url",
+                    project_import_service,
+                    "find_existing_repository",
                     return_value=None,
+                ),
+                mock.patch.object(
+                    project_import_service,
+                    "discover_projects_from_repo",
+                    return_value=discovered,
                 ),
                 mock.patch.object(
                     project_import_service.Repo,
@@ -184,6 +200,131 @@ class ProjectImportV3JobTests(unittest.TestCase):
         register_repository.assert_called_once()
         register_project.assert_called_once()
         self.assertEqual(progress_updates[-1]["stage"], "register-projects")
+
+
+class ImportHandlerReDerivesClientClaims(unittest.TestCase):
+    """The import job trusts the repository, not the request body."""
+
+    def _run(self, payload: dict[str, object], discovered: list[object]) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            context = SimpleNamespace(
+                payload=payload,
+                check_cancelled=mock.Mock(),
+                progress=lambda **values: None,
+            )
+
+            def clone(_url: str, target: str, **_kwargs: object) -> object:
+                Path(target).mkdir(parents=True, exist_ok=True)
+                return mock.Mock()
+
+            with (
+                mock.patch.object(
+                    project_import_service.project_service,
+                    "PROJECTS_ROOT",
+                    temporary,
+                ),
+                mock.patch.object(
+                    project_import_service,
+                    "find_existing_repository",
+                    return_value=None,
+                ),
+                mock.patch.object(
+                    project_import_service,
+                    "discover_projects_from_repo",
+                    return_value=discovered,
+                ),
+                mock.patch.object(
+                    project_import_service.Repo, "clone_from", side_effect=clone
+                ),
+            ):
+                project_import_service.run_project_import_job_v3(context)
+
+    def test_rejects_selected_paths_that_are_not_discovered_projects(self) -> None:
+        # A crafted request must not be able to register a directory outside the
+        # checkout, or any directory that is not actually a KiCad project.
+        discovered = [
+            project_import_service.DiscoveredProject(
+                name="board-a",
+                relative_path="hardware/board-a",
+                full_path="",
+                has_schematic=True,
+                has_pcb=True,
+            ),
+            project_import_service.DiscoveredProject(
+                name="board-b",
+                relative_path="hardware/board-b",
+                full_path="",
+                has_schematic=True,
+                has_pcb=True,
+            ),
+        ]
+        with self.assertRaises(ValueError) as caught:
+            self._run(
+                {
+                    "repo_url": "https://example.com/boards.git",
+                    "import_type": "type2",
+                    "selected_paths": ["../../../etc"],
+                },
+                discovered,
+            )
+        self.assertIn("not KiCad projects", str(caught.exception))
+
+    def test_rejects_a_repository_with_no_kicad_projects(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            self._run(
+                {
+                    "repo_url": "https://example.com/boards.git",
+                    "import_type": "type1",
+                    "selected_paths": [],
+                },
+                [],
+            )
+        self.assertIn("No KiCad projects found", str(caught.exception))
+
+    def test_rejects_a_clone_url_that_would_reach_a_remote_helper(self) -> None:
+        # Defence in depth: the payload is re-validated in the worker, not only
+        # at the point the job was enqueued.
+        with self.assertRaises(RemoteUrlError):
+            self._run(
+                {
+                    "repo_url": "ext::sh -c 'id'",
+                    "import_type": "type1",
+                    "selected_paths": [],
+                },
+                [],
+            )
+
+
+class EnqueueValidatesRemoteUrls(unittest.TestCase):
+    def test_analyze_rejects_a_dangerous_url_before_queueing(self) -> None:
+        with mock.patch.object(project_import_service.v3_jobs, "enqueue") as enqueue:
+            with self.assertRaises(RemoteUrlError):
+                project_import_service.start_analyze_job("ext::sh -c 'id'")
+        enqueue.assert_not_called()
+
+    def test_import_rejects_a_dangerous_url_before_queueing(self) -> None:
+        with mock.patch.object(project_import_service.v3_jobs, "enqueue") as enqueue:
+            with self.assertRaises(RemoteUrlError):
+                project_import_service.start_import_job(
+                    "file:///etc", "type1", None
+                )
+        enqueue.assert_not_called()
+
+    def test_equivalent_urls_take_the_same_repository_lock(self) -> None:
+        # Otherwise two spellings of one remote could clone concurrently into
+        # the same target directory.
+        with mock.patch.object(
+            project_import_service.v3_jobs,
+            "enqueue",
+            return_value={"job_id": "job-1"},
+        ) as enqueue:
+            project_import_service.start_analyze_job("git@github.com:org/repo.git")
+            project_import_service.start_analyze_job("https://github.com/org/repo")
+
+        first, second = enqueue.call_args_list
+        self.assertEqual(
+            first.kwargs["locks"][0]["key"], second.kwargs["locks"][0]["key"]
+        )
 
 
 if __name__ == "__main__":
