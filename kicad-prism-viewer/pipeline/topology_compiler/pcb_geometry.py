@@ -150,21 +150,20 @@ def sample_three_point_arc(
     ]
 
 
-def effective_pad_orient_deg(op: dict[str, Any], footprint_angle_deg: float) -> float:
-    """Recover pad ``at_angle`` from Plotter IR flash ops.
-
-    ``pcb_footprint_to_record`` stores ``orient_deg = pad.at_angle -
-    footprint.at_angle`` so pad shapes stay in footprint-local space while
-    ``extras.placement.angle_deg`` carries the footprint rotation applied later
-    by ``SemanticGltfBuilder._add_pads``.
-    """
-    return float(op.get("orient_deg") or 0.0) + float(footprint_angle_deg or 0.0)
-
-
 def pad_rings(op: dict[str, Any]) -> list[list[tuple[float, float]]]:
+    """Build a pad outline in footprint-local millimetres.
+
+    ``pcb_footprint_to_record`` emits ``orient_deg = pad.at_angle -
+    footprint.at_angle``: pad shapes stay footprint-local while
+    ``extras.placement.angle_deg`` carries the placement, which
+    ``SemanticGltfBuilder._add_pads`` applies on top. The angle is negated here
+    because KiCad measures rotation clockwise-positive in the board's Y-down
+    frame -- the same negation ``_add_pads`` applies to the placement angle.
+    Adding the placement angle back in at this level would rotate the pad twice.
+    """
     kind = str(op.get("kind") or "")
     center = point_nm(op.get("x"), op.get("y"))
-    angle = float(op.get("orient_deg") or 0.0)
+    angle = -float(op.get("orient_deg") or 0.0)
     sx = float(op.get("size_x_nm") or op.get("diameter_nm") or 0) * NM_TO_MM
     sy = float(op.get("size_y_nm") or op.get("diameter_nm") or 0) * NM_TO_MM
     if kind == "FlashPadCircle":
