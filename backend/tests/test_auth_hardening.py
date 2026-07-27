@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -78,6 +79,23 @@ class AuthConfigurationFailClosedTests(unittest.TestCase):
         self.assertTrue(
             self._settings(PUBLIC_BASE_URL="http://127.0.0.1:8080", SESSION_COOKIE_SECURE=True).SESSION_COOKIE_SECURE
         )
+
+    def test_blank_cookie_secure_falls_back_to_public_base_url(self) -> None:
+        # docker-compose.yml sends SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-},
+        # so leaving it commented out in .env delivers "" rather than nothing at all.
+        # That used to raise a pydantic bool_parsing error at import time and the
+        # backend never started.
+        self.assertTrue(
+            self._settings(PUBLIC_BASE_URL="https://prism.example.com", SESSION_COOKIE_SECURE="").SESSION_COOKIE_SECURE
+        )
+        self.assertFalse(
+            self._settings(PUBLIC_BASE_URL="http://127.0.0.1:8080", SESSION_COOKIE_SECURE="   ").SESSION_COOKIE_SECURE
+        )
+
+    def test_unparseable_cookie_secure_is_still_rejected(self) -> None:
+        # Only blank is treated as unset. A typo must not quietly become False.
+        with self.assertRaises(ValidationError):
+            self._settings(SESSION_COOKIE_SECURE="ture")
 
     def test_disabled_authentication_reports_no_errors(self) -> None:
         self.assertEqual(Settings(_env_file=None, AUTH_ENABLED=False).auth_configuration_errors(), [])
