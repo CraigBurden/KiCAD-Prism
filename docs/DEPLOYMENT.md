@@ -18,6 +18,8 @@ kicad-prism-vX.Y.Z-linux-amd64.tar.gz
 ├── .env.example
 ├── Caddyfile
 ├── Caddyfile.internal
+├── Caddyfile.dns-01
+├── Dockerfile.caddy-dns
 ├── README.md
 ├── VERSION
 └── SHA256SUMS
@@ -170,6 +172,112 @@ For a private CA or custom certificate:
 2. place `prism.crt` and `prism.key` in `certs/`;
 3. distribute the issuing root CA to browsers and KiCad workstations;
 4. start the same `proxy` profile.
+
+### Public certificates without inbound exposure (ACME DNS-01)
+
+Use this when Prism must present a publicly trusted certificate but the host
+must not accept inbound connections from the internet. The HTTP-01 challenge
+above requires the CA to reach port 80 from outside. DNS-01 instead proves
+domain control by publishing a TXT record, so ports 80 and 443 stay closed to
+the internet, the A record may exist only in internal DNS and resolve to a
+private address, and no root CA has to be distributed to KiCad workstations.
+
+The cost is a DNS credential on the deployment host and a custom proxy image.
+
+#### 1. Build a Caddy image with a DNS provider
+
+The stock `caddy:2` image cannot solve DNS-01. Providers are Go modules linked
+into the binary, not runtime plugins:
+
+```bash
+docker build -f deploy/Dockerfile.caddy-dns \
+  --build-arg DNS_PROVIDER_MODULE=github.com/caddy-dns/cloudflare \
+  -t kicad-prism-caddy-dns:2 .
+docker run --rm kicad-prism-caddy-dns:2 caddy list-modules | grep dns.providers
+```
+
+The `grep` must return a line. Providers are listed at
+<https://github.com/caddy-dns>.
+
+#### 2. Obtain a scoped DNS credential
+
+Request the narrowest credential the provider supports. For Cloudflare that is
+an API token — not the Global API Key — with `Zone / DNS / Edit` on the single
+zone, and IP filtering restricted to the host's egress address.
+
+That credential can still rewrite any record in the zone, including MX and SPF.
+Where the DNS team will not accept that, delegate only the challenge record:
+
+```text
+_acme-challenge.prism.example.com.  CNAME  prism.acme-delegation.example.
+```
+
+The target lives in a separate zone whose credentials are held only by this
+deployment. ACME follows the CNAME, so Caddy needs no access to the main zone.
+This is one static record, created once.
+
+#### 3. Configure and start
+
+Copy `deploy/Caddyfile.dns-01` over `Caddyfile`, set the hostname and provider
+directive, and leave the `acme_ca` staging line commented in for the first run.
+
+Set `PRISM_CADDY_IMAGE=kicad-prism-caddy-dns:2` in `.env`, and pass the
+provider credential to the proxy with a Compose override so the shipped file
+stays untouched:
+
+```yaml
+# docker-compose.dns-01.yml
+services:
+  caddy:
+    environment:
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:?Set CLOUDFLARE_API_TOKEN in .env}
+```
+
+Check the configuration before starting anything. This resolves the provider
+module and the credential, so it catches a missing module, an unset variable,
+and a malformed token in one step:
+
+```bash
+docker run --rm -e CLOUDFLARE_API_TOKEN \
+  -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  kicad-prism-caddy-dns:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+```bash
+docker compose -f compose.yml -f docker-compose.dns-01.yml --profile proxy up -d --wait
+docker compose -f compose.yml -f docker-compose.dns-01.yml logs -f caddy
+```
+
+Confirm the challenge succeeds against staging, then remove the `acme_ca` line,
+delete the `caddy-data` volume to discard the staging account, and restart. The
+certificate is issued when `/data/caddy/certificates` appears.
+
+#### Operational notes
+
+Egress must reach the ACME directory and the DNS provider API. Both are
+frequently miscategorised by filtering appliances, and the resulting failure is
+misleading: the ACME client reports a TLS verification error against
+`acme-v02.api.letsencrypt.org` rather than a block. Confirm from inside the
+container, not from the host, because container DNS often resolves through a
+different path:
+
+```bash
+docker compose exec caddy nslookup acme-v02.api.letsencrypt.org
+```
+
+An address outside the CA's published ranges means DNS interception. Pinning
+`dns:` on the proxy service works around it; exempting the hostnames from
+filtering is the durable fix, because a pinned resolver breaks silently when
+the host's network changes and the failure only surfaces at renewal.
+
+Every issued certificate is published to Certificate Transparency logs, so the
+hostname becomes publicly enumerable within minutes even though the service is
+internal. Treat that as a decision to record, not a surprise. A wildcard
+certificate hides the label at the cost of concentrating risk in one key.
+
+Renewal is automatic at roughly 30 days remaining and needs no scheduled task,
+but it depends on the DNS credential still being valid. Track the credential's
+expiry alongside the certificate's.
 
 ### Existing reverse proxy
 

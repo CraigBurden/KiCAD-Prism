@@ -57,6 +57,11 @@ docker compose --profile proxy up -d --wait
 For an internal CA or custom certificate, replace `Caddyfile` with
 `Caddyfile.internal` and place `prism.crt` and `prism.key` in `certs/`.
 
+For a publicly trusted certificate on a host that must not accept inbound
+connections from the internet, replace `Caddyfile` with `Caddyfile.dns-01`,
+build a proxy image from `Dockerfile.caddy-dns`, and set `PRISM_CADDY_IMAGE`.
+Ports 80 and 443 then stay closed to the internet. See the Deployment guide.
+
 ## Verify
 
 ```bash
