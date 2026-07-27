@@ -26,6 +26,8 @@ TEMPLATE_FILES = (
     ".env.example",
     "Caddyfile",
     "Caddyfile.internal",
+    "Caddyfile.dns-01",
+    "Dockerfile.caddy-dns",
     "README.md",
 )
 
