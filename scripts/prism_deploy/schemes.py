@@ -42,7 +42,7 @@ SCHEMES: dict[str, Scheme] = {
     ),
     INTERNAL_CA: Scheme(
         INTERNAL_CA,
-        "Internal CA or supplied certificate",
+        "Internal CA / own certificate",
         "you provide prism.crt and prism.key",
         runs_caddy=True,
         needs_dns_provider=False,
@@ -66,7 +66,7 @@ SCHEMES: dict[str, Scheme] = {
     ),
     PLAIN_HTTP: Scheme(
         PLAIN_HTTP,
-        "Plain HTTP, no TLS",
+        "Plain HTTP (no TLS)",
         "evaluation only; the KiCad remote panel is unsupported",
         runs_caddy=False,
         needs_dns_provider=False,

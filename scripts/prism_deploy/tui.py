@@ -109,12 +109,13 @@ def banner(title: str, subtitle: str = "") -> None:
         pad = w - 4 - visible_len(subtitle)
         write(f"{ACCENT}│{RESET} {DIM}{subtitle}{RESET}{' ' * pad} {ACCENT}│{RESET}")
     write(f"{ACCENT}╰{'─' * (w - 2)}╯{RESET}")
-    write()
 
 
 def section(number: str, title: str) -> None:
     write()
-    write(f"{ACCENT}{number}{RESET} {BOLD}{title}{RESET}")
+    write()
+    label = f"{ACCENT}{number}{RESET}  " if number else ""
+    write(f"{label}{BOLD}{title}{RESET}")
     write(f"{DIM}{'─' * width()}{RESET}")
 
 
@@ -206,15 +207,26 @@ def _fit(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def _short_url(url: str) -> str:
+    """Drop the scheme so a link reads as a reference, not a wall of text."""
+    return url.replace("https://", "").replace("http://", "").rstrip("/")
+
+
 def _context(description: str = "", example: str = "", docs: str = "") -> None:
-    """Print the explanation, a worked example, and where to read more."""
-    if description:
-        for line in description.split("\n"):
-            hint(line)
+    """Explanation, a worked example, and where to read more.
+
+    Printed as one indented block with a blank line either side, so the eye
+    separates 'what this is' from 'what to type'.
+    """
+    if not (description or example or docs):
+        return
+    write()
+    for line in description.split("\n") if description else []:
+        write(f"  {DIM}{line}{RESET}")
     if example:
         write(f"  {DIM}e.g.{RESET} {ACCENT_SOFT}{example}{RESET}")
     if docs:
-        write(f"  {DIM}docs{RESET} {DIM}{docs}{RESET}")
+        write(f"  {DIM}↳ {_short_url(docs)}{RESET}")
 
 
 def select(
@@ -232,6 +244,7 @@ def select(
     write()
     write(f"  {BOLD}{question}{RESET}")
     _context(description, docs=docs)
+    write()
 
     if not _interactive():
         write()
@@ -245,7 +258,7 @@ def select(
                 return options[int(raw) - 1][0]
             fail(f"Enter a number between 1 and {len(options)}.")
 
-    hint("↑↓ to move, enter to select")
+    write(f"  {DIM}↑↓ move · enter select{RESET}")
     write()
     cursor = default
     rendered = False
@@ -253,16 +266,19 @@ def select(
         if rendered:
             sys.stdout.write(f"\x1b[{len(options)}A")
         limit = width()
+        # One column for labels so the descriptions line up and the list scans
+        # vertically instead of raggedly.
+        label_w = max(len(label) for _, label, _ in options)
         for index, (_, label, description) in enumerate(options):
             sys.stdout.write("\x1b[2K")
             # Each row must occupy exactly one line: the redraw moves the cursor
             # up by len(options), so a wrapped row corrupts the whole menu.
-            detail = _fit(description, limit - len(label) - 6)
-            gap = "  " if detail else ""
+            detail = _fit(description, limit - label_w - 8)
+            pad = " " * (label_w - len(label))
             if index == cursor:
-                sys.stdout.write(f"  {ACCENT}{ARROW}{RESET} {BOLD}{label}{RESET}{gap}{DIM}{detail}{RESET}\n")
+                sys.stdout.write(f"  {ACCENT}{ARROW}{RESET} {BOLD}{label}{RESET}{pad}   {DIM}{detail}{RESET}\n")
             else:
-                sys.stdout.write(f"    {label}{gap}{DIM}{detail}{RESET}\n")
+                sys.stdout.write(f"    {label}{pad}   {DIM}{detail}{RESET}\n")
         sys.stdout.flush()
         rendered = True
 
@@ -294,6 +310,7 @@ def ask(
     write()
     write(f"  {BOLD}{label}{RESET}")
     _context(description, example, docs)
+    write()
     suffix = f" {DIM}({default}){RESET}" if default else ""
     while True:
         try:
@@ -319,6 +336,7 @@ def ask_secret(label: str, *, description: str = "", example: str = "", docs: st
     write()
     write(f"  {BOLD}{label}{RESET}")
     _context(description, example, docs)
+    write()
     while True:
         try:
             value = getpass.getpass(f"  {ARROW} ").strip()
@@ -336,13 +354,14 @@ def ask_secret(label: str, *, description: str = "", example: str = "", docs: st
 
 
 def confirm(label: str, *, default: bool = True, description: str = "", docs: str = "") -> bool:
-    if description or docs:
-        write()
-        _context(description, docs=docs)
+    write()
+    write(f"  {BOLD}{label}{RESET}")
+    _context(description, docs=docs)
+    write()
     choices = "Y/n" if default else "y/N"
     while True:
         try:
-            raw = input(f"\n  {BOLD}{label}{RESET} {DIM}[{choices}]{RESET} ").strip().lower()
+            raw = input(f"  {ACCENT}{ARROW}{RESET} {DIM}[{choices}]{RESET} ").strip().lower()
         except EOFError as exc:
             raise Abort() from exc
         if not raw:

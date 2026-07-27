@@ -51,12 +51,12 @@ DOCS_TS_KEYS = "https://login.tailscale.com/admin/settings/keys"
 DOCS_TS_DNS = "https://login.tailscale.com/admin/dns"
 
 SCHEME_DETAIL = {
-    DNS_01: "a TXT record proves control; nothing inbound",
-    HTTP_01: "port 80 proves control; host must be public",
+    TAILSCALE: "nothing to set up",
+    DNS_01: "no inbound access needed",
+    HTTP_01: "host must be internet-facing",
     INTERNAL_CA: "clients must trust your CA",
-    EXTERNAL_PROXY: "Prism on loopback, your proxy does TLS",
-    PLAIN_HTTP: "no TLS; evaluation only, remote panel unsupported",
-    TAILSCALE: "tailnet-only; no DNS, firewall, or certificate work",
+    EXTERNAL_PROXY: "your proxy terminates TLS",
+    PLAIN_HTTP: "evaluation only",
 }
 
 
@@ -80,7 +80,7 @@ def run(root: Path, *, fresh: bool = False) -> dict:
         "How should Prism obtain and serve its TLS certificate?",
         [(key, SCHEMES[key].label, SCHEME_DETAIL[key]) for key in SCHEME_ORDER],
         description=(
-            "This decides whether the host needs inbound internet access, and\n"
+            "Decides whether this host needs inbound internet access, and\n"
             "whether users need a CA certificate installed."
         ),
         docs=DOCS_CHALLENGES,
@@ -125,17 +125,14 @@ def run(root: Path, *, fresh: bool = False) -> dict:
         answers["hostname"] = tui.ask(
             "Public hostname",
             default=_previous_hostname(existing),
-            description=(
-                "The name users type in their browser. It must match the DNS record,\n"
-                "the certificate, and the OIDC redirect URIs. No scheme, no port."
-            ),
+            description="Must match the DNS record, the certificate, and the OIDC\nredirect URIs. No scheme, no port.",
             example="prism.example.com",
             validate=validate_hostname,
         )
     answers["workspace_name"] = tui.ask(
         "Workspace name",
         default=existing.get("WORKSPACE_NAME", "KiCAD Prism"),
-        description="Shown on the login page and in the browser title. Cosmetic.",
+        description="Shown on the login page. Cosmetic.",
         example="Engineering ECAD",
     )
 
@@ -144,21 +141,13 @@ def run(root: Path, *, fresh: bool = False) -> dict:
         answers["dns_provider"] = tui.select(
             "Which provider hosts the authoritative DNS for this zone?",
             [(key, DNS_PROVIDERS[key].label, DNS_PROVIDERS[key].module.rsplit("/", 1)[-1]) for key in PROVIDER_ORDER],
-            description=(
-                "The proxy publishes a short-lived TXT record to prove domain\n"
-                "control, then removes it. This is the zone's DNS host, which is\n"
-                "not always the registrar."
-            ),
+            description="The zone's DNS host, which is not always the registrar.",
             docs=DOCS_CADDY_DNS,
         )
         provider = DNS_PROVIDERS[answers["dns_provider"]]
         answers["dns_credential"] = tui.ask_secret(
             provider.credential_label,
-            description=(
-                f"{provider.credential_hint}\n"
-                "Paste it rather than retyping: a single wrong character fails as\n"
-                "an authentication error that looks like a scope problem."
-            ),
+            description=f"{provider.credential_hint}\nPaste it; a retyping slip fails as an authentication error.",
             example=provider.credential_example,
             docs=provider.credential_docs,
         )
@@ -169,21 +158,15 @@ def run(root: Path, *, fresh: bool = False) -> dict:
             "Pin container DNS to a specific resolver?",
             default=False,
             description=(
-                "Say no unless you know outbound DNS is filtered. Some corporate\n"
-                "firewalls answer container DNS queries with a block page while\n"
-                "leaving the host alone, which makes certificate issuance fail\n"
-                "with a confusing TLS error. Preflight detects this and will tell\n"
-                "you to come back and enable it.\n"
-                "A pin works, but breaks silently if this host's network changes."
+                "Say no unless outbound DNS is filtered. Preflight detects that and\n"
+                "will tell you to come back. A pin breaks silently if this host's\n"
+                "network later changes."
             ),
         )
         if pin:
             answers["dns_pin"] = tui.ask(
                 "Resolver IP",
-                description=(
-                    "Your internal DNS server: the one this host itself uses.\n"
-                    "Find it with 'Get-DnsClientServerAddress' or 'resolvectl status'."
-                ),
+                description="The resolver this host uses. Get-DnsClientServerAddress\non Windows, resolvectl status on Linux.",
                 example="10.0.0.53",
                 validate=validate_resolver,
             )
@@ -295,17 +278,14 @@ def run(root: Path, *, fresh: bool = False) -> dict:
         return answers
 
     tui.section(str(step), "Single sign-on")
-    tui.hint("Prism refuses to start without a working OIDC client. That is deliberate:")
-    tui.hint("starting anyway would serve every project to anyone who can reach it.")
+    tui.info("Prism will not start without a working OIDC client: serving without")
+    tui.info("a login would expose every project to anyone who can reach it.")
     answers["oidc_issuer"] = tui.ask(
         "OIDC issuer URL",
         default=existing.get("OIDC_ISSUER_URL", ""),
         description=(
-            "The base URL whose /.well-known/openid-configuration describes your\n"
-            "identity provider. Must be https, with no trailing slash.\n"
-            "Google: https://accounts.google.com\n"
-            "Keycloak: https://sso.example.com/realms/<realm>\n"
-            "Entra ID: https://login.microsoftonline.com/<tenant>/v2.0"
+            "Whose /.well-known/openid-configuration describes your provider.\n"
+            "Google https://accounts.google.com · Keycloak .../realms/<realm>"
         ),
         example="https://sso.example.com/realms/engineering",
         validate=validate_issuer,
@@ -335,9 +315,8 @@ def run(root: Path, *, fresh: bool = False) -> dict:
         "Bootstrap administrators",
         default=existing.get("BOOTSTRAP_ADMIN_USERS_STR", ""),
         description=(
-            "Comma-separated emails, matching the addresses your provider returns.\n"
-            "These accounts become administrators on first login. Name at least two,\n"
-            "so losing one account does not lock you out."
+            "Comma-separated. Administrators on first login; name at least two\n"
+            "so losing one account cannot lock you out."
         ),
         example="ada@example.com,grace@example.com",
         validate=validate_emails,
@@ -350,20 +329,15 @@ def run(root: Path, *, fresh: bool = False) -> dict:
         [(key, SIZINGS[key].label, SIZINGS[key].description) for key in SIZING_ORDER],
         default=1,
         description=(
-            "Sets worker concurrency and CPU/memory ceilings. These are limits, not\n"
-            "reservations. Start conservatively: KiCad rendering and comparison are\n"
-            "memory-hungry, and raising concurrency too early causes swapping."
+            "Sets worker concurrency and CPU/memory ceilings. Start low: KiCad\n"
+            "rendering is memory-hungry and over-provisioning causes swapping."
         ),
         docs=DOCS_DEPLOYMENT,
     )
     answers["http_port"] = tui.ask(
         "Loopback port for the frontend",
         default=existing.get("PRISM_HTTP_PORT", "8080"),
-        description=(
-            "Bound to 127.0.0.1 only, never the network. The proxy reaches the\n"
-            "frontend over the Docker network, so this is for local debugging.\n"
-            "Change it only if something else already uses 8080."
-        ),
+        description="Loopback only. Change it only if 8080 is already taken.",
         example="8080",
         validate=validate_port,
     )
@@ -374,11 +348,9 @@ def run(root: Path, *, fresh: bool = False) -> dict:
             "Use the Let's Encrypt staging CA for this run?",
             default=True,
             description=(
-                "Recommended for a first deployment. Staging issues an untrusted\n"
-                "certificate, so browsers warn, but it proves the whole issuance\n"
-                "path works without spending production quota. Production allows\n"
-                "only 5 failed validations per hostname per hour.\n"
-                "Re-run and answer no once staging succeeds."
+                "Recommended first. Browsers will warn, but it proves issuance works\n"
+                "without spending production quota, which allows only 5 failures per\n"
+                "hostname per hour. Re-run and answer no once it succeeds."
             ),
             docs=DOCS_RATE_LIMITS,
         )
