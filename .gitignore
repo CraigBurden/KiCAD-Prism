@@ -30,6 +30,10 @@ dist/
 # Local Compose development overrides
 docker-compose.override.yml
 
+# Deployment installer output: contains .env with live secrets
+generated/
+generated.bak.*/
+
 # Remote-panel loadtest secrets + reports
 loadtest/.env.loadtest
 loadtest/results/

@@ -177,6 +177,47 @@ jobs:
       - name: Test release metadata and bundle generation
         run: python3 -m unittest scripts.test_release_bundle
 
+      - name: Test the deployment installer
+        working-directory: scripts
+        run: python3 -m unittest test_prism_deploy
+
+      - name: Validate generated Compose configuration for every scheme
+        run: |
+          set -euo pipefail
+          for scheme in dns-01 http-01 internal-ca external-proxy; do
+            python3 - "$scheme" > /tmp/answers.json <<'PY'
+          import json, sys
+          scheme = sys.argv[1]
+          answers = {
+              "scheme": scheme,
+              "hostname": "prism.example.com",
+              "oidc_issuer": "https://sso.example.com",
+              "oidc_client_id": "kicad-prism",
+              "oidc_client_secret": "ci-placeholder",
+              "bootstrap_admins": "admin@example.com",
+          }
+          if scheme == "dns-01":
+              answers.update(
+                  dns_provider="cloudflare",
+                  dns_credential="abcdefghij0123456789ABCDEFGHIJ0123456789",
+              )
+          if scheme == "internal-ca":
+              answers["certificate_dir"] = "./deploy/certs"
+          print(json.dumps(answers))
+          PY
+            mkdir -p deploy/certs && touch deploy/certs/prism.crt deploy/certs/prism.key
+            python3 -m scripts.prism_deploy --answers /tmp/answers.json --skip-preflight
+            # Renders the overlay, then asks Compose whether it merges cleanly.
+            eval "$(python3 -c "
+          import json, sys
+          sys.path.insert(0, 'scripts')
+          from prism_deploy import render
+          answers = render.normalise(json.load(open('/tmp/answers.json')))
+          print(' '.join(render.compose_command(answers, 'config', '--quiet')))
+          ")"
+            echo "  $scheme: compose configuration is valid"
+          done
+
   quality-gate:
     name: Quality gate
     if: ${{ always() }}

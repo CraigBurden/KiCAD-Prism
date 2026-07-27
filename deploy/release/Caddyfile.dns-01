@@ -32,7 +32,9 @@ prism.example.com {
 		# Rehearse against the staging CA first. Staging issues untrusted
 		# certificates but has far higher rate limits than production, which
 		# allows only 5 failed validations per hostname per hour.
-		# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+		# Inside a tls block the subdirective is `ca`; `acme_ca` is the
+		# global-options spelling and is rejected here.
+		# ca https://acme-staging-v02.api.letsencrypt.org/directory
 	}
 
 	encode gzip zstd

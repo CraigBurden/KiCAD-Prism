@@ -86,6 +86,46 @@ directory before starting Prism.
 
 ## 2. Configure the environment
 
+### Guided installer
+
+`deploy.sh` (or `deploy.ps1` on Windows) asks which HTTPS scheme applies,
+collects the settings it cannot derive, and writes a complete configuration
+into `generated/`. It does not modify anything else in the checkout.
+
+```bash
+./deploy.sh
+```
+
+```powershell
+.\deploy.ps1
+```
+
+It generates `.env`, the proxy `Caddyfile`, a Compose overlay that binds the
+frontend and backend to loopback, a redacted record of the run, and a
+`NEXT_STEPS.md` listing what remains manual. For DNS-01 it also builds the
+Caddy image with the provider module.
+
+Before starting anything it verifies the Compose version, container egress to
+the ACME and DNS provider endpoints, whether container DNS answers match the
+host's, the OIDC discovery document, and the generated Caddy and Compose
+configuration. Network probes run inside a container: a filtering appliance
+that leaves the host alone while intercepting container traffic is a common
+cause of issuance failures that look like certificate problems.
+
+```bash
+./deploy.sh --dry-run                              # render and print, write nothing
+./deploy.sh --answers answers.json --non-interactive
+./deploy.sh --start                                # bring the stack up when checks pass
+```
+
+`generated/` contains live credentials and is excluded from Git. Back it up
+with the rest of the deployment state.
+
+The remainder of this section describes the same configuration by hand, which
+is still supported and is what the installer produces.
+
+### Manual configuration
+
 ```bash
 cp .env.example .env
 mkdir -p data/projects data/ssh certs
@@ -219,7 +259,7 @@ This is one static record, created once.
 #### 3. Configure and start
 
 Copy `deploy/Caddyfile.dns-01` over `Caddyfile`, set the hostname and provider
-directive, and leave the `acme_ca` staging line commented in for the first run.
+directive, and uncomment the staging `ca` line for the first run.
 
 Set `PRISM_CADDY_IMAGE=kicad-prism-caddy-dns:2` in `.env`, and pass the
 provider credential to the proxy with a Compose override so the shipped file
@@ -248,7 +288,7 @@ docker compose -f compose.yml -f docker-compose.dns-01.yml --profile proxy up -d
 docker compose -f compose.yml -f docker-compose.dns-01.yml logs -f caddy
 ```
 
-Confirm the challenge succeeds against staging, then remove the `acme_ca` line,
+Confirm the challenge succeeds against staging, then remove the staging `ca` line,
 delete the `caddy-data` volume to discard the staging account, and restart. The
 certificate is issued when `/data/caddy/certificates` appears.
 
