@@ -9,6 +9,7 @@ problem and sends you looking in the wrong place entirely.
 
 from __future__ import annotations
 
+import re
 import shutil
 import socket
 import subprocess
@@ -142,7 +143,31 @@ def check_hostname_resolves(hostname: str) -> Result:
     return Result("Hostname resolves", True, f"{hostname} -> {', '.join(addresses)}")
 
 
-def check_port_free(port: int, label: str) -> Result:
+def project_name(root) -> str:
+    """The Compose project name, which is derived from the directory name."""
+    return re.sub(r"[^a-z0-9_-]", "", root.name.lower())
+
+
+def ports_published_by(project: str) -> set[int]:
+    """Host ports currently published by containers of this Compose project."""
+    code, output = _run(
+        ["docker", "ps", "--filter", f"label=com.docker.compose.project={project}", "--format", "{{.Ports}}"],
+        timeout=30,
+    )
+    if code != 0:
+        return set()
+    return {int(match) for match in re.findall(r":(\d+)->", output)}
+
+
+def check_port_free(port: int, label: str, owned: set[int] | None = None) -> Result:
+    """A port held by this deployment's own containers is not a conflict.
+
+    Re-running the installer against a running stack would otherwise report the
+    ports it is itself using as fatal collisions.
+    """
+    if owned and port in owned:
+        return Result(f"Port {port}", True, "held by this deployment; will be replaced on restart")
+
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     probe.settimeout(1.0)
     try:
@@ -150,7 +175,7 @@ def check_port_free(port: int, label: str) -> Result:
     finally:
         probe.close()
     if in_use:
-        return Result(f"Port {port} free", False, f"something is already listening ({label})",
+        return Result(f"Port {port} free", False, f"something else is already listening ({label})",
                       "Stop the conflicting service or choose a different port.")
     return Result(f"Port {port} free", True)
 
@@ -353,10 +378,11 @@ def run(answers: dict, root, *, compose: list[str], skip_network: bool = False) 
     scheme = answers["scheme"]
     report.add(check_database_volume(root, answers.get("reused_password", False)))
     report.add(check_hostname_resolves(answers["hostname"]))
-    report.add(check_port_free(int(answers["http_port"]), "frontend"))
+    owned = ports_published_by(project_name(root))
+    report.add(check_port_free(int(answers["http_port"]), "frontend", owned))
     # Tailscale listens on the tailnet interface, not on the host's 443.
     if scheme not in (EXTERNAL_PROXY, TAILSCALE):
-        report.add(check_port_free(443, "https"))
+        report.add(check_port_free(443, "https", owned))
 
     if not skip_network:
         # Probe through the same resolver the proxy will use, or the checks

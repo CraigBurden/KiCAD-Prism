@@ -348,9 +348,11 @@ def run(root: Path, *, fresh: bool = False) -> dict:
             "Use the Let's Encrypt staging CA for this run?",
             default=True,
             description=(
-                "Recommended first. Browsers will warn, but it proves issuance works\n"
-                "without spending production quota, which allows only 5 failures per\n"
-                "hostname per hour. Re-run and answer no once it succeeds."
+                "Recommended for a first deployment: it proves issuance works without\n"
+                "spending production quota, which allows only 5 failures per hostname\n"
+                "per hour. Verify with the logs, not a browser -- Prism sends HSTS, so\n"
+                "once this host has served a trusted certificate no browser will offer\n"
+                "an exception for the untrusted staging one."
             ),
             docs=DOCS_RATE_LIMITS,
         )

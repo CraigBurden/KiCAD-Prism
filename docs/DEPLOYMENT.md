@@ -331,6 +331,11 @@ docker compose -f compose.yml -f docker-compose.dns-01.yml --profile proxy up -d
 docker compose -f compose.yml -f docker-compose.dns-01.yml logs -f caddy
 ```
 
+Confirm success from the proxy logs rather than a browser. Prism sends
+`Strict-Transport-Security` with a one-year `max-age`, so once a hostname has
+served a trusted certificate, browsers will not offer an exception for the
+untrusted staging one.
+
 Confirm the challenge succeeds against staging, then remove the staging `ca` line,
 delete the `caddy-data` volume to discard the staging account, and restart. The
 certificate is issued when `/data/caddy/certificates` appears.

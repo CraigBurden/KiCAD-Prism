@@ -489,3 +489,23 @@ class ExistingDeploymentTests(unittest.TestCase):
             result = check_database_volume(Path(directory), reused_password=True)
         # Reusing the password is always safe, whatever volumes exist.
         self.assertTrue(result.ok)
+
+
+class PortOwnershipTests(unittest.TestCase):
+    def test_a_port_held_by_this_deployment_is_not_a_conflict(self) -> None:
+        # Re-running against a running stack must not report its own ports.
+        from prism_deploy.preflight import check_port_free
+
+        result = check_port_free(8080, "frontend", {8080})
+        self.assertTrue(result.ok)
+        self.assertIn("this deployment", result.detail)
+
+    def test_project_name_matches_compose_normalisation(self) -> None:
+        from prism_deploy.preflight import project_name
+
+        self.assertEqual(project_name(Path("/srv/KiCAD-Prism")), "kicad-prism")
+
+    def test_staging_notes_warn_that_hsts_blocks_the_browser(self) -> None:
+        steps = render.render_next_steps(answers_for(DNS_01, acme_staging=True))
+        self.assertIn("HSTS", steps)
+        self.assertIn("refuse to offer an exception", steps)
