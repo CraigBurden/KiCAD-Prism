@@ -15,7 +15,7 @@ from pathlib import Path
 
 from prism_deploy import render
 from prism_deploy.apply import load_existing_env, write_text
-from prism_deploy.schemes import DNS_01, EXTERNAL_PROXY, HTTP_01, INTERNAL_CA, SCHEMES
+from prism_deploy.schemes import DNS_01, EXTERNAL_PROXY, HTTP_01, INTERNAL_CA, PLAIN_HTTP, SCHEMES
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 ENV_EXAMPLE = (REPOSITORY_ROOT / ".env.example").read_text(encoding="utf-8")
@@ -51,12 +51,17 @@ class DerivationTests(unittest.TestCase):
         self.assertEqual(answers["public_base_url"], "https://prism.example.com")
         self.assertEqual(answers["cors_origins"], answers["public_base_url"])
 
-    def test_cookie_secure_is_always_set_explicitly(self) -> None:
-        # An empty SESSION_COOKIE_SECURE crashes the backend at import time.
+    def test_cookie_secure_is_explicit_and_matches_the_transport(self) -> None:
+        # An empty SESSION_COOKIE_SECURE crashes the backend at import time, and
+        # a Secure cookie over plain http is never sent back, so login silently
+        # fails. The value must be set, and set correctly for the scheme.
         for scheme in SCHEMES:
             with self.subTest(scheme=scheme):
-                values = render.env_values(answers_for(scheme))
-                self.assertEqual(values["SESSION_COOKIE_SECURE"], "true")
+                answers = answers_for(scheme)
+                value = render.env_values(answers)["SESSION_COOKIE_SECURE"]
+                self.assertIn(value, ("true", "false"))
+                expected = "true" if answers["public_base_url"].startswith("https://") else "false"
+                self.assertEqual(value, expected)
 
     def test_redirect_uris_match_the_backend_routes(self) -> None:
         answers = answers_for(DNS_01)
@@ -77,6 +82,74 @@ class DerivationTests(unittest.TestCase):
     def test_supplied_secrets_are_preserved(self) -> None:
         answers = answers_for(HTTP_01, session_secret="k" * 20 + "abcdefghij0123456789")
         self.assertTrue(answers["session_secret"].startswith("kkkk"))
+
+
+class PlainHttpTests(unittest.TestCase):
+    """The evaluation scheme must be honest about what it gives up."""
+
+    def test_origin_carries_the_port_and_no_tls(self) -> None:
+        answers = answers_for(PLAIN_HTTP, hostname="localhost", http_port="9000")
+        self.assertEqual(answers["public_base_url"], "http://localhost:9000")
+        self.assertEqual(answers["cors_origins"], answers["public_base_url"])
+
+    def test_no_proxy_is_configured(self) -> None:
+        answers = answers_for(PLAIN_HTTP)
+        self.assertIsNone(render.render_caddyfile(answers))
+        self.assertNotIn("docker-compose.proxy.yml", render.compose_files(answers))
+
+    def test_next_steps_lead_with_the_remote_panel_limitation(self) -> None:
+        steps = render.render_next_steps(answers_for(PLAIN_HTTP))
+        self.assertIn("what this deployment cannot do", steps)
+        self.assertIn("KiCad remote symbol panel is not supported", steps)
+        self.assertIn("reject non-HTTPS redirect URIs", steps)
+        # The warning has to precede the routine setup instructions.
+        self.assertLess(steps.index("not supported"), steps.index("## 1. DNS"))
+
+    def test_other_schemes_carry_no_such_warning(self) -> None:
+        for scheme in (DNS_01, HTTP_01, INTERNAL_CA, EXTERNAL_PROXY):
+            with self.subTest(scheme=scheme):
+                self.assertNotIn("cannot do", render.render_next_steps(answers_for(scheme)))
+
+    def test_disabling_auth_defaults_the_guest_to_read_only(self) -> None:
+        values = render.env_values(answers_for(PLAIN_HTTP, auth_enabled=False))
+        self.assertEqual(values["AUTH_ENABLED"], "false")
+        self.assertEqual(values["DEV_GUEST_ROLE"], "viewer")
+
+    def test_open_instance_warning_names_the_role_and_address(self) -> None:
+        steps = render.render_next_steps(answers_for(PLAIN_HTTP, auth_enabled=False, hostname="prism-eval"))
+        self.assertIn("Authentication is disabled", steps)
+        self.assertIn("viewer", steps)
+        self.assertIn("http://prism-eval:8080", steps)
+
+    def test_auth_stays_on_for_every_other_scheme(self) -> None:
+        for scheme in (DNS_01, HTTP_01, INTERNAL_CA, EXTERNAL_PROXY):
+            with self.subTest(scheme=scheme):
+                values = render.env_values(answers_for(scheme, auth_enabled=False))
+                self.assertEqual(values["AUTH_ENABLED"], "true")
+                self.assertNotIn("DEV_GUEST_ROLE", values)
+
+    def test_renders_without_any_oidc_answers(self) -> None:
+        # An answers file for an open evaluation instance has no OIDC keys at all.
+        answers = render.normalise({
+            "scheme": PLAIN_HTTP,
+            "hostname": "localhost",
+            "auth_enabled": False,
+        })
+        files = render.render_all(ENV_EXAMPLE, answers)
+        self.assertIn("generated/.env", files)
+        self.assertIn("AUTH_ENABLED=false", files["generated/.env"])
+        self.assertIn("OIDC_ISSUER_URL=", files["generated/.env"])
+
+    def test_bind_address_is_loopback_unless_asked_otherwise(self) -> None:
+        self.assertIn('"127.0.0.1:8080:80"', render.render_compose(answers_for(PLAIN_HTTP)))
+        exposed = render.render_compose(answers_for(PLAIN_HTTP, bind_address="0.0.0.0"))
+        self.assertIn('"0.0.0.0:8080:80"', exposed)
+        # The backend stays on loopback regardless.
+        self.assertIn('"127.0.0.1:8000:8000"', exposed)
+
+    def test_tls_schemes_cannot_be_exposed_by_a_stray_bind_address(self) -> None:
+        overlay = render.render_compose(answers_for(DNS_01, bind_address="0.0.0.0"))
+        self.assertIn('"127.0.0.1:8080:80"', overlay)
 
 
 class EnvRenderingTests(unittest.TestCase):

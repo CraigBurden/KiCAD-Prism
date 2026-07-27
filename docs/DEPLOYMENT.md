@@ -319,6 +319,27 @@ Renewal is automatic at roughly 30 days remaining and needs no scheduled task,
 but it depends on the DNS credential still being valid. Track the credential's
 expiry alongside the certificate's.
 
+### Plain HTTP, for evaluation only
+
+The installer offers a fifth scheme that runs Prism without TLS. It exists to
+try the product on a laptop or an isolated host, and it is not a way to operate
+it.
+
+The **Remote Symbol Provider is not supported** on this scheme. HTTPS with a
+certificate the workstation already trusts is a prerequisite, and without a TLS
+terminator Prism advertises `http://` origins in its provider metadata, which
+[Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md) treats as a misconfiguration
+to correct. Do not build a datasource package against such an origin.
+
+Single sign-on usually fails too, because most identity providers reject
+non-HTTPS redirect URIs. The installer therefore offers to disable
+authentication, which serves every request as an unauthenticated guest; it
+defaults that guest to `viewer` rather than `admin`, and defaults the published
+port to loopback.
+
+Everything else -- import, comparison, workflows, the Library Manager, and the
+browser viewer -- behaves normally.
+
 ### Existing reverse proxy
 
 Start Prism without the proxy profile and route the host proxy to

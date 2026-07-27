@@ -20,12 +20,17 @@ from .schemes import DNS_01, DNS_PROVIDERS, SCHEMES
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
-REQUIRED_ANSWERS = ("scheme", "hostname", "oidc_issuer", "oidc_client_id", "oidc_client_secret", "bootstrap_admins")
+REQUIRED_ANSWERS = ("scheme", "hostname")
+# Only meaningful when authentication is on, which every scheme but plain-http
+# enforces.
+AUTH_ANSWERS = ("oidc_issuer", "oidc_client_id", "oidc_client_secret", "bootstrap_admins")
 
 
 def load_answers(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     missing = [key for key in REQUIRED_ANSWERS if not data.get(key)]
+    if data.get("auth_enabled", True):
+        missing += [key for key in AUTH_ANSWERS if not data.get(key)]
     if missing:
         raise SystemExit(f"answers file is missing: {', '.join(missing)}")
     if data["scheme"] not in SCHEMES:

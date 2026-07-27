@@ -184,7 +184,7 @@ jobs:
       - name: Validate generated Compose configuration for every scheme
         run: |
           set -euo pipefail
-          for scheme in dns-01 http-01 internal-ca external-proxy; do
+          for scheme in dns-01 http-01 internal-ca external-proxy plain-http; do
             python3 - "$scheme" > /tmp/answers.json <<'PY'
           import json, sys
           scheme = sys.argv[1]

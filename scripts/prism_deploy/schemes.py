@@ -9,6 +9,7 @@ HTTP_01 = "http-01"
 DNS_01 = "dns-01"
 INTERNAL_CA = "internal-ca"
 EXTERNAL_PROXY = "external-proxy"
+PLAIN_HTTP = "plain-http"
 
 
 @dataclass(frozen=True)
@@ -54,9 +55,19 @@ SCHEMES: dict[str, Scheme] = {
         needs_dns_provider=False,
         needs_certificates=False,
     ),
+    PLAIN_HTTP: Scheme(
+        PLAIN_HTTP,
+        "Plain HTTP, no TLS",
+        "evaluation only; the KiCad remote panel is unsupported",
+        runs_caddy=False,
+        needs_dns_provider=False,
+        needs_certificates=False,
+    ),
 }
 
-SCHEME_ORDER = [DNS_01, HTTP_01, INTERNAL_CA, EXTERNAL_PROXY]
+# Plain HTTP sits last: it is the only option that is not a way to run Prism
+# properly, and it should not be the one a hurried operator lands on first.
+SCHEME_ORDER = [DNS_01, HTTP_01, INTERNAL_CA, EXTERNAL_PROXY, PLAIN_HTTP]
 
 
 @dataclass(frozen=True)
@@ -210,6 +221,33 @@ SIZING_ORDER = ["evaluation", "small-team", "large"]
 STAGING_ACME = "https://acme-staging-v02.api.letsencrypt.org/directory"
 
 _HOSTNAME = re.compile(r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$")
+
+
+def validate_host_or_local(value: str) -> str | None:
+    """Like validate_hostname, but also accepts localhost and bare IPs.
+
+    Plain-HTTP evaluation commonly runs on localhost or a short LAN name, and
+    neither is a fully qualified domain name.
+    """
+    import ipaddress
+
+    if value.startswith(("http://", "https://")):
+        return "Enter a bare hostname, without a scheme."
+    if "/" in value:
+        return "Enter a bare hostname, without a path."
+    if ":" in value:
+        return "Enter the hostname only; the port is asked for separately."
+    if value == "localhost":
+        return None
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        pass
+    else:
+        return None
+    if not _HOSTNAME.match(value) and not value.replace("-", "").isalnum():
+        return "Enter a hostname, an IP address, or localhost."
+    return None
 
 
 def validate_hostname(value: str) -> str | None:

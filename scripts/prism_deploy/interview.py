@@ -23,12 +23,14 @@ from .schemes import (
     EXTERNAL_PROXY,
     HTTP_01,
     INTERNAL_CA,
+    PLAIN_HTTP,
     PROVIDER_ORDER,
     SCHEME_ORDER,
     SCHEMES,
     SIZING_ORDER,
     SIZINGS,
     validate_emails,
+    validate_host_or_local,
     validate_hostname,
     validate_issuer,
     validate_port,
@@ -46,6 +48,7 @@ SCHEME_DETAIL = {
     HTTP_01: "port 80 proves control; host must be public",
     INTERNAL_CA: "clients must trust your CA",
     EXTERNAL_PROXY: "Prism on loopback, your proxy does TLS",
+    PLAIN_HTTP: "no TLS; evaluation only, remote panel unsupported",
 }
 
 
@@ -75,16 +78,28 @@ def run(root: Path, *, fresh: bool = False) -> dict:
     scheme = answers["scheme"]
 
     tui.section("2", "Identity")
-    answers["hostname"] = tui.ask(
-        "Public hostname",
-        default=_previous_hostname(existing),
-        description=(
-            "The name users type in their browser. It must match the DNS record,\n"
-            "the certificate, and the OIDC redirect URIs. No scheme, no port."
-        ),
-        example="prism.example.com",
-        validate=validate_hostname,
-    )
+    if scheme == PLAIN_HTTP:
+        answers["hostname"] = tui.ask(
+            "Hostname or address",
+            default=_previous_hostname(existing) or "localhost",
+            description=(
+                "How you will reach this instance. localhost, a LAN name, or an IP\n"
+                "are all fine here; the port is asked for later and appended for you."
+            ),
+            example="localhost",
+            validate=validate_host_or_local,
+        )
+    else:
+        answers["hostname"] = tui.ask(
+            "Public hostname",
+            default=_previous_hostname(existing),
+            description=(
+                "The name users type in their browser. It must match the DNS record,\n"
+                "the certificate, and the OIDC redirect URIs. No scheme, no port."
+            ),
+            example="prism.example.com",
+            validate=validate_hostname,
+        )
     answers["workspace_name"] = tui.ask(
         "Workspace name",
         default=existing.get("WORKSPACE_NAME", "KiCAD Prism"),
@@ -155,7 +170,60 @@ def run(root: Path, *, fresh: bool = False) -> dict:
             validate=lambda value: _validate_certs(root, value),
         )
 
-    step = 4 if scheme in (DNS_01, INTERNAL_CA) else 3
+    if scheme == PLAIN_HTTP:
+        tui.section("3", "Exposure")
+        tui.warn("This deployment has no TLS. Everything crosses the network in the clear.")
+        tui.hint("The KiCad remote symbol panel is not supported without HTTPS, and most")
+        tui.hint("identity providers reject non-HTTPS redirect URIs. Other features work.")
+        answers["bind_address"] = tui.select(
+            "Who should be able to reach it?",
+            [
+                ("127.0.0.1", "This host only", "loopback; safest for evaluation"),
+                ("0.0.0.0", "Anyone who can route here", "unencrypted over the network"),
+            ],
+            description="Sets the interface the frontend port is published on.",
+        )
+        answers["auth_enabled"] = tui.confirm(
+            "Configure single sign-on?",
+            default=False,
+            description=(
+                "Say no for a quick look at the features. Every request is then served\n"
+                "as an unauthenticated guest, so anyone who can reach the address has\n"
+                "that access with no login and no audit trail.\n"
+                "Say yes only if your provider accepts an http:// redirect URI."
+            ),
+        )
+        if not answers["auth_enabled"]:
+            answers["guest_role"] = tui.select(
+                "What can that guest do?",
+                [
+                    ("viewer", "Read only", "browse projects and the catalog"),
+                    ("admin", "Everything", "import, edit, release, administer"),
+                ],
+                description="Applies to every visitor, since there is no login.",
+            )
+
+    step = 4 if scheme in (DNS_01, INTERNAL_CA, PLAIN_HTTP) else 3
+    if scheme == PLAIN_HTTP and not answers["auth_enabled"]:
+        answers.update(
+            oidc_issuer="",
+            oidc_client_id="",
+            oidc_client_secret="",
+            oidc_provider_name="",
+            bootstrap_admins=existing.get("BOOTSTRAP_ADMIN_USERS_STR", ""),
+            sizing="evaluation",
+            session_secret=existing.get("SESSION_SECRET") or generate_secret(48),
+            postgres_password=existing.get("POSTGRES_PASSWORD") or generate_secret(32),
+        )
+        answers["http_port"] = tui.ask(
+            "Port to publish the frontend on",
+            default=existing.get("PRISM_HTTP_PORT", "8080"),
+            description="Becomes part of the URL, as there is no TLS terminator in front.",
+            example="8080",
+            validate=validate_port,
+        )
+        return answers
+
     tui.section(str(step), "Single sign-on")
     tui.hint("Prism refuses to start without a working OIDC client. That is deliberate:")
     tui.hint("starting anyway would serve every project to anyone who can reach it.")
