@@ -509,3 +509,77 @@ class PortOwnershipTests(unittest.TestCase):
         steps = render.render_next_steps(answers_for(DNS_01, acme_staging=True))
         self.assertIn("HSTS", steps)
         self.assertIn("refuse to offer an exception", steps)
+
+
+class PromoteTests(unittest.TestCase):
+    """Promotion must preserve every secret, or it breaks the deployment."""
+
+    def _plan_and_env(self, **overrides) -> tuple[dict, dict]:
+        answers = answers_for(DNS_01, acme_staging=True, **overrides)
+        plan = json.loads(render.render_plan(answers))
+        env = {
+            "SESSION_SECRET": answers["session_secret"],
+            "POSTGRES_PASSWORD": answers["postgres_password"],
+            "OIDC_CLIENT_SECRET": answers["oidc_client_secret"],
+            "CLOUDFLARE_API_TOKEN": answers["dns_credential"],
+        }
+        return plan, env
+
+    def test_secrets_are_recovered_from_the_env(self) -> None:
+        from prism_deploy.__main__ import rehydrate
+
+        plan, env = self._plan_and_env()
+        restored = rehydrate(plan, env)
+        self.assertEqual(restored["session_secret"], env["SESSION_SECRET"])
+        self.assertEqual(restored["dns_credential"], env["CLOUDFLARE_API_TOKEN"])
+        self.assertNotIn("<redacted>", restored.values())
+
+    def test_database_password_survives_promotion(self) -> None:
+        # Regenerating it here would lock the backend out of an existing volume.
+        from prism_deploy.__main__ import rehydrate
+
+        plan, env = self._plan_and_env()
+        promoted = render.normalise(dict(rehydrate(plan, env), acme_staging=False))
+        self.assertEqual(promoted["postgres_password"], env["POSTGRES_PASSWORD"])
+        self.assertTrue(promoted["reused_password"])
+
+    def test_promotion_only_changes_the_certificate_authority(self) -> None:
+        from prism_deploy.__main__ import rehydrate
+
+        plan, env = self._plan_and_env(dns_pin="10.0.0.53")
+        promoted = render.normalise(dict(rehydrate(plan, env), acme_staging=False))
+        caddy = render.render_caddyfile(promoted)
+        self.assertNotIn("acme-staging", caddy)
+        self.assertIn("dns cloudflare", caddy)
+        self.assertIn("- 10.0.0.53", render.render_compose(promoted))
+
+    def test_a_scheme_without_acme_cannot_be_promoted(self) -> None:
+        from prism_deploy.__main__ import promote
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "generated").mkdir()
+            write_text(root / "generated" / "deploy-plan.json", json.dumps({"scheme": "internal-ca"}))
+            write_text(root / "generated" / ".env", "A=1\n")
+            with self.assertRaises(SystemExit) as ctx:
+                promote(root, assume_yes=True, dry_run=True)
+            self.assertIn("does not use Let's Encrypt", str(ctx.exception))
+
+    def test_promoting_an_already_production_deployment_is_a_no_op(self) -> None:
+        from prism_deploy.__main__ import promote
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "generated").mkdir()
+            write_text(root / "generated" / "deploy-plan.json",
+                       json.dumps({"scheme": DNS_01, "acme_staging": False}))
+            write_text(root / "generated" / ".env", "A=1\n")
+            self.assertEqual(promote(root, assume_yes=True, dry_run=True), 0)
+
+    def test_promotion_without_a_deployment_explains_itself(self) -> None:
+        from prism_deploy.__main__ import promote
+
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(SystemExit) as ctx:
+                promote(Path(directory), assume_yes=True, dry_run=True)
+            self.assertIn("Run the installer first", str(ctx.exception))

@@ -14,9 +14,17 @@ import sys
 from pathlib import Path
 
 from . import interview, preflight, render, tui
-from .apply import apply
+from .apply import apply, load_existing_env
 from .render import CADDY_IMAGE_TAG
-from .schemes import DNS_01, DNS_PROVIDERS, SCHEMES, TAILSCALE
+from .schemes import DNS_01, DNS_PROVIDERS, HTTP_01, SCHEMES, TAILSCALE
+
+# render_plan redacts these; the values are recovered from the generated .env.
+REDACTED_FROM_ENV = {
+    "session_secret": "SESSION_SECRET",
+    "postgres_password": "POSTGRES_PASSWORD",
+    "oidc_client_secret": "OIDC_CLIENT_SECRET",
+    "ts_authkey": "TS_AUTHKEY",
+}
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -44,6 +52,88 @@ def load_answers(path: Path) -> dict:
     if data["scheme"] == TAILSCALE and data.get("ts_mode", "sidecar") == "sidecar" and not data.get("ts_authkey"):
         raise SystemExit("scheme tailscale in sidecar mode requires 'ts_authkey' in the answers file")
     return data
+
+
+def rehydrate(plan: dict, env: dict) -> dict:
+    """Rebuild a full answer set from the redacted plan plus the generated .env.
+
+    The plan records every choice but masks secrets, so repeating a deployment
+    unattended means reading those back out of the .env it produced.
+    """
+    answers = {key: value for key, value in plan.items() if value != "<redacted>"}
+    for key, variable in REDACTED_FROM_ENV.items():
+        if plan.get(key) == "<redacted>" and env.get(variable):
+            answers[key] = env[variable]
+    if plan.get("dns_credential") == "<redacted>":
+        provider = DNS_PROVIDERS.get(plan.get("dns_provider", ""))
+        if provider and env.get(provider.env_var):
+            answers["dns_credential"] = env[provider.env_var]
+    return answers
+
+
+def promote(root: Path, *, assume_yes: bool, dry_run: bool) -> int:
+    """Move an existing deployment from the staging CA to production.
+
+    By hand this meant re-answering the whole interview and then remembering to
+    discard the staging ACME account, which is the step people skip.
+    """
+    plan_path = root / "generated" / "deploy-plan.json"
+    env_path = root / "generated" / ".env"
+    if not plan_path.is_file() or not env_path.is_file():
+        raise SystemExit("No generated deployment found. Run the installer first.")
+
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    if plan.get("scheme") not in (DNS_01, HTTP_01):
+        raise SystemExit(f"Scheme '{plan.get('scheme')}' does not use Let's Encrypt; nothing to promote.")
+    if not plan.get("acme_staging"):
+        tui.ok("Already using the production CA. Nothing to do.")
+        return 0
+
+    answers = render.normalise(dict(rehydrate(plan, load_existing_env(env_path)), acme_staging=False))
+    files = render.render_all((root / ".env.example").read_text(encoding="utf-8"), answers)
+    compose = render.compose_command(answers)
+    volume = f"{preflight.project_name(root)}_caddy_data"
+
+    tui.banner("Promote to the production CA", answers["hostname"])
+    tui.info("Rewrites the proxy configuration to use the production endpoint, then:")
+    tui.write()
+    tui.info("  1. stops the stack")
+    tui.info(f"  2. deletes the volume {volume}, discarding the staging account")
+    tui.info("     and any certificate issued under it")
+    tui.info("  3. starts again and obtains a trusted certificate")
+    tui.write()
+    tui.note("The database and project data are untouched.")
+
+    if dry_run:
+        tui.write()
+        tui.note("Dry run: nothing was written or restarted.")
+        return 0
+    if not assume_yes and not tui.confirm("Proceed?", default=True):
+        tui.warn("Cancelled. Nothing changed.")
+        return 130
+
+    apply(root, files)
+    tui.ok("Configuration rewritten for production")
+
+    steps = (
+        ("Stopping", compose + ["down"], True),
+        ("Discarding the staging certificate state", ["docker", "volume", "rm", volume], False),
+        ("Starting", compose + ["up", "-d", "--wait"], True),
+    )
+    for label, command, must_succeed in steps:
+        tui.write()
+        tui.note(label)
+        tui.info("$ " + " ".join(command))
+        result = subprocess.run(command, cwd=root)
+        if result.returncode != 0 and must_succeed:
+            tui.fail(f"{label} failed.", f"Inspect with: {' '.join(compose + ['logs', '--tail=100'])}")
+            return result.returncode
+
+    tui.write()
+    tui.ok("Promoted to the production CA")
+    tui.info("Watch issuance: " + " ".join(compose + ["logs", "-f", "caddy"]))
+    tui.info("Look for 'certificate obtained successfully' with ca acme-v02.")
+    return 0
 
 
 def build_caddy_image(answers: dict, root: Path) -> bool:
@@ -99,12 +189,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-preflight", action="store_true", help="skip environment checks")
     parser.add_argument("--skip-network-checks", action="store_true", help="skip egress and DNS probes")
     parser.add_argument("--start", action="store_true", help="build and start the stack when checks pass")
+    parser.add_argument("--promote", action="store_true",
+                        help="switch an existing deployment from the staging CA to production")
+    parser.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     args = parser.parse_args(argv)
 
     root: Path = args.root.resolve()
     example = root / ".env.example"
     if not example.is_file():
         raise SystemExit(f"{example} not found; run from a Prism checkout or pass --root")
+
+    if args.promote:
+        return promote(root, assume_yes=args.yes, dry_run=args.dry_run)
 
     try:
         if args.answers:

@@ -535,13 +535,11 @@ def render_next_steps(answers: dict) -> str:
             "browsers refuse to offer an exception for the staging one and the site",
             "simply cannot be opened until you switch to production.",
             "",
-            "Once issuance succeeds, re-run the installer and answer 'no' to staging, then",
-            "delete the Caddy data volume so the staging account is discarded:",
+            "Once issuance succeeds, promote in place. Nothing is re-asked, and the",
+            "database and project data are untouched:",
             "",
             "```bash",
-            " ".join(compose_command(answers, "down")),
-            "docker volume rm $(docker volume ls -q | grep caddy_data)",
-            started,
+            "./deploy.sh --promote        # deploy.ps1 --promote on Windows",
             "```",
         ]
 

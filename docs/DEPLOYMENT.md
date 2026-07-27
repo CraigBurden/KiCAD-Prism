@@ -114,9 +114,16 @@ cause of issuance failures that look like certificate problems.
 
 ```bash
 ./deploy.sh --dry-run                              # render and print, write nothing
+./deploy.sh --fresh                                # ignore any existing configuration
 ./deploy.sh --answers answers.json --non-interactive
 ./deploy.sh --start                                # bring the stack up when checks pass
+./deploy.sh --promote                              # staging CA -> production, in place
 ```
+
+`--promote` rewrites the proxy configuration for the production endpoint,
+discards the staging ACME account, and restarts, without re-asking anything.
+Secrets are read back from the generated `.env`, so the database password and
+session secret are preserved.
 
 `generated/` contains live credentials and is excluded from Git. Back it up
 with the rest of the deployment state.
@@ -336,9 +343,14 @@ Confirm success from the proxy logs rather than a browser. Prism sends
 served a trusted certificate, browsers will not offer an exception for the
 untrusted staging one.
 
-Confirm the challenge succeeds against staging, then remove the staging `ca` line,
-delete the `caddy-data` volume to discard the staging account, and restart. The
-certificate is issued when `/data/caddy/certificates` appears.
+Confirm the challenge succeeds against staging, then promote:
+
+```bash
+./deploy.sh --promote
+```
+
+That rewrites the configuration, discards the staging ACME account, and
+restarts. The certificate is issued when `/data/caddy/certificates` appears.
 
 #### Operational notes
 
