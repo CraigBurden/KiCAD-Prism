@@ -133,10 +133,42 @@ class TailscaleTests(unittest.TestCase):
 
     def test_next_steps_require_no_dns_or_firewall_work(self) -> None:
         steps = render.render_next_steps(answers_for(TAILSCALE))
-        self.assertIn("Nothing to do.", steps)
+        self.assertIn("Nothing to create.", steps)
         self.assertIn("Nothing to open.", steps)
         self.assertIn("MagicDNS", steps)
         self.assertIn("tailnet ACLs", steps)
+
+
+class TailscaleHostModeTests(unittest.TestCase):
+    """A host already on the tailnet needs no sidecar and no auth key."""
+
+    def _host_mode(self, **overrides) -> dict:
+        return answers_for(TAILSCALE, ts_mode="host", ts_authkey="", **overrides)
+
+    def test_no_sidecar_service(self) -> None:
+        overlay = render.render_compose(self._host_mode())
+        self.assertNotIn("tailscale:", overlay)
+        self.assertNotIn("tailscale-state", overlay)
+
+    def test_no_auth_key_in_the_env(self) -> None:
+        self.assertNotIn("TS_AUTHKEY", render.render_env(ENV_EXAMPLE, self._host_mode()))
+
+    def test_no_serve_config_file(self) -> None:
+        # Serve is configured on the host with one command, not from a file.
+        self.assertNotIn("generated/tailscale-serve.json", render.render_all(ENV_EXAMPLE, self._host_mode()))
+
+    def test_next_steps_give_the_serve_command_with_the_real_port(self) -> None:
+        steps = render.render_next_steps(self._host_mode(http_port="9090"))
+        self.assertIn("tailscale serve --bg 9090", steps)
+        self.assertIn("tailscale serve reset", steps)
+
+    def test_frontend_stays_on_loopback_for_serve_to_reach(self) -> None:
+        # Serve proxies to 127.0.0.1, and publishing wider would bypass the tailnet.
+        self.assertIn('"127.0.0.1:8080:80"', render.render_compose(self._host_mode()))
+
+    def test_sidecar_remains_the_default(self) -> None:
+        self.assertEqual(answers_for(TAILSCALE)["ts_mode"], "sidecar")
+        self.assertIn("tailscale:", render.render_compose(answers_for(TAILSCALE)))
 
 
 class PlainHttpTests(unittest.TestCase):

@@ -48,6 +48,7 @@ def normalise(answers: dict) -> dict:
         # The node name is the first label of the MagicDNS name; Tailscale
         # derives the certificate domain from it, so they cannot disagree.
         result["ts_hostname"] = hostname.split(".")[0]
+        result.setdefault("ts_mode", "sidecar")
     if scheme == PLAIN_HTTP:
         # No TLS terminator, so the frontend port is part of the public origin,
         # and a Secure cookie would never be sent back over http.
@@ -137,7 +138,7 @@ def env_values(answers: dict) -> dict[str, str]:
         values["DEV_GUEST_ROLE"] = answers.get("guest_role", "viewer")
     values.update(SIZINGS[answers["sizing"]].values)
 
-    if answers["scheme"] == TAILSCALE:
+    if answers["scheme"] == TAILSCALE and answers.get("ts_mode") == "sidecar":
         values["TS_AUTHKEY"] = answers["ts_authkey"]
 
     if answers["scheme"] == DNS_01:
@@ -276,7 +277,7 @@ def render_compose(answers: dict) -> str:
 
         blocks += caddy + volumes
 
-    if answers["scheme"] == TAILSCALE:
+    if answers["scheme"] == TAILSCALE and answers.get("ts_mode") == "sidecar":
         blocks += [
             "",
             "  tailscale:",
@@ -403,13 +404,32 @@ def render_next_steps(answers: dict) -> str:
         ]
     elif scheme == TAILSCALE:
         lines += [
-            "Nothing to do. Tailscale registers the MagicDNS name when the node joins,",
-            "and issues and renews the certificate itself.",
+            "Nothing to create. Tailscale registers the MagicDNS name and issues and",
+            "renews the certificate itself.",
             "",
-            f"Confirm the node appears in the admin console as `{answers['ts_hostname']}`",
-            "after the first start. If the certificate does not appear, check that",
-            "**MagicDNS** and **HTTPS Certificates** are both enabled on the DNS page.",
         ]
+        if answers.get("ts_mode") == "host":
+            lines += [
+                "This host is already on the tailnet, so no sidecar is used. Point",
+                "Tailscale Serve at the frontend once; it persists across reboots:",
+                "",
+                "```bash",
+                f"tailscale serve --bg {answers['http_port']}",
+                "tailscale serve status",
+                "```",
+                "",
+                f"Serve then proxies https://{answers['hostname']} to",
+                f"127.0.0.1:{answers['http_port']}, where the generated Compose overlay",
+                "publishes the frontend.",
+                "",
+                "To undo it later: `tailscale serve reset`.",
+            ]
+        else:
+            lines += [
+                f"Confirm the node appears in the admin console as `{answers['ts_hostname']}`",
+                "after the first start. If the certificate does not appear, check that",
+                "**MagicDNS** and **HTTPS Certificates** are both enabled on the DNS page.",
+            ]
     elif scheme == PLAIN_HTTP:
         lines += [
             f"Reach the workspace at `{answers['public_base_url']}`.",
@@ -562,6 +582,6 @@ def render_all(example: str, answers: dict) -> dict[str, str]:
     caddyfile = render_caddyfile(answers)
     if caddyfile is not None:
         files["generated/Caddyfile"] = caddyfile
-    if answers["scheme"] == TAILSCALE:
+    if answers["scheme"] == TAILSCALE and answers.get("ts_mode") == "sidecar":
         files["generated/tailscale-serve.json"] = render_serve_config(answers)
     return files

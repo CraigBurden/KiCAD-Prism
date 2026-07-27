@@ -41,8 +41,8 @@ def load_answers(path: Path) -> dict:
                 raise SystemExit(f"scheme dns-01 requires '{key}' in the answers file")
         if data["dns_provider"] not in DNS_PROVIDERS:
             raise SystemExit(f"unknown dns_provider '{data['dns_provider']}'")
-    if data["scheme"] == TAILSCALE and not data.get("ts_authkey"):
-        raise SystemExit("scheme tailscale requires 'ts_authkey' in the answers file")
+    if data["scheme"] == TAILSCALE and data.get("ts_mode", "sidecar") == "sidecar" and not data.get("ts_authkey"):
+        raise SystemExit("scheme tailscale in sidecar mode requires 'ts_authkey' in the answers file")
     return data
 
 

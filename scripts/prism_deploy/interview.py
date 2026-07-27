@@ -16,6 +16,7 @@ from pathlib import Path
 
 from . import tui
 from .apply import load_existing_env
+from .tailnet import local_node
 from .render import generate_secret
 from .schemes import (
     DNS_01,
@@ -86,9 +87,17 @@ def run(root: Path, *, fresh: bool = False) -> dict:
 
     tui.section("2", "Identity")
     if scheme == TAILSCALE:
+        node = local_node()
+        if node:
+            tui.ok(f"This host is on a tailnet as {node['name']}")
+            if not node["online"]:
+                tui.warn("The node is not currently online.")
+            if not node["cert_ready"]:
+                tui.warn("HTTPS Certificates are not enabled for this tailnet.",
+                         "Enable them on the DNS page of the admin console, or TLS cannot start.")
         answers["hostname"] = tui.ask(
             "MagicDNS name for this node",
-            default=_previous_hostname(existing),
+            default=(node or {}).get("name") or _previous_hostname(existing),
             description=(
                 "Tailscale issues certificates only for MagicDNS names, so this is\n"
                 "<node>.<tailnet>.ts.net. Pick any node name; the tailnet part is\n"
@@ -179,19 +188,38 @@ def run(root: Path, *, fresh: bool = False) -> dict:
 
     if scheme == TAILSCALE:
         tui.section("3", "Tailnet")
-        answers["ts_authkey"] = tui.ask_secret(
-            "Tailscale auth key",
+        on_tailnet = bool(node) and answers["hostname"] == node["name"]
+        answers["ts_mode"] = tui.select(
+            "How should Prism join the tailnet?",
+            [
+                ("host", "Use this host's Tailscale", "no sidecar, no auth key"),
+                ("sidecar", "Run a Tailscale container", "for hosts not on the tailnet"),
+            ],
+            default=0 if on_tailnet else 1,
             description=(
-                "Lets this container join your tailnet unattended. Generate a\n"
-                "reusable key, and leave 'Ephemeral' off so the node keeps its name\n"
-                "and certificate across restarts.\n"
-                "The key is used once at first start; state persists in a volume."
+                "If this machine is already on your tailnet, Tailscale Serve can\n"
+                "proxy to Prism directly and nothing extra needs to run or\n"
+                "authenticate. A sidecar is for hosts that are not members."
             ),
-            example="tskey-auth-kXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXX",
-            docs=DOCS_TS_KEYS,
-            validate=validate_tailscale_authkey,
+            docs=DOCS_TS_SERVE,
         )
-        tui.hint("Input is hidden, so the key stays out of scrollback and history.")
+        if answers["ts_mode"] == "host":
+            tui.note("No auth key needed; this host is already authenticated.")
+            tui.hint("The generated notes give the one 'tailscale serve' command to run.")
+        else:
+            answers["ts_authkey"] = tui.ask_secret(
+                "Tailscale auth key",
+                description=(
+                    "Lets this container join your tailnet unattended. Generate a\n"
+                    "reusable key, and leave 'Ephemeral' off so the node keeps its\n"
+                    "name and certificate across restarts.\n"
+                    "Used once at first start; state persists in a volume."
+                ),
+                example="tskey-auth-kXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXX",
+                docs=DOCS_TS_KEYS,
+                validate=validate_tailscale_authkey,
+            )
+            tui.hint("Input is hidden, so the key stays out of scrollback and history.")
         tui.note("Tailscale terminates TLS and renews the certificate itself.")
         tui.hint("No public DNS record, no inbound firewall rule, and nothing to renew.")
         tui.hint("Only devices on your tailnet can reach it.")

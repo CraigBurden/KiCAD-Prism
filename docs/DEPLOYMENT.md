@@ -229,8 +229,18 @@ Requirements, both on the DNS page of the Tailscale admin console:
 - **MagicDNS** enabled;
 - **HTTPS Certificates** enabled.
 
-The installer asks for the node's MagicDNS name and a reusable auth key, then
-writes a Serve configuration alongside the Compose overlay:
+There are two ways to attach, and the installer detects which applies:
+
+**The host is already on the tailnet.** Nothing extra runs and no auth key is
+needed. Point Serve at the frontend once; it persists across reboots:
+
+```bash
+tailscale serve --bg 8080
+```
+
+**The host is not a tailnet member.** A sidecar joins it. The installer asks for
+the node's MagicDNS name and a reusable auth key, then writes a Serve
+configuration alongside the Compose overlay:
 
 ```json
 {
