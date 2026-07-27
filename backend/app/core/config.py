@@ -7,7 +7,7 @@ Configuration can be set via:
 
 See .env.example for available configuration options.
 """
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 import os
@@ -183,6 +183,20 @@ class Settings(BaseSettings):
             "for any deployment whose PUBLIC_BASE_URL is HTTPS."
         ),
     )
+
+    @field_validator("SESSION_COOKIE_SECURE_OVERRIDE", mode="before")
+    @classmethod
+    def _blank_cookie_secure_is_unset(cls, value: object) -> object:
+        """Treat an empty value as unset so the PUBLIC_BASE_URL default applies.
+
+        docker-compose.yml passes `SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-}`,
+        so an operator who follows .env.example and leaves the setting commented out
+        still gets the variable in the container environment, as "". Without this,
+        pydantic rejects "" as a bool and the backend cannot start at all.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     AUTH_LOGIN_RATE_LIMIT: int = Field(
         default=10,
