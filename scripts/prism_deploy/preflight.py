@@ -16,9 +16,10 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-from .schemes import DNS_01, DNS_PROVIDERS, EXTERNAL_PROXY, HTTP_01
+from .schemes import DNS_01, DNS_PROVIDERS, EXTERNAL_PROXY, HTTP_01, TAILSCALE
 
 ACME_PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
+TAILSCALE_CONTROL = "https://controlplane.tailscale.com/health"
 PROBE_IMAGE = "curlimages/curl:latest"
 
 PROVIDER_PROBE = {
@@ -320,7 +321,8 @@ def run(answers: dict, root, *, compose: list[str], skip_network: bool = False) 
     scheme = answers["scheme"]
     report.add(check_hostname_resolves(answers["hostname"]))
     report.add(check_port_free(int(answers["http_port"]), "frontend"))
-    if scheme != EXTERNAL_PROXY:
+    # Tailscale listens on the tailnet interface, not on the host's 443.
+    if scheme not in (EXTERNAL_PROXY, TAILSCALE):
         report.add(check_port_free(443, "https"))
 
     if not skip_network:
@@ -339,7 +341,11 @@ def run(answers: dict, root, *, compose: list[str], skip_network: bool = False) 
                     check_egress(probe, DNS_PROVIDERS[answers["dns_provider"]].label,
                                  expect_any_http=True, dns_pin=dns_pin)
                 )
-        report.add(check_oidc_discovery(answers["oidc_issuer"]))
+        if scheme == TAILSCALE:
+            report.add(check_egress(TAILSCALE_CONTROL, "Tailscale control plane",
+                                    expect_any_http=True, dns_pin=dns_pin))
+        if answers.get("auth_enabled", True) and answers.get("oidc_issuer"):
+            report.add(check_oidc_discovery(answers["oidc_issuer"]))
 
     report.add(check_caddy_config(answers, root))
     report.add(check_compose_config(compose))

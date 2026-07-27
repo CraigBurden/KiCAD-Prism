@@ -213,6 +213,39 @@ For a private CA or custom certificate:
 3. distribute the issuing root CA to browsers and KiCad workstations;
 4. start the same `proxy` profile.
 
+### Tailscale
+
+If the team already uses Tailscale, this is the least work of any option. A
+sidecar joins the tailnet, Tailscale Serve terminates TLS under the node's
+MagicDNS name, and the certificate is issued and renewed for you.
+
+There is no public DNS record to create, no inbound firewall rule to open, no
+ACME credential to scope, and nothing to renew. Only devices on the tailnet can
+reach the service, and access is governed by tailnet ACLs in addition to Prism's
+own roles.
+
+Requirements, both on the DNS page of the Tailscale admin console:
+
+- **MagicDNS** enabled;
+- **HTTPS Certificates** enabled.
+
+The installer asks for the node's MagicDNS name and a reusable auth key, then
+writes a Serve configuration alongside the Compose overlay:
+
+```json
+{
+  "TCP": {"443": {"HTTPS": true}},
+  "Web": {"${TS_CERT_DOMAIN}:443": {"Handlers": {"/": {"Proxy": "http://frontend:80"}}}}
+}
+```
+
+The sidecar runs with `TS_USERSPACE=true`, so it needs neither `/dev/net/tun`
+nor `NET_ADMIN`. Node state persists in a named volume: without it the node
+re-authenticates on restart and may be renamed, which would change the
+certificate domain.
+
+Leave the key's *Ephemeral* option off for the same reason.
+
 ### Public certificates without inbound exposure (ACME DNS-01)
 
 Use this when Prism must present a publicly trusted certificate but the host

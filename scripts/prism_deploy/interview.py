@@ -25,6 +25,7 @@ from .schemes import (
     INTERNAL_CA,
     PLAIN_HTTP,
     PROVIDER_ORDER,
+    TAILSCALE,
     SCHEME_ORDER,
     SCHEMES,
     SIZING_ORDER,
@@ -33,7 +34,9 @@ from .schemes import (
     validate_host_or_local,
     validate_hostname,
     validate_issuer,
+    validate_magicdns,
     validate_port,
+    validate_tailscale_authkey,
     validate_resolver,
 )
 
@@ -42,6 +45,9 @@ DOCS_AUTH = "https://github.com/krishna-swaroop/KiCAD-Prism/blob/main/docs/AUTHE
 DOCS_CHALLENGES = "https://letsencrypt.org/docs/challenge-types/"
 DOCS_RATE_LIMITS = "https://letsencrypt.org/docs/rate-limits/"
 DOCS_CADDY_DNS = "https://github.com/caddy-dns"
+DOCS_TS_SERVE = "https://tailscale.com/kb/1312/serve"
+DOCS_TS_KEYS = "https://login.tailscale.com/admin/settings/keys"
+DOCS_TS_DNS = "https://login.tailscale.com/admin/dns"
 
 SCHEME_DETAIL = {
     DNS_01: "a TXT record proves control; nothing inbound",
@@ -49,6 +55,7 @@ SCHEME_DETAIL = {
     INTERNAL_CA: "clients must trust your CA",
     EXTERNAL_PROXY: "Prism on loopback, your proxy does TLS",
     PLAIN_HTTP: "no TLS; evaluation only, remote panel unsupported",
+    TAILSCALE: "tailnet-only; no DNS, firewall, or certificate work",
 }
 
 
@@ -78,7 +85,21 @@ def run(root: Path, *, fresh: bool = False) -> dict:
     scheme = answers["scheme"]
 
     tui.section("2", "Identity")
-    if scheme == PLAIN_HTTP:
+    if scheme == TAILSCALE:
+        answers["hostname"] = tui.ask(
+            "MagicDNS name for this node",
+            default=_previous_hostname(existing),
+            description=(
+                "Tailscale issues certificates only for MagicDNS names, so this is\n"
+                "<node>.<tailnet>.ts.net. Pick any node name; the tailnet part is\n"
+                "shown as 'Tailnet name' on the DNS page of the admin console.\n"
+                "MagicDNS and HTTPS Certificates must both be enabled there first."
+            ),
+            example="prism.tail1a2b3c.ts.net",
+            validate=validate_magicdns,
+            docs=DOCS_TS_DNS,
+        )
+    elif scheme == PLAIN_HTTP:
         answers["hostname"] = tui.ask(
             "Hostname or address",
             default=_previous_hostname(existing) or "localhost",
@@ -156,6 +177,25 @@ def run(root: Path, *, fresh: bool = False) -> dict:
                 validate=validate_resolver,
             )
 
+    if scheme == TAILSCALE:
+        tui.section("3", "Tailnet")
+        answers["ts_authkey"] = tui.ask_secret(
+            "Tailscale auth key",
+            description=(
+                "Lets this container join your tailnet unattended. Generate a\n"
+                "reusable key, and leave 'Ephemeral' off so the node keeps its name\n"
+                "and certificate across restarts.\n"
+                "The key is used once at first start; state persists in a volume."
+            ),
+            example="tskey-auth-kXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXX",
+            docs=DOCS_TS_KEYS,
+            validate=validate_tailscale_authkey,
+        )
+        tui.hint("Input is hidden, so the key stays out of scrollback and history.")
+        tui.note("Tailscale terminates TLS and renews the certificate itself.")
+        tui.hint("No public DNS record, no inbound firewall rule, and nothing to renew.")
+        tui.hint("Only devices on your tailnet can reach it.")
+
     if scheme == INTERNAL_CA:
         tui.section("3", "Certificates")
         answers["certificate_dir"] = tui.ask(
@@ -203,7 +243,7 @@ def run(root: Path, *, fresh: bool = False) -> dict:
                 description="Applies to every visitor, since there is no login.",
             )
 
-    step = 4 if scheme in (DNS_01, INTERNAL_CA, PLAIN_HTTP) else 3
+    step = 4 if scheme in (DNS_01, INTERNAL_CA, PLAIN_HTTP, TAILSCALE) else 3
     if scheme == PLAIN_HTTP and not answers["auth_enabled"]:
         answers.update(
             oidc_issuer="",

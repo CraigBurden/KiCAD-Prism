@@ -16,7 +16,7 @@ from pathlib import Path
 from . import interview, preflight, render, tui
 from .apply import apply
 from .render import CADDY_IMAGE_TAG
-from .schemes import DNS_01, DNS_PROVIDERS, SCHEMES
+from .schemes import DNS_01, DNS_PROVIDERS, SCHEMES, TAILSCALE
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -41,6 +41,8 @@ def load_answers(path: Path) -> dict:
                 raise SystemExit(f"scheme dns-01 requires '{key}' in the answers file")
         if data["dns_provider"] not in DNS_PROVIDERS:
             raise SystemExit(f"unknown dns_provider '{data['dns_provider']}'")
+    if data["scheme"] == TAILSCALE and not data.get("ts_authkey"):
+        raise SystemExit("scheme tailscale requires 'ts_authkey' in the answers file")
     return data
 
 

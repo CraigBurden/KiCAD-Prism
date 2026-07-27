@@ -184,7 +184,7 @@ jobs:
       - name: Validate generated Compose configuration for every scheme
         run: |
           set -euo pipefail
-          for scheme in dns-01 http-01 internal-ca external-proxy plain-http; do
+          for scheme in tailscale dns-01 http-01 internal-ca external-proxy plain-http; do
             python3 - "$scheme" > /tmp/answers.json <<'PY'
           import json, sys
           scheme = sys.argv[1]
@@ -203,6 +203,9 @@ jobs:
               )
           if scheme == "internal-ca":
               answers["certificate_dir"] = "./deploy/certs"
+          if scheme == "tailscale":
+              answers["hostname"] = "prism.tail1a2b3c.ts.net"
+              answers["ts_authkey"] = "tskey-auth-ci-placeholder"
           print(json.dumps(answers))
           PY
             mkdir -p deploy/certs && touch deploy/certs/prism.crt deploy/certs/prism.key

@@ -15,7 +15,9 @@ from pathlib import Path
 
 from prism_deploy import render
 from prism_deploy.apply import load_existing_env, write_text
-from prism_deploy.schemes import DNS_01, EXTERNAL_PROXY, HTTP_01, INTERNAL_CA, PLAIN_HTTP, SCHEMES
+from prism_deploy.schemes import (
+    DNS_01, EXTERNAL_PROXY, HTTP_01, INTERNAL_CA, PLAIN_HTTP, TAILSCALE, SCHEMES,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 ENV_EXAMPLE = (REPOSITORY_ROOT / ".env.example").read_text(encoding="utf-8")
@@ -34,11 +36,16 @@ BASE_ANSWERS = {
 
 def answers_for(scheme: str, **overrides) -> dict:
     answers = dict(BASE_ANSWERS, scheme=scheme)
+    if scheme == TAILSCALE:
+        answers["hostname"] = "prism.tail1a2b3c.ts.net"
     if scheme == DNS_01:
         answers.setdefault("dns_provider", "cloudflare")
         answers.setdefault("dns_credential", "token-value")
     if scheme == INTERNAL_CA:
         answers.setdefault("certificate_dir", "./deploy/certs")
+    if scheme == TAILSCALE:
+        answers.setdefault("hostname", "prism.tail1a2b3c.ts.net")
+        answers.setdefault("ts_authkey", "tskey-auth-example")
     answers.update(overrides)
     return render.normalise(answers)
 
@@ -82,6 +89,54 @@ class DerivationTests(unittest.TestCase):
     def test_supplied_secrets_are_preserved(self) -> None:
         answers = answers_for(HTTP_01, session_secret="k" * 20 + "abcdefghij0123456789")
         self.assertTrue(answers["session_secret"].startswith("kkkk"))
+
+
+class TailscaleTests(unittest.TestCase):
+    def test_origin_is_the_magicdns_name_over_https(self) -> None:
+        answers = answers_for(TAILSCALE)
+        self.assertEqual(answers["public_base_url"], "https://prism.tail1a2b3c.ts.net")
+        # Tailscale Serve listens on 443, so no port belongs in the origin.
+        self.assertNotIn(":8080", answers["public_base_url"])
+
+    def test_node_name_is_derived_from_the_magicdns_name(self) -> None:
+        # If these disagreed, the certificate domain would not match the origin.
+        self.assertEqual(answers_for(TAILSCALE)["ts_hostname"], "prism")
+
+    def test_no_caddy_and_no_proxy_compose(self) -> None:
+        answers = answers_for(TAILSCALE)
+        self.assertIsNone(render.render_caddyfile(answers))
+        self.assertNotIn("docker-compose.proxy.yml", render.compose_files(answers))
+
+    def test_sidecar_declares_its_state_volume(self) -> None:
+        # Without persisted state the node re-authenticates and may be renamed,
+        # which would change the certificate domain.
+        overlay = render.render_compose(answers_for(TAILSCALE))
+        self.assertIn("tailscale-state:/var/lib/tailscale", overlay)
+        self.assertIn("\nvolumes:\n  tailscale-state:", overlay)
+
+    def test_serve_config_targets_the_frontend_over_the_compose_network(self) -> None:
+        config = json.loads(render.render_serve_config(answers_for(TAILSCALE)))
+        self.assertTrue(config["TCP"]["443"]["HTTPS"])
+        handler = config["Web"]["${TS_CERT_DOMAIN}:443"]["Handlers"]["/"]
+        self.assertEqual(handler["Proxy"], "http://frontend:80")
+
+    def test_serve_config_is_generated_only_for_this_scheme(self) -> None:
+        self.assertIn("generated/tailscale-serve.json", render.render_all(ENV_EXAMPLE, answers_for(TAILSCALE)))
+        for scheme in (DNS_01, HTTP_01, INTERNAL_CA, EXTERNAL_PROXY, PLAIN_HTTP):
+            with self.subTest(scheme=scheme):
+                self.assertNotIn("generated/tailscale-serve.json", render.render_all(ENV_EXAMPLE, answers_for(scheme)))
+
+    def test_auth_key_reaches_the_env_and_is_redacted_from_the_plan(self) -> None:
+        answers = answers_for(TAILSCALE, ts_authkey="tskey-auth-supersecret")
+        self.assertIn("TS_AUTHKEY=tskey-auth-supersecret", render.render_env(ENV_EXAMPLE, answers))
+        self.assertNotIn("supersecret", render.render_plan(answers))
+
+    def test_next_steps_require_no_dns_or_firewall_work(self) -> None:
+        steps = render.render_next_steps(answers_for(TAILSCALE))
+        self.assertIn("Nothing to do.", steps)
+        self.assertIn("Nothing to open.", steps)
+        self.assertIn("MagicDNS", steps)
+        self.assertIn("tailnet ACLs", steps)
 
 
 class PlainHttpTests(unittest.TestCase):

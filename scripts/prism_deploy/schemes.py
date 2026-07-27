@@ -10,6 +10,7 @@ DNS_01 = "dns-01"
 INTERNAL_CA = "internal-ca"
 EXTERNAL_PROXY = "external-proxy"
 PLAIN_HTTP = "plain-http"
+TAILSCALE = "tailscale"
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,14 @@ SCHEMES: dict[str, Scheme] = {
         needs_dns_provider=False,
         needs_certificates=False,
     ),
+    TAILSCALE: Scheme(
+        TAILSCALE,
+        "Tailscale (MagicDNS + Serve)",
+        "reachable on your tailnet only; certificate handled for you",
+        runs_caddy=False,
+        needs_dns_provider=False,
+        needs_certificates=False,
+    ),
     PLAIN_HTTP: Scheme(
         PLAIN_HTTP,
         "Plain HTTP, no TLS",
@@ -67,7 +76,7 @@ SCHEMES: dict[str, Scheme] = {
 
 # Plain HTTP sits last: it is the only option that is not a way to run Prism
 # properly, and it should not be the one a hurried operator lands on first.
-SCHEME_ORDER = [DNS_01, HTTP_01, INTERNAL_CA, EXTERNAL_PROXY, PLAIN_HTTP]
+SCHEME_ORDER = [TAILSCALE, DNS_01, HTTP_01, INTERNAL_CA, EXTERNAL_PROXY, PLAIN_HTTP]
 
 
 @dataclass(frozen=True)
@@ -302,4 +311,29 @@ def validate_resolver(value: str) -> str | None:
         ipaddress.ip_address(value)
     except ValueError:
         return "Enter an IP address, not a hostname. Docker needs a literal here."
+    return None
+
+
+def validate_magicdns(value: str) -> str | None:
+    """A MagicDNS name: <node>.<tailnet>.ts.net.
+
+    Tailscale issues certificates only for MagicDNS names, so the hostname is
+    not a free choice here the way it is for the other schemes.
+    """
+    if value.startswith(("http://", "https://")):
+        return "Enter the bare MagicDNS name, without a scheme."
+    if not value.endswith(".ts.net"):
+        return "MagicDNS names end in .ts.net; find yours on the DNS page of the admin console."
+    if len(value.split(".")) < 4:
+        return "Expected <node>.<tailnet>.ts.net, for example prism.tail1a2b3c.ts.net."
+    if not _HOSTNAME.match(value):
+        return "That is not a valid hostname."
+    return None
+
+
+def validate_tailscale_authkey(value: str) -> str | None:
+    if not value.startswith("tskey-"):
+        return "Tailscale auth keys start with 'tskey-'. Generate one under Settings / Keys."
+    if value.startswith("tskey-client-"):
+        return "That is an OAuth client secret. Generate an auth key instead."
     return None

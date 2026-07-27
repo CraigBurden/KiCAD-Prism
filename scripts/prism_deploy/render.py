@@ -11,9 +11,13 @@ import json
 import secrets
 
 from . import schemes
-from .schemes import DNS_01, EXTERNAL_PROXY, HTTP_01, INTERNAL_CA, PLAIN_HTTP, DNS_PROVIDERS, SIZINGS
+from .schemes import (
+    DNS_01, EXTERNAL_PROXY, HTTP_01, INTERNAL_CA, PLAIN_HTTP, TAILSCALE,
+    DNS_PROVIDERS, SIZINGS,
+)
 
 CADDY_IMAGE_TAG = "kicad-prism-caddy-dns:2"
+TAILSCALE_IMAGE = "tailscale/tailscale:stable"
 
 SECRET_KEYS = frozenset({"POSTGRES_PASSWORD", "SESSION_SECRET", "OIDC_CLIENT_SECRET"})
 
@@ -40,6 +44,10 @@ def normalise(answers: dict) -> dict:
     result.setdefault("workspace_name", "KiCAD Prism")
     result.setdefault("acme_staging", scheme in (HTTP_01, DNS_01))
 
+    if scheme == TAILSCALE:
+        # The node name is the first label of the MagicDNS name; Tailscale
+        # derives the certificate domain from it, so they cannot disagree.
+        result["ts_hostname"] = hostname.split(".")[0]
     if scheme == PLAIN_HTTP:
         # No TLS terminator, so the frontend port is part of the public origin,
         # and a Secure cookie would never be sent back over http.
@@ -129,6 +137,9 @@ def env_values(answers: dict) -> dict[str, str]:
         values["DEV_GUEST_ROLE"] = answers.get("guest_role", "viewer")
     values.update(SIZINGS[answers["sizing"]].values)
 
+    if answers["scheme"] == TAILSCALE:
+        values["TS_AUTHKEY"] = answers["ts_authkey"]
+
     if answers["scheme"] == DNS_01:
         provider = DNS_PROVIDERS[answers["dns_provider"]]
         values["PRISM_CADDY_IMAGE"] = answers["caddy_image"]
@@ -142,7 +153,7 @@ def env_values(answers: dict) -> dict[str, str]:
 def render_caddyfile(answers: dict) -> str | None:
     """The proxy site config, or None when an external proxy terminates TLS."""
     scheme = answers["scheme"]
-    if scheme in (EXTERNAL_PROXY, PLAIN_HTTP):
+    if scheme in (EXTERNAL_PROXY, PLAIN_HTTP, TAILSCALE):
         return None
 
     hostname = answers["hostname"]
@@ -194,6 +205,23 @@ def render_caddyfile(answers: dict) -> str | None:
         "\t}\n"
         "}\n"
     )
+
+
+def render_serve_config(answers: dict) -> str:
+    """Tailscale Serve configuration: terminate TLS on 443, proxy to the frontend.
+
+    ${TS_CERT_DOMAIN} is substituted by the container with the node's MagicDNS
+    name, so this file does not need to repeat the hostname.
+    """
+    config = {
+        "TCP": {"443": {"HTTPS": True}},
+        "Web": {
+            "${TS_CERT_DOMAIN}:443": {
+                "Handlers": {"/": {"Proxy": "http://frontend:80"}}
+            }
+        },
+    }
+    return json.dumps(config, indent=2) + "\n"
 
 
 def render_compose(answers: dict) -> str:
@@ -248,6 +276,31 @@ def render_compose(answers: dict) -> str:
 
         blocks += caddy + volumes
 
+    if answers["scheme"] == TAILSCALE:
+        blocks += [
+            "",
+            "  tailscale:",
+            f"    image: {TAILSCALE_IMAGE}",
+            "    container_name: kicad-prism-tailscale",
+            "    restart: unless-stopped",
+            "    depends_on:",
+            "      - frontend",
+            "    environment:",
+            "      - TS_AUTHKEY=${TS_AUTHKEY:?Set TS_AUTHKEY in the generated .env}",
+            f"      - TS_HOSTNAME={answers['ts_hostname']}",
+            "      - TS_STATE_DIR=/var/lib/tailscale",
+            "      - TS_SERVE_CONFIG=/config/serve.json",
+            # Userspace networking avoids needing /dev/net/tun and NET_ADMIN.
+            # Serve proxies inside tailscaled, so no kernel interface is needed.
+            "      - TS_USERSPACE=true",
+            "    volumes:",
+            "      - ./generated/tailscale-serve.json:/config/serve.json:ro",
+            "      - tailscale-state:/var/lib/tailscale",
+            "",
+            "volumes:",
+            "  tailscale-state:",
+        ]
+
     return "\n".join(blocks) + "\n"
 
 
@@ -270,7 +323,11 @@ def compose_command(answers: dict, *args: str) -> list[str]:
 def render_plan(answers: dict) -> str:
     """A redacted record of the run, for re-runs and for support requests."""
     redacted = {
-        key: ("<redacted>" if key in ("session_secret", "postgres_password", "oidc_client_secret", "dns_credential") else value)
+        key: (
+            "<redacted>"
+            if key in ("session_secret", "postgres_password", "oidc_client_secret", "dns_credential", "ts_authkey")
+            else value
+        )
         for key, value in answers.items()
     }
     redacted.pop("extra_provider_env", None)
@@ -344,6 +401,15 @@ def render_next_steps(answers: dict) -> str:
             f"Point `{hostname}` at this host's public address, and make ports 80 and 443",
             "reachable from the internet. HTTP-01 requires the CA to connect inbound.",
         ]
+    elif scheme == TAILSCALE:
+        lines += [
+            "Nothing to do. Tailscale registers the MagicDNS name when the node joins,",
+            "and issues and renews the certificate itself.",
+            "",
+            f"Confirm the node appears in the admin console as `{answers['ts_hostname']}`",
+            "after the first start. If the certificate does not appear, check that",
+            "**MagicDNS** and **HTTPS Certificates** are both enabled on the DNS page.",
+        ]
     elif scheme == PLAIN_HTTP:
         lines += [
             f"Reach the workspace at `{answers['public_base_url']}`.",
@@ -364,7 +430,15 @@ def render_next_steps(answers: dict) -> str:
         lines += [f"Point `{hostname}` at this host on whichever DNS serves your users."]
 
     lines += ["", "## 2. Firewall", ""]
-    if scheme == PLAIN_HTTP:
+    if scheme == TAILSCALE:
+        lines += [
+            "Nothing to open. Traffic arrives over the tailnet, so no inbound port is",
+            "exposed on this host.",
+            "",
+            "Reachability is controlled by your tailnet ACLs rather than by a firewall.",
+            "Prism's own roles still apply on top of that.",
+        ]
+    elif scheme == PLAIN_HTTP:
         lines += [
             "Nothing to open for a loopback deployment. If you published on all",
             f"interfaces, restrict TCP {answers['http_port']} to the smallest set of",
@@ -488,4 +562,6 @@ def render_all(example: str, answers: dict) -> dict[str, str]:
     caddyfile = render_caddyfile(answers)
     if caddyfile is not None:
         files["generated/Caddyfile"] = caddyfile
+    if answers["scheme"] == TAILSCALE:
+        files["generated/tailscale-serve.json"] = render_serve_config(answers)
     return files
