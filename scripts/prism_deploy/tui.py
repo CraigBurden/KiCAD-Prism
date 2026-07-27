@@ -351,3 +351,4 @@ def confirm(label: str, *, default: bool = True, description: str = "", docs: st
             return True
         if raw in ("n", "no"):
             return False
+        fail("Answer y or n.")

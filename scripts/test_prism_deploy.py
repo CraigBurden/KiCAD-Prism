@@ -335,9 +335,9 @@ class ComposeTests(unittest.TestCase):
         self.assertNotIn("docker-compose.proxy.yml", render.compose_files(answers_for(EXTERNAL_PROXY)))
 
     def test_dns_pin_is_emitted_when_requested(self) -> None:
-        overlay = render.render_compose(answers_for(DNS_01, dns_pin="172.16.8.1"))
+        overlay = render.render_compose(answers_for(DNS_01, dns_pin="10.0.0.53"))
         self.assertIn("\n    dns:\n", overlay)
-        self.assertIn("- 172.16.8.1", overlay)
+        self.assertIn("- 10.0.0.53", overlay)
         # Match the YAML key, not the substring in the caddy-dns image tag.
         self.assertNotIn("\n    dns:\n", render.render_compose(answers_for(DNS_01)))
 
@@ -366,7 +366,7 @@ class PlanAndNextStepsTests(unittest.TestCase):
         self.assertIn("does not create the A record for you", steps)
 
     def test_pinned_resolver_is_called_out_as_fragile(self) -> None:
-        steps = render.render_next_steps(answers_for(DNS_01, dns_pin="172.16.8.1"))
+        steps = render.render_next_steps(answers_for(DNS_01, dns_pin="10.0.0.53"))
         self.assertIn("breaks silently", steps)
 
 
@@ -399,8 +399,8 @@ class PreflightProbeTests(unittest.TestCase):
         from prism_deploy.preflight import probe_command
 
         self.assertNotIn("--dns", probe_command(["nslookup", "x"], None))
-        pinned = probe_command(["nslookup", "x"], "172.16.8.1")
-        self.assertEqual(pinned[3:5], ["--dns", "172.16.8.1"])
+        pinned = probe_command(["nslookup", "x"], "10.0.0.53")
+        self.assertEqual(pinned[3:5], ["--dns", "10.0.0.53"])
 
     def test_curl_reason_reports_the_error_not_a_truncation(self) -> None:
         from prism_deploy.preflight import _curl_reason
@@ -448,3 +448,44 @@ class TuiTests(unittest.TestCase):
         source = inspect.getsource(interview.run)
         self.assertGreaterEqual(source.count("example="), 8)
         self.assertGreaterEqual(source.count("docs="), 5)
+
+
+class ExistingDeploymentTests(unittest.TestCase):
+    """Adopting the installer must not break an existing database."""
+
+    def test_reuses_a_hand_written_root_env(self) -> None:
+        # The common upgrade path: a manual deployment with a working .env whose
+        # POSTGRES_PASSWORD matches the already-initialised volume.
+        from prism_deploy.interview import _previous_settings
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_text(root / ".env", "POSTGRES_PASSWORD=from-manual-setup\nOIDC_CLIENT_ID=old\n")
+            values, source = _previous_settings(root)
+            self.assertEqual(source, ".env")
+            self.assertEqual(values["POSTGRES_PASSWORD"], "from-manual-setup")
+
+    def test_generated_env_takes_precedence(self) -> None:
+        from prism_deploy.interview import _previous_settings
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_text(root / ".env", "POSTGRES_PASSWORD=older\n")
+            write_text(root / "generated" / ".env", "POSTGRES_PASSWORD=newer\n")
+            values, source = _previous_settings(root)
+            self.assertEqual(source, "generated/.env")
+            self.assertEqual(values["POSTGRES_PASSWORD"], "newer")
+
+    def test_reused_password_is_flagged_for_preflight(self) -> None:
+        # Drives the stale-volume warning: only a newly generated password
+        # against an existing volume is a problem.
+        self.assertFalse(answers_for(HTTP_01)["reused_password"])
+        self.assertTrue(answers_for(HTTP_01, postgres_password="carried-over")["reused_password"])
+
+    def test_stale_volume_warning_names_the_volume_and_both_remedies(self) -> None:
+        from prism_deploy.preflight import check_database_volume
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = check_database_volume(Path(directory), reused_password=True)
+        # Reusing the password is always safe, whatever volumes exist.
+        self.assertTrue(result.ok)

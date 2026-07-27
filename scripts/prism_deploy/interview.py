@@ -63,10 +63,12 @@ SCHEME_DETAIL = {
 def run(root: Path, *, fresh: bool = False) -> dict:
     tui.banner("KiCAD Prism deployment", "Generates .env, proxy config, and a Compose overlay")
 
-    existing = {} if fresh else load_existing_env(root / "generated" / ".env")
+    existing, source = ({}, None) if fresh else _previous_settings(root)
     if existing:
-        tui.note("Found a previous configuration in generated/.env")
-        tui.hint("Secrets are reused unless you choose to regenerate them.")
+        tui.note(f"Reusing settings from {source}")
+        tui.hint("Secrets carry over, including the database password. That matters:")
+        tui.hint("PostgreSQL keeps the password from first initialisation, so a new")
+        tui.hint("one against an existing volume locks the backend out.")
         tui.hint("Pass --fresh to ignore it and start from nothing.")
     elif fresh:
         tui.note("Starting fresh; any existing generated/ is ignored and backed up.")
@@ -182,7 +184,7 @@ def run(root: Path, *, fresh: bool = False) -> dict:
                     "Your internal DNS server: the one this host itself uses.\n"
                     "Find it with 'Get-DnsClientServerAddress' or 'resolvectl status'."
                 ),
-                example="172.16.8.1",
+                example="10.0.0.53",
                 validate=validate_resolver,
             )
 
@@ -384,6 +386,21 @@ def run(root: Path, *, fresh: bool = False) -> dict:
     answers["session_secret"] = existing.get("SESSION_SECRET") or generate_secret(48)
     answers["postgres_password"] = existing.get("POSTGRES_PASSWORD") or generate_secret(32)
     return answers
+
+
+def _previous_settings(root: Path) -> tuple[dict[str, str], str | None]:
+    """Find settings from an earlier deployment, generated or hand-written.
+
+    A hand-written .env at the repository root is the common case for someone
+    moving to the installer from a manual setup. Its database password matches
+    the existing PostgreSQL volume, so carrying it over is what keeps the
+    upgrade from bricking the backend.
+    """
+    for relative in ("generated/.env", ".env"):
+        values = load_existing_env(root / relative)
+        if values:
+            return values, relative
+    return {}, None
 
 
 def _previous_hostname(existing: dict[str, str]) -> str:

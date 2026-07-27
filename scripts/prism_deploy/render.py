@@ -68,6 +68,7 @@ def normalise(answers: dict) -> dict:
         f"{base_url}/oauth/oidc/callback",
     ]
 
+    result["reused_password"] = bool(result.get("postgres_password"))
     for key in ("session_secret", "postgres_password"):
         if not result.get(key):
             result[key] = generate_secret(48 if key == "session_secret" else 32)

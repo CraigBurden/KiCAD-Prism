@@ -252,6 +252,38 @@ def check_dns_consistency(hostname: str, dns_pin: str | None = None) -> Result:
     return Result("Container DNS matches host", True, detail)
 
 
+def check_database_volume(root, reused_password: bool) -> Result:
+    """Warn when an existing database volume predates the generated password.
+
+    PostgreSQL stores the superuser password at first initialisation and ignores
+    POSTGRES_PASSWORD on every later start. A freshly generated password against
+    an existing volume therefore leaves the server healthy and the backend
+    unable to authenticate -- which reads as a Prism fault, not a stale volume.
+    """
+    project = root.name.lower().replace(" ", "").replace("_", "-")
+    code, output = _run(["docker", "volume", "ls", "--format", "{{.Name}}"], timeout=30)
+    if code != 0:
+        return Result("Database volume", True, "skipped, could not list volumes", severity=WARNING)
+
+    matches = [name for name in output.splitlines() if name.strip().endswith("prism-postgres-data")]
+    if not matches:
+        return Result("Database volume", True, "none yet; will initialise on first start")
+    if reused_password:
+        return Result("Database volume", True, f"{matches[0]} (password reused)")
+
+    return Result(
+        "Database volume",
+        False,
+        f"{matches[0]} already exists, but a new password was generated",
+        "PostgreSQL keeps the password from first initialisation, so the backend "
+        "will fail to authenticate. Either copy POSTGRES_PASSWORD from the old "
+        f".env into generated/.env, or discard the database with "
+        f"'docker volume rm {matches[0]}' -- which destroys users, projects, "
+        "comments, catalog, and audit records.",
+        severity=WARNING,
+    )
+
+
 def check_oidc_discovery(issuer: str) -> Result:
     url = issuer.rstrip("/") + "/.well-known/openid-configuration"
     try:
@@ -319,6 +351,7 @@ def run(answers: dict, root, *, compose: list[str], skip_network: bool = False) 
         return report
 
     scheme = answers["scheme"]
+    report.add(check_database_volume(root, answers.get("reused_password", False)))
     report.add(check_hostname_resolves(answers["hostname"]))
     report.add(check_port_free(int(answers["http_port"]), "frontend"))
     # Tailscale listens on the tailnet interface, not on the host's 443.
