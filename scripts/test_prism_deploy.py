@@ -228,3 +228,29 @@ class WriteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PreflightProbeTests(unittest.TestCase):
+    """The probes must describe the network path the deployment actually uses."""
+
+    def test_probe_honours_the_pinned_resolver(self) -> None:
+        # Without this the checks test a path no container in the deployment
+        # travels, and a working pinned configuration is reported as broken.
+        from prism_deploy.preflight import probe_command
+
+        self.assertNotIn("--dns", probe_command(["nslookup", "x"], None))
+        pinned = probe_command(["nslookup", "x"], "172.16.8.1")
+        self.assertEqual(pinned[3:5], ["--dns", "172.16.8.1"])
+
+    def test_curl_reason_reports_the_error_not_a_truncation(self) -> None:
+        from prism_deploy.preflight import _curl_reason
+
+        noisy = (
+            "* Trying 1.2.3.4:443...\n"
+            "curl: (60) SSL certificate problem: self-signed certificate\n"
+            "More details here: https://curl.se/docs/sslcerts.html\n"
+        )
+        self.assertEqual(
+            _curl_reason(noisy),
+            "curl: (60) SSL certificate problem: self-signed certificate",
+        )

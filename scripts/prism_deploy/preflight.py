@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from .schemes import DNS_01, DNS_PROVIDERS, EXTERNAL_PROXY, HTTP_01
 
 ACME_PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
+PROBE_IMAGE = "curlimages/curl:latest"
+
 PROVIDER_PROBE = {
     "cloudflare": "https://api.cloudflare.com/client/v4/user/tokens/verify",
     "route53": "https://route53.amazonaws.com/",
@@ -68,6 +70,27 @@ def _run(command: list[str], timeout: int = 60) -> tuple[int, str]:
     except subprocess.TimeoutExpired:
         return 124, "timed out"
     return completed.returncode, (completed.stdout + completed.stderr).strip()
+
+
+def _run_split(command: list[str], timeout: int = 60) -> tuple[int, str, str]:
+    """Like _run, but keeps stdout and stderr apart.
+
+    curl writes the status code to stdout while Docker writes image-pull
+    progress to stderr. Merging them makes the first probe on a clean host
+    report a failure that is really just a pull.
+    """
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return 127, "", f"{command[0]} not found"
+    except subprocess.TimeoutExpired:
+        return 124, "", "timed out"
+    return done.returncode, done.stdout.strip(), done.stderr.strip()
+
+
+def ensure_probe_image() -> None:
+    """Pull the probe image once so its progress output cannot pollute a check."""
+    _run(["docker", "pull", "--quiet", PROBE_IMAGE], timeout=180)
 
 
 def check_docker() -> Result:
@@ -131,25 +154,47 @@ def check_port_free(port: int, label: str) -> Result:
     return Result(f"Port {port} free", True)
 
 
-def check_egress(url: str, label: str, *, expect_any_http: bool = False) -> Result:
+def probe_command(args: list[str], dns_pin: str | None) -> list[str]:
+    """Build a `docker run` probe that resolves the way the proxy will.
+
+    When the deployment pins a resolver, the probe must pin the same one.
+    Otherwise the probe tests a path the real containers never use, and a
+    working configuration is reported as broken.
+    """
+    command = ["docker", "run", "--rm"]
+    if dns_pin:
+        command += ["--dns", dns_pin]
+    return command + [PROBE_IMAGE, *args]
+
+
+def _curl_reason(output: str) -> str:
+    """Pull the meaningful line out of curl's output rather than truncating it."""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    for line in lines:
+        if line.startswith("curl:"):
+            return line
+    return lines[0] if lines else "no response"
+
+
+def check_egress(url: str, label: str, *, expect_any_http: bool = False, dns_pin: str | None = None) -> Result:
     """Reach `url` from inside a container on the default bridge network.
 
     Uses the same curl-bearing image the stack already pulls, so this adds no
     new dependency. A TLS error here is the signature of an intercepting or
     blocking appliance.
     """
-    code, output = _run(
-        [
-            "docker", "run", "--rm", "curlimages/curl:latest",
-            "-sS", "-o", "/dev/null", "-w", "%{http_code}",
-            "--max-time", "20", url,
-        ],
+    code, stdout, stderr = _run_split(
+        probe_command(
+            ["-sS", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "20", url],
+            dns_pin,
+        ),
         timeout=90,
     )
     if code == 127:
         return Result(f"Container egress: {label}", True, "skipped, could not run probe", severity=WARNING)
 
-    status = output.strip().splitlines()[-1] if output else ""
+    output = stderr
+    status = stdout.strip().splitlines()[-1] if stdout.strip() else ""
     if code == 0 and status.isdigit() and status != "000":
         if expect_any_http or status.startswith("2"):
             return Result(f"Container egress: {label}", True, f"HTTP {status}")
@@ -160,21 +205,22 @@ def check_egress(url: str, label: str, *, expect_any_http: bool = False) -> Resu
     if "self-signed" in lowered or "certificate" in lowered:
         hint = (
             "The certificate presented is not the real one. A filtering appliance "
-            "is intercepting or blocking this hostname for containers. Exempt it "
-            "from TLS/DNS inspection, or pin the container resolver."
+            "is intercepting or blocking this hostname for containers. "
         )
-    return Result(f"Container egress: {label}", False, output.strip()[-300:] or "no response", hint)
+        hint += (
+            "The pinned resolver did not avoid it; ask for the hostname to be exempted."
+            if dns_pin
+            else "Exempt it from TLS/DNS inspection, or pin the container resolver."
+        )
+    return Result(f"Container egress: {label}", False, _curl_reason(output), hint)
 
 
-def check_dns_consistency(hostname: str) -> Result:
+def check_dns_consistency(hostname: str, dns_pin: str | None = None) -> Result:
     """Compare what a container resolves against what the host resolves.
 
     An address the host does not return is the fingerprint of DNS filtering.
     """
-    code, output = _run(
-        ["docker", "run", "--rm", "curlimages/curl:latest", "nslookup", hostname],
-        timeout=90,
-    )
+    code, output = _run(probe_command(["nslookup", hostname], dns_pin), timeout=90)
     if code != 0:
         return Result("Container DNS matches host", True, "skipped, could not run probe", severity=WARNING)
 
@@ -190,16 +236,19 @@ def check_dns_consistency(hostname: str) -> Result:
 
     extra = container - host - {"127.0.0.11"}
     if extra:
-        return Result(
-            "Container DNS matches host",
-            False,
-            f"container also returned {', '.join(sorted(extra))}",
+        fix = (
             "Those addresses are not what the host sees, which means container DNS "
-            "is being filtered. Pin the container resolver to your internal DNS "
-            "server, or have the hostname exempted.",
-            severity=WARNING,
+            "is being filtered. "
         )
-    return Result("Container DNS matches host", True)
+        fix += (
+            f"The pin on {dns_pin} did not prevent it; ask for the hostname to be exempted."
+            if dns_pin
+            else "Pin the container resolver to your internal DNS server, or have "
+            "the hostname exempted."
+        )
+        return Result("Container DNS matches host", False, f"container also returned {', '.join(sorted(extra))}", fix, severity=WARNING)
+    detail = f"resolver {dns_pin}" if dns_pin else ""
+    return Result("Container DNS matches host", True, detail)
 
 
 def check_oidc_discovery(issuer: str) -> Result:
@@ -275,14 +324,21 @@ def run(answers: dict, root, *, compose: list[str], skip_network: bool = False) 
         report.add(check_port_free(443, "https"))
 
     if not skip_network:
+        # Probe through the same resolver the proxy will use, or the checks
+        # describe a network path no container in this deployment travels.
+        dns_pin = answers.get("dns_pin")
+        ensure_probe_image()
         if scheme in (HTTP_01, DNS_01):
-            report.add(check_egress(ACME_PRODUCTION, "Let's Encrypt", expect_any_http=True))
-            report.add(check_dns_consistency("acme-v02.api.letsencrypt.org"))
+            report.add(check_egress(ACME_PRODUCTION, "Let's Encrypt", expect_any_http=True, dns_pin=dns_pin))
+            report.add(check_dns_consistency("acme-v02.api.letsencrypt.org", dns_pin))
         if scheme == DNS_01:
             probe = PROVIDER_PROBE.get(answers["dns_provider"])
             if probe:
                 # 401/403 is success here: TLS completed and the API answered.
-                report.add(check_egress(probe, DNS_PROVIDERS[answers["dns_provider"]].label, expect_any_http=True))
+                report.add(
+                    check_egress(probe, DNS_PROVIDERS[answers["dns_provider"]].label,
+                                 expect_any_http=True, dns_pin=dns_pin)
+                )
         report.add(check_oidc_discovery(answers["oidc_issuer"]))
 
     report.add(check_caddy_config(answers, root))
