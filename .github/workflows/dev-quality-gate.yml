@@ -83,7 +83,10 @@ jobs:
       DEV_GUEST_ROLE: admin
       KICAD_PROJECTS_ROOT: ${{ github.workspace }}/.ci-data/projects
       PRISM_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/kicad_prism_test
-      TEST_POSTGRES_URL: postgresql://postgres@127.0.0.1:5432/kicad_prism_test
+      # The catalog integration suite refuses to run against the application
+      # database, because it drops and rebuilds schema objects. Pointing both
+      # names at one database silently skipped the entire suite.
+      TEST_POSTGRES_URL: postgresql://postgres@127.0.0.1:5432/kicad_prism_catalog_test
 
     steps:
       - name: Check out source
@@ -99,11 +102,24 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Create the isolated catalog test database
+        run: psql "$PRISM_DATABASE_URL" -c 'CREATE DATABASE kicad_prism_catalog_test'
+
       - name: Compile Python sources
         run: python -m compileall -q app
 
       - name: Run backend tests
         run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Require the catalog integration suite to have run
+        run: |
+          # These tests skip themselves when TEST_POSTGRES_URL is missing or
+          # points at the application database, so a silent skip looks green.
+          python -m unittest tests.test_component_catalog_postgres_integration -v 2>&1 | tee result.log
+          if grep -q "skipped" result.log; then
+            echo "Catalog integration tests skipped; check TEST_POSTGRES_URL." >&2
+            exit 1
+          fi
 
   semantic-viewer:
     name: Semantic viewer
@@ -194,6 +210,10 @@ jobs:
       - name: Test the deployment installer
         working-directory: scripts
         run: python3 -m unittest test_prism_deploy
+
+      - name: Test the backup tool
+        working-directory: scripts
+        run: python3 -m unittest test_prism_backup
 
       - name: Validate generated Compose configuration for every scheme
         run: |
