@@ -254,3 +254,37 @@ class PreflightProbeTests(unittest.TestCase):
             _curl_reason(noisy),
             "curl: (60) SSL certificate problem: self-signed certificate",
         )
+
+
+class TuiTests(unittest.TestCase):
+    def test_menu_rows_never_wrap(self) -> None:
+        # select() redraws by moving the cursor up len(options) lines, so a row
+        # that wraps to two lines corrupts every subsequent frame.
+        from prism_deploy import tui
+        from prism_deploy.interview import SCHEME_DETAIL
+        from prism_deploy.schemes import SCHEME_ORDER, SCHEMES
+
+        limit = tui.width()
+        for key in SCHEME_ORDER:
+            label = SCHEMES[key].label
+            row = f"  > {label}  {tui._fit(SCHEME_DETAIL[key], limit - len(label) - 6)}"
+            with self.subTest(scheme=key):
+                self.assertLessEqual(len(row), limit)
+
+    def test_fit_ellipsises_rather_than_wrapping(self) -> None:
+        from prism_deploy.tui import _fit
+
+        self.assertEqual(_fit("short", 20), "short")
+        self.assertEqual(_fit("a" * 30, 10), "a" * 9 + "…")
+        self.assertEqual(_fit("anything", 0), "")
+
+    def test_every_prompt_offers_an_example_or_docs_link(self) -> None:
+        # The point of the interview is that a first-time operator does not need
+        # the deployment guide open alongside it.
+        import inspect
+
+        from prism_deploy import interview
+
+        source = inspect.getsource(interview.run)
+        self.assertGreaterEqual(source.count("example="), 8)
+        self.assertGreaterEqual(source.count("docs="), 5)

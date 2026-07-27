@@ -88,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--non-interactive", action="store_true", help="fail rather than prompt")
     parser.add_argument("--dry-run", action="store_true", help="render to stdout without writing")
     parser.add_argument("--root", type=Path, default=REPOSITORY_ROOT, help="repository root")
+    parser.add_argument("--fresh", action="store_true", help="ignore any existing generated/ configuration")
     parser.add_argument("--skip-preflight", action="store_true", help="skip environment checks")
     parser.add_argument("--skip-network-checks", action="store_true", help="skip egress and DNS probes")
     parser.add_argument("--start", action="store_true", help="build and start the stack when checks pass")
@@ -104,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.non_interactive:
             raise SystemExit("--non-interactive requires --answers")
         else:
-            raw = interview.run(root)
+            raw = interview.run(root, fresh=args.fresh)
     except tui.Abort:
         tui.write()
         tui.warn("Cancelled. Nothing was written.")

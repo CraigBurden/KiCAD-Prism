@@ -68,6 +68,8 @@ class DnsProvider:
     env_var: str
     credential_label: str
     credential_hint: str
+    credential_example: str
+    credential_docs: str
 
 
 # The directive body is what goes inside the `tls { dns ... }` block. Providers
@@ -81,6 +83,8 @@ DNS_PROVIDERS: dict[str, DnsProvider] = {
         "CLOUDFLARE_API_TOKEN",
         "Cloudflare API token",
         "Scoped token with Zone / DNS / Edit on this zone. Not the Global API Key.",
+        "cfut_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "https://dash.cloudflare.com/profile/api-tokens",
     ),
     "route53": DnsProvider(
         "route53",
@@ -90,6 +94,8 @@ DNS_PROVIDERS: dict[str, DnsProvider] = {
         "AWS_SECRET_ACCESS_KEY",
         "AWS secret access key",
         "Also set AWS_ACCESS_KEY_ID and AWS_REGION in the generated .env.",
+        "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html",
     ),
     "digitalocean": DnsProvider(
         "digitalocean",
@@ -99,6 +105,8 @@ DNS_PROVIDERS: dict[str, DnsProvider] = {
         "DO_AUTH_TOKEN",
         "DigitalOcean API token",
         "Personal access token with write scope.",
+        "dop_v1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "https://cloud.digitalocean.com/account/api/tokens",
     ),
     "googleclouddns": DnsProvider(
         "googleclouddns",
@@ -108,6 +116,8 @@ DNS_PROVIDERS: dict[str, DnsProvider] = {
         "GCE_PROJECT",
         "Google Cloud project ID",
         "Service account credentials are read from GOOGLE_APPLICATION_CREDENTIALS.",
+        "my-gcp-project-123456",
+        "https://console.cloud.google.com/net-services/dns",
     ),
     "azure": DnsProvider(
         "azure",
@@ -117,6 +127,8 @@ DNS_PROVIDERS: dict[str, DnsProvider] = {
         "AZURE_CLIENT_SECRET",
         "Azure client secret",
         "Also set AZURE_TENANT_ID, AZURE_CLIENT_ID, and the resource group in .env.",
+        "Abc8Q~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "https://portal.azure.com",
     ),
     "desec": DnsProvider(
         "desec",
@@ -126,6 +138,8 @@ DNS_PROVIDERS: dict[str, DnsProvider] = {
         "DESEC_TOKEN",
         "deSEC API token",
         "Token scoped to the delegation zone.",
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "https://desec.io/tokens",
     ),
 }
 
@@ -239,4 +253,15 @@ def validate_session_secret(value: str) -> str | None:
         return "Must be at least 32 characters."
     if len(set(value)) < 8:
         return "Must contain at least 8 distinct characters."
+    return None
+
+
+def validate_resolver(value: str) -> str | None:
+    """Accept an IPv4 or IPv6 literal. A hostname here cannot be resolved yet."""
+    import ipaddress
+
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return "Enter an IP address, not a hostname. Docker needs a literal here."
     return None

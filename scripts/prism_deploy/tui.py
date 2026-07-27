@@ -55,14 +55,29 @@ def _c(code: str) -> str:
     return code if COLOUR else ""
 
 
-# 173 is a muted orange that stays legible on both light and dark terminals.
-ACCENT = _c("\x1b[38;5;173m")
+def _truecolour() -> bool:
+    return os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit")
+
+
+def _rgb(red: int, green: int, blue: int, fallback: int) -> str:
+    """24-bit colour where the terminal advertises it, else the closest xterm index."""
+    if not COLOUR:
+        return ""
+    if _truecolour():
+        return f"\x1b[38;2;{red};{green};{blue}m"
+    return f"\x1b[38;5;{fallback}m"
+
+
+# shadcn/ui default primary, hsl(221.2 83.2% 53.3%) == #2563eb.
+ACCENT = _rgb(0x25, 0x63, 0xEB, 27)
+# The 400-weight step above it, for supporting detail that should not compete.
+ACCENT_SOFT = _rgb(0x60, 0xA5, 0xFA, 75)
 DIM = _c("\x1b[2m")
 BOLD = _c("\x1b[1m")
-GREEN = _c("\x1b[38;5;71m")
-RED = _c("\x1b[38;5;167m")
-YELLOW = _c("\x1b[38;5;179m")
-BLUE = _c("\x1b[38;5;110m")
+GREEN = _rgb(0x16, 0xA3, 0x4A, 71)
+RED = _rgb(0xDC, 0x26, 0x26, 167)
+YELLOW = _rgb(0xCA, 0x8A, 0x04, 179)
+BLUE = ACCENT_SOFT
 RESET = _c("\x1b[0m")
 
 TICK = "✓"
@@ -184,13 +199,39 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def select(question: str, options: list[tuple[str, str, str]], default: int = 0) -> str:
+def _fit(text: str, limit: int) -> str:
+    """Shorten to `limit` columns, ellipsising rather than wrapping."""
+    if limit <= 1:
+        return ""
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _context(description: str = "", example: str = "", docs: str = "") -> None:
+    """Print the explanation, a worked example, and where to read more."""
+    if description:
+        for line in description.split("\n"):
+            hint(line)
+    if example:
+        write(f"  {DIM}e.g.{RESET} {ACCENT_SOFT}{example}{RESET}")
+    if docs:
+        write(f"  {DIM}docs{RESET} {DIM}{docs}{RESET}")
+
+
+def select(
+    question: str,
+    options: list[tuple[str, str, str]],
+    default: int = 0,
+    *,
+    description: str = "",
+    docs: str = "",
+) -> str:
     """Choose one option. Each option is (value, label, description).
 
     Uses arrow keys on a TTY and falls back to numbered entry otherwise.
     """
     write()
     write(f"  {BOLD}{question}{RESET}")
+    _context(description, docs=docs)
 
     if not _interactive():
         write()
@@ -211,12 +252,17 @@ def select(question: str, options: list[tuple[str, str, str]], default: int = 0)
     while True:
         if rendered:
             sys.stdout.write(f"\x1b[{len(options)}A")
+        limit = width()
         for index, (_, label, description) in enumerate(options):
             sys.stdout.write("\x1b[2K")
+            # Each row must occupy exactly one line: the redraw moves the cursor
+            # up by len(options), so a wrapped row corrupts the whole menu.
+            detail = _fit(description, limit - len(label) - 6)
+            gap = "  " if detail else ""
             if index == cursor:
-                sys.stdout.write(f"  {ACCENT}{ARROW}{RESET} {BOLD}{label}{RESET}  {DIM}{description}{RESET}\n")
+                sys.stdout.write(f"  {ACCENT}{ARROW}{RESET} {BOLD}{label}{RESET}{gap}{DIM}{detail}{RESET}\n")
             else:
-                sys.stdout.write(f"    {label}  {DIM}{description}{RESET}\n")
+                sys.stdout.write(f"    {label}{gap}{DIM}{detail}{RESET}\n")
         sys.stdout.flush()
         rendered = True
 
@@ -239,14 +285,15 @@ def ask(
     *,
     default: str = "",
     description: str = "",
+    example: str = "",
+    docs: str = "",
     validate=None,
     allow_empty: bool = False,
 ) -> str:
     """Prompt for a line of text, re-asking until `validate` accepts it."""
     write()
     write(f"  {BOLD}{label}{RESET}")
-    if description:
-        hint(description)
+    _context(description, example, docs)
     suffix = f" {DIM}({default}){RESET}" if default else ""
     while True:
         try:
@@ -265,14 +312,13 @@ def ask(
         return value
 
 
-def ask_secret(label: str, *, description: str = "", validate=None) -> str:
+def ask_secret(label: str, *, description: str = "", example: str = "", docs: str = "", validate=None) -> str:
     """Prompt without echoing. Keeps credentials out of scrollback and history."""
     import getpass
 
     write()
     write(f"  {BOLD}{label}{RESET}")
-    if description:
-        hint(description)
+    _context(description, example, docs)
     while True:
         try:
             value = getpass.getpass(f"  {ARROW} ").strip()
@@ -289,7 +335,10 @@ def ask_secret(label: str, *, description: str = "", validate=None) -> str:
         return value
 
 
-def confirm(label: str, *, default: bool = True) -> bool:
+def confirm(label: str, *, default: bool = True, description: str = "", docs: str = "") -> bool:
+    if description or docs:
+        write()
+        _context(description, docs=docs)
     choices = "Y/n" if default else "y/N"
     while True:
         try:
