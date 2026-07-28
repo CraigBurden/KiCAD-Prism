@@ -15,11 +15,12 @@ import os
 import re
 import shutil
 import subprocess
+import multiprocessing
 import tempfile
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -288,9 +289,19 @@ def _semantic_timing_callback(
 
 def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-    temporary.replace(path)
+    # The temporary name carries the writer's identity. A fixed `.tmp`
+    # suffix is only safe while one process writes a given cache entry, and
+    # the revision stages now build in worker processes -- two writers
+    # racing on one name would interleave into a corrupt file that then
+    # gets renamed into place as if it were whole.
+    temporary = path.with_suffix(f"{path.suffix}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+        )
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _load_or_build_initial_revision(
@@ -2486,6 +2497,46 @@ def _stage_worker_count(stage: str, revision_count: int) -> int:
     return max(1, min(2, configured, revision_count))
 
 
+def _revision_processes_enabled() -> bool:
+    """Whether the two revisions are compiled in separate processes.
+
+    Stage 1 is pure CPU work -- lexing and parsing schematics -- so running
+    the two revisions on threads leaves them serialised behind the GIL and
+    the pool buys nothing. Processes are the default for that reason; the
+    switch exists so a constrained deployment can go back to one address
+    space, and so the unit tests can stay in-process.
+    """
+    raw = os.environ.get("PRISM_DESIGN_COMPARE_REVISION_PROCESSES", "1").strip()
+    return raw.lower() not in {"0", "false", "no", "off"}
+
+
+def _initial_revision_task(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Build one initial revision, callable from a worker process.
+
+    Everything crossing the boundary has to pickle, so the caller's logs
+    list, progress callback and benchmark recorder cannot come along. The
+    worker collects its own and hands them back for the parent to merge.
+    """
+    logs: List[str] = []
+    benchmark: Optional[DesignCompareBenchmark] = None
+    if payload.get("benchmark_job_id"):
+        benchmark = DesignCompareBenchmark(job_id=payload["benchmark_job_id"])
+
+    revision = _load_or_build_initial_revision(
+        payload["project_id"],
+        Path(payload["repo_path"]),
+        payload["relative_path"],
+        payload["commit"],
+        logs,
+        benchmark=benchmark,
+    )
+    return {
+        "revision": revision,
+        "logs": logs,
+        "events": benchmark.drain_events() if benchmark is not None else [],
+    }
+
+
 def _build_initial_revisions(
     project_id: str,
     repo_path: Path,
@@ -2525,15 +2576,51 @@ def _build_initial_revisions(
         return revision, local_logs
 
     heartbeat("Building Schematic and BOM assets…", 10)
-    with ThreadPoolExecutor(
-        max_workers=max_workers,
-        thread_name_prefix="design-compare-initial",
-    ) as executor:
-        futures = {executor.submit(build, commit): commit for commit in unique_commits}
+
+    use_processes = max_workers > 1 and _revision_processes_enabled()
+    if use_processes:
+        # `spawn` rather than the Linux default `fork`: this runs inside a
+        # threaded server, and forking a process that holds locks in other
+        # threads is a deadlock waiting to happen.
+        executor = ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=multiprocessing.get_context("spawn"),
+        )
+        submit = lambda commit: executor.submit(  # noqa: E731
+            _initial_revision_task,
+            {
+                "project_id": project_id,
+                "repo_path": str(repo_path),
+                "relative_path": relative_path,
+                "commit": commit,
+                "benchmark_job_id": benchmark.job_id if benchmark is not None else None,
+            },
+        )
+    else:
+        executor = ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="design-compare-initial",
+        )
+        submit = lambda commit: executor.submit(build, commit)  # noqa: E731
+
+    stage_started_ms = time.perf_counter() * 1000
+    try:
+        futures = {submit(commit): commit for commit in unique_commits}
         try:
             for future in as_completed(futures):
                 commit = futures[future]
-                revision, local_logs = future.result()
+                result = future.result()
+                if use_processes:
+                    revision = result["revision"]
+                    local_logs = result["logs"]
+                    if benchmark is not None and result["events"]:
+                        benchmark.absorb_events(
+                            result["events"],
+                            offset_ms=stage_started_ms - benchmark.started_ms,
+                            thread=f"design-compare-initial-{commit[:7]}",
+                        )
+                else:
+                    revision, local_logs = result
                 revisions[commit] = revision
                 revision_logs[commit] = local_logs
                 with state_lock:
@@ -2544,6 +2631,8 @@ def _build_initial_revisions(
             for future in futures:
                 future.cancel()
             raise
+    finally:
+        executor.shutdown(wait=True)
     return revisions, revision_logs
 
 
