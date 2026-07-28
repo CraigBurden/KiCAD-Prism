@@ -423,5 +423,101 @@ class SemanticIndexServiceTests(unittest.TestCase):
         self.assertEqual(net["schematicRefs"][0]["pinUuids"], ["pin-u30-16"])
 
 
+class BalancedSExpressionTests(unittest.TestCase):
+    """The scanner steps between structural characters rather than over all of
+    them, so the cases that matter are the ones where a paren is not structural."""
+
+    def test_it_returns_the_offset_past_the_closing_paren(self) -> None:
+        text = "(symbol (at 1 2))tail"
+        self.assertEqual(
+            semantic_index_service._balanced_s_expression_end(text, 0),
+            len("(symbol (at 1 2))"),
+        )
+
+    def test_parens_inside_a_string_do_not_change_depth(self) -> None:
+        text = '(property "Value" "TPS55289 (rev B)")after'
+        end = semantic_index_service._balanced_s_expression_end(text, 0)
+        self.assertEqual(text[:end], '(property "Value" "TPS55289 (rev B)")')
+
+    def test_an_escaped_quote_does_not_end_the_string(self) -> None:
+        text = r'(property "Note" "a \" (b" ) rest'
+        end = semantic_index_service._balanced_s_expression_end(text, 0)
+        self.assertEqual(text[:end], r'(property "Note" "a \" (b" )')
+
+    def test_an_unterminated_form_reports_no_end(self) -> None:
+        self.assertIsNone(
+            semantic_index_service._balanced_s_expression_end("(symbol (at 1", 0)
+        )
+
+    def test_an_unterminated_string_reports_no_end(self) -> None:
+        self.assertIsNone(
+            semantic_index_service._balanced_s_expression_end('(property "open', 0)
+        )
+
+
+class SchematicInstanceFieldTests(unittest.TestCase):
+    LIBRARY = """
+\t(lib_symbols
+\t\t(symbol "Device:R"
+\t\t\t(property "Reference" "R")
+\t\t\t(symbol "R_0_1" (rectangle (start 0 0) (end 1 1)))
+\t\t)
+\t)
+"""
+    PLACED = """
+\t(symbol
+\t\t(lib_id "Device:R")
+\t\t(uuid "placed-uuid-1")
+\t\t(property "Reference" "R7")
+\t\t(property "Datasheet" "https://example.invalid/r.pdf")
+\t\t(pin "1" (uuid "pin-uuid-1"))
+\t)
+"""
+
+    def _fields(self, body: str) -> dict:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "sheet.kicad_sch").write_text(
+                f"(kicad_sch{body})", encoding="utf-8"
+            )
+            return semantic_index_service._schematic_instance_fields(
+                root / "board.kicad_pro"
+            )
+
+    def test_a_placed_symbol_contributes_its_properties(self) -> None:
+        fields = self._fields(self.LIBRARY + self.PLACED)
+
+        self.assertEqual(list(fields), ["placed-uuid-1"])
+        self.assertEqual(fields["placed-uuid-1"]["Reference"], "R7")
+        self.assertEqual(
+            fields["placed-uuid-1"]["Datasheet"], "https://example.invalid/r.pdf"
+        )
+
+    def test_library_definitions_are_not_mistaken_for_instances(self) -> None:
+        """The library's own `(property "Reference" "R")` must not appear."""
+        self.assertEqual(self._fields(self.LIBRARY), {})
+
+    def test_a_placed_symbol_before_the_library_block_is_still_found(self) -> None:
+        """The library span is skipped in place, not used as a starting offset.
+
+        KiCad writes `lib_symbols` ahead of the placed symbols, so this ordering
+        does not occur today. It is asserted because the cheaper alternative —
+        beginning the scan after the library block — would silently drop every
+        symbol here, and silence is exactly the wrong failure for an overlay
+        that feeds the BOM.
+        """
+        fields = self._fields(self.PLACED + self.LIBRARY)
+
+        self.assertEqual(list(fields), ["placed-uuid-1"])
+
+    def test_a_sheet_without_a_library_block_still_scans(self) -> None:
+        self.assertEqual(list(self._fields(self.PLACED)), ["placed-uuid-1"])
+
+    def test_the_symbol_uuid_wins_over_its_pin_uuids(self) -> None:
+        fields = self._fields(self.LIBRARY + self.PLACED)
+
+        self.assertNotIn("pin-uuid-1", fields)
+
+
 if __name__ == "__main__":
     unittest.main()

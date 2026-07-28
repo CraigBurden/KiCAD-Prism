@@ -221,31 +221,71 @@ def _string(value: object) -> str:
     return str(value)
 
 
+# Only quotes and parentheses can change the nesting state of an
+# S-expression, so the scan below jumps straight from one to the next rather
+# than inspecting every character in between.
+_SEXPR_STRUCTURE = re.compile(r'["()]')
+# A string body: any run of non-quote, non-backslash characters, plus escape
+# pairs.  Anchored after an opening quote, this consumes through the closer.
+_SEXPR_STRING_BODY = re.compile(r'(?:[^"\\]|\\.)*"')
+
+
 def _balanced_s_expression_end(text: str, start: int) -> int | None:
-    """Find the end offset of a KiCad S-expression without parsing geometry."""
+    """Find the end offset of a KiCad S-expression without parsing geometry.
+
+    Schematics and boards run to megabytes, and this is called once per
+    candidate form, so it steps between structural characters at regex speed
+    instead of looping over every character in Python.
+    """
 
     depth = 0
-    in_string = False
-    escaped = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
+    index = start
+    while True:
+        match = _SEXPR_STRUCTURE.search(text, index)
+        if match is None:
+            return None
+        char = match.group()
+        index = match.end()
         if char == '"':
-            in_string = True
+            body = _SEXPR_STRING_BODY.match(text, index)
+            if body is None:  # unterminated string; nothing sane left to scan
+                return None
+            index = body.end()
         elif char == "(":
             depth += 1
-        elif char == ")":
+        else:
             depth -= 1
             if depth == 0:
-                return index + 1
-    return None
+                return index
+            if depth < 0:  # started past the opening paren
+                return None
+
+
+_LIB_SYMBOLS_START = re.compile(r"\(lib_symbols(?=\s|\))")
+
+
+def _library_block_span(text: str) -> tuple[int, int]:
+    """Locate a schematic's `(lib_symbols …)`, as a half-open offset range.
+
+    A sheet carries a library definition for each distinct part placed on it,
+    and each definition wraps two or three draw units that are themselves
+    `(symbol …)` forms.  Those inner forms outnumber the placed symbols several
+    times over and hold none of the instance data this overlay reads, but the
+    scan below used to walk every one of them to its closing paren before
+    discarding it for having no `lib_id`.
+
+    This returns the span so the caller can skip those forms specifically,
+    rather than skipping everything ahead of the library block — placed symbols
+    happen to follow it in the files KiCad writes today, and quietly dropping
+    them if that ever stopped holding would be a much worse bug than the cost
+    this avoids.  An empty range means the sheet has no library block.
+    """
+
+    match = _LIB_SYMBOLS_START.search(text)
+    if match is None:
+        return (0, 0)
+    end = _balanced_s_expression_end(text, match.start())
+    return (match.start(), end) if end is not None else (0, 0)
 
 
 def _schematic_instance_fields(project_file: Path) -> dict[str, dict[str, str]]:
@@ -265,7 +305,10 @@ def _schematic_instance_fields(project_file: Path) -> dict[str, dict[str, str]]:
     uuid_pattern = re.compile(r'\(uuid\s+"((?:\\.|[^"\\])*)"\)')
     for schematic_path in sorted(project_file.parent.rglob("*.kicad_sch")):
         text = schematic_path.read_text(encoding="utf-8", errors="ignore")
+        library_start, library_end = _library_block_span(text)
         for match in symbol_start.finditer(text):
+            if library_start <= match.start() < library_end:
+                continue
             end = _balanced_s_expression_end(text, match.start())
             if end is None:
                 continue
