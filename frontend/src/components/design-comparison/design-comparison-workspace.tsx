@@ -36,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { fetchApi, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CATEGORY_META, mergedKind, type Category, type DiffKind } from "@/lib/diff-grouping";
+import { CHANGE_KIND_LABEL, ChangeStatusDot } from "./change-status";
 import { ComparisonPresentationShell } from "./comparison-presentation-shell";
 import type { ComparisonSelection } from "./comparison-selection-bridge";
 import {
@@ -94,14 +95,10 @@ interface SemanticFocus {
     net?: string | null;
 }
 
-const STATUS_META: Array<{
-    id: ChangeKind;
-    label: string;
-    marker: string;
-}> = [
-    { id: "added", label: "Added", marker: "bg-success" },
-    { id: "changed", label: "Modified", marker: "bg-warning" },
-    { id: "removed", label: "Removed", marker: "bg-destructive" },
+const STATUS_META: Array<{ id: ChangeKind; label: string }> = [
+    { id: "added", label: CHANGE_KIND_LABEL.added },
+    { id: "changed", label: CHANGE_KIND_LABEL.changed },
+    { id: "removed", label: CHANGE_KIND_LABEL.removed },
 ];
 
 function normalizeCategory(category: string): Category {
@@ -258,9 +255,10 @@ function changeSummary(change: ChangeItem): string {
             return `${field}: ${String(value.old ?? "—")} → ${String(value.new ?? "—")}`;
         }
     }
-    if (change.kind === "added") return "Added";
-    if (change.kind === "removed") return "Removed";
-    return "Modified";
+    // No fallback to "Added"/"Removed"/"Modified": the status mark already says
+    // that, and repeating it as a second line doubled the height of rows that
+    // had nothing else to report. Rows with no detail collapse to one line.
+    return "";
 }
 
 export function readInitialUrlState(
@@ -385,7 +383,7 @@ function DifferencesPane({
                             onClick={() => onToggleStatus(status.id)}
                             aria-pressed={statuses.has(status.id)}
                         >
-                            <span className={cn("mr-1.5 h-2 w-2 rounded-full", status.marker)} />
+                            <ChangeStatusDot kind={status.id} className="mr-1.5" />
                             {status.label}
                         </Button>
                     ))}
@@ -455,29 +453,37 @@ function DifferencesPane({
                                 </summary>
                                 <div className="space-y-0.5">
                                     {categoryGroups.map((group) => {
-                                        const expanded = expandedGroupIds.has(group.id);
+                                        // A group holding one change has nothing
+                                        // to expand into, and most groups are
+                                        // that. Those rows lose the chevron and
+                                        // its indent entirely.
+                                        const splittable = group.changes.length > 1;
+                                        const expanded =
+                                            splittable && expandedGroupIds.has(group.id);
                                         const selected = selectedGroupId === group.id
                                             || selectedGroup?.id === group.id;
-                                        const status = STATUS_META.find((item) => item.id === group.kind)!;
                                         const primaryChange = group.changes[0]!;
+                                        const summary = changeSummary(primaryChange);
                                         return (
                                             <div key={group.id}>
                                                 <button
                                                     type="button"
                                                     data-group-id={group.id}
                                                     className={cn(
-                                                        "flex w-full items-center gap-2 border-l-2 px-2 py-2 text-left text-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                                        "flex w-full items-center gap-2 border-l-2 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                                         selected
                                                             ? "border-primary bg-accent text-accent-foreground"
                                                             : "border-transparent",
                                                     )}
                                                     onClick={() => {
-                                                        setExpandedGroupIds((current) => {
-                                                            const next = new Set(current);
-                                                            if (next.has(group.id)) next.delete(group.id);
-                                                            else next.add(group.id);
-                                                            return next;
-                                                        });
+                                                        if (splittable) {
+                                                            setExpandedGroupIds((current) => {
+                                                                const next = new Set(current);
+                                                                if (next.has(group.id)) next.delete(group.id);
+                                                                else next.add(group.id);
+                                                                return next;
+                                                            });
+                                                        }
                                                         onSelectGroup(group);
                                                     }}
                                                     onMouseEnter={() =>
@@ -493,20 +499,14 @@ function DifferencesPane({
                                                             onNext();
                                                         }
                                                     }}
-                                                    aria-expanded={expanded}
+                                                    aria-expanded={splittable ? expanded : undefined}
                                                 >
-                                                    {expanded
-                                                        ? <ChevronDown className="h-3 w-3 shrink-0" />
-                                                        : <ChevronRight className="h-3 w-3 shrink-0" />}
-                                                    <span
-                                                        className={cn(
-                                                            "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-primary-foreground",
-                                                            status.marker,
-                                                        )}
-                                                        aria-label={status.label}
-                                                    >
-                                                        {group.kind === "added" ? "A" : group.kind === "removed" ? "R" : "M"}
-                                                    </span>
+                                                    {splittable ? (
+                                                        expanded
+                                                            ? <ChevronDown className="h-3 w-3 shrink-0" />
+                                                            : <ChevronRight className="h-3 w-3 shrink-0" />
+                                                    ) : null}
+                                                    <ChangeStatusDot kind={group.kind} />
                                                     <span className="min-w-0 flex-1">
                                                         <span className="flex items-center gap-1.5">
                                                             <span className="truncate font-medium">{group.label}</span>
@@ -516,9 +516,11 @@ function DifferencesPane({
                                                                 </span>
                                                             )}
                                                         </span>
-                                                        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                                                            {changeSummary(primaryChange)}
-                                                        </span>
+                                                        {summary && (
+                                                            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                                                                {summary}
+                                                            </span>
+                                                        )}
                                                     </span>
                                                     {group.unresolvedCount > 0 && (
                                                         <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground">

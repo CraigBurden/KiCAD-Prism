@@ -278,7 +278,10 @@ describe("semantic comparison state", () => {
         )).toEqual({ kind: "change", id: "/wire-two" });
     });
 
-    it("maps semantic changes to side-by-side focus targets by kind", () => {
+    it("moves both panes even when a change exists on only one side", () => {
+        // Both panes show the same board in the same coordinates. Selecting an
+        // addition should still travel the base pane to where it appeared, so
+        // the reviewer can see what used to be there.
         expect(resolveSideBySideFocus([
             {
                 ...change("added-1", "added", "uuid-new"),
@@ -290,8 +293,9 @@ describe("semantic comparison state", () => {
             },
         ])).toEqual({
             page: "board.kicad_pcb",
-            baseBounds: undefined,
+            baseBounds: [1, 2, 3, 4],
             compareBounds: [1, 2, 3, 4],
+            // No base-side object exists to select, only an area to look at.
             baseUuid: null,
             compareUuid: "uuid-new",
         });
@@ -307,7 +311,8 @@ describe("semantic comparison state", () => {
         ])).toEqual({
             page: null,
             baseBounds: [5, 6, 7, 8],
-            compareBounds: undefined,
+            // The deletion left a gap; the compare pane travels there to show it.
+            compareBounds: [5, 6, 7, 8],
             baseUuid: "uuid-old",
             compareUuid: null,
         });
