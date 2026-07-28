@@ -1011,7 +1011,15 @@ class DesignCompareServiceTests(unittest.TestCase):
 
         with mock.patch.dict(
             os.environ,
-            {"PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS": "2"},
+            {
+                "PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS": "2",
+                # A threading.Barrier only synchronises within one process,
+                # and a patched module attribute does not survive into a
+                # spawned worker. This case is about the fan-out mechanics,
+                # so it stays in-process; the worker contract used by the
+                # process path is covered separately below.
+                "PRISM_DESIGN_COMPARE_REVISION_PROCESSES": "0",
+            },
         ), mock.patch.object(
             design_compare_service,
             "_load_or_build_initial_revision",
@@ -1028,6 +1036,68 @@ class DesignCompareServiceTests(unittest.TestCase):
 
         self.assertEqual(set(revisions), {"base", "head"})
         self.assertEqual(logs["head"], ["initial head"])
+
+    def test_revision_processes_are_the_default_and_can_be_switched_off(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PRISM_DESIGN_COMPARE_REVISION_PROCESSES", None)
+            self.assertTrue(design_compare_service._revision_processes_enabled())
+        for disabled in ("0", "false", "no", "off", "OFF"):
+            with mock.patch.dict(
+                os.environ,
+                {"PRISM_DESIGN_COMPARE_REVISION_PROCESSES": disabled},
+            ):
+                self.assertFalse(
+                    design_compare_service._revision_processes_enabled(),
+                    msg=f"{disabled!r} should disable the process pool",
+                )
+
+    def test_initial_revision_task_returns_logs_and_events_for_the_parent(self) -> None:
+        # The worker runs where the caller's logs list, progress callback and
+        # benchmark cannot reach it, so it has to hand all three back.
+        def fake_initial(_project, repo, _relative, commit, logs, **kwargs):
+            logs.append(f"built {commit}")
+            benchmark = kwargs["benchmark"]
+            benchmark.mark("snapshot", scope=f"revision:{commit}:initial")
+            self.assertEqual(repo, Path("/repo"))
+            return {"commit": commit}
+
+        with mock.patch.object(
+            design_compare_service,
+            "_load_or_build_initial_revision",
+            side_effect=fake_initial,
+        ):
+            result = design_compare_service._initial_revision_task({
+                "project_id": "project",
+                "repo_path": "/repo",
+                "relative_path": None,
+                "commit": "head",
+                "benchmark_job_id": "job-1",
+            })
+
+        self.assertEqual(result["revision"], {"commit": "head"})
+        self.assertEqual(result["logs"], ["built head"])
+        self.assertEqual([event["phase"] for event in result["events"]], ["snapshot"])
+
+    def test_initial_revision_task_skips_benchmarking_when_unrequested(self) -> None:
+        def fake_initial(_project, _repo, _relative, commit, logs, **kwargs):
+            self.assertIsNone(kwargs["benchmark"])
+            logs.append(commit)
+            return {"commit": commit}
+
+        with mock.patch.object(
+            design_compare_service,
+            "_load_or_build_initial_revision",
+            side_effect=fake_initial,
+        ):
+            result = design_compare_service._initial_revision_task({
+                "project_id": "project",
+                "repo_path": "/repo",
+                "relative_path": None,
+                "commit": "base",
+                "benchmark_job_id": None,
+            })
+
+        self.assertEqual(result["events"], [])
 
     def test_pcb_stage_workers_overlap_and_reuse_initial_revisions(self) -> None:
         barrier = threading.Barrier(2)

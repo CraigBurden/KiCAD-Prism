@@ -105,11 +105,29 @@ ENV PRISM_KICAD_MONKEY_SOURCE=pypi-release
 # docker-compose.local-kicad-monkey.yml, so normal deployments do not need a
 # sibling kicad-monkey checkout.
 FROM prism-runtime AS kicad-monkey-local
+# Install the matching kicad-cruncher release first, then put the working
+# tree in last. Installing it the other way round quietly undid the whole
+# point of this target: `--upgrade` re-resolved kicad-cruncher's dependency
+# on kicad-monkey and pulled the newest release from PyPI straight over the
+# local install, so the image ran published code while reporting
+# PRISM_KICAD_MONKEY_SOURCE=local-working-tree.
+#
+# The final assertion fails the build rather than shipping an image whose
+# kicad-monkey is not the one that was mounted.
 RUN --mount=from=kicad_monkey,source=/,target=/tmp/kicad-monkey,ro \
-    uv pip install --no-cache-dir --no-deps --reinstall /tmp/kicad-monkey \
-    && KICAD_MONKEY_VERSION="$(python -c 'import kicad_monkey; print(kicad_monkey.__version__)')" \
+    KICAD_MONKEY_VERSION="$(python -c 'import tomllib,sys; print(tomllib.load(open("/tmp/kicad-monkey/pyproject.toml","rb"))["project"]["version"])')" \
     && uv pip install --no-cache-dir --upgrade "kicad-cruncher==${KICAD_MONKEY_VERSION}" \
-    && uv pip check
+    && uv pip install --no-cache-dir --no-deps --reinstall /tmp/kicad-monkey \
+    && uv pip check \
+    && python - <<'PY'
+import pathlib, sys, kicad_monkey
+installed = pathlib.Path(kicad_monkey.__file__).parent
+mounted = pathlib.Path("/tmp/kicad-monkey/src/py/kicad_monkey")
+for name in sorted(p.name for p in mounted.glob("*.py")):
+    if not (installed / name).exists():
+        sys.exit(f"local working tree not installed: {name} is missing from {installed}")
+print(f"kicad-monkey {kicad_monkey.__version__} installed from the mounted working tree")
+PY
 ENV PRISM_KICAD_MONKEY_SOURCE=local-working-tree
 
 FROM ${KICAD_MONKEY_VARIANT} AS final

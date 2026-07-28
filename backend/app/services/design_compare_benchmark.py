@@ -111,6 +111,44 @@ class DesignCompareBenchmark:
         with self._lock:
             self._metadata.update(values)
 
+    @property
+    def started_ms(self) -> float:
+        """This recorder's origin on the same clock ``time.perf_counter`` reads."""
+        return self._started_ns / 1_000_000
+
+    def drain_events(self) -> list[dict[str, Any]]:
+        """Return this recorder's events so a worker can ship them home.
+
+        A revision built in a separate process records against its own
+        timeline; the parent replays the events through ``absorb_events`` so
+        one comparison still produces one benchmark artifact.
+        """
+        with self._lock:
+            return [dict(event) for event in self._events]
+
+    def absorb_events(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        offset_ms: float = 0.0,
+        thread: str | None = None,
+    ) -> None:
+        """Merge events recorded elsewhere onto this recorder's timeline.
+
+        ``startedMs`` arrives relative to the worker's own start, so it is
+        shifted by the parent-observed offset. Without that the spans would
+        all appear to begin at zero and the critical path would be unreadable.
+        """
+        with self._lock:
+            for event in events:
+                shifted = dict(event)
+                shifted["startedMs"] = round(
+                    float(shifted.get("startedMs", 0.0)) + offset_ms, 3
+                )
+                if thread is not None:
+                    shifted["thread"] = thread
+                self._events.append(shifted)
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             events = sorted(
