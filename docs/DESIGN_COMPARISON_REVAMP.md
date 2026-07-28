@@ -1,6 +1,20 @@
 # Design Comparison: a leaner implementation
 
-Status: proposal. Nothing here is implemented.
+Status: proposal, revision 2. Phase 0A is implemented; nothing else is.
+
+Revision 2 folds in a design review of revision 1. The architectural centre is
+unchanged — one authoritative comparison, backend owns electrical meaning,
+viewer owns painted geometry. Six things changed, all of them because
+revision 1 was wrong or optimistic:
+
+| # | Revision 1 said | Revision 2 says |
+| --- | --- | --- |
+| 1 | replace the sidecar with `{uuid, kind, layer, parentUuid, hash}` | the sidecar carries **identity routing**, not just geometry; the digest must carry `documentPath` and `instancePath` too |
+| 2 | Phase 0 measures `diagnostics` | those diagnostics **cannot see** painted-bounds failure; new reasons required |
+| 3 | one prepared scene drives three views | one comparison **session**; Composite's scene cannot render a faithful reference view |
+| 4 | make `KiCadItemChange.bbox` optional | split the type — keep the native contract strict, add a Prism input type |
+| 5 | add `getPreparedTargets()` | unnecessary; `loadDocumentComparison` already returns the map |
+| 6 | ~1.5 MB, 8.3 s → 5.5 s | ~2.3–4 MB, and 5.5 s is an upside target not a commitment |
 
 ## The problem in one sentence
 
@@ -19,10 +33,13 @@ two unrelated viewer APIs depending on which of the three views is on screen.
 | `_semantic_bom_rows` | — | 1.14 MB |
 | **`revision.json`** | | **32.15 MB** |
 
+`revision.json` is a server-side cache artifact, not a client payload. Its size
+costs disk, serialisation and cache I/O per revision; the browser only receives
+the per-change `geometry` fragments attached to change records.
+
 `_diff_designs` turns the two indexes into Prism change records.
 `document_diff_service.build_project_diff` then normalises those into a
-KiCad-shaped `PROJECT_DIFF` plus a `navigation` sidecar, filling every `bbox`
-from the geometry sidecar.
+KiCad-shaped `PROJECT_DIFF` plus a `navigation` sidecar.
 
 The geometry sidecar's bounds are **hardcoded constant boxes**:
 
@@ -33,11 +50,13 @@ symbol_bounds = [at[0] - 2.54, at[1] - 2.54, 5.08, 5.08]   # every symbol
 ```
 
 Real values from a cached artifact: `[120.65, 238.76, 5.08, 5.08]`,
-`[50.187, 72.75, 10, 10]`. Same size for a 0402 and a BGA.
+`[50.187, 72.75, 10, 10]`. Same size for a 0402 and a BGA. When bounds are
+absent entirely, `_bbox_iu` manufactures `[0, 0, 0, 0]`
+(`document_diff_service.py:81`) — a focusable target at the origin.
 
 ### Frontend
 
-Three presentation modes, **two rendering paths**:
+Three presentation modes, **two rendering paths**, three viewer instances:
 
 | Mode | Viewer API | Bounds from |
 | --- | --- | --- |
@@ -45,9 +64,11 @@ Three presentation modes, **two rendering paths**:
 | Side-by-side | `setRevisionDiffPresentation` → `selectRevisionDiff` | backend (constant boxes) |
 | Old/New | `setRevisionDiffPresentation` → `selectRevisionDiff` | backend (constant boxes) |
 
-`comparison-presentation-shell.tsx` is 2,092 lines carrying four viewer slots
-(`compositeViewer`, `baseViewer`, `compareViewer`, `oldNewViewer`), two
-lifecycle paths, and two selection bridges.
+`comparison-presentation-shell.tsx` is 2,092 lines. It holds three viewer
+instances — `compositeViewer`, `baseViewer`, `compareViewer` — and Old/New
+**aliases** one of the latter two rather than owning a fourth
+(`comparison-presentation-shell.tsx:943`). The duplication to remove is two
+preparation and selection paths, not four viewers.
 
 ### ecad-viewer
 
@@ -99,35 +120,89 @@ by-product of geometry**.
 ### Principle
 
 The three views are not three renderers. They are three arrangements of one
-prepared comparison. Prepare once; switching view changes cameras and
-visibility, never the model.
+prepared comparison. Prepare once; switching view changes cameras, viewports
+and visibility, never the identity model.
 
-And: **the backend owns identity and connectivity; the viewer owns geometry.**
-The backend should never emit a coordinate.
+And: **the backend owns identity and connectivity; the viewer owns painted
+geometry.** The backend should not emit a coordinate that the viewer could
+compute.
 
-### 1. Replace `_extract_geometry` with an object digest
+### 1. Replace `_extract_geometry` with an *identity* digest
 
-The backend still has to *detect* that an object changed — the viewer presents
-a diff, it does not compute one. But it does not need geometry to do that.
+The sidecar is misnamed. Beyond bounds it supplies document routing, object
+kind, parent identity for pins, and semantic enrichment — and
+`document_diff_service` depends on all of it:
 
-Per object, one depth-aware pass per file:
+- `_document_path` reads `geometry["page"]` **before** any other source
+  (`document_diff_service.py:65-72`);
+- `_item_change` derives `typeName` from `geometry["kind"]` (`:128`);
+- `test_native_geometry_page_overrides_human_hierarchy_and_folds_siblings`
+  exists precisely because the sidecar corrects a human hierarchy string into
+  a loadable `.kicad_sch` path.
+
+Deleting bounds is safe. Deleting routing is not. The digest is therefore:
 
 ```
-{ uuid, kind, layer, parentUuid, hash }        # hash of the normalised body
+{
+  sourceId,          # native UUID
+  kind,              # symbol | pin | footprint | zone | track | gr_line | ...
+  documentPath,      # loadable path, e.g. "Subsheets/USB.kicad_sch"
+  instancePath?,     # KIID_PATH for hierarchical instances
+  layer?,            # PCB only
+  parentSourceId?,   # pins → owning symbol, pads → owning footprint
+  hash               # 64-bit hash of the normalised body
+}
 ```
 
-No coordinates, no point lists, no bounds. The diff is a set difference on
-`uuid` plus a hash comparison. Bounds are resolved later by the viewer from
-`sourceId`.
+No coordinates, no point lists, no bounds. `documentPath` + `instancePath`
+matter because the viewer architecture defines schematic identity as
+`projectPath + KIID_PATH`, not filename or terminal UUID alone.
 
-- one pass instead of 18 (`_extract_geometry` runs one `finditer` per kind)
-- depth-aware, so the 687 zones nested at depth 3 are not dropped
-- every kind, closing the 1,034-object gap for free
-- ~1.5 MB instead of 28.96 MB (≈40 bytes × 38k objects)
+For **components and footprints only**, add a small structured digest beside
+the hash:
 
-The honest limitation: a hash says *that* an object changed, not *what*
-changed. For board graphics and routing that is enough — the viewer shows you.
-For components we keep the full property diff, which is tier 2 below.
+```
+{ at, rotation, mirror, layer, netId }
+```
+
+Five scalars, no point arrays. This is what makes "U4 moved 2 mm" possible
+instead of "U4 modified", and it is the difference between a change list a
+reviewer can read and one they must click through. Routing and graphics stay
+hash-only for now — the canvas communicates those better than words do.
+
+Gains, unchanged from revision 1:
+
+- one depth-aware pass instead of 18 (`_extract_geometry` runs one `finditer`
+  per kind)
+- the 687 zones nested at depth 3 stop being dropped
+- every kind covered, closing the 1,034-object gap
+
+#### Digest rules
+
+A naive "hash the normalised body" has four traps. The scanner must state its
+position on each:
+
+**Parent–child cascade.** If a footprint's hash covers its pads, moving one pad
+reports both the pad and the footprint as modified, and every group, symbol and
+zone inherits the same noise. Use a **shallow hash**: normalise the parent's own
+attributes and replace each independently addressable child with a stable
+reference to that child, not the child's content.
+
+**Authored vs generated.** Filled zone polygons change whenever KiCad
+regenerates the board, with no authored change at all. Split
+`authored zone definition` from `generated fill representation` and hash only
+the former by default. The same applies to any `(generated ...)` block.
+
+**Objects without UUIDs.** "Every kind" is not "every object is independently
+addressable". Position-in-file identity produces pure noise after a reorder.
+For anonymous objects, fold them into their parent's shallow hash as a
+parent-scoped multiset, so a reorder is invisible and a real edit is not.
+
+**Normalisation.** The normaliser must explicitly decide, and document, whether
+it ignores: whitespace and formatting; field order where order is not
+semantic; generated timestamps; UUIDs when hashing content; zone fills; cache
+and generated sections. Ordering must be preserved where ordering changes
+behaviour.
 
 ### 2. One change model, three tiers
 
@@ -135,86 +210,197 @@ For components we keep the full property diff, which is tier 2 below.
 | --- | --- | --- |
 | **1 — Connectivity** | backend (semantic index) | net added/removed/renamed; net membership delta; pin reassignment; net class change; sheet instance added/removed/re-pathed; bus membership change |
 | **2 — Identity & properties** | backend (semantic index) | component added/removed; `lib_id` swap; footprint change; any of the 81 property values; **property attributes (`at`, `hide`, `effects`)**; DNP / exclude-from-BOM / exclude-from-board; sheet assignment |
-| **3 — Geometry & graphics** | backend detects (digest), **viewer resolves bounds** | moved / rotated / mirrored; layer change; track/arc/via added/removed/rerouted; zone outline or fill settings; silkscreen and board graphics; text and dimensions |
+| **3 — Geometry & graphics** | backend detects (digest), **viewer resolves bounds** | moved / rotated / mirrored / layer-changed **for components and footprints** (structured digest); track/arc/via/zone/graphics/text **added, removed or modified** (hash only) |
+
+Tier 3 is deliberately split. A whole-body hash yields exactly three verbs —
+added, removed, modified — and revision 1 promised classifications it could not
+deliver. The structured digest buys back the classifications that matter for
+components; everything else says "modified" and lets the canvas explain.
 
 Tier 1 is the reason the semantic index cannot move to the browser, and the
-reason we are not just a visual differ. Tier 3 is the reason the geometry
-sidecar should not exist.
+reason we are not merely a visual differ.
 
-### 3. Unify all three views onto the document-diff path
+### 3. One comparison session, one or two viewports
 
-Delete `setRevisionDiffPresentation`, `selectRevisionDiff`,
-`previewRevisionDiff` and `buildRevisionDiffPresentation`. Every mode goes
-through `loadDocumentComparison` → `setComparisonPresentation` →
-`selectDocumentDiff`.
+Revision 1 claimed one prepared scene could drive all three views by changing
+visibility. It cannot. `build_diff_presentation` paints the **comparison**
+document as authority and injects only those reference items that are part of a
+change (`diff-presentation.ts:169-192`; `reference_items` accumulates
+`retained_reference_items` alone). Unchanged and modified reference objects are
+never in that scene. So the prepared Composite scene can render Composite and a
+comparison-only view — never a faithful reference-only view, and therefore never
+the left pane of Side-by-side.
 
-Composite is the prepared scene. Side-by-side is two viewports filtered to
-`reference` / `comparison`. Old/New is one viewport toggling side — already a
-visibility change rather than a reload (2db0bcd), which generalises.
+The target is a session, not a scene:
 
-## ecad-viewer changes required
+```
+ComparisonSession
+├── parsed reference project
+├── parsed comparison project
+├── semantic / native diff index
+├── reference scene
+├── comparison scene
+├── composite presentation
+└── exact target bounds per side
+```
 
-1. **`setComparisonPresentation({ mode, side? })`** — `"composite" |
-   "side" | "toggle"`, applied to an existing preparation with no reparse and
-   no new scene. This is the one substantial addition.
+- Composite → comparison scene plus removed-reference injection (what exists).
+- Side-by-side → reference and comparison scenes in two viewports.
+- Old/New → selects one of the two scenes.
+- Parsing and identity resolution happen **once**; scene compilation may happen
+  once per side.
 
-2. **Make `KiCadItemChange.bbox` optional.** It is required today, which is
-   precisely why the backend synthesises constant boxes. When absent, resolve
-   from `sourceId` through the existing source index and report failures in
-   `diagnostics` exactly as now.
+This keeps the principle that matters — one computed comparison, one API — while
+dropping the claim that it is literally one paint scene.
 
-3. **`getPreparedTargets(): readonly EcadPreparedDiffTarget[]`** — so the
-   change list renders from the same bounds the canvas uses instead of a second
-   source of truth.
+**Intermediate step, lower risk.** Keep two `<ecad-viewer>` instances for
+Side-by-side, but have both consume the shared comparison session and the shared
+parsed-source cache. Remove `setRevisionDiffPresentation` first; optimise scene
+sharing afterwards. This gets the architectural win without betting on the
+two-viewport work landing.
 
-Camera linking for side-by-side stays in Prism
-(`use-comparison-camera-sync.ts`, 52 lines) — it works and does not belong in
-the viewer.
+### 4. Two item-change types, and a two-stage preparation
+
+Revision 1 said "make `bbox` optional". That weakens a type which is supposed to
+mirror KiCad's native contract, and `bbox` is not decorative: the diff index
+converts it to world coordinates immediately, routing-group bounds are computed
+from those values before painting, and prepared targets need bounds before the
+document loads.
+
+Split the type instead:
+
+```ts
+type NativeKiCadItemChange = { bbox: [number, number, number, number]; /* … */ };
+type PrismItemChangeInput   = { bbox?: [number, number, number, number]; /* … */ };
+```
+
+And make preparation explicitly staged:
+
+1. validate the identity / property diff;
+2. resolve source IDs against the parsed scenes;
+3. produce exact per-item bounds;
+4. construct selection targets and group union bounds.
+
+An item that fails stage 2 or 3 becomes a **non-focusable change-list entry with
+a diagnostic** — visible, honest, unclickable. That is strictly better than
+today's `[0, 0, 0, 0]`, which is a target that silently flies the camera to the
+origin.
+
+### 5. No `getPreparedTargets()`
+
+`loadDocumentComparison` already returns an `EcadDocumentComparisonPreparation`
+containing the target map, and the viewer hydrates that same map with painted
+bounds before returning it. Prism should hold the returned preparation as the
+session handle. A getter would only earn its place if Prism could lose the
+result while the viewer stayed mounted, or if targets changed after load through
+lazy page preparation. Once §3's session object exists it owns the targets
+anyway. Dropped.
 
 ## Sequencing
 
-**Phase 0 — measure, change nothing.** Instrument
-`EcadDocumentComparisonPreparation.diagnostics` over real compares and count
-`missing-source-id` / `item-not-found`. This is the fallback rate the constant
-boxes exist to cover, and it decides whether Phase 1 is safe. Cheap, and it
-gates everything else.
+**Phase 0A — make the viewer build reproducible. ✅ Done.**
+The shipped manifest claimed `adapterCommit c52ac81` with `dirty: true` and a
+non-empty `worktreePatchSha256`: the bundle carried source that was in no
+commit. That patch had since been committed as `57178d8`, and the clean tree
+hashes to `499f8775` — exactly the `sourceTreeSha256` the dirty build recorded.
+Rebuilding from the clean tree reproduced both artifacts **byte for byte**
+(`ecad-viewer.js` `a4788ec2…`, `parser.worker.js` `074c4fc2…`). Provenance is
+now honest and the diagnostics we collect next are attributable to a commit.
 
-**Phase 1 — object digest.** Replaces `_extract_geometry`; closes the
-1,034-object gap; drops `revision.json` from 32 MB to ~4.5 MB.
+**Phase 0B — comprehensive resolution instrumentation.** The current
+diagnostics (`missing-source-id`, `item-not-found`) fire only while resolving
+source IDs to parsed objects. Painted-bounds failure is **silent**:
+`#hydrate_document_diff_targets` does `if (!native_bounds.length) continue;`
+(`ecad_viewer.ts:1522`) and leaves the backend bbox in place without a word.
+Measuring today's diagnostics would therefore undercount constant-box usage —
+possibly to zero. Add:
 
-**Phase 2 — unify the views.** Removes the second rendering path and its half
-of the shell. Requires viewer items 1 and 2.
+```
+paint-bounds-not-found
+source-id-ambiguous
+hierarchy-ambiguous
+document-not-found
+```
 
-**Phase 3 — property attributes and tier-1 completeness.** `at` / `hide` /
-`effects`; bus and sheet-instance changes as first-class kinds.
+and record per change: domain, document, object kind, source side, hierarchy
+depth, source resolution succeeded, painted bounds succeeded, number of objects
+matching the source ID, fallback bbox consumed.
+
+Ambiguity is worse than "first match wins". `items_by_source_id.set(sourceId,
+[presentation_item])` **overwrites** on a repeated source ID
+(`diff-presentation.ts:197`), so the earlier resolution is destroyed at index
+build time; `first_item` then reads `[0]` of a one-element array
+(`:116`). A duplicate identity is not a coin flip — it is silent data loss.
+Count these before changing behaviour.
+
+Audit API and headless consumers of `change.geometry` in the same phase.
+
+**Phase 1 — introduce the digest in shadow mode.** Emit both the old geometry
+sidecar and the new identity digest, and compare their detected
+add/remove/change sets over the test corpus and real jobs. Do not switch the
+frontend. Only when the sets agree does the sidecar go.
+
+**Phase 2 — remove the bbox dependency from the Prism provider path.**
+Composite only. Resolve exact bounds before creating prepared targets and
+before grouping routing changes. Once the measured fallback rate is acceptable,
+stop emitting backend bounds.
+
+**Phase 3 — comparison-session API.** Conceptually:
+
+```ts
+const session = await viewer.prepareComparison(request);
+session.setPresentation("composite" | "reference" | "comparison");
+session.attachSideBySide(leftViewport, rightViewport);
+```
+
+The exact shape can differ; it must own both revisions and all presentation
+state.
+
+**Phase 4 — delete the old Prism path.** `buildRevisionDiffPresentation`,
+`setRevisionDiffPresentation`, `selectRevisionDiff`, `previewRevisionDiff`.
+Camera sync stays in Prism (`use-comparison-camera-sync.ts`, 52 lines) unless
+the viewer takes ownership of both split viewports.
+
+**Phase 5 — semantic completeness.** Property attributes, buses, sheet
+instances, remaining connectivity classifications. Largely orthogonal; can run
+in parallel once the data contracts stabilise.
 
 ## Expected outcome
 
-| | now | after |
-| --- | --- | --- |
-| compare wall clock | 8.3 s | ~5.5 s |
-| `revision.json` | 32.15 MB | ~4.5 MB |
-| objects diffable | ~37k | ~38k, all kinds |
-| bounds accuracy | constant boxes | exact painted bounds |
-| rendering paths | 2 | 1 |
-| Prism S-expression scanning | ~299 lines | ~80 lines (digest) |
+Revision 1's numbers were optimistic. Corrected:
+
+| | now | after | note |
+| --- | --- | --- | --- |
+| digest artifact | 28.96 MB | ~2.3 MB column-oriented, ~4 MB keyed JSON | 40 bytes/object was wrong; a 36-char UUID plus a 16-hex hash plus keys is ~90 bytes before interning |
+| `revision.json` | 32.15 MB | ~7–9 MB | still 3.5–4× smaller, not 7× |
+| compare wall clock | 8.3 s | **first target: −2.2 s** | the digest must still scan and hash every object; 5.5 s is the upside, not the commitment |
+| objects diffable | ~37k | ~38k, all kinds | |
+| bounds accuracy | constant boxes | exact painted bounds | |
+| rendering paths | 2 | 1 | |
+| Prism S-expression scanning | ~299 lines | ~80 lines | |
+
+The defensible claim is: **remove the 2.2 s geometry stage without adding an
+equivalent digest cost**, then benchmark. Anything beyond that is earned, not
+predicted.
 
 `_balanced_s_expression_end` and `_iter_sexpr_blocks` survive — `_extract_stackup`
 and `_schematic_instance_fields` still need them.
 
 ## Risks
 
-- **Fallback rate unknown.** Phase 0 exists to answer this. If it is
-  materially above zero, fix uuid resolution before deleting anything.
-- **Hash-only tier 3.** "Changed" without "what changed" for board graphics.
-  Acceptable for graphics; not acceptable for components, which is why tier 2
-  keeps the full property diff.
-- **Side-by-side parse cost.** Two viewer instances each hold a scene today.
-  Whether one preparation can drive two viewports, or whether two instances
-  sharing the content-addressed source cache is fast enough, needs measuring
-  before committing to item 1's scope.
+- **Fallback rate is unknown and today's telemetry cannot reveal it.** Phase 0B
+  exists for this. If it is materially above zero, fix identity resolution
+  before deleting anything.
+- **Ambiguous identities are silently collapsed.** Measured in 0B; may force
+  identity work into Phase 1's scope.
+- **Hash-only tier 3.** "Modified" without "what changed" for routing and
+  graphics. Mitigated for components by the structured digest.
+- **Side-by-side scene cost.** Two retained scenes is more memory than one.
+  Whether one session can drive two viewports, or whether two instances over a
+  shared source cache is fast enough, must be measured before Phase 3's scope
+  is fixed.
 - **Headless consumers.** Anything reading `geometry` from the API without a
-  browser loses it. Needs an audit before Phase 1.
+  browser loses bounds. Audited in 0B.
 - **Server cache is shared; browser parsing is per session.** This proposal
   only removes *duplicated* work — the viewer already parses these files.
   Pushing further work frontward would multiply per user, which is the
