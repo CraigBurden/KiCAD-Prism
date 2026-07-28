@@ -150,25 +150,32 @@ Deleting bounds is safe. Deleting routing is not. The digest is therefore:
   instancePath?,     # KIID_PATH for hierarchical instances
   layer?,            # PCB only
   parentSourceId?,   # pins → owning symbol, pads → owning footprint
+  centroid,          # [x, y] — see below
   hash               # 64-bit hash of the normalised body
 }
 ```
 
-No coordinates, no point lists, no bounds. `documentPath` + `instancePath`
-matter because the viewer architecture defines schematic identity as
-`projectPath + KIID_PATH`, not filename or terminal UUID alone.
+No point lists, no bounds. `documentPath` + `instancePath` matter because the
+viewer architecture defines schematic identity as `projectPath + KIID_PATH`,
+not filename or terminal UUID alone.
 
-For **components and footprints only**, add a small structured digest beside
-the hash:
+`centroid` is the one coordinate that stays, and the [consumer
+audit](design-comparison/geometry-sidecar-consumers.md) is why. The change list
+reports **`position_delta`** — mean `dx`/`dy`/`distance` per group — computed
+from the sidecar's `x`/`y`. That is not component-only: tracks group by net, so
+"net `VBUS` shifted 0.4 mm" is a currently-shipping output. Keeping two floats
+preserves it; the `points` arrays that produced those floats, and that account
+for most of the 28.96 MB, still go.
+
+For **components and footprints**, add a structured digest beside the hash:
 
 ```
 { at, rotation, mirror, layer, netId }
 ```
 
-Five scalars, no point arrays. This is what makes "U4 moved 2 mm" possible
-instead of "U4 modified", and it is the difference between a change list a
-reviewer can read and one they must click through. Routing and graphics stay
-hash-only for now — the canvas communicates those better than words do.
+Five scalars, no point arrays. This is what makes "U4 moved 2 mm, rotated 90°"
+possible instead of "U4 modified". Routing and graphics stay hash-plus-centroid
+— the canvas communicates the rest better than words do.
 
 Gains, unchanged from revision 1:
 
@@ -399,8 +406,11 @@ and `_schematic_instance_fields` still need them.
   Whether one session can drive two viewports, or whether two instances over a
   shared source cache is fast enough, must be measured before Phase 3's scope
   is fixed.
-- **Headless consumers.** Anything reading `geometry` from the API without a
-  browser loses bounds. Audited in 0B.
+- ~~**Headless consumers.**~~ Closed by the 0B audit: no API router, export
+  path or non-browser consumer reads the sidecar. The residual risk is version
+  skew between a cached frontend bundle and a newer backend, which the
+  resolution report's `unreported` flag already distinguishes from a clean
+  measurement.
 - **Server cache is shared; browser parsing is per session.** This proposal
   only removes *duplicated* work — the viewer already parses these files.
   Pushing further work frontward would multiply per user, which is the
