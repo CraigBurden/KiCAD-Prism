@@ -101,6 +101,17 @@ Current Compose mounts:
 - `./data/projects` -> `/app/projects`
 - `./data/ssh` -> `/root/.ssh`
 
+Both host paths are rooted at `./data`. To keep persistent data somewhere other than
+the repo checkout (for example a shared machine where each deployment needs its own data
+directory), set `PERSISTENT_DATA_DIR` in `.env` or the shell environment:
+
+```env
+PERSISTENT_DATA_DIR=/srv/kicad-prism/data
+```
+
+This relocates both `data/projects` and `data/ssh` under the new root; no other configuration
+changes are required.
+
 Persisted data includes:
 - SQLite workspace/project/folder metadata, background job state, component catalog, KiCad OAuth state, and service-client metadata at `data/projects/.kicad-prism/prism.sqlite3`
 - imported repositories
@@ -229,6 +240,43 @@ If your production deployment is HTTPS, also set:
 ```env
 SESSION_COOKIE_SECURE=true
 ```
+
+## Shared Machine Hosting: Custom Ports and Disabling Port Publishing
+
+On a machine that runs other services, the default `8000`/`8080` host ports may already be taken.
+
+### Changing the published ports
+
+`BACKEND_PORT` and `FRONTEND_PORT` control only the host-side port that gets published; the
+containers still listen internally on `8000` and `80` respectively, so no other configuration needs
+to change. Set them in `.env` or the shell environment:
+
+```env
+BACKEND_PORT=9000
+FRONTEND_PORT=9080
+```
+
+Then start the stack as usual:
+
+```bash
+docker compose up --build -d
+```
+
+The UI is now reachable at `http://127.0.0.1:9080` and the API at `http://127.0.0.1:9000`.
+
+### Disabling port publishing entirely
+
+If a reverse proxy on the host will reach the containers over the Docker network (or you attach
+another way), you can drop the published ports altogether with the `docker-compose.no-ports.yml`
+overlay instead of picking free ports:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.no-ports.yml up --build -d
+```
+
+This overlay resets both services' `ports` to empty, so neither `backend` nor `frontend` binds a
+host port at all, avoiding conflicts with any other service on the machine. `BACKEND_PORT` and
+`FRONTEND_PORT` are irrelevant when using this overlay since nothing is published.
 
 ## Reverse Proxy for Office/VPN Hosting
 
