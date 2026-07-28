@@ -105,18 +105,23 @@ ENV PRISM_KICAD_MONKEY_SOURCE=pypi-release
 # docker-compose.local-kicad-monkey.yml, so normal deployments do not need a
 # sibling kicad-monkey checkout.
 FROM prism-runtime AS kicad-monkey-local
-# Install the matching kicad-cruncher release first, then put the working
-# tree in last. Installing it the other way round quietly undid the whole
-# point of this target: `--upgrade` re-resolved kicad-cruncher's dependency
-# on kicad-monkey and pulled the newest release from PyPI straight over the
-# local install, so the image ran published code while reporting
+# Install kicad-cruncher first, then put the working tree in last. Installing
+# it the other way round quietly undid the whole point of this target:
+# `--upgrade` re-resolved kicad-cruncher's dependency on kicad-monkey and
+# pulled the newest release from PyPI straight over the local install, so the
+# image ran published code while reporting
 # PRISM_KICAD_MONKEY_SOURCE=local-working-tree.
+#
+# kicad-cruncher is deliberately unpinned. The two packages share a date-based
+# scheme but not a release cadence — kicad-monkey 2026.7.28 shipped with no
+# matching cruncher — so asking for the working tree's own version resolves to
+# nothing and fails the build. cruncher depends on `kicad-monkey>=`, and the
+# `uv pip check` below is what actually proves the mounted tree satisfies it.
 #
 # The final assertion fails the build rather than shipping an image whose
 # kicad-monkey is not the one that was mounted.
 RUN --mount=from=kicad_monkey,source=/,target=/tmp/kicad-monkey,ro \
-    KICAD_MONKEY_VERSION="$(python -c 'import tomllib,sys; print(tomllib.load(open("/tmp/kicad-monkey/pyproject.toml","rb"))["project"]["version"])')" \
-    && uv pip install --no-cache-dir --upgrade "kicad-cruncher==${KICAD_MONKEY_VERSION}" \
+    uv pip install --no-cache-dir --upgrade kicad-cruncher \
     && uv pip install --no-cache-dir --no-deps --reinstall /tmp/kicad-monkey \
     && uv pip check \
     && python - <<'PY'
