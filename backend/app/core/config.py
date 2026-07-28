@@ -231,8 +231,12 @@ class Settings(BaseSettings):
     )
 
     DEV_GUEST_ROLE: str = Field(
-        default="admin",
-        description="Role granted to the implicit guest user when AUTH_ENABLED is false."
+        default="viewer",
+        description=(
+            "Role granted to the implicit guest user when AUTH_ENABLED is false. Defaults to "
+            "the least privilege that still lets an evaluator look around: a misconfigured "
+            "deployment then exposes reading, not administration. Raise it deliberately."
+        ),
     )
     
     # ===========================================
@@ -291,37 +295,10 @@ class Settings(BaseSettings):
         description="Lifetime for KiCad remote provider refresh tokens."
     )
 
-    MANUFACTURO_SQL_SERVER: str = Field(
-        default="",
-        description="Manufacturo SQL Server hostname."
-    )
-
-    MANUFACTURO_SQL_DATABASE: str = Field(
-        default="",
-        description="Manufacturo SQL Server database name."
-    )
-
-    MANUFACTURO_SQL_USERNAME: str = Field(
-        default="",
-        description="Manufacturo SQL Server username."
-    )
-
-    MANUFACTURO_SQL_PASSWORD: str = Field(
-        default="",
-        description="Manufacturo SQL Server password."
-    )
-
-    MANUFACTURO_SQL_DRIVER: str = Field(
-        default="ODBC Driver 18 for SQL Server",
-        description="ODBC driver name for Manufacturo SQL connectivity."
-    )
-
-    MANUFACTURO_SYNC_LIMIT: int = Field(
-        default=0,
-        ge=0,
-        le=100000,
-        description="Optional row limit for Manufacturo syncs. 0 means no explicit limit."
-    )
+    # The MANUFACTURO_SQL_* settings were removed. Nothing under app/ ever read
+    # them, so they were a set of credential fields that asked operators to put
+    # a database password in .env for a feature that did not exist. Reintroduce
+    # them with the code that uses them.
 
     PRISM_DATABASE_URL: str = Field(
         default="",
@@ -343,6 +320,44 @@ class Settings(BaseSettings):
         ge=1,
         le=100,
         description="Maximum PostgreSQL connections retained per backend worker.",
+    )
+
+    # The three settings below matter when PostgreSQL is not on the same host.
+    # A NAT gateway, cloud load balancer or firewall will silently drop an idle
+    # connection, and neither end finds out until a query is attempted on it.
+    # Anything set explicitly in PRISM_DATABASE_URL wins over these.
+
+    PRISM_DATABASE_CONNECT_TIMEOUT_SECONDS: int = Field(
+        default=10,
+        ge=1,
+        le=120,
+        description=(
+            "How long to wait for a new PostgreSQL connection before giving up. "
+            "Without this a request hangs indefinitely when the database host is "
+            "unreachable rather than merely slow."
+        ),
+    )
+
+    PRISM_DATABASE_KEEPALIVE_IDLE_SECONDS: int = Field(
+        default=30,
+        ge=1,
+        le=3600,
+        description=(
+            "Idle time before TCP keepalive probes start on a PostgreSQL "
+            "connection. Keep this below the idle timeout of any NAT or load "
+            "balancer between Prism and the database."
+        ),
+    )
+
+    PRISM_DATABASE_POOL_MAX_LIFETIME_SECONDS: int = Field(
+        default=1800,
+        ge=60,
+        le=86400,
+        description=(
+            "Age at which a pooled PostgreSQL connection is retired and replaced. "
+            "Bounds how long a connection can survive a server-side restart or a "
+            "load balancer rotating backends underneath it."
+        ),
     )
 
     CATALOG_WORKER_CONCURRENCY: int = Field(
@@ -609,10 +624,82 @@ class Settings(BaseSettings):
             return self.SESSION_COOKIE_SECURE_OVERRIDE
         return self.PUBLIC_BASE_URL.strip().lower().startswith("https://")
 
+    @property
+    def BASE_URL_IS_LOCAL(self) -> bool:
+        """Whether PUBLIC_BASE_URL points at this machine only.
+
+        Used to tell an evaluation apart from something other people can reach.
+
+        Unset counts as local. It is the default, so it means nobody has said
+        where this deployment is published -- which describes a developer's
+        checkout, not a shared instance. Anything reachable has to set it
+        anyway, for OIDC redirects, CORS and the Secure cookie. A malformed
+        value is a different matter and counts as remote, so it fails safe.
+        """
+        from urllib.parse import urlsplit
+
+        raw = self.PUBLIC_BASE_URL.strip()
+        if not raw:
+            return True
+        try:
+            host = (urlsplit(raw).hostname or "").lower()
+        except ValueError:
+            return False
+        return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"} or host.endswith(".localhost")
+
+    def _open_auth_errors(self) -> List[str]:
+        """Reasons an unauthenticated deployment must refuse to start.
+
+        AUTH_ENABLED=false exists so somebody can evaluate Prism without
+        standing up an identity provider first, and the plain-HTTP scheme in the
+        installer depends on it. Evaluation means localhost. A deployment shaped
+        like production -- TLS, a name other machines resolve -- is not an
+        evaluation, and starting it open publishes every project and the whole
+        API to anyone who can reach the port.
+        """
+        if self.BASE_URL_IS_LOCAL:
+            return []
+
+        base = self.PUBLIC_BASE_URL.strip()
+        errors: List[str] = []
+        if base.lower().startswith("https://"):
+            errors.append(
+                f"AUTH_ENABLED=false is not allowed with PUBLIC_BASE_URL={base}. A TLS "
+                "deployment on a routable name is not a local evaluation. Enable "
+                "authentication, or evaluate over http on localhost."
+            )
+        if self.DEV_GUEST_ROLE.strip().lower() == "admin":
+            errors.append(
+                f"DEV_GUEST_ROLE=admin with AUTH_ENABLED=false and PUBLIC_BASE_URL={base} "
+                "gives every visitor administrative access to this workspace. Use "
+                "DEV_GUEST_ROLE=viewer, or enable authentication."
+            )
+        return errors
+
+    def configuration_warnings(self) -> List[str]:
+        """Things that are permitted, dangerous, and easy to have not noticed."""
+        warnings: List[str] = []
+
+        if not self.AUTH_ENABLED:
+            warnings.append(
+                f"AUTH_ENABLED=false: every request is treated as a {self.DEV_GUEST_ROLE!r} "
+                "guest and no login is required. Evaluation only."
+            )
+
+        if not self.IMPORT_ALLOWED_HOSTS:
+            warnings.append(
+                "IMPORT_ALLOWED_HOSTS_STR is empty, so project import will clone from any "
+                "host a user names -- including addresses inside this network that the "
+                "browser cannot reach but the server can. Set it to the Git hosts this "
+                "installation is meant to reach."
+            )
+
+        return warnings
+
     def auth_configuration_errors(self) -> List[str]:
         """Return every reason this deployment must not serve authenticated traffic."""
         if not self.AUTH_ENABLED:
-            return []
+            return self._open_auth_errors()
 
         errors: List[str] = []
         if not self.EFFECTIVE_OIDC_ISSUER_URL:

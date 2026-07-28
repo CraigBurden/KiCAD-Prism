@@ -71,6 +71,29 @@ def _describe_target(parsed: ParsedRemote) -> str:
     return f"{parsed.host}/{parsed.path.strip('/').removesuffix('.git')}"
 
 
+def _inject_github_token(env: dict) -> None:
+    """Supply GITHUB_TOKEN to one Git invocation, and leave nothing behind.
+
+    This used to be written into the container's ``~/.gitconfig`` at startup, so
+    the token sat in cleartext on the filesystem, in the writable layer of a
+    committed image, and in any support bundle that captured the home
+    directory -- and it applied to every process in the container, not only the
+    ones meant to reach GitHub. ``GIT_CONFIG_*`` expresses the same rewrite for
+    the duration of a single command.
+    """
+    token = settings.GITHUB_TOKEN.strip()
+    if not token:
+        return
+    # The parent environment may already carry GIT_CONFIG_* entries; append.
+    try:
+        index = int(env.get("GIT_CONFIG_COUNT", "0") or "0")
+    except ValueError:
+        index = 0
+    env[f"GIT_CONFIG_KEY_{index}"] = f"url.https://{token}@github.com/.insteadOf"
+    env[f"GIT_CONFIG_VALUE_{index}"] = "https://github.com/"
+    env["GIT_CONFIG_COUNT"] = str(index + 1)
+
+
 def git_env() -> dict:
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
@@ -81,6 +104,7 @@ def git_env() -> dict:
     # action, taken after comparing the fingerprint against what the Git server's
     # operator publishes.
     env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=yes -o BatchMode=yes"
+    _inject_github_token(env)
     return env
 
 

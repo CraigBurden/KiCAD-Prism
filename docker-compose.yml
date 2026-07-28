@@ -80,7 +80,10 @@ services:
       # The backend logs a prominent warning and refuses to start if it is true
       # while OIDC or SESSION_SECRET are incomplete.
       - AUTH_ENABLED=${AUTH_ENABLED:-true}
-      - DEV_GUEST_ROLE=${DEV_GUEST_ROLE:-admin}
+      # Least privilege that still lets an evaluator look around. This default
+      # is what actually applies in Docker -- it overrides the one in
+      # app/core/config.py -- so the two have to be changed together.
+      - DEV_GUEST_ROLE=${DEV_GUEST_ROLE:-viewer}
       # Development affordances only; this no longer disables authentication.
       - DEV_MODE=false
       # GitHub Token for private repository access (optional)

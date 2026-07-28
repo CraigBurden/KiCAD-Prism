@@ -22,7 +22,6 @@ from .pcb_geometry import (
     capsule,
     circle,
     clean_ring,
-    effective_pad_orient_deg,
     pad_rings,
     point_nm,
     sample_arc_op,
@@ -424,16 +423,9 @@ class SemanticGltfBuilder:
             source_uid = str(block.get("data_uuid") or block.get("label") or "")
             net_name = str(attrs.get("net") or "")
             layers = self._layers_for(op.get("layers") or block.get("layers") or [])
-            pad_op = {
-                **op,
-                "orient_deg": effective_pad_orient_deg(
-                    op,
-                    float(placement.get("angle_deg") or 0.0),
-                ),
-            }
             rings = [
                 [transform(point, origin, angle) for point in ring]
-                for ring in pad_rings(pad_op)
+                for ring in pad_rings(op)
             ]
             hole_info = pad_holes.get(source_uid) or {}
             drill = float(hole_info.get("drill_mm") or 0.0)

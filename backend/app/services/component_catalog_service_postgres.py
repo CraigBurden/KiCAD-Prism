@@ -6,18 +6,24 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from app.core.config import settings
+from app.services.catalog_schema_migrations import apply_catalog_migrations
 from app.services.component_catalog_domain import ComponentCatalogDomainService
 from app.services.postgres_database import database
 
 logger = logging.getLogger(__name__)
 
 
+# Written on every startup so an older Prism, which treats this row as a hard
+# precondition, can still open a database this build has touched. Schema changes
+# belong in app.services.catalog_schema_migrations, not here.
 POSTGRES_SCHEMA_VERSION = "catalog-postgres-v6"
+
+# Derived state. Each is rebuilt when its version changes, so these deliberately
+# stay outside the migration ladder, which records a migration as run once.
 POSTGRES_SEARCH_VERSION = "catalog-search-v2"
 POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v3"
 POSTGRES_HEAD_PROJECTION_VERSION = "catalog-component-heads-v2"
 POSTGRES_REMOTE_HEAD_PROJECTION_VERSION = "catalog-remote-heads-v1"
-POSTGRES_PORTABLE_TYPES_VERSION = "catalog-portable-types-v1"
 
 def _postgres_dsn(value: str) -> str:
     """Accept both native and SQLAlchemy-style psycopg URLs."""
@@ -134,92 +140,49 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 ).fetchone()
                 conn.execute("CREATE SCHEMA IF NOT EXISTS catalog")
                 conn.execute("SET search_path TO catalog, public")
-                existing = conn.execute(
-                    "SELECT to_regclass('catalog.components') AS relation"
-                ).fetchone()
-                if not existing or not existing["relation"]:
-                    self._create_schema(conn)
-                    conn.execute(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_component_sequence "
-                        "ON catalog_audit_events(component_id, sequence)"
+                # Every statement below is CREATE ... IF NOT EXISTS, so running
+                # this on an existing database adds whatever a new release
+                # introduced and leaves everything else untouched. An older
+                # Prism reaching this database still finds the schema-version
+                # row it insists on, which is what keeps a rollback from
+                # needing a data restore.
+                self._create_schema(conn)
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_component_sequence "
+                    "ON catalog_audit_events(component_id, sequence)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_component_usage_current "
+                    "ON component_usage(component_id, is_current, last_seen_at DESC)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS catalog_schema_migrations (
+                        version TEXT PRIMARY KEY,
+                        applied_at TEXT NOT NULL
                     )
-                    conn.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_component_usage_current "
-                        "ON component_usage(component_id, is_current, last_seen_at DESC)"
-                    )
-                    conn.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS catalog_schema_migrations (
-                            version TEXT PRIMARY KEY,
-                            applied_at TEXT NOT NULL
-                        )
-                        """
-                    )
-                    self._ensure_metadata_schema(conn)
-                    conn.execute(
-                        """
-                        INSERT INTO catalog_schema_migrations (version, applied_at)
-                        VALUES (%s, CURRENT_TIMESTAMP::text)
-                        ON CONFLICT (version) DO NOTHING
-                        """,
-                        (POSTGRES_SCHEMA_VERSION,),
-                    )
-                else:
-                    version = conn.execute(
-                        "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = %s",
-                        (POSTGRES_SCHEMA_VERSION,),
-                    ).fetchone()
-                    if not version:
-                        raise RuntimeError(
-                            "Catalog schema predates the PostgreSQL reset architecture. "
-                            "Run scripts/reset_prism_postgres.py with destructive confirmation."
-                        )
+                    """
+                )
+                self._ensure_metadata_schema(conn)
+                conn.execute(
+                    """
+                    INSERT INTO catalog_schema_migrations (version, applied_at)
+                    VALUES (%s, CURRENT_TIMESTAMP::text)
+                    ON CONFLICT (version) DO NOTHING
+                    """,
+                    (POSTGRES_SCHEMA_VERSION,),
+                )
+                # Projections first: they are part of the schema surface a
+                # migration may need to alter, and a migration that widens a
+                # head column cannot run before the head table exists.
                 self._ensure_component_heads_projection(conn)
                 self._ensure_remote_component_heads_projection(conn)
-                self._ensure_portable_column_types(conn)
-                self._ensure_import_proposal_draft_column(conn)
+                apply_catalog_migrations(conn)
                 conn.commit()
             self._ensure_postgres_search_indexes()
             self._ensure_postgres_integrity_guards()
             self._fts_available = False
             self._initialized = True
-
-    def _ensure_import_proposal_draft_column(self, conn: _CatalogConnection) -> None:
-        """Add the column that keeps in-progress import remediation edits."""
-        conn.execute(
-            "ALTER TABLE project_component_import_proposals "
-            "ADD COLUMN IF NOT EXISTS draft_json TEXT NOT NULL DEFAULT '{}'"
-        )
-
-    def _ensure_portable_column_types(self, conn: _CatalogConnection) -> None:
-        marker = conn.execute(
-            "SELECT value FROM catalog_meta WHERE key = %s",
-            ("postgres_portable_types_version",),
-        ).fetchone()
-        if marker and str(marker["value"]) == POSTGRES_PORTABLE_TYPES_VERSION:
-            return
-        for table, column, target in (
-            ("components", "stock_quantity", "DOUBLE PRECISION"),
-            ("component_heads", "stock_quantity", "DOUBLE PRECISION"),
-            ("remote_component_heads", "stock_quantity", "DOUBLE PRECISION"),
-            ("assets", "size_bytes", "BIGINT"),
-            ("asset_preview_versions", "size_bytes", "BIGINT"),
-            ("catalog_audit_events", "sequence", "BIGINT"),
-            ("oauth_auth_codes", "exp", "BIGINT"),
-            ("oauth_revoked_tokens", "exp", "BIGINT"),
-        ):
-            conn.execute(
-                f"ALTER TABLE {table} ALTER COLUMN {column} "
-                f"TYPE {target} USING {column}::{target}"
-            )
-        conn.execute(
-            """
-            INSERT INTO catalog_meta (key, value)
-            VALUES (%s, %s)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """,
-            ("postgres_portable_types_version", POSTGRES_PORTABLE_TYPES_VERSION),
-        )
 
     def _ensure_component_heads_projection(self, conn: _CatalogConnection) -> None:
         """Install the current-head read model and its transactional refresh hooks."""

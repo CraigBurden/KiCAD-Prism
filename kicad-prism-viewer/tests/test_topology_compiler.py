@@ -745,7 +745,14 @@ class TopologyCompilerTests(unittest.TestCase):
         self.assertEqual(barrel["layerMask"], 0b111)
         self.assertEqual(barrel["kind"], "plated_pad")
 
-    def test_ir_pad_restores_footprint_cancelled_orientation(self) -> None:
+    def test_ir_pad_turns_with_the_footprint_that_carries_it(self) -> None:
+        """A pad that is unrotated in the library still turns with its placement.
+
+        ``pcb_footprint_to_record`` reports ``orient_deg`` footprint-local, so
+        this oval reads 0 even though the board file stores 90 on the pad. The
+        placement supplies the rotation exactly once, leaving the 0.875 mm axis
+        lying along X.
+        """
         builder = SemanticGltfBuilder(self.semantic_topology())
         builder.add_pcb_ir(
             {
@@ -786,13 +793,14 @@ class TopologyCompilerTests(unittest.TestCase):
         ys = [point[1] for point in outer]
         width = max(xs) - min(xs)
         height = max(ys) - min(ys)
-        self.assertLess(width, height)
-        self.assertAlmostEqual(width, 0.25, delta=0.02)
-        self.assertAlmostEqual(height, 0.875, delta=0.02)
+        self.assertGreater(width, height)
+        self.assertAlmostEqual(width, 0.875, delta=0.02)
+        self.assertAlmostEqual(height, 0.25, delta=0.02)
         self.assertAlmostEqual((max(xs) + min(xs)) / 2.0, 59.15, delta=0.02)
         self.assertAlmostEqual((max(ys) + min(ys)) / 2.0, 76.5, delta=0.02)
 
-    def test_ir_rect_pad_with_rotated_footprint_keeps_board_orientation(self) -> None:
+    def test_ir_rect_pad_follows_a_rotated_footprint(self) -> None:
+        """The board-space counterpart of the oval case, on a footprint at -90."""
         builder = SemanticGltfBuilder(self.semantic_topology())
         builder.add_pcb_ir(
             {
@@ -833,11 +841,119 @@ class TopologyCompilerTests(unittest.TestCase):
         ys = [point[1] for point in outer]
         width = max(xs) - min(xs)
         height = max(ys) - min(ys)
-        self.assertLess(width, height)
-        self.assertAlmostEqual(width, 0.6, delta=0.02)
-        self.assertAlmostEqual(height, 0.8, delta=0.02)
+        self.assertGreater(width, height)
+        self.assertAlmostEqual(width, 0.8, delta=0.02)
+        self.assertAlmostEqual(height, 0.6, delta=0.02)
         self.assertAlmostEqual((max(xs) + min(xs)) / 2.0, 30.063, delta=0.02)
         self.assertAlmostEqual((max(ys) + min(ys)) / 2.0, 43.298, delta=0.02)
+
+    def test_both_pad_paths_agree_with_board_stored_pad_angles(self) -> None:
+        """Pin both pad pipelines to KiCad's board-file convention.
+
+        ``pad.at_angle`` is written in board space: a footprint placed at 90
+        degrees stamps 90 onto a pad that sits unrotated in the library. The
+        Plotter IR path and the ``KiCadPcb`` path recover the footprint-local
+        shape independently, and both have double-counted the placement at some
+        point -- in opposite directions, so neither caught the other.
+        """
+        from kicad_monkey import KiCadPcb
+        from kicad_monkey.kicad_pcb_to_ir import pcb_footprint_to_record
+
+        from pipeline.topology_compiler.pcb_extract import _pad_contours
+        from pipeline.topology_compiler.pcb_geometry import pad_rings, point_nm, transform
+
+        board = """(kicad_pcb
+  (version 20240108)
+  (generator pcbnew)
+  (layers (0 "F.Cu" signal))
+  (footprint "Lib:R_0402"
+    (layer "F.Cu")
+    (at 50 50 {placement})
+    (pad "1" smd rect (at -0.5175 0 {pad_angle}) (size 0.54 0.64) (layers "F.Cu") (uuid "p1"))
+    (pad "2" smd trapezoid (at 0.5175 0 {skewed_pad_angle}) (size 0.9 1.4) (rect_delta 0.5 0)
+      (layers "F.Cu") (uuid "p2"))
+  )
+)
+"""
+
+        def bounds(points):
+            xs = [point[0] for point in points]
+            ys = [point[1] for point in points]
+            return min(xs), min(ys), max(xs), max(ys)
+
+        def ir_ring_points(record, operations):
+            placement_extras = record.extras["placement"]
+            origin = point_nm(placement_extras["x_nm"], placement_extras["y_nm"])
+            angle = -float(placement_extras["angle_deg"])
+            return [
+                transform(point, origin, angle)
+                for operation in operations
+                for ring in pad_rings({**operation.payload, "kind": str(operation.kind.value)})
+                for point in ring
+            ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for placement, expected in (
+                (0.0, (0.54, 0.64, 49.4825, 50.0)),
+                (90.0, (0.64, 0.54, 50.0, 50.5175)),
+                (-90.0, (0.64, 0.54, 50.0, 49.4825)),
+                (180.0, (0.54, 0.64, 50.5175, 50.0)),
+            ):
+                with self.subTest(placement=placement):
+                    path = Path(tmp) / f"pad-angle-{placement}.kicad_pcb"
+                    # What KiCad itself would write: the library-local angle
+                    # plus the placement, resolved into board space.
+                    path.write_text(
+                        board.format(
+                            placement=placement,
+                            pad_angle=placement % 360,
+                            skewed_pad_angle=(placement + 45.0) % 360,
+                        ),
+                        encoding="utf-8",
+                    )
+                    pcb = KiCadPcb.from_file(path)
+                    footprint = pcb.footprints[0]
+                    record = pcb_footprint_to_record(footprint, board=pcb)
+                    flashes = [
+                        operation
+                        for operation in record.operations
+                        if str(operation.kind.value).startswith("FlashPad")
+                    ]
+                    self.assertEqual(len(flashes), 2)
+
+                    # The rectangular pad is unrotated in the library, so its
+                    # board-space outline is fully determined by the placement.
+                    width, height, center_x, center_y = expected
+                    rect_paths = {
+                        "plotter ir": ir_ring_points(record, flashes[:1]),
+                        "kicad model": [
+                            point
+                            for contour in _pad_contours(footprint.pads[0], footprint)
+                            for point in contour
+                        ],
+                    }
+                    for label, points in rect_paths.items():
+                        min_x, min_y, max_x, max_y = bounds(points)
+                        self.assertAlmostEqual(max_x - min_x, width, delta=1e-6, msg=label)
+                        self.assertAlmostEqual(max_y - min_y, height, delta=1e-6, msg=label)
+                        self.assertAlmostEqual((min_x + max_x) / 2.0, center_x, delta=1e-6, msg=label)
+                        self.assertAlmostEqual((min_y + max_y) / 2.0, center_y, delta=1e-6, msg=label)
+
+                    # The trapezoid is asymmetric and sits at 45 degrees inside
+                    # the footprint, so it pins the direction of rotation that a
+                    # rectangle cannot distinguish from its own mirror.
+                    ir_corners = sorted(
+                        (round(x, 9), round(y, 9)) for x, y in ir_ring_points(record, flashes[1:])
+                    )
+                    model_corners = sorted(
+                        (round(x, 9), round(y, 9))
+                        for contour in _pad_contours(footprint.pads[1], footprint)
+                        for x, y in contour
+                    )
+                    self.assertEqual(len(ir_corners), 4)
+                    for expected_corner, actual_corner in zip(model_corners, ir_corners):
+                        self.assertAlmostEqual(expected_corner[0], actual_corner[0], delta=1e-6)
+                        self.assertAlmostEqual(expected_corner[1], actual_corner[1], delta=1e-6)
 
     def test_build_input_contains_coordinate_bounds_and_component_features(self) -> None:
         builder = SemanticGltfBuilder(self.semantic_topology())

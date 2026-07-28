@@ -12,7 +12,14 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService  # noqa: E402
+from app.services.catalog_schema_migrations import (  # noqa: E402
+    MIGRATIONS,
+    pending_catalog_migrations,
+)
+from app.services.component_catalog_service_postgres import (  # noqa: E402
+    POSTGRES_SCHEMA_VERSION,
+    ComponentCatalogPostgresService,
+)
 
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
@@ -402,6 +409,65 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             ("oauth_revoked_tokens", "exp"),
         ):
             self.assertEqual(types[key], "bigint")
+
+    def test_a_database_from_before_the_ladder_upgrades_with_its_data(self) -> None:
+        """Starting a newer build against an older catalog must not cost data.
+
+        Until this landed, a database whose ``catalog_schema_migrations`` row did
+        not match the build's version string raised at startup and pointed the
+        operator at a destructive reset. That made the first catalog schema
+        change in any release equivalent to discarding the catalog.
+        """
+        component = self._component("upgrade-" + uuid.uuid4().hex[:8])
+
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            conn.execute("DROP TABLE IF EXISTS catalog_schema_versions")
+            conn.execute("DELETE FROM catalog_schema_migrations")
+            conn.commit()
+
+        upgraded = ComponentCatalogPostgresService(
+            store_root=Path(self.tempdir.name) / "components",
+            database_url=POSTGRES_URL,
+        )
+        upgraded.initialize()
+
+        with upgraded._connect() as conn:  # type: ignore[attr-defined]
+            ledger = [
+                (int(row["version"]), str(row["name"]))
+                for row in conn.execute(
+                    "SELECT version, name FROM catalog_schema_versions ORDER BY version"
+                ).fetchall()
+            ]
+            self.assertEqual(ledger, [(version, name) for version, name, _ in MIGRATIONS])
+            self.assertEqual(pending_catalog_migrations(conn), [])
+            # An older Prism treats this row as a hard precondition, so the
+            # newer build has to leave it in place for a rollback to work.
+            legacy = conn.execute(
+                "SELECT version FROM catalog_schema_migrations WHERE version = %s",
+                (POSTGRES_SCHEMA_VERSION,),
+            ).fetchone()
+            self.assertIsNotNone(legacy)
+
+        survivor = upgraded.get_component(component["id"])
+        self.assertIsNotNone(survivor)
+        self.assertEqual(survivor["slug"], component["slug"])
+
+    def test_repeated_startup_does_not_rewrite_widened_columns(self) -> None:
+        """Replaying the column widening rewrites whole tables for nothing."""
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            self.assertEqual(pending_catalog_migrations(conn), [])
+
+        restarted = ComponentCatalogPostgresService(
+            store_root=Path(self.tempdir.name) / "components",
+            database_url=POSTGRES_URL,
+        )
+        restarted.initialize()
+
+        with restarted._connect() as conn:  # type: ignore[attr-defined]
+            applied = conn.execute(
+                "SELECT count(*) AS total FROM catalog_schema_versions"
+            ).fetchone()
+            self.assertEqual(int(applied["total"]), len(MIGRATIONS))
 
 
 if __name__ == "__main__":

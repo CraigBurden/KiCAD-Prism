@@ -1,4 +1,9 @@
-export type ComparisonHostSlot = "composite" | "base" | "compare" | "toggle";
+/**
+ * Old/New has no slot of its own: it shows whichever of the two revision
+ * viewers the side-by-side layout already mounts, so its readiness is that
+ * slot's readiness.
+ */
+export type ComparisonHostSlot = "composite" | "base" | "compare";
 
 export type ComparisonHostPhase =
     | "idle"
@@ -43,7 +48,6 @@ export function createComparisonLifecycleState(): ComparisonLifecycleState {
         composite: emptyHost(),
         base: emptyHost(),
         compare: emptyHost(),
-        toggle: emptyHost(),
     };
 }
 

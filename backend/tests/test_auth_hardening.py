@@ -9,6 +9,7 @@ session that survives logout or revocation.
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 import time
 import unittest
@@ -97,8 +98,92 @@ class AuthConfigurationFailClosedTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self._settings(SESSION_COOKIE_SECURE="ture")
 
-    def test_disabled_authentication_reports_no_errors(self) -> None:
-        self.assertEqual(Settings(_env_file=None, AUTH_ENABLED=False).auth_configuration_errors(), [])
+    def test_disabled_authentication_is_fine_on_localhost(self) -> None:
+        """The evaluation path the plain-HTTP installer scheme depends on."""
+        evaluation = Settings(
+            _env_file=None,
+            AUTH_ENABLED=False,
+            PUBLIC_BASE_URL="http://localhost:8080",
+        )
+        self.assertEqual(evaluation.auth_configuration_errors(), [])
+
+
+class OpenAuthOnAReachableHostTests(unittest.TestCase):
+    """AUTH_ENABLED=false is for evaluation. Production shape must not start."""
+
+    def _open(self, **overrides) -> Settings:
+        return Settings(_env_file=None, AUTH_ENABLED=False, **overrides)
+
+    def test_tls_on_a_routable_name_refuses_to_start(self) -> None:
+        errors = self._open(PUBLIC_BASE_URL="https://prism.pixxel.space").auth_configuration_errors()
+        self.assertTrue(any("not allowed with PUBLIC_BASE_URL" in error for error in errors))
+
+    def test_admin_guest_on_a_reachable_host_refuses_to_start(self) -> None:
+        errors = self._open(
+            PUBLIC_BASE_URL="http://prism.internal.example",
+            DEV_GUEST_ROLE="admin",
+        ).auth_configuration_errors()
+        self.assertTrue(any("DEV_GUEST_ROLE=admin" in error for error in errors))
+
+    def test_lan_evaluation_with_a_viewer_guest_still_starts(self) -> None:
+        """A LAN demo over plain HTTP stays possible; it just cannot be admin."""
+        self.assertEqual(
+            self._open(
+                PUBLIC_BASE_URL="http://prism.internal.example",
+                DEV_GUEST_ROLE="viewer",
+            ).auth_configuration_errors(),
+            [],
+        )
+
+    def test_the_guest_role_default_is_least_privilege(self) -> None:
+        # Read the declared default, not a constructed Settings. `_env_file=None`
+        # only suppresses the .env file; pydantic-settings still reads the
+        # process environment, and the CI backend job exports
+        # DEV_GUEST_ROLE=admin for its own fixtures. Asserting the resolved value
+        # would test the runner's environment rather than this repository.
+        self.assertEqual(Settings.model_fields["DEV_GUEST_ROLE"].default, "viewer")
+
+    def test_an_unparseable_base_url_counts_as_remote(self) -> None:
+        self.assertFalse(self._open(PUBLIC_BASE_URL="http://[").BASE_URL_IS_LOCAL)
+
+    def test_an_unset_base_url_does_not_break_an_existing_dev_checkout(self) -> None:
+        """Unset is the default, so it describes a checkout, not a deployment.
+
+        Treating it as remote would turn this into a hard startup refusal for
+        anyone whose .env already carries DEV_GUEST_ROLE=admin and no
+        PUBLIC_BASE_URL -- an upgrade that stops the application, which is
+        exactly what the expand-only rule exists to prevent.
+        """
+        unconfigured = self._open(PUBLIC_BASE_URL="", DEV_GUEST_ROLE="admin")
+        self.assertTrue(unconfigured.BASE_URL_IS_LOCAL)
+        self.assertEqual(unconfigured.auth_configuration_errors(), [])
+
+    def test_open_authentication_is_always_warned_about(self) -> None:
+        warnings = self._open(PUBLIC_BASE_URL="http://localhost:8080").configuration_warnings()
+        self.assertTrue(any("AUTH_ENABLED=false" in warning for warning in warnings))
+
+    def test_compose_and_settings_declare_the_same_guest_default(self) -> None:
+        """One setting, two defaults, and the Compose one is what runs.
+
+        `DEV_GUEST_ROLE=${DEV_GUEST_ROLE:-...}` in docker-compose.yml overrides
+        the field default for every containerised deployment, so lowering the
+        Python default alone changed nothing where it mattered. Whoever moves
+        one of these has to move the other.
+        """
+        compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
+        declared = re.search(r"DEV_GUEST_ROLE=\$\{DEV_GUEST_ROLE:-(\w+)\}", compose)
+        self.assertIsNotNone(declared, "docker-compose.yml no longer defaults DEV_GUEST_ROLE")
+        self.assertEqual(declared.group(1), Settings.model_fields["DEV_GUEST_ROLE"].default)
+
+    def test_an_empty_git_import_allowlist_is_warned_about(self) -> None:
+        """Import will otherwise clone anything a user names, from this network."""
+        warnings = Settings(_env_file=None, IMPORT_ALLOWED_HOSTS_STR="").configuration_warnings()
+        self.assertTrue(any("IMPORT_ALLOWED_HOSTS_STR" in warning for warning in warnings))
+
+        configured = Settings(_env_file=None, IMPORT_ALLOWED_HOSTS_STR="github.com")
+        self.assertFalse(
+            any("IMPORT_ALLOWED_HOSTS_STR" in warning for warning in configured.configuration_warnings())
+        )
 
 
 class SessionTokenTests(unittest.TestCase):

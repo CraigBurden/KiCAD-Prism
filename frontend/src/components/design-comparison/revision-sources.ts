@@ -234,14 +234,6 @@ export function resolveSideBySideFocus(
 ): SideBySideFocusTarget | null {
     if (!changes.length) return null;
 
-    const kinds = new Set(changes.map((change) => change.kind));
-    const includeBase = [...kinds].some(
-        (kind) => kind === "removed" || kind === "changed",
-    );
-    const includeCompare = [...kinds].some(
-        (kind) => kind === "added" || kind === "changed",
-    );
-
     const baseBoundsList: Array<[number, number, number, number]> = [];
     const compareBoundsList: Array<[number, number, number, number]> = [];
     let baseUuid: string | null | undefined;
@@ -256,22 +248,27 @@ export function resolveSideBySideFocus(
             ?? change.compare_item?.page
             ?? change.base_item?.page;
 
-        if (includeBase) {
-            const bounds = change.oldGeometry?.bounds ?? (
-                change.kind === "removed" ? change.geometry?.bounds : undefined
-            );
-            if (validBounds(bounds)) baseBoundsList.push(bounds);
+        // Both panes show the same board in the same world coordinates, so a
+        // change that exists on only one side still names an area on the other.
+        // Selecting an addition used to leave the base pane wherever it was,
+        // which is the one moment you most want to see what used to be there.
+        // Each side falls back to the other side's geometry for that reason.
+        const baseBounds = change.oldGeometry?.bounds ?? change.geometry?.bounds;
+        const compareBounds = change.geometry?.bounds ?? change.oldGeometry?.bounds;
+        if (validBounds(baseBounds)) baseBoundsList.push(baseBounds);
+        if (validBounds(compareBounds)) compareBoundsList.push(compareBounds);
+
+        // Identity does not cross over the way position does: an added object
+        // has no base-side counterpart to select, and asking a viewer to select
+        // an id it does not have would clear the selection it already shows.
+        if (change.kind !== "added") {
             baseUuid = baseUuid
                 ?? change.source_id_base
                 ?? change.base_item?.source_id
                 ?? change.uuid
                 ?? null;
         }
-        if (includeCompare) {
-            const bounds = change.geometry?.bounds ?? (
-                change.kind === "added" ? change.geometry?.bounds : undefined
-            );
-            if (validBounds(bounds)) compareBoundsList.push(bounds);
+        if (change.kind !== "removed") {
             compareUuid = compareUuid
                 ?? change.source_id_compare
                 ?? change.compare_item?.source_id
@@ -282,11 +279,9 @@ export function resolveSideBySideFocus(
 
     return {
         page: page ?? null,
-        baseBounds: includeBase ? unionBounds(baseBoundsList) : undefined,
-        compareBounds: includeCompare
-            ? unionBounds(compareBoundsList)
-            : undefined,
-        baseUuid: includeBase ? (baseUuid ?? null) : null,
-        compareUuid: includeCompare ? (compareUuid ?? null) : null,
+        baseBounds: unionBounds(baseBoundsList),
+        compareBounds: unionBounds(compareBoundsList),
+        baseUuid: baseUuid ?? null,
+        compareUuid: compareUuid ?? null,
     };
 }

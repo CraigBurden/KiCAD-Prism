@@ -86,9 +86,18 @@ def enforce(bucket: str, *, limit: int, window_seconds: int) -> None:
     except HTTPException:
         raise
     except Exception:
-        # A limiter outage must not take authentication down with it.
-        logger.exception("Rate limit check failed for bucket %s; allowing the request", bucket)
-        return
+        # Fail closed. This used to allow the request so that a limiter outage
+        # could not take authentication down with it, but the limiter's store is
+        # the application database: if it is unreachable, sessions, users and
+        # roles are unreachable too and the request was going to fail anyway.
+        # Allowing it bought no availability and removed brute-force protection
+        # for exactly as long as the database was unwell.
+        logger.exception("Rate limit store unavailable for bucket %s; refusing the request", bucket)
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication is temporarily unavailable. Try again shortly.",
+            headers={"Retry-After": "30"},
+        ) from None
 
     if int(row["attempts"]) > limit:
         raise HTTPException(

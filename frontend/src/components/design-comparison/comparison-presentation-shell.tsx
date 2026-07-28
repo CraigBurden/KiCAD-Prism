@@ -32,6 +32,7 @@ import {
     resolveNativeSelection,
     type ComparisonSelection,
 } from "./comparison-selection-bridge";
+import { ChangeStatusLegend } from "./change-status";
 import { ComparisonViewerHost } from "./comparison-viewer-host";
 import {
     resolveSelectedDocument,
@@ -75,10 +76,6 @@ type ComparisonPresentationShellProps = {
 
 type OldNewSide = "base" | "compare";
 const ignoreRightRailChange = () => undefined;
-
-function shortSha(sha: string): string {
-    return sha.slice(0, 10);
-}
 
 function isAbortError(error: unknown): boolean {
     return error instanceof DOMException && error.name === "AbortError";
@@ -305,8 +302,6 @@ export function ComparisonPresentationShell({
         useState<ECadViewerElement | null>(null);
     const [compareViewer, setCompareViewer] =
         useState<ECadViewerElement | null>(null);
-    const [toggleViewer, setToggleViewer] =
-        useState<ECadViewerElement | null>(null);
     const [oldNewSide, setOldNewSide] = useState<OldNewSide>("compare");
     const [preparation, setPreparation] =
         useState<EcadDocumentComparisonPreparation | null>(null);
@@ -331,7 +326,6 @@ export function ComparisonPresentationShell({
     const compositeGenerationRef = useRef(0);
     const baseGenerationRef = useRef(0);
     const compareGenerationRef = useRef(0);
-    const toggleGenerationRef = useRef(0);
     const pageGenerationRef = useRef(0);
     const togglePageGenerationRef = useRef(0);
     const selectionGenerationRef = useRef(0);
@@ -344,9 +338,13 @@ export function ComparisonPresentationShell({
     const compositeViewerRef = useRef<ECadViewerElement | null>(null);
     const baseViewerRef = useRef<ECadViewerElement | null>(null);
     const compareViewerRef = useRef<ECadViewerElement | null>(null);
-    const toggleViewerRef = useRef<ECadViewerElement | null>(null);
     const mountedModesRef = useRef(new Set<ComparisonPresentationMode>());
     mountedModesRef.current.add(presentationMode);
+    // Side-by-side shows both revision panes at once; Old/New shows one of them
+    // at a time. Either way they are the same two viewers holding the same two
+    // revisions, so both modes load them.
+    const revisionPanesShown =
+        presentationMode === "side-by-side" || presentationMode === "old-new";
 
     const allChanges = useMemo(
         () => selectedChanges(selection, reviewGroups),
@@ -374,18 +372,6 @@ export function ComparisonPresentationShell({
         ),
         [allChanges, documentDiff, domain, selection?.documentPath],
     );
-    const documentPath = activeDocument?.path ?? null;
-    const baseHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
-        baseResolvedDocuments,
-        files.base,
-        documentPath,
-    );
-    const compareHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
-        compareResolvedDocuments,
-        files.head,
-        documentPath,
-    );
-
     const baseSources = useRevisionSources(
         projectId,
         domain,
@@ -397,6 +383,27 @@ export function ComparisonPresentationShell({
         domain,
         compare,
         files.head,
+    );
+    // A domain with nothing changed in it still has a document worth looking
+    // at. `activeDocument` comes from the diff bundle, which lists only what
+    // changed, so an untouched schematic used to replace the entire panel with
+    // "No schematic document for this comparison" — the reviewer could not open
+    // the schematic at all on a PCB-only commit. The revision's own root
+    // document is the fallback.
+    const documentPath =
+        activeDocument?.path
+        ?? baseSources.rootName
+        ?? compareSources.rootName
+        ?? null;
+    const baseHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
+        baseResolvedDocuments,
+        files.base,
+        documentPath,
+    );
+    const compareHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
+        compareResolvedDocuments,
+        files.head,
+        documentPath,
     );
     const baseMissingRoot = useMemo(
         () =>
@@ -425,8 +432,6 @@ export function ComparisonPresentationShell({
         `${projectId}:composite:${domain}:${base}:${compare}`;
     const baseHostKey = `${projectId}:base:${domain}:${base}`;
     const compareHostKey = `${projectId}:compare:${domain}:${compare}`;
-    const toggleHostKey =
-        `${projectId}:toggle:${domain}:${base}:${compare}`;
     const comparisonKey = `${projectId}:${base}:${compare}:${domain}`;
 
     useEffect(() => {
@@ -518,17 +523,6 @@ export function ComparisonPresentationShell({
             ),
         [attachHost, compareHostKey],
     );
-    const attachToggle = useCallback(
-        (viewer: ECadViewerElement | null) =>
-            attachHost(
-                "toggle",
-                toggleHostKey,
-                setToggleViewer,
-                toggleViewerRef,
-                viewer,
-            ),
-        [attachHost, toggleHostKey],
-    );
 
     useEffect(() => {
         const viewers: Array<[
@@ -538,7 +532,6 @@ export function ComparisonPresentationShell({
             ["composite", compositeViewer],
             ["base", baseViewer],
             ["compare", compareViewer],
-            ["toggle", toggleViewer],
         ];
         const cleanups: Array<() => void> = [];
         for (const [slot, viewer] of viewers) {
@@ -547,7 +540,8 @@ export function ComparisonPresentationShell({
                 logComparisonDebug("viewer.transition", {
                     slot,
                     presentationMode,
-                    oldNewSide: slot === "toggle" ? oldNewSide : null,
+                    oldNewSide:
+                        presentationMode === "old-new" ? oldNewSide : null,
                     viewer: event.detail,
                 });
             }) as EventListener;
@@ -566,7 +560,6 @@ export function ComparisonPresentationShell({
         compositeViewer,
         oldNewSide,
         presentationMode,
-        toggleViewer,
     ]);
 
     const markCompositeLayout = useCallback(
@@ -582,11 +575,6 @@ export function ComparisonPresentationShell({
     const markCompareLayout = useCallback(
         (key: string) =>
             dispatch({ type: "layout-ready", slot: "compare", key }),
-        [],
-    );
-    const markToggleLayout = useCallback(
-        (key: string) =>
-            dispatch({ type: "layout-ready", slot: "toggle", key }),
         [],
     );
 
@@ -746,7 +734,7 @@ export function ComparisonPresentationShell({
 
     useEffect(() => {
         if (
-            presentationMode !== "side-by-side"
+            !revisionPanesShown
             || !baseViewer
             || !lifecycle.base.layoutReady
             || !sourcesReady
@@ -835,13 +823,13 @@ export function ComparisonPresentationShell({
         baseSources.sources,
         baseViewer,
         lifecycle.base.layoutReady,
-        presentationMode,
+        revisionPanesShown,
         sourcesReady,
     ]);
 
     useEffect(() => {
         if (
-            presentationMode !== "side-by-side"
+            !revisionPanesShown
             || !compareViewer
             || !lifecycle.compare.layoutReady
             || !sourcesReady
@@ -936,128 +924,8 @@ export function ComparisonPresentationShell({
         compareSources.sources,
         compareViewer,
         lifecycle.compare.layoutReady,
-        presentationMode,
+        revisionPanesShown,
         sourcesReady,
-    ]);
-
-    useEffect(() => {
-        if (
-            presentationMode !== "old-new"
-            || !toggleViewer
-            || !lifecycle.toggle.layoutReady
-            || !sourcesReady
-        ) {
-            return;
-        }
-        const generation = ++toggleGenerationRef.current;
-        let cancelled = false;
-        const revisionKey =
-            oldNewSide === "base" ? baseRevisionKey : compareRevisionKey;
-        const sources =
-            oldNewSide === "base"
-                ? baseSources.sources
-                : compareSources.sources;
-        const missing =
-            oldNewSide === "base" ? baseMissingRoot : compareMissingRoot;
-        const rootName =
-            oldNewSide === "base"
-                ? baseSources.rootName
-                : compareSources.rootName;
-        delete toggleViewer.dataset.ecadReadyRevision;
-        dispatch({
-            type: "transition",
-            slot: "toggle",
-            key: toggleHostKey,
-            phase: "loading",
-        });
-        logComparisonDebug("host.toggle.load.start", {
-            generation,
-            side: oldNewSide,
-            revisionKey,
-            sourceCount: sources.length,
-        });
-        if (missing) {
-            dispatch({
-                type: "transition",
-                slot: "toggle",
-                key: toggleHostKey,
-                phase: "error",
-                error: `${rootName} is missing from the ${oldNewSide} revision.`,
-            });
-            return;
-        }
-        void toggleViewer
-            .replaceSources({ revisionKey, sources })
-            .then(() => toggleViewer.ready)
-            .then(() => {
-                if (
-                    cancelled
-                    || generation !== toggleGenerationRef.current
-                ) {
-                    return;
-                }
-                toggleViewer.dataset.ecadReadyRevision = revisionKey;
-                const resolvedDocuments = resolvedViewerDocuments(toggleViewer);
-                if (oldNewSide === "base") {
-                    setBaseResolvedDocuments(resolvedDocuments);
-                } else {
-                    setCompareResolvedDocuments(resolvedDocuments);
-                }
-                dispatch({
-                    type: "transition",
-                    slot: "toggle",
-                    key: toggleHostKey,
-                    phase: "ready",
-                });
-                logComparisonDebug("host.toggle.load.ready", {
-                    generation,
-                    side: oldNewSide,
-                    revisionKey,
-                    viewerState: viewerState(toggleViewer),
-                });
-            })
-            .catch((caught) => {
-                if (
-                    cancelled
-                    || generation !== toggleGenerationRef.current
-                ) {
-                    return;
-                }
-                dispatch({
-                    type: "transition",
-                    slot: "toggle",
-                    key: toggleHostKey,
-                    phase: "error",
-                    error:
-                        caught instanceof Error
-                            ? caught.message
-                            : "Failed to load revision",
-                });
-                logComparisonDebugError("host.toggle.load.failed", caught, {
-                    generation,
-                    side: oldNewSide,
-                    revisionKey,
-                    viewerState: viewerState(toggleViewer),
-                });
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        baseMissingRoot,
-        baseRevisionKey,
-        baseSources.rootName,
-        baseSources.sources,
-        compareMissingRoot,
-        compareRevisionKey,
-        compareSources.rootName,
-        compareSources.sources,
-        lifecycle.toggle.layoutReady,
-        oldNewSide,
-        presentationMode,
-        sourcesReady,
-        toggleHostKey,
-        toggleViewer,
     ]);
 
     const sideReady =
@@ -1067,14 +935,19 @@ export function ComparisonPresentationShell({
         (lifecycle.base.phase === "ready" || lifecycle.base.phase === "error")
         && (lifecycle.compare.phase === "ready"
             || lifecycle.compare.phase === "error");
-    const toggleReady = lifecycle.toggle.phase === "ready";
-    const activeToggleRevisionKey = oldNewSide === "base"
-        ? baseRevisionKey
-        : compareRevisionKey;
-    const toggleRevisionReady = toggleReady
-        && toggleViewer?.dataset.ecadReadyRevision === activeToggleRevisionKey;
+    // Old/New is a layout over the same two revision viewers side-by-side
+    // mounts, not a third viewer with its own copy of the sources. Toggling is
+    // therefore a visibility change: both revisions are already loaded, and
+    // each keeps the camera it had, which is what makes the flip instant.
+    const oldNewSlot = oldNewSide === "base" ? lifecycle.base : lifecycle.compare;
+    const oldNewViewer = oldNewSide === "base" ? baseViewer : compareViewer;
+    const oldNewRevisionKey =
+        oldNewSide === "base" ? baseRevisionKey : compareRevisionKey;
+    const toggleRevisionReady =
+        oldNewSlot.phase === "ready"
+        && oldNewViewer?.dataset.ecadReadyRevision === oldNewRevisionKey;
     const toggleSettled =
-        lifecycle.toggle.phase === "ready" || lifecycle.toggle.phase === "error";
+        oldNewSlot.phase === "ready" || oldNewSlot.phase === "error";
 
     useEffect(() => {
         const generation = ++pageGenerationRef.current;
@@ -1175,7 +1048,7 @@ export function ComparisonPresentationShell({
             || domain !== "schematic"
             || !documentPath
             || !toggleRevisionReady
-            || !toggleViewer
+            || !oldNewViewer
         ) {
             return;
         }
@@ -1186,7 +1059,7 @@ export function ComparisonPresentationShell({
             generation,
             side: oldNewSide,
             documentPath,
-            viewerState: viewerState(toggleViewer),
+            viewerState: viewerState(oldNewViewer),
         });
         if (!activeSideHasDocument) {
             logComparisonDebug("page.toggle.absent", {
@@ -1197,7 +1070,7 @@ export function ComparisonPresentationShell({
             setTogglePageReadyPath(documentPath);
             return;
         }
-        void toggleViewer.showPage?.(documentPath)
+        void oldNewViewer.showPage?.(documentPath)
             .then(() => {
                 if (
                     !cancelled
@@ -1207,7 +1080,7 @@ export function ComparisonPresentationShell({
                         generation,
                         side: oldNewSide,
                         documentPath,
-                        viewerState: viewerState(toggleViewer),
+                        viewerState: viewerState(oldNewViewer),
                     });
                     setTogglePageReadyPath(documentPath);
                 }
@@ -1221,7 +1094,7 @@ export function ComparisonPresentationShell({
                         generation,
                         side: oldNewSide,
                         documentPath,
-                        viewerState: viewerState(toggleViewer),
+                        viewerState: viewerState(oldNewViewer),
                     });
                     setSelectionDiagnostic(
                         caught instanceof Error
@@ -1242,7 +1115,7 @@ export function ComparisonPresentationShell({
         oldNewSide,
         presentationMode,
         toggleRevisionReady,
-        toggleViewer,
+        oldNewViewer,
     ]);
 
     useEffect(() => {
@@ -1426,15 +1299,15 @@ export function ComparisonPresentationShell({
             return;
         }
         const id = revisionSelectionId(previewSelection, reviewGroups);
-        toggleViewer?.previewRevisionDiff?.(id);
-        return () => toggleViewer?.previewRevisionDiff?.(null);
+        oldNewViewer?.previewRevisionDiff?.(id);
+        return () => oldNewViewer?.previewRevisionDiff?.(null);
     }, [
         presentationMode,
         previewSelection,
         reviewGroups,
         togglePageReady,
         toggleRevisionReady,
-        toggleViewer,
+        oldNewViewer,
     ]);
 
     useEffect(() => {
@@ -1488,14 +1361,14 @@ export function ComparisonPresentationShell({
             presentationMode !== "old-new"
             || !toggleRevisionReady
             || !togglePageReady
-            || !toggleViewer
+            || !oldNewViewer
             || !documentPath
         ) {
             return;
         }
         const activeSideHasDocument =
             oldNewSide === "base" ? baseHasDocument : compareHasDocument;
-        toggleViewer.setRevisionDiffPresentation?.(
+        oldNewViewer.setRevisionDiffPresentation?.(
             activeSideHasDocument
                 ? buildRevisionDiffPresentation(
                       reviewGroups,
@@ -1517,7 +1390,7 @@ export function ComparisonPresentationShell({
         reviewGroups,
         togglePageReady,
         toggleRevisionReady,
-        toggleViewer,
+        oldNewViewer,
     ]);
 
     useEffect(() => {
@@ -1648,7 +1521,7 @@ export function ComparisonPresentationShell({
             presentationMode !== "old-new"
             || !toggleRevisionReady
             || !togglePageReady
-            || !toggleViewer
+            || !oldNewViewer
         ) {
             return;
         }
@@ -1693,9 +1566,9 @@ export function ComparisonPresentationShell({
             targetId,
             bounds,
             uuid,
-            viewerState: viewerState(toggleViewer),
+            viewerState: viewerState(oldNewViewer),
         });
-        void selectRevisionViewer(toggleViewer, targetId, bounds, uuid)
+        void selectRevisionViewer(oldNewViewer, targetId, bounds, uuid)
             .then((applied) => {
                 if (generation === selectionGenerationRef.current) {
                     logComparisonDebug("selection.toggle.complete", {
@@ -1704,7 +1577,7 @@ export function ComparisonPresentationShell({
                         side: oldNewSide,
                         targetId,
                         applied,
-                        viewerState: viewerState(toggleViewer),
+                        viewerState: viewerState(oldNewViewer),
                     });
                 }
                 if (
@@ -1729,7 +1602,7 @@ export function ComparisonPresentationShell({
                             targetId,
                             bounds,
                             uuid,
-                            viewerState: viewerState(toggleViewer),
+                            viewerState: viewerState(oldNewViewer),
                         },
                     );
                     setSelectionDiagnostic(
@@ -1756,7 +1629,7 @@ export function ComparisonPresentationShell({
         selectionKey,
         togglePageReady,
         toggleRevisionReady,
-        toggleViewer,
+        oldNewViewer,
     ]);
 
     useComparisonCameraSync(
@@ -1771,7 +1644,7 @@ export function ComparisonPresentationShell({
             return compositeViewer ? [compositeViewer] : [];
         }
         if (presentationMode === "old-new") {
-            return toggleViewer ? [toggleViewer] : [];
+            return oldNewViewer ? [oldNewViewer] : [];
         }
         return [baseViewer, compareViewer].filter(
             (viewer): viewer is ECadViewerElement => Boolean(viewer),
@@ -1781,7 +1654,7 @@ export function ComparisonPresentationShell({
         compareViewer,
         compositeViewer,
         presentationMode,
-        toggleViewer,
+        oldNewViewer,
     ]);
 
     useEffect(() => {
@@ -1872,7 +1745,7 @@ export function ComparisonPresentationShell({
     const sourceError = baseSources.error ?? compareSources.error;
     const compositeError = lifecycle.composite.error;
     const sideError = lifecycle.base.error ?? lifecycle.compare.error;
-    const toggleError = lifecycle.toggle.error;
+    const toggleError = oldNewSlot.error;
     const activeError =
         sourceError
         ?? (presentationMode === "composite"
@@ -1898,23 +1771,11 @@ export function ComparisonPresentationShell({
         preparation?.diagnostics.length
         ?? documentDiff.diagnostics.length;
 
-    if (!activeDocument) {
-        return (
-            <section className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center bg-background p-8 text-center">
-                <AlertCircle className="mb-3 h-10 w-10 text-muted-foreground/60" />
-                <h3 className="text-sm font-medium">
-                    No {domain === "pcb" ? "PCB" : "schematic"} document for this comparison
-                </h3>
-                <p className="mt-2 max-w-md text-xs text-muted-foreground">
-                    Neither revision exposes a native{" "}
-                    {domain === "pcb" ? ".kicad_pcb" : ".kicad_sch"} file for
-                    the selected changes. Try another tab or pick a different
-                    revision pair.
-                </p>
-            </section>
-        );
-    }
-
+    // There is deliberately no `!activeDocument` branch here any more. That
+    // asked the diff bundle whether this domain had changed, and replaced the
+    // whole panel when it had not — so a PCB-only commit made the schematic
+    // unopenable. Whether a document exists is a question about the revisions,
+    // which is what the check below asks.
     if (baseMissingRoot && compareMissingRoot) {
         return (
             <section className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center bg-background p-8 text-center">
@@ -1934,36 +1795,13 @@ export function ComparisonPresentationShell({
         <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
             <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-muted/20 px-3 py-2 text-xs">
                 {presentationMode === "composite" ? (
-                    <>
-                        <span className="inline-flex items-center gap-1.5">
-                            <span className="font-semibold text-success">A</span>
-                            Added
-                        </span>
-                        <span className="inline-flex items-center gap-1.5">
-                            <span className="font-semibold text-destructive">R</span>
-                            Removed
-                        </span>
-                        <span className="inline-flex items-center gap-1.5">
-                            <span className="font-semibold text-warning">M</span>
-                            Modified
-                        </span>
-                        <span className="mr-auto text-muted-foreground">
-                            Unchanged content is desaturated toward the page
-                        </span>
-                    </>
+                    <span className="mr-auto inline-flex items-center gap-3">
+                        <ChangeStatusLegend />
+                    </span>
                 ) : presentationMode === "side-by-side" ? (
-                    <>
-                        <span className="rounded border bg-muted px-2 py-0.5 font-mono">
-                            Base {shortSha(base)}
-                        </span>
-                        <span className="text-muted-foreground">vs</span>
-                        <span className="rounded border bg-primary/10 px-2 py-0.5 font-mono text-primary">
-                            Compare {shortSha(compare)}
-                        </span>
-                        <span className="mr-auto text-muted-foreground">
-                            Cameras stay linked while you pan and zoom
-                        </span>
-                    </>
+                    // Nothing to say here: the revision pair is already named in
+                    // the workspace header directly above this bar.
+                    <span className="mr-auto" />
                 ) : (
                     <>
                         <div
@@ -1981,13 +1819,13 @@ export function ComparisonPresentationShell({
                                         to: "base",
                                         documentPath,
                                         selectionKey,
-                                        viewerState: viewerState(toggleViewer),
+                                        viewerState: viewerState(oldNewViewer),
                                     });
                                     setOldNewSide("base");
                                 }}
                                 aria-pressed={oldNewSide === "base"}
                             >
-                                Old ({shortSha(base)})
+                                Old
                             </Button>
                             <Button
                                 variant={oldNewSide === "compare" ? "secondary" : "ghost"}
@@ -1999,18 +1837,16 @@ export function ComparisonPresentationShell({
                                         to: "compare",
                                         documentPath,
                                         selectionKey,
-                                        viewerState: viewerState(toggleViewer),
+                                        viewerState: viewerState(oldNewViewer),
                                     });
                                     setOldNewSide("compare");
                                 }}
                                 aria-pressed={oldNewSide === "compare"}
                             >
-                                New ({shortSha(compare)})
+                                New
                             </Button>
                         </div>
-                        <span className="mr-auto text-muted-foreground">
-                            Toggle revisions in a single viewer
-                        </span>
+                        <span className="mr-auto" />
                     </>
                 )}
                 {domain === "pcb" && (
@@ -2044,16 +1880,27 @@ export function ComparisonPresentationShell({
                         </div>
                     )}
 
-                    {mountedModesRef.current.has("side-by-side") && (
+                    {(mountedModesRef.current.has("side-by-side")
+                        || mountedModesRef.current.has("old-new")) && (
                         <div
                             className={cn(
-                                "absolute inset-0 grid min-h-0 grid-cols-2 divide-x",
-                                presentationMode !== "side-by-side"
+                                "absolute inset-0 grid min-h-0",
+                                presentationMode === "side-by-side"
+                                    ? "grid-cols-2 divide-x"
+                                    : "grid-cols-1",
+                                !revisionPanesShown
                                 && "invisible pointer-events-none",
                             )}
-                            aria-hidden={presentationMode !== "side-by-side"}
+                            aria-hidden={!revisionPanesShown}
                         >
-                            <div className="relative flex min-h-0 min-w-0 flex-col">
+                            <div
+                                className={cn(
+                                    "relative flex min-h-0 min-w-0 flex-col",
+                                    presentationMode === "old-new"
+                                        && oldNewSide !== "base"
+                                        && "hidden",
+                                )}
+                            >
                                 <div className="shrink-0 border-b bg-muted/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                                     Base
                                 </div>
@@ -2070,8 +1917,11 @@ export function ComparisonPresentationShell({
                                             key={baseHostKey}
                                             viewerKey={baseHostKey}
                                             active={
-                                                presentationMode === "side-by-side"
+                                                revisionPanesShown
                                                 && baseHasDocument
+                                                && (presentationMode
+                                                    !== "old-new"
+                                                    || oldNewSide === "base")
                                             }
                                             onViewer={attachBase}
                                             onLayoutReady={markBaseLayout}
@@ -2085,7 +1935,14 @@ export function ComparisonPresentationShell({
                                     )}
                                 </div>
                             </div>
-                            <div className="relative flex min-h-0 min-w-0 flex-col">
+                            <div
+                                className={cn(
+                                    "relative flex min-h-0 min-w-0 flex-col",
+                                    presentationMode === "old-new"
+                                        && oldNewSide !== "compare"
+                                        && "hidden",
+                                )}
+                            >
                                 <div className="shrink-0 border-b bg-muted/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                                     Compare
                                 </div>
@@ -2102,8 +1959,11 @@ export function ComparisonPresentationShell({
                                             key={compareHostKey}
                                             viewerKey={compareHostKey}
                                             active={
-                                                presentationMode === "side-by-side"
+                                                revisionPanesShown
                                                 && compareHasDocument
+                                                && (presentationMode
+                                                    !== "old-new"
+                                                    || oldNewSide === "compare")
                                             }
                                             onViewer={attachCompare}
                                             onLayoutReady={markCompareLayout}
@@ -2118,55 +1978,6 @@ export function ComparisonPresentationShell({
                                     )}
                                 </div>
                             </div>
-                        </div>
-                    )}
-
-                    {mountedModesRef.current.has("old-new") && (
-                        <div
-                            className={cn(
-                                "absolute inset-0",
-                                presentationMode !== "old-new"
-                                && "invisible pointer-events-none",
-                            )}
-                            aria-hidden={presentationMode !== "old-new"}
-                        >
-                            <div
-                                className={cn(
-                                    "absolute inset-0",
-                                    (oldNewSide === "base"
-                                        ? !baseHasDocument
-                                        : !compareHasDocument)
-                                    && "invisible pointer-events-none",
-                                )}
-                                aria-hidden={
-                                    oldNewSide === "base"
-                                        ? !baseHasDocument
-                                        : !compareHasDocument
-                                }
-                            >
-                                <ComparisonViewerHost
-                                    key={toggleHostKey}
-                                    viewerKey={toggleHostKey}
-                                    active={
-                                        presentationMode === "old-new"
-                                        && (oldNewSide === "base"
-                                            ? baseHasDocument
-                                            : compareHasDocument)
-                                    }
-                                    onViewer={attachToggle}
-                                    onLayoutReady={markToggleLayout}
-                                    viewportInsets={{ right: rightRailInset }}
-                                />
-                            </div>
-                            {documentPath
-                                && !(oldNewSide === "base"
-                                    ? baseHasDocument
-                                    : compareHasDocument) && (
-                                <MissingRevisionPane
-                                    side={oldNewSide}
-                                    documentPath={documentPath}
-                                />
-                            )}
                         </div>
                     )}
 

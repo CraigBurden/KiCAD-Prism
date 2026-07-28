@@ -23,7 +23,6 @@ from app.services.workspace_service import workspace
 from app.services.job_service import jobs
 from app.core.config import settings
 from app.core.security_headers import apply_security_headers
-import subprocess
 import os
 import sys
 from pathlib import Path
@@ -34,24 +33,18 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-SUBPROCESS_TIMEOUT_SECONDS = 8
 KNOWN_GIT_HOSTS = ("github.com", "gitlab.com")
 
 def configure_git():
-    """Configure Git with GITHUB_TOKEN if available."""
+    """Report how GITHUB_TOKEN will be used, without writing it anywhere.
+
+    This used to run ``git config --global url.https://<token>@github.com/…``,
+    which left the token in cleartext in the container's ``~/.gitconfig``. The
+    rewrite now travels in the environment of each Git invocation instead; see
+    ``project_import_service._inject_github_token``.
+    """
     if settings.GITHUB_TOKEN:
-        logger.info("Configuring Git to use GITHUB_TOKEN...")
-        try:
-            # git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-            token_url = f"https://{settings.GITHUB_TOKEN}@github.com/"
-            subprocess.run(
-                ["git", "config", "--global", f"url.{token_url}.insteadOf", "https://github.com/"],
-                check=True,
-                timeout=SUBPROCESS_TIMEOUT_SECONDS,
-            )
-            logger.info("Git successfully configured with token injection.")
-        except (subprocess.SubprocessError, OSError) as error:
-            logger.error("Failed to configure Git with token: %s", error)
+        logger.info("GITHUB_TOKEN is set; HTTPS GitHub remotes will use it per invocation.")
 
 def scan_known_hosts():
     """Pin the hosted forges' SSH host keys, verifying them before trusting.
@@ -154,6 +147,12 @@ def announce_auth_posture() -> None:
     )
 
 
+def announce_configuration_warnings() -> None:
+    """Log what is permitted but dangerous, so it is at least on the record."""
+    for warning in settings.configuration_warnings():
+        logger.warning("Configuration: %s", warning)
+
+
 verify_auth_configuration_or_exit()
 
 
@@ -161,6 +160,7 @@ verify_auth_configuration_or_exit()
 async def lifespan(app: FastAPI):
     # Startup
     announce_auth_posture()
+    announce_configuration_warnings()
     configure_git()
     ensure_ssh_dir()
     initialize_comments_store()

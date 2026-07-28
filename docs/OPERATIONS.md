@@ -6,6 +6,13 @@ for a shared KiCAD Prism installation.
 Run commands from the active deployment directory containing `compose.yml` and
 `.env`. Source-built installations use `docker-compose.yml` instead.
 
+For an upgrade, follow [Upgrades and backups](UPGRADES.md) instead of assembling
+the steps below by hand. It wraps the backup, the archive check and the schema
+ladder into one ordered procedure, and `scripts/prism_backup.py` captures the
+database and the component assets as a single consistent set — which the manual
+`pg_dump` here does not. The sections below remain the reference for the
+individual pieces, and for anything the tool does not cover.
+
 ## Record the deployed state
 
 For a release-bundle installation:

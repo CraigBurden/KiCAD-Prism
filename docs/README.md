@@ -22,6 +22,8 @@ testers of unreleased behavior work from `dev`.
   sessions, roles, and service clients.
 - [Operations](OPERATIONS.md) covers backup, restore, bundle upgrades, rollback,
   capacity, and diagnosis.
+- [Upgrades and backups](UPGRADES.md) is the step-by-step upgrade procedure,
+  the `prism_backup.py` archive tool, and the rules a schema migration follows.
 - [Release process](RELEASES.md) documents `dev` to `main` promotion, tag
   validation, image policy, and release assets.
 

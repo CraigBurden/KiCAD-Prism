@@ -34,6 +34,9 @@ def _compute_build_fingerprint() -> str:
             "pipeline/topology_compiler/context.py",
             "pipeline/topology_compiler/copper_geometry.py",
             "pipeline/topology_compiler/pcb_extract.py",
+            # Every pad and track outline is built here, so a change to it has
+            # to invalidate cached bundles the same way pcb_extract does.
+            "pipeline/topology_compiler/pcb_geometry.py",
             "pipeline/topology_compiler/semantic_gltf.py",
             "pipeline/topology_compiler/kicad_cli_export.py",
             "pipeline/topology_compiler/exporter.py",

@@ -7,12 +7,13 @@ import importlib.metadata
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import threading
 import time
-from pathlib import Path
-from typing import Any, Callable, Iterator
+from pathlib import Path, PurePosixPath
+from typing import Any, Callable, Iterable, Iterator
 
 from app.core.config import settings
 from app.services import semantic_visualizer_service
@@ -69,17 +70,84 @@ def artifact_path(project_id: str, source_revision_key: str) -> Path:
     return artifact_dir(project_id, source_revision_key) / "semantic-index.json"
 
 
-def source_revision_key_for_project_file(project_file: Path) -> str:
-    root = project_file.resolve().parent
+def _blob_id(data: bytes) -> str:
+    """Git's object id for a blob: SHA-1 over the object header and content.
+
+    Computing this locally lets a working-tree revision produce the same key as
+    the same content read out of a commit, where the ids come from the index for
+    free.  SHA-1 is git's choice of object id here, not a security boundary.
+    """
+
+    digest = hashlib.sha1(b"blob %d\0" % len(data), usedforsecurity=False)
+    digest.update(data)
+    return digest.hexdigest()
+
+
+def _revision_key(entries: Iterable[tuple[str, str]]) -> str:
+    """Reduce (project-relative path, blob id) pairs to a cache key."""
+
     digest = hashlib.sha256()
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or ".git" in path.parts or path.suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES:
-            continue
-        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+    for path, blob in sorted(entries):
+        digest.update(path.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(blob.encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()[:32]
+
+
+def _source_entries_on_disk(root: Path) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        if path.suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES:
+            continue
+        entries.append((path.relative_to(root).as_posix(), _blob_id(path.read_bytes())))
+    return entries
+
+
+def _source_entries_in_commit(
+    repo_root: Path,
+    commit: str,
+    project_dir: str,
+) -> list[tuple[str, str]]:
+    """List the project's semantic sources at a commit, without checking it out.
+
+    Every blob id here is already a hash of that file's content, so the tree
+    listing alone identifies the revision as precisely as reading the files
+    would — for the cost of one `git ls-tree` instead of an archive extraction.
+    """
+
+    args = ["git", "-C", str(repo_root), "ls-tree", "-r", "-z", commit]
+    if project_dir:
+        args.extend(["--", f"{project_dir}/"])
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if result.returncode != 0:
+        raise ValueError(
+            f"Could not list {commit}: "
+            f"{result.stderr.decode('utf-8', errors='replace').strip()}"
+        )
+
+    prefix = f"{project_dir}/" if project_dir else ""
+    entries: list[tuple[str, str]] = []
+    for record in result.stdout.decode("utf-8", errors="replace").split("\0"):
+        if not record:
+            continue
+        metadata, _, path = record.partition("\t")
+        parts = metadata.split()
+        if len(parts) < 3 or parts[1] != "blob":
+            continue
+        if not path.startswith(prefix):
+            continue
+        relative = path[len(prefix):]
+        if Path(relative).suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES:
+            continue
+        entries.append((relative, parts[2]))
+    return entries
+
+
+def source_revision_key_for_project_file(project_file: Path) -> str:
+    return _revision_key(_source_entries_on_disk(project_file.resolve().parent))
 
 
 def _lock(project_id: str, source_revision_key: str) -> threading.Lock:
@@ -116,6 +184,30 @@ def generator_cache_tag() -> str:
     return f"{GENERATOR_VERSION}-{GENERATOR_BUILD}-kicad-monkey-{dependency}"
 
 
+def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | None]:
+    """Identify a revision cheaply enough to check the cache before building it.
+
+    Materializing a commit means extracting the whole repository into a
+    temporary directory, and the caller used to do that before it knew whether
+    the artifact already existed — so every cache hit paid for an archive
+    extraction and a full re-read of the sources.  A tree listing answers the
+    same question, because git's blob ids are content hashes already.
+    """
+
+    if not commit:
+        project_file = semantic_visualizer_service.find_kicad_project(project.path)
+        return _revision_key(_source_entries_on_disk(project_file.resolve().parent)), None
+
+    repo_root = semantic_visualizer_service._repo_root(Path(project.path))
+    resolved_commit = semantic_visualizer_service._resolve_commit(repo_root, commit)
+    project_rel = semantic_visualizer_service._project_relative_path(repo_root, Path(project.path))
+    project_dir = PurePosixPath(project_rel).parent.as_posix()
+    if project_dir == ".":
+        project_dir = ""
+    entries = _source_entries_in_commit(repo_root, resolved_commit, project_dir)
+    return _revision_key(entries), resolved_commit
+
+
 @contextlib.contextmanager
 def _project_file_for_revision(project: Any, commit: str | None) -> Iterator[tuple[Path, str | None]]:
     if not commit:
@@ -134,77 +226,75 @@ def _project_file_for_revision(project: Any, commit: str | None) -> Iterator[tup
         yield project_file, resolved_commit
 
 
-def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
+def _write_artifact(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def _build_and_store(
+    project: Any,
+    commit: str | None,
+    source_revision_key: str,
+    path: Path,
+) -> dict[str, Any]:
     with _project_file_for_revision(project, commit) as (project_file, resolved_commit):
-        source_revision_key = source_revision_key_for_project_file(project_file)
-        path = artifact_path(str(project.id), source_revision_key)
+        payload = build_semantic_index(
+            project_file,
+            source_revision_key=source_revision_key,
+            commit=resolved_commit,
+        )
+    _write_artifact(path, payload)
+    return payload
+
+
+def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
+    source_revision_key, _resolved_commit = _revision_identity(project, commit)
+    path = artifact_path(str(project.id), source_revision_key)
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    with _lock(str(project.id), source_revision_key):
         if path.is_file():
             return json.loads(path.read_text(encoding="utf-8"))
-
-        with _lock(str(project.id), source_revision_key):
-            if path.is_file():
-                return json.loads(path.read_text(encoding="utf-8"))
-            payload = build_semantic_index(
-                project_file,
-                source_revision_key=source_revision_key,
-                commit=resolved_commit,
-            )
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".json.tmp")
-            temporary.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
-            temporary.replace(path)
-            return payload
+        return _build_and_store(project, commit, source_revision_key, path)
 
 
 def get_existing(project: Any, commit: str | None = None) -> dict[str, Any] | None:
-    with _project_file_for_revision(project, commit) as (project_file, _resolved_commit):
-        source_revision_key = source_revision_key_for_project_file(project_file)
-        path = artifact_path(str(project.id), source_revision_key)
-        if not path.is_file():
-            return None
-        return json.loads(path.read_text(encoding="utf-8"))
+    source_revision_key, _resolved_commit = _revision_identity(project, commit)
+    path = artifact_path(str(project.id), source_revision_key)
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def generate(project: Any, commit: str | None = None, *, force: bool = False) -> dict[str, Any]:
-    with _project_file_for_revision(project, commit) as (project_file, resolved_commit):
-        source_revision_key = source_revision_key_for_project_file(project_file)
-        path = artifact_path(str(project.id), source_revision_key)
-        with _lock(str(project.id), source_revision_key):
-            if path.is_file() and not force:
-                return json.loads(path.read_text(encoding="utf-8"))
-            payload = build_semantic_index(
-                project_file,
-                source_revision_key=source_revision_key,
-                commit=resolved_commit,
-            )
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".json.tmp")
-            temporary.write_text(
-                json.dumps(payload, indent=2, sort_keys=False) + "\n",
-                encoding="utf-8",
-            )
-            temporary.replace(path)
-            return payload
+    source_revision_key, _resolved_commit = _revision_identity(project, commit)
+    path = artifact_path(str(project.id), source_revision_key)
+    with _lock(str(project.id), source_revision_key):
+        if path.is_file() and not force:
+            return json.loads(path.read_text(encoding="utf-8"))
+        return _build_and_store(project, commit, source_revision_key, path)
 
 
 def get_status(project: Any, commit: str | None = None) -> dict[str, Any]:
-    with _project_file_for_revision(project, commit) as (project_file, resolved_commit):
-        source_revision_key = source_revision_key_for_project_file(project_file)
-        path = artifact_path(str(project.id), source_revision_key)
-        return {
-            "schema": "prism.semantic_index_status_a0",
-            "projectId": str(project.id),
-            "sourceRevisionKey": source_revision_key,
-            "commit": resolved_commit,
-            "available": path.is_file(),
-            "generator": {
-                "name": GENERATOR_NAME,
-                "version": GENERATOR_VERSION,
-                "build": GENERATOR_BUILD,
-                "cacheTag": generator_cache_tag(),
-                "kicadMonkeyVersion": _kicad_monkey_version(),
-            },
-        }
+    source_revision_key, resolved_commit = _revision_identity(project, commit)
+    path = artifact_path(str(project.id), source_revision_key)
+    return {
+        "schema": "prism.semantic_index_status_a0",
+        "projectId": str(project.id),
+        "sourceRevisionKey": source_revision_key,
+        "commit": resolved_commit,
+        "available": path.is_file(),
+        "generator": {
+            "name": GENERATOR_NAME,
+            "version": GENERATOR_VERSION,
+            "build": GENERATOR_BUILD,
+            "cacheTag": generator_cache_tag(),
+            "kicadMonkeyVersion": _kicad_monkey_version(),
+        },
+    }
 
 
 def _stable_uid(prefix: str, *parts: object) -> str:
@@ -221,31 +311,71 @@ def _string(value: object) -> str:
     return str(value)
 
 
+# Only quotes and parentheses can change the nesting state of an
+# S-expression, so the scan below jumps straight from one to the next rather
+# than inspecting every character in between.
+_SEXPR_STRUCTURE = re.compile(r'["()]')
+# A string body: any run of non-quote, non-backslash characters, plus escape
+# pairs.  Anchored after an opening quote, this consumes through the closer.
+_SEXPR_STRING_BODY = re.compile(r'(?:[^"\\]|\\.)*"')
+
+
 def _balanced_s_expression_end(text: str, start: int) -> int | None:
-    """Find the end offset of a KiCad S-expression without parsing geometry."""
+    """Find the end offset of a KiCad S-expression without parsing geometry.
+
+    Schematics and boards run to megabytes, and this is called once per
+    candidate form, so it steps between structural characters at regex speed
+    instead of looping over every character in Python.
+    """
 
     depth = 0
-    in_string = False
-    escaped = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
+    index = start
+    while True:
+        match = _SEXPR_STRUCTURE.search(text, index)
+        if match is None:
+            return None
+        char = match.group()
+        index = match.end()
         if char == '"':
-            in_string = True
+            body = _SEXPR_STRING_BODY.match(text, index)
+            if body is None:  # unterminated string; nothing sane left to scan
+                return None
+            index = body.end()
         elif char == "(":
             depth += 1
-        elif char == ")":
+        else:
             depth -= 1
             if depth == 0:
-                return index + 1
-    return None
+                return index
+            if depth < 0:  # started past the opening paren
+                return None
+
+
+_LIB_SYMBOLS_START = re.compile(r"\(lib_symbols(?=\s|\))")
+
+
+def _library_block_span(text: str) -> tuple[int, int]:
+    """Locate a schematic's `(lib_symbols …)`, as a half-open offset range.
+
+    A sheet carries a library definition for each distinct part placed on it,
+    and each definition wraps two or three draw units that are themselves
+    `(symbol …)` forms.  Those inner forms outnumber the placed symbols several
+    times over and hold none of the instance data this overlay reads, but the
+    scan below used to walk every one of them to its closing paren before
+    discarding it for having no `lib_id`.
+
+    This returns the span so the caller can skip those forms specifically,
+    rather than skipping everything ahead of the library block — placed symbols
+    happen to follow it in the files KiCad writes today, and quietly dropping
+    them if that ever stopped holding would be a much worse bug than the cost
+    this avoids.  An empty range means the sheet has no library block.
+    """
+
+    match = _LIB_SYMBOLS_START.search(text)
+    if match is None:
+        return (0, 0)
+    end = _balanced_s_expression_end(text, match.start())
+    return (match.start(), end) if end is not None else (0, 0)
 
 
 def _schematic_instance_fields(project_file: Path) -> dict[str, dict[str, str]]:
@@ -265,7 +395,10 @@ def _schematic_instance_fields(project_file: Path) -> dict[str, dict[str, str]]:
     uuid_pattern = re.compile(r'\(uuid\s+"((?:\\.|[^"\\])*)"\)')
     for schematic_path in sorted(project_file.parent.rglob("*.kicad_sch")):
         text = schematic_path.read_text(encoding="utf-8", errors="ignore")
+        library_start, library_end = _library_block_span(text)
         for match in symbol_start.finditer(text):
+            if library_start <= match.start() < library_end:
+                continue
             end = _balanced_s_expression_end(text, match.start())
             if end is None:
                 continue
@@ -338,11 +471,31 @@ def _property_map(footprint: object) -> dict[str, str]:
     return result
 
 
-def _net_name(pcb: object, item: object) -> str:
+def _net_table(pcb: object) -> object | None:
+    """Snapshot the board's net table, when the installed kicad-monkey has one.
+
+    Without it every ``resolve_net_name`` call rebuilds the whole mapping, so
+    projecting a board costs O(elements x nets). Older releases lack
+    ``net_table``; there the per-call path below still works, just slowly.
+    """
+
+    build = getattr(pcb, "net_table", None)
+    if not callable(build):
+        return None
+    try:
+        return build()
+    except Exception:  # pragma: no cover - fall back to per-call resolution
+        return None
+
+
+def _net_name(pcb: object, item: object, net_table: object | None = None) -> str:
+    net = getattr(item, "net", None)
+    if net_table is not None:
+        return _string(net_table.name_of(net))
     resolver = getattr(pcb, "resolve_net_name", None)
     if callable(resolver):
-        return _string(resolver(getattr(item, "net", None)))
-    return _string(getattr(getattr(item, "net", None), "name", ""))
+        return _string(resolver(net))
+    return _string(getattr(net, "name", ""))
 
 
 def _net_code(item: object) -> int | None:
@@ -582,6 +735,10 @@ def build_semantic_index(
     pcb_started_ns = time.perf_counter_ns()
     pcb_cpu_started_ns = time.thread_time_ns()
     if pcb is not None:
+        # One snapshot for the whole board: resolving each element against the
+        # board rebuilds the net mapping every time.
+        net_table = _net_table(pcb)
+
         def ensure_pcb_net(name: str, code: int | None) -> tuple[dict[str, Any], int] | tuple[None, None]:
             if not name:
                 return None, None
@@ -620,7 +777,7 @@ def build_semantic_index(
             for pad in getattr(footprint, "pads", ()) or ():
                 pad_uuid = _string(getattr(pad, "uuid", ""))
                 pin_number = _string(getattr(pad, "number", ""))
-                name = _net_name(pcb, pad)
+                name = _net_name(pcb, pad, net_table)
                 code = _net_code(pad)
                 net_entry, net_index = ensure_pcb_net(name, code)
                 if net_entry is not None and net_index is not None and pad_uuid:
@@ -660,7 +817,7 @@ def build_semantic_index(
         ):
             for item in getattr(pcb, collection_name, ()) or ():
                 source_uuid = _string(getattr(item, "uuid", ""))
-                name = _net_name(pcb, item)
+                name = _net_name(pcb, item, net_table)
                 code = _net_code(item)
                 net_entry, net_index = ensure_pcb_net(name, code)
                 if net_entry is None or net_index is None or not source_uuid:

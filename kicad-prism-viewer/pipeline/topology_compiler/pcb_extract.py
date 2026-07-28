@@ -103,34 +103,83 @@ def _transform_contour(
     return transformed
 
 
+def _pad_center(pad: Any) -> tuple[float, float]:
+    return float(getattr(pad, "at_x", 0.0) or 0.0), float(getattr(pad, "at_y", 0.0) or 0.0)
+
+
+def _placement_angle(footprint: Any) -> float:
+    return float(getattr(footprint, "at_angle", 0.0) or 0.0)
+
+
+def _drop_placement_angle(
+    contour: list[tuple[float, float]],
+    center: tuple[float, float],
+    placement_angle: float,
+) -> list[tuple[float, float]]:
+    """Take the footprint placement back out of a pad outline.
+
+    KiCad board files store ``pad.at_angle`` in board space, not footprint-local
+    space: a footprint placed at 90 degrees writes 90 onto every pad that sits
+    unrotated in the library. The ``Pad`` shape helpers bake that angle into the
+    outline they return, and ``_transform_contour`` then applies the placement
+    again, so a rotated footprint gets its pads rotated twice. Rotating the
+    outline back about the pad center leaves the footprint-local shape the
+    placement transform expects.
+    """
+    if abs(placement_angle) < 1e-12:
+        return contour
+    from kicad_monkey.kicad_geometry import rotate_point  # type: ignore
+
+    cx, cy = center
+    rotated: list[tuple[float, float]] = []
+    for px, py in contour:
+        rx, ry = rotate_point(float(px) - cx, float(py) - cy, placement_angle)
+        rotated.append((rx + cx, ry + cy))
+    return rotated
+
+
 def _pad_contours(pad: Any, footprint: Any) -> list[list[tuple[float, float]]]:
+    from kicad_monkey.kicad_geometry import rotate_point  # type: ignore
     from kicad_monkey.kicad_pcb_polygon_ops import circle_to_polygon, oval_to_polygon  # type: ignore
 
     shape = _value(getattr(getattr(pad, "shape", ""), "value", getattr(pad, "shape", "")))
+    center = _pad_center(pad)
     if shape == "circle":
-        contours = [circle_to_polygon((pad.at_x, pad.at_y), pad.size_x / 2.0)]
+        contours = [circle_to_polygon(center, pad.size_x / 2.0)]
     elif shape == "oval":
-        start, end, width = pad._to_oval_segment(pad.at_x, pad.at_y)
+        start, end, width = pad._to_oval_segment(*center)
         contours = [oval_to_polygon(start, end, width)]
     elif shape == "roundrect":
-        contours = [pad._to_roundrect_polygon(pad.at_x, pad.at_y)]
+        contours = [pad._to_roundrect_polygon(*center)]
     elif shape == "trapezoid":
-        contours = [pad._to_trapezoid_polygon(pad.at_x, pad.at_y)]
+        contours = [pad._to_trapezoid_polygon(*center)]
     elif shape == "custom" and getattr(pad, "custom_primitives", None):
+        # Custom primitive points are pad-local and unrotated, so they need the
+        # same placement the shape helpers above apply for themselves.
+        pad_angle = -float(getattr(pad, "at_angle", 0.0) or 0.0)
+
+        def _primitive_contour(points: Any) -> list[tuple[float, float]]:
+            contour: list[tuple[float, float]] = []
+            for px, py in points:
+                rx, ry = rotate_point(float(px), float(py), pad_angle)
+                contour.append((rx + center[0], ry + center[1]))
+            return contour
+
         contours = [
-            list(primitive.points)
+            _primitive_contour(primitive.points)
             for primitive in pad.custom_primitives
             if getattr(primitive, "primitive_type", "") == "gr_poly" and primitive.points
         ]
     else:
-        contours = [pad._to_rect_polygon(pad.at_x, pad.at_y)]
+        contours = [pad._to_rect_polygon(*center)]
 
+    placement_angle = _placement_angle(footprint)
     return [
         _transform_contour(
-            contour,
+            _drop_placement_angle(contour, center, placement_angle),
             float(getattr(footprint, "at_x", 0.0) or 0.0),
             float(getattr(footprint, "at_y", 0.0) or 0.0),
-            float(getattr(footprint, "at_angle", 0.0) or 0.0),
+            placement_angle,
         )
         for contour in contours
     ]
@@ -615,15 +664,9 @@ def _extract_footprints(pcb: Any, *, include_geometry: bool = True) -> tuple[lis
         source_id = _value(getattr(footprint, "uuid", ""))
 
         for pad in getattr(footprint, "pads", []) or []:
-            pad_bounds = _bbox_list(pad.get_bounds())
-            if not pad_bounds:
+            transformed = _pad_world_bbox(pad, footprint)
+            if not transformed:
                 continue
-            transformed = _transform_local_bbox(
-                pad_bounds,
-                float(getattr(footprint, "at_x", 0.0) or 0.0),
-                float(getattr(footprint, "at_y", 0.0) or 0.0),
-                float(getattr(footprint, "at_angle", 0.0) or 0.0),
-            )
             pad_geometry = _geometry_from_contours(_pad_contours(pad, footprint)) if include_geometry else {}
             footprint_bbox = _merge_bbox(footprint_bbox, transformed)
             layers = list(getattr(pad, "layers", []) or [])
@@ -702,15 +745,9 @@ def _pad_records_and_links(pcb: Any) -> tuple[list[dict[str, Any]], list[dict[st
         designator = _value(footprint.get_property_value("Reference", ""))
         source_id = _value(getattr(footprint, "uuid", ""))
         for pad in getattr(footprint, "pads", []) or []:
-            pad_bounds = _bbox_list(pad.get_bounds())
-            if not pad_bounds:
+            transformed = _pad_world_bbox(pad, footprint)
+            if not transformed:
                 continue
-            transformed = _transform_local_bbox(
-                pad_bounds,
-                float(getattr(footprint, "at_x", 0.0) or 0.0),
-                float(getattr(footprint, "at_y", 0.0) or 0.0),
-                float(getattr(footprint, "at_angle", 0.0) or 0.0),
-            )
             layers = list(getattr(pad, "layers", []) or [])
             net_name = _net_name(getattr(pad, "net", None))
             pad_uuid = _value(getattr(pad, "uuid", ""))
@@ -744,23 +781,27 @@ def _pad_records_and_links(pcb: Any) -> tuple[list[dict[str, Any]], list[dict[st
     return pads, links
 
 
-def _transform_local_bbox(bbox: list[float], x: float, y: float, angle: float) -> list[float]:
-    if abs(angle) < 1e-12:
-        return [bbox[0] + x, bbox[1] + y, bbox[2] + x, bbox[3] + y]
-    from kicad_monkey.kicad_geometry import rotate_point  # type: ignore
+def _pad_world_bbox(pad: Any, footprint: Any) -> list[float] | None:
+    """Board-space bounding box for a pad, placement counted exactly once.
 
-    min_x, min_y, max_x, max_y = bbox
-    points = [
-        (min_x, min_y),
-        (max_x, min_y),
-        (max_x, max_y),
-        (min_x, max_y),
-    ]
-    transformed = []
-    for px, py in points:
-        rx, ry = rotate_point(px, py, -angle)
-        transformed.append((rx + x, ry + y))
-    return _bbox_from_points(transformed) or bbox
+    ``Pad.get_bounds`` already resolves ``pad.at_angle``, which board files
+    store in board space, so the placement angle has to come back out before
+    the footprint transform puts it in again. See ``_drop_placement_angle``.
+    """
+    bounds = _bbox_list(pad.get_bounds())
+    if not bounds:
+        return None
+    min_x, min_y, max_x, max_y = bounds
+    corners = [(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)]
+    placement_angle = _placement_angle(footprint)
+    corners = _drop_placement_angle(corners, _pad_center(pad), placement_angle)
+    transformed = _transform_contour(
+        corners,
+        float(getattr(footprint, "at_x", 0.0) or 0.0),
+        float(getattr(footprint, "at_y", 0.0) or 0.0),
+        placement_angle,
+    )
+    return _bbox_from_points(transformed) or bounds
 
 
 def _extract_routing(pcb: Any) -> list[dict[str, Any]]:

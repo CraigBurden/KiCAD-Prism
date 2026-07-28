@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import asyncio
 import json
 from pathlib import Path
+import tempfile
 import threading
 from typing import Any
 
@@ -20,7 +21,9 @@ from app.services.job_runtime import job_state_root
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
-_DEBUG_LOG_PATH = Path("/tmp/kicad-prism-design-comparison-debug.jsonl")
+_DEBUG_LOG_PATH = (
+    Path(tempfile.gettempdir()) / "kicad-prism-design-comparison-debug.jsonl"
+)
 _DEBUG_LOG_LOCK = threading.Lock()
 _DEBUG_LOG_MAX_BYTES = 8 * 1024 * 1024
 
