@@ -18,6 +18,7 @@ Kept free of app imports so the mapping can be tested on its own.
 from __future__ import annotations
 
 import re
+import tempfile
 from dataclasses import dataclass
 from typing import Optional
 
@@ -175,7 +176,22 @@ _RULES: tuple[_Rule, ...] = (
     ),
 )
 
-_SENSITIVE_PATH_RE = re.compile(r"/tmp/\S+|/var/folders/\S+")
+def _sensitive_path_pattern() -> "re.Pattern[str]":
+    """Match the scratch paths git names in its errors, on any platform.
+
+    Git reports the server-side clone directory when a fetch fails, which tells
+    a user about the layout of the Prism host. On Windows that path also
+    contains the account name the service runs as, and the two POSIX roots
+    below never matched it. Including the platform's own temporary root keeps
+    this correct wherever the backend runs.
+    """
+
+    roots = {"/tmp", "/var/folders", tempfile.gettempdir()}
+    alternatives = "|".join(sorted(re.escape(root) for root in roots))
+    return re.compile(rf"(?:{alternatives})[/\\]\S+")
+
+
+_SENSITIVE_PATH_RE = _sensitive_path_pattern()
 
 
 def _stderr_of(error: BaseException) -> str:

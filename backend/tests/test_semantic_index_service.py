@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -421,6 +422,217 @@ class SemanticIndexServiceTests(unittest.TestCase):
         self.assertEqual(terminal["schematicPinUuid"], "pin-u30-16")
         net = payload["nets"][0]
         self.assertEqual(net["schematicRefs"][0]["pinUuids"], ["pin-u30-16"])
+
+
+class RevisionIdentityTests(unittest.TestCase):
+    """A revision has to be identifiable without materializing it.
+
+    Resolving a commit means extracting the whole repository into a temporary
+    directory. Doing that before checking the cache made every hit pay for a
+    miss, which on a large repository is most of the cost of a comparison.
+    """
+
+    def _repository(self, root: Path, project_dir: str) -> Path:
+        board = root / project_dir if project_dir else root
+        board.mkdir(parents=True, exist_ok=True)
+        (board / "board.kicad_pro").write_text("{}", encoding="utf-8")
+        (board / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+        (board / "notes.md").write_text("not a semantic source", encoding="utf-8")
+        for command in (
+            ["git", "init", "-q"],
+            ["git", "add", "-A"],
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "board"],
+        ):
+            subprocess.run(command, cwd=root, check=True)
+        return board
+
+    def test_a_commit_and_the_working_tree_agree_on_the_key(self) -> None:
+        """Otherwise the two paths cache the same content under two names."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "boards/main")
+            project = SimpleNamespace(id="p1", path=str(board))
+
+            from_disk, _ = semantic_index_service._revision_identity(project, None)
+            from_commit, resolved = semantic_index_service._revision_identity(
+                project, "HEAD"
+            )
+
+            self.assertEqual(from_disk, from_commit)
+            self.assertEqual(len(resolved), 40)
+
+    def test_a_project_at_the_repository_root_resolves(self) -> None:
+        """The listing takes no pathspec in this case; it is easy to get wrong."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "")
+            project = SimpleNamespace(id="p1", path=str(board))
+
+            from_disk, _ = semantic_index_service._revision_identity(project, None)
+            from_commit, _ = semantic_index_service._revision_identity(project, "HEAD")
+
+            self.assertEqual(from_disk, from_commit)
+
+    def test_a_non_semantic_file_does_not_change_the_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "boards/main")
+            project = SimpleNamespace(id="p1", path=str(board))
+            before, _ = semantic_index_service._revision_identity(project, None)
+
+            (board / "notes.md").write_text("edited", encoding="utf-8")
+            (board / "fab.zip").write_bytes(b"\x00\x01")
+
+            after, _ = semantic_index_service._revision_identity(project, None)
+            self.assertEqual(before, after)
+
+    def test_editing_a_schematic_does_change_the_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "boards/main")
+            project = SimpleNamespace(id="p1", path=str(board))
+            before, _ = semantic_index_service._revision_identity(project, None)
+
+            (board / "board.kicad_sch").write_text("(kicad_sch (symbol))", encoding="utf-8")
+
+            after, _ = semantic_index_service._revision_identity(project, None)
+            self.assertNotEqual(before, after)
+
+    def test_a_cache_hit_never_extracts_the_repository(self) -> None:
+        """This is the whole point of the change, so it is asserted directly."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "boards/main")
+            project = SimpleNamespace(id="p1", path=str(board))
+            key, _ = semantic_index_service._revision_identity(project, "HEAD")
+
+            # KICAD_PROJECTS_ROOT is a computed property on the settings model,
+            # so the module's own root function is the patch point.
+            index_root = root / "index"
+            index_root.mkdir()
+            self.enterContext(
+                patch.object(
+                    semantic_index_service,
+                    "semantic_index_root",
+                    return_value=index_root,
+                )
+            )
+            artifact = semantic_index_service.artifact_path("p1", key)
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            artifact.write_text('{"schema": "cached"}', encoding="utf-8")
+
+            with patch.object(
+                semantic_visualizer_service,
+                "_archive_checkout",
+                side_effect=AssertionError("a cache hit must not check out the repo"),
+            ):
+                self.assertEqual(
+                    semantic_index_service.get_or_build(project, "HEAD")["schema"],
+                    "cached",
+                )
+                self.assertEqual(
+                    semantic_index_service.get_existing(project, "HEAD")["schema"],
+                    "cached",
+                )
+                self.assertTrue(
+                    semantic_index_service.get_status(project, "HEAD")["available"]
+                )
+
+
+class BalancedSExpressionTests(unittest.TestCase):
+    """The scanner steps between structural characters rather than over all of
+    them, so the cases that matter are the ones where a paren is not structural."""
+
+    def test_it_returns_the_offset_past_the_closing_paren(self) -> None:
+        text = "(symbol (at 1 2))tail"
+        self.assertEqual(
+            semantic_index_service._balanced_s_expression_end(text, 0),
+            len("(symbol (at 1 2))"),
+        )
+
+    def test_parens_inside_a_string_do_not_change_depth(self) -> None:
+        text = '(property "Value" "TPS55289 (rev B)")after'
+        end = semantic_index_service._balanced_s_expression_end(text, 0)
+        self.assertEqual(text[:end], '(property "Value" "TPS55289 (rev B)")')
+
+    def test_an_escaped_quote_does_not_end_the_string(self) -> None:
+        text = r'(property "Note" "a \" (b" ) rest'
+        end = semantic_index_service._balanced_s_expression_end(text, 0)
+        self.assertEqual(text[:end], r'(property "Note" "a \" (b" )')
+
+    def test_an_unterminated_form_reports_no_end(self) -> None:
+        self.assertIsNone(
+            semantic_index_service._balanced_s_expression_end("(symbol (at 1", 0)
+        )
+
+    def test_an_unterminated_string_reports_no_end(self) -> None:
+        self.assertIsNone(
+            semantic_index_service._balanced_s_expression_end('(property "open', 0)
+        )
+
+
+class SchematicInstanceFieldTests(unittest.TestCase):
+    LIBRARY = """
+\t(lib_symbols
+\t\t(symbol "Device:R"
+\t\t\t(property "Reference" "R")
+\t\t\t(symbol "R_0_1" (rectangle (start 0 0) (end 1 1)))
+\t\t)
+\t)
+"""
+    PLACED = """
+\t(symbol
+\t\t(lib_id "Device:R")
+\t\t(uuid "placed-uuid-1")
+\t\t(property "Reference" "R7")
+\t\t(property "Datasheet" "https://example.invalid/r.pdf")
+\t\t(pin "1" (uuid "pin-uuid-1"))
+\t)
+"""
+
+    def _fields(self, body: str) -> dict:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "sheet.kicad_sch").write_text(
+                f"(kicad_sch{body})", encoding="utf-8"
+            )
+            return semantic_index_service._schematic_instance_fields(
+                root / "board.kicad_pro"
+            )
+
+    def test_a_placed_symbol_contributes_its_properties(self) -> None:
+        fields = self._fields(self.LIBRARY + self.PLACED)
+
+        self.assertEqual(list(fields), ["placed-uuid-1"])
+        self.assertEqual(fields["placed-uuid-1"]["Reference"], "R7")
+        self.assertEqual(
+            fields["placed-uuid-1"]["Datasheet"], "https://example.invalid/r.pdf"
+        )
+
+    def test_library_definitions_are_not_mistaken_for_instances(self) -> None:
+        """The library's own `(property "Reference" "R")` must not appear."""
+        self.assertEqual(self._fields(self.LIBRARY), {})
+
+    def test_a_placed_symbol_before_the_library_block_is_still_found(self) -> None:
+        """The library span is skipped in place, not used as a starting offset.
+
+        KiCad writes `lib_symbols` ahead of the placed symbols, so this ordering
+        does not occur today. It is asserted because the cheaper alternative —
+        beginning the scan after the library block — would silently drop every
+        symbol here, and silence is exactly the wrong failure for an overlay
+        that feeds the BOM.
+        """
+        fields = self._fields(self.PLACED + self.LIBRARY)
+
+        self.assertEqual(list(fields), ["placed-uuid-1"])
+
+    def test_a_sheet_without_a_library_block_still_scans(self) -> None:
+        self.assertEqual(list(self._fields(self.PLACED)), ["placed-uuid-1"])
+
+    def test_the_symbol_uuid_wins_over_its_pin_uuids(self) -> None:
+        fields = self._fields(self.LIBRARY + self.PLACED)
+
+        self.assertNotIn("pin-uuid-1", fields)
 
 
 if __name__ == "__main__":

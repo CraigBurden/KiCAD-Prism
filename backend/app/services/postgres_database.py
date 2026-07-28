@@ -15,6 +15,52 @@ def postgres_dsn() -> str:
     return value.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
+# Probe every 10s and give up after 3 unanswered probes, so a dead peer is
+# noticed roughly 30s after the keepalive idle period elapses. These are not
+# worth a setting each; the idle period is the one that has to be tuned to sit
+# under whatever sits between Prism and PostgreSQL.
+_KEEPALIVE_INTERVAL_SECONDS = 10
+_KEEPALIVE_FAILED_PROBES = 3
+
+
+def connection_kwargs(conninfo: str) -> dict[str, Any]:
+    """Connection defaults that anything explicit in the DSN still overrides.
+
+    Prism increasingly runs with PostgreSQL somewhere else — a managed
+    instance, another host in the compose network, the other side of a NAT.
+    In that arrangement an idle connection can be discarded by a middlebox
+    without either end being notified, and the pool then hands the dead
+    connection to a request, which fails. TCP keepalives make the kernel find
+    out, and a connect timeout keeps an unreachable host from turning into a
+    hung request.
+    """
+
+    from psycopg.rows import dict_row
+
+    try:
+        from psycopg.conninfo import conninfo_to_dict
+
+        supplied = set(conninfo_to_dict(conninfo))
+    except Exception:
+        # A DSN psycopg cannot parse will fail later with a better message than
+        # anything raised here; fall back to applying every default.
+        supplied = set()
+
+    defaults = {
+        "connect_timeout": settings.PRISM_DATABASE_CONNECT_TIMEOUT_SECONDS,
+        "keepalives": 1,
+        "keepalives_idle": settings.PRISM_DATABASE_KEEPALIVE_IDLE_SECONDS,
+        "keepalives_interval": _KEEPALIVE_INTERVAL_SECONDS,
+        "keepalives_count": _KEEPALIVE_FAILED_PROBES,
+    }
+    kwargs: dict[str, Any] = {
+        key: value for key, value in defaults.items() if key not in supplied
+    }
+    kwargs["row_factory"] = dict_row
+    kwargs["autocommit"] = False
+    return kwargs
+
+
 class PostgresDatabase:
     """Process-local PostgreSQL pool shared by Prism state services."""
 
@@ -32,17 +78,23 @@ class PostgresDatabase:
         with self._lock:
             if self._pool is None:
                 try:
-                    from psycopg.rows import dict_row
                     from psycopg_pool import ConnectionPool
                 except ImportError as exc:  # pragma: no cover - deployment guard
                     raise RuntimeError(
                         "PostgreSQL persistence requires psycopg and psycopg-pool"
                     ) from exc
+                dsn = postgres_dsn()
                 pool = ConnectionPool(
-                    conninfo=postgres_dsn(),
+                    conninfo=dsn,
                     min_size=settings.PRISM_DATABASE_POOL_MIN_SIZE,
                     max_size=settings.PRISM_DATABASE_POOL_MAX_SIZE,
-                    kwargs={"row_factory": dict_row, "autocommit": False},
+                    kwargs=connection_kwargs(dsn),
+                    # Verify a connection is still alive before handing it to a
+                    # caller. This costs a round trip per checkout and buys the
+                    # pool the ability to replace a connection that was dropped
+                    # while idle, instead of failing the request that draws it.
+                    check=ConnectionPool.check_connection,
+                    max_lifetime=settings.PRISM_DATABASE_POOL_MAX_LIFETIME_SECONDS,
                     open=False,
                     name="kicad-prism-state",
                 )
