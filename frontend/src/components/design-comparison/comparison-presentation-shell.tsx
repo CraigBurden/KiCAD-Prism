@@ -32,6 +32,7 @@ import {
     resolveNativeSelection,
     type ComparisonSelection,
 } from "./comparison-selection-bridge";
+import { ChangeStatusLegend } from "./change-status";
 import { ComparisonViewerHost } from "./comparison-viewer-host";
 import {
     resolveSelectedDocument,
@@ -75,10 +76,6 @@ type ComparisonPresentationShellProps = {
 
 type OldNewSide = "base" | "compare";
 const ignoreRightRailChange = () => undefined;
-
-function shortSha(sha: string): string {
-    return sha.slice(0, 10);
-}
 
 function isAbortError(error: unknown): boolean {
     return error instanceof DOMException && error.name === "AbortError";
@@ -1934,36 +1931,13 @@ export function ComparisonPresentationShell({
         <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
             <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-muted/20 px-3 py-2 text-xs">
                 {presentationMode === "composite" ? (
-                    <>
-                        <span className="inline-flex items-center gap-1.5">
-                            <span className="font-semibold text-success">A</span>
-                            Added
-                        </span>
-                        <span className="inline-flex items-center gap-1.5">
-                            <span className="font-semibold text-destructive">R</span>
-                            Removed
-                        </span>
-                        <span className="inline-flex items-center gap-1.5">
-                            <span className="font-semibold text-warning">M</span>
-                            Modified
-                        </span>
-                        <span className="mr-auto text-muted-foreground">
-                            Unchanged content is desaturated toward the page
-                        </span>
-                    </>
+                    <span className="mr-auto inline-flex items-center gap-3">
+                        <ChangeStatusLegend />
+                    </span>
                 ) : presentationMode === "side-by-side" ? (
-                    <>
-                        <span className="rounded border bg-muted px-2 py-0.5 font-mono">
-                            Base {shortSha(base)}
-                        </span>
-                        <span className="text-muted-foreground">vs</span>
-                        <span className="rounded border bg-primary/10 px-2 py-0.5 font-mono text-primary">
-                            Compare {shortSha(compare)}
-                        </span>
-                        <span className="mr-auto text-muted-foreground">
-                            Cameras stay linked while you pan and zoom
-                        </span>
-                    </>
+                    // Nothing to say here: the revision pair is already named in
+                    // the workspace header directly above this bar.
+                    <span className="mr-auto" />
                 ) : (
                     <>
                         <div
@@ -1987,7 +1961,7 @@ export function ComparisonPresentationShell({
                                 }}
                                 aria-pressed={oldNewSide === "base"}
                             >
-                                Old ({shortSha(base)})
+                                Old
                             </Button>
                             <Button
                                 variant={oldNewSide === "compare" ? "secondary" : "ghost"}
@@ -2005,12 +1979,10 @@ export function ComparisonPresentationShell({
                                 }}
                                 aria-pressed={oldNewSide === "compare"}
                             >
-                                New ({shortSha(compare)})
+                                New
                             </Button>
                         </div>
-                        <span className="mr-auto text-muted-foreground">
-                            Toggle revisions in a single viewer
-                        </span>
+                        <span className="mr-auto" />
                     </>
                 )}
                 {domain === "pcb" && (
