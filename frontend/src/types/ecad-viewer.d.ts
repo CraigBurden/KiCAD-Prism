@@ -155,17 +155,49 @@ export interface EcadPreparedDiffTarget {
     overlayLines: Array<Array<[number, number]>>;
 }
 
+export type EcadDiffResolutionReason =
+    | "missing-source-id"
+    | "item-not-found"
+    | "source-id-ambiguous"
+    | "duplicate-change-target"
+    | "paint-bounds-not-found";
+
+export interface EcadDiffResolutionDiagnostic {
+    changeId: string;
+    sourceId?: string;
+    side: "reference" | "comparison";
+    reason: EcadDiffResolutionReason;
+    /** Paint items claiming this source id. */
+    matchCount?: number;
+    /** KiCad type name, for grouping failures by object kind. */
+    typeName?: string;
+}
+
+/**
+ * `targetsUsingProvidedBounds` is the number of selection targets still
+ * focusing the bbox Prism supplied — that is, the constant 5.08 mm / 10 mm
+ * boxes from `_extract_geometry`. It is the measurement that decides whether
+ * the backend can stop emitting bounds at all.
+ */
+export interface EcadDiffResolutionSummary {
+    changes: number;
+    sourceResolved: number;
+    ambiguousSourceIds: number;
+    duplicateChangeTargets: number;
+    targets: number;
+    targetsWithPaintedBounds: number;
+    targetsUsingProvidedBounds: number;
+    visuals: number;
+    visualsWithPaintedBounds: number;
+}
+
 export interface EcadDocumentComparisonPreparation {
     comparisonKey: string;
     context: "SCH" | "PCB";
     document: { path: string; docType: string; changes: unknown[] };
     targets: ReadonlyMap<string, EcadPreparedDiffTarget>;
-    diagnostics: Array<{
-        changeId: string;
-        sourceId?: string;
-        side: "reference" | "comparison";
-        reason: "missing-source-id" | "item-not-found";
-    }>;
+    diagnostics: Array<EcadDiffResolutionDiagnostic>;
+    resolution?: EcadDiffResolutionSummary;
     prepareMs: number;
     sourceCacheHit: boolean;
     /** True when the reference revision has no matching document file. */

@@ -52,6 +52,7 @@ import {
     logComparisonDebug,
     logComparisonDebugError,
 } from "./comparison-debug-log";
+import { buildDiffResolutionReport } from "./diff-resolution-report";
 
 type ComparisonPresentationShellProps = {
     projectId: string;
@@ -677,6 +678,10 @@ export function ComparisonPresentationShell({
                     targetCount: next.targets.size,
                     viewerState: viewerState(compositeViewer),
                 });
+                logComparisonDebug(
+                    "host.composite.resolution",
+                    buildDiffResolutionReport(next),
+                );
                 dispatch({
                     type: "transition",
                     slot: "composite",
