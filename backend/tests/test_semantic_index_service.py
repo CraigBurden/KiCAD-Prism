@@ -617,6 +617,29 @@ class BalancedSExpressionTests(unittest.TestCase):
             semantic_index_service._balanced_s_expression_end('(property "open', 0)
         )
 
+    def test_an_escaped_backslash_still_closes_the_string(self) -> None:
+        # The escape consumes the second backslash, so the quote after it is
+        # a real terminator and the following paren is structural again. Read
+        # the other way, the string would swallow the rest of the form.
+        text = r'(property "Path" "C:\\" ) rest'
+        end = semantic_index_service._balanced_s_expression_end(text, 0)
+        self.assertEqual(text[:end], r'(property "Path" "C:\\" )')
+
+    def test_an_empty_string_is_not_mistaken_for_an_unterminated_one(self) -> None:
+        text = '(property "Value" "")tail'
+        end = semantic_index_service._balanced_s_expression_end(text, 0)
+        self.assertEqual(text[:end], '(property "Value" "")')
+
+    def test_a_start_past_the_opening_paren_reports_no_end(self) -> None:
+        self.assertIsNone(
+            semantic_index_service._balanced_s_expression_end("(symbol (at 1 2))", 8 + 9)
+        )
+
+    def test_nested_forms_close_at_the_outermost_paren(self) -> None:
+        text = "(footprint (pad (at 0 0)) (pad (at 1 1)))after"
+        end = semantic_index_service._balanced_s_expression_end(text, 0)
+        self.assertEqual(text[:end], "(footprint (pad (at 0 0)) (pad (at 1 1)))")
+
 
 class SchematicInstanceFieldTests(unittest.TestCase):
     LIBRARY = """

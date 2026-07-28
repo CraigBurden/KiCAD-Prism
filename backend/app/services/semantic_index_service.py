@@ -312,43 +312,36 @@ def _string(value: object) -> str:
 
 
 # Only quotes and parentheses can change the nesting state of an
-# S-expression, so the scan below jumps straight from one to the next rather
-# than inspecting every character in between.
-_SEXPR_STRUCTURE = re.compile(r'["()]')
-# A string body: any run of non-quote, non-backslash characters, plus escape
-# pairs.  Anchored after an opening quote, this consumes through the closer.
-_SEXPR_STRING_BODY = re.compile(r'(?:[^"\\]|\\.)*"')
+# S-expression. A complete quoted string is its own alternative, and comes
+# first, so the scan swallows it whole and never sees the parentheses inside
+# a value like "Resistor (SMD)". A bare quote therefore only ever matches
+# when the string is unterminated.
+_SEXPR_SCAN = re.compile(r'"(?:[^"\\]|\\.)*"|["()]')
 
 
 def _balanced_s_expression_end(text: str, start: int) -> int | None:
     """Find the end offset of a KiCad S-expression without parsing geometry.
 
-    Schematics and boards run to megabytes, and this is called once per
-    candidate form, so it steps between structural characters at regex speed
-    instead of looping over every character in Python.
+    Boards run to tens of megabytes and this is called once per candidate
+    form -- millions of structural characters per compare. Driving a single
+    `finditer` keeps that walk inside the regex engine; restarting `search`
+    at each character cost one interpreter round trip apiece.
     """
 
     depth = 0
-    index = start
-    while True:
-        match = _SEXPR_STRUCTURE.search(text, index)
-        if match is None:
-            return None
-        char = match.group()
-        index = match.end()
-        if char == '"':
-            body = _SEXPR_STRING_BODY.match(text, index)
-            if body is None:  # unterminated string; nothing sane left to scan
-                return None
-            index = body.end()
-        elif char == "(":
+    for match in _SEXPR_SCAN.finditer(text, start):
+        token = match.group()
+        if token == "(":
             depth += 1
-        else:
+        elif token == ")":
             depth -= 1
             if depth == 0:
-                return index
+                return match.end()
             if depth < 0:  # started past the opening paren
                 return None
+        elif token == '"':  # unterminated string; nothing sane left to scan
+            return None
+    return None
 
 
 _LIB_SYMBOLS_START = re.compile(r"\(lib_symbols(?=\s|\))")
