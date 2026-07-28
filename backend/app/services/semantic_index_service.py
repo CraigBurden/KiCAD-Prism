@@ -7,12 +7,13 @@ import importlib.metadata
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import threading
 import time
-from pathlib import Path
-from typing import Any, Callable, Iterator
+from pathlib import Path, PurePosixPath
+from typing import Any, Callable, Iterable, Iterator
 
 from app.core.config import settings
 from app.services import semantic_visualizer_service
@@ -69,17 +70,84 @@ def artifact_path(project_id: str, source_revision_key: str) -> Path:
     return artifact_dir(project_id, source_revision_key) / "semantic-index.json"
 
 
-def source_revision_key_for_project_file(project_file: Path) -> str:
-    root = project_file.resolve().parent
+def _blob_id(data: bytes) -> str:
+    """Git's object id for a blob: SHA-1 over the object header and content.
+
+    Computing this locally lets a working-tree revision produce the same key as
+    the same content read out of a commit, where the ids come from the index for
+    free.  SHA-1 is git's choice of object id here, not a security boundary.
+    """
+
+    digest = hashlib.sha1(b"blob %d\0" % len(data), usedforsecurity=False)
+    digest.update(data)
+    return digest.hexdigest()
+
+
+def _revision_key(entries: Iterable[tuple[str, str]]) -> str:
+    """Reduce (project-relative path, blob id) pairs to a cache key."""
+
     digest = hashlib.sha256()
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or ".git" in path.parts or path.suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES:
-            continue
-        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+    for path, blob in sorted(entries):
+        digest.update(path.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(blob.encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()[:32]
+
+
+def _source_entries_on_disk(root: Path) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        if path.suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES:
+            continue
+        entries.append((path.relative_to(root).as_posix(), _blob_id(path.read_bytes())))
+    return entries
+
+
+def _source_entries_in_commit(
+    repo_root: Path,
+    commit: str,
+    project_dir: str,
+) -> list[tuple[str, str]]:
+    """List the project's semantic sources at a commit, without checking it out.
+
+    Every blob id here is already a hash of that file's content, so the tree
+    listing alone identifies the revision as precisely as reading the files
+    would — for the cost of one `git ls-tree` instead of an archive extraction.
+    """
+
+    args = ["git", "-C", str(repo_root), "ls-tree", "-r", "-z", commit]
+    if project_dir:
+        args.extend(["--", f"{project_dir}/"])
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if result.returncode != 0:
+        raise ValueError(
+            f"Could not list {commit}: "
+            f"{result.stderr.decode('utf-8', errors='replace').strip()}"
+        )
+
+    prefix = f"{project_dir}/" if project_dir else ""
+    entries: list[tuple[str, str]] = []
+    for record in result.stdout.decode("utf-8", errors="replace").split("\0"):
+        if not record:
+            continue
+        metadata, _, path = record.partition("\t")
+        parts = metadata.split()
+        if len(parts) < 3 or parts[1] != "blob":
+            continue
+        if not path.startswith(prefix):
+            continue
+        relative = path[len(prefix):]
+        if Path(relative).suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES:
+            continue
+        entries.append((relative, parts[2]))
+    return entries
+
+
+def source_revision_key_for_project_file(project_file: Path) -> str:
+    return _revision_key(_source_entries_on_disk(project_file.resolve().parent))
 
 
 def _lock(project_id: str, source_revision_key: str) -> threading.Lock:
@@ -116,6 +184,30 @@ def generator_cache_tag() -> str:
     return f"{GENERATOR_VERSION}-{GENERATOR_BUILD}-kicad-monkey-{dependency}"
 
 
+def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | None]:
+    """Identify a revision cheaply enough to check the cache before building it.
+
+    Materializing a commit means extracting the whole repository into a
+    temporary directory, and the caller used to do that before it knew whether
+    the artifact already existed — so every cache hit paid for an archive
+    extraction and a full re-read of the sources.  A tree listing answers the
+    same question, because git's blob ids are content hashes already.
+    """
+
+    if not commit:
+        project_file = semantic_visualizer_service.find_kicad_project(project.path)
+        return _revision_key(_source_entries_on_disk(project_file.resolve().parent)), None
+
+    repo_root = semantic_visualizer_service._repo_root(Path(project.path))
+    resolved_commit = semantic_visualizer_service._resolve_commit(repo_root, commit)
+    project_rel = semantic_visualizer_service._project_relative_path(repo_root, Path(project.path))
+    project_dir = PurePosixPath(project_rel).parent.as_posix()
+    if project_dir == ".":
+        project_dir = ""
+    entries = _source_entries_in_commit(repo_root, resolved_commit, project_dir)
+    return _revision_key(entries), resolved_commit
+
+
 @contextlib.contextmanager
 def _project_file_for_revision(project: Any, commit: str | None) -> Iterator[tuple[Path, str | None]]:
     if not commit:
@@ -134,77 +226,75 @@ def _project_file_for_revision(project: Any, commit: str | None) -> Iterator[tup
         yield project_file, resolved_commit
 
 
-def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
+def _write_artifact(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def _build_and_store(
+    project: Any,
+    commit: str | None,
+    source_revision_key: str,
+    path: Path,
+) -> dict[str, Any]:
     with _project_file_for_revision(project, commit) as (project_file, resolved_commit):
-        source_revision_key = source_revision_key_for_project_file(project_file)
-        path = artifact_path(str(project.id), source_revision_key)
+        payload = build_semantic_index(
+            project_file,
+            source_revision_key=source_revision_key,
+            commit=resolved_commit,
+        )
+    _write_artifact(path, payload)
+    return payload
+
+
+def get_or_build(project: Any, commit: str | None = None) -> dict[str, Any]:
+    source_revision_key, _resolved_commit = _revision_identity(project, commit)
+    path = artifact_path(str(project.id), source_revision_key)
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    with _lock(str(project.id), source_revision_key):
         if path.is_file():
             return json.loads(path.read_text(encoding="utf-8"))
-
-        with _lock(str(project.id), source_revision_key):
-            if path.is_file():
-                return json.loads(path.read_text(encoding="utf-8"))
-            payload = build_semantic_index(
-                project_file,
-                source_revision_key=source_revision_key,
-                commit=resolved_commit,
-            )
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".json.tmp")
-            temporary.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
-            temporary.replace(path)
-            return payload
+        return _build_and_store(project, commit, source_revision_key, path)
 
 
 def get_existing(project: Any, commit: str | None = None) -> dict[str, Any] | None:
-    with _project_file_for_revision(project, commit) as (project_file, _resolved_commit):
-        source_revision_key = source_revision_key_for_project_file(project_file)
-        path = artifact_path(str(project.id), source_revision_key)
-        if not path.is_file():
-            return None
-        return json.loads(path.read_text(encoding="utf-8"))
+    source_revision_key, _resolved_commit = _revision_identity(project, commit)
+    path = artifact_path(str(project.id), source_revision_key)
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def generate(project: Any, commit: str | None = None, *, force: bool = False) -> dict[str, Any]:
-    with _project_file_for_revision(project, commit) as (project_file, resolved_commit):
-        source_revision_key = source_revision_key_for_project_file(project_file)
-        path = artifact_path(str(project.id), source_revision_key)
-        with _lock(str(project.id), source_revision_key):
-            if path.is_file() and not force:
-                return json.loads(path.read_text(encoding="utf-8"))
-            payload = build_semantic_index(
-                project_file,
-                source_revision_key=source_revision_key,
-                commit=resolved_commit,
-            )
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".json.tmp")
-            temporary.write_text(
-                json.dumps(payload, indent=2, sort_keys=False) + "\n",
-                encoding="utf-8",
-            )
-            temporary.replace(path)
-            return payload
+    source_revision_key, _resolved_commit = _revision_identity(project, commit)
+    path = artifact_path(str(project.id), source_revision_key)
+    with _lock(str(project.id), source_revision_key):
+        if path.is_file() and not force:
+            return json.loads(path.read_text(encoding="utf-8"))
+        return _build_and_store(project, commit, source_revision_key, path)
 
 
 def get_status(project: Any, commit: str | None = None) -> dict[str, Any]:
-    with _project_file_for_revision(project, commit) as (project_file, resolved_commit):
-        source_revision_key = source_revision_key_for_project_file(project_file)
-        path = artifact_path(str(project.id), source_revision_key)
-        return {
-            "schema": "prism.semantic_index_status_a0",
-            "projectId": str(project.id),
-            "sourceRevisionKey": source_revision_key,
-            "commit": resolved_commit,
-            "available": path.is_file(),
-            "generator": {
-                "name": GENERATOR_NAME,
-                "version": GENERATOR_VERSION,
-                "build": GENERATOR_BUILD,
-                "cacheTag": generator_cache_tag(),
-                "kicadMonkeyVersion": _kicad_monkey_version(),
-            },
-        }
+    source_revision_key, resolved_commit = _revision_identity(project, commit)
+    path = artifact_path(str(project.id), source_revision_key)
+    return {
+        "schema": "prism.semantic_index_status_a0",
+        "projectId": str(project.id),
+        "sourceRevisionKey": source_revision_key,
+        "commit": resolved_commit,
+        "available": path.is_file(),
+        "generator": {
+            "name": GENERATOR_NAME,
+            "version": GENERATOR_VERSION,
+            "build": GENERATOR_BUILD,
+            "cacheTag": generator_cache_tag(),
+            "kicadMonkeyVersion": _kicad_monkey_version(),
+        },
+    }
 
 
 def _stable_uid(prefix: str, *parts: object) -> str:

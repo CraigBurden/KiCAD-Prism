@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -421,6 +422,121 @@ class SemanticIndexServiceTests(unittest.TestCase):
         self.assertEqual(terminal["schematicPinUuid"], "pin-u30-16")
         net = payload["nets"][0]
         self.assertEqual(net["schematicRefs"][0]["pinUuids"], ["pin-u30-16"])
+
+
+class RevisionIdentityTests(unittest.TestCase):
+    """A revision has to be identifiable without materializing it.
+
+    Resolving a commit means extracting the whole repository into a temporary
+    directory. Doing that before checking the cache made every hit pay for a
+    miss, which on a large repository is most of the cost of a comparison.
+    """
+
+    def _repository(self, root: Path, project_dir: str) -> Path:
+        board = root / project_dir if project_dir else root
+        board.mkdir(parents=True, exist_ok=True)
+        (board / "board.kicad_pro").write_text("{}", encoding="utf-8")
+        (board / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+        (board / "notes.md").write_text("not a semantic source", encoding="utf-8")
+        for command in (
+            ["git", "init", "-q"],
+            ["git", "add", "-A"],
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "board"],
+        ):
+            subprocess.run(command, cwd=root, check=True)
+        return board
+
+    def test_a_commit_and_the_working_tree_agree_on_the_key(self) -> None:
+        """Otherwise the two paths cache the same content under two names."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "boards/main")
+            project = SimpleNamespace(id="p1", path=str(board))
+
+            from_disk, _ = semantic_index_service._revision_identity(project, None)
+            from_commit, resolved = semantic_index_service._revision_identity(
+                project, "HEAD"
+            )
+
+            self.assertEqual(from_disk, from_commit)
+            self.assertEqual(len(resolved), 40)
+
+    def test_a_project_at_the_repository_root_resolves(self) -> None:
+        """The listing takes no pathspec in this case; it is easy to get wrong."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "")
+            project = SimpleNamespace(id="p1", path=str(board))
+
+            from_disk, _ = semantic_index_service._revision_identity(project, None)
+            from_commit, _ = semantic_index_service._revision_identity(project, "HEAD")
+
+            self.assertEqual(from_disk, from_commit)
+
+    def test_a_non_semantic_file_does_not_change_the_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "boards/main")
+            project = SimpleNamespace(id="p1", path=str(board))
+            before, _ = semantic_index_service._revision_identity(project, None)
+
+            (board / "notes.md").write_text("edited", encoding="utf-8")
+            (board / "fab.zip").write_bytes(b"\x00\x01")
+
+            after, _ = semantic_index_service._revision_identity(project, None)
+            self.assertEqual(before, after)
+
+    def test_editing_a_schematic_does_change_the_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "boards/main")
+            project = SimpleNamespace(id="p1", path=str(board))
+            before, _ = semantic_index_service._revision_identity(project, None)
+
+            (board / "board.kicad_sch").write_text("(kicad_sch (symbol))", encoding="utf-8")
+
+            after, _ = semantic_index_service._revision_identity(project, None)
+            self.assertNotEqual(before, after)
+
+    def test_a_cache_hit_never_extracts_the_repository(self) -> None:
+        """This is the whole point of the change, so it is asserted directly."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            board = self._repository(root, "boards/main")
+            project = SimpleNamespace(id="p1", path=str(board))
+            key, _ = semantic_index_service._revision_identity(project, "HEAD")
+
+            # KICAD_PROJECTS_ROOT is a computed property on the settings model,
+            # so the module's own root function is the patch point.
+            index_root = root / "index"
+            index_root.mkdir()
+            self.enterContext(
+                patch.object(
+                    semantic_index_service,
+                    "semantic_index_root",
+                    return_value=index_root,
+                )
+            )
+            artifact = semantic_index_service.artifact_path("p1", key)
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            artifact.write_text('{"schema": "cached"}', encoding="utf-8")
+
+            with patch.object(
+                semantic_visualizer_service,
+                "_archive_checkout",
+                side_effect=AssertionError("a cache hit must not check out the repo"),
+            ):
+                self.assertEqual(
+                    semantic_index_service.get_or_build(project, "HEAD")["schema"],
+                    "cached",
+                )
+                self.assertEqual(
+                    semantic_index_service.get_existing(project, "HEAD")["schema"],
+                    "cached",
+                )
+                self.assertTrue(
+                    semantic_index_service.get_status(project, "HEAD")["available"]
+                )
 
 
 class BalancedSExpressionTests(unittest.TestCase):
