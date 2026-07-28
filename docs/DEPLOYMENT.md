@@ -101,16 +101,24 @@ Current Compose mounts:
 - `./data/projects` -> `/app/projects`
 - `./data/ssh` -> `/root/.ssh`
 
-Both host paths are rooted at `./data`. To keep persistent data somewhere other than
-the repo checkout (for example a shared machine where each deployment needs its own data
-directory), set `PERSISTENT_DATA_DIR` in `.env` or the shell environment:
+To keep persistent data somewhere other than the repo checkout (for example a shared machine
+where each deployment needs its own data directory, or a PaaS like Coolify with its own storage
+convention), set `PROJECTS_DATA_DIR` and `SSH_DATA_DIR` in `.env` or the shell environment:
 
 ```env
-PERSISTENT_DATA_DIR=/srv/kicad-prism/data
+PROJECTS_DATA_DIR=/srv/kicad-prism/data/projects
+SSH_DATA_DIR=/srv/kicad-prism/data/ssh
 ```
 
-This relocates both `data/projects` and `data/ssh` under the new root; no other configuration
-changes are required.
+These are two separate variables, each holding a complete host path, rather than one root
+variable with a suffix appended in the compose file. Some deployment platforms (Coolify included)
+parse `volumes:` entries with their own logic to register persistent storage, and that logic only
+recognizes a bind source that is a single, complete `${VAR:-default}` expression - it does not
+correctly handle a variable reference with a static path segment concatenated after it, such as
+`${VAR:-default}/projects:/app/projects`. If you hit an error like `invalid spec: ...: empty
+section between colons` on such a platform, or the app ends up bound to a path you didn't set,
+this is almost always why: the platform silently rewrote the mount and dropped everything after
+the `${...}` token. Setting `PROJECTS_DATA_DIR`/`SSH_DATA_DIR` to full paths avoids that.
 
 Persisted data includes:
 - SQLite workspace/project/folder metadata, background job state, component catalog, KiCad OAuth state, and service-client metadata at `data/projects/.kicad-prism/prism.sqlite3`

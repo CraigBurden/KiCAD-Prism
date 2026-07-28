@@ -10,9 +10,9 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       # Mount projects directory for persistence
-      - ${PERSISTENT_DATA_DIR:-./data}/projects:/app/projects
+      - ${PROJECTS_DATA_DIR:-./data/projects}:/app/projects
       # Mount SSH directory for Git persistence (GitLab/GitHub SSH)
-      - ${PERSISTENT_DATA_DIR:-./data}/ssh:/root/.ssh:rw
+      - ${SSH_DATA_DIR:-./data/ssh}:/root/.ssh:rw
     environment:
       - PYTHONUNBUFFERED=1
       # Root directory for storing projects
