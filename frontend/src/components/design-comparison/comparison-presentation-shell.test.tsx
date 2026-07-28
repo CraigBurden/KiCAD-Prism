@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
     CameraState,
@@ -253,6 +253,32 @@ describe("comparison lifecycle", () => {
 });
 
 describe("ComparisonPresentationShell", () => {
+    it("still shows a panel when nothing in this domain changed", async () => {
+        // The diff bundle lists only documents that changed, so a PCB-only
+        // commit leaves it with no schematic entry. That used to replace the
+        // whole panel with "No schematic document for this comparison", making
+        // the schematic unopenable exactly when a reviewer wanted to confirm it
+        // had not moved. The revision's own files are what decide this now.
+        const noSchematicChanges: KiCadProjectDiffBundle = {
+            ...documentDiff,
+            project: { documents: [] },
+        };
+
+        render(
+            <ComparisonPresentationShell
+                {...shellProps}
+                documentDiff={noSchematicChanges}
+                presentationMode="side-by-side"
+            />,
+        );
+
+        await waitFor(() => {
+            expect(FakeEcadViewer.instances.length).toBeGreaterThan(0);
+        });
+        expect(screen.queryByText(/No schematic document/)).toBeNull();
+        expect(screen.queryByText(/Document missing in both revisions/)).toBeNull();
+    });
+
     it("mounts only the composite host in composite mode", async () => {
         render(
             <ComparisonPresentationShell

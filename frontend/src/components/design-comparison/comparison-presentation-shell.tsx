@@ -371,18 +371,6 @@ export function ComparisonPresentationShell({
         ),
         [allChanges, documentDiff, domain, selection?.documentPath],
     );
-    const documentPath = activeDocument?.path ?? null;
-    const baseHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
-        baseResolvedDocuments,
-        files.base,
-        documentPath,
-    );
-    const compareHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
-        compareResolvedDocuments,
-        files.head,
-        documentPath,
-    );
-
     const baseSources = useRevisionSources(
         projectId,
         domain,
@@ -394,6 +382,27 @@ export function ComparisonPresentationShell({
         domain,
         compare,
         files.head,
+    );
+    // A domain with nothing changed in it still has a document worth looking
+    // at. `activeDocument` comes from the diff bundle, which lists only what
+    // changed, so an untouched schematic used to replace the entire panel with
+    // "No schematic document for this comparison" — the reviewer could not open
+    // the schematic at all on a PCB-only commit. The revision's own root
+    // document is the fallback.
+    const documentPath =
+        activeDocument?.path
+        ?? baseSources.rootName
+        ?? compareSources.rootName
+        ?? null;
+    const baseHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
+        baseResolvedDocuments,
+        files.base,
+        documentPath,
+    );
+    const compareHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
+        compareResolvedDocuments,
+        files.head,
+        documentPath,
     );
     const baseMissingRoot = useMemo(
         () =>
@@ -1895,23 +1904,11 @@ export function ComparisonPresentationShell({
         preparation?.diagnostics.length
         ?? documentDiff.diagnostics.length;
 
-    if (!activeDocument) {
-        return (
-            <section className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center bg-background p-8 text-center">
-                <AlertCircle className="mb-3 h-10 w-10 text-muted-foreground/60" />
-                <h3 className="text-sm font-medium">
-                    No {domain === "pcb" ? "PCB" : "schematic"} document for this comparison
-                </h3>
-                <p className="mt-2 max-w-md text-xs text-muted-foreground">
-                    Neither revision exposes a native{" "}
-                    {domain === "pcb" ? ".kicad_pcb" : ".kicad_sch"} file for
-                    the selected changes. Try another tab or pick a different
-                    revision pair.
-                </p>
-            </section>
-        );
-    }
-
+    // There is deliberately no `!activeDocument` branch here any more. That
+    // asked the diff bundle whether this domain had changed, and replaced the
+    // whole panel when it had not — so a PCB-only commit made the schematic
+    // unopenable. Whether a document exists is a question about the revisions,
+    // which is what the check below asks.
     if (baseMissingRoot && compareMissingRoot) {
         return (
             <section className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center bg-background p-8 text-center">
