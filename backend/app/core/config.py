@@ -591,12 +591,20 @@ class Settings(BaseSettings):
         """Whether PUBLIC_BASE_URL points at this machine only.
 
         Used to tell an evaluation apart from something other people can reach.
-        Anything unparseable counts as remote, so a malformed value fails safe.
+
+        Unset counts as local. It is the default, so it means nobody has said
+        where this deployment is published -- which describes a developer's
+        checkout, not a shared instance. Anything reachable has to set it
+        anyway, for OIDC redirects, CORS and the Secure cookie. A malformed
+        value is a different matter and counts as remote, so it fails safe.
         """
         from urllib.parse import urlsplit
 
+        raw = self.PUBLIC_BASE_URL.strip()
+        if not raw:
+            return True
         try:
-            host = (urlsplit(self.PUBLIC_BASE_URL.strip()).hostname or "").lower()
+            host = (urlsplit(raw).hostname or "").lower()
         except ValueError:
             return False
         return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"} or host.endswith(".localhost")
