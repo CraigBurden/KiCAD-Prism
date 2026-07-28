@@ -354,12 +354,15 @@ def check_caddy_config(answers: dict, root) -> Result:
             # An --env-file rather than -e: a credential on the argv is legible
             # in ps output and in any process auditing on the host, to every
             # local user, for as long as the probe runs.
-            handle = stack.enter_context(
-                tempfile.NamedTemporaryFile("w", suffix=".env", delete=False, encoding="utf-8")
-            )
-            handle.write("".join(f"{key}={value}\n" for key, value in values.items()))
-            handle.flush()
-            env_path = Path(handle.name)
+            # Write and close before registering the removal. Windows refuses
+            # to delete a file that still has an open handle, and an ExitStack
+            # unwinds LIFO, so holding the handle open across the callback would
+            # raise PermissionError here on the platform this is most used from.
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".env", delete=False, encoding="utf-8"
+            ) as handle:
+                handle.write("".join(f"{key}={value}\n" for key, value in values.items()))
+                env_path = Path(handle.name)
             stack.callback(env_path.unlink, missing_ok=True)
             os.chmod(env_path, 0o600)
             command += ["--env-file", str(env_path)]

@@ -138,11 +138,55 @@ class ManifestTests(unittest.TestCase):
         problems = prism_backup.compare_versions(manifest, {})
         self.assertTrue(any("schema" in problem for problem in problems))
 
+    def test_an_unreadable_version_is_reported_rather_than_raised(self) -> None:
+        """This gate decides whether to touch the deployment; it must not throw."""
+        manifest = dict(self._manifest(), versions={"workspace_schema": "2026.7", "catalog_schema": "2"})
+
+        problems = prism_backup.compare_versions(
+            manifest, {"workspace_schema": "7", "catalog_schema": "2"}
+        )
+
+        self.assertEqual(len(problems), 1)
+        self.assertIn("not a", problems[0])
+
     def test_missing_version_information_does_not_block_a_restore(self) -> None:
         """An archive from a build that could not read its ledgers still restores."""
         manifest = self._manifest()
         manifest["versions"] = {}
         self.assertEqual(prism_backup.compare_versions(manifest, {}), [])
+
+
+class ChecksumGateTests(unittest.TestCase):
+    """Restore runs this before it removes anything it cannot put back."""
+
+    def _staging(self, tmp: str, payload: bytes) -> tuple[Path, dict]:
+        staging = Path(tmp)
+        (staging / "postgres.dump").write_bytes(payload)
+        manifest = {"checksums": {"postgres.dump": prism_backup.sha256_file(staging / "postgres.dump")}}
+        return staging, manifest
+
+    def test_an_intact_payload_reports_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            staging, manifest = self._staging(tmp, b"dump-contents")
+            self.assertEqual(prism_backup.checksum_problems(manifest, staging), [])
+
+    def test_a_truncated_payload_is_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            staging, manifest = self._staging(tmp, b"dump-contents")
+            (staging / "postgres.dump").write_bytes(b"dump-cont")
+
+            problems = prism_backup.checksum_problems(manifest, staging)
+
+            self.assertEqual([name for name, _ in problems], ["postgres.dump"])
+
+    def test_a_missing_payload_is_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            staging, manifest = self._staging(tmp, b"dump-contents")
+            (staging / "postgres.dump").unlink()
+
+            problems = prism_backup.checksum_problems(manifest, staging)
+
+            self.assertEqual(problems, [("postgres.dump", "missing from the archive")])
 
 
 class DeploymentDiscoveryTests(unittest.TestCase):

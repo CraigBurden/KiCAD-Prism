@@ -23,7 +23,6 @@ from app.services.workspace_service import workspace
 from app.services.job_service import jobs
 from app.core.config import settings
 from app.core.security_headers import apply_security_headers
-import subprocess
 import os
 import sys
 from pathlib import Path
@@ -34,7 +33,6 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-SUBPROCESS_TIMEOUT_SECONDS = 8
 KNOWN_GIT_HOSTS = ("github.com", "gitlab.com")
 
 def configure_git():

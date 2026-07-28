@@ -186,7 +186,17 @@ def compare_versions(manifest: dict, current: dict[str, str]) -> list[str]:
         current_value = current.get(name)
         if archived_value is None or current_value is None:
             continue
-        if int(archived_value) > int(current_value):
+        try:
+            archived_version, current_version = int(archived_value), int(current_value)
+        except (TypeError, ValueError):
+            # This function decides whether to touch the deployment at all, so
+            # a version it cannot read is a reason to stop, not a traceback.
+            problems.append(
+                f"the archive's {label} schema version {archived_value!r} is not a "
+                "number, so it cannot be compared against this build"
+            )
+            continue
+        if archived_version > current_version:
             problems.append(
                 f"the archive's {label} schema is version {archived_value}, "
                 f"newer than this build's {current_value}; restoring it would "
@@ -401,6 +411,23 @@ def load_manifest(archive: Path) -> dict:
         return json.loads(member.read().decode("utf-8"))
 
 
+def checksum_problems(manifest: dict, staging: Path) -> list[tuple[str, str]]:
+    """Compare an extracted archive against the checksums its manifest records.
+
+    Shared with restore, which must run this before it replaces anything: the
+    manifest lives in its own member, so it stays readable even when a payload
+    beside it was truncated in transit.
+    """
+    problems: list[tuple[str, str]] = []
+    for name, expected in sorted((manifest.get("checksums") or {}).items()):
+        path = staging / name
+        if not path.is_file():
+            problems.append((name, "missing from the archive"))
+        elif sha256_file(path) != expected:
+            problems.append((name, "checksum does not match the manifest"))
+    return problems
+
+
 def verify(args: argparse.Namespace) -> int:
     archive: Path = args.archive.resolve()
     manifest = load_manifest(archive)
@@ -421,18 +448,13 @@ def verify(args: argparse.Namespace) -> int:
         staging = Path(staging_name)
         with tarfile.open(archive, "r:gz") as handle:
             extract_all(handle, staging)
-        for name, expected in sorted((manifest.get("checksums") or {}).items()):
-            path = staging / name
-            if not path.is_file():
-                tui.fail(name, "missing from the archive")
-                failures += 1
-                continue
-            actual = sha256_file(path)
-            if actual != expected:
-                tui.fail(name, "checksum does not match the manifest")
-                failures += 1
+        problems = dict(checksum_problems(manifest, staging))
+        failures = len(problems)
+        for name in sorted((manifest.get("checksums") or {})):
+            if name in problems:
+                tui.fail(name, problems[name])
             else:
-                tui.ok(name, f"{path.stat().st_size / 1e6:.1f} MB")
+                tui.ok(name, f"{(staging / name).stat().st_size / 1e6:.1f} MB")
 
     tui.write()
     if failures:
@@ -458,6 +480,10 @@ def restore(args: argparse.Namespace) -> int:
     tui.info(f"Taken       {manifest.get('created_at', 'unknown')}")
     tui.write()
 
+    # Start PostgreSQL before reading the ledgers. Asking a stopped server and
+    # then treating the silence as agreement disabled this check in the one
+    # case that most needs it: restoring onto a fresh host.
+    run(compose + ["up", "-d", "postgres"], root)
     current = schema_versions(compose, root, env)
     problems = compare_versions(manifest, current)
     if problems:
@@ -466,6 +492,12 @@ def restore(args: argparse.Namespace) -> int:
         tui.write()
         tui.info("Restore this archive with the release that produced it.")
         return 1
+    if not current:
+        tui.warn("Could not read this deployment's schema ledgers.")
+        tui.info("The check that refuses an archive newer than this build did not")
+        tui.info("run. On an empty database that is expected; otherwise stop and")
+        tui.info("find out why before continuing.")
+        tui.write()
 
     tui.warn("This replaces the database, project storage and SSH keys in place.")
     tui.info("Everything currently in this deployment is discarded.")
@@ -479,24 +511,41 @@ def restore(args: argparse.Namespace) -> int:
         with tarfile.open(archive, "r:gz") as handle:
             extract_all(handle, staging)
 
+        # Nothing in the deployment is touched until the archive has proved it
+        # can replace what it is about to remove. A truncated payload used to
+        # be discovered after rmtree had already deleted the live copy.
+        tui.write()
+        tui.note("Checking the archive")
+        damage = checksum_problems(manifest, staging)
+        if damage:
+            for name, reason in damage:
+                tui.fail(name, reason)
+            tui.write()
+            tui.fail("Archive is damaged. Nothing was changed.")
+            return 1
+        tui.ok("archive is intact")
+
         tui.write()
         tui.note("Stopping the application")
         services = present_application_services(compose, root)
         if services:
             run(compose + ["stop", *services], root)
-        run(compose + ["up", "-d", "postgres"], root)
 
+        # Unpack beside each destination first, so a failure here leaves the
+        # live directory untouched, and swap only once the database is in.
+        incoming: list[tuple[Path, Path, str]] = []
         for name, relative in PAYLOADS:
             payload = staging / f"{name}.tar.gz"
             if not payload.is_file():
                 continue
             destination = root / relative
-            if destination.is_dir():
-                shutil.rmtree(destination)
-            destination.mkdir(parents=True, exist_ok=True)
+            unpacked = destination.parent / f".{destination.name}.incoming"
+            if unpacked.exists():
+                shutil.rmtree(unpacked)
+            unpacked.mkdir(parents=True, exist_ok=True)
             with tarfile.open(payload, "r:gz") as handle:
-                extract_all(handle, destination)
-            tui.ok(relative)
+                extract_all(handle, unpacked)
+            incoming.append((destination, unpacked, relative))
 
         user = env.get("POSTGRES_USER", "kicad_prism")
         database = env.get("POSTGRES_DB", "kicad_prism")
@@ -513,9 +562,20 @@ def restore(args: argparse.Namespace) -> int:
                 check=False,
             )
         if result.returncode != 0:
+            for _, unpacked, _ in incoming:
+                shutil.rmtree(unpacked, ignore_errors=True)
             tui.fail("pg_restore reported errors.", "Inspect the output above before starting.")
+            tui.write()
+            tui.info("Project storage and SSH keys were left as they were, so this")
+            tui.info("deployment is no worse off than before the restore began.")
             return result.returncode
         tui.ok("database restored")
+
+        for destination, unpacked, relative in incoming:
+            if destination.is_dir():
+                shutil.rmtree(destination)
+            unpacked.replace(destination)
+            tui.ok(relative)
 
     tui.write()
     tui.note("Starting the application")
