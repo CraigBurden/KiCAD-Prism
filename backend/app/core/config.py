@@ -322,6 +322,44 @@ class Settings(BaseSettings):
         description="Maximum PostgreSQL connections retained per backend worker.",
     )
 
+    # The three settings below matter when PostgreSQL is not on the same host.
+    # A NAT gateway, cloud load balancer or firewall will silently drop an idle
+    # connection, and neither end finds out until a query is attempted on it.
+    # Anything set explicitly in PRISM_DATABASE_URL wins over these.
+
+    PRISM_DATABASE_CONNECT_TIMEOUT_SECONDS: int = Field(
+        default=10,
+        ge=1,
+        le=120,
+        description=(
+            "How long to wait for a new PostgreSQL connection before giving up. "
+            "Without this a request hangs indefinitely when the database host is "
+            "unreachable rather than merely slow."
+        ),
+    )
+
+    PRISM_DATABASE_KEEPALIVE_IDLE_SECONDS: int = Field(
+        default=30,
+        ge=1,
+        le=3600,
+        description=(
+            "Idle time before TCP keepalive probes start on a PostgreSQL "
+            "connection. Keep this below the idle timeout of any NAT or load "
+            "balancer between Prism and the database."
+        ),
+    )
+
+    PRISM_DATABASE_POOL_MAX_LIFETIME_SECONDS: int = Field(
+        default=1800,
+        ge=60,
+        le=86400,
+        description=(
+            "Age at which a pooled PostgreSQL connection is retired and replaced. "
+            "Bounds how long a connection can survive a server-side restart or a "
+            "load balancer rotating backends underneath it."
+        ),
+    )
+
     CATALOG_WORKER_CONCURRENCY: int = Field(
         default=2,
         ge=1,
