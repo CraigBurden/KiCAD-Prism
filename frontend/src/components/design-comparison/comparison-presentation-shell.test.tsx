@@ -530,7 +530,11 @@ describe("ComparisonPresentationShell", () => {
         });
     });
 
-    it("reuses one mounted host when toggling New to Old", async () => {
+    it("toggles Old/New without reloading either revision", async () => {
+        // Old/New reuses the two revision viewers side-by-side already mounts,
+        // so both revisions are loaded up front and the flip is a visibility
+        // change. Previously one viewer swapped its sources on every toggle,
+        // which meant a full document reload and a lost camera each time.
         const view = render(
             <ComparisonPresentationShell
                 {...shellProps}
@@ -539,31 +543,38 @@ describe("ComparisonPresentationShell", () => {
         );
 
         await waitFor(() => {
-            expect(FakeEcadViewer.instances).toHaveLength(1);
-            expect(FakeEcadViewer.instances[0]?.replaceSources).toHaveBeenCalledWith(
-                expect.objectContaining({ revisionKey: "project:compare-revision:schematic" }),
-            );
+            expect(FakeEcadViewer.instances).toHaveLength(2);
         });
+        const loadedRevisions = FakeEcadViewer.instances.flatMap((viewer) =>
+            viewer.replaceSources.mock.calls.map(([request]) => request.revisionKey),
+        );
+        expect(new Set(loadedRevisions)).toEqual(new Set([
+            "project:base-revision:schematic",
+            "project:compare-revision:schematic",
+        ]));
+
+        const callsBefore = FakeEcadViewer.instances.map(
+            (viewer) => viewer.replaceSources.mock.calls.length,
+        );
 
         view.getByRole("button", { name: /Old/ }).click();
         await waitFor(() => {
-            expect(FakeEcadViewer.instances).toHaveLength(1);
-            expect(FakeEcadViewer.instances[0]?.replaceSources).toHaveBeenLastCalledWith(
-                expect.objectContaining({ revisionKey: "project:base-revision:schematic" }),
-            );
+            expect(
+                view.getByRole("button", { name: /Old/ }).getAttribute("aria-pressed"),
+            ).toBe("true");
         });
+
+        // The toggle must not have cost a single source replacement.
+        expect(
+            FakeEcadViewer.instances.map(
+                (viewer) => viewer.replaceSources.mock.calls.length,
+            ),
+        ).toEqual(callsBefore);
     });
 
-    it("does not paint the previous Old/New revision while replacement is pending", async () => {
-        let releaseBase!: () => void;
-        const basePending = new Promise<void>((resolve) => {
-            releaseBase = resolve;
-        });
-        FakeEcadViewer.replaceSourcesImplementation = async (request) => {
-            if (request.revisionKey.includes("base-revision")) {
-                await basePending;
-            }
-        };
+    it("keeps each Old/New side's camera across a toggle", async () => {
+        // Nothing is torn down, so the camera each side was left on is still
+        // the camera it shows when you come back to it.
         const view = render(
             <ComparisonPresentationShell
                 {...shellProps}
@@ -571,30 +582,25 @@ describe("ComparisonPresentationShell", () => {
             />,
         );
         await waitFor(() => {
-            expect(FakeEcadViewer.instances[0]?.dataset.ecadReadyRevision)
-                .toBe("project:compare-revision:schematic");
+            expect(FakeEcadViewer.instances).toHaveLength(2);
         });
-        const viewer = FakeEcadViewer.instances[0]!;
-        viewer.showPage.mockClear();
-        viewer.setRevisionDiffPresentation.mockClear();
+
+        const [first, second] = FakeEcadViewer.instances as [
+            FakeEcadViewer,
+            FakeEcadViewer,
+        ];
+        first.camera = { x: 1, y: 2, zoom: 3 } as never;
+        second.camera = { x: 9, y: 8, zoom: 7 } as never;
 
         view.getByRole("button", { name: /Old/ }).click();
         await waitFor(() => {
-            expect(viewer.replaceSources).toHaveBeenLastCalledWith(
-                expect.objectContaining({
-                    revisionKey: "project:base-revision:schematic",
-                }),
-            );
+            expect(
+                view.getByRole("button", { name: /Old/ }).getAttribute("aria-pressed"),
+            ).toBe("true");
         });
-        expect(viewer.showPage).not.toHaveBeenCalled();
-        expect(viewer.setRevisionDiffPresentation).not.toHaveBeenCalled();
 
-        releaseBase();
-        await waitFor(() => {
-            expect(viewer.dataset.ecadReadyRevision)
-                .toBe("project:base-revision:schematic");
-            expect(viewer.showPage).toHaveBeenCalledWith("main.kicad_sch");
-        });
+        expect(first.camera).toEqual({ x: 1, y: 2, zoom: 3 });
+        expect(second.camera).toEqual({ x: 9, y: 8, zoom: 7 });
     });
 
     it("does not replace Old/New sources when selection changes", async () => {
