@@ -217,5 +217,35 @@ class AccessFailureDetection(unittest.TestCase):
         self.assertFalse(_is_access_failure(""))
 
 
+class ScratchPathRedactionTests(unittest.TestCase):
+    """Git names its clone directory in errors; users should not see it."""
+
+    def _pattern_for_host(self, temporary_root: str):
+        from unittest.mock import patch
+
+        from app.services import git_failures
+
+        with patch("tempfile.gettempdir", return_value=temporary_root):
+            return git_failures._sensitive_path_pattern()
+
+    def test_posix_scratch_paths_are_redacted(self) -> None:
+        pattern = self._pattern_for_host("/tmp")
+
+        self.assertEqual(
+            pattern.sub("<path>", "fatal: could not read /tmp/prism-x/config"),
+            "fatal: could not read <path>",
+        )
+
+    def test_a_windows_scratch_path_is_redacted_on_a_windows_host(self) -> None:
+        """It carries the service account name, and the POSIX roots never matched it."""
+        root = r"C:\Users\prism\AppData\Local\Temp"
+        pattern = self._pattern_for_host(root)
+
+        self.assertEqual(
+            pattern.sub("<path>", rf"fatal: could not read {root}\prism-x\HEAD"),
+            "fatal: could not read <path>",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

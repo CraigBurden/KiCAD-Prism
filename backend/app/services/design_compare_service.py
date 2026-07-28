@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -37,8 +38,16 @@ from app.services.workspace_service import workspace
 logger = logging.getLogger(__name__)
 
 design_compare_jobs: Dict[str, dict] = {}
-_CACHE_ROOT = Path(os.environ.get("PRISM_DESIGN_COMPARE_CACHE", "/tmp/prism_design_compare_cache"))
-_JOB_ROOT = Path(os.environ.get("PRISM_DESIGN_COMPARE_JOBS", "/tmp/prism_design_compare"))
+# Defaults land in the platform temporary directory rather than a literal
+# `/tmp`, which does not exist on Windows.
+_CACHE_ROOT = Path(
+    os.environ.get("PRISM_DESIGN_COMPARE_CACHE")
+    or Path(tempfile.gettempdir()) / "prism_design_compare_cache"
+)
+_JOB_ROOT = Path(
+    os.environ.get("PRISM_DESIGN_COMPARE_JOBS")
+    or Path(tempfile.gettempdir()) / "prism_design_compare"
+)
 _CACHE_SCHEMA = "prism.design_compare_revision_v5"
 _INITIAL_CACHE_SCHEMA = "prism.design_compare_revision_initial_v1"
 _CACHE_LOCKS: Dict[str, threading.Lock] = {}

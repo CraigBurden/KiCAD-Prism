@@ -13,6 +13,20 @@ from app.services.job_runtime import JobContext, PreparedArtifact, job_state_roo
 
 
 def _fsync_directory(path: Path) -> None:
+    """Flush a directory entry, where the platform allows it at all.
+
+    Opening a directory and syncing it is how POSIX makes a rename durable.
+    Windows cannot open a directory this way and offers no equivalent call, so
+    the rename is left to the filesystem's own ordering there rather than
+    failing the write. Artifacts are content-addressed and re-derivable, so the
+    cost of the weaker guarantee is a rebuild after an unclean shutdown.
+
+    Errors are not swallowed on platforms that do support this: a directory
+    that cannot be opened there is a real fault worth surfacing.
+    """
+
+    if os.name == "nt":
+        return
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
