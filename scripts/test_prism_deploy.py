@@ -15,8 +15,9 @@ from pathlib import Path
 
 from prism_deploy import render
 from prism_deploy.apply import load_existing_env, write_text
+from prism_deploy.__main__ import load_answers
 from prism_deploy.schemes import (
-    DNS_01, EXTERNAL_PROXY, HTTP_01, INTERNAL_CA, PLAIN_HTTP, TAILSCALE, SCHEMES,
+    DNS_01, DNS_PROVIDERS, EXTERNAL_PROXY, HTTP_01, INTERNAL_CA, PLAIN_HTTP, TAILSCALE, SCHEMES,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -347,6 +348,51 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(command[-2:], ["up", "-d"])
 
 
+class RedactionTests(unittest.TestCase):
+    """A dry run is meant to be read, pasted into a ticket, and captured by CI."""
+
+    def test_every_rendered_file_is_free_of_secrets(self) -> None:
+        answers = answers_for(
+            DNS_01,
+            dns_credential="cfut_realtoken0123456789",
+            oidc_client_secret="oidc-secret-value",
+        )
+        files = render.render_all(ENV_EXAMPLE, answers)
+
+        for path, content in files.items():
+            redacted = render.redact(content, answers)
+            for secret in (
+                answers["session_secret"],
+                answers["postgres_password"],
+                "cfut_realtoken0123456789",
+                "oidc-secret-value",
+            ):
+                self.assertNotIn(secret, redacted, f"{secret!r} survived in {path}")
+
+    def test_the_provider_credential_key_is_masked_by_name_too(self) -> None:
+        """A credential too short for value matching still must not print."""
+        answers = answers_for(DNS_01, dns_credential="short")
+        rendered = render.redact("CLOUDFLARE_API_TOKEN=short\n", answers)
+        self.assertEqual(rendered.strip(), "CLOUDFLARE_API_TOKEN=<redacted>")
+
+    def test_tailscale_auth_key_is_masked(self) -> None:
+        answers = answers_for(TAILSCALE, ts_authkey="tskey-auth-abcdef0123456789")
+        redacted = render.redact(render.render_env(ENV_EXAMPLE, answers), answers)
+        self.assertNotIn("tskey-auth-abcdef0123456789", redacted)
+
+    def test_ordinary_configuration_survives_redaction(self) -> None:
+        answers = answers_for(DNS_01)
+        redacted = render.redact(render.render_env(ENV_EXAMPLE, answers), answers)
+        self.assertIn("prism.example.com", redacted)
+        self.assertIn("OIDC_CLIENT_ID=", redacted)
+
+    def test_a_short_secret_cannot_mask_unrelated_text(self) -> None:
+        """Value matching ignores anything short enough to appear by accident."""
+        answers = answers_for(HTTP_01, oidc_client_secret="abc")
+        self.assertEqual(render.redact("PUBLIC_BASE_URL=https://abc.example.com", answers),
+                         "PUBLIC_BASE_URL=https://abc.example.com")
+
+
 class PlanAndNextStepsTests(unittest.TestCase):
     def test_plan_redacts_every_secret(self) -> None:
         answers = answers_for(DNS_01, dns_credential="super-secret-token")
@@ -368,6 +414,71 @@ class PlanAndNextStepsTests(unittest.TestCase):
     def test_pinned_resolver_is_called_out_as_fragile(self) -> None:
         steps = render.render_next_steps(answers_for(DNS_01, dns_pin="10.0.0.53"))
         self.assertIn("breaks silently", steps)
+
+
+class UnattendedAnswerTests(unittest.TestCase):
+    """An answers file has to reach the same deployment the interview would."""
+
+    def _answers_file(self, directory: str, payload: dict) -> Path:
+        path = Path(directory) / "answers.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_plain_http_needs_no_identity_provider(self) -> None:
+        # The interview defaults single sign-on off for this scheme, so the
+        # unattended path must not demand four OIDC settings it will not use.
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._answers_file(directory, {"scheme": PLAIN_HTTP, "hostname": "localhost"})
+            data = load_answers(path)
+            self.assertEqual(render.normalise(data)["auth_enabled"], False)
+
+    def test_plain_http_can_still_ask_for_single_sign_on(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._answers_file(
+                directory, {"scheme": PLAIN_HTTP, "hostname": "localhost", "auth_enabled": True}
+            )
+            with self.assertRaises(SystemExit) as ctx:
+                load_answers(path)
+            self.assertIn("oidc_issuer", str(ctx.exception))
+
+    def test_every_other_scheme_still_requires_authentication(self) -> None:
+        for scheme in (HTTP_01, DNS_01, INTERNAL_CA, EXTERNAL_PROXY, TAILSCALE):
+            with self.subTest(scheme=scheme), tempfile.TemporaryDirectory() as directory:
+                path = self._answers_file(directory, {"scheme": scheme, "hostname": "prism.example.com"})
+                with self.assertRaises(SystemExit):
+                    load_answers(path)
+
+    def test_a_multi_key_dns_provider_is_refused_when_incomplete(self) -> None:
+        """Route 53 fails at issuance, not at startup, if the key ID is absent."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._answers_file(directory, {
+                "scheme": DNS_01, "hostname": "prism.example.com",
+                "oidc_issuer": "https://sso.example.com", "oidc_client_id": "prism",
+                "oidc_client_secret": "s", "bootstrap_admins": "a@example.com",
+                "dns_provider": "route53", "dns_credential": "secret-access-key",
+            })
+            with self.assertRaises(SystemExit) as ctx:
+                load_answers(path)
+            self.assertIn("AWS_ACCESS_KEY_ID", str(ctx.exception))
+
+    def test_a_multi_key_dns_provider_is_accepted_when_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._answers_file(directory, {
+                "scheme": DNS_01, "hostname": "prism.example.com",
+                "oidc_issuer": "https://sso.example.com", "oidc_client_id": "prism",
+                "oidc_client_secret": "s", "bootstrap_admins": "a@example.com",
+                "dns_provider": "route53", "dns_credential": "secret-access-key",
+                "extra_provider_env": {"AWS_ACCESS_KEY_ID": "AKIA", "AWS_REGION": "us-east-1"},
+            })
+            answers = render.normalise(load_answers(path))
+            env = render.render_env(ENV_EXAMPLE, answers)
+            self.assertIn("AWS_ACCESS_KEY_ID=AKIA", env)
+            self.assertIn("AWS_REGION=us-east-1", env)
+
+    def test_single_key_providers_need_nothing_extra(self) -> None:
+        for provider in ("cloudflare", "desec"):
+            with self.subTest(provider=provider):
+                self.assertEqual(DNS_PROVIDERS[provider].companions, ())
 
 
 class WriteTests(unittest.TestCase):

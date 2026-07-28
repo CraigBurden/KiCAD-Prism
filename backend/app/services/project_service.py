@@ -846,9 +846,12 @@ def run_kicad_workflow_job_v3(context: JobContext) -> JobResult:
             )
             generated_commit = str(repo.head.commit.hexsha)
             context.check_cancelled()
-            env = os.environ.copy()
-            env["GIT_TERMINAL_PROMPT"] = "0"
-            push_info = repo.remote(name="origin").push(env=env)
+            # Share the import path's environment rather than rolling a second
+            # one: this push previously had neither the GITHUB_TOKEN rewrite nor
+            # the strict host-key check that every other remote operation uses.
+            from app.services.project_import_service import git_env
+
+            push_info = repo.remote(name="origin").push(env=git_env())
             for info in push_info:
                 if info.flags & info.ERROR:
                     raise RuntimeError(f"Push failed: {info.summary}")

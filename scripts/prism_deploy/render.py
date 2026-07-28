@@ -19,11 +19,61 @@ from .schemes import (
 CADDY_IMAGE_TAG = "kicad-prism-caddy-dns:2"
 TAILSCALE_IMAGE = "tailscale/tailscale:stable"
 
-SECRET_KEYS = frozenset({"POSTGRES_PASSWORD", "SESSION_SECRET", "OIDC_CLIENT_SECRET"})
+SECRET_KEYS = frozenset(
+    {"POSTGRES_PASSWORD", "SESSION_SECRET", "OIDC_CLIENT_SECRET", "TS_AUTHKEY"}
+)
+REDACTION = "<redacted>"
 
 
 def generate_secret(length: int = 48) -> str:
     return secrets.token_urlsafe(length)[:length]
+
+
+def secret_values(answers: dict) -> list[str]:
+    """Every answer that must not reach a terminal, a log, or a paste buffer.
+
+    Longest first, so a short secret that happens to be a substring of a longer
+    one cannot mask half of it and leave the rest legible.
+    """
+    candidates = [
+        answers.get("session_secret"),
+        answers.get("postgres_password"),
+        answers.get("oidc_client_secret"),
+        answers.get("dns_credential"),
+        answers.get("ts_authkey"),
+        *(answers.get("extra_provider_env") or {}).values(),
+    ]
+    return sorted(
+        {str(value) for value in candidates if value and len(str(value)) >= 8},
+        key=len,
+        reverse=True,
+    )
+
+
+def redact(content: str, answers: dict) -> str:
+    """Mask secrets in a rendered file before it is shown to anybody.
+
+    Two passes, because neither alone is sufficient. Matching values catches a
+    secret wherever it appears, including a file that was not expected to carry
+    one. Matching assignment keys catches a value too short for the first pass
+    to touch safely -- a weak OIDC secret is still a secret.
+    """
+    for value in secret_values(answers):
+        content = content.replace(value, REDACTION)
+
+    provider = DNS_PROVIDERS.get(answers.get("dns_provider", ""))
+    keys = set(SECRET_KEYS) | set(answers.get("extra_provider_env") or {})
+    if provider:
+        keys.add(provider.env_var)
+
+    lines = []
+    for line in content.split("\n"):
+        key, separator, _ = line.partition("=")
+        if separator and key.strip() in keys:
+            lines.append(f"{key}={REDACTION}")
+        else:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def normalise(answers: dict) -> dict:
@@ -54,7 +104,15 @@ def normalise(answers: dict) -> dict:
         # and a Secure cookie would never be sent back over http.
         base_url = f"http://{hostname}:{result['http_port']}"
         result["session_cookie_secure"] = "false"
-        result.setdefault("auth_enabled", True)
+        # The interview offers to skip single sign-on for plain-http and
+        # defaults to skipping it, so an unattended run of the same scheme must
+        # not demand four OIDC settings it will not use. Infer from whether an
+        # issuer was actually given, rather than assuming either way: an answers
+        # file that names a provider clearly wants one.
+        if scheme == PLAIN_HTTP:
+            result.setdefault("auth_enabled", bool(str(result.get("oidc_issuer", "")).strip()))
+        else:
+            result.setdefault("auth_enabled", True)
         result.setdefault("bind_address", "127.0.0.1")
     else:
         base_url = f"https://{hostname}"

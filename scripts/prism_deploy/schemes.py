@@ -80,6 +80,23 @@ SCHEME_ORDER = [TAILSCALE, DNS_01, HTTP_01, INTERNAL_CA, EXTERNAL_PROXY, PLAIN_H
 
 
 @dataclass(frozen=True)
+class CompanionVar:
+    """A second setting a provider needs before it can answer a challenge.
+
+    Only Cloudflare and deSEC authenticate with a single token. The rest need an
+    access key beside a secret, or a tenant beside a client. These used to be
+    mentioned in a hint and never collected, so the interview finished, preflight
+    passed, and issuance failed on the first attempt with a provider error.
+    """
+
+    key: str
+    label: str
+    hint: str
+    example: str
+    secret: bool = False
+
+
+@dataclass(frozen=True)
 class DnsProvider:
     key: str
     label: str
@@ -90,6 +107,7 @@ class DnsProvider:
     credential_hint: str
     credential_example: str
     credential_docs: str
+    companions: tuple[CompanionVar, ...] = ()
 
 
 # The directive body is what goes inside the `tls { dns ... }` block. Providers
@@ -113,9 +131,23 @@ DNS_PROVIDERS: dict[str, DnsProvider] = {
         "dns route53",
         "AWS_SECRET_ACCESS_KEY",
         "AWS secret access key",
-        "Also set AWS_ACCESS_KEY_ID and AWS_REGION in the generated .env.",
+        "The secret half of an access key pair for a user with Route 53 change rights.",
         "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html",
+        companions=(
+            CompanionVar(
+                "AWS_ACCESS_KEY_ID",
+                "AWS access key ID",
+                "The public half of the same key pair.",
+                "AKIAIOSFODNN7EXAMPLE",
+            ),
+            CompanionVar(
+                "AWS_REGION",
+                "AWS region",
+                "Any region the credentials are valid in; Route 53 itself is global.",
+                "us-east-1",
+            ),
+        ),
     ),
     "digitalocean": DnsProvider(
         "digitalocean",
@@ -135,9 +167,18 @@ DNS_PROVIDERS: dict[str, DnsProvider] = {
         "dns googleclouddns {env.GCE_PROJECT}",
         "GCE_PROJECT",
         "Google Cloud project ID",
-        "Service account credentials are read from GOOGLE_APPLICATION_CREDENTIALS.",
+        "The project that owns the managed zone.",
         "my-gcp-project-123456",
         "https://console.cloud.google.com/net-services/dns",
+        companions=(
+            CompanionVar(
+                "GOOGLE_APPLICATION_CREDENTIALS",
+                "Service account key path",
+                "Path to the JSON key inside the Caddy container. Mount it yourself; "
+                "the installer does not copy files into the image.",
+                "/etc/caddy/gcp-dns.json",
+            ),
+        ),
     ),
     "azure": DnsProvider(
         "azure",
@@ -146,9 +187,19 @@ DNS_PROVIDERS: dict[str, DnsProvider] = {
         "dns azure {env.AZURE_CLIENT_SECRET}",
         "AZURE_CLIENT_SECRET",
         "Azure client secret",
-        "Also set AZURE_TENANT_ID, AZURE_CLIENT_ID, and the resource group in .env.",
+        "The secret for an app registration with DNS Zone Contributor on this zone.",
         "Abc8Q~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "https://portal.azure.com",
+        companions=(
+            CompanionVar("AZURE_TENANT_ID", "Azure tenant ID", "The directory the app registration lives in.",
+                         "72f988bf-86f1-41af-91ab-2d7cd011db47"),
+            CompanionVar("AZURE_CLIENT_ID", "Azure client ID", "The app registration's application ID.",
+                         "a1b2c3d4-5678-90ab-cdef-1234567890ab"),
+            CompanionVar("AZURE_SUBSCRIPTION_ID", "Azure subscription ID", "The subscription holding the DNS zone.",
+                         "00000000-1111-2222-3333-444444444444"),
+            CompanionVar("AZURE_RESOURCE_GROUP_NAME", "Azure resource group", "The resource group holding the DNS zone.",
+                         "rg-dns-prod"),
+        ),
     ),
     "desec": DnsProvider(
         "desec",

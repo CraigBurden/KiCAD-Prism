@@ -16,7 +16,7 @@ from pathlib import Path
 from . import interview, preflight, render, tui
 from .apply import apply, load_existing_env
 from .render import CADDY_IMAGE_TAG
-from .schemes import DNS_01, DNS_PROVIDERS, HTTP_01, SCHEMES, TAILSCALE
+from .schemes import DNS_01, DNS_PROVIDERS, HTTP_01, PLAIN_HTTP, SCHEMES, TAILSCALE
 
 # render_plan redacts these; the values are recovered from the generated .env.
 REDACTED_FROM_ENV = {
@@ -37,7 +37,13 @@ AUTH_ANSWERS = ("oidc_issuer", "oidc_client_id", "oidc_client_secret", "bootstra
 def load_answers(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     missing = [key for key in REQUIRED_ANSWERS if not data.get(key)]
-    if data.get("auth_enabled", True):
+    # Match the interview, which offers to skip single sign-on only for
+    # plain-http and defaults to skipping it. Requiring OIDC here instead meant
+    # the one scheme built for a quick unattended evaluation was the one that
+    # could not be run unattended without four settings it has no use for.
+    # An answers file that does name an issuer still gets it validated.
+    auth_default = data.get("scheme") != PLAIN_HTTP or bool(str(data.get("oidc_issuer", "")).strip())
+    if data.get("auth_enabled", auth_default):
         missing += [key for key in AUTH_ANSWERS if not data.get(key)]
     if missing:
         raise SystemExit(f"answers file is missing: {', '.join(missing)}")
@@ -49,6 +55,16 @@ def load_answers(path: Path) -> dict:
                 raise SystemExit(f"scheme dns-01 requires '{key}' in the answers file")
         if data["dns_provider"] not in DNS_PROVIDERS:
             raise SystemExit(f"unknown dns_provider '{data['dns_provider']}'")
+        # Refuse now rather than let issuance fail with a provider error long
+        # after the installer has reported everything green.
+        provider = DNS_PROVIDERS[data["dns_provider"]]
+        supplied = data.get("extra_provider_env") or {}
+        absent = [c.key for c in provider.companions if not str(supplied.get(c.key, "")).strip()]
+        if absent:
+            raise SystemExit(
+                f"dns_provider '{provider.key}' also needs {', '.join(absent)}. "
+                "Supply them under 'extra_provider_env' in the answers file."
+            )
     if data["scheme"] == TAILSCALE and data.get("ts_mode", "sidecar") == "sidecar" and not data.get("ts_authkey"):
         raise SystemExit("scheme tailscale in sidecar mode requires 'ts_authkey' in the answers file")
     return data
@@ -115,18 +131,28 @@ def promote(root: Path, *, assume_yes: bool, dry_run: bool) -> int:
     apply(root, files)
     tui.ok("Configuration rewritten for production")
 
+    # Removing the volume is the whole point of promoting: the configuration
+    # change alone leaves the staging account and its certificates in place, so
+    # Caddy keeps serving something no browser trusts. Reporting success after a
+    # failed removal sends the operator away believing the job is done.
     steps = (
-        ("Stopping", compose + ["down"], True),
-        ("Discarding the staging certificate state", ["docker", "volume", "rm", volume], False),
-        ("Starting", compose + ["up", "-d", "--wait"], True),
+        ("Stopping", compose + ["down"]),
+        ("Discarding the staging certificate state", ["docker", "volume", "rm", volume]),
+        ("Starting", compose + ["up", "-d", "--wait"]),
     )
-    for label, command, must_succeed in steps:
+    for label, command in steps:
         tui.write()
         tui.note(label)
         tui.info("$ " + " ".join(command))
         result = subprocess.run(command, cwd=root)
-        if result.returncode != 0 and must_succeed:
+        if result.returncode != 0:
             tui.fail(f"{label} failed.", f"Inspect with: {' '.join(compose + ['logs', '--tail=100'])}")
+            if "volume" in command:
+                tui.write()
+                tui.info(f"The staging account is still in {volume}. Until it is gone, the")
+                tui.info("production endpoint in the configuration changes nothing. Remove it")
+                tui.info("by hand once nothing references it, then run --promote again:")
+                tui.info(f"  docker volume rm {volume}")
             return result.returncode
 
     tui.write()
@@ -224,9 +250,11 @@ def main(argv: list[str] | None = None) -> int:
         for path, content in sorted(files.items()):
             tui.write()
             tui.write(f"{tui.ACCENT}── {path} {'─' * max(0, tui.width() - len(path) - 4)}{tui.RESET}")
-            tui.write(content.rstrip("\n"))
+            # A dry run exists to be read, copied into a ticket, or captured by
+            # CI. The real secrets go to disk when the run is not a dry one.
+            tui.write(render.redact(content, answers).rstrip("\n"))
         tui.write()
-        tui.note("Dry run: nothing was written.")
+        tui.note("Dry run: nothing was written. Secrets above are masked.")
         return 0
 
     if not args.answers and not args.non_interactive:

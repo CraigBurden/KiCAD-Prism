@@ -151,8 +151,20 @@ def run(root: Path, *, fresh: bool = False) -> dict:
             example=provider.credential_example,
             docs=provider.credential_docs,
         )
-        answers["extra_provider_env"] = {}
         tui.hint("Input is hidden, so the credential stays out of scrollback and history.")
+
+        # Most providers need more than one value. Asking here is the difference
+        # between a working first issuance and an opaque provider error after
+        # the operator has been told everything passed.
+        companions: dict[str, str] = {}
+        for companion in provider.companions:
+            ask = tui.ask_secret if companion.secret else tui.ask
+            companions[companion.key] = ask(
+                companion.label,
+                description=companion.hint,
+                example=companion.example,
+            )
+        answers["extra_provider_env"] = companions
 
         pin = tui.confirm(
             "Pin container DNS to a specific resolver?",

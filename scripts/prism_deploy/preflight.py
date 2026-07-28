@@ -9,13 +9,17 @@ problem and sends you looking in the wrong place entirely.
 
 from __future__ import annotations
 
+import contextlib
+import os
 import re
 import shutil
 import socket
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .schemes import DNS_01, DNS_PROVIDERS, EXTERNAL_PROXY, HTTP_01, TAILSCALE
 
@@ -285,12 +289,15 @@ def check_database_volume(root, reused_password: bool) -> Result:
     an existing volume therefore leaves the server healthy and the backend
     unable to authenticate -- which reads as a Prism fault, not a stale volume.
     """
-    project = root.name.lower().replace(" ", "").replace("_", "-")
+    # Compose names the volume <project>_<volume>. Matching only the suffix
+    # reported another checkout's database on a host running two of them, which
+    # then blamed this deployment for a password mismatch it does not have.
+    expected = f"{project_name(root)}_prism-postgres-data"
     code, output = _run(["docker", "volume", "ls", "--format", "{{.Name}}"], timeout=30)
     if code != 0:
         return Result("Database volume", True, "skipped, could not list volumes", severity=WARNING)
 
-    matches = [name for name in output.splitlines() if name.strip().endswith("prism-postgres-data")]
+    matches = [name for name in output.splitlines() if name.strip() == expected]
     if not matches:
         return Result("Database volume", True, "none yet; will initialise on first start")
     if reused_password:
@@ -339,14 +346,29 @@ def check_caddy_config(answers: dict, root) -> Result:
         return Result("Caddy config valid", True, "no proxy in this scheme")
 
     command = ["docker", "run", "--rm", "-v", f"{caddyfile}:/etc/caddy/Caddyfile:ro"]
-    if answers["scheme"] == DNS_01:
-        provider = DNS_PROVIDERS[answers["dns_provider"]]
-        command += ["-e", f"{provider.env_var}={answers['dns_credential']}"]
-        for key, value in answers.get("extra_provider_env", {}).items():
-            command += ["-e", f"{key}={value}"]
-    command += [answers["caddy_image"], "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    with contextlib.ExitStack() as stack:
+        if answers["scheme"] == DNS_01:
+            provider = DNS_PROVIDERS[answers["dns_provider"]]
+            values = {provider.env_var: answers["dns_credential"]}
+            values.update(answers.get("extra_provider_env", {}))
+            # An --env-file rather than -e: a credential on the argv is legible
+            # in ps output and in any process auditing on the host, to every
+            # local user, for as long as the probe runs.
+            handle = stack.enter_context(
+                tempfile.NamedTemporaryFile("w", suffix=".env", delete=False, encoding="utf-8")
+            )
+            handle.write("".join(f"{key}={value}\n" for key, value in values.items()))
+            handle.flush()
+            env_path = Path(handle.name)
+            stack.callback(env_path.unlink, missing_ok=True)
+            os.chmod(env_path, 0o600)
+            command += ["--env-file", str(env_path)]
+        command += [
+            answers["caddy_image"], "caddy", "validate",
+            "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile",
+        ]
 
-    code, output = _run(command, timeout=120)
+        code, output = _run(command, timeout=120)
     if code != 0:
         tail = output.strip().splitlines()[-1] if output.strip() else "validation failed"
         hint = ""
@@ -383,6 +405,12 @@ def run(answers: dict, root, *, compose: list[str], skip_network: bool = False) 
     # Tailscale listens on the tailnet interface, not on the host's 443.
     if scheme not in (EXTERNAL_PROXY, TAILSCALE):
         report.add(check_port_free(443, "https", owned))
+    if scheme == HTTP_01:
+        # docker-compose.proxy.yml publishes 80, and Let's Encrypt reaches it
+        # from outside. Miss this and the stack starts, the port silently
+        # belongs to whatever got there first, and the only symptom is an
+        # opaque issuance failure minutes later.
+        report.add(check_port_free(80, "http-01 challenge", owned))
 
     if not skip_network:
         # Probe through the same resolver the proxy will use, or the checks
