@@ -539,6 +539,53 @@ class RevisionIdentityTests(unittest.TestCase):
                 )
 
 
+class NetResolutionTests(unittest.TestCase):
+    """Resolving a net per element rebuilds the board's whole net mapping.
+
+    Every pad, track, arc, via and zone carries a net reference, so doing that
+    per element makes projecting a board O(elements x nets) — 126 million
+    attribute reads on a 1,388-net design. A shared snapshot makes it linear.
+    """
+
+    class FakeNetTable:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def name_of(self, net) -> str:
+            self.calls += 1
+            return getattr(net, "name", "") or "FROM_TABLE"
+
+    def test_the_shared_table_answers_instead_of_the_board(self) -> None:
+        table = self.FakeNetTable()
+        board = SimpleNamespace(
+            resolve_net_name=lambda net: self.fail("must not resolve per element")
+        )
+        item = SimpleNamespace(net=SimpleNamespace(name=""))
+
+        self.assertEqual(
+            semantic_index_service._net_name(board, item, table), "FROM_TABLE"
+        )
+        self.assertEqual(table.calls, 1)
+
+    def test_an_older_kicad_monkey_still_resolves_per_element(self) -> None:
+        """Without net_table the slow path must still produce the right answer."""
+        board = SimpleNamespace(resolve_net_name=lambda net: "GND")
+        item = SimpleNamespace(net=SimpleNamespace(name="GND"))
+
+        self.assertIsNone(semantic_index_service._net_table(board))
+        self.assertEqual(semantic_index_service._net_name(board, item), "GND")
+
+    def test_a_board_that_cannot_build_a_table_falls_back(self) -> None:
+        def unavailable():
+            raise RuntimeError("net table unavailable")
+
+        board = SimpleNamespace(net_table=unavailable, resolve_net_name=lambda net: "VCC")
+        item = SimpleNamespace(net=SimpleNamespace(name="VCC"))
+
+        self.assertIsNone(semantic_index_service._net_table(board))
+        self.assertEqual(semantic_index_service._net_name(board, item), "VCC")
+
+
 class BalancedSExpressionTests(unittest.TestCase):
     """The scanner steps between structural characters rather than over all of
     them, so the cases that matter are the ones where a paren is not structural."""

@@ -471,11 +471,31 @@ def _property_map(footprint: object) -> dict[str, str]:
     return result
 
 
-def _net_name(pcb: object, item: object) -> str:
+def _net_table(pcb: object) -> object | None:
+    """Snapshot the board's net table, when the installed kicad-monkey has one.
+
+    Without it every ``resolve_net_name`` call rebuilds the whole mapping, so
+    projecting a board costs O(elements x nets). Older releases lack
+    ``net_table``; there the per-call path below still works, just slowly.
+    """
+
+    build = getattr(pcb, "net_table", None)
+    if not callable(build):
+        return None
+    try:
+        return build()
+    except Exception:  # pragma: no cover - fall back to per-call resolution
+        return None
+
+
+def _net_name(pcb: object, item: object, net_table: object | None = None) -> str:
+    net = getattr(item, "net", None)
+    if net_table is not None:
+        return _string(net_table.name_of(net))
     resolver = getattr(pcb, "resolve_net_name", None)
     if callable(resolver):
-        return _string(resolver(getattr(item, "net", None)))
-    return _string(getattr(getattr(item, "net", None), "name", ""))
+        return _string(resolver(net))
+    return _string(getattr(net, "name", ""))
 
 
 def _net_code(item: object) -> int | None:
@@ -715,6 +735,10 @@ def build_semantic_index(
     pcb_started_ns = time.perf_counter_ns()
     pcb_cpu_started_ns = time.thread_time_ns()
     if pcb is not None:
+        # One snapshot for the whole board: resolving each element against the
+        # board rebuilds the net mapping every time.
+        net_table = _net_table(pcb)
+
         def ensure_pcb_net(name: str, code: int | None) -> tuple[dict[str, Any], int] | tuple[None, None]:
             if not name:
                 return None, None
@@ -753,7 +777,7 @@ def build_semantic_index(
             for pad in getattr(footprint, "pads", ()) or ():
                 pad_uuid = _string(getattr(pad, "uuid", ""))
                 pin_number = _string(getattr(pad, "number", ""))
-                name = _net_name(pcb, pad)
+                name = _net_name(pcb, pad, net_table)
                 code = _net_code(pad)
                 net_entry, net_index = ensure_pcb_net(name, code)
                 if net_entry is not None and net_index is not None and pad_uuid:
@@ -793,7 +817,7 @@ def build_semantic_index(
         ):
             for item in getattr(pcb, collection_name, ()) or ():
                 source_uuid = _string(getattr(item, "uuid", ""))
-                name = _net_name(pcb, item)
+                name = _net_name(pcb, item, net_table)
                 code = _net_code(item)
                 net_entry, net_index = ensure_pcb_net(name, code)
                 if net_entry is None or net_index is None or not source_uuid:
