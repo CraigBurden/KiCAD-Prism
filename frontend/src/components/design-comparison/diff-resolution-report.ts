@@ -2,6 +2,7 @@ import type {
     EcadDiffResolutionDiagnostic,
     EcadDiffResolutionReason,
     EcadDocumentComparisonPreparation,
+    EcadPreparedDiffTarget,
 } from "../../types/ecad-viewer";
 
 /**
@@ -27,6 +28,16 @@ export type DiffResolutionReport = {
     targets: number;
     targetsWithPaintedBounds: number;
     targetsUsingProvidedBounds: number;
+    /**
+     * Visual-level denominator. A target can hold several visuals and needs
+     * only one of them to paint, so visual failures are expected wherever a
+     * target spans both revisions: the composite scene paints the comparison
+     * document and retains only *changed* reference items. Without this
+     * denominator a raw paint-bounds-not-found count is uninterpretable.
+     */
+    visuals: number;
+    visualsWithPaintedBounds: number;
+    boundsFailuresBySide: { reference: number; comparison: number };
     /** 0–1, rounded to four places. Null when the viewer prepared no targets. */
     fallbackBoundsRate: number | null;
     ambiguousSourceIds: number;
@@ -54,19 +65,50 @@ function countByReason(
     return counts;
 }
 
+/**
+ * Bounds diagnostics are raised during paint, where only the target is in
+ * scope, so they carry no typeName. The target's label already leads with it
+ * (`SCH_SYMBOL [C289]`), which is enough to keep the breakdown useful instead
+ * of collapsing the largest failure class into "unknown".
+ */
+function typeNameOf(
+    entry: EcadDiffResolutionDiagnostic,
+    targets: ReadonlyMap<string, EcadPreparedDiffTarget>,
+): string {
+    if (entry.typeName) return entry.typeName;
+    // The map is keyed with a kind prefix so a group and a change sharing a
+    // native id cannot overwrite each other; diagnostics carry the bare id.
+    const target =
+        targets.get(`change:${entry.changeId}`)
+        ?? targets.get(`group:${entry.changeId}`);
+    return target?.label?.split(" ")[0] ?? "unknown";
+}
+
 function failuresByTypeName(
     diagnostics: readonly EcadDiffResolutionDiagnostic[],
+    targets: ReadonlyMap<string, EcadPreparedDiffTarget>,
 ): Array<{ typeName: string; count: number }> {
     const counts = new Map<string, number>();
     for (const entry of diagnostics) {
         if (!FAILURE_REASONS.has(entry.reason)) continue;
-        const key = entry.typeName ?? "unknown";
+        const key = typeNameOf(entry, targets);
         counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return [...counts.entries()]
         .map(([typeName, count]) => ({ typeName, count }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 8);
+}
+
+function boundsFailuresBySide(
+    diagnostics: readonly EcadDiffResolutionDiagnostic[],
+): { reference: number; comparison: number } {
+    const sides = { reference: 0, comparison: 0 };
+    for (const entry of diagnostics) {
+        if (entry.reason !== "paint-bounds-not-found") continue;
+        sides[entry.side] += 1;
+    }
+    return sides;
 }
 
 export function buildDiffResolutionReport(
@@ -93,10 +135,13 @@ export function buildDiffResolutionReport(
         fallbackBoundsRate: resolution && targets > 0
             ? Number((provided / targets).toFixed(4))
             : null,
+        visuals: resolution?.visuals ?? 0,
+        visualsWithPaintedBounds: resolution?.visualsWithPaintedBounds ?? 0,
+        boundsFailuresBySide: boundsFailuresBySide(diagnostics),
         ambiguousSourceIds: resolution?.ambiguousSourceIds ?? 0,
         duplicateChangeTargets: resolution?.duplicateChangeTargets ?? 0,
         diagnosticsByReason: countByReason(diagnostics),
-        failuresByTypeName: failuresByTypeName(diagnostics),
+        failuresByTypeName: failuresByTypeName(diagnostics, preparation.targets),
         // Distinguishes "measured zero fallbacks" from "the loaded bundle
         // cannot report", which would otherwise both read as a clean result.
         unreported: resolution === undefined,

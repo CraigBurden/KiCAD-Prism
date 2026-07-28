@@ -103,6 +103,40 @@ describe("buildDiffResolutionReport", () => {
         ]);
     });
 
+    it("names bounds failures from the target label and splits them by side", () => {
+        const labelled = target("/sym");
+        labelled.label = "SCH_SYMBOL [C289]";
+        const report = buildDiffResolutionReport(preparation({
+            // Keys carry a kind prefix; diagnostics carry the bare change id.
+            targets: new Map([["change:/sym", labelled]]),
+            diagnostics: [
+                // Raised during paint, so it carries no typeName of its own.
+                {
+                    changeId: "/sym",
+                    sourceId: "sym",
+                    side: "reference",
+                    reason: "paint-bounds-not-found",
+                    matchCount: 0,
+                },
+                {
+                    changeId: "/sym",
+                    sourceId: "sym",
+                    side: "comparison",
+                    reason: "paint-bounds-not-found",
+                    matchCount: 0,
+                },
+            ],
+        }));
+
+        expect(report.failuresByTypeName).to.deep.equal([
+            { typeName: "SCH_SYMBOL", count: 2 },
+        ]);
+        expect(report.boundsFailuresBySide).to.deep.equal({
+            reference: 1,
+            comparison: 1,
+        });
+    });
+
     it("returns a null rate rather than dividing by zero targets", () => {
         const report = buildDiffResolutionReport(preparation({
             targets: new Map(),

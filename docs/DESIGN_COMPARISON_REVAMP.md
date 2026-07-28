@@ -333,6 +333,14 @@ and record per change: domain, document, object kind, source side, hierarchy
 depth, source resolution succeeded, painted bounds succeeded, number of objects
 matching the source ID, fallback bbox consumed.
 
+**Result: [measured](design-comparison/phase-0b-measurement.md).** On a
+204-change schematic: 204/204 identities resolved, 102/102 targets resolved
+exact painted bounds, **fallback rate 0**, ambiguity 0. The constant boxes were
+never used for focus. Two defects surfaced that the plan had not anticipated —
+per-visual bounds were never resolved at all (a generator consumed twice, fixed
+in ecad-viewer `df92ecf`), and the diff is inflated **1.70×** by duplicate
+change records, up to 6.9× on one sheet.
+
 Ambiguity is worse than "first match wins". `items_by_source_id.set(sourceId,
 [presentation_item])` **overwrites** on a repeated source ID
 (`diff-presentation.ts:197`), so the earlier resolution is destroyed at index
@@ -395,11 +403,15 @@ and `_schematic_instance_fields` still need them.
 
 ## Risks
 
-- **Fallback rate is unknown and today's telemetry cannot reveal it.** Phase 0B
-  exists for this. If it is materially above zero, fix identity resolution
-  before deleting anything.
-- **Ambiguous identities are silently collapsed.** Measured in 0B; may force
-  identity work into Phase 1's scope.
+- ~~**Fallback rate is unknown.**~~ Measured at 0 on a 204-change schematic.
+  Still to repeat on a PCB document and a hierarchical project before the
+  backend stops emitting bounds — those are where uuid resolution is most
+  likely to be fragile.
+- ~~**Ambiguous identities are silently collapsed.**~~ Measured ambiguity is
+  zero. The real index hazard turned out to be **duplicate change records**:
+  every target was built from two changes sharing a side and source id, because
+  the backend emits each changed component twice. Fix upstream, not in the
+  index.
 - **Hash-only tier 3.** "Modified" without "what changed" for routing and
   graphics. Mitigated for components by the structured digest.
 - **Side-by-side scene cost.** Two retained scenes is more memory than one.
