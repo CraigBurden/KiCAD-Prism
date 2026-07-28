@@ -35,7 +35,7 @@ For a private, single-user evaluation, edit `.env`:
 ```env
 POSTGRES_PASSWORD=<random-local-password>
 AUTH_ENABLED=false
-DEV_GUEST_ROLE=admin
+DEV_GUEST_ROLE=viewer
 UVICORN_WORKERS=1
 PRISM_WORKER_CONCURRENCY=1
 CATALOG_WORKER_CONCURRENCY=1
@@ -69,7 +69,7 @@ Set the same private evaluation posture:
 
 ```env
 AUTH_ENABLED=false
-DEV_GUEST_ROLE=admin
+DEV_GUEST_ROLE=viewer
 UVICORN_WORKERS=1
 ```
 
