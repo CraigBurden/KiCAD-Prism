@@ -1,467 +1,309 @@
-# Design Comparison: a leaner implementation
+# Design Comparison: plan, revision 3
 
-Status: proposal, revision 2. Phase 0A is implemented; nothing else is.
+Status: proposal. Revision 3 re-architects around one parser instead of four.
 
-Revision 2 folds in a design review of revision 1. The architectural centre is
-unchanged — one authoritative comparison, backend owns electrical meaning,
-viewer owns painted geometry. Six things changed, all of them because
-revision 1 was wrong or optimistic:
+Nothing in this revision is implemented. Two fixes and one instrumentation
+change from earlier revisions have landed and are kept regardless of what
+happens here — they are listed under "Already landed" at the end.
 
-| # | Revision 1 said | Revision 2 says |
-| --- | --- | --- |
-| 1 | replace the sidecar with `{uuid, kind, layer, parentUuid, hash}` | the sidecar carries **identity routing**, not just geometry; the digest must carry `documentPath` and `instancePath` too |
-| 2 | Phase 0 measures `diagnostics` | those diagnostics **cannot see** painted-bounds failure; new reasons required |
-| 3 | one prepared scene drives three views | one comparison **session**; Composite's scene cannot render a faithful reference view |
-| 4 | make `KiCadItemChange.bbox` optional | split the type — keep the native contract strict, add a Prism input type |
-| 5 | add `getPreparedTargets()` | unnecessary; `loadDocumentComparison` already returns the map |
-| 6 | ~1.5 MB, 8.3 s → 5.5 s | ~2.3–4 MB, and 5.5 s is an upside target not a commitment |
+## Why revision 3 exists
 
-## The problem in one sentence
+Revisions 1 and 2 accepted, without examining it, that Prism must scan KiCad
+files in Python. Under that assumption I proposed replacing
+`_extract_geometry`'s regex scanning with a depth-aware object digest, built it,
+and measured it. Two results killed the design:
 
-We compute the diff twice — once semantically in the backend and once
-geometrically in a second Prism-specific scanner — and then render it through
-two unrelated viewer APIs depending on which of the three views is on screen.
+1. The digest cost **3.6 s**, against the 2.2 s stage it was meant to replace.
+2. `ecad-viewer`'s own parser — already a dependency, already `--platform=node`,
+   already runnable on a Node runtime that is already in our image — parses the
+   same files in **0.9 s** and returns typed objects rather than hashes.
 
-## What exists today
+The digest was Prism's *third* S-expression scanner, after kicad-monkey and
+`_extract_geometry`. Building a fourth interpretation of the KiCad format was
+never the goal; the goal was to have fewer.
 
-### Backend
+**The correction: parse once, with `kicad-sexpr-parser`, on the server.**
 
-| Stage | Cost / revision | Output |
-| --- | --- | --- |
-| `build_semantic_index` | 4.1 s | 4.14 MB — nets, terminals, components, hierarchy |
-| `_extract_geometry` | 2.2 s | **28.96 MB** — 37,877 entries |
-| `_semantic_bom_rows` | — | 1.14 MB |
-| **`revision.json`** | | **32.15 MB** |
+## Measurements this plan rests on
 
-`revision.json` is a server-side cache artifact, not a client payload. Its size
-costs disk, serialisation and cache I/O per revision; the browser only receives
-the per-change `geometry` fragments attached to change records.
+All measured this session unless marked *(prior)*.
 
-`_diff_designs` turns the two indexes into Prism change records.
-`document_diff_service.build_project_diff` then normalises those into a
-KiCad-shaped `PROJECT_DIFF` plus a `navigation` sidecar.
-
-The geometry sidecar's bounds are **hardcoded constant boxes**:
-
-```python
-# Used only if native UUID focus is unavailable.
-"bounds": [at[0] - 5, at[1] - 5, 10, 10],       # every footprint
-symbol_bounds = [at[0] - 2.54, at[1] - 2.54, 5.08, 5.08]   # every symbol
-```
-
-Real values from a cached artifact: `[120.65, 238.76, 5.08, 5.08]`,
-`[50.187, 72.75, 10, 10]`. Same size for a 0402 and a BGA. When bounds are
-absent entirely, `_bbox_iu` manufactures `[0, 0, 0, 0]`
-(`document_diff_service.py:81`) — a focusable target at the origin.
-
-### Frontend
-
-Three presentation modes, **two rendering paths**, three viewer instances:
-
-| Mode | Viewer API | Bounds from |
-| --- | --- | --- |
-| Composite | `loadDocumentComparison` → `selectDocumentDiff` | viewer (exact) |
-| Side-by-side | `setRevisionDiffPresentation` → `selectRevisionDiff` | backend (constant boxes) |
-| Old/New | `setRevisionDiffPresentation` → `selectRevisionDiff` | backend (constant boxes) |
-
-`comparison-presentation-shell.tsx` is 2,092 lines. It holds three viewer
-instances — `compositeViewer`, `baseViewer`, `compareViewer` — and Old/New
-**aliases** one of the latter two rather than owning a fourth
-(`comparison-presentation-shell.tsx:943`). The duplication to remove is two
-preparation and selection paths, not four viewers.
-
-### ecad-viewer
-
-The fork already specifies the right boundary in
-`docs/DOCUMENT_DIFF_REVIEW_ARCHITECTURE.md`, and implements it in
-`document-diff.ts` (371 lines) and `diff-presentation.ts` (247 lines).
-`loadDocumentComparison` parses both revisions, injects removed reference
-items into the comparison scene, and returns exact bounds and overlay lines
-per target — plus diagnostics naming any change it could not resolve.
-
-It has **no netlist**: `netlist`, `connectivity` and `bus_expansion` all grep
-to zero hits in the shipped bundle.
-
-## Coverage gaps
-
-~1,034 objects per project are in the files and in neither index:
-
-| kind | count | | kind | count |
-| --- | ---: | --- | --- | ---: |
-| `gr_*` (board graphics) | 733 | | `image` | 13 |
-| `generated` | 119 | | `rule_area` | 9 |
-| `bus_entry` | 88 | | `dimension` | 3 |
-| `rectangle` | 38 | | `group` | 2 |
-| `sheet` | 27 | | `netclass_flag` | 2 |
-
-Component property *values* are diffed comprehensively (81 fields, union
-comparison). Property *attributes* — `at`, `hide`, `effects` — are not
-captured at all, so moving a reference designator or hiding a value is
-invisible.
-
-## Prior art
-
-**Altium** computes one difference set and presents it three ways: a
-structural tree (document → object class → property), a side-by-side canvas,
-and an overlay. The tree is navigable independently of the canvas — you can
-work the change list without rendering anything.
-
-**Xpedition** is netlist-first. It reports "net `VBUS` gained a connection to
-`U4.7`" rather than "these 40 track segments moved", and only descends to
-geometry when asked. Its comparison is meaningful on a design that was
-completely re-routed but is electrically identical.
-
-Both confirm the same split: **one computed difference set, several
-arrangements**, and **connectivity is a first-class change kind, not a
-by-product of geometry**.
-
-## Proposal
-
-### Principle
-
-The three views are not three renderers. They are three arrangements of one
-prepared comparison. Prepare once; switching view changes cameras, viewports
-and visibility, never the identity model.
-
-And: **the backend owns identity and connectivity; the viewer owns painted
-geometry.** The backend should not emit a coordinate that the viewer could
-compute.
-
-### 1. Replace `_extract_geometry` with an *identity* digest
-
-The sidecar is misnamed. Beyond bounds it supplies document routing, object
-kind, parent identity for pins, and semantic enrichment — and
-`document_diff_service` depends on all of it:
-
-- `_document_path` reads `geometry["page"]` **before** any other source
-  (`document_diff_service.py:65-72`);
-- `_item_change` derives `typeName` from `geometry["kind"]` (`:128`);
-- `test_native_geometry_page_overrides_human_hierarchy_and_folds_siblings`
-  exists precisely because the sidecar corrects a human hierarchy string into
-  a loadable `.kicad_sch` path.
-
-Deleting bounds is safe. Deleting routing is not. The digest is therefore:
-
-```
-{
-  sourceId,          # native UUID
-  kind,              # symbol | pin | footprint | zone | track | gr_line | ...
-  documentPath,      # loadable path, e.g. "Subsheets/USB.kicad_sch"
-  instancePath?,     # KIID_PATH for hierarchical instances
-  layer?,            # PCB only
-  parentSourceId?,   # pins → owning symbol, pads → owning footprint
-  centroid,          # [x, y] — see below
-  hash               # 64-bit hash of the normalised body
-}
-```
-
-No point lists, no bounds. `documentPath` + `instancePath` matter because the
-viewer architecture defines schematic identity as `projectPath + KIID_PATH`,
-not filename or terminal UUID alone.
-
-`centroid` is the one coordinate that stays, and the [consumer
-audit](design-comparison/geometry-sidecar-consumers.md) is why. The change list
-reports **`position_delta`** — mean `dx`/`dy`/`distance` per group — computed
-from the sidecar's `x`/`y`. That is not component-only: tracks group by net, so
-"net `VBUS` shifted 0.4 mm" is a currently-shipping output. Keeping two floats
-preserves it; the `points` arrays that produced those floats, and that account
-for most of the 28.96 MB, still go.
-
-For **components and footprints**, add a structured digest beside the hash:
-
-```
-{ at, rotation, mirror, layer, netId }
-```
-
-Five scalars, no point arrays. This is what makes "U4 moved 2 mm, rotated 90°"
-possible instead of "U4 modified". Routing and graphics stay hash-plus-centroid
-— the canvas communicates the rest better than words do.
-
-Gains:
-
-- the 687 zones nested at depth 3 stop being dropped
-- every kind covered, closing the 1,034-object gap
-
-**"One pass instead of 18" was wrong and has been dropped.** Revisions 1 and 2
-both claimed the eighteen per-kind `finditer` passes were the cost to remove.
-Measured on a 34.9 MB board, locating the same 23,698 objects costs:
-
-| | |
+| | value |
 | --- | ---: |
-| kicad-monkey projection scan (`iter_sexp_form_spans`) | 10.4 s |
-| 18 regex `finditer` passes | 0.52 s |
-| 1 alternation regex pass | **0.06 s** |
+| `kicad-sexpr-parser`, 34.9 MB board | **639 ms** |
+| `kicad-sexpr-parser`, 27 schematics / 15 MB | **250 ms** |
+| Python object digest, same inputs | 3.6 s |
+| kicad-monkey projection scan, board only | 10.4 s |
+| `_extract_geometry` *(prior)* | 2.2 s |
+| `build_semantic_index` *(prior)* | 4.1 s |
+| `revision.json` *(prior)* | 32.15 MB |
+| Fallback-bounds rate, 5 documents / 1,786 targets | 0.90% |
+| Change-id inflation after the KIID_PATH fix | 1.002× / 1.021× |
 
-The projection scan costs ~10 s *regardless of how few forms it selects* —
-selecting only `footprint` (982 spans) took 11.0 s — because it walks the whole
-file in Python. The 18 passes were never the bottleneck; `_extract_geometry`
-spends its 2.2 s on per-object work, not on finding objects. The digest is
-therefore regex-driven, with extents bounded by `_balanced_s_expression_end`,
-which drives its paren walk through the regex engine for the same reason.
-Rewriting it that way took the digest from 15.4 s to 3.6 s with byte-identical
-output.
+The parsed model already carries what the diff needs: `footprint.path` and
+`symbol.instances.projects[].paths[]` (KIID_PATH), `symbol.properties`, `pins`,
+`dnp`, `mirror`, `at`, and — importantly — `zone.polygons` separately from
+`zone.filled_polygons`, which is the authored/generated split the digest had to
+hand-roll.
 
-#### Digest rules
+## Information flow
 
-A naive "hash the normalised body" has four traps. The scanner must state its
-position on each:
+### Today
 
-**Parent–child cascade.** If a footprint's hash covers its pads, moving one pad
-reports both the pad and the footprint as modified, and every group, symbol and
-zone inherits the same noise. Use a **shallow hash**: normalise the parent's own
-attributes and replace each independently addressable child with a stable
-reference to that child, not the child's content.
+The same bytes are parsed three times per revision, and a fourth time per
+browser session.
 
-**Authored vs generated.** Filled zone polygons change whenever KiCad
-regenerates the board, with no authored change at all. Split
-`authored zone definition` from `generated fill representation` and hash only
-the former by default. The same applies to any `(generated ...)` block.
+```mermaid
+flowchart TD
+  G[git snapshot] --> M[kicad-monkey parse<br/>semantic index · 4.1s]
+  G --> E[_extract_geometry<br/>regex scan · 2.2s]
+  G --> B[_semantic_bom_rows]
+  M --> R[(revision.json · 32.15 MB<br/>cached per commit)]
+  E --> R
+  B --> R
+  R --> D[_diff_designs<br/>base vs head]
+  D --> P[build_project_diff<br/>PROJECT_DIFF + navigation]
+  P -->|HTTP| V[ecad-viewer in browser]
+  G -.source files.-> V
+  V --> VP[kicad-sexpr-parser<br/>parses BOTH revisions again]
+  VP --> PR[build_diff_presentation<br/>resolve ids · measure bounds]
+  PR --> C[paint]
+```
 
-**Objects without UUIDs.** "Every kind" is not "every object is independently
-addressable". Position-in-file identity produces pure noise after a reorder.
-For anonymous objects, fold them into their parent's shallow hash as a
-parent-scoped multiset, so a reorder is invisible and a real edit is not.
+Two consequences we have measured rather than assumed:
 
-**Normalisation.** The normaliser must explicitly decide, and document, whether
-it ignores: whitespace and formatting; field order where order is not
-semantic; generated timestamps; UUIDs when hashing content; zone fills; cache
-and generated sections. Ordering must be preserved where ordering changes
-behaviour.
+- The geometry sidecar exists only to fill `KiCadItemChange.bbox`, and the
+  viewer replaces those bounds 99.1% of the time. It is 28.96 MB of mostly
+  discarded work.
+- Server and browser disagree about what objects exist. All 16 unresolvable
+  `SCH_PIN`s in the Phase 0B measurement **do** parse under
+  `kicad-sexpr-parser`; they are missing from the viewer's *paint index*, not
+  from the parse. Two notions of identity, two bugs.
 
-### 2. One change model, three tiers
+### Target
+
+```mermaid
+flowchart TD
+  G[git snapshot] --> N[kicad-sexpr-parser in Node<br/>parses base + head]
+  G --> K[kicad-monkey<br/>connectivity only]
+  N --> OD[object delta<br/>added / removed / modified<br/>property + position deltas]
+  K --> CD[connectivity delta<br/>nets · terminals · buses · sheet instances]
+  OD --> MG[merge]
+  CD --> MG
+  MG --> P[PROJECT_DIFF + navigation<br/>no coordinates]
+  P -->|HTTP| V[ecad-viewer in browser]
+  G -.source files.-> V
+  V --> VP[kicad-sexpr-parser<br/>same parser, for rendering]
+  VP --> PR[resolve ids · measure bounds]
+  PR --> C[paint]
+```
+
+The browser still parses, because painting needs geometry in the browser. What
+changes is that it no longer recomputes anything the server computed, and both
+sides use **the same parser**, so an object the server names is by construction
+an object the viewer can resolve. That is a correctness property, not a
+performance one, and it is what the 0.90% fallback rate is really about.
+
+### Why kicad-monkey stays
+
+`ecad-viewer` has no netlist: `netlist`, `connectivity` and `bus_expansion` all
+grep to zero hits. Net inference over a schematic — which wires, labels and
+pins form one net, across sheet instances and bus expansions — is graph work
+only kicad-monkey does. That is tier 1 below, it is the reason Prism is not
+merely a visual differ, and it does not move.
+
+So: **two parsers, each for what only it can do.** Not four.
+
+### Where the Node step runs
+
+One process per compare, parsing both revisions and emitting **only the
+delta**. Shipping 44k parsed objects across the Python/Node boundary as JSON
+would hand back everything the parser wins; shipping ~2.5k changes will not.
+
+At 0.9 s per revision, caching the parse is probably not worth its complexity —
+a cold compare is ~1.8 s of parsing against a 4.1 s connectivity index. M1
+measures this rather than assuming it. If it holds, per-revision geometry
+caching disappears and `revision.json` shrinks to the connectivity index plus
+BOM rows.
+
+## The change model, unchanged from revision 2
 
 | Tier | Owner | Kinds |
 | --- | --- | --- |
-| **1 — Connectivity** | backend (semantic index) | net added/removed/renamed; net membership delta; pin reassignment; net class change; sheet instance added/removed/re-pathed; bus membership change |
-| **2 — Identity & properties** | backend (semantic index) | component added/removed; `lib_id` swap; footprint change; any of the 81 property values; **property attributes (`at`, `hide`, `effects`)**; DNP / exclude-from-BOM / exclude-from-board; sheet assignment |
-| **3 — Geometry & graphics** | backend detects (digest), **viewer resolves bounds** | moved / rotated / mirrored / layer-changed **for components and footprints** (structured digest); track/arc/via/zone/graphics/text **added, removed or modified** (hash only) |
+| **1 — Connectivity** | kicad-monkey | net added/removed/renamed; net membership; pin reassignment; net class; sheet instance added/removed/re-pathed; bus membership |
+| **2 — Identity & properties** | Node parser | component added/removed; `lib_id` swap; footprint change; property values *and* attributes (`at`, `hide`, `effects`); DNP / exclude flags; sheet assignment |
+| **3 — Geometry & graphics** | Node parser detects, **viewer resolves bounds** | moved / rotated / mirrored / layer changed; tracks, vias, zones, graphics, text, dimensions |
 
-Tier 3 is deliberately split. A whole-body hash yields exactly three verbs —
-added, removed, modified — and revision 1 promised classifications it could not
-deliver. The structured digest buys back the classifications that matter for
-components; everything else says "modified" and lets the canvas explain.
+Tier 3 gains what the hash-based digest could not give: the parser knows an
+object *moved* rather than merely *changed*, for every kind, without a special
+case for components.
 
-Tier 1 is the reason the semantic index cannot move to the browser, and the
-reason we are not merely a visual differ.
+## Milestones
 
-### 3. One comparison session, one or two viewports
+Each milestone states what it proves, how it is measured, and what must be true
+before the next one starts. Benchmarks reuse
+`scripts/benchmark_design_compare.py` and the existing `benchmark.mark(scope=…)`
+instrumentation rather than new tooling.
 
-Revision 1 claimed one prepared scene could drive all three views by changing
-visibility. It cannot. `build_diff_presentation` paints the **comparison**
-document as authority and injects only those reference items that are part of a
-change (`diff-presentation.ts:169-192`; `reference_items` accumulates
-`retained_reference_items` alone). Unchanged and modified reference objects are
-never in that scene. So the prepared Composite scene can render Composite and a
-comparison-only view — never a faithful reference-only view, and therefore never
-the left pane of Side-by-side.
+Fixed benchmark inputs, so numbers stay comparable across milestones:
 
-The target is a session, not a scene:
+- **A** — JTYU-OBC `8f71cfe → 4b0a39a` (27 schematics / 15 MB, 34.9 MB board)
+- **B** — backplane `05a89dd → 934be89` (1,603 sch + 459 pcb changes, reused sheets)
 
-```
-ComparisonSession
-├── parsed reference project
-├── parsed comparison project
-├── semantic / native diff index
-├── reference scene
-├── comparison scene
-├── composite presentation
-└── exact target bounds per side
-```
+### M0 — Baseline harness
 
-- Composite → comparison scene plus removed-reference injection (what exists).
-- Side-by-side → reference and comparison scenes in two viewports.
-- Old/New → selects one of the two scenes.
-- Parsing and identity resolution happen **once**; scene compilation may happen
-  once per side.
+*Proves the numbers in this plan are reproducible before anything moves.*
 
-This keeps the principle that matters — one computed comparison, one API — while
-dropping the claim that it is literally one paint scene.
+- Extend `benchmark_design_compare.py` to emit one row per stage for A and B:
+  snapshot, semantic index, geometry, BOM, diff, project-diff, total.
+- Record artifact sizes and object counts alongside times.
+- **Target:** every figure in "Measurements" above reproduced within ±10%.
+- **Gate:** two consecutive runs agree within 10%; otherwise fix the harness
+  before trusting any later comparison.
 
-**Intermediate step, lower risk.** Keep two `<ecad-viewer>` instances for
-Side-by-side, but have both consume the shared comparison session and the shared
-parsed-source cache. Remove `setRevisionDiffPresentation` first; optimise scene
-sharing afterwards. This gets the architectural win without betting on the
-two-viewport work landing.
+### M1 — Node parse step, standalone
 
-### 4. Two item-change types, and a two-stage preparation
+*Proves the parser runs in our image at the speed measured on the host, and
+survives a real board without exhausting a worker.*
 
-Revision 1 said "make `bbox` optional". That weakens a type which is supposed to
-mirror KiCad's native contract, and `bbox` is not decorative: the diff index
-converts it to world coordinates immediately, routing-group bounds are computed
-from those values before painting, and prepared targets need bounds before the
-document loads.
+- A `scripts/ecad-parse.mjs` entry point: snapshot path in, object index out.
+- Object index per object: `uuid`, `kind`, `documentPath`, `kiidPath`, `at`,
+  `rotation`, `mirror`, `layer`, `net`, `properties`, plus a content hash for
+  kinds with no meaningful field-level diff.
+- **Benchmark:** wall clock and peak RSS for A and B, inside the backend image.
+- **Target:** ≤1.2 s and ≤1.5 GB RSS for A. Object counts match the parser's
+  own collection counts (982 footprints, 14,933 segments, … for A).
+- **Gate:** RSS fits the worker's existing memory ceiling. If a 35 MB board
+  needs more than the ceiling, decide streaming vs. raising the ceiling here,
+  not later.
 
-Split the type instead:
+### M2 — Object delta in Node, shadow mode
 
-```ts
-type NativeKiCadItemChange = { bbox: [number, number, number, number]; /* … */ };
-type PrismItemChangeInput   = { bbox?: [number, number, number, number]; /* … */ };
-```
+*Proves the new delta agrees with the one we ship today, before anything
+depends on it.*
 
-And make preparation explicitly staged:
+- Node parses base + head and emits added / removed / modified with property
+  and position deltas.
+- Run alongside the existing pipeline; emit both; compare sets.
+- **Benchmark:** delta wall clock; agreement rate against the current
+  geometry-derived change sets, per kind.
+- **Target:** ≤2.5 s for A. ≥99% agreement on component, track, via and zone
+  add/remove. Every disagreement classified, not merely counted.
+- **Gate:** disagreements are explained and are improvements (the ~1,034
+  objects in neither index today should appear as *new* detections, not as
+  regressions).
 
-1. validate the identity / property diff;
-2. resolve source IDs against the parsed scenes;
-3. produce exact per-item bounds;
-4. construct selection targets and group union bounds.
+### M3 — Cut over; delete the geometry sidecar
 
-An item that fails stage 2 or 3 becomes a **non-focusable change-list entry with
-a diagnostic** — visible, honest, unclickable. That is strictly better than
-today's `[0, 0, 0, 0]`, which is a target that silently flies the camera to the
-origin.
+*Proves the artifact and the wall clock actually improve.*
 
-### 5. No `getPreparedTargets()`
+- Delete `_extract_geometry` and the geometry sidecar. Route `documentPath`,
+  `kind` and `parentSourceId` — which the sidecar also carried — from the
+  object index.
+- Reduce `build_semantic_index` to connectivity: components now come from the
+  parser. Measure whether the 4.1 s falls.
+- **Benchmark:** `revision.json` size; compare wall clock; per-stage times.
+- **Target:** artifact ≤6 MB (from 32.15 MB); wall clock ≤5.5 s (from ~8.3 s).
+- **Gate:** `position_delta` still produced (it groups by net, so it needs a
+  position for tracks, not just components); fallback-bounds rate no worse than
+  0.90%; all 69 backend tests green.
 
-`loadDocumentComparison` already returns an `EcadDocumentComparisonPreparation`
-containing the target map, and the viewer hydrates that same map with painted
-bounds before returning it. Prism should hold the returned preparation as the
-session handle. A getter would only earn its place if Prism could lose the
-result while the viewer stayed mounted, or if targets changed after load through
-lazy page preparation. Once §3's session object exists it owns the targets
-anyway. Dropped.
+### M4 — Fix identity resolution in the viewer
 
-## Sequencing
+*Removes the reason bounds cannot yet be dropped.*
 
-**Phase 0A — make the viewer build reproducible. ✅ Done.**
-The shipped manifest claimed `adapterCommit c52ac81` with `dirty: true` and a
-non-empty `worktreePatchSha256`: the bundle carried source that was in no
-commit. That patch had since been committed as `57178d8`, and the clean tree
-hashes to `499f8775` — exactly the `sourceTreeSha256` the dirty build recorded.
-Rebuilding from the clean tree reproduced both artifacts **byte for byte**
-(`ecad-viewer.js` `a4788ec2…`, `parser.worker.js` `074c4fc2…`). Provenance is
-now honest and the diagnostics we collect next are attributable to a commit.
+- The 16 failures are `SCH_PIN`s that parse but are absent from
+  `build_paint_item_index`. Fix the paint index, not the parse.
+- Re-measure across ≥8 documents including **a PCB document**, which has never
+  been measured.
+- **Benchmark:** fallback-bounds rate; `item-not-found` by type name.
+- **Target:** 0% across all sampled documents, PCB included.
+- **Gate:** M5 does not start until this is 0. At 0.90%, dropping bounds costs
+  1 in 100 targets its ability to focus.
 
-**Phase 0B — comprehensive resolution instrumentation.** The current
-diagnostics (`missing-source-id`, `item-not-found`) fire only while resolving
-source IDs to parsed objects. Painted-bounds failure is **silent**:
-`#hydrate_document_diff_targets` does `if (!native_bounds.length) continue;`
-(`ecad_viewer.ts:1522`) and leaves the backend bbox in place without a word.
-Measuring today's diagnostics would therefore undercount constant-box usage —
-possibly to zero. Add:
+### M5 — Stop emitting bounds
 
-```
-paint-bounds-not-found
-source-id-ambiguous
-hierarchy-ambiguous
-document-not-found
-```
+*Completes "the backend never emits a coordinate".*
 
-and record per change: domain, document, object kind, source side, hierarchy
-depth, source resolution succeeded, painted bounds succeeded, number of objects
-matching the source ID, fallback bbox consumed.
+- Split the type: `NativeKiCadItemChange` keeps `bbox` required;
+  `PrismItemChangeInput` makes it optional. Preparation becomes staged —
+  validate, resolve, measure, then build targets.
+- Unresolvable items become non-focusable change-list entries with a
+  diagnostic, never `[0, 0, 0, 0]` targets at the origin.
+- **Benchmark:** count of `bbox` fields in PROJECT_DIFF; artifact size.
+- **Target:** zero bounds emitted; no regression in fallback rate.
 
-**Result: [measured](design-comparison/phase-0b-measurement.md).** On a
-204-change schematic: 204/204 identities resolved, 102/102 targets resolved
-exact painted bounds, **fallback rate 0**, ambiguity 0. The constant boxes were
-never used for focus. Two defects surfaced that the plan had not anticipated —
-per-visual bounds were never resolved at all (a generator consumed twice, fixed
-in ecad-viewer `df92ecf`), and change ids omitted the sheet instance path, so
-reused hierarchical sheets collapsed distinct components onto one id. The
-second is the `instancePath` gap this revision predicted, confirmed as a live
-correctness bug; fixed for components, and the residual is labels and wires
-whose net refs carry no instance path at all.
+### M6 — One comparison session, three views
 
-Ambiguity is worse than "first match wins". `items_by_source_id.set(sourceId,
-[presentation_item])` **overwrites** on a repeated source ID
-(`diff-presentation.ts:197`), so the earlier resolution is destroyed at index
-build time; `first_item` then reads `[0]` of a one-element array
-(`:116`). A duplicate identity is not a coin flip — it is silent data loss.
-Count these before changing behaviour.
+*Removes the second rendering path.*
 
-Audit API and headless consumers of `change.geometry` in the same phase.
+- `viewer.prepareComparison()` returning a session that owns both revisions and
+  all presentation state; `setPresentation("composite" | "reference" |
+  "comparison")`; side-by-side over two viewports.
+- Delete `buildRevisionDiffPresentation`, `setRevisionDiffPresentation`,
+  `selectRevisionDiff`, `previewRevisionDiff`.
+- **Benchmark:** view-switch latency; `comparison-presentation-shell.tsx` line
+  count; retained viewer instances; scene memory.
+- **Target:** switch ≤150 ms with no reparse; shell under 1,200 lines (from
+  2,092); one preparation path.
+- **Gate:** measure whether one session can drive two viewports before
+  committing to the two-scene model — this is the open scope risk.
 
-**Phase 1 — introduce the digest in shadow mode. Implemented, not wired in.**
-`app/services/design_object_digest.py` plus 12 tests. Measured on JTYU-OBC
-(15 MB of schematics, a 34.9 MB board):
+### M7 — Semantic completeness
 
-| | geometry sidecar | object digest |
-| --- | ---: | ---: |
-| objects covered | 37,877 | **44,586** |
-| extraction | 2.2 s | **3.6 s** |
-| artifact | 28.96 MB | **8.07 MB** |
+*Closes the gaps the measurements exposed.*
 
-Honest reading: the digest **costs 1.4 s more**, not less, and the artifact is
-3.6× smaller rather than the order of magnitude revision 2 predicted. What it
-buys for that 1.4 s is ~6,700 objects the geometry sidecar never saw, every
-kind rather than eighteen, and no coordinates beyond a centroid. The committed
-target — "remove the 2.2 s stage without adding an equivalent cost" — is *not*
-met yet; the remaining cost is the balanced-paren walk re-reading nested
-content and the per-object centroid regexes.
+- Property *attributes* (`at`, `hide`, `effects`) — currently invisible.
+- Sheet instance paths on **net** schematic refs, which is why label collisions
+  survive on the backplane (8–121 entries depending on project).
+- Buses and sheet instances as first-class tier-1 kinds.
+- **Benchmark:** coverage count against the ~1,034 objects in neither index;
+  residual change-id collisions.
+- **Target:** zero unclassified objects; zero id collisions.
 
-Shadow-mode delta on a real revision pair: 1,289 added, 550 removed, 735
-modified. Cross-checking those sets against the geometry-derived sets is the
-next step, and must happen before the sidecar is deleted.
+## Open questions, and which milestone answers each
 
-**Phase 2 — remove the bbox dependency from the Prism provider path.**
-Composite only. Resolve exact bounds before creating prepared targets and
-before grouping routing changes. Once the measured fallback rate is acceptable,
-stop emitting backend bounds.
+| Question | Answered by |
+| --- | --- |
+| Does the parser fit the worker's memory ceiling on a 35 MB board? | M1 |
+| Is per-revision parse caching worth its complexity at 0.9 s? | M1 |
+| Does the Node delta agree with what we ship today? | M2 |
+| How much of the 4.1 s semantic index is connectivity, and how much is component work the parser now does? | M3 |
+| What is the fallback-bounds rate on a **PCB** document? | M4 |
+| Why do parsed pins not reach the paint index? | M4 |
+| Can one prepared session drive two side-by-side viewports? | M6 |
+| Python↔Node boundary cost for a ~2.5k-change delta | M2 |
 
-**Phase 3 — comparison-session API.** Conceptually:
+## Already landed, kept regardless
 
-```ts
-const session = await viewer.prepareComparison(request);
-session.setPresentation("composite" | "reference" | "comparison");
-session.attachSideBySide(leftViewport, rightViewport);
-```
+- **KIID_PATH change ids** (`35cd76f`). A reused hierarchical sheet is one file,
+  so its instances share every symbol UUID; distinct components were collapsing
+  onto one change id and only the last stayed selectable. Inflation 1.255× →
+  1.002× (A), 1.311× → 1.021× (B).
+- **Viewer generator-exhaustion fix** (`df92ecf`). `query_item_bboxes` is a
+  generator that was spread twice, so per-visual bounds were never resolved and
+  silently kept the caller's constant box. 0/255 visuals → 255/255.
+- **Resolution instrumentation** (`fa3afb2`, `00fc93b`). Painted-bounds failure
+  was previously silent; without it none of this plan's measurements exist.
+- **Reproducible viewer build** (`0a657fa`).
 
-The exact shape can differ; it must own both revisions and all presentation
-state.
+## To revert
 
-**Phase 4 — delete the old Prism path.** `buildRevisionDiffPresentation`,
-`setRevisionDiffPresentation`, `selectRevisionDiff`, `previewRevisionDiff`.
-Camera sync stays in Prism (`use-comparison-camera-sync.ts`, 52 lines) unless
-the viewer takes ownership of both split viewports.
+`design_object_digest.py` and its tests (`5da6993`). Superseded entirely by
+M1–M2. Keeping it would leave a fourth parser in the tree.
 
-**Phase 5 — semantic completeness.** Property attributes, buses, sheet
-instances, remaining connectivity classifications. Largely orthogonal; can run
-in parallel once the data contracts stabilise.
+## What revisions 1 and 2 got wrong
 
-## Expected outcome
+Kept deliberately — the corrections are the useful part.
 
-Revision 1's numbers were optimistic. Corrected:
-
-| | now | after | note |
-| --- | --- | --- | --- |
-| digest artifact | 28.96 MB | ~2.3 MB column-oriented, ~4 MB keyed JSON | 40 bytes/object was wrong; a 36-char UUID plus a 16-hex hash plus keys is ~90 bytes before interning |
-| `revision.json` | 32.15 MB | ~7–9 MB | still 3.5–4× smaller, not 7× |
-| compare wall clock | 8.3 s | **first target: −2.2 s** | the digest must still scan and hash every object; 5.5 s is the upside, not the commitment |
-| objects diffable | ~37k | ~38k, all kinds | |
-| bounds accuracy | constant boxes | exact painted bounds | |
-| rendering paths | 2 | 1 | |
-| Prism S-expression scanning | ~299 lines | ~80 lines | |
-
-The defensible claim is: **remove the 2.2 s geometry stage without adding an
-equivalent digest cost**, then benchmark. Anything beyond that is earned, not
-predicted.
-
-`_balanced_s_expression_end` and `_iter_sexpr_blocks` survive — `_extract_stackup`
-and `_schematic_instance_fields` still need them.
-
-## Risks
-
-- ~~**Fallback rate is unknown.**~~ Measured at 0 on a 204-change schematic.
-  Still to repeat on a PCB document and a hierarchical project before the
-  backend stops emitting bounds — those are where uuid resolution is most
-  likely to be fragile.
-- ~~**Ambiguous identities are silently collapsed.**~~ Measured ambiguity is
-  zero. The real hazard turned out to be **change ids without a sheet instance
-  path**: a reused hierarchical sheet is one file, so its instances share every
-  symbol UUID, and two distinct components collapsed onto one id. Fixed for
-  components by emitting the full KIID_PATH; labels and wires still collide
-  because net refs carry no instance path in the semantic index.
-- **Hash-only tier 3.** "Modified" without "what changed" for routing and
-  graphics. Mitigated for components by the structured digest.
-- **Side-by-side scene cost.** Two retained scenes is more memory than one.
-  Whether one session can drive two viewports, or whether two instances over a
-  shared source cache is fast enough, must be measured before Phase 3's scope
-  is fixed.
-- ~~**Headless consumers.**~~ Closed by the 0B audit: no API router, export
-  path or non-browser consumer reads the sidecar. The residual risk is version
-  skew between a cached frontend bundle and a newer backend, which the
-  resolution report's `unreported` flag already distinguishes from a clean
-  measurement.
-- **Server cache is shared; browser parsing is per session.** This proposal
-  only removes *duplicated* work — the viewer already parses these files.
-  Pushing further work frontward would multiply per user, which is the
-  asymmetry behind the 84% cache-miss complaint.
+| | claim | reality |
+| --- | --- | --- |
+| r1 | Four viewer instances | Three; Old/New aliases one |
+| r1 | ~1.5 MB digest, 40 bytes/object | ~8 MB; ~90 bytes before interning |
+| r1 | One prepared scene drives all three views | Composite holds no unchanged reference items, so it cannot render a reference pane |
+| r1 | Make `bbox` optional | Splitting the type is safer than weakening the native contract |
+| r1 | Add `getPreparedTargets()` | Redundant; the preparation already returns the map |
+| r2 | The win is "one pass instead of 18" | The 18 regex passes cost 0.52 s and were never the bottleneck; a projection scan costs 10.4 s |
+| r2 | Prism must scan files in Python | It must not. That assumption produced a fourth parser |
+| r2 | Fallback-bounds rate is 0 | 0.90%, entirely `SCH_PIN` |
+| r2 | Each changed component is emitted twice | Records were never duplicated; their ids collided |
