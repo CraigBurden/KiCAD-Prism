@@ -25,7 +25,6 @@ import {
     resolveNativeSelection,
     type ComparisonSelection,
 } from "./comparison-selection-bridge";
-import { ChangeStatusLegend } from "./change-status";
 import { ComparisonViewerHost } from "./comparison-viewer-host";
 import {
     resolveSelectedDocument,
@@ -865,9 +864,10 @@ export function ComparisonPresentationShell({
         <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
             <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-muted/20 px-3 py-2 text-xs">
                 {presentationMode === "composite" ? (
-                    <span className="mr-auto inline-flex items-center gap-3">
-                        <ChangeStatusLegend />
-                    </span>
+                    // The added/removed/modified colors are already explained by
+                    // the change list beside this panel; repeating them here was
+                    // redundant.
+                    <span className="mr-auto" />
                 ) : presentationMode === "old-new" ? (
                     <>
                         <div
