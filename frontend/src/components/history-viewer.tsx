@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
     GitCommit,
+    GitBranch,
     Tag,
     Eye,
     Check,
@@ -108,6 +109,7 @@ interface HistoryViewerProps {
     projectId: string;
     branchRef?: string | null;
     onViewCommit: (commitHash: string) => void;
+    onOpenVisualizer: (commitHash: string) => void;
     canCompareDiffs: boolean;
     canComment: boolean;
 }
@@ -211,6 +213,7 @@ interface CommitItemProps {
     commit: Commit;
     projectId: string;
     onViewCommit: (hash: string) => void;
+    onOpenVisualizer: (hash: string) => void;
     isBase: boolean;
     isCompare: boolean;
     onSetBase: () => void;
@@ -222,6 +225,7 @@ function CommitItem({
     commit,
     projectId,
     onViewCommit,
+    onOpenVisualizer,
     isBase,
     isCompare,
     onSetBase,
@@ -303,15 +307,32 @@ function CommitItem({
                                     {copied ? "Copied" : "Click to copy full hash"}
                                 </TooltipContent>
                             </Tooltip>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={() => onViewCommit(commit.full_hash)}
-                                title="View this version"
-                            >
-                                <Eye className="h-3 w-3" />
-                            </Button>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => onOpenVisualizer(commit.full_hash)}
+                                    >
+                                        <Eye className="h-3 w-3" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Open this commit in the visualizer</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => onViewCommit(commit.full_hash)}
+                                    >
+                                        <GitBranch className="h-3 w-3" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>View this commit in history</TooltipContent>
+                            </Tooltip>
                             {selectable && (
                                 <>
                                     <Button
@@ -414,6 +435,7 @@ export function HistoryViewer({
     projectId,
     branchRef,
     onViewCommit,
+    onOpenVisualizer,
     canCompareDiffs,
     canComment,
 }: HistoryViewerProps) {
@@ -812,6 +834,7 @@ export function HistoryViewer({
                                 commit={commit}
                                 projectId={projectId}
                                 onViewCommit={handleViewCommitLocal}
+                                onOpenVisualizer={onOpenVisualizer}
                                 isBase={baseRevision?.sha === commit.full_hash}
                                 isCompare={compareRevision?.sha === commit.full_hash}
                                 onSetBase={() => setRevision("base", {

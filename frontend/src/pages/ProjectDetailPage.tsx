@@ -145,6 +145,15 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         setSearchParams(next);
     };
 
+    // Open the design at a commit directly in the visualizer, read-only. Distinct
+    // from handleViewCommit, which keeps you in the history section.
+    const handleOpenCommitVisualizer = (commitHash: string) => {
+        const next = new URLSearchParams(searchParams);
+        next.set("section", "visualizers");
+        next.set("commit", commitHash);
+        setSearchParams(next);
+    };
+
     const handleResetToLatest = () => {
         if (currentCommit && selectedBranchRef) {
             setSearchParams({ branch: selectedBranchRef });
@@ -589,6 +598,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                         projectId={projectId}
                                         branchRef={selectedBranchRef}
                                         onViewCommit={handleViewCommit}
+                                        onOpenVisualizer={handleOpenCommitVisualizer}
                                         canCompareDiffs
                                         canComment={canMutateProject}
                                     />
