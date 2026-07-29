@@ -194,7 +194,7 @@ argument, but it does mean **the parser comparison is not yet like-for-like**:
 `kicad-sexpr-parser`'s 639 ms was also measured on the host, and M1 has to
 produce both sides in the image before anything is deleted.
 
-### M1 — Node parse step, standalone
+### M1 — Node parse step, standalone — **done**, see [the measurement](design-comparison/m1-node-parse.md)
 
 *Proves the parser runs in our image at the speed measured on the host, and
 survives a real board without exhausting a worker.*
@@ -209,6 +209,28 @@ survives a real board without exhausting a worker.*
 - **Gate:** RSS fits the worker's existing memory ceiling. If a 35 MB board
   needs more than the ceiling, decide streaming vs. raising the ceiling here,
   not later.
+
+**Outcome — gate passes, speed target missed, and the missed target does not
+matter.** Peak RSS is **1.44 GB** parsing *both* revisions of A in one process,
+against the worker's actual 12 GB `mem_limit`. Streaming is not needed and the
+ceiling does not move; the question this milestone was placed early to answer
+is settled. Object counts reconcile exactly against every parser collection,
+self-checked — the script exits non-zero on any shortfall.
+
+Speed is **~1.8 s per revision** on A (parser ~1.2 s, index build ~0.42 s), not
+≤1.2 s. The host's 639 ms carries the same ~1.9× in-image penalty M0 found on
+the Python side, so both sides moved together and the ratio held. Like-for-like
+in the image, per revision: Node **1.80 s** against `_extract_geometry`'s
+**5.48 s** on A — but only **1.26 s** against **1.79 s** on B, a 1.4× win on
+the panel that has the PCB changes. M2's claims have to be made on B.
+
+Three bugs surfaced in the process, all of which would have shipped silently:
+the parser returns `{number, name}` for nets where the declaration says
+`number | string` (every copper object would have had no net, fragmenting
+`position_delta`); footprint fields live in `properties_kicad_8` on KiCad 8+
+(no refdes on any modern board); and treating properties as addressable
+children erased every property change from a symbol's hash — closing the
+property-attribute gap into a hash that could not see it.
 
 ### M2 — Object delta in Node, shadow mode
 
@@ -303,8 +325,8 @@ depends on it.*
 
 | Question | Answered by |
 | --- | --- |
-| Does the parser fit the worker's memory ceiling on a 35 MB board? | M1 |
-| Is per-revision parse caching worth its complexity at 0.9 s? | M1 |
+| ~~Does the parser fit the worker's memory ceiling on a 35 MB board?~~ | **M1: yes — 1.44 GB against a 12 GB limit** |
+| ~~Is per-revision parse caching worth its complexity at 0.9 s?~~ | **M1: probably not, but it is a 3.6 s question, not 1.8 s. Revisit after M3** |
 | Does the Node delta agree with what we ship today? | M2 |
 | How much of the 4.1 s semantic index is connectivity, and how much is component work the parser now does? | M3 |
 | What is the fallback-bounds rate on a **PCB** document? | M4 |
