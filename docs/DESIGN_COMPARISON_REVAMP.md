@@ -177,12 +177,29 @@ Five scalars, no point arrays. This is what makes "U4 moved 2 mm, rotated 90°"
 possible instead of "U4 modified". Routing and graphics stay hash-plus-centroid
 — the canvas communicates the rest better than words do.
 
-Gains, unchanged from revision 1:
+Gains:
 
-- one depth-aware pass instead of 18 (`_extract_geometry` runs one `finditer`
-  per kind)
 - the 687 zones nested at depth 3 stop being dropped
 - every kind covered, closing the 1,034-object gap
+
+**"One pass instead of 18" was wrong and has been dropped.** Revisions 1 and 2
+both claimed the eighteen per-kind `finditer` passes were the cost to remove.
+Measured on a 34.9 MB board, locating the same 23,698 objects costs:
+
+| | |
+| --- | ---: |
+| kicad-monkey projection scan (`iter_sexp_form_spans`) | 10.4 s |
+| 18 regex `finditer` passes | 0.52 s |
+| 1 alternation regex pass | **0.06 s** |
+
+The projection scan costs ~10 s *regardless of how few forms it selects* —
+selecting only `footprint` (982 spans) took 11.0 s — because it walks the whole
+file in Python. The 18 passes were never the bottleneck; `_extract_geometry`
+spends its 2.2 s on per-object work, not on finding objects. The digest is
+therefore regex-driven, with extents bounded by `_balanced_s_expression_end`,
+which drives its paren walk through the regex engine for the same reason.
+Rewriting it that way took the digest from 15.4 s to 3.6 s with byte-identical
+output.
 
 #### Digest rules
 
@@ -353,10 +370,27 @@ Count these before changing behaviour.
 
 Audit API and headless consumers of `change.geometry` in the same phase.
 
-**Phase 1 — introduce the digest in shadow mode.** Emit both the old geometry
-sidecar and the new identity digest, and compare their detected
-add/remove/change sets over the test corpus and real jobs. Do not switch the
-frontend. Only when the sets agree does the sidecar go.
+**Phase 1 — introduce the digest in shadow mode. Implemented, not wired in.**
+`app/services/design_object_digest.py` plus 12 tests. Measured on JTYU-OBC
+(15 MB of schematics, a 34.9 MB board):
+
+| | geometry sidecar | object digest |
+| --- | ---: | ---: |
+| objects covered | 37,877 | **44,586** |
+| extraction | 2.2 s | **3.6 s** |
+| artifact | 28.96 MB | **8.07 MB** |
+
+Honest reading: the digest **costs 1.4 s more**, not less, and the artifact is
+3.6× smaller rather than the order of magnitude revision 2 predicted. What it
+buys for that 1.4 s is ~6,700 objects the geometry sidecar never saw, every
+kind rather than eighteen, and no coordinates beyond a centroid. The committed
+target — "remove the 2.2 s stage without adding an equivalent cost" — is *not*
+met yet; the remaining cost is the balanced-paren walk re-reading nested
+content and the per-object centroid regexes.
+
+Shadow-mode delta on a real revision pair: 1,289 added, 550 removed, 735
+modified. Cross-checking those sets against the geometry-derived sets is the
+next step, and must happen before the sidecar is deleted.
 
 **Phase 2 — remove the bbox dependency from the Prism provider path.**
 Composite only. Resolve exact bounds before creating prepared targets and
