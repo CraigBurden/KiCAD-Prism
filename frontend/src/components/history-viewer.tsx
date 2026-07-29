@@ -5,7 +5,6 @@ import {
     Tag,
     Eye,
     Check,
-    Copy,
     User,
     Clock,
     Calendar,
@@ -25,6 +24,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DesignComparisonWorkspace } from "./design-comparison/design-comparison-workspace";
 import {
     applyOpenComparisonParams,
@@ -286,22 +286,21 @@ function CommitItem({
                             <span className="truncate">{(commit.message || "").split('\n')[0]}</span>
                         </button>
                         <div className="flex items-center gap-1 flex-shrink-0">
-                            <code className="text-xs bg-muted px-2 py-1 rounded">
-                                {commit.hash}
-                            </code>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={handleCopy}
-                                title="Copy full hash"
-                            >
-                                {copied ? (
-                                    <Check className="h-3 w-3 text-success" />
-                                ) : (
-                                    <Copy className="h-3 w-3" />
-                                )}
-                            </Button>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <code
+                                        className="text-xs bg-muted px-2 py-1 rounded cursor-pointer hover:bg-muted-foreground/20 flex items-center gap-1"
+                                        onClick={handleCopy}
+                                    >
+                                        {copied
+                                            ? <Check className="h-3 w-3 text-success" />
+                                            : commit.hash}
+                                    </code>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    {copied ? "Copied" : "Click to copy full hash"}
+                                </TooltipContent>
+                            </Tooltip>
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -430,6 +429,7 @@ export function HistoryViewer({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [branchTipSha, setBranchTipSha] = useState<string | null>(null);
+    const [copiedReleaseTag, setCopiedReleaseTag] = useState<string | null>(null);
     const [baseRevision, setBaseRevision] = useState<RevisionRef | null>(() => {
         const sha = comparisonUrl.base;
         return sha ? { sha, label: sha.slice(0, 10), kind: "commit" } : null;
@@ -516,6 +516,16 @@ export function HistoryViewer({
         }, { replace: true });
         onViewCommit(commitHash);
     }, [onViewCommit, setSearchParams]);
+
+    const handleCopyReleaseHash = useCallback(async (tag: string, fullHash: string) => {
+        try {
+            await navigator.clipboard.writeText(fullHash);
+            setCopiedReleaseTag(tag);
+            setTimeout(() => setCopiedReleaseTag((current) => current === tag ? null : current), 2000);
+        } catch (error) {
+            console.warn("Failed to copy release hash", error);
+        }
+    }, []);
 
     useEffect(() => {
         setCommitsPage(0);
@@ -665,9 +675,21 @@ export function HistoryViewer({
                                         <span className="font-semibold">{release.tag}</span>
                                     </div>
                                     <div className="flex items-center gap-1">
-                                        <code className="text-xs bg-muted px-2 py-1 rounded">
-                                            {release.commit_hash}
-                                        </code>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <code
+                                                    className="text-xs bg-muted px-2 py-1 rounded cursor-pointer hover:bg-muted-foreground/20 flex items-center gap-1"
+                                                    onClick={() => handleCopyReleaseHash(release.tag, release.full_hash)}
+                                                >
+                                                    {copiedReleaseTag === release.tag
+                                                        ? <Check className="h-3 w-3 text-success" />
+                                                        : release.commit_hash}
+                                                </code>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                {copiedReleaseTag === release.tag ? "Copied" : "Click to copy full hash"}
+                                            </TooltipContent>
+                                        </Tooltip>
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -687,11 +709,11 @@ export function HistoryViewer({
                                     {formatDate(release.date)}
                                 </div>
                                 {canCompareDiffs && (
-                                    <div className="mt-3 flex gap-2 border-t pt-3">
+                                    <div className="mt-4 flex justify-end gap-1.5">
                                         <Button
                                             variant={baseRevision?.sha === release.full_hash ? "secondary" : "outline"}
                                             size="sm"
-                                            className="h-7 flex-1 text-xs"
+                                            className="h-6 px-2.5 text-xs"
                                             disabled={compareRevision?.sha === release.full_hash}
                                             onClick={() => setRevision("base", {
                                                 sha: release.full_hash,
@@ -704,7 +726,7 @@ export function HistoryViewer({
                                         <Button
                                             variant={compareRevision?.sha === release.full_hash ? "secondary" : "outline"}
                                             size="sm"
-                                            className="h-7 flex-1 text-xs"
+                                            className="h-6 px-2.5 text-xs"
                                             disabled={baseRevision?.sha === release.full_hash}
                                             onClick={() => setRevision("compare", {
                                                 sha: release.full_hash,
