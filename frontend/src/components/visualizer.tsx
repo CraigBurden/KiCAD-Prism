@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -292,7 +293,19 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         setPcbViewerElement(node);
     }, []);
 
-    const [activeTab, setActiveTab] = useState<VisualizerTab>("sch");
+    // Open on the tab a caller asked for (e.g. clicking a changed .kicad_pcb in
+    // the history file list), read once on mount; defaults to the schematic.
+    const [searchParams] = useSearchParams();
+    const [activeTab, setActiveTab] = useState<VisualizerTab>(() => {
+        const requested = searchParams.get("tab");
+        return requested === "pcb"
+            || requested === "3d"
+            || requested === "bom"
+            || requested === "stackup"
+            || requested === "assembly"
+            ? requested
+            : "sch";
+    });
     const [threeDActivated, setThreeDActivated] = useState(false);
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
     const [subsheets, setSubsheets] = useState<{ filename: string, content: string }[]>([]);

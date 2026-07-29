@@ -109,7 +109,7 @@ interface HistoryViewerProps {
     projectId: string;
     branchRef?: string | null;
     onViewCommit: (commitHash: string) => void;
-    onOpenVisualizer: (commitHash: string) => void;
+    onOpenVisualizer: (commitHash: string, tab?: string) => void;
     canCompareDiffs: boolean;
     canComment: boolean;
 }
@@ -165,6 +165,15 @@ function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string 
     return { Icon: FileText, color: "text-muted-foreground" };
 }
 
+// Which visualizer tab a changed file opens onto. Board and schematic have their
+// own views; anything else (project, libraries) just opens the visualizer on its
+// default tab, since there is no dedicated viewer for it.
+function visualizerTabForFile(filename: string): string | undefined {
+    if (filename.endsWith(".kicad_pcb")) return "pcb";
+    if (filename.endsWith(".kicad_sch")) return "sch";
+    return undefined;
+}
+
 // Small chip indicating that a commit (or file) touched N items of a given
 // kind. Renders nothing when count is 0 so rows without that kind of change
 // stay compact.
@@ -213,7 +222,7 @@ interface CommitItemProps {
     commit: Commit;
     projectId: string;
     onViewCommit: (hash: string) => void;
-    onOpenVisualizer: (hash: string) => void;
+    onOpenVisualizer: (hash: string, tab?: string) => void;
     isBase: boolean;
     isCompare: boolean;
     onSetBase: () => void;
@@ -401,13 +410,21 @@ function CommitItem({
                             const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
                             return (
                                 <div key={file.path} className="space-y-0.5">
-                                    <div className="flex items-center gap-2 text-xs">
+                                    <button
+                                        type="button"
+                                        className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/60"
+                                        onClick={() => onOpenVisualizer(
+                                            commit.full_hash,
+                                            visualizerTabForFile(file.filename),
+                                        )}
+                                        title={`Open ${file.filename} at this commit`}
+                                    >
                                         <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
                                             {STATUS_ICON[file.status]}
                                         </span>
                                         <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
-                                        <span className="font-medium truncate" title={file.path}>{file.filename}</span>
-                                        <span className="text-muted-foreground truncate hidden sm:block" title={file.path}>
+                                        <span className="font-medium truncate">{file.filename}</span>
+                                        <span className="text-muted-foreground truncate hidden sm:block">
                                             {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
                                         </span>
                                         {(file.additions !== null || file.deletions !== null) && (
@@ -420,7 +437,7 @@ function CommitItem({
                                                 )}
                                             </span>
                                         )}
-                                    </div>
+                                    </button>
                                     {file.semantic_buckets && <SemanticBucketChips buckets={file.semantic_buckets} />}
                                 </div>
                             );

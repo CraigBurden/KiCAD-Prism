@@ -146,11 +146,14 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     };
 
     // Open the design at a commit directly in the visualizer, read-only. Distinct
-    // from handleViewCommit, which keeps you in the history section.
-    const handleOpenCommitVisualizer = (commitHash: string) => {
+    // from handleViewCommit, which keeps you in the history section. An optional
+    // tab opens straight onto a specific view (e.g. a changed .kicad_pcb).
+    const handleOpenCommitVisualizer = (commitHash: string, tab?: string) => {
         const next = new URLSearchParams(searchParams);
         next.set("section", "visualizers");
         next.set("commit", commitHash);
+        if (tab) next.set("tab", tab);
+        else next.delete("tab");
         setSearchParams(next);
     };
 
