@@ -764,11 +764,10 @@ export function DesignComparisonWorkspace({
     const [visibleLayers, setVisibleLayers] = useState<string[]>(initial.layers);
     const [differencesPage, setDifferencesPage] = useState(0);
     const [comments, setComments] = useState<Comment[]>([]);
+    // Closed by default; the user opens it deliberately from the rail.
     const [comparisonRightRailTab, setComparisonRightRailTab] = useState<
         "layers" | "discussion" | null
-    >(() => window.matchMedia("(max-width: 1023px)").matches
-        ? null
-        : "discussion");
+    >(null);
     const showDiscussion = comparisonRightRailTab === "discussion";
     const [previewSelection, setPreviewSelection] =
         useState<ComparisonSelection>(null);
