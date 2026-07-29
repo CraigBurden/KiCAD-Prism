@@ -575,40 +575,41 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         }
     }, [activeTab, schematicContentLoaded, projectId, appendCommit]);
 
-    // Lazy load PCB content when PCB tab is first accessed
+    // Load PCB content eagerly, not on first PCB-tab visit. Waiting until the tab
+    // was opened left the board unloaded behind a "open the PCB tab" placeholder;
+    // fetching up front means the board is ready the moment the tab is shown.
     useEffect(() => {
-        if (activeTab === "pcb" && !pcbContentLoaded) {
-            const controller = new AbortController();
-            const signal = controller.signal;
+        if (pcbContentLoaded) return;
+        const controller = new AbortController();
+        const signal = controller.signal;
 
-            const loadPcb = async () => {
-                try {
-                    const baseUrl = `/api/projects/${projectId}`;
-                    const pcbRes = await fetch(appendCommit(`${baseUrl}/pcb`), { signal });
+        const loadPcb = async () => {
+            try {
+                const baseUrl = `/api/projects/${projectId}`;
+                const pcbRes = await fetch(appendCommit(`${baseUrl}/pcb`), { signal });
 
-                    if (pcbRes.ok) {
-                        const pcbText = await pcbRes.text();
-                        if (signal.aborted) return;
-                        setPcbContent(pcbText);
-                    } else {
-                        console.error("PCB not found");
-                        setPcbContent(null);
-                    }
-                } catch (err) {
-                    if (!isAbortError(err)) {
-                        console.error("Error loading PCB content", err);
-                    }
-                } finally {
-                    if (!signal.aborted) {
-                        setPcbContentLoaded(true);
-                    }
+                if (pcbRes.ok) {
+                    const pcbText = await pcbRes.text();
+                    if (signal.aborted) return;
+                    setPcbContent(pcbText);
+                } else {
+                    console.error("PCB not found");
+                    setPcbContent(null);
                 }
-            };
+            } catch (err) {
+                if (!isAbortError(err)) {
+                    console.error("Error loading PCB content", err);
+                }
+            } finally {
+                if (!signal.aborted) {
+                    setPcbContentLoaded(true);
+                }
+            }
+        };
 
-            void loadPcb();
-            return () => controller.abort();
-        }
-    }, [activeTab, pcbContentLoaded, projectId, appendCommit]);
+        void loadPcb();
+        return () => controller.abort();
+    }, [pcbContentLoaded, projectId, appendCommit]);
 
     // Reset lazy loading flags when project changes
     useEffect(() => {
@@ -1272,7 +1273,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             )
                         ) : (
                             <div className="flex h-full items-center justify-center text-muted-foreground">
-                                <p>Open the PCB tab to load the board source.</p>
+                                <p>Loading the board source…</p>
                             </div>
                         )}
                     </div>
