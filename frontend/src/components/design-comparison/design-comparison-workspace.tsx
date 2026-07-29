@@ -1475,9 +1475,22 @@ export function DesignComparisonWorkspace({
                         )}
 
                         <div className="flex min-h-0 flex-1">
-                            {(activeTab === "sch" || activeTab === "pcb")
-                                && activeTabStatus === "ready" && (
-                                <>
+                            {/* Keep the sch/pcb block mounted once visited, hidden
+                                when a non-viewer tab (BOM/stackup) is active, so
+                                switching away and back does not remount and reparse
+                                the viewers. */}
+                            {(visitedDomainsRef.current.has("schematic")
+                                || visitedDomainsRef.current.has("pcb"))
+                                && (activeTab === "sch" || activeTab === "pcb"
+                                    ? activeTabStatus === "ready"
+                                    : true) && (
+                                <div
+                                    className={cn(
+                                        "flex min-h-0 min-w-0 flex-1",
+                                        !(activeTab === "sch" || activeTab === "pcb")
+                                            && "hidden",
+                                    )}
+                                >
                                     <Profiler
                                         id="differences-pane"
                                         onRender={logRenderPerformance}
@@ -1544,7 +1557,7 @@ export function DesignComparisonWorkspace({
                                             </div>
                                         </div>
                                     )}
-                                </>
+                                </div>
                             )}
                             {activeTabStatus !== "ready" && (
                                 <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
