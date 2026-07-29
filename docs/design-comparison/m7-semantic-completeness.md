@@ -113,3 +113,7 @@ clean gate in this workspace: it has existing `fields_autoplaced` round-trip
 failures and its ERC cases require `kicad-cli` on `PATH`. M7 does not modify
 that repository; the parser adapter tests exercise the fields and object kinds
 used by Design Comparison directly.
+
+See [the M7 performance follow-up](m7-performance-followup.md) for the
+in-container upstream/local dependency comparison, Cynthion issue 78 replay,
+revision-concurrency measurement, and the subsequent parser optimization.
