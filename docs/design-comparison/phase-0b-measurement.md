@@ -168,10 +168,63 @@ Closing this requires the semantic index to record sheet instance paths on net
 schematic refs, which is a `semantic_index_service` / kicad-monkey change rather
 than an adapter change. Worst remaining case is `LPBM.kicad_sch` at 3.57×.
 
+## Repeat on a second project (JTYU-OBC)
+
+The plan required repeating this before deleting anything, on the grounds that
+one document on one project proves little. It did not hold.
+
+| project | document | changes | resolved | targets | fallback |
+| --- | --- | ---: | ---: | ---: | ---: |
+| backplane | `1000BaseT_PHY.kicad_sch` | 204 | 204 | 102 | 0 |
+| JTYU-OBC | `USB.kicad_sch` | 590 | 590 | 936 | 0 |
+| JTYU-OBC | `S32G3_NVM_Memory.kicad_sch` | 138 | 138 | 185 | 0 |
+| JTYU-OBC | `OBC_Temperature_Sensors.kicad_sch` | 122 | 122 | 213 | 0 |
+| JTYU-OBC | `B2B_Conn.kicad_sch` | 243 | **227** | 350 | **16** |
+| **total** | | **1,297** | **1,281** (98.8%) | **1,786** | **16 (0.90%)** |
+
+So the fallback rate is **0.90%, not 0**. Four of five documents are perfectly
+clean; all 16 failures are in one document and every one of them is a
+`SCH_PIN`.
+
+The pins are not missing from the design. All 102 pin UUIDs in `B2B_Conn`
+were checked against the snapshot of their own revision and **all 102 are
+present in the file**. The viewer's parsed model simply does not expose them
+as indexable paint items in this document, while it does in the other three.
+The likely mechanism is that a schematic `PinInstance` only materializes when
+the owning library symbol still defines that pin — so identity breaks exactly
+when a symbol's pin set changes, which is precisely when the diff matters
+most. That should be confirmed in the viewer before anything depends on it.
+
+### The KIID_PATH fix, verified on a second project
+
+JTYU-OBC reuses sheets heavily, so it is a stronger test than the backplane:
+
+| | before | after |
+| --- | ---: | ---: |
+| Inflation (unique `id`+`side`) | 1.255× | **1.002×** |
+| Documents with colliding ids | 9 of 12 | **2 of 12** |
+| Colliding `SCH_SYMBOL` | 20 | **0** |
+| Ids carrying a KIID_PATH prefix | 0 | **1,281 of 2,255** |
+
+Residual is 8 `SCH_LABEL` entries. This project's net refs *do* carry sheet
+paths, so it lands far closer to 1.0 than the backplane's 1.021×; the residual
+there was a semantic-index gap specific to that project's net records.
+
+**Process note.** The compare pipeline runs in `prism-worker`, not `backend`.
+Rebuilding only the backend image left the worker on old code and produced a
+measurement that showed the fix doing nothing. Rebuild both.
+
 ## What this changes in the plan
 
-- **Phase 1 is unblocked on bounds.** Repeat on a PCB document and a
-  hierarchical project first; the schematic result is clean.
+- **Phase 1 (digest, shadow mode) is unblocked. Phase 2 (stop emitting bounds)
+  is not.** At 0.90% the fallback is low but real, and it is not randomly
+  distributed — it is entirely `SCH_PIN` identity failure. Phase 1 emits both
+  sidecars and changes no behaviour, so it is safe now. Phase 2 must wait until
+  pin resolution is understood, or 1 in 100 targets loses its ability to focus.
+- **A PCB document has still not been measured.** Neither project offered a
+  commit pair with real PCB churn (JTYU-OBC's only `.kicad_pcb` commit changed
+  STEP files and produced an empty diff). The backplane's 459 PCB changes are
+  the place to do this.
 - **Ambiguity is not the problem; hierarchical identity is.** The plan worried
   that `[0]`-of-many silently picks wrong. Measured ambiguity is zero. The real
   hazard was ids that omit the sheet instance path, which is precisely the
