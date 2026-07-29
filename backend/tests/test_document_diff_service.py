@@ -257,9 +257,12 @@ class DocumentDiffServiceTests(unittest.TestCase):
             [document["path"] for document in result["project"]["documents"]],
             [native_page],
         )
+        # wire-a is named by a native path, so it has no hierarchy prefix to
+        # contribute; label-a is named by its sheet instance and keeps it, so
+        # the same label in another instance of this sheet stays distinct.
         self.assertEqual(
             result["navigation"]["usb-data0"]["changeIds"],
-            ["/wire-a", "/label-a"],
+            ["/wire-a", f"{hierarchy.rstrip('/')}/label-a"],
         )
 
     def test_unresolved_hierarchy_does_not_create_an_unloadable_document(self) -> None:
@@ -287,6 +290,129 @@ class DocumentDiffServiceTests(unittest.TestCase):
             result["diagnostics"],
             [{"changeId": "unresolved-label", "reason": "unresolved-schematic-hierarchy"}],
         )
+
+    @staticmethod
+    def _reused_sheet_changes() -> list[dict]:
+        """Two components in two instances of one reused hierarchical sheet.
+
+        A reused sheet is a single file, so both instances hold the very same
+        symbol UUID. Only the sheet instance path separates R680 from R688.
+        """
+        native_page = "Subsheets/1000BaseT_PHY.kicad_sch"
+        symbol_uuid = "01f6c458-c7c6-453e-b528-f72664fb7651"
+        return [
+            {
+                "id": f"sch-comp-changed-cmp:{digest}",
+                "kind": "changed",
+                "domain": "schematic",
+                "category": "components",
+                "reference": reference,
+                "page": instance,
+                "fields": {"MANUFACTURER": {"old": "", "new": "Vishay Dale"}},
+                # Shaped as design_compare_service emits them: `page` already
+                # rewritten to the loadable file, hierarchy kept in `sheetPath`.
+                "details": {
+                    "visualTargets": [
+                        {
+                            "side": side,
+                            "status": "modified",
+                            "sourceId": symbol_uuid,
+                            "page": native_page,
+                            "sheetPath": instance,
+                            "role": "component",
+                        }
+                        for side in ("reference", "comparison")
+                    ],
+                },
+                "geometry": {"kind": "symbol", "page": native_page},
+            }
+            for reference, instance, digest in (
+                ("R680", "/SJA_EthernetSwitches/1000BaseT_PHY_A/", "233d4f83"),
+                ("R688", "/SJA_EthernetSwitches/1000BaseT_PHY_B/", "72b6dc52"),
+            )
+        ]
+
+    def test_reused_sheet_instances_keep_distinct_change_ids(self) -> None:
+        result = document_diff_service.build_project_diff(
+            schematic_changes=self._reused_sheet_changes(),
+            pcb_changes=[],
+            files={},
+        )
+
+        document = result["project"]["documents"][0]
+        self.assertEqual(document["path"], "Subsheets/1000BaseT_PHY.kicad_sch")
+
+        ids = [change["id"] for change in document["changes"]]
+        self.assertEqual(
+            ids,
+            [
+                "/SJA_EthernetSwitches/1000BaseT_PHY_A/"
+                "01f6c458-c7c6-453e-b528-f72664fb7651",
+                "/SJA_EthernetSwitches/1000BaseT_PHY_B/"
+                "01f6c458-c7c6-453e-b528-f72664fb7651",
+            ],
+        )
+        # The viewer resolves a native item from the last KIID_PATH segment, so
+        # both instances must still name the one symbol that the file paints.
+        self.assertEqual(
+            {change_id.rsplit("/", 1)[-1] for change_id in ids},
+            {"01f6c458-c7c6-453e-b528-f72664fb7651"},
+        )
+
+    def test_change_ids_are_unique_per_side_within_a_document(self) -> None:
+        """Colliding ids silently destroy selection targets in the viewer.
+
+        The presentation index assigns rather than appends, so two changes
+        sharing an id and a side leave only the last one resolvable -- clicking
+        either component would focus whichever happened to be indexed last.
+
+        Identity is (id, sourceSide), not id alone: one change legitimately
+        emits the same item on both sides, as a root plus a retained-reference
+        child, and the viewer keys those separately.
+        """
+        result = document_diff_service.build_project_diff(
+            schematic_changes=self._reused_sheet_changes(),
+            pcb_changes=[],
+            files={},
+        )
+
+        for document in result["project"]["documents"]:
+            keys: list[tuple[str, str]] = []
+
+            def collect(change: dict) -> None:
+                keys.append((change["id"], change["sourceSide"]))
+                for child in change["children"]:
+                    collect(child)
+
+            for change in document["changes"]:
+                collect(change)
+
+            duplicates = sorted({key for key in keys if keys.count(key) > 1})
+            self.assertEqual(
+                duplicates,
+                [],
+                f"duplicate change targets in {document['path']}: {duplicates}",
+            )
+
+    def test_pcb_change_ids_keep_the_bare_source_id(self) -> None:
+        """Footprints have no sheet hierarchy, so nothing should be prefixed."""
+        result = document_diff_service.build_project_diff(
+            schematic_changes=[],
+            pcb_changes=[{
+                "id": "pcb-changed-cmp:abc",
+                "kind": "changed",
+                "domain": "pcb",
+                "reference": "R680",
+                "page": "/SJA_EthernetSwitches/1000BaseT_PHY_A/",
+                "source_id_base": "fp-uuid",
+                "source_id_compare": "fp-uuid",
+                "geometry": {"kind": "footprint"},
+            }],
+            files={"head": [{"path": "Hardware/board.kicad_pcb"}]},
+        )
+
+        document = result["project"]["documents"][0]
+        self.assertEqual(document["changes"][0]["id"], "/fp-uuid")
 
 
 if __name__ == "__main__":

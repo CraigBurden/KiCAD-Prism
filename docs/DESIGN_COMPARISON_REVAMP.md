@@ -338,8 +338,11 @@ matching the source ID, fallback bbox consumed.
 exact painted bounds, **fallback rate 0**, ambiguity 0. The constant boxes were
 never used for focus. Two defects surfaced that the plan had not anticipated —
 per-visual bounds were never resolved at all (a generator consumed twice, fixed
-in ecad-viewer `df92ecf`), and the diff is inflated **1.70×** by duplicate
-change records, up to 6.9× on one sheet.
+in ecad-viewer `df92ecf`), and change ids omitted the sheet instance path, so
+reused hierarchical sheets collapsed distinct components onto one id. The
+second is the `instancePath` gap this revision predicted, confirmed as a live
+correctness bug; fixed for components, and the residual is labels and wires
+whose net refs carry no instance path at all.
 
 Ambiguity is worse than "first match wins". `items_by_source_id.set(sourceId,
 [presentation_item])` **overwrites** on a repeated source ID
@@ -408,10 +411,11 @@ and `_schematic_instance_fields` still need them.
   backend stops emitting bounds — those are where uuid resolution is most
   likely to be fragile.
 - ~~**Ambiguous identities are silently collapsed.**~~ Measured ambiguity is
-  zero. The real index hazard turned out to be **duplicate change records**:
-  every target was built from two changes sharing a side and source id, because
-  the backend emits each changed component twice. Fix upstream, not in the
-  index.
+  zero. The real hazard turned out to be **change ids without a sheet instance
+  path**: a reused hierarchical sheet is one file, so its instances share every
+  symbol UUID, and two distinct components collapsed onto one id. Fixed for
+  components by emitting the full KIID_PATH; labels and wires still collide
+  because net refs carry no instance path in the semantic index.
 - **Hash-only tier 3.** "Modified" without "what changed" for routing and
   graphics. Mitigated for components by the structured digest.
 - **Side-by-side scene cost.** Two retained scenes is more memory than one.

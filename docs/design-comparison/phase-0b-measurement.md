@@ -73,7 +73,12 @@ composite scene, and every reference visual here belongs to a change. The
 plan's §3 argument stands on the *unchanged* reference objects that are absent
 — not on changed ones.
 
-## Finding 3 — the diff is inflated ~1.7×, and every target is a duplicate
+## Finding 3 — reused hierarchical sheets collapse distinct items onto one id *(fixed for components)*
+
+> **Correction.** This finding was first written up as "the backend emits each
+> changed component twice". That was wrong. The change records are not
+> duplicated; their *ids* collide. The corrected analysis follows.
+
 
 **`duplicateChangeTargets: 102` out of 102 targets.** Every target was built
 from two or more changes sharing a side and source id, so the presentation
@@ -105,23 +110,73 @@ and two *different* prism ids resolve to the same component uuid:
 /01f6c458-… -> ['sch-comp-changed-cmp:72b6dc52…', 'sch-comp-changed-cmp:233d4f83…']
 ```
 
-So the backend emits each changed component **twice**, as two change records
-with different content digests. This is upstream of `document_diff_service` —
-it is in the change records `build_project_diff` is handed.
+### Root cause
 
-Consequences: the change list shows every modified component twice, "1,603
-schematic changes" overstates the real count, and every downstream stage
-carries roughly 1.7× the payload it needs. This is a defect in its own right,
-not a consequence of the architecture the revamp replaces, and it should be
-fixed independently rather than folded into Phase 1.
+The two records are **different components**, R680 and R688, and both are real:
+
+```
+R688  cmp:72b6dc52…   sheetInstancePath: /SJA_EthernetSwitches/1000BaseT_PHY_B/
+R680  cmp:233d4f83…   sheetInstancePath: /SJA_EthernetSwitches/1000BaseT_PHY_A/
+                      symbolUuid:        01f6c458-c7c6-453e-b528-f72664fb7651
+```
+
+`Subsheets/1000BaseT_PHY.kicad_sch` is a **reused hierarchical sheet**. A reused
+sheet is one file, so every instance of it holds the very same symbol UUIDs.
+KiCad identifies a symbol by `sheetInstancePath + symbolUuid` — the KIID_PATH —
+and the UUID alone is ambiguous exactly as often as a sheet is instantiated
+more than once. `_component_sources` returned only `symbolUuid`, so
+`_item_change` emitted `/{symbolUuid}` and two distinct components collapsed
+onto one id.
+
+This is the `instancePath` gap the design review predicted: *"schematic
+identity is `projectPath + KIID_PATH`, not filename or terminal UUID alone."*
+It was already causing a live correctness bug, not just a future risk. The
+viewer's presentation index assigns rather than appends, so of two components
+sharing an id only the last stayed resolvable.
+
+### Fix
+
+`document_diff_service._change_id` now emits the full KIID_PATH when the target
+carries a sheet instance path (`sheetPath`, with `page` and the change's own
+`page` as fallbacks). The viewer resolves a native item from the last KIID_PATH
+segment, so both instances still name the one symbol the file actually paints —
+correct, because there is only one.
+
+Measured on the same project, schematic changes only:
+
+| | before | after |
+| --- | ---: | ---: |
+| Inflation, unique `(id, sourceSide)` | 1.311× | **1.021×** |
+| `1000BaseT_PHY.kicad_sch` | 102 roots / 51 ids | **102 / 102** |
+| Documents with colliding ids | 18 of 18 | **7 of 18** |
+| Colliding `SCH_SYMBOL` entries | many | **0** |
+
+### Residual: labels and wires in reused sheets
+
+121 entries across 7 documents still collide — `SCH_LABEL` (109), `SCH_LINE`
+(8), `SCH_PIN` (4). All come from the **net** diff path, and none can be fixed
+the same way: a net's `schematicRefs[].page` in the semantic index is already
+the native file path, so unlike a component's there is no sheet instance path
+to recover.
+
+```
+sch-net-changed-net:a8783784…  EBP_LPBM_ADC_P1V8_MAIN_V_TM  ─┐ same label uuid,
+sch-net-changed-net:47b95e3f…  EBP_LPBM_ADC_P1V8_RED_V_TM   ─┘ two sheet instances
+```
+
+Closing this requires the semantic index to record sheet instance paths on net
+schematic refs, which is a `semantic_index_service` / kicad-monkey change rather
+than an adapter change. Worst remaining case is `LPBM.kicad_sch` at 3.57×.
 
 ## What this changes in the plan
 
 - **Phase 1 is unblocked on bounds.** Repeat on a PCB document and a
   hierarchical project first; the schematic result is clean.
-- **Ambiguity is not the problem; duplication is.** The plan worried that
-  `[0]`-of-many silently picks wrong. Measured ambiguity is zero. The real
-  index hazard is duplicate change records, and the fix belongs upstream.
+- **Ambiguity is not the problem; hierarchical identity is.** The plan worried
+  that `[0]`-of-many silently picks wrong. Measured ambiguity is zero. The real
+  hazard was ids that omit the sheet instance path, which is precisely the
+  `instancePath` field revision 2 added to the digest schema — now confirmed as
+  load-bearing rather than defensive.
 - **§3's two-scene argument needs restating.** Reference-side *changed* items
   paint fine. The argument rests on unchanged reference objects being absent
   from the composite scene, which is still true and still blocks a faithful

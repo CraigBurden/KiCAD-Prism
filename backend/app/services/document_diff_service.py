@@ -136,7 +136,7 @@ def _item_change(
         }.get(role, "EDA_ITEM")
     refdes = change.get("reference") or change.get("net")
     return {
-        "id": f"/{source_id}",
+        "id": _change_id(change, target),
         "typeName": type_name,
         "kind": _KIND_NAMES[str(target.get("status") or change.get("kind"))],
         "sourceSide": str(target.get("side") or "comparison"),
@@ -190,6 +190,47 @@ def _target_geometry(
 
 def _is_native_schematic_path(value: Any) -> bool:
     return isinstance(value, str) and value.replace("\\", "/").endswith(".kicad_sch")
+
+
+def _sheet_instance_path(
+    change: Mapping[str, Any],
+    target: Mapping[str, Any],
+) -> Optional[str]:
+    """The KIID_PATH prefix for a hierarchical symbol, or None.
+
+    A sheet reused across a hierarchy is one file, so every instance of it
+    shares the same symbol UUIDs. KiCad identifies a symbol by
+    ``sheetInstancePath + symbolUuid``; the UUID alone is ambiguous exactly as
+    often as a sheet is instantiated more than once.
+
+    Semantic extraction names a sheet by its human hierarchy; a later pass
+    moves that into ``sheetPath`` and rewrites ``page`` to the loadable native
+    filename. Both spellings are accepted because the rewrite only happens when
+    the geometry sidecar could resolve the document, and the change's own
+    ``page`` is the last resort.
+    """
+    if change.get("domain") == "pcb":
+        return None
+    for candidate in (
+        target.get("sheetPath"),
+        target.get("page"),
+        change.get("page"),
+    ):
+        if not isinstance(candidate, str):
+            continue
+        normalized = candidate.replace("\\", "/")
+        if not normalized.startswith("/") or _is_native_schematic_path(normalized):
+            continue
+        # The root sheet is "/", which contributes no disambiguating segment.
+        return normalized.rstrip("/") or None
+    return None
+
+
+def _change_id(change: Mapping[str, Any], target: Mapping[str, Any]) -> str:
+    """Native item id: the full KIID_PATH where the hierarchy supplies one."""
+    source_id = str(target.get("sourceId") or "")
+    prefix = _sheet_instance_path(change, target)
+    return f"{prefix}/{source_id}" if prefix else f"/{source_id}"
 
 
 def build_project_diff(
