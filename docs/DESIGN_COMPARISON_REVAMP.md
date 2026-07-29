@@ -26,19 +26,30 @@ never the goal; the goal was to have fewer.
 
 ## Measurements this plan rests on
 
-All measured this session unless marked *(prior)*.
+Marked *(host)* where measured outside the worker image and *(M0)* where
+[the baseline](design-comparison/m0-baseline.md) has since measured the same
+thing inside it. Where the two disagree, M0 is the number to use.
 
 | | value |
 | --- | ---: |
-| `kicad-sexpr-parser`, 34.9 MB board | **639 ms** |
-| `kicad-sexpr-parser`, 27 schematics / 15 MB | **250 ms** |
-| Python object digest, same inputs | 3.6 s |
-| kicad-monkey projection scan, board only | 10.4 s |
-| `_extract_geometry` *(prior)* | 2.2 s |
-| `build_semantic_index` *(prior)* | 4.1 s |
-| `revision.json` *(prior)* | 32.15 MB |
+| `kicad-sexpr-parser`, 34.9 MB board *(host)* | **639 ms** |
+| `kicad-sexpr-parser`, 27 schematics / 15 MB *(host)* | **250 ms** |
+| Python object digest, same inputs *(host)* | 3.6 s |
+| kicad-monkey projection scan, board only *(host)* | 10.4 s |
+| `_extract_geometry` *(host)* | 2.2 s |
+| `_extract_geometry`, per revision *(M0)* | **5.48 s** (A) · **1.79 s** (B) |
+| `build_semantic_index` *(host)* | 4.1 s |
+| `build_semantic_index`, per revision *(M0)* | **6.29 s** (A) · **7.89 s** (B) |
+| Cold compare, wall clock *(M0, median of 5)* | **14.08 s** (A) · **12.50 s** (B) |
+| `revision.json` *(M0)* | **32.16 MB** (A) · **14.13 MB** (B) |
+| Geometry share of `revision.json` *(M0)* | **84%** (A) · **51%** (B) |
 | Fallback-bounds rate, 5 documents / 1,786 targets | 0.90% |
-| Change-id inflation after the KIID_PATH fix | 1.002× / 1.021× |
+| Change-id inflation after the KIID_PATH fix *(M0)* | 1.0018× (A) · 1.0184× (B) |
+
+The two parser figures are still *(host)*. Comparing them against the Python
+stages is the argument this whole revision makes, and M0 showed those stages
+cost 1.5–1.9× more in the image than the host figures said — so the comparison
+has to be redone on one side of the boundary. That is M1's first job.
 
 The parsed model already carries what the diff needs: `footprint.path` and
 `symbol.instances.projects[].paths[]` (KIID_PATH), `symbol.properties`, `pins`,
@@ -150,16 +161,38 @@ Fixed benchmark inputs, so numbers stay comparable across milestones:
 - **A** — JTYU-OBC `8f71cfe → 4b0a39a` (27 schematics / 15 MB, 34.9 MB board)
 - **B** — backplane `05a89dd → 934be89` (1,603 sch + 459 pcb changes, reused sheets)
 
-### M0 — Baseline harness
+### M0 — Baseline harness — **done**, see [the measurement](design-comparison/m0-baseline.md)
 
 *Proves the numbers in this plan are reproducible before anything moves.*
 
 - Extend `benchmark_design_compare.py` to emit one row per stage for A and B:
-  snapshot, semantic index, geometry, BOM, diff, project-diff, total.
-- Record artifact sizes and object counts alongside times.
+  snapshot, semantic index, geometry, BOM, diff, project-diff, total. ✔
+- Record artifact sizes and object counts alongside times. ✔
 - **Target:** every figure in "Measurements" above reproduced within ±10%.
 - **Gate:** two consecutive runs agree within 10%; otherwise fix the harness
   before trusting any later comparison.
+
+**Outcome — the gate passes only in a restated form.** Three fixes were needed
+first: cache isolation never reached the spawned revision workers (which had
+been reporting *zero* PCB geometry objects and a 10 MB `revision.json` where
+there are 18,697 objects and 31.7 MB), each run's cache was retained and made
+the next run monotonically slower, and `PYTHONHASHSEED` was unpinned — worth
+29.9% → 1.1% of run-to-run spread on the netlist compile alone.
+
+Even after those, a *single* cold run is not reproducible to ±10%: measured
+band is 9–28%, and `cpuMs` tracks wall clock to within tenths of a percent, so
+it is real work variance rather than the scheduler. The **median of five runs**
+is reproducible: two independent batches agree to 8.4% (A) and 3.4% (B).
+Output is fully deterministic — identical counts and identical serialized bytes
+across every run.
+
+Two of the figures this plan quotes did not survive contact with the worker
+image. `build_semantic_index` costs 6.29 s/revision on A and 7.89 s on B, not
+4.1 s; cold compare is 14.08 s (A) and 12.50 s (B), not ~8.3 s. The prior
+figures were host measurements. That does not change the direction of the
+argument, but it does mean **the parser comparison is not yet like-for-like**:
+`kicad-sexpr-parser`'s 639 ms was also measured on the host, and M1 has to
+produce both sides in the image before anything is deleted.
 
 ### M1 — Node parse step, standalone
 
@@ -203,7 +236,12 @@ depends on it.*
 - Reduce `build_semantic_index` to connectivity: components now come from the
   parser. Measure whether the 4.1 s falls.
 - **Benchmark:** `revision.json` size; compare wall clock; per-stage times.
-- **Target:** artifact ≤6 MB (from 32.15 MB); wall clock ≤5.5 s (from ~8.3 s).
+- **Target**, restated against the M0 baseline rather than the host figures
+  this originally used: `revision.json` ≤6 MB on A (from 32.16 MB) and ≤7 MB
+  on B (from 14.13 MB — B's sidecar is only 51% of its artifact, not 84%);
+  cold wall clock ≤9.3 s on A (from 14.08 s) and ≤8.3 s on B (from 12.50 s).
+  Both timings are medians of five runs; a smaller claim than ~10% cannot be
+  distinguished from the measured band.
 - **Gate:** `position_delta` still produced (it groups by net, so it needs a
   position for tracks, not just components); fallback-bounds rate no worse than
   0.90%; all 69 backend tests green.
@@ -287,10 +325,10 @@ depends on it.*
   was previously silent; without it none of this plan's measurements exist.
 - **Reproducible viewer build** (`0a657fa`).
 
-## To revert
+## Reverted
 
-`design_object_digest.py` and its tests (`5da6993`). Superseded entirely by
-M1–M2. Keeping it would leave a fourth parser in the tree.
+`design_object_digest.py` and its tests (from `5da6993`) are gone. Superseded
+entirely by M1–M2; keeping them would leave a fourth parser in the tree.
 
 ## What revisions 1 and 2 got wrong
 
