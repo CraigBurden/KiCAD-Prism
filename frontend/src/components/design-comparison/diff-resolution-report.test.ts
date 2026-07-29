@@ -46,13 +46,17 @@ describe("buildDiffResolutionReport", () => {
                 targets: 8,
                 targetsWithPaintedBounds: 6,
                 targetsUsingProvidedBounds: 2,
+                targetsNonFocusable: 0,
                 visuals: 8,
                 visualsWithPaintedBounds: 6,
+                visualsUsingProvidedBounds: 2,
+                visualsNonFocusable: 0,
             },
         }));
 
         expect(report.fallbackBoundsRate).to.equal(0.25);
         expect(report.targetsUsingProvidedBounds).to.equal(2);
+        expect(report.targetsNonFocusable).to.equal(0);
         expect(report.unreported).to.equal(false);
         expect(report.prepareMs).to.equal(12.3);
     });

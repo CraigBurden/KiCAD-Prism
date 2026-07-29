@@ -2,33 +2,26 @@ import {
     useCallback,
     useEffect,
     useMemo,
-    useReducer,
     useRef,
     useState,
     type ReactNode,
 } from "react";
 import { AlertCircle, Layers3, Loader2, MessageSquare, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ViewerOverlayRail } from "@/components/viewer-overlay-rail";
 import { cn } from "@/lib/utils";
 import type {
     ECadViewerElement,
+    EcadComparisonSession,
     EcadDocumentComparisonPreparation,
     EcadPcbLayerState,
-    EcadRevisionDiffPresentationRequest,
     EcadTransitionTraceDetail,
 } from "@/types/ecad-viewer";
 import {
     ComparisonPcbLayersPanel,
     ComparisonPcbLayersToggle,
 } from "./comparison-pcb-layers-panel";
-import { ViewerOverlayRail } from "@/components/viewer-overlay-rail";
 import {
-    comparisonLifecycleReducer,
-    createComparisonLifecycleState,
-    type ComparisonHostSlot,
-} from "./comparison-lifecycle";
-import {
-    resolveComparisonFocus,
     resolveNativeSelection,
     type ComparisonSelection,
 } from "./comparison-selection-bridge";
@@ -75,6 +68,7 @@ type ComparisonPresentationShellProps = {
     discussionCount?: number;
 };
 
+type SessionPhase = "waiting-layout" | "loading" | "ready" | "error";
 type OldNewSide = "base" | "compare";
 const ignoreRightRailChange = () => undefined;
 
@@ -97,146 +91,10 @@ function revisionHasDocument(
     sources: DesignCompareResult["files"]["base"],
     documentPath: string | null,
 ): boolean {
-    if (!documentPath) return false;
-    return sources.some((source) => sameDocument(source.path, documentPath));
-}
-
-function resolvedViewerDocuments(
-    viewer: ECadViewerElement,
-): string[] | null {
-    if (typeof viewer.getSchematicPages !== "function") return null;
-    return viewer.getSchematicPages().flatMap((page) =>
-        [page.projectPath, page.filename].filter(
-            (value): value is string => Boolean(value),
-        ),
+    return Boolean(
+        documentPath
+        && sources.some((source) => sameDocument(source.path, documentPath)),
     );
-}
-
-function resolvedRevisionHasDocument(
-    resolvedDocuments: string[] | null,
-    sources: DesignCompareResult["files"]["base"],
-    documentPath: string | null,
-): boolean {
-    if (!documentPath) return false;
-    if (resolvedDocuments !== null) {
-        return resolvedDocuments.some((path) => sameDocument(path, documentPath));
-    }
-    return revisionHasDocument(sources, documentPath);
-}
-
-function buildRevisionDiffPresentation(
-    groups: Array<{ id: string; changes: ChangeItem[] }>,
-    documentDiff: KiCadProjectDiffBundle,
-    documentPath: string,
-    side: "reference" | "comparison",
-    context: "SCH" | "PCB",
-): EcadRevisionDiffPresentationRequest {
-    const targets = groups.flatMap((group) => {
-        const visuals = group.changes.flatMap((change) => {
-            const navigation = documentDiff.navigation[change.id];
-            const paths = navigation?.documents?.map((entry) => entry.documentPath)
-                ?? (navigation ? [navigation.documentPath] : []);
-            if (paths.length && !paths.some((path) => sameDocument(path, documentPath))) {
-                return [];
-            }
-            const explicit = change.details?.visualTargets
-                ?.filter((target) => target.side === side)
-                .filter((target) =>
-                    target.page
-                        ? sameDocument(target.page, documentPath)
-                        // A source without a page is safe only when navigation
-                        // identifies one unambiguous document. Do not install it
-                        // on every pane of a multi-page logical net.
-                        : paths.length === 1
-                            && sameDocument(paths[0], documentPath),
-                )
-                .map((target) => ({
-                    sourceId: target.sourceId,
-                    parentSourceId: target.parentSourceId,
-                    status: target.status,
-                    bounds:
-                        side === "reference"
-                            ? change.oldGeometry?.bounds
-                            : change.geometry?.bounds,
-                    routing: target.role === "wire",
-                })) ?? [];
-            if (explicit.length) return explicit;
-
-            const applicable = side === "reference"
-                ? change.kind !== "added"
-                : change.kind !== "removed";
-            if (!applicable) return [];
-            const sourceId = side === "reference"
-                ? change.source_id_base ?? change.base_item?.source_id
-                : change.source_id_compare ?? change.compare_item?.source_id;
-            if (!sourceId) return [];
-            const geometry = side === "reference"
-                ? change.oldGeometry
-                : change.geometry;
-            return [{
-                sourceId,
-                parentSourceId:
-                    side === "reference"
-                        ? change.base_item?.parent_source_id
-                        : change.compare_item?.parent_source_id,
-                status:
-                    change.kind === "added"
-                        ? "added" as const
-                        : change.kind === "removed"
-                            ? "removed" as const
-                            : "modified" as const,
-                bounds: geometry?.bounds,
-                routing: ["wire", "track", "arc", "via"].includes(
-                    geometry?.kind ?? "",
-                ),
-            }];
-        });
-        return visuals.length
-            ? [{ id: group.id, label: group.id, visuals }]
-            : [];
-    });
-    return { context, targets };
-}
-
-function revisionSelectionId(
-    selection: ComparisonSelection,
-    groups: Array<{ id: string; changes: ChangeItem[] }>,
-): string | null {
-    if (!selection) return null;
-    if (selection.kind === "group") return selection.id;
-    return groups.find((group) =>
-        group.changes.some((change) => change.id === selection.id),
-    )?.id ?? null;
-}
-
-async function focusRevisionViewer(
-    viewer: ECadViewerElement | null,
-    bounds?: [number, number, number, number],
-    uuid?: string | null,
-): Promise<void> {
-    if (!viewer) return;
-    if (bounds) {
-        const [x, y, w, h] = bounds;
-        await viewer.focusBBox?.(x, y, w, h);
-    } else if (uuid) {
-        await viewer.focusItem?.(uuid, { select: true });
-    }
-}
-
-async function selectRevisionViewer(
-    viewer: ECadViewerElement | null,
-    targetId: string | null,
-    bounds?: [number, number, number, number],
-    uuid?: string | null,
-): Promise<boolean> {
-    if (!viewer) return false;
-    if (targetId && viewer.selectRevisionDiff) {
-        const applied = await viewer.selectRevisionDiff(targetId, { focus: true });
-        if (applied) return true;
-    }
-    if (!bounds && !uuid) return false;
-    await focusRevisionViewer(viewer, bounds, uuid);
-    return true;
 }
 
 function viewerState(viewer: ECadViewerElement | null) {
@@ -245,6 +103,28 @@ function viewerState(viewer: ECadViewerElement | null) {
         isReady: viewer?.isReady ?? false,
         activePage: viewer?.getActiveSchematicPage?.() ?? null,
         camera: viewer?.camera ?? null,
+    };
+}
+
+function diffForDocument(
+    documentDiff: KiCadProjectDiffBundle,
+    documentPath: string | null,
+    domain: ComparisonDomain,
+): KiCadProjectDiffBundle["project"] {
+    if (!documentPath) return documentDiff.project;
+    if (
+        documentDiff.project.documents.some((document) =>
+            sameDocument(document.path, documentPath),
+        )
+    ) {
+        return documentDiff.project;
+    }
+    return {
+        documents: [{
+            path: documentPath,
+            docType: domain === "pcb" ? "kicad_pcb" : "kicad_sch",
+            changes: [],
+        }],
     };
 }
 
@@ -292,60 +172,39 @@ export function ComparisonPresentationShell({
     discussionContent = null,
     discussionCount = 0,
 }: ComparisonPresentationShellProps) {
-    const [lifecycle, dispatch] = useReducer(
-        comparisonLifecycleReducer,
-        undefined,
-        createComparisonLifecycleState,
-    );
-    const [compositeViewer, setCompositeViewer] =
+    const [primaryViewer, setPrimaryViewer] =
         useState<ECadViewerElement | null>(null);
-    const [baseViewer, setBaseViewer] =
+    const [secondaryViewer, setSecondaryViewer] =
         useState<ECadViewerElement | null>(null);
-    const [compareViewer, setCompareViewer] =
-        useState<ECadViewerElement | null>(null);
-    const [oldNewSide, setOldNewSide] = useState<OldNewSide>("compare");
+    const [primaryLayoutReady, setPrimaryLayoutReady] = useState(false);
+    const [secondaryLayoutReady, setSecondaryLayoutReady] = useState(false);
+    const [session, setSession] = useState<EcadComparisonSession | null>(null);
+    const [sessionPhase, setSessionPhase] =
+        useState<SessionPhase>("waiting-layout");
+    const [presentationSwitching, setPresentationSwitching] = useState(false);
+    const [sessionError, setSessionError] = useState<string | null>(null);
     const [preparation, setPreparation] =
         useState<EcadDocumentComparisonPreparation | null>(null);
+    const [oldNewSide, setOldNewSide] = useState<OldNewSide>("compare");
     const [selectionPending, setSelectionPending] = useState(false);
     const [selectionDiagnostic, setSelectionDiagnostic] =
         useState<string | null>(null);
     const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
     const [dismissedBanner, setDismissedBanner] = useState<string | null>(null);
     const [diagnosticsDismissed, setDiagnosticsDismissed] = useState(false);
-    const [sidePageReadyPath, setSidePageReadyPath] =
-        useState<string | null>(null);
-    const [togglePageReadyPath, setTogglePageReadyPath] =
-        useState<string | null>(null);
-    const [baseResolvedDocuments, setBaseResolvedDocuments] =
-        useState<string[] | null>(null);
-    const [compareResolvedDocuments, setCompareResolvedDocuments] =
-        useState<string[] | null>(null);
     const [rightRailInset, setRightRailInset] = useState(0);
     const [pcbLayers, setPcbLayers] = useState<EcadPcbLayerState[]>([]);
-    const showLayers = rightRailTab === "layers";
 
-    const compositeGenerationRef = useRef(0);
-    const baseGenerationRef = useRef(0);
-    const compareGenerationRef = useRef(0);
-    const pageGenerationRef = useRef(0);
-    const togglePageGenerationRef = useRef(0);
+    const sessionGenerationRef = useRef(0);
+    const presentationGenerationRef = useRef(0);
     const selectionGenerationRef = useRef(0);
+    const lastSelectionKeyRef = useRef<string | null>(null);
     const cameraSyncSuppressedRef = useRef(false);
-    const lastCompositeSelectionKeyRef = useRef<string | null>(null);
-    const lastSideSelectionKeyRef = useRef<string | null>(null);
-    const lastToggleSelectionKeyRef = useRef<string | null>(null);
-    const previousPresentationRef =
-        useRef<ComparisonPresentationMode>(presentationMode);
-    const compositeViewerRef = useRef<ECadViewerElement | null>(null);
-    const baseViewerRef = useRef<ECadViewerElement | null>(null);
-    const compareViewerRef = useRef<ECadViewerElement | null>(null);
-    const mountedModesRef = useRef(new Set<ComparisonPresentationMode>());
-    mountedModesRef.current.add(presentationMode);
-    // Side-by-side shows both revision panes at once; Old/New shows one of them
-    // at a time. Either way they are the same two viewers holding the same two
-    // revisions, so both modes load them.
-    const revisionPanesShown =
-        presentationMode === "side-by-side" || presentationMode === "old-new";
+    const mountedSecondaryRef = useRef(false);
+    const sessionRef = useRef<EcadComparisonSession | null>(null);
+    if (presentationMode === "side-by-side") {
+        mountedSecondaryRef.current = true;
+    }
 
     const allChanges = useMemo(
         () => selectedChanges(selection, reviewGroups),
@@ -354,15 +213,6 @@ export function ComparisonPresentationShell({
     const previewChanges = useMemo(
         () => selectedChanges(previewSelection, reviewGroups),
         [previewSelection, reviewGroups],
-    );
-    const selectionKey = useMemo(
-        () =>
-            selection
-                ? `${selection.kind}:${selection.id}:${selection.documentPath ?? "default"}:${allChanges
-                    .map((change) => change.id)
-                    .join(",")}`
-                : "none",
-        [allChanges, selection],
     );
     const activeDocument = useMemo(
         () => resolveSelectedDocument(
@@ -385,26 +235,14 @@ export function ComparisonPresentationShell({
         compare,
         files.head,
     );
-    // A domain with nothing changed in it still has a document worth looking
-    // at. `activeDocument` comes from the diff bundle, which lists only what
-    // changed, so an untouched schematic used to replace the entire panel with
-    // "No schematic document for this comparison" — the reviewer could not open
-    // the schematic at all on a PCB-only commit. The revision's own root
-    // document is the fallback.
     const documentPath =
         activeDocument?.path
         ?? baseSources.rootName
         ?? compareSources.rootName
         ?? null;
-    const baseHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
-        baseResolvedDocuments,
-        files.base,
-        documentPath,
-    );
-    const compareHasDocument = domain !== "schematic" || resolvedRevisionHasDocument(
-        compareResolvedDocuments,
-        files.head,
-        documentPath,
+    const comparisonDiff = useMemo(
+        () => diffForDocument(documentDiff, documentPath, domain),
+        [documentDiff, documentPath, domain],
     );
     const baseMissingRoot = useMemo(
         () =>
@@ -426,123 +264,60 @@ export function ComparisonPresentationShell({
         !baseSources.loading
         && !compareSources.loading
         && (!baseMissingRoot || !compareMissingRoot);
-
     const baseRevisionKey = revisionSourceKey(projectId, base, domain);
     const compareRevisionKey = revisionSourceKey(projectId, compare, domain);
-    const compositeHostKey =
-        `${projectId}:composite:${domain}:${base}:${compare}`;
-    const baseHostKey = `${projectId}:base:${domain}:${base}`;
-    const compareHostKey = `${projectId}:compare:${domain}:${compare}`;
     const comparisonKey = `${projectId}:${base}:${compare}:${domain}`;
+    const primaryHostKey = `${comparisonKey}:primary`;
+    const secondaryHostKey = `${comparisonKey}:secondary`;
+    const selectionKey = useMemo(
+        () =>
+            selection
+                ? `${selection.kind}:${selection.id}:${selection.documentPath ?? "default"}:${allChanges
+                    .map((change) => change.id)
+                    .join(",")}`
+                : "none",
+        [allChanges, selection],
+    );
+
+    const baseHasDocument = preparation
+        ? !preparation.missingReference
+        : revisionHasDocument(files.base, documentPath);
+    const compareHasDocument = preparation
+        ? !preparation.missingComparison
+        : revisionHasDocument(files.head, documentPath);
+    const showLayers = rightRailTab === "layers";
+    const oneSidedSheetNotice = documentPath && baseHasDocument !== compareHasDocument
+        ? `${documentPath} exists only in the ${
+            baseHasDocument ? "base" : "compare"
+        } revision.`
+        : null;
+
+    const attachPrimary = useCallback((viewer: ECadViewerElement | null) => {
+        setPrimaryViewer(viewer);
+        setPrimaryLayoutReady(false);
+    }, []);
+    const attachSecondary = useCallback((viewer: ECadViewerElement | null) => {
+        setSecondaryViewer(viewer);
+        setSecondaryLayoutReady(false);
+    }, []);
 
     useEffect(() => {
-        setDiagnosticsDismissed(false);
         setDismissedBanner(null);
+        setDiagnosticsDismissed(false);
     }, [comparisonKey, documentPath]);
 
-    const oneSidedSheetNotice = useMemo(() => {
-        if (baseMissingRoot && !compareMissingRoot) {
-            return `${baseSources.rootName} is missing from the base revision.`;
-        }
-        if (compareMissingRoot && !baseMissingRoot) {
-            return `${compareSources.rootName} is missing from the compare revision.`;
-        }
-        if (!documentPath || domain !== "schematic") return null;
-        const matches = (path: string) =>
-            path === documentPath
-            || path.endsWith(`/${documentPath}`)
-            || documentPath.endsWith(`/${path}`);
-        const inBase = files.base.some((file) => matches(file.path));
-        const inHead = files.head.some((file) => matches(file.path));
-        if (inHead && !inBase) {
-            return `${documentPath} exists only in the compare revision.`;
-        }
-        if (inBase && !inHead) {
-            return `${documentPath} exists only in the base revision.`;
-        }
-        return null;
-    }, [
-        baseMissingRoot,
-        baseSources.rootName,
-        compareMissingRoot,
-        compareSources.rootName,
-        documentPath,
-        domain,
-        files.base,
-        files.head,
-    ]);
-
-    const attachHost = useCallback(
-        (
-            slot: ComparisonHostSlot,
-            key: string,
-            setter: (viewer: ECadViewerElement | null) => void,
-            ref: { current: ECadViewerElement | null },
-            viewer: ECadViewerElement | null,
-        ) => {
-            ref.current = viewer;
-            setter(viewer);
-            dispatch(
-                viewer
-                    ? { type: "attach", slot, key }
-                    : { type: "detach", slot },
-            );
-        },
-        [],
-    );
-
-    const attachComposite = useCallback(
-        (viewer: ECadViewerElement | null) =>
-            attachHost(
-                "composite",
-                compositeHostKey,
-                setCompositeViewer,
-                compositeViewerRef,
-                viewer,
-            ),
-        [attachHost, compositeHostKey],
-    );
-    const attachBase = useCallback(
-        (viewer: ECadViewerElement | null) =>
-            attachHost(
-                "base",
-                baseHostKey,
-                setBaseViewer,
-                baseViewerRef,
-                viewer,
-            ),
-        [attachHost, baseHostKey],
-    );
-    const attachCompare = useCallback(
-        (viewer: ECadViewerElement | null) =>
-            attachHost(
-                "compare",
-                compareHostKey,
-                setCompareViewer,
-                compareViewerRef,
-                viewer,
-            ),
-        [attachHost, compareHostKey],
-    );
-
     useEffect(() => {
-        const viewers: Array<[
-            ComparisonHostSlot,
-            ECadViewerElement | null,
-        ]> = [
-            ["composite", compositeViewer],
-            ["base", baseViewer],
-            ["compare", compareViewer],
-        ];
         const cleanups: Array<() => void> = [];
-        for (const [slot, viewer] of viewers) {
+        for (const [slot, viewer] of [
+            ["primary", primaryViewer],
+            ["secondary", secondaryViewer],
+        ] as const) {
             if (!viewer) continue;
             const listener = ((event: CustomEvent<EcadTransitionTraceDetail>) => {
                 logComparisonDebug("viewer.transition", {
                     slot,
                     presentationMode,
-                    oldNewSide:
-                        presentationMode === "old-new" ? oldNewSide : null,
+                    oldNewSide,
                     viewer: event.detail,
                 });
             }) as EventListener;
@@ -555,1112 +330,365 @@ export function ComparisonPresentationShell({
             );
         }
         return () => cleanups.forEach((cleanup) => cleanup());
-    }, [
-        baseViewer,
-        compareViewer,
-        compositeViewer,
-        oldNewSide,
-        presentationMode,
-    ]);
-
-    const markCompositeLayout = useCallback(
-        (key: string) =>
-            dispatch({ type: "layout-ready", slot: "composite", key }),
-        [],
-    );
-    const markBaseLayout = useCallback(
-        (key: string) =>
-            dispatch({ type: "layout-ready", slot: "base", key }),
-        [],
-    );
-    const markCompareLayout = useCallback(
-        (key: string) =>
-            dispatch({ type: "layout-ready", slot: "compare", key }),
-        [],
-    );
-
-    useEffect(() => {
-        const previous = previousPresentationRef.current;
-        previousPresentationRef.current = presentationMode;
-        if (previous === presentationMode) return;
-
-        logComparisonDebug("presentation.transition", {
-            from: previous,
-            to: presentationMode,
-            domain,
-            documentPath,
-            selectionKey,
-            lifecycle,
-        });
-
-        selectionGenerationRef.current += 1;
-        cameraSyncSuppressedRef.current = false;
-        setSelectionPending(false);
-        setSelectionDiagnostic(null);
-        setDismissedBanner(null);
-        setDiagnosticsDismissed(false);
-        setPreparation(null);
-        setSidePageReadyPath(null);
-        setTogglePageReadyPath(null);
-
-        if (previous === "composite") {
-            compositeViewerRef.current?.abortDocumentComparisonLoad?.();
-        }
-    }, [documentPath, domain, lifecycle, presentationMode, selectionKey]);
+    }, [oldNewSide, presentationMode, primaryViewer, secondaryViewer]);
 
     useEffect(() => {
         if (
-            presentationMode !== "composite"
-            || !compositeViewer
-            || !lifecycle.composite.layoutReady
-            || !activeDocument
+            !primaryViewer
+            || !primaryLayoutReady
             || !sourcesReady
+            || !documentPath
         ) {
+            setSessionPhase("waiting-layout");
             return;
         }
-        const generation = ++compositeGenerationRef.current;
+        if (typeof primaryViewer.prepareComparison !== "function") {
+            setSessionPhase("error");
+            setSessionError(
+                "This ecad-viewer build does not expose prepareComparison. Rebuild and sync the viewer bundle.",
+            );
+            return;
+        }
+        const generation = ++sessionGenerationRef.current;
         let cancelled = false;
-        lastCompositeSelectionKeyRef.current = null;
+        let created: EcadComparisonSession | null = null;
+        sessionRef.current?.dispose();
+        sessionRef.current = null;
+        setSession(null);
         setPreparation(null);
-        dispatch({
-            type: "transition",
-            slot: "composite",
-            key: compositeHostKey,
-            phase: "loading",
-        });
-        logComparisonDebug("host.composite.load.start", {
+        setSessionError(null);
+        setSessionPhase("loading");
+        lastSelectionKeyRef.current = null;
+        logComparisonDebug("session.prepare.start", {
             generation,
-            documentPath: activeDocument.path,
+            comparisonKey,
+            documentPath,
             baseRevisionKey,
             compareRevisionKey,
         });
-
-        if (typeof compositeViewer.loadDocumentComparison !== "function") {
-            dispatch({
-                type: "transition",
-                slot: "composite",
-                key: compositeHostKey,
-                phase: "error",
-                error:
-                    "This ecad-viewer build does not expose loadDocumentComparison. Rebuild and sync frontend/public/ecad-viewer.js from the feature branch.",
-            });
-            return;
-        }
-
-        void compositeViewer
-            .loadDocumentComparison({
-                comparisonKey,
-                reference: {
-                    revisionKey: baseRevisionKey,
-                    sources: baseSources.sources,
-                },
-                comparison: {
-                    revisionKey: compareRevisionKey,
-                    sources: compareSources.sources,
-                },
-                diff: documentDiff.project,
-                documentPath: activeDocument.path,
-                activeSheetPath: activeDocument.path,
-            })
-            .then((next) => {
-                if (
-                    cancelled
-                    || generation !== compositeGenerationRef.current
-                ) {
-                    return;
-                }
-                setPreparation(next);
-                logComparisonDebug("host.composite.load.ready", {
-                    generation,
-                    documentPath: next.document.path,
-                    missingReference: next.missingReference ?? false,
-                    missingComparison: next.missingComparison ?? false,
-                    targetCount: next.targets.size,
-                    viewerState: viewerState(compositeViewer),
-                });
-                logComparisonDebug(
-                    "host.composite.resolution",
-                    buildDiffResolutionReport(next),
-                );
-                dispatch({
-                    type: "transition",
-                    slot: "composite",
-                    key: compositeHostKey,
-                    phase: "ready",
-                });
-            })
-            .catch((caught) => {
-                if (
-                    cancelled
-                    || generation !== compositeGenerationRef.current
-                    || isAbortError(caught)
-                ) {
-                    return;
-                }
-                dispatch({
-                    type: "transition",
-                    slot: "composite",
-                    key: compositeHostKey,
-                    phase: "error",
-                    error:
-                        caught instanceof Error
-                            ? caught.message
-                            : "Failed to prepare native comparison",
-                });
-                logComparisonDebugError(
-                    "host.composite.load.failed",
-                    caught,
-                    {
-                        generation,
-                        documentPath: activeDocument.path,
-                        viewerState: viewerState(compositeViewer),
-                    },
-                );
-            });
-
-        return () => {
-            cancelled = true;
-            compositeViewer.abortDocumentComparisonLoad?.();
-        };
-    }, [
-        activeDocument,
-        baseRevisionKey,
-        baseSources.sources,
-        compareRevisionKey,
-        compareSources.sources,
-        comparisonKey,
-        compositeHostKey,
-        compositeViewer,
-        documentDiff.project,
-        lifecycle.composite.layoutReady,
-        presentationMode,
-        sourcesReady,
-    ]);
-
-    useEffect(() => {
-        if (
-            !revisionPanesShown
-            || !baseViewer
-            || !lifecycle.base.layoutReady
-            || !sourcesReady
-        ) {
-            return;
-        }
-        const generation = ++baseGenerationRef.current;
-        let cancelled = false;
-        setBaseResolvedDocuments(null);
-        dispatch({
-            type: "transition",
-            slot: "base",
-            key: baseHostKey,
-            phase: "loading",
-        });
-        logComparisonDebug("host.revision.load.start", {
-            slot: "base",
-            generation,
-            revisionKey: baseRevisionKey,
-            sourceCount: baseSources.sources.length,
-        });
-        if (baseMissingRoot) {
-            dispatch({
-                type: "transition",
-                slot: "base",
-                key: baseHostKey,
-                phase: "error",
-                error: `${baseSources.rootName} is missing from the base revision.`,
-            });
-            return;
-        }
-        void baseViewer
-            .replaceSources({
+        void primaryViewer.prepareComparison({
+            comparisonKey,
+            reference: {
                 revisionKey: baseRevisionKey,
                 sources: baseSources.sources,
-            })
-            .then(() => baseViewer.ready)
-            .then(() => {
-                if (cancelled || generation !== baseGenerationRef.current) {
-                    return;
-                }
-                baseViewer.dataset.ecadReadyRevision = baseRevisionKey;
-                setBaseResolvedDocuments(resolvedViewerDocuments(baseViewer));
-                dispatch({
-                    type: "transition",
-                    slot: "base",
-                    key: baseHostKey,
-                    phase: "ready",
-                });
-                logComparisonDebug("host.revision.load.ready", {
-                    slot: "base",
-                    generation,
-                    revisionKey: baseRevisionKey,
-                    viewerState: viewerState(baseViewer),
-                });
-            })
-            .catch((caught) => {
-                if (cancelled || generation !== baseGenerationRef.current) {
-                    return;
-                }
-                dispatch({
-                    type: "transition",
-                    slot: "base",
-                    key: baseHostKey,
-                    phase: "error",
-                    error:
-                        caught instanceof Error
-                            ? caught.message
-                            : "Failed to load base revision",
-                });
-                logComparisonDebugError("host.revision.load.failed", caught, {
-                    slot: "base",
-                    generation,
-                    revisionKey: baseRevisionKey,
-                    viewerState: viewerState(baseViewer),
-                });
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        baseHostKey,
-        baseMissingRoot,
-        baseRevisionKey,
-        baseSources.rootName,
-        baseSources.sources,
-        baseViewer,
-        lifecycle.base.layoutReady,
-        revisionPanesShown,
-        sourcesReady,
-    ]);
-
-    useEffect(() => {
-        if (
-            !revisionPanesShown
-            || !compareViewer
-            || !lifecycle.compare.layoutReady
-            || !sourcesReady
-        ) {
-            return;
-        }
-        const generation = ++compareGenerationRef.current;
-        let cancelled = false;
-        setCompareResolvedDocuments(null);
-        dispatch({
-            type: "transition",
-            slot: "compare",
-            key: compareHostKey,
-            phase: "loading",
-        });
-        logComparisonDebug("host.revision.load.start", {
-            slot: "compare",
-            generation,
-            revisionKey: compareRevisionKey,
-            sourceCount: compareSources.sources.length,
-        });
-        if (compareMissingRoot) {
-            dispatch({
-                type: "transition",
-                slot: "compare",
-                key: compareHostKey,
-                phase: "error",
-                error: `${compareSources.rootName} is missing from the compare revision.`,
-            });
-            return;
-        }
-        void compareViewer
-            .replaceSources({
+            },
+            comparison: {
                 revisionKey: compareRevisionKey,
                 sources: compareSources.sources,
-            })
-            .then(() => compareViewer.ready)
-            .then(() => {
-                if (
-                    cancelled
-                    || generation !== compareGenerationRef.current
-                ) {
-                    return;
-                }
-                compareViewer.dataset.ecadReadyRevision = compareRevisionKey;
-                setCompareResolvedDocuments(resolvedViewerDocuments(compareViewer));
-                dispatch({
-                    type: "transition",
-                    slot: "compare",
-                    key: compareHostKey,
-                    phase: "ready",
-                });
-                logComparisonDebug("host.revision.load.ready", {
-                    slot: "compare",
-                    generation,
-                    revisionKey: compareRevisionKey,
-                    viewerState: viewerState(compareViewer),
-                });
-            })
-            .catch((caught) => {
-                if (
-                    cancelled
-                    || generation !== compareGenerationRef.current
-                ) {
-                    return;
-                }
-                dispatch({
-                    type: "transition",
-                    slot: "compare",
-                    key: compareHostKey,
-                    phase: "error",
-                    error:
-                        caught instanceof Error
-                            ? caught.message
-                            : "Failed to load compare revision",
-                });
-                logComparisonDebugError("host.revision.load.failed", caught, {
-                    slot: "compare",
-                    generation,
-                    revisionKey: compareRevisionKey,
-                    viewerState: viewerState(compareViewer),
-                });
+            },
+            diff: comparisonDiff,
+            diffFormat: "prism",
+            documentPath,
+            activeSheetPath: documentPath,
+        }).then((next) => {
+            created = next;
+            if (cancelled || generation !== sessionGenerationRef.current) {
+                next.dispose();
+                return;
+            }
+            sessionRef.current = next;
+            setSession(next);
+            setPreparation(next.preparation);
+            setSessionPhase("ready");
+            logComparisonDebug("session.prepare.ready", {
+                generation,
+                documentPath,
+                metrics: next.getMetrics(),
+                viewerState: viewerState(primaryViewer),
             });
+            logComparisonDebug(
+                "session.prepare.resolution",
+                buildDiffResolutionReport(next.preparation),
+            );
+        }).catch((caught) => {
+            if (
+                cancelled
+                || generation !== sessionGenerationRef.current
+                || isAbortError(caught)
+            ) {
+                return;
+            }
+            setSessionPhase("error");
+            setSessionError(
+                caught instanceof Error
+                    ? caught.message
+                    : "Failed to prepare comparison session",
+            );
+            logComparisonDebugError("session.prepare.failed", caught, {
+                generation,
+                documentPath,
+                viewerState: viewerState(primaryViewer),
+            });
+        });
         return () => {
             cancelled = true;
+            created?.dispose();
+            primaryViewer.abortDocumentComparisonLoad?.();
         };
     }, [
-        compareHostKey,
-        compareMissingRoot,
+        baseRevisionKey,
+        baseSources.sources,
         compareRevisionKey,
-        compareSources.rootName,
         compareSources.sources,
-        compareViewer,
-        lifecycle.compare.layoutReady,
-        revisionPanesShown,
+        comparisonDiff,
+        comparisonKey,
+        documentPath,
+        primaryLayoutReady,
+        primaryViewer,
         sourcesReady,
     ]);
 
-    const sideReady =
-        lifecycle.base.phase === "ready"
-        && lifecycle.compare.phase === "ready";
-    const sideSettled =
-        (lifecycle.base.phase === "ready" || lifecycle.base.phase === "error")
-        && (lifecycle.compare.phase === "ready"
-            || lifecycle.compare.phase === "error");
-    // Old/New is a layout over the same two revision viewers side-by-side
-    // mounts, not a third viewer with its own copy of the sources. Toggling is
-    // therefore a visibility change: both revisions are already loaded, and
-    // each keeps the camera it had, which is what makes the flip instant.
-    const oldNewSlot = oldNewSide === "base" ? lifecycle.base : lifecycle.compare;
-    const oldNewViewer = oldNewSide === "base" ? baseViewer : compareViewer;
-    const oldNewRevisionKey =
-        oldNewSide === "base" ? baseRevisionKey : compareRevisionKey;
-    const toggleRevisionReady =
-        oldNewSlot.phase === "ready"
-        && oldNewViewer?.dataset.ecadReadyRevision === oldNewRevisionKey;
-    const toggleSettled =
-        oldNewSlot.phase === "ready" || oldNewSlot.phase === "error";
-
     useEffect(() => {
-        const generation = ++pageGenerationRef.current;
-        setSidePageReadyPath(domain === "pcb" ? documentPath : null);
         if (
-            presentationMode !== "side-by-side"
-            || domain !== "schematic"
-            || !documentPath
-            || !sideReady
-            || !baseViewer
-            || !compareViewer
+            !session
+            || sessionPhase !== "ready"
+            || !primaryViewer
+            || !primaryLayoutReady
+            || (
+                presentationMode === "side-by-side"
+                && (!secondaryViewer || !secondaryLayoutReady)
+            )
         ) {
             return;
         }
+        const generation = ++presentationGenerationRef.current;
         let cancelled = false;
-        logComparisonDebug("page.side-by-side.start", {
-            generation,
-            documentPath,
-            base: viewerState(baseViewer),
-            compare: viewerState(compareViewer),
-        });
-        if (!baseHasDocument) {
-            logComparisonDebug("page.side-by-side.absent", {
-                side: "base",
-                documentPath,
-            });
-        }
-        if (!compareHasDocument) {
-            logComparisonDebug("page.side-by-side.absent", {
-                side: "compare",
-                documentPath,
-            });
-        }
-        void Promise.allSettled([
-            baseHasDocument
-                ? baseViewer.showPage?.(documentPath)
-                : Promise.resolve(),
-            compareHasDocument
-                ? compareViewer.showPage?.(documentPath)
-                : Promise.resolve(),
-        ])
-            .then((results) => {
-                if (
-                    !cancelled
-                    && generation === pageGenerationRef.current
-                ) {
-                    const failures = results.flatMap((result, index) =>
-                        result.status === "rejected"
-                            ? [{
-                                  side: index === 0 ? "base" : "compare",
-                                  error:
-                                      result.reason instanceof Error
-                                          ? {
-                                                name: result.reason.name,
-                                                message: result.reason.message,
-                                            }
-                                          : String(result.reason),
-                              }]
-                            : [],
-                    );
-                    logComparisonDebug("page.side-by-side.complete", {
-                        generation,
-                        documentPath,
-                        failures,
-                        base: viewerState(baseViewer),
-                        compare: viewerState(compareViewer),
-                    });
-                    if (failures.length) {
-                        setSelectionDiagnostic(
-                            failures.length === 2
-                                ? "This sheet could not be resolved in either revision."
-                                : `This sheet could not be resolved in the ${failures[0]!.side} revision.`,
-                        );
-                    }
-                    setSidePageReadyPath(documentPath);
-                }
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        baseViewer,
-        baseHasDocument,
-        compareViewer,
-        compareHasDocument,
-        documentPath,
-        domain,
-        oldNewSide,
-        presentationMode,
-        sideReady,
-    ]);
-
-    useEffect(() => {
-        const generation = ++togglePageGenerationRef.current;
-        setTogglePageReadyPath(domain === "pcb" ? documentPath : null);
-        if (
-            presentationMode !== "old-new"
-            || domain !== "schematic"
-            || !documentPath
-            || !toggleRevisionReady
-            || !oldNewViewer
-        ) {
-            return;
-        }
-        let cancelled = false;
-        const activeSideHasDocument =
-            oldNewSide === "base" ? baseHasDocument : compareHasDocument;
-        logComparisonDebug("page.toggle.start", {
-            generation,
-            side: oldNewSide,
-            documentPath,
-            viewerState: viewerState(oldNewViewer),
-        });
-        if (!activeSideHasDocument) {
-            logComparisonDebug("page.toggle.absent", {
+        setPresentationSwitching(true);
+        setSessionError(null);
+        const operation =
+            presentationMode === "composite"
+                ? session.setPresentation("composite", primaryViewer)
+                    .then((primary) => ({ primary, secondary: null }))
+                : presentationMode === "old-new"
+                    ? session.setPresentation(
+                        oldNewSide === "base" ? "reference" : "comparison",
+                        primaryViewer,
+                    ).then((primary) => ({ primary, secondary: null }))
+                    : Promise.all([
+                        session.setPresentation("reference", primaryViewer),
+                        session.setPresentation("comparison", secondaryViewer!),
+                    ]).then(([primary, secondary]) => ({ primary, secondary }));
+        void operation.then((result) => {
+            if (cancelled || generation !== presentationGenerationRef.current) {
+                return;
+            }
+            setPreparation(session.preparation);
+            setPresentationSwitching(false);
+            logComparisonDebug("session.presentation.ready", {
                 generation,
-                side: oldNewSide,
-                documentPath,
+                presentationMode,
+                oldNewSide,
+                primary: {
+                    switchMs: result.primary.switchMs,
+                    parserCount: result.primary.parserCount,
+                    paintCount: result.primary.paintCount,
+                },
+                secondary: result.secondary
+                    ? {
+                          switchMs: result.secondary.switchMs,
+                          parserCount: result.secondary.parserCount,
+                          paintCount: result.secondary.paintCount,
+                      }
+                    : null,
+                metrics: session.getMetrics(),
             });
-            setTogglePageReadyPath(documentPath);
-            return;
-        }
-        void oldNewViewer.showPage?.(documentPath)
-            .then(() => {
-                if (
-                    !cancelled
-                    && generation === togglePageGenerationRef.current
-                ) {
-                    logComparisonDebug("page.toggle.complete", {
-                        generation,
-                        side: oldNewSide,
-                        documentPath,
-                        viewerState: viewerState(oldNewViewer),
-                    });
-                    setTogglePageReadyPath(documentPath);
-                }
-            })
-            .catch((caught) => {
-                if (
-                    !cancelled
-                    && generation === togglePageGenerationRef.current
-                ) {
-                    logComparisonDebugError("page.toggle.failed", caught, {
-                        generation,
-                        side: oldNewSide,
-                        documentPath,
-                        viewerState: viewerState(oldNewViewer),
-                    });
-                    setSelectionDiagnostic(
-                        caught instanceof Error
-                            ? caught.message
-                            : "This sheet is missing from the selected revision.",
-                    );
-                    setTogglePageReadyPath(documentPath);
-                }
+        }).catch((caught) => {
+            if (
+                cancelled
+                || generation !== presentationGenerationRef.current
+                || isAbortError(caught)
+            ) {
+                return;
+            }
+            setPresentationSwitching(false);
+            setSessionError(
+                caught instanceof Error
+                    ? caught.message
+                    : "Failed to switch comparison presentation",
+            );
+            logComparisonDebugError("session.presentation.failed", caught, {
+                generation,
+                presentationMode,
+                oldNewSide,
             });
+        });
         return () => {
             cancelled = true;
         };
     }, [
-        documentPath,
-        domain,
-        baseHasDocument,
-        compareHasDocument,
         oldNewSide,
         presentationMode,
-        toggleRevisionReady,
-        oldNewViewer,
+        primaryLayoutReady,
+        primaryViewer,
+        secondaryLayoutReady,
+        secondaryViewer,
+        session,
+        sessionPhase,
     ]);
 
     useEffect(() => {
         if (
-            presentationMode !== "composite"
-            || !compositeViewer
-            || !preparation
-            || preparation.document.path !== documentPath
+            !session
+            || sessionPhase !== "ready"
+            || presentationSwitching
+            || !primaryViewer
         ) {
             return;
         }
-        const generation = ++selectionGenerationRef.current;
         const applicationKey =
-            `${comparisonKey}:${preparation.document.path}:${selectionKey}`;
-        if (lastCompositeSelectionKeyRef.current === applicationKey) return;
-        lastCompositeSelectionKeyRef.current = applicationKey;
+            `${presentationMode}:${oldNewSide}:${documentPath}:${selectionKey}`;
+        if (lastSelectionKeyRef.current === applicationKey) return;
+        lastSelectionKeyRef.current = applicationKey;
         const nativeSelection = resolveNativeSelection(
-            preparation,
+            session.preparation,
             documentDiff,
             selection,
             allChanges,
         );
         if (!nativeSelection) {
-            logComparisonDebug("selection.composite.unresolved", {
-                selection,
-                selectionKey,
-                documentPath,
-                selectedChanges: allChanges.map((change) => ({
-                    id: change.id,
-                    category: change.category,
-                    reasons: change.reasons,
-                    visualTargets: change.details?.visualTargets,
+            setSelectionDiagnostic(null);
+            setSelectionNotice(
+                selection
+                    ? "This is a derived connectivity change with no standalone KiCad object to highlight."
+                    : null,
+            );
+            return;
+        }
+        const viewers =
+            presentationMode === "side-by-side"
+                ? [
+                    ...(baseHasDocument ? [primaryViewer] : []),
+                    ...(compareHasDocument && secondaryViewer
+                        ? [secondaryViewer]
+                        : []),
+                ]
+                : presentationMode === "old-new"
+                    ? (
+                        oldNewSide === "base"
+                            ? baseHasDocument
+                            : compareHasDocument
+                    )
+                        ? [primaryViewer]
+                        : []
+                    : [primaryViewer];
+        const generation = ++selectionGenerationRef.current;
+        cameraSyncSuppressedRef.current =
+            presentationMode === "side-by-side";
+        setSelectionPending(true);
+        setSelectionDiagnostic(null);
+        setSelectionNotice(null);
+        void Promise.all(
+            viewers.map((viewer) => viewer.selectDocumentDiff(nativeSelection)),
+        ).then((frames) => {
+            if (generation !== selectionGenerationRef.current) return;
+            if (selection && frames.every((frame) => frame.status === "missing")) {
+                setSelectionNotice(
+                    "This is a derived connectivity change with no standalone KiCad object to highlight.",
+                );
+            }
+            logComparisonDebug("session.selection.complete", {
+                generation,
+                presentationMode,
+                oldNewSide,
+                nativeSelection,
+                frames: frames.map((frame) => ({
+                    status: frame.status,
+                    clickToFrameMs: frame.clickToFrameMs,
+                    paintCount: frame.paintCount,
+                    parserCount: frame.parserCount,
+                    bounds: frame.target?.bounds,
                 })),
             });
-            setSelectionPending(false);
-            setSelectionDiagnostic(null);
-            setSelectionNotice(
-                selection
-                    ? "This is a derived connectivity change with no standalone KiCad object to highlight."
-                    : null,
+        }).catch((caught) => {
+            if (generation !== selectionGenerationRef.current) return;
+            setSelectionDiagnostic(
+                caught instanceof Error ? caught.message : "Selection failed",
             );
-            return;
-        }
-        setSelectionPending(true);
-        setSelectionDiagnostic(null);
-        setSelectionNotice(null);
-        logComparisonDebug("selection.composite.start", {
-            generation,
-            selection,
-            nativeSelection,
-            selectionKey,
-            documentPath,
-            viewerState: viewerState(compositeViewer),
-        });
-        void compositeViewer
-            .selectDocumentDiff(nativeSelection)
-            .then((frame) => {
-                if (generation !== selectionGenerationRef.current) return;
-                logComparisonDebug("selection.composite.complete", {
-                    generation,
-                    selection,
-                    nativeSelection,
-                    frame: {
-                        status: frame.status,
-                        requestId: frame.requestId,
-                        clickToFrameMs: frame.clickToFrameMs,
-                        paintCount: frame.paintCount,
-                        parserCount: frame.parserCount,
-                        targetId: frame.target?.id,
-                        sourceIds: frame.target?.sourceIds,
-                        bounds: frame.target?.bounds,
-                    },
-                    viewerState: viewerState(compositeViewer),
-                });
-                if (frame.status === "missing") {
-                    setSelectionDiagnostic(
-                        "The selected native item could not be resolved.",
-                    );
-                }
-            })
-            .catch((caught) => {
-                if (generation === selectionGenerationRef.current) {
-                    logComparisonDebugError(
-                        "selection.composite.failed",
-                        caught,
-                        {
-                            generation,
-                            selection,
-                            nativeSelection,
-                            documentPath,
-                            viewerState: viewerState(compositeViewer),
-                        },
-                    );
-                    setSelectionDiagnostic(
-                        caught instanceof Error
-                            ? caught.message
-                            : "Selection failed",
-                    );
-                }
-            })
-            .finally(() => {
-                if (generation === selectionGenerationRef.current) {
-                    setSelectionPending(false);
-                }
+            logComparisonDebugError("session.selection.failed", caught, {
+                generation,
+                presentationMode,
+                nativeSelection,
             });
+        }).finally(() => {
+            if (generation !== selectionGenerationRef.current) return;
+            cameraSyncSuppressedRef.current = false;
+            setSelectionPending(false);
+        });
     }, [
         allChanges,
-        comparisonKey,
-        compositeViewer,
+        baseHasDocument,
+        compareHasDocument,
         documentDiff,
         documentPath,
-        preparation,
+        oldNewSide,
         presentationMode,
+        presentationSwitching,
+        primaryViewer,
+        secondaryViewer,
         selection,
         selectionKey,
+        session,
+        sessionPhase,
     ]);
 
     useEffect(() => {
         if (
-            presentationMode !== "composite"
-            || !compositeViewer
-            || !preparation
-            || preparation.document.path !== documentPath
+            !session
+            || sessionPhase !== "ready"
+            || presentationSwitching
+            || !primaryViewer
         ) {
             return;
         }
-        if (!previewSelection) {
-            compositeViewer.previewDocumentDiff?.(null);
-            return;
+        const nativePreview = previewSelection
+            ? resolveNativeSelection(
+                session.preparation,
+                documentDiff,
+                previewSelection,
+                previewChanges,
+            )
+            : null;
+        const viewers =
+            presentationMode === "side-by-side" && secondaryViewer
+                ? [primaryViewer, secondaryViewer]
+                : [primaryViewer];
+        for (const viewer of viewers) {
+            viewer.previewDocumentDiff?.(nativePreview);
         }
-        const nativePreview = resolveNativeSelection(
-            preparation,
-            documentDiff,
-            previewSelection,
-            previewChanges,
-        );
-        compositeViewer.previewDocumentDiff?.(nativePreview);
-        return () => compositeViewer.previewDocumentDiff?.(null);
-    }, [
-        compositeViewer,
-        documentDiff,
-        documentPath,
-        preparation,
-        presentationMode,
-        previewChanges,
-        previewSelection,
-    ]);
-
-    const sidePageReady =
-        domain === "pcb" || sidePageReadyPath === documentPath;
-    const togglePageReady =
-        domain === "pcb" || togglePageReadyPath === documentPath;
-
-    useEffect(() => {
-        if (presentationMode !== "side-by-side" || !sideReady || !sidePageReady) {
-            return;
-        }
-        const id = revisionSelectionId(previewSelection, reviewGroups);
-        baseViewer?.previewRevisionDiff?.(id);
-        compareViewer?.previewRevisionDiff?.(id);
         return () => {
-            baseViewer?.previewRevisionDiff?.(null);
-            compareViewer?.previewRevisionDiff?.(null);
+            for (const viewer of viewers) {
+                viewer.previewDocumentDiff?.(null);
+            }
         };
     }, [
-        baseViewer,
-        compareViewer,
-        presentationMode,
-        previewSelection,
-        reviewGroups,
-        sidePageReady,
-        sideReady,
-    ]);
-
-    useEffect(() => {
-        if (
-            presentationMode !== "old-new"
-            || !toggleRevisionReady
-            || !togglePageReady
-        ) {
-            return;
-        }
-        const id = revisionSelectionId(previewSelection, reviewGroups);
-        oldNewViewer?.previewRevisionDiff?.(id);
-        return () => oldNewViewer?.previewRevisionDiff?.(null);
-    }, [
-        presentationMode,
-        previewSelection,
-        reviewGroups,
-        togglePageReady,
-        toggleRevisionReady,
-        oldNewViewer,
-    ]);
-
-    useEffect(() => {
-        if (
-            presentationMode !== "side-by-side"
-            || !sideReady
-            || !sidePageReady
-            || !documentPath
-        ) {
-            return;
-        }
-        const context = domain === "pcb" ? "PCB" : "SCH";
-        baseViewer?.setRevisionDiffPresentation?.(
-            baseHasDocument
-                ? buildRevisionDiffPresentation(
-                      reviewGroups,
-                      documentDiff,
-                      documentPath,
-                      "reference",
-                      context,
-                  )
-                : null,
-        );
-        compareViewer?.setRevisionDiffPresentation?.(
-            compareHasDocument
-                ? buildRevisionDiffPresentation(
-                      reviewGroups,
-                      documentDiff,
-                      documentPath,
-                      "comparison",
-                      context,
-                  )
-                : null,
-        );
-    }, [
-        baseViewer,
-        baseHasDocument,
-        compareViewer,
-        compareHasDocument,
         documentDiff,
-        documentPath,
-        domain,
         presentationMode,
-        reviewGroups,
-        sidePageReady,
-        sideReady,
-    ]);
-
-    useEffect(() => {
-        if (
-            presentationMode !== "old-new"
-            || !toggleRevisionReady
-            || !togglePageReady
-            || !oldNewViewer
-            || !documentPath
-        ) {
-            return;
-        }
-        const activeSideHasDocument =
-            oldNewSide === "base" ? baseHasDocument : compareHasDocument;
-        oldNewViewer.setRevisionDiffPresentation?.(
-            activeSideHasDocument
-                ? buildRevisionDiffPresentation(
-                      reviewGroups,
-                      documentDiff,
-                      documentPath,
-                      oldNewSide === "base" ? "reference" : "comparison",
-                      domain === "pcb" ? "PCB" : "SCH",
-                  )
-                : null,
-        );
-    }, [
-        baseHasDocument,
-        compareHasDocument,
-        documentDiff,
-        documentPath,
-        domain,
-        oldNewSide,
-        presentationMode,
-        reviewGroups,
-        togglePageReady,
-        toggleRevisionReady,
-        oldNewViewer,
-    ]);
-
-    useEffect(() => {
-        if (
-            presentationMode !== "side-by-side"
-            || !sideReady
-            || !sidePageReady
-        ) {
-            return;
-        }
-        const generation = ++selectionGenerationRef.current;
-        const applicationKey =
-            `${baseRevisionKey}:${compareRevisionKey}:${documentPath}:${selectionKey}`;
-        if (lastSideSelectionKeyRef.current === applicationKey) return;
-        lastSideSelectionKeyRef.current = applicationKey;
-        const focus = resolveComparisonFocus(allChanges);
-        const targetId = revisionSelectionId(selection, reviewGroups);
-        if (!focus && !targetId) {
-            logComparisonDebug("selection.side-by-side.unresolved", {
-                selection,
-                selectionKey,
-                documentPath,
-                focus,
-                targetId,
-            });
-            setSelectionPending(false);
-            setSelectionDiagnostic(null);
-            setSelectionNotice(
-                selection
-                    ? "This is a derived connectivity change with no standalone KiCad object to highlight."
-                    : null,
-            );
-            return;
-        }
-        cameraSyncSuppressedRef.current = true;
-        setSelectionPending(true);
-        setSelectionDiagnostic(null);
-        setSelectionNotice(null);
-        logComparisonDebug("selection.side-by-side.start", {
-            generation,
-            selection,
-            selectionKey,
-            documentPath,
-            targetId,
-            focus,
-            base: viewerState(baseViewer),
-            compare: viewerState(compareViewer),
-        });
-        void Promise.all([
-            selectRevisionViewer(
-                baseViewer,
-                targetId,
-                focus?.baseBounds,
-                focus?.baseUuid,
-            ),
-            selectRevisionViewer(
-                compareViewer,
-                targetId,
-                focus?.compareBounds,
-                focus?.compareUuid,
-            ),
-        ])
-            .then((applied) => {
-                if (generation === selectionGenerationRef.current) {
-                    logComparisonDebug("selection.side-by-side.complete", {
-                        generation,
-                        selection,
-                        targetId,
-                        applied: { base: applied[0], compare: applied[1] },
-                        base: viewerState(baseViewer),
-                        compare: viewerState(compareViewer),
-                    });
-                }
-                if (
-                    generation === selectionGenerationRef.current
-                    && selection
-                    && !applied.some(Boolean)
-                ) {
-                    setSelectionNotice(
-                        "This is a derived connectivity change with no standalone KiCad object to highlight.",
-                    );
-                }
-            })
-            .catch((caught) => {
-                if (generation === selectionGenerationRef.current) {
-                    logComparisonDebugError(
-                        "selection.side-by-side.failed",
-                        caught,
-                        {
-                            generation,
-                            selection,
-                            targetId,
-                            focus,
-                            base: viewerState(baseViewer),
-                            compare: viewerState(compareViewer),
-                        },
-                    );
-                    setSelectionDiagnostic(
-                        caught instanceof Error
-                            ? caught.message
-                            : "Focus failed",
-                    );
-                }
-            })
-            .finally(() => {
-                if (generation === selectionGenerationRef.current) {
-                    cameraSyncSuppressedRef.current = false;
-                    setSelectionPending(false);
-                }
-            });
-    }, [
-        allChanges,
-        baseRevisionKey,
-        baseViewer,
-        compareRevisionKey,
-        compareViewer,
-        documentPath,
-        presentationMode,
-        reviewGroups,
-        selection,
-        selectionKey,
-        sidePageReady,
-        sideReady,
-    ]);
-
-    useEffect(() => {
-        if (
-            presentationMode !== "old-new"
-            || !toggleRevisionReady
-            || !togglePageReady
-            || !oldNewViewer
-        ) {
-            return;
-        }
-        const generation = ++selectionGenerationRef.current;
-        const applicationKey =
-            `${oldNewSide}:${baseRevisionKey}:${compareRevisionKey}:${documentPath}:${selectionKey}`;
-        if (lastToggleSelectionKeyRef.current === applicationKey) return;
-        lastToggleSelectionKeyRef.current = applicationKey;
-        const focus = resolveComparisonFocus(allChanges);
-        const targetId = revisionSelectionId(selection, reviewGroups);
-        if (!focus && !targetId) {
-            logComparisonDebug("selection.toggle.unresolved", {
-                selection,
-                selectionKey,
-                documentPath,
-                side: oldNewSide,
-                focus,
-                targetId,
-            });
-            setSelectionPending(false);
-            setSelectionDiagnostic(null);
-            setSelectionNotice(
-                selection
-                    ? "This is a derived connectivity change with no standalone KiCad object to highlight."
-                    : null,
-            );
-            return;
-        }
-        setSelectionPending(true);
-        setSelectionDiagnostic(null);
-        setSelectionNotice(null);
-        const bounds =
-            oldNewSide === "base" ? focus?.baseBounds : focus?.compareBounds;
-        const uuid =
-            oldNewSide === "base" ? focus?.baseUuid : focus?.compareUuid;
-        logComparisonDebug("selection.toggle.start", {
-            generation,
-            selection,
-            selectionKey,
-            documentPath,
-            side: oldNewSide,
-            targetId,
-            bounds,
-            uuid,
-            viewerState: viewerState(oldNewViewer),
-        });
-        void selectRevisionViewer(oldNewViewer, targetId, bounds, uuid)
-            .then((applied) => {
-                if (generation === selectionGenerationRef.current) {
-                    logComparisonDebug("selection.toggle.complete", {
-                        generation,
-                        selection,
-                        side: oldNewSide,
-                        targetId,
-                        applied,
-                        viewerState: viewerState(oldNewViewer),
-                    });
-                }
-                if (
-                    generation === selectionGenerationRef.current
-                    && selection
-                    && !applied
-                ) {
-                    setSelectionNotice(
-                        "This is a derived connectivity change with no standalone KiCad object to highlight.",
-                    );
-                }
-            })
-            .catch((caught) => {
-                if (generation === selectionGenerationRef.current) {
-                    logComparisonDebugError(
-                        "selection.toggle.failed",
-                        caught,
-                        {
-                            generation,
-                            selection,
-                            side: oldNewSide,
-                            targetId,
-                            bounds,
-                            uuid,
-                            viewerState: viewerState(oldNewViewer),
-                        },
-                    );
-                    setSelectionDiagnostic(
-                        caught instanceof Error
-                            ? caught.message
-                            : "Focus failed",
-                    );
-                }
-            })
-            .finally(() => {
-                if (generation === selectionGenerationRef.current) {
-                    setSelectionPending(false);
-                }
-            });
-    }, [
-        allChanges,
-        baseRevisionKey,
-        compareRevisionKey,
-        documentPath,
-        oldNewSide,
-        presentationMode,
-        reviewGroups,
-        selection,
-        selectionKey,
-        togglePageReady,
-        toggleRevisionReady,
-        oldNewViewer,
+        presentationSwitching,
+        previewChanges,
+        previewSelection,
+        primaryViewer,
+        secondaryViewer,
+        session,
+        sessionPhase,
     ]);
 
     useComparisonCameraSync(
-        baseViewer,
-        compareViewer,
-        presentationMode === "side-by-side" && sideReady,
+        primaryViewer,
+        secondaryViewer,
+        presentationMode === "side-by-side"
+            && sessionPhase === "ready"
+            && !presentationSwitching,
         cameraSyncSuppressedRef,
     );
 
     const activeLayerViewers = useCallback((): ECadViewerElement[] => {
-        if (presentationMode === "composite") {
-            return compositeViewer ? [compositeViewer] : [];
+        if (presentationMode === "side-by-side") {
+            return [primaryViewer, secondaryViewer].filter(
+                (viewer): viewer is ECadViewerElement => Boolean(viewer),
+            );
         }
-        if (presentationMode === "old-new") {
-            return oldNewViewer ? [oldNewViewer] : [];
-        }
-        return [baseViewer, compareViewer].filter(
-            (viewer): viewer is ECadViewerElement => Boolean(viewer),
-        );
-    }, [
-        baseViewer,
-        compareViewer,
-        compositeViewer,
-        presentationMode,
-        oldNewViewer,
-    ]);
+        return primaryViewer ? [primaryViewer] : [];
+    }, [presentationMode, primaryViewer, secondaryViewer]);
 
     useEffect(() => {
         if (domain !== "pcb") {
@@ -1668,14 +696,13 @@ export function ComparisonPresentationShell({
             return;
         }
         const viewers = activeLayerViewers();
-        const activeReady =
-            presentationMode === "composite"
-                ? lifecycle.composite.phase === "ready"
-                : presentationMode === "old-new"
-                    ? toggleRevisionReady
-                    : sideReady;
-        if (!activeReady || !viewers.length) return;
-
+        if (
+            sessionPhase !== "ready"
+            || presentationSwitching
+            || !viewers.length
+        ) {
+            return;
+        }
         if (initialVisibleLayers.length) {
             const visible = new Set(initialVisibleLayers);
             for (const viewer of viewers) {
@@ -1691,10 +718,7 @@ export function ComparisonPresentationShell({
             setPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
         refresh();
         for (const viewer of viewers) {
-            viewer.addEventListener(
-                "ecad-viewer:view-state-change",
-                refresh,
-            );
+            viewer.addEventListener("ecad-viewer:view-state-change", refresh);
         }
         return () => {
             for (const viewer of viewers) {
@@ -1708,10 +732,8 @@ export function ComparisonPresentationShell({
         activeLayerViewers,
         domain,
         initialVisibleLayers,
-        lifecycle.composite.phase,
-        presentationMode,
-        sideReady,
-        toggleRevisionReady,
+        presentationSwitching,
+        sessionPhase,
     ]);
 
     const toggleLayer = (name: string, visible: boolean) => {
@@ -1748,39 +770,19 @@ export function ComparisonPresentationShell({
     };
 
     const sourceError = baseSources.error ?? compareSources.error;
-    const compositeError = lifecycle.composite.error;
-    const sideError = lifecycle.base.error ?? lifecycle.compare.error;
-    const toggleError = oldNewSlot.error;
-    const activeError =
-        sourceError
-        ?? (presentationMode === "composite"
-            ? compositeError
-            : presentationMode === "old-new"
-                ? toggleError
-                : sideError)
-        ?? selectionDiagnostic;
+    const activeError = sourceError ?? sessionError ?? selectionDiagnostic;
     const bannerMessage = activeError ?? selectionNotice ?? oneSidedSheetNotice;
     const showBanner =
         Boolean(bannerMessage) && bannerMessage !== dismissedBanner;
-    const bannerIsError = Boolean(activeError);
     const loading =
         baseSources.loading
         || compareSources.loading
-        || (presentationMode === "composite"
-            ? lifecycle.composite.phase !== "ready"
-                && lifecycle.composite.phase !== "error"
-            : presentationMode === "old-new"
-                ? !toggleSettled || (toggleRevisionReady && !togglePageReady)
-                : !sideSettled || (sideReady && !sidePageReady));
+        || sessionPhase === "waiting-layout"
+        || sessionPhase === "loading"
+        || presentationSwitching;
     const diagnostics =
-        preparation?.diagnostics.length
-        ?? documentDiff.diagnostics.length;
+        preparation?.diagnostics.length ?? documentDiff.diagnostics.length;
 
-    // There is deliberately no `!activeDocument` branch here any more. That
-    // asked the diff bundle whether this domain had changed, and replaced the
-    // whole panel when it had not — so a PCB-only commit made the schematic
-    // unopenable. Whether a document exists is a question about the revisions,
-    // which is what the check below asks.
     if (baseMissingRoot && compareMissingRoot) {
         return (
             <section className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center bg-background p-8 text-center">
@@ -1796,6 +798,15 @@ export function ComparisonPresentationShell({
         );
     }
 
+    const primaryActive =
+        presentationMode !== "side-by-side"
+        || baseHasDocument;
+    const secondaryActive =
+        presentationMode === "side-by-side"
+        && compareHasDocument;
+    const primaryInset =
+        presentationMode === "side-by-side" ? 0 : rightRailInset;
+
     return (
         <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
             <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-muted/20 px-3 py-2 text-xs">
@@ -1803,11 +814,7 @@ export function ComparisonPresentationShell({
                     <span className="mr-auto inline-flex items-center gap-3">
                         <ChangeStatusLegend />
                     </span>
-                ) : presentationMode === "side-by-side" ? (
-                    // Nothing to say here: the revision pair is already named in
-                    // the workspace header directly above this bar.
-                    <span className="mr-auto" />
-                ) : (
+                ) : presentationMode === "old-new" ? (
                     <>
                         <div
                             className="flex items-center gap-0.5 rounded-md border bg-background p-0.5"
@@ -1818,16 +825,7 @@ export function ComparisonPresentationShell({
                                 variant={oldNewSide === "base" ? "secondary" : "ghost"}
                                 size="sm"
                                 className="h-7 text-xs"
-                                onClick={() => {
-                                    logComparisonDebug("control.old-new.click", {
-                                        from: oldNewSide,
-                                        to: "base",
-                                        documentPath,
-                                        selectionKey,
-                                        viewerState: viewerState(oldNewViewer),
-                                    });
-                                    setOldNewSide("base");
-                                }}
+                                onClick={() => setOldNewSide("base")}
                                 aria-pressed={oldNewSide === "base"}
                             >
                                 Old
@@ -1836,16 +834,7 @@ export function ComparisonPresentationShell({
                                 variant={oldNewSide === "compare" ? "secondary" : "ghost"}
                                 size="sm"
                                 className="h-7 text-xs"
-                                onClick={() => {
-                                    logComparisonDebug("control.old-new.click", {
-                                        from: oldNewSide,
-                                        to: "compare",
-                                        documentPath,
-                                        selectionKey,
-                                        viewerState: viewerState(oldNewViewer),
-                                    });
-                                    setOldNewSide("compare");
-                                }}
+                                onClick={() => setOldNewSide("compare")}
                                 aria-pressed={oldNewSide === "compare"}
                             >
                                 New
@@ -1853,6 +842,8 @@ export function ComparisonPresentationShell({
                         </div>
                         <span className="mr-auto" />
                     </>
+                ) : (
+                    <span className="mr-auto" />
                 )}
                 {domain === "pcb" && (
                     <ComparisonPcbLayersToggle
@@ -1865,209 +856,168 @@ export function ComparisonPresentationShell({
             </div>
 
             <div className="relative min-h-0 min-w-0 flex-1">
-                    {mountedModesRef.current.has("composite") && (
-                        <div
-                            className={cn(
-                                "absolute inset-0",
-                                presentationMode !== "composite"
-                                && "invisible pointer-events-none",
-                            )}
-                            aria-hidden={presentationMode !== "composite"}
-                        >
+                <div
+                    className={cn(
+                        "absolute inset-0 grid min-h-0",
+                        presentationMode === "side-by-side"
+                            ? "grid-cols-2 divide-x"
+                            : "grid-cols-1",
+                    )}
+                >
+                    <div className="relative flex min-h-0 min-w-0 flex-col">
+                        {presentationMode === "side-by-side" && (
+                            <div className="shrink-0 border-b bg-muted/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Base
+                            </div>
+                        )}
+                        <div className="relative min-h-0 flex-1">
                             <ComparisonViewerHost
-                                key={compositeHostKey}
-                                viewerKey={compositeHostKey}
-                                active={presentationMode === "composite"}
-                                onViewer={attachComposite}
-                                onLayoutReady={markCompositeLayout}
-                                viewportInsets={{ right: rightRailInset }}
+                                key={primaryHostKey}
+                                viewerKey={primaryHostKey}
+                                active={primaryActive}
+                                onViewer={attachPrimary}
+                                onLayoutReady={() => setPrimaryLayoutReady(true)}
+                                viewportInsets={{ right: primaryInset }}
                             />
+                            {presentationMode === "side-by-side"
+                                && !baseHasDocument
+                                && documentPath && (
+                                <MissingRevisionPane
+                                    side="base"
+                                    documentPath={documentPath}
+                                />
+                            )}
+                            {presentationMode === "old-new"
+                                && oldNewSide === "base"
+                                && !baseHasDocument
+                                && documentPath && (
+                                <MissingRevisionPane
+                                    side="base"
+                                    documentPath={documentPath}
+                                />
+                            )}
+                            {presentationMode === "old-new"
+                                && oldNewSide === "compare"
+                                && !compareHasDocument
+                                && documentPath && (
+                                <MissingRevisionPane
+                                    side="compare"
+                                    documentPath={documentPath}
+                                />
+                            )}
                         </div>
-                    )}
+                    </div>
 
-                    {(mountedModesRef.current.has("side-by-side")
-                        || mountedModesRef.current.has("old-new")) && (
+                    {mountedSecondaryRef.current && (
                         <div
                             className={cn(
-                                "absolute inset-0 grid min-h-0",
+                                "relative min-h-0 min-w-0 flex-col",
                                 presentationMode === "side-by-side"
-                                    ? "grid-cols-2 divide-x"
-                                    : "grid-cols-1",
-                                !revisionPanesShown
-                                && "invisible pointer-events-none",
-                            )}
-                            aria-hidden={!revisionPanesShown}
-                        >
-                            <div
-                                className={cn(
-                                    "relative flex min-h-0 min-w-0 flex-col",
-                                    presentationMode === "old-new"
-                                        && oldNewSide !== "base"
-                                        && "hidden",
-                                )}
-                            >
-                                <div className="shrink-0 border-b bg-muted/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                    Base
-                                </div>
-                                <div className="relative min-h-0 flex-1">
-                                    <div
-                                        className={cn(
-                                            "absolute inset-0",
-                                            !baseHasDocument
-                                            && "invisible pointer-events-none",
-                                        )}
-                                        aria-hidden={!baseHasDocument}
-                                    >
-                                        <ComparisonViewerHost
-                                            key={baseHostKey}
-                                            viewerKey={baseHostKey}
-                                            active={
-                                                revisionPanesShown
-                                                && baseHasDocument
-                                                && (presentationMode
-                                                    !== "old-new"
-                                                    || oldNewSide === "base")
-                                            }
-                                            onViewer={attachBase}
-                                            onLayoutReady={markBaseLayout}
-                                        />
-                                    </div>
-                                    {!baseHasDocument && documentPath && (
-                                        <MissingRevisionPane
-                                            side="base"
-                                            documentPath={documentPath}
-                                        />
-                                    )}
-                                </div>
-                            </div>
-                            <div
-                                className={cn(
-                                    "relative flex min-h-0 min-w-0 flex-col",
-                                    presentationMode === "old-new"
-                                        && oldNewSide !== "compare"
-                                        && "hidden",
-                                )}
-                            >
-                                <div className="shrink-0 border-b bg-muted/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                    Compare
-                                </div>
-                                <div className="relative min-h-0 flex-1">
-                                    <div
-                                        className={cn(
-                                            "absolute inset-0",
-                                            !compareHasDocument
-                                            && "invisible pointer-events-none",
-                                        )}
-                                        aria-hidden={!compareHasDocument}
-                                    >
-                                        <ComparisonViewerHost
-                                            key={compareHostKey}
-                                            viewerKey={compareHostKey}
-                                            active={
-                                                revisionPanesShown
-                                                && compareHasDocument
-                                                && (presentationMode
-                                                    !== "old-new"
-                                                    || oldNewSide === "compare")
-                                            }
-                                            onViewer={attachCompare}
-                                            onLayoutReady={markCompareLayout}
-                                            viewportInsets={{ right: rightRailInset }}
-                                        />
-                                    </div>
-                                    {!compareHasDocument && documentPath && (
-                                        <MissingRevisionPane
-                                            side="compare"
-                                            documentPath={documentPath}
-                                        />
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {(loading || selectionPending) && (
-                        <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-                            <div className="inline-flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm backdrop-blur">
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                {loading
-                                    ? presentationMode === "composite"
-                                        ? "Preparing native comparison…"
-                                        : presentationMode === "old-new"
-                                            ? "Loading revision…"
-                                            : "Loading side-by-side revisions…"
-                                    : "Focusing change…"}
-                            </div>
-                        </div>
-                    )}
-
-                    {showBanner && bannerMessage && (
-                        <div
-                            className={cn(
-                                "absolute inset-x-3 bottom-3 flex items-start gap-2 rounded border bg-background/95 p-3 text-xs shadow-sm",
-                                bannerIsError
-                                    ? "border-destructive/30 text-destructive"
-                                    : "border-warning/30 text-warning text-warning",
+                                    ? "flex"
+                                    : "hidden",
                             )}
                         >
-                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                            <span className="min-w-0 flex-1 break-words">
-                                {bannerMessage}
-                            </span>
-                            <button
-                                type="button"
-                                className={cn(
-                                    "shrink-0 rounded p-0.5 transition-colors",
-                                    bannerIsError
-                                        ? "text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
-                                        : "text-warning/70 hover:bg-warning/10 hover:text-warning text-warning/70 hover:text-warning",
+                            <div className="shrink-0 border-b bg-muted/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Compare
+                            </div>
+                            <div className="relative min-h-0 flex-1">
+                                <ComparisonViewerHost
+                                    key={secondaryHostKey}
+                                    viewerKey={secondaryHostKey}
+                                    active={secondaryActive}
+                                    onViewer={attachSecondary}
+                                    onLayoutReady={() =>
+                                        setSecondaryLayoutReady(true)}
+                                    viewportInsets={{ right: rightRailInset }}
+                                />
+                                {!compareHasDocument && documentPath && (
+                                    <MissingRevisionPane
+                                        side="compare"
+                                        documentPath={documentPath}
+                                    />
                                 )}
-                                aria-label="Dismiss warning"
-                                onClick={() =>
-                                    setDismissedBanner(bannerMessage)
-                                }
-                            >
-                                <X className="h-3.5 w-3.5" />
-                            </button>
+                            </div>
                         </div>
                     )}
+                </div>
 
-                    {presentationMode === "composite"
-                        && !!diagnostics
-                        && !showBanner
-                        && !diagnosticsDismissed && (
-                        <div className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded border bg-background/90 px-2 py-1 text-[10px] text-muted-foreground shadow-sm">
-                            <span>
-                                {diagnostics} unresolved native{" "}
-                                {diagnostics === 1 ? "item" : "items"}
-                            </span>
-                            <button
-                                type="button"
-                                className="rounded p-0.5 transition-colors hover:bg-muted hover:text-foreground"
-                                aria-label="Dismiss unresolved items notice"
-                                onClick={() => setDiagnosticsDismissed(true)}
-                            >
-                                <X className="h-3 w-3" />
-                            </button>
+                {(loading || selectionPending) && (
+                    <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+                        <div className="inline-flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm backdrop-blur">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {loading
+                                ? sessionPhase === "loading"
+                                    ? "Preparing comparison session…"
+                                    : "Switching comparison view…"
+                                : "Focusing change…"}
                         </div>
-                    )}
+                    </div>
+                )}
+
+                {showBanner && bannerMessage && (
+                    <div
+                        className={cn(
+                            "absolute inset-x-3 bottom-3 flex items-start gap-2 rounded border bg-background/95 p-3 text-xs shadow-sm",
+                            activeError
+                                ? "border-destructive/30 text-destructive"
+                                : "border-warning/30 text-warning",
+                        )}
+                    >
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span className="min-w-0 flex-1 break-words">
+                            {bannerMessage}
+                        </span>
+                        <button
+                            type="button"
+                            className="shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
+                            aria-label="Dismiss warning"
+                            onClick={() => setDismissedBanner(bannerMessage)}
+                        >
+                            <X className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
+                )}
+
+                {presentationMode === "composite"
+                    && !!diagnostics
+                    && !showBanner
+                    && !diagnosticsDismissed && (
+                    <div className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded border bg-background/90 px-2 py-1 text-[10px] text-muted-foreground shadow-sm">
+                        <span>
+                            {diagnostics} unresolved native{" "}
+                            {diagnostics === 1 ? "item" : "items"}
+                        </span>
+                        <button
+                            type="button"
+                            className="rounded p-0.5 transition-colors hover:bg-muted hover:text-foreground"
+                            aria-label="Dismiss unresolved items notice"
+                            onClick={() => setDiagnosticsDismissed(true)}
+                        >
+                            <X className="h-3 w-3" />
+                        </button>
+                    </div>
+                )}
 
                 <ViewerOverlayRail
                     activeTab={rightRailTab}
                     tabs={[
                         ...(domain === "pcb"
                             ? [{
-                                id: "layers" as const,
-                                label: "Layers",
-                                icon: <Layers3 className="mr-1.5 size-3.5" />,
-                            }]
+                                  id: "layers" as const,
+                                  label: "Layers",
+                                  icon: <Layers3 className="mr-1.5 size-3.5" />,
+                              }]
                             : []),
                         {
                             id: "discussion" as const,
                             label: "Discussion",
                             icon: <MessageSquare className="mr-1.5 size-3.5" />,
                             badge: discussionCount > 0
-                                ? <span className="rounded-full bg-muted px-1.5 text-[10px]">{discussionCount}</span>
+                                ? (
+                                    <span className="rounded-full bg-muted px-1.5 text-[10px]">
+                                        {discussionCount}
+                                    </span>
+                                )
                                 : null,
                         },
                     ]}

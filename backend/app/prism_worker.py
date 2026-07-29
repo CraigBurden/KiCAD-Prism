@@ -36,6 +36,7 @@ class RunningJob:
     last_heartbeat: float
     termination_started: float | None = None
     termination_reason: str = ""
+    finalized_observed: float | None = None
     log_closed: bool = False
 
 
@@ -415,13 +416,39 @@ class PrismWorker:
                 and current.get("status") == "cancel_requested"
             ):
                 self.begin_termination(running, "cancel_requested")
-            elif database_available and (
-                current is None
-                or int(current.get("fence") or -1) != running.fence
-                or current.get("lease_owner") != self.worker_id
-                or current.get("status") not in {"running", "cancel_requested"}
-            ):
-                self.begin_termination(running, "lease_lost")
+            elif database_available:
+                same_fence = (
+                    current is not None
+                    and int(current.get("fence") or -1) == running.fence
+                )
+                finalized = (
+                    same_fence
+                    and current.get("status")
+                    in {"completed", "failed", "cancelled", "retry_wait"}
+                )
+                if finalized:
+                    if running.finalized_observed is None:
+                        running.finalized_observed = now
+                        logger.debug(
+                            "Job=%s fence=%s finalized status=%s; waiting for child exit",
+                            running.job_id,
+                            running.fence,
+                            current.get("status"),
+                        )
+                    elif (
+                        now - running.finalized_observed
+                        >= settings.PRISM_JOB_CANCEL_GRACE_SECONDS
+                    ):
+                        self.begin_termination(running, "finalized_child_stuck")
+                    continue
+                if (
+                    current is None
+                    or not same_fence
+                    or current.get("lease_owner") != self.worker_id
+                    or current.get("status")
+                    not in {"running", "cancel_requested"}
+                ):
+                    self.begin_termination(running, "lease_lost")
 
             if (
                 running.termination_started is not None

@@ -104,7 +104,9 @@ export type ChangeReason =
     | "sheet-changed"
     | "net-renamed"
     | "connectivity-changed"
-    | "label-count-changed";
+    | "label-count-changed"
+    | "bus-membership-changed"
+    | "content-changed";
 
 export interface ChangeDetails {
     fieldDeltas?: Record<string, FieldDiffValue>;
@@ -126,7 +128,19 @@ export interface ChangeDetails {
         page?: string | null;
         /** Human hierarchy retained separately from the native filename. */
         sheetPath?: string | null;
-        role: "component" | "wire" | "label" | "junction" | "terminal";
+        role:
+            | "component"
+            | "wire"
+            | "bus"
+            | "bus_entry"
+            | "label"
+            | "junction"
+            | "terminal"
+            | "sheet"
+            | "sheet_pin"
+            | "symbol"
+            | "no_connect"
+            | "graphic";
         reference?: string;
         pin?: string;
     }>;
@@ -222,7 +236,8 @@ export type KiCadChangeKind =
     | "collision"
     | "duplicate_uuid";
 
-export interface KiCadItemChange {
+/** Strict item shape produced by native KiCad PROJECT_DIFF. */
+export interface NativeKiCadItemChange {
     id: string;
     typeName: string;
     kind: KiCadChangeKind;
@@ -235,13 +250,23 @@ export interface KiCadItemChange {
     refdes?: string;
     sourceSide?: "reference" | "comparison";
     retainReference?: boolean;
-    children: KiCadItemChange[];
+    children: NativeKiCadItemChange[];
+}
+
+/**
+ * Prism supplies native identity and lets ecad-viewer measure geometry from
+ * the parsed scene. Transitional callers may still include a bbox.
+ */
+export interface PrismItemChangeInput
+    extends Omit<NativeKiCadItemChange, "bbox" | "children"> {
+    bbox?: [number, number, number, number];
+    children: PrismItemChangeInput[];
 }
 
 export interface KiCadDocumentDiff {
     path: string;
     docType: string;
-    changes: KiCadItemChange[];
+    changes: PrismItemChangeInput[];
 }
 
 export interface KiCadProjectDiffBundle {

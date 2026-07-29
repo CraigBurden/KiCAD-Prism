@@ -2,7 +2,11 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
     CameraState,
+    EcadComparisonPresentation,
+    EcadComparisonSession,
+    EcadComparisonSessionMetrics,
     EcadDocumentComparisonPreparation,
+    EcadDocumentComparisonRequest,
     EcadPcbLayerState,
 } from "@/types/ecad-viewer";
 import {
@@ -14,9 +18,7 @@ import type { ChangeItem, KiCadProjectDiffBundle } from "./types";
 
 class FakeEcadViewer extends HTMLElement {
     static instances: FakeEcadViewer[] = [];
-    static replaceSourcesImplementation:
-        | ((request: { revisionKey: string }) => Promise<void>)
-        | null = null;
+    static sessions: FakeComparisonSession[] = [];
 
     readonly ready = Promise.resolve();
     readonly isReady = true;
@@ -47,14 +49,6 @@ class FakeEcadViewer extends HTMLElement {
         parserCount: 0,
     }));
     readonly previewDocumentDiff = vi.fn();
-    readonly setRevisionDiffPresentation = vi.fn();
-    readonly selectRevisionDiff = vi.fn(async () => false);
-    readonly previewRevisionDiff = vi.fn();
-    readonly replaceSources = vi.fn(
-        async (request: { revisionKey: string }) => {
-            await FakeEcadViewer.replaceSourcesImplementation?.(request);
-        },
-    );
     readonly showPage = vi.fn(async () => undefined);
     readonly focusBBox = vi.fn(async () => null);
     readonly focusItem = vi.fn(async () => null);
@@ -144,17 +138,52 @@ class FakeEcadViewer extends HTMLElement {
         }
     }
 
-    readonly loadDocumentComparison = vi.fn(
+    readonly prepareComparison = vi.fn(
+        async (request: EcadDocumentComparisonRequest) => {
+            const session = new FakeComparisonSession(request);
+            FakeEcadViewer.sessions.push(session);
+            return session;
+        },
+    );
+}
+
+class FakeComparisonSession implements EcadComparisonSession {
+    readonly comparisonKey: string;
+    readonly preparation: EcadDocumentComparisonPreparation;
+    readonly setPresentation = vi.fn(
         async (
-            request: { documentPath?: string },
-        ): Promise<EcadDocumentComparisonPreparation> => ({
-            comparisonKey: "comparison",
-            context: request.documentPath?.endsWith(".kicad_pcb")
-                ? "PCB"
-                : "SCH",
+            presentation: EcadComparisonPresentation,
+            viewport?: HTMLElement,
+        ) => {
+            void viewport;
+            return {
+                presentation,
+                preparation: this.preparation,
+                switchMs: 1,
+                parserCount: 0,
+                paintCount: 1,
+            };
+        },
+    );
+    readonly dispose = vi.fn();
+
+    constructor(request: EcadDocumentComparisonRequest) {
+        const documentPath = request.documentPath ?? "main.kicad_sch";
+        const hasDocument = (
+            sources: EcadDocumentComparisonRequest["reference"]["sources"],
+        ) => sources.some(({ filename }) => {
+            const normalized = filename.replace(/\\/g, "/");
+            return normalized === documentPath
+                || normalized.endsWith(`/${documentPath}`)
+                || documentPath.endsWith(`/${normalized}`);
+        });
+        this.comparisonKey = request.comparisonKey;
+        this.preparation = {
+            comparisonKey: request.comparisonKey,
+            context: documentPath.endsWith(".kicad_pcb") ? "PCB" : "SCH",
             document: {
-                path: request.documentPath ?? "main.kicad_sch",
-                docType: request.documentPath?.endsWith(".kicad_pcb")
+                path: documentPath,
+                docType: documentPath.endsWith(".kicad_pcb")
                     ? "kicad_pcb"
                     : "kicad_sch",
                 changes: [],
@@ -163,8 +192,32 @@ class FakeEcadViewer extends HTMLElement {
             diagnostics: [],
             prepareMs: 1,
             sourceCacheHit: false,
-        }),
-    );
+            missingReference: !hasDocument(request.reference.sources),
+            missingComparison: !hasDocument(request.comparison.sources),
+        };
+    }
+
+    getPreparation(): EcadDocumentComparisonPreparation {
+        return this.preparation;
+    }
+
+    getMetrics(): EcadComparisonSessionMetrics {
+        return {
+            prepareMs: 1,
+            parserCount: 2,
+            switchCount: this.setPresentation.mock.calls.length,
+            lastSwitchMs: 1,
+            maxSwitchMs: 1,
+            lastSwitchParserCount: 0,
+            retainedViewports: new Set(
+                this.setPresentation.mock.calls
+                    .map(([, viewport]) => viewport)
+                    .filter(Boolean),
+            ).size,
+            retainedScenes: 2,
+            sourceBytes: 128,
+        };
+    }
 }
 
 const documentDiff: KiCadProjectDiffBundle = {
@@ -205,7 +258,7 @@ beforeAll(() => {
 
 beforeEach(() => {
     FakeEcadViewer.instances = [];
-    FakeEcadViewer.replaceSourcesImplementation = null;
+    FakeEcadViewer.sessions = [];
     vi.stubGlobal(
         "fetch",
         vi.fn(async (input: string | URL | Request) => {
@@ -290,7 +343,7 @@ describe("ComparisonPresentationShell", () => {
         await waitFor(() => {
             expect(FakeEcadViewer.instances).toHaveLength(1);
             expect(
-                FakeEcadViewer.instances[0]?.loadDocumentComparison,
+                FakeEcadViewer.instances[0]?.prepareComparison,
             ).toHaveBeenCalledTimes(1);
         });
     });
@@ -326,7 +379,7 @@ describe("ComparisonPresentationShell", () => {
         );
 
         await waitFor(() => {
-            expect(FakeEcadViewer.instances[0]?.loadDocumentComparison)
+            expect(FakeEcadViewer.instances[0]?.prepareComparison)
                 .toHaveBeenCalledTimes(1);
         });
         view.rerender(
@@ -340,7 +393,7 @@ describe("ComparisonPresentationShell", () => {
         );
 
         await waitFor(() => {
-            expect(FakeEcadViewer.instances[0]?.loadDocumentComparison)
+            expect(FakeEcadViewer.instances[0]?.prepareComparison)
                 .toHaveBeenCalledTimes(1);
         });
     });
@@ -355,10 +408,11 @@ describe("ComparisonPresentationShell", () => {
 
         await waitFor(() => {
             expect(FakeEcadViewer.instances).toHaveLength(1);
-            expect(FakeEcadViewer.instances[0]?.loadDocumentComparison)
+            expect(FakeEcadViewer.instances[0]?.prepareComparison)
                 .toHaveBeenCalledTimes(1);
         });
-        const composite = FakeEcadViewer.instances[0]!;
+        const primary = FakeEcadViewer.instances[0]!;
+        const preparedSession = FakeEcadViewer.sessions[0]!;
 
         view.rerender(
             <ComparisonPresentationShell
@@ -367,8 +421,14 @@ describe("ComparisonPresentationShell", () => {
             />,
         );
         await waitFor(() => {
-            expect(FakeEcadViewer.instances).toHaveLength(3);
-            expect(composite.setActive).toHaveBeenLastCalledWith(false);
+            expect(FakeEcadViewer.instances).toHaveLength(2);
+            expect(preparedSession.setPresentation)
+                .toHaveBeenCalledWith("reference", primary);
+            expect(preparedSession.setPresentation)
+                .toHaveBeenCalledWith(
+                    "comparison",
+                    FakeEcadViewer.instances[1],
+                );
         });
 
         view.rerender(
@@ -378,8 +438,10 @@ describe("ComparisonPresentationShell", () => {
             />,
         );
         await waitFor(() => {
-            expect(FakeEcadViewer.instances).toHaveLength(3);
-            expect(composite.setActive).toHaveBeenLastCalledWith(true);
+            expect(FakeEcadViewer.instances).toHaveLength(2);
+            expect(preparedSession.setPresentation)
+                .toHaveBeenLastCalledWith("composite", primary);
+            expect(primary.prepareComparison).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -393,14 +455,21 @@ describe("ComparisonPresentationShell", () => {
 
         await waitFor(() => {
             expect(FakeEcadViewer.instances).toHaveLength(2);
-            expect(FakeEcadViewer.instances[0]?.replaceSources).toHaveBeenCalledTimes(1);
-            expect(FakeEcadViewer.instances[1]?.replaceSources).toHaveBeenCalledTimes(1);
-            expect(
-                FakeEcadViewer.instances[0]?.dataset.ecadReadyRevision,
-            ).toBe("project:base-revision:schematic");
-            expect(
-                FakeEcadViewer.instances[1]?.dataset.ecadReadyRevision,
-            ).toBe("project:compare-revision:schematic");
+            expect(FakeEcadViewer.instances[0]?.prepareComparison)
+                .toHaveBeenCalledTimes(1);
+            expect(FakeEcadViewer.instances[1]?.prepareComparison)
+                .not.toHaveBeenCalled();
+            expect(FakeEcadViewer.sessions).toHaveLength(1);
+            expect(FakeEcadViewer.sessions[0]?.setPresentation)
+                .toHaveBeenCalledWith(
+                    "reference",
+                    FakeEcadViewer.instances[0],
+                );
+            expect(FakeEcadViewer.sessions[0]?.setPresentation)
+                .toHaveBeenCalledWith(
+                    "comparison",
+                    FakeEcadViewer.instances[1],
+                );
         });
 
         // ecadReadyRevision is written straight onto the element, while camera
@@ -442,9 +511,20 @@ describe("ComparisonPresentationShell", () => {
                 bounds: [30, 40, 4, 6],
             },
         };
+        const diff: KiCadProjectDiffBundle = {
+            ...documentDiff,
+            navigation: {
+                [selectedChange.id]: {
+                    documentPath: "main.kicad_sch",
+                    changeId: "/r5",
+                    changeIds: ["/r5"],
+                },
+            },
+        };
         render(
             <ComparisonPresentationShell
                 {...shellProps}
+                documentDiff={diff}
                 presentationMode="side-by-side"
                 selection={{ kind: "item", id: selectedChange.id }}
                 reviewGroups={[{ id: "component-r5", changes: [selectedChange] }]}
@@ -452,14 +532,14 @@ describe("ComparisonPresentationShell", () => {
         );
 
         await waitFor(() => {
-            expect(FakeEcadViewer.instances[0]?.focusBBox)
-                .toHaveBeenCalledWith(10, 20, 4, 6);
-            expect(FakeEcadViewer.instances[1]?.focusBBox)
-                .toHaveBeenCalledWith(30, 40, 4, 6);
+            expect(FakeEcadViewer.instances[0]?.selectDocumentDiff)
+                .toHaveBeenCalled();
+            expect(FakeEcadViewer.instances[1]?.selectDocumentDiff)
+                .toHaveBeenCalled();
         });
     });
 
-    it("installs all side-relative label targets in revision panes", async () => {
+    it("uses native document selection for side-relative label targets", async () => {
         const labelChange: ChangeItem = {
             id: "pf-01-count",
             kind: "changed",
@@ -510,31 +590,21 @@ describe("ComparisonPresentationShell", () => {
         );
 
         await waitFor(() => {
-            expect(
-                FakeEcadViewer.instances[0]?.setRevisionDiffPresentation,
-            ).toHaveBeenCalledWith(expect.objectContaining({
-                context: "SCH",
-                targets: [expect.objectContaining({
-                    id: "net-pf-01",
-                    visuals: [
-                        expect.objectContaining({ sourceId: "label-a", status: "removed" }),
-                        expect.objectContaining({ sourceId: "label-b", status: "removed" }),
-                    ],
-                })],
-            }));
-            expect(
-                FakeEcadViewer.instances[1]?.setRevisionDiffPresentation,
-            ).toHaveBeenCalledWith(expect.objectContaining({ targets: [] }));
-            expect(FakeEcadViewer.instances[0]?.selectRevisionDiff)
-                .toHaveBeenCalledWith("net-pf-01", { focus: true });
+            expect(FakeEcadViewer.instances[0]?.selectDocumentDiff)
+                .toHaveBeenCalledWith({
+                    kind: "change",
+                    id: "/label-a",
+                });
+            expect(FakeEcadViewer.instances[1]?.selectDocumentDiff)
+                .toHaveBeenCalledWith({
+                    kind: "change",
+                    id: "/label-a",
+                });
         });
     });
 
     it("toggles Old/New without reloading either revision", async () => {
-        // Old/New reuses the two revision viewers side-by-side already mounts,
-        // so both revisions are loaded up front and the flip is a visibility
-        // change. Previously one viewer swapped its sources on every toggle,
-        // which meant a full document reload and a lost camera each time.
+        // Old/New flips the already prepared session inside one viewport.
         const view = render(
             <ComparisonPresentationShell
                 {...shellProps}
@@ -543,19 +613,15 @@ describe("ComparisonPresentationShell", () => {
         );
 
         await waitFor(() => {
-            expect(FakeEcadViewer.instances).toHaveLength(2);
+            expect(FakeEcadViewer.instances).toHaveLength(1);
+            expect(FakeEcadViewer.sessions[0]?.setPresentation)
+                .toHaveBeenCalledWith(
+                    "comparison",
+                    FakeEcadViewer.instances[0],
+                );
         });
-        const loadedRevisions = FakeEcadViewer.instances.flatMap((viewer) =>
-            viewer.replaceSources.mock.calls.map(([request]) => request.revisionKey),
-        );
-        expect(new Set(loadedRevisions)).toEqual(new Set([
-            "project:base-revision:schematic",
-            "project:compare-revision:schematic",
-        ]));
-
-        const callsBefore = FakeEcadViewer.instances.map(
-            (viewer) => viewer.replaceSources.mock.calls.length,
-        );
+        const prepareCallsBefore =
+            FakeEcadViewer.instances[0]!.prepareComparison.mock.calls.length;
 
         view.getByRole("button", { name: /Old/ }).click();
         await waitFor(() => {
@@ -564,17 +630,16 @@ describe("ComparisonPresentationShell", () => {
             ).toBe("true");
         });
 
-        // The toggle must not have cost a single source replacement.
-        expect(
-            FakeEcadViewer.instances.map(
-                (viewer) => viewer.replaceSources.mock.calls.length,
-            ),
-        ).toEqual(callsBefore);
+        expect(FakeEcadViewer.sessions[0]?.setPresentation)
+            .toHaveBeenLastCalledWith(
+                "reference",
+                FakeEcadViewer.instances[0],
+            );
+        expect(FakeEcadViewer.instances[0]?.prepareComparison)
+            .toHaveBeenCalledTimes(prepareCallsBefore);
     });
 
-    it("keeps each Old/New side's camera across a toggle", async () => {
-        // Nothing is torn down, so the camera each side was left on is still
-        // the camera it shows when you come back to it.
+    it("keeps the Old/New viewport mounted across a toggle", async () => {
         const view = render(
             <ComparisonPresentationShell
                 {...shellProps}
@@ -582,15 +647,11 @@ describe("ComparisonPresentationShell", () => {
             />,
         );
         await waitFor(() => {
-            expect(FakeEcadViewer.instances).toHaveLength(2);
+            expect(FakeEcadViewer.instances).toHaveLength(1);
         });
 
-        const [first, second] = FakeEcadViewer.instances as [
-            FakeEcadViewer,
-            FakeEcadViewer,
-        ];
+        const first = FakeEcadViewer.instances[0]!;
         first.camera = { x: 1, y: 2, zoom: 3 } as never;
-        second.camera = { x: 9, y: 8, zoom: 7 } as never;
 
         view.getByRole("button", { name: /Old/ }).click();
         await waitFor(() => {
@@ -600,7 +661,7 @@ describe("ComparisonPresentationShell", () => {
         });
 
         expect(first.camera).toEqual({ x: 1, y: 2, zoom: 3 });
-        expect(second.camera).toEqual({ x: 9, y: 8, zoom: 7 });
+        expect(FakeEcadViewer.instances).toHaveLength(1);
     });
 
     it("does not replace Old/New sources when selection changes", async () => {
@@ -623,7 +684,7 @@ describe("ComparisonPresentationShell", () => {
         );
 
         await waitFor(() => {
-            expect(FakeEcadViewer.instances[0]?.replaceSources)
+            expect(FakeEcadViewer.instances[0]?.prepareComparison)
                 .toHaveBeenCalledTimes(1);
         });
         view.rerender(
@@ -636,7 +697,7 @@ describe("ComparisonPresentationShell", () => {
         );
 
         await waitFor(() => {
-            expect(FakeEcadViewer.instances[0]?.replaceSources)
+            expect(FakeEcadViewer.instances[0]?.prepareComparison)
                 .toHaveBeenCalledTimes(1);
         });
     });
@@ -669,10 +730,9 @@ describe("ComparisonPresentationShell", () => {
 
         await waitFor(() => {
             expect(FakeEcadViewer.instances[0]?.showPage).not.toHaveBeenCalled();
-            expect(FakeEcadViewer.instances[1]?.showPage)
-                .toHaveBeenCalledWith("Subsheets/USB.kicad_sch");
-            expect(FakeEcadViewer.instances[0]?.setRevisionDiffPresentation)
-                .toHaveBeenCalledWith(null);
+            expect(FakeEcadViewer.instances[1]?.showPage).not.toHaveBeenCalled();
+            expect(FakeEcadViewer.sessions[0]?.preparation.missingReference)
+                .toBe(true);
         });
         expect(
             document.body.textContent,
@@ -681,7 +741,7 @@ describe("ComparisonPresentationShell", () => {
             .toHaveBeenLastCalledWith(false);
     });
 
-    it("uses the resolved sheet hierarchy instead of raw source presence", async () => {
+    it("uses the prepared session's source inventory for hierarchical sheets", async () => {
         Object.defineProperty(FakeEcadViewer.prototype, "getSchematicPages", {
             configurable: true,
             value: function getSchematicPages(this: FakeEcadViewer) {
@@ -732,10 +792,11 @@ describe("ComparisonPresentationShell", () => {
 
             await waitFor(() => {
                 expect(document.body.textContent)
-                    .toContain("Not present in the base revision");
+                    .not.toContain("Not present in the base revision");
+                expect(FakeEcadViewer.sessions[0]?.preparation.missingReference)
+                    .toBe(false);
                 expect(FakeEcadViewer.instances[0]?.showPage).not.toHaveBeenCalled();
-                expect(FakeEcadViewer.instances[1]?.showPage)
-                    .toHaveBeenCalledWith("Subsheets/USB.kicad_sch");
+                expect(FakeEcadViewer.instances[1]?.showPage).not.toHaveBeenCalled();
             });
         } finally {
             delete (FakeEcadViewer.prototype as unknown as {
@@ -806,7 +867,7 @@ describe("ComparisonPresentationShell", () => {
         );
 
         await waitFor(() => {
-            expect(FakeEcadViewer.instances[0]?.loadDocumentComparison)
+            expect(FakeEcadViewer.instances[0]?.prepareComparison)
                 .toHaveBeenCalledWith(
                     expect.objectContaining({ documentPath: "two.kicad_sch" }),
                 );

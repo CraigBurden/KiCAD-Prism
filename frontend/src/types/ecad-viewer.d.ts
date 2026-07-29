@@ -173,12 +173,7 @@ export interface EcadDiffResolutionDiagnostic {
     typeName?: string;
 }
 
-/**
- * `targetsUsingProvidedBounds` is the number of selection targets still
- * focusing the bbox Prism supplied — that is, the constant 5.08 mm / 10 mm
- * boxes from `_extract_geometry`. It is the measurement that decides whether
- * the backend can stop emitting bounds at all.
- */
+/** Resolution counters after native identity has been matched and painted. */
 export interface EcadDiffResolutionSummary {
     changes: number;
     sourceResolved: number;
@@ -187,8 +182,11 @@ export interface EcadDiffResolutionSummary {
     targets: number;
     targetsWithPaintedBounds: number;
     targetsUsingProvidedBounds: number;
+    targetsNonFocusable: number;
     visuals: number;
     visualsWithPaintedBounds: number;
+    visualsUsingProvidedBounds: number;
+    visualsNonFocusable: number;
 }
 
 export interface EcadDocumentComparisonPreparation {
@@ -215,27 +213,71 @@ export interface EcadDocumentComparisonSelectionResult {
     parserCount: number;
 }
 
+export type EcadComparisonPresentation =
+    | "composite"
+    | "reference"
+    | "comparison";
+
+export interface EcadComparisonPresentationResult {
+    presentation: EcadComparisonPresentation;
+    preparation: EcadDocumentComparisonPreparation;
+    switchMs: number;
+    parserCount: number;
+    paintCount: number;
+}
+
+export interface EcadComparisonSessionMetrics {
+    prepareMs: number;
+    parserCount: number;
+    switchCount: number;
+    lastSwitchMs: number;
+    maxSwitchMs: number;
+    lastSwitchParserCount: number;
+    retainedViewports: number;
+    retainedScenes: number;
+    sourceBytes: number;
+    heapBytesAtPrepare?: number;
+    heapBytesCurrent?: number;
+}
+
+export interface EcadComparisonSession {
+    readonly comparisonKey: string;
+    readonly preparation: EcadDocumentComparisonPreparation;
+    setPresentation(
+        presentation: EcadComparisonPresentation,
+        viewport?: ECadViewerElement,
+    ): Promise<EcadComparisonPresentationResult>;
+    getPreparation(
+        viewport?: ECadViewerElement,
+    ): EcadDocumentComparisonPreparation | null;
+    getMetrics(): EcadComparisonSessionMetrics;
+    dispose(): void;
+}
+
+export interface EcadDocumentComparisonRequest {
+    comparisonKey: string;
+    reference: {
+        revisionKey: string;
+        sources: Array<{ filename: string; content: string }>;
+    };
+    comparison: {
+        revisionKey: string;
+        sources: Array<{ filename: string; content: string }>;
+    };
+    diff: unknown;
+    /** Native KiCad requires bbox; Prism resolves geometry after paint. */
+    diffFormat?: "native-kicad" | "prism";
+    documentPath?: string;
+    /** Prefer this hierarchical schematic project path when activating SCH. */
+    activeSheetPath?: string;
+}
+
 /** Value-based camera state from <ecad-viewer> (world center + zoom + rotation). */
 export interface CameraState {
     x: number;
     y: number;
     zoom: number;
     rotation: number;
-}
-
-export interface EcadRevisionDiffPresentationRequest {
-    context: "SCH" | "PCB";
-    targets: Array<{
-        id: string;
-        label?: string;
-        visuals: Array<{
-            sourceId: string;
-            parentSourceId?: string | null;
-            status: "added" | "removed" | "modified" | "conflict";
-            bounds?: [number, number, number, number];
-            routing?: boolean;
-        }>;
-    }>;
 }
 
 export interface EcadTransitionTraceDetail {
@@ -268,21 +310,12 @@ export interface ECadViewerElement extends HTMLElement {
     setCommentMode?(enabled: boolean): void;
     setCommentOverlays(request: EcadCommentOverlaySet): void;
     clearCommentOverlays(context?: EcadCommentContext): void;
-    loadDocumentComparison(request: {
-        comparisonKey: string;
-        reference: {
-            revisionKey: string;
-            sources: Array<{ filename: string; content: string }>;
-        };
-        comparison: {
-            revisionKey: string;
-            sources: Array<{ filename: string; content: string }>;
-        };
-        diff: unknown;
-        documentPath?: string;
-        /** Prefer this hierarchical schematic project path when activating SCH. */
-        activeSheetPath?: string;
-    }): Promise<EcadDocumentComparisonPreparation>;
+    loadDocumentComparison(
+        request: EcadDocumentComparisonRequest,
+    ): Promise<EcadDocumentComparisonPreparation>;
+    prepareComparison(
+        request: EcadDocumentComparisonRequest,
+    ): Promise<EcadComparisonSession>;
     selectDocumentDiff(selection: {
         kind: "change" | "group";
         id: string;
@@ -291,14 +324,6 @@ export interface ECadViewerElement extends HTMLElement {
         kind: "change" | "group";
         id: string;
     } | null): void;
-    setRevisionDiffPresentation?(
-        request: EcadRevisionDiffPresentationRequest | null,
-    ): void;
-    selectRevisionDiff?(
-        id: string | null,
-        options?: { focus?: boolean },
-    ): Promise<boolean>;
-    previewRevisionDiff?(id: string | null): void;
     /** Abort in-flight comparison loads without tearing down painted presentation. */
     abortDocumentComparisonLoad?(): void;
     clearDocumentComparison(): void;

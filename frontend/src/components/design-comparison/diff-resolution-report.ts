@@ -6,17 +6,9 @@ import type {
 } from "../../types/ecad-viewer";
 
 /**
- * Phase 0B measurement.
- *
- * The backend fills every `KiCadItemChange.bbox` with a constant box -- 5.08 mm
- * for any symbol, 10 mm for any footprint -- under a comment saying it is used
- * "only if native UUID focus is unavailable". Nothing has ever measured how
- * often that is. The viewer replaces those bounds with the bounds the scene
- * actually painted, and now reports how often it could not.
- *
- * `fallbackBoundsRate` is the answer: the share of selection targets still
- * focusing a Prism-supplied box. Near zero means the backend can stop emitting
- * bounds; materially above zero means identity resolution needs fixing first.
+ * M5 geometry-resolution measurement. Prism inputs are identity-only; the
+ * viewer measures bounds from painted parser objects. A target that cannot be
+ * measured is reported as non-focusable instead of receiving origin bounds.
  */
 export type DiffResolutionReport = {
     documentPath: string;
@@ -28,6 +20,7 @@ export type DiffResolutionReport = {
     targets: number;
     targetsWithPaintedBounds: number;
     targetsUsingProvidedBounds: number;
+    targetsNonFocusable: number;
     /**
      * Visual-level denominator. A target can hold several visuals and needs
      * only one of them to paint, so visual failures are expected wherever a
@@ -37,6 +30,8 @@ export type DiffResolutionReport = {
      */
     visuals: number;
     visualsWithPaintedBounds: number;
+    visualsUsingProvidedBounds: number;
+    visualsNonFocusable: number;
     boundsFailuresBySide: { reference: number; comparison: number };
     /** 0–1, rounded to four places. Null when the viewer prepared no targets. */
     fallbackBoundsRate: number | null;
@@ -129,6 +124,7 @@ export function buildDiffResolutionReport(
         targets,
         targetsWithPaintedBounds: painted,
         targetsUsingProvidedBounds: provided,
+        targetsNonFocusable: resolution?.targetsNonFocusable ?? 0,
         // Null, never 0, when the bundle cannot report or prepared no targets.
         // A numeric zero here would read as "no fallbacks were used", which is
         // the opposite of what an unreporting bundle actually tells us.
@@ -137,6 +133,9 @@ export function buildDiffResolutionReport(
             : null,
         visuals: resolution?.visuals ?? 0,
         visualsWithPaintedBounds: resolution?.visualsWithPaintedBounds ?? 0,
+        visualsUsingProvidedBounds:
+            resolution?.visualsUsingProvidedBounds ?? 0,
+        visualsNonFocusable: resolution?.visualsNonFocusable ?? 0,
         boundsFailuresBySide: boundsFailuresBySide(diagnostics),
         ambiguousSourceIds: resolution?.ambiguousSourceIds ?? 0,
         duplicateChangeTargets: resolution?.duplicateChangeTargets ?? 0,

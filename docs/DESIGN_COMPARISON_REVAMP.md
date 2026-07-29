@@ -1,10 +1,7 @@
 # Design Comparison: plan, revision 3
 
-Status: proposal. Revision 3 re-architects around one parser instead of four.
-
-Nothing in this revision is implemented. Two fixes and one instrumentation
-change from earlier revisions have landed and are kept regardless of what
-happens here — they are listed under "Already landed" at the end.
+Status: implementation through M5 complete. Revision 3 re-architects around
+one parser instead of four.
 
 ## Why revision 3 exists
 
@@ -232,7 +229,7 @@ the parser returns `{number, name}` for nets where the declaration says
 children erased every property change from a symbol's hash — closing the
 property-attribute gap into a hash that could not see it.
 
-### M2 — Object delta in Node, shadow mode
+### M2 — Object delta in Node, shadow mode — **done**, see [the measurement](design-comparison/m2-object-delta.md)
 
 *Proves the new delta agrees with the one we ship today, before anything
 depends on it.*
@@ -248,7 +245,29 @@ depends on it.*
   objects in neither index today should appear as *new* detections, not as
   regressions).
 
-### M3 — Cut over; delete the geometry sidecar
+**Outcome — correctness gate passes; the original speed target was impossible
+after M1.** The median total Node step is **4.02 s on A** and **2.69 s on B**
+(five runs); the delta calculation itself is only 0.41 s / 0.18 s. M1 had
+already measured 3.59 s to parse A before a delta existed, so M2's ≤2.5 s
+end-to-end target could not survive M1 and should have been restated then.
+
+Raw agreement is 96.83% (A) and 94.76% (B), but every difference is classified
+and none is a regression: connectivity-only enrichment remains with
+kicad-monkey; the parser detects authored properties and addressable pads/sheet
+items the geometry scanner cannot; six A-only rule-area polylines cannot reach
+the viewer parser or paint index; and six B symbols are one native object that
+semantic-id churn split into add/remove records. Footprint and nested-zone
+agreement is 100% on B. The fixed panels contain no track or via changes, so
+their add/remove mechanics are covered by real-format parser tests rather than
+a percentage with a zero denominator.
+
+M2 also found and fixed two silent index gaps: inherited pin positions were not
+compared when the raw pin hash stayed constant (1,352 missed moves on B), and
+zones nested inside footprints were parsed but neither indexed nor reconciled
+(190 missed B changes). The M1 object counts were therefore low by 687 objects
+on each A revision; the corrected counts are 43,715 / 44,454.
+
+### M3 — Cut over; delete the geometry sidecar — **implemented; timing target missed**, see [the measurement](design-comparison/m3-node-cutover.md)
 
 *Proves the artifact and the wall clock actually improve.*
 
@@ -268,7 +287,22 @@ depends on it.*
   position for tracks, not just components); fallback-bounds rate no worse than
   0.90%; all 69 backend tests green.
 
-### M4 — Fix identity resolution in the viewer
+**Outcome — the backend correctness and artifact gates pass; the wall-clock
+target does not.** The production path now uses one `ecad-viewer` parser process for
+both revisions, the Python geometry scanner and its cache payload are deleted,
+component/BOM projection comes from parser objects, and semantic generation is
+connectivity-only. Five-run deterministic artifacts are 2.29–2.41 MB on A and
+3.51–3.55 MB on B, with zero geometry bytes. Parser centroids produce 3,059
+position-delta groups on A and 2,383 on B.
+
+Median cold total is 12.80 s (A) and 10.57 s (B), missing the 9.3/8.3 s
+targets. Measurement closes the open question below: component projection was
+effectively free, while connectivity `load-project` remains dominant.
+Overlapping Node parsing with the two connectivity compiles avoids making both
+costs additive but cannot lower the wall clock beneath connectivity's own
+9–11 s initial stage.
+
+### M4 — Fix identity resolution in the viewer — **done**, see [the measurement](design-comparison/m4-identity-resolution.md)
 
 *Removes the reason bounds cannot yet be dropped.*
 
@@ -281,7 +315,19 @@ depends on it.*
 - **Gate:** M5 does not start until this is 0. At 0.90%, dropping bounds costs
   1 in 100 targets its ability to focus.
 
-### M5 — Stop emitting bounds
+**Outcome — the gate passes.** The paint index now includes UUID-bearing pins
+outside a symbol's active unit and resolves nested identities through their
+painted owner. The first PCB run additionally found that modern pad UUIDs were
+dropped at the parser/viewer model boundary and that hidden-layer paint bounds
+were excluded from navigation; both gaps are fixed in `ecad-viewer`.
+
+Across seven schematic documents and one PCB document, all 6,793 changes
+resolved and all 11,766 targets used viewer-derived bounds. The aggregate
+fallback rate is **0%**, with zero `item-not-found` failures. The PCB document
+alone moved from 1,137 missing identities and 66.92% fallback to zero for both.
+M5 is unblocked.
+
+### M5 — Stop emitting bounds — **done**, see [the measurement](design-comparison/m5-stop-emitting-bounds.md)
 
 *Completes "the backend never emits a coordinate".*
 
@@ -293,7 +339,18 @@ depends on it.*
 - **Benchmark:** count of `bbox` fields in PROJECT_DIFF; artifact size.
 - **Target:** zero bounds emitted; no regression in fallback rate.
 
-### M6 — One comparison session, three views
+**Outcome — both gates pass.** Prism now supplies identity-only change input
+while native KiCad input keeps its strict required bbox. The viewer resolves
+and measures parser objects after paint; unresolved identities remain
+diagnostic change-list entries but never become origin targets.
+
+The production eight-document M4 gate was rerun with no backend bounds. All
+6,793 changes resolved; all 11,766 targets and 12,702 visuals used painted
+bounds, with zero fallback and zero non-focusable targets. A 47,139-entry
+production PROJECT_DIFF contains zero bbox fields and is at least 801,363 bytes
+smaller than the same shape carrying minimal zero boxes.
+
+### M6 — One comparison session, three views — **done**, see [the measurement](design-comparison/m6-comparison-session.md)
 
 *Removes the second rendering path.*
 
@@ -309,7 +366,18 @@ depends on it.*
 - **Gate:** measure whether one session can drive two viewports before
   committing to the two-scene model — this is the open scope risk.
 
-### M7 — Semantic completeness
+**Outcome — both gates pass.** `prepareComparison()` now owns both parsed
+revisions and all three presentations. Side-by-side attaches a second viewport
+to the same session without parsing; warm presentation switches restore
+retained display lists and prepared targets.
+
+On a production 329-change schematic, warm Composite, side-by-side, Old, and
+New switches measured 70.6–76.7 ms with zero parser calls and zero repaints.
+The shell is 1,047 lines, down from 2,092, and retains two viewer elements
+instead of three. The old Prism revision-presentation builder and all three
+revision-specific viewer APIs are deleted.
+
+### M7 — Semantic completeness — **done**, see [the measurement](design-comparison/m7-semantic-completeness.md)
 
 *Closes the gaps the measurements exposed.*
 
@@ -321,6 +389,18 @@ depends on it.*
   residual change-id collisions.
 - **Target:** zero unclassified objects; zero id collisions.
 
+**Outcome — both gates pass.** Property position, visibility, and text effects
+now survive the Node delta and appear as reviewable fields. kicad-monkey
+projects concrete sheet instances and bus records, and net visual refs carry a
+KIID path so reused sheets no longer collapse labels.
+
+Across the four fixed snapshots, 1,261 sheet-instance and bus records are now
+first-class. Fixed-input object deltas contain zero `unclassified` changes.
+The final PROJECT_DIFF artifacts contain 6,089/6,089 unique scoped targets on A
+and 7,634/7,634 on B: **zero duplicate targets and zero diagnostics**. Power
+library symbols, including `PWR_FLAG`, are connectivity/Nets objects and are
+excluded from component and BOM projection.
+
 ## Open questions, and which milestone answers each
 
 | Question | Answered by |
@@ -328,10 +408,10 @@ depends on it.*
 | ~~Does the parser fit the worker's memory ceiling on a 35 MB board?~~ | **M1: yes — 1.44 GB against a 12 GB limit** |
 | ~~Is per-revision parse caching worth its complexity at 0.9 s?~~ | **M1: probably not, but it is a 3.6 s question, not 1.8 s. Revisit after M3** |
 | Does the Node delta agree with what we ship today? | M2 |
-| How much of the 4.1 s semantic index is connectivity, and how much is component work the parser now does? | M3 |
+| ~~How much of the semantic index is connectivity, and how much is component projection?~~ | **M3: component projection rounds to zero; project loading/connectivity dominates** |
 | What is the fallback-bounds rate on a **PCB** document? | M4 |
 | Why do parsed pins not reach the paint index? | M4 |
-| Can one prepared session drive two side-by-side viewports? | M6 |
+| ~~Can one prepared session drive two side-by-side viewports?~~ | **M6: yes — two viewports, zero switch reparses** |
 | Python↔Node boundary cost for a ~2.5k-change delta | M2 |
 
 ## Already landed, kept regardless

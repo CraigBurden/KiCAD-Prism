@@ -56,10 +56,7 @@ class DocumentDiffServiceTests(unittest.TestCase):
         self.assertEqual(schematic["docType"], "kicad_sch")
         self.assertEqual(schematic["changes"][0]["id"], "/new-u1")
         self.assertEqual(schematic["changes"][0]["kind"], "modified")
-        self.assertEqual(
-            schematic["changes"][0]["bbox"],
-            [100_000, 200_000, 40_000, 50_000],
-        )
+        self.assertNotIn("bbox", schematic["changes"][0])
         self.assertEqual(
             schematic["changes"][0]["properties"][0],
             {
@@ -72,10 +69,7 @@ class DocumentDiffServiceTests(unittest.TestCase):
         pcb = documents["Hardware/board.kicad_pcb"]
         self.assertEqual(pcb["changes"][0]["id"], "/track-old")
         self.assertEqual(pcb["changes"][0]["kind"], "removed")
-        self.assertEqual(
-            pcb["changes"][0]["bbox"],
-            [1_000_000, 2_000_000, 3_000_000, 4_000_000],
-        )
+        self.assertNotIn("bbox", pcb["changes"][0])
         self.assertEqual(
             result["navigation"]["prism-sch-u1"],
             {
@@ -180,7 +174,7 @@ class DocumentDiffServiceTests(unittest.TestCase):
 
         item = result["project"]["documents"][0]["changes"][0]
         self.assertEqual(item["typeName"], "SCH_SYMBOL")
-        self.assertEqual(item["bbox"], [100_000, 200_000, 40_000, 50_000])
+        self.assertNotIn("bbox", item)
 
     def test_reference_sourced_modified_change_preserves_source_side(self) -> None:
         result = document_diff_service.build_project_diff(
@@ -357,6 +351,71 @@ class DocumentDiffServiceTests(unittest.TestCase):
         self.assertEqual(
             {change_id.rsplit("/", 1)[-1] for change_id in ids},
             {"01f6c458-c7c6-453e-b528-f72664fb7651"},
+        )
+
+    def test_reused_sheet_net_targets_keep_distinct_change_ids(self) -> None:
+        result = document_diff_service.build_project_diff(
+            schematic_changes=[{
+                "id": "shared-label-change",
+                "kind": "changed",
+                "domain": "schematic",
+                "category": "nets",
+                "net": "SENSE",
+                "details": {
+                    "visualTargets": [
+                        {
+                            "side": "comparison",
+                            "status": "modified",
+                            "sourceId": "label-shared",
+                            "page": "shared.kicad_sch",
+                            "sheetPath": path,
+                            "role": "label",
+                        }
+                        for path in ("/channel-a/", "/channel-b/")
+                    ]
+                },
+            }],
+            pcb_changes=[],
+            files={},
+        )
+
+        self.assertEqual(
+            result["navigation"]["shared-label-change"]["changeIds"],
+            ["/channel-a/label-shared", "/channel-b/label-shared"],
+        )
+
+    def test_overlapping_semantic_and_parser_changes_share_one_native_target(self) -> None:
+        target = {
+            "side": "comparison",
+            "status": "modified",
+            "sourceId": "label-a",
+            "page": "root.kicad_sch",
+            "role": "label",
+        }
+        result = document_diff_service.build_project_diff(
+            schematic_changes=[
+                {
+                    "id": change_id,
+                    "kind": "changed",
+                    "domain": "schematic",
+                    "details": {"visualTargets": [target]},
+                }
+                for change_id in ("parser-label-change", "semantic-net-change")
+            ],
+            pcb_changes=[],
+            files={},
+        )
+
+        document = result["project"]["documents"][0]
+        self.assertEqual(len(document["changes"]), 1)
+        self.assertEqual(document["changes"][0]["id"], "/label-a")
+        self.assertEqual(
+            result["navigation"]["parser-label-change"]["changeId"],
+            "/label-a",
+        )
+        self.assertEqual(
+            result["navigation"]["semantic-net-change"]["changeId"],
+            "/label-a",
         )
 
     def test_change_ids_are_unique_per_side_within_a_document(self) -> None:

@@ -104,33 +104,26 @@ def _encoded_bytes(payload: Any) -> int:
 
 
 def _revision_artifact(cache_dir: Path, revision: dict[str, Any]) -> dict[str, Any]:
-    """What one cached revision costs on disk, and what is in it.
+    """What one cached revision costs on disk after the parser cutover."""
 
-    The revamp's premise is that most of ``revision.json`` is a geometry
-    sidecar the viewer discards, so the geometry share is reported next to the
-    whole rather than left to be inferred from the file size.
-    """
-
-    geometry = revision.get("geometry") or {}
     semantic = revision.get("semantic") or {}
     revision_json = cache_dir / "revision.json"
     initial_json = cache_dir / "initial.json"
-    geometry_bytes = _encoded_bytes(geometry)
     total_bytes = _encoded_bytes(revision)
     return {
         "revisionJsonBytes": revision_json.stat().st_size if revision_json.exists() else None,
         "initialJsonBytes": initial_json.stat().st_size if initial_json.exists() else None,
         "encodedBytes": total_bytes,
-        "geometryBytes": geometry_bytes,
-        "geometrySharePct": (
-            round(geometry_bytes * 100 / total_bytes, 2) if total_bytes else None
-        ),
+        "geometryBytes": 0,
+        "geometrySharePct": 0,
         "objects": {
-            "schematicGeometry": len(geometry.get("schematic") or {}),
-            "pcbGeometry": len(geometry.get("pcb") or {}),
+            "schematicGeometry": 0,
+            "pcbGeometry": 0,
             "semanticComponents": len(semantic.get("components") or []),
             "semanticNets": len(semantic.get("nets") or []),
             "semanticTerminals": len(semantic.get("terminals") or []),
+            "semanticSheetInstances": len(semantic.get("sheetInstances") or []),
+            "semanticBuses": len(semantic.get("buses") or []),
             "bomRows": len(revision.get("bom_rows") or []),
             "sources": len(revision.get("sources") or []),
         },
@@ -149,29 +142,42 @@ def _document_diff_stats(result: dict[str, Any]) -> dict[str, Any]:
     document_diff = result.get("document_diff") or {}
     documents = (document_diff.get("project") or {}).get("documents") or []
     entries = 0
-    unique: set[tuple[str, str]] = set()
+    unique: set[tuple[str, str, str]] = set()
+    duplicate_targets = 0
     bbox_fields = 0
+    zero_bboxes = 0
 
-    def walk(changes: list[dict[str, Any]]) -> None:
-        # A change and its retained-reference children are separate entries
-        # with their own ids and bboxes, so the walk has to descend.
-        nonlocal entries, bbox_fields
+    def walk(document_path: str, changes: list[dict[str, Any]]) -> None:
+        # A change and its retained-reference children are separate entries,
+        # so the walk has to descend when checking identity and bbox fields.
+        nonlocal entries, bbox_fields, zero_bboxes, duplicate_targets
         for change in changes:
             entries += 1
-            unique.add((str(change.get("id")), str(change.get("sourceSide"))))
+            key = (
+                document_path,
+                str(change.get("id")),
+                str(change.get("sourceSide")),
+            )
+            if key in unique:
+                duplicate_targets += 1
+            unique.add(key)
             if change.get("bbox") is not None:
                 bbox_fields += 1
-            walk(change.get("children") or [])
+                if change.get("bbox") == [0, 0, 0, 0]:
+                    zero_bboxes += 1
+            walk(document_path, change.get("children") or [])
 
     for document in documents:
-        walk(document.get("changes") or [])
+        walk(str(document.get("path") or ""), document.get("changes") or [])
     return {
         "encodedBytes": _encoded_bytes(document_diff),
         "documents": len(documents),
         "changeEntries": entries,
         "uniqueChangeIds": len(unique),
         "inflation": round(entries / len(unique), 4) if unique else None,
+        "duplicateChangeTargets": duplicate_targets,
         "bboxFields": bbox_fields,
+        "zeroBboxes": zero_bboxes,
         "navigationEntries": len(document_diff.get("navigation") or {}),
         "diagnostics": len(document_diff.get("diagnostics") or []),
     }
@@ -441,21 +447,43 @@ def _run_once(
         print(message, flush=True)
 
     cold_started = time.perf_counter()
-    with recorder.span("cold-initial-revision-pipeline"):
-        initial_revisions, initial_logs = design_compare_service._build_initial_revisions(
+    with recorder.span("snapshot-pipeline"):
+        design_compare_service._prepare_comparison_snapshots(
             project_id,
             repo,
             relative_path,
             base,
             compare,
             heartbeat,
-            benchmark=recorder,
         )
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=1) as parser_executor:
+        def build_object_delta() -> dict[str, Any]:
+            with recorder.span("ecad-object-delta"):
+                return design_compare_service._run_ecad_object_delta(
+                    project_id,
+                    base,
+                    compare,
+                )
+
+        object_future = parser_executor.submit(build_object_delta)
+        with recorder.span("cold-initial-revision-pipeline"):
+            initial_revisions, initial_logs = design_compare_service._build_initial_revisions(
+                project_id,
+                repo,
+                relative_path,
+                base,
+                compare,
+                heartbeat,
+                benchmark=recorder,
+            )
+        object_delta = object_future.result()
     initial_result, assembly_state = design_compare_service._assemble_initial_comparison(
         project_id=project_id,
         base=base,
         head=compare,
         revisions=initial_revisions,
+        object_delta=object_delta,
         include_unchanged=False,
         benchmark=recorder,
     )
@@ -482,6 +510,14 @@ def _run_once(
         "schematicChanges": len(complete_result["schematic"]["changes"]),
         "pcbChanges": len(complete_result["pcb"]["changes"]),
         "bomChanges": len((complete_result.get("bom") or {}).get("changes") or []),
+        "schematicPositionDeltaGroups": sum(
+            group.get("position_delta") is not None
+            for group in complete_result["schematic"]["groups"]
+        ),
+        "pcbPositionDeltaGroups": sum(
+            group.get("position_delta") is not None
+            for group in complete_result["pcb"]["groups"]
+        ),
     }
     ordered_revisions = list(dict.fromkeys((base, compare)))
     snapshots = {
@@ -644,7 +680,7 @@ def main() -> None:
         choices=(1, 2),
         type=int,
         default=2,
-        help="PCB+Stackup geometry workers (default: 2)",
+        help="PCB+Stackup revision workers (default: 2)",
     )
     args = parser.parse_args()
 

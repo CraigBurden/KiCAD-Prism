@@ -187,6 +187,27 @@ function symbol_reference(symbol) {
     return symbol?.properties?.find((property) => property.name === "Reference")?.text;
 }
 
+function symbol_instances(symbol) {
+    const instances = [];
+    for (const project of symbol?.instances?.projects ?? []) {
+        for (const instance of project.paths ?? []) {
+            instances.push(
+                entry({
+                    reference: instance.reference,
+                    path:
+                        typeof instance.path === "string" && instance.path
+                            ? `${instance.path.replace(/\/$/, "")}/${symbol.uuid}`
+                            : undefined,
+                }),
+            );
+        }
+    }
+    if (instances.length === 0 && symbol?.default_instance?.reference) {
+        instances.push({ reference: symbol.default_instance.reference });
+    }
+    return instances.length > 0 ? instances : undefined;
+}
+
 function symbol_properties(symbol) {
     // Attributes, not just values. `at`, `hide` and `effects` on a property
     // are invisible to the current pipeline, which is why a field that only
@@ -198,6 +219,7 @@ function symbol_properties(symbol) {
             at: point_of(property.at),
             rotation: property.at?.rotation,
             hide: property.hide === true ? true : undefined,
+            effects: property.effects,
         }),
     );
 }
@@ -243,6 +265,7 @@ function index_schematic(text, documentPath, timings) {
                 onBoard: symbol.on_board === false ? false : undefined,
                 refdes: symbol_reference(symbol),
                 kiidPaths: kiid_paths(symbol),
+                instances: symbol_instances(symbol),
                 properties: symbol_properties(symbol),
             }),
             // Not `properties`: a schematic property has no uuid, so
@@ -391,6 +414,19 @@ function net_name_of(item, netsByCode) {
     return undefined;
 }
 
+/** Canonical KiCad layer name across parser versions.
+ *
+ * Most board items expose a string, while text-like graphics may expose
+ * `{ name, knockout }`. Letting that object cross the Node boundary makes the
+ * Python adapter attempt to add a dictionary to a set.
+ */
+function layer_name_of(value) {
+    if (value && typeof value === "object") {
+        return value.name || value.canonical_name || undefined;
+    }
+    return typeof value === "string" && value ? value : undefined;
+}
+
 /** Footprint fields, from whichever of the two shapes the file uses.
  *
  * KiCad 8 moved footprint fields from the `properties` map to repeated
@@ -423,6 +459,60 @@ function index_board(text, documentPath, timings) {
     const objects = [];
     const anonymous = {};
     const netsByCode = new Map((board.nets ?? []).map((net) => [net.number, net.name]));
+    const routeMetrics = {};
+
+    const route_metric = (net) => {
+        const name = net || "";
+        return (routeMetrics[name] ??= {
+            routeLengthMm: 0,
+            viaCount: 0,
+            usedLayers: [],
+            viaSpans: {},
+        });
+    };
+
+    const add_layer = (metric, value) => {
+        const layer = layer_name_of(value);
+        if (layer && !metric.usedLayers.includes(layer)) {
+            metric.usedLayers.push(layer);
+        }
+    };
+
+    const distance = (a, b) =>
+        a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0;
+
+    const segment_length = (segment) => {
+        if (!segment.mid) {
+            return distance(segment.start, segment.end);
+        }
+        const a = segment.start;
+        const b = segment.mid;
+        const c = segment.end;
+        if (!a || !b || !c) {
+            return 0;
+        }
+        const determinant =
+            2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+        if (Math.abs(determinant) < 1e-12) {
+            return distance(a, b) + distance(b, c);
+        }
+        const aa = a.x * a.x + a.y * a.y;
+        const bb = b.x * b.x + b.y * b.y;
+        const cc = c.x * c.x + c.y * c.y;
+        const ux =
+            (aa * (b.y - c.y) + bb * (c.y - a.y) + cc * (a.y - b.y))
+            / determinant;
+        const uy =
+            (aa * (c.x - b.x) + bb * (a.x - c.x) + cc * (b.x - a.x))
+            / determinant;
+        const radius = Math.hypot(a.x - ux, a.y - uy);
+        const angle = (point) => Math.atan2(point.y - uy, point.x - ux);
+        const tau = Math.PI * 2;
+        const ccw = ((angle(c) - angle(a)) % tau + tau) % tau;
+        const midCcw = ((angle(b) - angle(a)) % tau + tau) % tau;
+        const sweep = midCcw <= ccw + 1e-9 ? ccw : tau - ccw;
+        return radius * sweep;
+    };
 
     const push = (item, kind, extra = {}, childKeys = []) => {
         const uuid = item?.uuid || item?.tstamp;
@@ -442,6 +532,7 @@ function index_board(text, documentPath, timings) {
     };
 
     for (const footprint of board.footprints ?? []) {
+        const parentUuid = footprint.uuid || footprint.tstamp;
         push(
             footprint,
             "footprint",
@@ -449,7 +540,7 @@ function index_board(text, documentPath, timings) {
                 libId: footprint.library_link,
                 at: point_of(footprint.at),
                 rotation: footprint.at?.rotation,
-                layer: footprint.layer,
+                layer: layer_name_of(footprint.layer),
                 // `path` on a footprint is already the KIID_PATH of the
                 // schematic symbol it came from.
                 kiidPaths: footprint.path ? [footprint.path] : undefined,
@@ -468,37 +559,67 @@ function index_board(text, documentPath, timings) {
                 pad,
                 "pad",
                 entry({
-                    parentUuid: footprint.uuid || footprint.tstamp,
+                    parentUuid,
                     number: pad.number,
                     at: point_of(pad.at),
                     rotation: pad.at?.rotation,
-                    layer: (pad.layers ?? [])[0],
+                    layer: layer_name_of((pad.layers ?? [])[0]),
                     net: net_name_of(pad, netsByCode),
+                }),
+            );
+        }
+        for (const zone of footprint.zones ?? []) {
+            push(
+                zone,
+                "footprint_zone",
+                entry({
+                    parentUuid,
+                    at: centroid_of(
+                        (zone.polygons ?? []).flatMap((poly) => poly.pts ?? []),
+                    ),
+                    layer: layer_name_of(
+                        zone.layer ?? (zone.layers ?? [])[0],
+                    ),
+                    net: zone.net_name || net_name_of(zone, netsByCode),
                 }),
             );
         }
     }
 
     for (const segment of board.segments ?? []) {
+        const net = net_name_of(segment, netsByCode);
+        const metric = route_metric(net);
+        metric.routeLengthMm += segment_length(segment);
+        add_layer(metric, segment.layer);
         push(
             segment,
             segment.mid ? "arc_segment" : "segment",
             entry({
                 at: centroid_of([segment.start, segment.mid, segment.end].filter(Boolean)),
-                layer: segment.layer,
-                net: net_name_of(segment, netsByCode),
+                layer: layer_name_of(segment.layer),
+                net,
             }),
         );
     }
 
     for (const via of board.vias ?? []) {
+        const net = net_name_of(via, netsByCode);
+        const layers = (via.layers ?? []).map(layer_name_of).filter(Boolean);
+        const metric = route_metric(net);
+        metric.viaCount += 1;
+        for (const layer of layers) {
+            add_layer(metric, layer);
+        }
+        const span = layers.length > 0 ? layers.join("|") : "";
+        metric.viaSpans[span] = (metric.viaSpans[span] ?? 0) + 1;
         push(
             via,
             "via",
             entry({
                 at: point_of(via.at),
-                layer: (via.layers ?? [])[0],
-                net: net_name_of(via, netsByCode),
+                layer: layers[0],
+                layers,
+                net,
             }),
         );
     }
@@ -509,7 +630,7 @@ function index_board(text, documentPath, timings) {
             "zone",
             entry({
                 at: centroid_of((zone.polygons ?? []).flatMap((poly) => poly.pts ?? [])),
-                layer: zone.layer,
+                layer: layer_name_of(zone.layer),
                 net: zone.net_name || net_name_of(zone, netsByCode),
             }),
         );
@@ -524,7 +645,7 @@ function index_board(text, documentPath, timings) {
                     point_of(drawing.at) ??
                     centroid_of(drawing.pts) ??
                     centroid_of([drawing.start, drawing.mid, drawing.end].filter(Boolean)),
-                layer: drawing.layer,
+                layer: layer_name_of(drawing.layer),
                 text: drawing.text,
             }),
         );
@@ -540,10 +661,15 @@ function index_board(text, documentPath, timings) {
     return {
         objects,
         anonymous,
+        routeMetrics,
         collections: {
             footprints: (board.footprints ?? []).length,
             pads: (board.footprints ?? []).reduce(
                 (total, footprint) => total + (footprint.pads ?? []).length,
+                0,
+            ),
+            footprint_zones: (board.footprints ?? []).reduce(
+                (total, footprint) => total + (footprint.zones ?? []).length,
                 0,
             ),
             segments: (board.segments ?? []).length,
@@ -573,6 +699,7 @@ export function index_snapshot(root) {
     const objects = [];
     const collections = {};
     const anonymous = {};
+    const routeMetrics = {};
     // `parserMs` is the parser alone; `parseMs` is parser plus building the
     // index on top of it. Keeping them apart is what makes this comparable
     // with the 639 ms the plan quotes, which measured only the parse.
@@ -596,7 +723,7 @@ export function index_snapshot(root) {
                 : index_schematic(text, documentPath, timings);
         } catch (cause) {
             error = String(cause?.message ?? cause);
-            result = { objects: [], collections: {}, anonymous: {} };
+            result = { objects: [], collections: {}, anonymous: {}, routeMetrics: {} };
         }
         const elapsed = performance.now() - parseStarted;
         parseMs += elapsed;
@@ -607,6 +734,22 @@ export function index_snapshot(root) {
         }
         for (const [key, value] of Object.entries(result.anonymous ?? {})) {
             anonymous[key] = (anonymous[key] ?? 0) + value;
+        }
+        for (const [net, value] of Object.entries(result.routeMetrics ?? {})) {
+            const metric = (routeMetrics[net] ??= {
+                routeLengthMm: 0,
+                viaCount: 0,
+                usedLayers: [],
+                viaSpans: {},
+            });
+            metric.routeLengthMm += value.routeLengthMm ?? 0;
+            metric.viaCount += value.viaCount ?? 0;
+            metric.usedLayers = [
+                ...new Set([...metric.usedLayers, ...(value.usedLayers ?? [])]),
+            ].sort();
+            for (const [span, count] of Object.entries(value.viaSpans ?? {})) {
+                metric.viaSpans[span] = (metric.viaSpans[span] ?? 0) + count;
+            }
         }
         documents.push(
             entry({
@@ -630,6 +773,7 @@ export function index_snapshot(root) {
         root,
         documents,
         objects,
+        routeMetrics,
         counts: { total: objects.length, byKind, anonymous },
         collections,
         timings: {
@@ -659,6 +803,7 @@ export function index_snapshot(root) {
 const RECONCILIATION = {
     footprints: ["footprint"],
     pads: ["pad"],
+    footprint_zones: ["footprint_zone"],
     segments: ["segment", "arc_segment"],
     vias: ["via"],
     zones: ["zone"],

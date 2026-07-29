@@ -3,11 +3,11 @@
   "version": "prism-native-document-diff-v1",
   "upstreamCommit": "1a39974a90b581f4733d93086ad89e8b5fe6c7d7",
   "adapterCommit": "df92ecfd7f8f3ce52590869d0140d61f85ef45af",
-  "dirty": false,
-  "worktreePatchSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "sourceTreeSha256": "fa118a20d8f828eb2fdc0df442568f45afe537d082fdf316b38f651a08e506a2",
+  "dirty": true,
+  "worktreePatchSha256": "ee92306c8125a4da8366d3131b939c2eb1aea9be4401111d9600ae484ff7ca4e",
+  "sourceTreeSha256": "2764242a71750cd55407c1e2654fdf773b1286986eab71cfe3b3292a94fb5221",
   "artifacts": {
-    "ecad-viewer.js": "sha256:e58623a9e96d584c0350522550245819ad75d3c1b5cb32e5d744ddc8e58ac7ca",
+    "ecad-viewer.js": "sha256:3eed2f4572bcbe492f8e33c4b7470e76b9418998872792a8f07974553125e0a2",
     "parser.worker.js": "sha256:074c4fc242f47636ea41692d420bdb2483e6f42a40fab8678167b93ffb5a7cae"
   }
 }

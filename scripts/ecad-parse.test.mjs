@@ -25,7 +25,8 @@ const SCHEMATIC = `
         (uuid "cafecafe-0000-0000-0000-000000000000"))))
   (symbol (lib_id "Device:R") (at 10 20 0) (unit 1)
     (uuid "11111111-1111-1111-1111-111111111111")
-    (property "Reference" "R1" (at 12 19 0))
+    (property "Reference" "R1" (at 12 19 0)
+      (effects (font (size 1.27 1.27) (bold yes)) (justify left)))
     (property "Value" "10k" (at 12 21 0))
     (pin "1" (uuid "22222222-2222-2222-2222-222222222222"))
     (instances
@@ -47,14 +48,22 @@ const BOARD = `
     (uuid "aaaaaaaa-0000-0000-0000-000000000000")
     (property "Reference" "R1")
     (path "/aaaa-0001")
+    (fp_line (start 0 0) (end 1 0) (stroke (width 0.1) (type solid))
+      (layer "F.SilkS") (uuid "eeeeeeee-0000-0000-0000-000000000000"))
     (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu") (net 1 "VBUS")
-      (uuid "bbbbbbbb-0000-0000-0000-000000000000")))
+      (uuid "bbbbbbbb-0000-0000-0000-000000000000"))
+    (zone (net 1) (net_name "VBUS") (layer "F.Cu")
+      (uuid "ffffffff-0000-0000-0000-000000000000")
+      (polygon (pts (xy 0 0) (xy 1 0) (xy 1 1)))))
   (zone (net 1) (net_name "VBUS") (layer "F.Cu")
     (uuid "cccccccc-0000-0000-0000-000000000000")
     (polygon (pts (xy 0 0) (xy 10 0) (xy 10 10)))
     (filled_polygon (layer "F.Cu") (pts (xy 0 0) (xy 5 0) (xy 5 5))))
   (segment (start 0 0) (end 4 0) (width 0.2) (layer "F.Cu") (net 1)
     (uuid "dddddddd-0000-0000-0000-000000000000"))
+  (gr_text "ASSEMBLY" (at 2 3) (layer "F.SilkS")
+    (uuid "12121212-0000-0000-0000-000000000000")
+    (effects (font (size 1 1) (thickness 0.15))))
 )
 `;
 
@@ -94,6 +103,8 @@ test("property attributes are visible, not just values", () => {
     const reference = symbol.properties.find((p) => p.name === "Reference");
     assert.equal(reference.value, "R1");
     assert.deepEqual(reference.at, [12, 19]);
+    assert.equal(reference.effects.font.bold, true);
+    assert.equal(reference.effects.justify.horiz, "left");
 
     // A property that only moved is a change the current pipeline cannot see.
     const moved = sch(SCHEMATIC.replace("(at 12 19 0)", "(at 14 19 0)"));
@@ -119,6 +130,21 @@ test("editing a pad does not cascade into its footprint", () => {
 
     assert.notEqual(before.byUuid.get(pad).hash, after.byUuid.get(pad).hash);
     assert.equal(before.byUuid.get(footprint).hash, after.byUuid.get(footprint).hash);
+});
+
+test("nested footprint zones are independently indexed", () => {
+    const board = pcb();
+    const zone = board.byUuid.get("ffffffff-0000-0000-0000-000000000000");
+
+    assert.equal(zone.kind, "footprint_zone");
+    assert.equal(zone.parentUuid, "aaaaaaaa-0000-0000-0000-000000000000");
+    // Footprint graphics remain folded into the footprint's authored-content
+    // hash so a library refresh does not fan out into thousands of redundant
+    // child changes.
+    assert.equal(
+        board.byUuid.has("eeeeeeee-0000-0000-0000-000000000000"),
+        false,
+    );
 });
 
 test("moving a footprint does not disturb its pads", () => {
@@ -159,6 +185,14 @@ test("a track keeps a centroid so position_delta survives", () => {
     const segment = pcb().byUuid.get("dddddddd-0000-0000-0000-000000000000");
     assert.deepEqual(segment.at, [2, 0]);
     assert.equal(segment.layer, "F.Cu");
+});
+
+test("structured graphic layers cross the object boundary as names", () => {
+    const drawing = pcb().byUuid.get(
+        "12121212-0000-0000-0000-000000000000",
+    );
+    assert.equal(drawing.kind, "drawing");
+    assert.equal(drawing.layer, "F.SilkS");
 });
 
 test("a footprint's path is its schematic symbol's KIID_PATH", () => {
