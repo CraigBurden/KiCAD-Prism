@@ -144,7 +144,7 @@ export interface EcadCommentAreaDetail {
 
 export interface EcadPreparedDiffTarget {
     id: string;
-    kind: "change" | "group";
+    kind: "change" | "group" | "changes";
     category: "added" | "removed" | "modified" | "conflict";
     label: string;
     memberIds: string[];
@@ -212,6 +212,10 @@ export interface EcadDocumentComparisonSelectionResult {
     paintCount: number;
     parserCount: number;
 }
+
+export type EcadDocumentComparisonSelection =
+    | { kind: "change" | "group"; id: string }
+    | { kind: "changes"; ids: string[] };
 
 export type EcadComparisonPresentation =
     | "composite"
@@ -316,14 +320,13 @@ export interface ECadViewerElement extends HTMLElement {
     prepareComparison(
         request: EcadDocumentComparisonRequest,
     ): Promise<EcadComparisonSession>;
-    selectDocumentDiff(selection: {
-        kind: "change" | "group";
-        id: string;
-    }): Promise<EcadDocumentComparisonSelectionResult>;
-    previewDocumentDiff?(selection: {
-        kind: "change" | "group";
-        id: string;
-    } | null): void;
+    selectDocumentDiff(
+        selection: EcadDocumentComparisonSelection,
+    ): Promise<EcadDocumentComparisonSelectionResult>;
+    previewDocumentDiff?(
+        selection: EcadDocumentComparisonSelection | null,
+    ): void;
+    clearDocumentDiffSelection?(): void;
     /** Abort in-flight comparison loads without tearing down painted presentation. */
     abortDocumentComparisonLoad?(): void;
     clearDocumentComparison(): void;

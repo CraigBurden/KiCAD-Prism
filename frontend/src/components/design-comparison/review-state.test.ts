@@ -210,7 +210,10 @@ describe("semantic comparison state", () => {
             bundle,
             { kind: "group", id: "processor-group" },
             changes,
-        )).toEqual({ kind: "group", id: "net:modified:VCC" });
+        )).toEqual({
+            kind: "changes",
+            ids: ["/uuid-1", "/uuid-2"],
+        });
     });
 
     it("resolves an explicit page child for a multi-page logical change", () => {

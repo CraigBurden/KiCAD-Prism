@@ -453,6 +453,10 @@ export function ComparisonPresentationShell({
         }
         const generation = ++presentationGenerationRef.current;
         let cancelled = false;
+        const retainedOldNewCamera =
+            presentationMode === "old-new"
+                ? primaryViewer.camera
+                : null;
         setPresentationSwitching(true);
         setSessionError(null);
         const operation =
@@ -471,6 +475,12 @@ export function ComparisonPresentationShell({
         void operation.then((result) => {
             if (cancelled || generation !== presentationGenerationRef.current) {
                 return;
+            }
+            if (retainedOldNewCamera) {
+                // Old/New reuses one retained viewport and swaps its prepared
+                // revision scene. Reapply the camera captured before the swap
+                // so switching revisions never performs an implicit zoom-fit.
+                primaryViewer.camera = retainedOldNewCamera;
             }
             setPreparation(session.preparation);
             setPresentationSwitching(false);
@@ -552,6 +562,10 @@ export function ComparisonPresentationShell({
                     ? "This is a derived connectivity change with no standalone KiCad object to highlight."
                     : null,
             );
+            if (!selection) {
+                primaryViewer.clearDocumentDiffSelection?.();
+                secondaryViewer?.clearDocumentDiffSelection?.();
+            }
             return;
         }
         const viewers =

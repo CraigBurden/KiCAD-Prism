@@ -1028,6 +1028,25 @@ export function DesignComparisonWorkspace({
         () => hydrateServerGroups(domainChanges, domainServerGroups, comments),
         [domainChanges, domainServerGroups, comments],
     );
+    const schematicNavigationGroups = useMemo(
+        () => hydrateServerGroups(
+            result?.schematic.changes ?? [],
+            result?.schematic.groups ?? [],
+            comments,
+        ),
+        [comments, result],
+    );
+    const pcbNavigationGroups = useMemo(
+        () => hydrateServerGroups(
+            result?.pcb.changes ?? [],
+            result?.pcb.groups ?? [],
+            comments,
+        ),
+        [comments, result],
+    );
+    const visitedDomainsRef = useRef<Set<"schematic" | "pcb">>(new Set());
+    if (activeTab === "sch") visitedDomainsRef.current.add("schematic");
+    if (activeTab === "pcb") visitedDomainsRef.current.add("pcb");
 
     useEffect(() => {
         setDifferencesPage(0);
@@ -1265,6 +1284,65 @@ export function DesignComparisonWorkspace({
         setPresentationMode(next);
     };
 
+    const renderDomainShell = (
+        shellDomain: "schematic" | "pcb",
+        shellGroups: ChangeGroup[],
+    ) => {
+        if (!result?.document_diff) return null;
+        const isActive = domain === shellDomain;
+        return (
+            <div
+                key={shellDomain}
+                className={cn(
+                    "flex min-h-0 min-w-0 flex-1",
+                    !isActive && "hidden",
+                )}
+                aria-hidden={!isActive}
+            >
+                <ComparisonPresentationShell
+                    key={`${shellDomain}:${base}:${head}`}
+                    projectId={projectId}
+                    domain={shellDomain}
+                    base={base}
+                    compare={head}
+                    presentationMode={presentationMode}
+                    documentDiff={result.document_diff}
+                    files={result.files}
+                    reviewGroups={shellGroups}
+                    selection={isActive ? reviewSelection : null}
+                    previewSelection={isActive ? previewSelection : null}
+                    initialVisibleLayers={visibleLayers}
+                    onVisibleLayersChange={setVisibleLayers}
+                    rightRailTab={comparisonRightRailTab}
+                    onRightRailTabChange={setComparisonRightRailTab}
+                    discussionCount={comments.filter(
+                        (comment) => comment.status === "OPEN",
+                    ).length}
+                    discussionContent={(
+                        <ComparisonDiscussionRail
+                            projectId={projectId}
+                            base={base}
+                            compare={head}
+                            domain={shellDomain === "pcb" ? "PCB" : "SCH"}
+                            anchor={isActive && selectedReviewGroup
+                                ? {
+                                    id: selectedReviewGroup.id,
+                                    label: selectedReviewGroup.label,
+                                    page: selectedChange?.page,
+                                }
+                                : null}
+                            comments={comments}
+                            canComment={canComment}
+                            onCommentsChange={setComments}
+                            onClose={() => setComparisonRightRailTab(null)}
+                            embedded
+                        />
+                    )}
+                />
+            </div>
+        );
+    };
+
     return (
         <Dialog open onOpenChange={(open) => !open && handleClose()}>
             <DialogContent className="flex h-[96vh] w-[98vw] max-w-none flex-col gap-0 overflow-hidden p-0">
@@ -1439,44 +1517,16 @@ export function DesignComparisonWorkspace({
                                             id="comparison-presentation"
                                             onRender={logRenderPerformance}
                                         >
-                                            <ComparisonPresentationShell
-                                                key={`${domain}:${base}:${head}`}
-                                                projectId={projectId}
-                                                domain={domain}
-                                                base={base}
-                                                compare={head}
-                                                presentationMode={presentationMode}
-                                                documentDiff={result.document_diff}
-                                                files={result.files}
-                                                reviewGroups={navigationGroups}
-                                                selection={reviewSelection}
-                                                previewSelection={previewSelection}
-                                                initialVisibleLayers={visibleLayers}
-                                                onVisibleLayersChange={setVisibleLayers}
-                                                rightRailTab={comparisonRightRailTab}
-                                                onRightRailTabChange={setComparisonRightRailTab}
-                                                discussionCount={comments.filter((comment) => comment.status === "OPEN").length}
-                                                discussionContent={(
-                                                    <ComparisonDiscussionRail
-                                                        projectId={projectId}
-                                                        base={base}
-                                                        compare={head}
-                                                        domain={activeTab === "pcb" ? "PCB" : "SCH"}
-                                                        anchor={selectedReviewGroup
-                                                            ? {
-                                                                id: selectedReviewGroup.id,
-                                                                label: selectedReviewGroup.label,
-                                                                page: selectedChange?.page,
-                                                            }
-                                                            : null}
-                                                        comments={comments}
-                                                        canComment={canComment}
-                                                        onCommentsChange={setComments}
-                                                        onClose={() => setComparisonRightRailTab(null)}
-                                                        embedded
-                                                    />
+                                            {visitedDomainsRef.current.has("schematic")
+                                                && renderDomainShell(
+                                                    "schematic",
+                                                    schematicNavigationGroups,
                                                 )}
-                                            />
+                                            {visitedDomainsRef.current.has("pcb")
+                                                && renderDomainShell(
+                                                    "pcb",
+                                                    pcbNavigationGroups,
+                                                )}
                                         </Profiler>
                                     ) : (
                                         <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">

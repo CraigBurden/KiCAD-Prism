@@ -19,7 +19,10 @@ export function resolveNativeSelection(
     documentDiff: KiCadProjectDiffBundle,
     selection: ComparisonSelection,
     changes: ChangeItem[],
-): { kind: "change" | "group"; id: string } | null {
+):
+    | { kind: "change" | "group"; id: string }
+    | { kind: "changes"; ids: string[] }
+    | null {
     const changeIds = changes.flatMap((change) => {
         const entry = documentDiff.navigation[change.id];
         if (!entry) return [];
@@ -34,12 +37,7 @@ export function resolveNativeSelection(
 
     if (!changeIds.length) return null;
     if (selection?.kind === "group") {
-        const group = [...preparation.targets.values()].find(
-            (target) =>
-                target.kind === "group"
-                && changeIds.every((id) => target.memberIds.includes(id)),
-        );
-        if (group) return { kind: "group", id: group.id };
+        return { kind: "changes", ids: [...new Set(changeIds)] };
     }
 
     return { kind: "change", id: changeIds[0]! };

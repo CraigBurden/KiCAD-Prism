@@ -592,13 +592,13 @@ describe("ComparisonPresentationShell", () => {
         await waitFor(() => {
             expect(FakeEcadViewer.instances[0]?.selectDocumentDiff)
                 .toHaveBeenCalledWith({
-                    kind: "change",
-                    id: "/label-a",
+                    kind: "changes",
+                    ids: ["/label-a"],
                 });
             expect(FakeEcadViewer.instances[1]?.selectDocumentDiff)
                 .toHaveBeenCalledWith({
-                    kind: "change",
-                    id: "/label-a",
+                    kind: "changes",
+                    ids: ["/label-a"],
                 });
         });
     });
