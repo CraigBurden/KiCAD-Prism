@@ -682,7 +682,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const detail = (event as CustomEvent<EcadSemanticSelectionDetail>).detail;
             lastSelectionRef.current = detail;
             const normalized = normalizeEcadSelection(detail, revisionKey);
-            if (normalized) selectGlobal(normalized);
+            if (normalized) {
+                selectGlobal(normalized);
+            } else {
+                // Empty selection: a click on empty canvas away from any item.
+                // Clear the current selection so it deselects and the selection
+                // side panel closes, rather than leaving the last item stuck.
+                clearGlobalSelection();
+            }
         };
 
         const handleCrossProbe = (event: Event) => {
@@ -703,7 +710,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             schematicViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
             pcbViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
         };
-    }, [commit, crossProbeGlobal, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey]);
+    }, [commit, clearGlobalSelection, crossProbeGlobal, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey]);
 
     useEffect(() => {
         const applySelection = (
@@ -759,7 +766,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     }, [commit, pcbViewerElement, projectId, registerClient, schematicViewerElement, semanticIndex]);
 
     useEffect(() => {
-        if (globalSelection) setRightRailTab("selection");
+        if (globalSelection) {
+            setRightRailTab("selection");
+        } else {
+            // Selection cleared (deselect / click-away): close the selection panel
+            // so the side menu does not linger with nothing selected. Leave other
+            // rail tabs (comments) alone.
+            setRightRailTab((tab) => (tab === "selection" ? null : tab));
+        }
     }, [globalSelection]);
 
     useEffect(() => {
