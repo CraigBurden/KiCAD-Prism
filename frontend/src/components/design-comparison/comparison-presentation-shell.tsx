@@ -71,6 +71,12 @@ type ComparisonPresentationShellProps = {
 type SessionPhase = "waiting-layout" | "loading" | "ready" | "error";
 type OldNewSide = "base" | "compare";
 const ignoreRightRailChange = () => undefined;
+/**
+ * Ceiling on one prepareComparison call. Generous on purpose: a cold parse of
+ * two revisions of a large board is legitimately slow, and this exists to turn
+ * a hang into an error, not to police performance.
+ */
+const PREPARE_COMPARISON_TIMEOUT_MS = 45_000;
 
 function isAbortError(error: unknown): boolean {
     return error instanceof DOMException && error.name === "AbortError";
@@ -366,20 +372,54 @@ export function ComparisonPresentationShell({
             baseRevisionKey,
             compareRevisionKey,
         });
-        void primaryViewer.prepareComparison({
-            comparisonKey,
-            reference: {
-                revisionKey: baseRevisionKey,
-                sources: baseSources.sources,
-            },
-            comparison: {
-                revisionKey: compareRevisionKey,
-                sources: compareSources.sources,
-            },
-            diff: comparisonDiff,
-            diffFormat: "prism",
-            documentPath,
-            activeSheetPath: documentPath,
+        // Guard against the viewer promise never settling. prepareComparison
+        // lives in the vendored ecad-viewer bundle; if it hangs on input it
+        // cannot render it neither resolves nor rejects, and the panel spins on
+        // "Preparing native comparison…" forever with nothing to catch. Race it
+        // against a timeout so a hang becomes a surfaced, logged error through
+        // the existing .catch instead of an unbounded spinner. The inputs are
+        // logged so the stuck payload can be inspected afterwards.
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+        const prepareTimeout = new Promise<never>((_, reject) => {
+            timeoutHandle = setTimeout(() => {
+                logComparisonDebug("session.prepare.timeout", {
+                    generation,
+                    documentPath,
+                    domain,
+                    timeoutMs: PREPARE_COMPARISON_TIMEOUT_MS,
+                    baseSourceCount: baseSources.sources.length,
+                    compareSourceCount: compareSources.sources.length,
+                    hasDiff: Boolean(comparisonDiff),
+                    viewerState: viewerState(primaryViewer),
+                });
+                reject(
+                    new Error(
+                        `The viewer did not finish preparing this comparison within ${
+                            PREPARE_COMPARISON_TIMEOUT_MS / 1000
+                        }s. This usually means the ${domain} document diff hit a case the viewer cannot render.`,
+                    ),
+                );
+            }, PREPARE_COMPARISON_TIMEOUT_MS);
+        });
+        void Promise.race([
+            primaryViewer.prepareComparison({
+                comparisonKey,
+                reference: {
+                    revisionKey: baseRevisionKey,
+                    sources: baseSources.sources,
+                },
+                comparison: {
+                    revisionKey: compareRevisionKey,
+                    sources: compareSources.sources,
+                },
+                diff: comparisonDiff,
+                diffFormat: "prism",
+                documentPath,
+                activeSheetPath: documentPath,
+            }),
+            prepareTimeout,
+        ]).finally(() => {
+            if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
         }).then((next) => {
             created = next;
             if (cancelled || generation !== sessionGenerationRef.current) {

@@ -977,7 +977,7 @@ describe("ComparisonPresentationShell", () => {
         });
         // ComparisonViewerHost coalesces its initial sized-canvas notification
         // into the next animation frame. Let that initialization settle before
-        // asserting that the rail-only rerender adds no resize calls.
+        // measuring what the rail-only rerender adds.
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         const resizeCounts = FakeEcadViewer.instances.map(
             (viewer) => viewer.resize.mock.calls.length,
@@ -1002,9 +1002,18 @@ describe("ComparisonPresentationShell", () => {
             expect(FakeEcadViewer.instances[1]?.setViewportInsets)
                 .toHaveBeenLastCalledWith(expect.objectContaining({ right: 0 }));
         });
+        // Closing the rail re-checks each pane's canvas size exactly once. That
+        // check is a no-op when the backing store already matches layout, so it
+        // costs no repaint — what matters is that the rail does not reload or
+        // re-prepare anything, which the insets-only calls above establish.
+        //
+        // This previously asserted *zero* added resizes, which only held
+        // because the sources effect listed `files` and aborted its own fetch
+        // on every render: the panes never finished loading, so they never
+        // reached the point of reacting to a layout change at all.
         expect(FakeEcadViewer.instances.map(
             (viewer) => viewer.resize.mock.calls.length,
-        )).toEqual(resizeCounts);
+        )).toEqual(resizeCounts.map((count) => count + 1));
         rectSpy.mockRestore();
     });
 });

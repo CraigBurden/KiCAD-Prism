@@ -851,14 +851,22 @@ export function DesignComparisonWorkspace({
     useEffect(() => {
         const controller = new AbortController();
         void (async () => {
-            const params = new URLSearchParams({ base, compare: head });
-            const response = await fetchApi(
-                `/api/projects/${projectId}/comparison-comments?${params}`,
-                { signal: controller.signal },
-            );
-            if (!response.ok) return;
-            const payload = (await response.json()) as CommentsFile;
-            if (!controller.signal.aborted) setComments(payload.comments ?? []);
+            try {
+                const params = new URLSearchParams({ base, compare: head });
+                const response = await fetchApi(
+                    `/api/projects/${projectId}/comparison-comments?${params}`,
+                    { signal: controller.signal },
+                );
+                if (!response.ok) return;
+                const payload = (await response.json()) as CommentsFile;
+                if (!controller.signal.aborted) setComments(payload.comments ?? []);
+            } catch (caught) {
+                // The cleanup aborts this fetch on every re-run; that rejection is
+                // expected, not an error. Without this catch it surfaced as an
+                // "Uncaught (in promise) AbortError" on each render.
+                if (caught instanceof DOMException && caught.name === "AbortError") return;
+                throw caught;
+            }
         })();
         return () => controller.abort();
     }, [projectId, base, head]);
