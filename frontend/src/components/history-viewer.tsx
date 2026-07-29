@@ -25,6 +25,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DesignComparisonWorkspace } from "./design-comparison/design-comparison-workspace";
 import {
     applyOpenComparisonParams,
@@ -80,7 +81,8 @@ interface CommitsResponse {
     offset: number;
 }
 
-const COMMITS_PAGE_SIZE = 50;
+const COMMITS_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
+const DEFAULT_COMMITS_PAGE_SIZE = 50;
 const RELEASES_PAGE_SIZE = 9;
 
 /** Cheap, regex-based approximation of per-category added/removed counts for
@@ -425,6 +427,7 @@ export function HistoryViewer({
     const [commitsHasMore, setCommitsHasMore] = useState(false);
     const [releasesHasMore, setReleasesHasMore] = useState(false);
     const [commitsPage, setCommitsPage] = useState(0);
+    const [commitsPageSize, setCommitsPageSize] = useState(DEFAULT_COMMITS_PAGE_SIZE);
     const [releasesPage, setReleasesPage] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -541,8 +544,8 @@ export function HistoryViewer({
         const fetchHistory = async () => {
             const params = new URLSearchParams();
             if (branchRef) params.set("ref", branchRef);
-            params.set("limit", String(COMMITS_PAGE_SIZE));
-            params.set("offset", String(commitsPage * COMMITS_PAGE_SIZE));
+            params.set("limit", String(commitsPageSize));
+            params.set("offset", String(commitsPage * commitsPageSize));
             params.set("include_total", "false");
             const commitsQuery = params.toString();
 
@@ -625,7 +628,7 @@ export function HistoryViewer({
         });
 
         return () => controller.abort();
-    }, [projectId, branchRef, commitsPage, releasesPage]);
+    }, [projectId, branchRef, commitsPage, commitsPageSize, releasesPage]);
 
     if (loading) {
         return (
@@ -774,6 +777,27 @@ export function HistoryViewer({
                         <GitCommit className="h-5 w-5" />
                         Commits
                     </h3>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">Per page</span>
+                        <Select
+                            value={String(commitsPageSize)}
+                            onValueChange={(value) => {
+                                setCommitsPageSize(Number(value));
+                                setCommitsPage(0);
+                            }}
+                        >
+                            <SelectTrigger size="sm" className="w-20">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {COMMITS_PAGE_SIZE_OPTIONS.map((size) => (
+                                    <SelectItem key={size} value={String(size)}>
+                                        {size}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
                 </div>
 
                 {commits.length === 0 ? (
