@@ -83,40 +83,43 @@ function StackupTable({
 }
 
 export function StackupPanel({ stackup }: StackupPanelProps) {
-    if (!stackup || !stackup.changed) {
+    // No stackup could be read from either revision. This is not "no changes" —
+    // it means the board (or its stackup block) was not available to read, which
+    // on this setup means the PCB has not been rendered yet. Say so plainly and
+    // tell the reviewer what to do, rather than showing an empty or vague panel.
+    if (!stackup || !stackup.present) {
         return (
             <section className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-8 text-center">
                 <div>
                     <h3 className="text-sm font-medium text-foreground">
-                        No stackup changes detected
+                        Stackup not available yet
                     </h3>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        The board stackup is identical in both revisions.
+                    <p className="mt-1 max-w-md text-xs text-muted-foreground">
+                        No board stackup could be read from these revisions. Render
+                        the PCB for this project, then run the comparison again to
+                        see the stackup.
                     </p>
                 </div>
             </section>
         );
     }
 
-    if (!stackup.present) {
-        return (
-            <section className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-8 text-center">
-                <div>
-                    <h3 className="text-sm font-medium text-foreground">
-                        Stackup comparison unavailable
-                    </h3>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        Stackup data could not be read from one of the revisions.
-                    </p>
-                </div>
-            </section>
-        );
-    }
-
+    // Present in at least one revision: always show both stackups side by side,
+    // whether or not they changed. An unchanged stackup is still worth looking at
+    // to confirm it did not move. Only add the "differs" banner when it changed.
     return (
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="shrink-0 border-b bg-warning/10 px-4 py-1.5 text-xs text-warning-foreground">
-                Stackup differs between revisions — changed rows are highlighted below.
+            <div
+                className={cn(
+                    "shrink-0 border-b px-4 py-1.5 text-xs",
+                    stackup.changed
+                        ? "bg-warning/10 text-warning-foreground"
+                        : "bg-muted/40 text-muted-foreground",
+                )}
+            >
+                {stackup.changed
+                    ? "Stackup differs between revisions — changed rows are highlighted below."
+                    : "Stackup is identical in both revisions."}
             </div>
             <div className="flex min-h-0 flex-1 divide-x">
                 <StackupTable title="Old stackup" accent="old" layers={stackup.base} otherLayers={stackup.head} />

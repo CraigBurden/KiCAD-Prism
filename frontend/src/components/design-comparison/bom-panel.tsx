@@ -44,13 +44,26 @@ export function filterBomRows(
     search: string,
     filterField: string,
     fieldFilter: string,
+    view: BomView = "changes",
 ) {
     const activeStatuses = new Set(statuses);
     if (showUnchanged) activeStatuses.add("unchanged");
     const query = search.trim().toLocaleLowerCase();
     const engineeringQuery = fieldFilter.trim().toLocaleLowerCase();
     return bom.changes.filter((row) => {
-        if (!activeStatuses.has(row.status)) return false;
+        // The status filter and "show unchanged" belong to the changes view,
+        // which is about what differs. Base and compare show the full BOM for a
+        // revision, so a row is included when it exists on that side: a removed
+        // row has no compare entry, an added row has no base entry, everything
+        // else appears. Without this, an unchanged BOM (every row "unchanged")
+        // was filtered out entirely and base/compare rendered empty.
+        if (view === "base") {
+            if (!row.old) return false;
+        } else if (view === "compare") {
+            if (!row.new) return false;
+        } else if (!activeStatuses.has(row.status)) {
+            return false;
+        }
         const values = [...Object.values(row.old ?? {}), ...Object.values(row.new ?? {})];
         if (query && ![row.ref, ...values].some((value) =>
             String(value ?? "").toLocaleLowerCase().includes(query)
@@ -104,13 +117,21 @@ export function BomPanel({ bom }: BomPanelProps) {
             search,
             filterField,
             fieldFilter,
+            view,
         );
-    }, [bom, statuses, showUnchanged, search, filterField, fieldFilter]);
+    }, [bom, statuses, showUnchanged, search, filterField, fieldFilter, view]);
 
     if (!bom) {
         return (
-            <div className="flex h-full flex-1 items-center justify-center text-sm text-muted-foreground">
-                BOM data is not available for these revisions.
+            <div className="flex h-full flex-1 flex-col items-center justify-center p-8 text-center">
+                <h3 className="text-sm font-medium text-foreground">
+                    BOM not available yet
+                </h3>
+                <p className="mt-1 max-w-md text-xs text-muted-foreground">
+                    No BOM could be built from these revisions. The schematic must
+                    parse for a BOM to exist. Render the project, then run the
+                    comparison again.
+                </p>
             </div>
         );
     }
