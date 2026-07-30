@@ -65,7 +65,6 @@ import type {
     DesignCompareBundle,
     DesignCompareJobStatus,
     DesignCompareResult,
-    RouteMetrics,
     SemanticChangeGroup,
 } from "./types";
 
@@ -299,7 +298,6 @@ function DifferencesPane({
     onPreviewChange,
     onPrevious,
     onNext,
-    routeMetrics,
 }: {
     groups: ChangeGroup[];
     totalGroups: number;
@@ -321,7 +319,6 @@ function DifferencesPane({
     onPreviewChange: (selection: ComparisonSelection) => void;
     onPrevious: () => void;
     onNext: () => void;
-    routeMetrics?: { base?: RouteMetrics; compare?: RouteMetrics } | null;
 }) {
     const paneRef = useRef<HTMLElement | null>(null);
     const totalPages = Math.max(1, Math.ceil(totalGroups / pageSize));
@@ -663,70 +660,6 @@ function DifferencesPane({
                 </div>
             )}
 
-            {selectedGroup && (
-                <div className="max-h-48 overflow-auto border-t bg-muted/10 p-3 text-xs">
-                    <div className="font-medium">{selectedGroup.label}</div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                        {changeSummary(
-                            selectedGroup.changes.find(
-                                (change) => change.id === selectedChangeId,
-                            ) ?? selectedGroup.changes[0]!,
-                        )}
-                    </div>
-                    {routeMetrics && (
-                        <div className="mt-2 rounded border bg-background/60 p-2">
-                            <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-1 tabular-nums">
-                                <span className="text-muted-foreground">Routing</span>
-                                <span className="text-muted-foreground">Base</span>
-                                <span className="text-muted-foreground">Compare</span>
-                                <span>Length</span>
-                                <span>{routeMetrics.base?.centerline_length_mm.toFixed(3) ?? "—"} mm</span>
-                                <span>{routeMetrics.compare?.centerline_length_mm.toFixed(3) ?? "—"} mm</span>
-                                <span>Vias</span>
-                                <span>{routeMetrics.base?.via_count ?? "—"}</span>
-                                <span>{routeMetrics.compare?.via_count ?? "—"}</span>
-                            </div>
-                        </div>
-                    )}
-                    {!!Object.keys(
-                        selectedGroup.changes.find((change) => change.id === selectedChangeId)?.fields ?? {},
-                    ).length && (
-                        <div className="mt-2 overflow-hidden rounded border bg-background/60">
-                            <div className="grid grid-cols-[minmax(4rem,1fr)_1fr_1fr] border-b px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                                <span>Field</span><span>Old</span><span>New</span>
-                            </div>
-                            {Object.entries(
-                                selectedGroup.changes.find((change) => change.id === selectedChangeId)?.fields ?? {},
-                            ).map(([field, value]) => {
-                                const delta = value && typeof value === "object" ? value : null;
-                                return (
-                                    <div key={field} className="grid grid-cols-[minmax(4rem,1fr)_1fr_1fr] gap-2 border-b px-2 py-1.5 last:border-0">
-                                        <span className="truncate text-muted-foreground">{field}</span>
-                                        <span className="break-words font-mono text-[10px]">{String(delta?.old ?? "—")}</span>
-                                        <span className="break-words font-mono text-[10px]">{String(delta?.new ?? "—")}</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                    {(() => {
-                        const details = selectedGroup.changes.find(
-                            (change) => change.id === selectedChangeId,
-                        )?.details?.connectivity;
-                        if (!details) return null;
-                        return (
-                            <div className="mt-2 space-y-1 font-mono text-[10px]">
-                                {details.addedTerminals.map((terminal) => (
-                                    <div key={`add-${terminal}`} className="text-success">+ {terminal}</div>
-                                ))}
-                                {details.removedTerminals.map((terminal) => (
-                                    <div key={`remove-${terminal}`} className="text-destructive">− {terminal}</div>
-                                ))}
-                            </div>
-                        );
-                    })()}
-                </div>
-            )}
         </aside>
     );
 }
@@ -990,6 +923,22 @@ export function DesignComparisonWorkspace({
         onClose();
     };
 
+    /**
+     * Escape clears the current selection rather than closing the comparison.
+     *
+     * Building a comparison is expensive and Escape is the reflex for
+     * "dismiss this panel"; having it tear down the whole workspace made a
+     * stray keypress cost a full rebuild. Closing stays on the X and on the
+     * overlay. When there is nothing selected Escape does nothing, which is
+     * deliberate — it never becomes a close shortcut again by accident.
+     */
+    const dismissSelection = () => {
+        setReviewSelection(null);
+        setPreviewSelection(null);
+        setComponentSelection(null);
+        setComparisonRightRailTab(null);
+    };
+
     const domain = activeTab === "pcb" ? "pcb" : "schematic";
     const domainChanges = useMemo(() => {
         if (!result) return [];
@@ -1095,15 +1044,6 @@ export function DesignComparisonWorkspace({
         ) ?? null,
         [navigationGroups, reviewSelection, selectedChangeId],
     );
-    const selectedRouteMetrics = useMemo(() => {
-        if (activeTab !== "pcb" || !selectedChange?.net || !result?.pcb.route_metrics) {
-            return null;
-        }
-        return {
-            base: result.pcb.route_metrics.base[selectedChange.net],
-            compare: result.pcb.route_metrics.compare[selectedChange.net],
-        };
-    }, [activeTab, result, selectedChange]);
 
     const selectChange = (change: ChangeItem, documentPath?: string) => {
         logComparisonDebug("difference.click", {
@@ -1430,7 +1370,13 @@ export function DesignComparisonWorkspace({
 
     return (
         <Dialog open onOpenChange={(open) => !open && handleClose()}>
-            <DialogContent className="flex h-[96vh] w-[98vw] max-w-none flex-col gap-0 overflow-hidden p-0">
+            <DialogContent
+                className="flex h-[96vh] w-[98vw] max-w-none flex-col gap-0 overflow-hidden p-0"
+                onEscapeKeyDown={(event) => {
+                    event.preventDefault();
+                    dismissSelection();
+                }}
+            >
                 <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                         <DialogTitle>Design comparison</DialogTitle>
@@ -1577,7 +1523,6 @@ export function DesignComparisonWorkspace({
                                             onPreviewChange={setPreviewSelection}
                                             onPrevious={() => navigate(-1)}
                                             onNext={() => navigate(1)}
-                                            routeMetrics={selectedRouteMetrics}
                                         />
                                     </Profiler>
                                     {result.document_diff ? (

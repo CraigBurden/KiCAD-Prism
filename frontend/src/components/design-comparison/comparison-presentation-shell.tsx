@@ -493,6 +493,7 @@ export function ComparisonPresentationShell({
         comparisonDiff,
         comparisonKey,
         documentPath,
+        domain,
         primaryLayoutReady,
         primaryViewer,
         sourcesReady,
