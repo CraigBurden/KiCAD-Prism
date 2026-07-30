@@ -6,7 +6,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { AlertCircle, Layers3, Loader2, MessageSquare, X } from "lucide-react";
+import { AlertCircle, Cpu, Layers3, Loader2, MessageSquare, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ViewerOverlayRail } from "@/components/viewer-overlay-rail";
 import { cn } from "@/lib/utils";
@@ -59,9 +59,9 @@ type ComparisonPresentationShellProps = {
     reviewGroups: Array<{ id: string; changes: ChangeItem[] }>;
     initialVisibleLayers: string[];
     onVisibleLayersChange: (layers: string[]) => void;
-    rightRailTab?: "layers" | "discussion" | null;
+    rightRailTab?: "layers" | "discussion" | "component" | null;
     onRightRailTabChange?: (
-        tab: "layers" | "discussion" | null,
+        tab: "layers" | "discussion" | "component" | null,
     ) => void;
     discussionContent?: ReactNode;
     discussionCount?: number;
@@ -74,6 +74,15 @@ type ComparisonPresentationShellProps = {
      * it to whichever shell is on screen.
      */
     toolbarContent?: ReactNode;
+    /**
+     * Raised when a component is clicked in one of this shell's viewer panes,
+     * carrying the pane's revision so the host can show that revision's
+     * metadata. Null when the click landed on empty canvas.
+     */
+    onComponentSelect?: (
+        selection: { reference: string; side: "base" | "compare" } | null,
+    ) => void;
+    componentContent?: ReactNode;
 };
 
 type SessionPhase = "waiting-layout" | "loading" | "ready" | "error";
@@ -186,6 +195,8 @@ export function ComparisonPresentationShell({
     discussionContent = null,
     discussionCount = 0,
     toolbarContent = null,
+    onComponentSelect,
+    componentContent = null,
 }: ComparisonPresentationShellProps) {
     const [primaryViewer, setPrimaryViewer] =
         useState<ECadViewerElement | null>(null);
@@ -799,6 +810,52 @@ export function ComparisonPresentationShell({
         sessionPhase,
     ]);
 
+    // Report component clicks with the revision the clicked pane is showing.
+    //
+    // Which pane means which revision depends on the presentation: side-by-side
+    // runs two viewers (base left, compare right), Old/New runs one viewer whose
+    // revision is whichever side is flipped to, and Composite paints the
+    // comparison revision as the authority. Deciding that here keeps the host
+    // from having to know the pane layout.
+    useEffect(() => {
+        if (!onComponentSelect) return;
+        const panes: Array<[ECadViewerElement | null, OldNewSide]> =
+            presentationMode === "side-by-side"
+                ? [[primaryViewer, "base"], [secondaryViewer, "compare"]]
+                : [[
+                    primaryViewer,
+                    presentationMode === "old-new" ? oldNewSide : "compare",
+                ]];
+        const listeners: Array<[ECadViewerElement, EventListener]> = [];
+        for (const [viewer, side] of panes) {
+            if (!viewer) continue;
+            const listener: EventListener = (event) => {
+                const detail = (event as CustomEvent<{ reference?: string }>)
+                    .detail;
+                // An empty detail is the viewer reporting a click on bare
+                // canvas; anything without a reference is not a component.
+                onComponentSelect(
+                    detail?.reference
+                        ? { reference: detail.reference, side }
+                        : null,
+                );
+            };
+            viewer.addEventListener("ecad-viewer:selection", listener);
+            listeners.push([viewer, listener]);
+        }
+        return () => {
+            for (const [viewer, listener] of listeners) {
+                viewer.removeEventListener("ecad-viewer:selection", listener);
+            }
+        };
+    }, [
+        oldNewSide,
+        onComponentSelect,
+        presentationMode,
+        primaryViewer,
+        secondaryViewer,
+    ]);
+
     const toggleLayer = (name: string, visible: boolean) => {
         for (const viewer of activeLayerViewers()) {
             viewer.setPcbLayerVisibility?.(name, visible);
@@ -1072,7 +1129,7 @@ export function ComparisonPresentationShell({
                             : []),
                         {
                             id: "discussion" as const,
-                            label: "Discussion",
+                            label: "Comments",
                             icon: <MessageSquare className="mr-1.5 size-3.5" />,
                             badge: discussionCount > 0
                                 ? (
@@ -1082,6 +1139,13 @@ export function ComparisonPresentationShell({
                                 )
                                 : null,
                         },
+                        ...(componentContent
+                            ? [{
+                                  id: "component" as const,
+                                  label: "Component",
+                                  icon: <Cpu className="mr-1.5 size-3.5" />,
+                              }]
+                            : []),
                     ]}
                     onTabChange={onRightRailTabChange}
                     onClose={() => onRightRailTabChange(null)}
@@ -1089,7 +1153,9 @@ export function ComparisonPresentationShell({
                     ariaLabel="Comparison tools"
                     className="w-80"
                 >
-                    {rightRailTab === "layers" && domain === "pcb" ? (
+                    {rightRailTab === "component" ? (
+                        componentContent
+                    ) : rightRailTab === "layers" && domain === "pcb" ? (
                         <ComparisonPcbLayersPanel
                             open
                             onOpenChange={(open) => {

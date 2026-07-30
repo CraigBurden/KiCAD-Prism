@@ -54,6 +54,10 @@ import { hydrateDesignComparePayload } from "./comparison-result-loader";
 import { BomPanel } from "./bom-panel";
 import { StackupPanel } from "./stackup-panel";
 import { ComparisonDiscussionRail } from "./comparison-discussion-rail";
+import {
+    ComparisonComponentRail,
+    type ComparisonComponentSelection,
+} from "./comparison-component-rail";
 import type { Comment, CommentsFile } from "@/types/comments";
 import type {
     ChangeItem,
@@ -766,8 +770,10 @@ export function DesignComparisonWorkspace({
     const [comments, setComments] = useState<Comment[]>([]);
     // Closed by default; the user opens it deliberately from the rail.
     const [comparisonRightRailTab, setComparisonRightRailTab] = useState<
-        "layers" | "discussion" | null
+        "layers" | "discussion" | "component" | null
     >(null);
+    const [componentSelection, setComponentSelection] =
+        useState<ComparisonComponentSelection | null>(null);
     const showDiscussion = comparisonRightRailTab === "discussion";
     const [previewSelection, setPreviewSelection] =
         useState<ComparisonSelection>(null);
@@ -1335,6 +1341,19 @@ export function DesignComparisonWorkspace({
         </div>
     );
 
+    // A component click opens the rail on that pane's revision; a click on bare
+    // canvas closes it again. Only the Component tab is touched, so a reviewer
+    // reading Comments is not yanked away by a stray click.
+    const handleComponentSelect = useCallback(
+        (next: ComparisonComponentSelection | null) => {
+            setComponentSelection(next);
+            setComparisonRightRailTab((tab) =>
+                next ? "component" : tab === "component" ? null : tab,
+            );
+        },
+        [],
+    );
+
     const renderDomainShell = (
         shellDomain: "schematic" | "pcb",
         shellGroups: ChangeGroup[],
@@ -1363,6 +1382,20 @@ export function DesignComparisonWorkspace({
                     selection={isActive ? reviewSelection : null}
                     previewSelection={isActive ? previewSelection : null}
                     toolbarContent={isActive ? presentationSwitcher : null}
+                    onComponentSelect={isActive ? handleComponentSelect : undefined}
+                    componentContent={(
+                        <ComparisonComponentRail
+                            selection={componentSelection}
+                            bom={result.bom}
+                            baseLabel={base.slice(0, 7)}
+                            compareLabel={head.slice(0, 7)}
+                            onClose={() => {
+                                setComponentSelection(null);
+                                setComparisonRightRailTab(null);
+                            }}
+                            embedded
+                        />
+                    )}
                     initialVisibleLayers={visibleLayers}
                     onVisibleLayersChange={setVisibleLayers}
                     rightRailTab={comparisonRightRailTab}
@@ -1468,7 +1501,7 @@ export function DesignComparisonWorkspace({
                                 aria-pressed={showDiscussion}
                             >
                                 <MessageSquare className="mr-2 h-3.5 w-3.5" />
-                                Discussion
+                                Comments
                                 {comments.some((comment) => comment.status === "OPEN") && (
                                     <span className="ml-2 rounded-full bg-muted px-1.5 text-[10px]">
                                         {comments.filter((comment) => comment.status === "OPEN").length}

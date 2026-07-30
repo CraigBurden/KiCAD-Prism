@@ -35,13 +35,15 @@ function StackupTable({
                 {title}
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
-                <table className="w-full text-sm">
+                <table className="w-full border-separate border-spacing-0 text-xs">
                     <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground shadow-[0_1px_0_0_hsl(var(--border))]">
                         <tr>
-                            <th className="bg-muted px-3 py-2 text-left">#</th>
-                            <th className="bg-muted px-3 py-2 text-left">Layer</th>
-                            <th className="bg-muted px-3 py-2 text-left">Type</th>
-                            <th className="bg-muted px-3 py-2 text-right">Thickness (mm)</th>
+                            <th className="w-10 border-b bg-muted px-3 py-2 text-left font-medium">#</th>
+                            <th className="border-b bg-muted px-3 py-2 text-left font-medium">Layer</th>
+                            <th className="border-b bg-muted px-3 py-2 text-left font-medium">Type</th>
+                            <th className="whitespace-nowrap border-b bg-muted px-3 py-2 text-right font-medium">
+                                Thickness (mm)
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -50,19 +52,44 @@ function StackupTable({
                             const other = otherLayers[idx];
                             if (!layer) {
                                 return (
-                                    <tr key={idx} className="border-b italic text-muted-foreground opacity-50">
-                                        <td className="px-3 py-2">{idx + 1}</td>
-                                        <td className="px-3 py-2" colSpan={3}>—</td>
+                                    <tr key={idx} className="italic text-muted-foreground opacity-50">
+                                        <td className="border-b px-3 py-2">{idx + 1}</td>
+                                        <td className="border-b px-3 py-2" colSpan={3}>—</td>
                                     </tr>
                                 );
                             }
                             const changed = rowsDiffer(layer, other);
                             return (
-                                <tr key={idx} className={cn("border-b", changed && "bg-warning/10")}>
-                                    <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
-                                    <td className="px-3 py-2 font-medium">{layer.name}</td>
-                                    <td className="px-3 py-2">{layer.type}</td>
-                                    <td className="px-3 py-2 text-right font-mono">
+                                <tr key={idx} className={cn(changed && "bg-warning/10")}>
+                                    <td className="border-b px-3 py-2 text-muted-foreground">
+                                        {idx + 1}
+                                    </td>
+                                    <td className="border-b px-3 py-2">
+                                        <span className="flex min-w-0 items-center gap-2">
+                                            {/* Copper reads as copper at a glance;
+                                                the type column still carries the
+                                                authoritative value. */}
+                                            <span
+                                                aria-hidden="true"
+                                                className={cn(
+                                                    "size-2 shrink-0 rounded-sm",
+                                                    /copper/i.test(layer.type)
+                                                        ? "bg-amber-500"
+                                                        : "bg-muted-foreground/30",
+                                                )}
+                                            />
+                                            <span
+                                                className="truncate font-medium"
+                                                title={layer.name}
+                                            >
+                                                {layer.name}
+                                            </span>
+                                        </span>
+                                    </td>
+                                    <td className="border-b px-3 py-2 text-muted-foreground">
+                                        {layer.type}
+                                    </td>
+                                    <td className="border-b px-3 py-2 text-right font-mono tabular-nums">
                                         {layer.thickness != null ? layer.thickness.toFixed(4) : "—"}
                                     </td>
                                 </tr>

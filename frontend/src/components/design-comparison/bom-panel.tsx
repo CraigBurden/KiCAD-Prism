@@ -4,8 +4,10 @@ import {
     ChevronRight,
     Columns3,
     Download,
+    ExternalLink,
     Search,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -81,6 +83,43 @@ export function filterBomRows(
         }
         return true;
     });
+}
+
+/**
+ * Render one BOM value the way the Visualizer's engineering BOM does, so the
+ * same field reads the same in both places: DNP as a badge rather than the
+ * literal string "true", a datasheet as a link, everything else truncated with
+ * the full value on hover instead of stretching the column.
+ */
+function BomValue({ field, value }: { field: string; value: string }) {
+    const text = String(value ?? "").trim();
+    if (field === "DNP" || field === "kicad_dnp") {
+        const isDnp = ["yes", "true", "1"].includes(text.toLocaleLowerCase());
+        return (
+            <Badge variant={isDnp ? "destructive" : "outline"}>
+                {isDnp ? "Yes" : "No"}
+            </Badge>
+        );
+    }
+    if (!text) return <span className="text-muted-foreground">—</span>;
+    if (field === "Datasheet" && /^https?:\/\//i.test(text)) {
+        return (
+            <a
+                href={text}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex max-w-xs items-center gap-1 truncate text-primary hover:underline"
+                title={text}
+            >
+                Datasheet <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+        );
+    }
+    return (
+        <span className="block max-w-sm truncate" title={text}>
+            {text}
+        </span>
+    );
 }
 
 export function BomPanel({ bom }: BomPanelProps) {
@@ -284,13 +323,13 @@ export function BomPanel({ bom }: BomPanelProps) {
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto">
-                <table className="min-w-full border-collapse text-left text-xs">
+                <table className="min-w-max border-separate border-spacing-0 text-left text-xs">
                     <thead className="sticky top-0 z-10 border-b bg-muted text-muted-foreground">
                         <tr>
                             <th className="w-8 bg-muted px-2 py-2" aria-label="Details" />
                             <th className="border-r bg-muted px-3 py-2">Status</th>
                             {fields.map((field) => (
-                                <th key={field} className="min-w-32 border-r bg-muted px-3 py-2 font-medium">
+                                <th key={field} className="whitespace-nowrap border-b border-r bg-muted px-3 py-2 font-medium">
                                     {field}
                                 </th>
                             ))}
@@ -336,7 +375,7 @@ export function BomPanel({ bom }: BomPanelProps) {
                                             const diff = row.diffs?.[field];
                                             if (view === "changes" && diff) {
                                                 return (
-                                                    <td key={field} className="border-r px-3 py-2">
+                                                    <td key={field} className="border-b border-r px-3 py-2">
                                                         <div className="space-y-1">
                                                             <div className="rounded border border-destructive/20 bg-destructive/10 px-1.5 py-1 text-destructive line-through">
                                                                 <span className="sr-only">Old: </span>
@@ -354,8 +393,8 @@ export function BomPanel({ bom }: BomPanelProps) {
                                                 ? row.new?.[field] ?? row.old?.[field] ?? ""
                                                 : rowValue(row, field, view);
                                             return (
-                                                <td key={field} className="border-r px-3 py-2">
-                                                    {value || <span className="text-muted-foreground">—</span>}
+                                                <td key={field} className="border-b border-r px-3 py-2">
+                                                    <BomValue field={field} value={value} />
                                                 </td>
                                             );
                                         })}
