@@ -213,6 +213,40 @@ class PrismWorkerTests(unittest.TestCase):
         self.assertNotIn(running.job_id, worker.running)
         self.assertIn(running.job_id, worker.pending_releases)
 
+    def test_finalized_job_waits_for_runner_exit_without_reporting_lease_loss(
+        self,
+    ) -> None:
+        worker = prism_worker.PrismWorker()
+        process = mock.Mock(pid=12345)
+        process.poll.return_value = None
+        running = prism_worker.RunningJob(
+            job_id="job-handler-failed",
+            fence=1,
+            attempt=1,
+            process=process,
+            log_handle=mock.Mock(),
+            last_heartbeat=100,
+        )
+        worker.running[running.job_id] = running
+        current = {
+            "job_id": running.job_id,
+            "status": "failed",
+            "fence": running.fence,
+            "lease_owner": "",
+        }
+
+        with (
+            mock.patch.object(prism_worker.time, "monotonic", return_value=101.0),
+            mock.patch.object(prism_worker.jobs, "get", return_value=current),
+            mock.patch.object(worker, "begin_termination") as terminate,
+            mock.patch.object(prism_worker.jobs, "heartbeat") as heartbeat,
+        ):
+            worker.supervise()
+
+        terminate.assert_not_called()
+        heartbeat.assert_not_called()
+        self.assertEqual(running.finalized_observed, 101.0)
+
 
 if __name__ == "__main__":
     unittest.main()

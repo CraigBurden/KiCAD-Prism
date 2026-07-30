@@ -11,6 +11,68 @@ from app.services import semantic_index_service, semantic_visualizer_service
 
 
 class SemanticIndexServiceTests(unittest.TestCase):
+    def test_reused_sheet_objects_keep_every_instance_path_and_buses(self) -> None:
+        wire = SimpleNamespace(uuid="wire-shared")
+        label = SimpleNamespace(uuid="label-shared")
+        bus = SimpleNamespace(
+            uuid="bus-shared",
+            points=[(1, 2), (3, 4)],
+        )
+        schematic = SimpleNamespace(
+            wires=[wire],
+            junctions=[],
+            labels=[label],
+            global_labels=[],
+            hierarchical_labels=[],
+            symbols=[],
+            buses=[bus],
+            bus_entries=[],
+            bus_aliases=[],
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "Sheets" / "shared.kicad_sch"
+            source.parent.mkdir()
+            instances = [
+                SimpleNamespace(
+                    sheet_path=f"/Channel {suffix}/",
+                    sheet_path_uuids=f"/{suffix}/",
+                    source_path=source,
+                    parent_sheet_path_uuids="/",
+                    sheet_symbol_uid=f"sheet-{suffix}",
+                    sheet_name=f"Channel {suffix}",
+                    is_top_level=False,
+                    schematic=schematic,
+                )
+                for suffix in ("a", "b")
+            ]
+            design = SimpleNamespace(schematic_instances=lambda: instances)
+            sheets, buses, placements = (
+                semantic_index_service._schematic_semantic_projection(
+                    design,
+                    root / "board.kicad_pro",
+                )
+            )
+
+        self.assertEqual(
+            [item["sheetInstancePath"] for item in sheets],
+            ["/a/", "/b/"],
+        )
+        self.assertEqual(
+            [item["sheetInstancePath"] for item in buses],
+            ["/a/", "/b/"],
+        )
+        refs = semantic_index_service._group_schematic_refs(
+            {"wires": ["wire-shared"], "labels": ["label-shared"]},
+            placements,
+        )
+        self.assertEqual(
+            [ref["sheetInstancePath"] for ref in refs],
+            ["/a/", "/b/"],
+        )
+        self.assertEqual([ref["labelInstanceCount"] for ref in refs], [1, 1])
+
     def test_schematic_stage_does_not_materialize_lazy_pcb(self) -> None:
         class FakeDesign:
             def to_netlist(self):

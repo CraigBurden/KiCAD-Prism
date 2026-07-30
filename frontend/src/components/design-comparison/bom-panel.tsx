@@ -4,8 +4,10 @@ import {
     ChevronRight,
     Columns3,
     Download,
+    ExternalLink,
     Search,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -44,13 +46,26 @@ export function filterBomRows(
     search: string,
     filterField: string,
     fieldFilter: string,
+    view: BomView = "changes",
 ) {
     const activeStatuses = new Set(statuses);
     if (showUnchanged) activeStatuses.add("unchanged");
     const query = search.trim().toLocaleLowerCase();
     const engineeringQuery = fieldFilter.trim().toLocaleLowerCase();
     return bom.changes.filter((row) => {
-        if (!activeStatuses.has(row.status)) return false;
+        // The status filter and "show unchanged" belong to the changes view,
+        // which is about what differs. Base and compare show the full BOM for a
+        // revision, so a row is included when it exists on that side: a removed
+        // row has no compare entry, an added row has no base entry, everything
+        // else appears. Without this, an unchanged BOM (every row "unchanged")
+        // was filtered out entirely and base/compare rendered empty.
+        if (view === "base") {
+            if (!row.old) return false;
+        } else if (view === "compare") {
+            if (!row.new) return false;
+        } else if (!activeStatuses.has(row.status)) {
+            return false;
+        }
         const values = [...Object.values(row.old ?? {}), ...Object.values(row.new ?? {})];
         if (query && ![row.ref, ...values].some((value) =>
             String(value ?? "").toLocaleLowerCase().includes(query)
@@ -68,6 +83,43 @@ export function filterBomRows(
         }
         return true;
     });
+}
+
+/**
+ * Render one BOM value the way the Visualizer's engineering BOM does, so the
+ * same field reads the same in both places: DNP as a badge rather than the
+ * literal string "true", a datasheet as a link, everything else truncated with
+ * the full value on hover instead of stretching the column.
+ */
+function BomValue({ field, value }: { field: string; value: string }) {
+    const text = String(value ?? "").trim();
+    if (field === "DNP" || field === "kicad_dnp") {
+        const isDnp = ["yes", "true", "1"].includes(text.toLocaleLowerCase());
+        return (
+            <Badge variant={isDnp ? "destructive" : "outline"}>
+                {isDnp ? "Yes" : "No"}
+            </Badge>
+        );
+    }
+    if (!text) return <span className="text-muted-foreground">—</span>;
+    if (field === "Datasheet" && /^https?:\/\//i.test(text)) {
+        return (
+            <a
+                href={text}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex max-w-xs items-center gap-1 truncate text-primary hover:underline"
+                title={text}
+            >
+                Datasheet <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+        );
+    }
+    return (
+        <span className="block max-w-sm truncate" title={text}>
+            {text}
+        </span>
+    );
 }
 
 export function BomPanel({ bom }: BomPanelProps) {
@@ -104,13 +156,21 @@ export function BomPanel({ bom }: BomPanelProps) {
             search,
             filterField,
             fieldFilter,
+            view,
         );
-    }, [bom, statuses, showUnchanged, search, filterField, fieldFilter]);
+    }, [bom, statuses, showUnchanged, search, filterField, fieldFilter, view]);
 
     if (!bom) {
         return (
-            <div className="flex h-full flex-1 items-center justify-center text-sm text-muted-foreground">
-                BOM data is not available for these revisions.
+            <div className="flex h-full flex-1 flex-col items-center justify-center p-8 text-center">
+                <h3 className="text-sm font-medium text-foreground">
+                    BOM not available yet
+                </h3>
+                <p className="mt-1 max-w-md text-xs text-muted-foreground">
+                    No BOM could be built from these revisions. The schematic must
+                    parse for a BOM to exist. Render the project, then run the
+                    comparison again.
+                </p>
             </div>
         );
     }
@@ -263,13 +323,13 @@ export function BomPanel({ bom }: BomPanelProps) {
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto">
-                <table className="min-w-full border-collapse text-left text-xs">
+                <table className="min-w-max border-separate border-spacing-0 text-left text-xs">
                     <thead className="sticky top-0 z-10 border-b bg-muted text-muted-foreground">
                         <tr>
                             <th className="w-8 bg-muted px-2 py-2" aria-label="Details" />
                             <th className="border-r bg-muted px-3 py-2">Status</th>
                             {fields.map((field) => (
-                                <th key={field} className="min-w-32 border-r bg-muted px-3 py-2 font-medium">
+                                <th key={field} className="whitespace-nowrap border-b border-r bg-muted px-3 py-2 font-medium">
                                     {field}
                                 </th>
                             ))}
@@ -315,7 +375,7 @@ export function BomPanel({ bom }: BomPanelProps) {
                                             const diff = row.diffs?.[field];
                                             if (view === "changes" && diff) {
                                                 return (
-                                                    <td key={field} className="border-r px-3 py-2">
+                                                    <td key={field} className="border-b border-r px-3 py-2">
                                                         <div className="space-y-1">
                                                             <div className="rounded border border-destructive/20 bg-destructive/10 px-1.5 py-1 text-destructive line-through">
                                                                 <span className="sr-only">Old: </span>
@@ -333,8 +393,8 @@ export function BomPanel({ bom }: BomPanelProps) {
                                                 ? row.new?.[field] ?? row.old?.[field] ?? ""
                                                 : rowValue(row, field, view);
                                             return (
-                                                <td key={field} className="border-r px-3 py-2">
-                                                    {value || <span className="text-muted-foreground">—</span>}
+                                                <td key={field} className="border-b border-r px-3 py-2">
+                                                    <BomValue field={field} value={value} />
                                                 </td>
                                             );
                                         })}

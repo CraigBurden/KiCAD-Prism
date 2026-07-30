@@ -125,7 +125,7 @@ export function ComparisonDiscussionRail({
             <div className="flex items-center justify-between border-b px-3 py-2">
                 <div className="flex items-center gap-2">
                     <MessageSquare className="h-4 w-4" />
-                    <span className="text-sm font-semibold">Discussion</span>
+                    <span className="text-sm font-semibold">Comments</span>
                     <span className="rounded-full bg-muted px-1.5 text-[10px]">
                         {comments.filter((comment) => comment.status === "OPEN").length}
                     </span>

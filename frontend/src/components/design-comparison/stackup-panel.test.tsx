@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { StackupPanel } from "./stackup-panel";
 
 describe("StackupPanel", () => {
-    it("treats two revisions without an explicit stackup as no change", () => {
+    it("tells the reviewer to render the PCB when no stackup could be read", () => {
         const view = render(
             <StackupPanel
                 stackup={{
@@ -15,8 +15,25 @@ describe("StackupPanel", () => {
             />,
         );
 
-        expect(view.getByText("No stackup changes detected")).toBeTruthy();
-        expect(view.queryByText(/No stackup data available/i)).toBeNull();
+        expect(view.getByText("Stackup not available yet")).toBeTruthy();
+        expect(view.getByText(/Render the PCB/)).toBeTruthy();
+    });
+
+    it("shows both stackups even when they are identical", () => {
+        const layers = [{ name: "F.Cu", type: "copper", thickness: 0.035 }];
+        const view = render(
+            <StackupPanel
+                stackup={{
+                    base: layers,
+                    head: layers,
+                    changed: false,
+                    present: true,
+                }}
+            />,
+        );
+
+        expect(view.getByText("Stackup is identical in both revisions.")).toBeTruthy();
+        expect(view.getAllByText("F.Cu")).toHaveLength(2);
     });
 
     it("owns the available workspace when displaying changed layers", () => {

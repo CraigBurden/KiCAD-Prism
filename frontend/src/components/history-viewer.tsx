@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
     GitCommit,
+    GitBranch,
     Tag,
     Eye,
     Check,
-    Copy,
     User,
     Clock,
     Calendar,
@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DesignComparisonWorkspace } from "./design-comparison/design-comparison-workspace";
 import {
     applyOpenComparisonParams,
@@ -80,7 +82,8 @@ interface CommitsResponse {
     offset: number;
 }
 
-const COMMITS_PAGE_SIZE = 50;
+const COMMITS_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
+const DEFAULT_COMMITS_PAGE_SIZE = 50;
 const RELEASES_PAGE_SIZE = 9;
 
 /** Cheap, regex-based approximation of per-category added/removed counts for
@@ -106,6 +109,7 @@ interface HistoryViewerProps {
     projectId: string;
     branchRef?: string | null;
     onViewCommit: (commitHash: string) => void;
+    onOpenVisualizer: (commitHash: string, tab?: string) => void;
     canCompareDiffs: boolean;
     canComment: boolean;
 }
@@ -161,6 +165,15 @@ function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string 
     return { Icon: FileText, color: "text-muted-foreground" };
 }
 
+// Which visualizer tab a changed file opens onto. Board and schematic have their
+// own views; anything else (project, libraries) just opens the visualizer on its
+// default tab, since there is no dedicated viewer for it.
+function visualizerTabForFile(filename: string): string | undefined {
+    if (filename.endsWith(".kicad_pcb")) return "pcb";
+    if (filename.endsWith(".kicad_sch")) return "sch";
+    return undefined;
+}
+
 // Small chip indicating that a commit (or file) touched N items of a given
 // kind. Renders nothing when count is 0 so rows without that kind of change
 // stay compact.
@@ -209,6 +222,7 @@ interface CommitItemProps {
     commit: Commit;
     projectId: string;
     onViewCommit: (hash: string) => void;
+    onOpenVisualizer: (hash: string, tab?: string) => void;
     isBase: boolean;
     isCompare: boolean;
     onSetBase: () => void;
@@ -220,6 +234,7 @@ function CommitItem({
     commit,
     projectId,
     onViewCommit,
+    onOpenVisualizer,
     isBase,
     isCompare,
     onSetBase,
@@ -286,31 +301,47 @@ function CommitItem({
                             <span className="truncate">{(commit.message || "").split('\n')[0]}</span>
                         </button>
                         <div className="flex items-center gap-1 flex-shrink-0">
-                            <code className="text-xs bg-muted px-2 py-1 rounded">
-                                {commit.hash}
-                            </code>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={handleCopy}
-                                title="Copy full hash"
-                            >
-                                {copied ? (
-                                    <Check className="h-3 w-3 text-success" />
-                                ) : (
-                                    <Copy className="h-3 w-3" />
-                                )}
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={() => onViewCommit(commit.full_hash)}
-                                title="View this version"
-                            >
-                                <Eye className="h-3 w-3" />
-                            </Button>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <code
+                                        className="text-xs bg-muted px-2 py-1 rounded cursor-pointer hover:bg-muted-foreground/20 flex items-center gap-1"
+                                        onClick={handleCopy}
+                                    >
+                                        {copied
+                                            ? <Check className="h-3 w-3 text-success" />
+                                            : commit.hash}
+                                    </code>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    {copied ? "Copied" : "Click to copy full hash"}
+                                </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => onOpenVisualizer(commit.full_hash)}
+                                    >
+                                        <Eye className="h-3 w-3" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Open this commit in the visualizer</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => onViewCommit(commit.full_hash)}
+                                    >
+                                        <GitBranch className="h-3 w-3" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>View this commit in history</TooltipContent>
+                            </Tooltip>
                             {selectable && (
                                 <>
                                     <Button
@@ -379,13 +410,21 @@ function CommitItem({
                             const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
                             return (
                                 <div key={file.path} className="space-y-0.5">
-                                    <div className="flex items-center gap-2 text-xs">
+                                    <button
+                                        type="button"
+                                        className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/60"
+                                        onClick={() => onOpenVisualizer(
+                                            commit.full_hash,
+                                            visualizerTabForFile(file.filename),
+                                        )}
+                                        title={`Open ${file.filename} at this commit`}
+                                    >
                                         <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
                                             {STATUS_ICON[file.status]}
                                         </span>
                                         <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
-                                        <span className="font-medium truncate" title={file.path}>{file.filename}</span>
-                                        <span className="text-muted-foreground truncate hidden sm:block" title={file.path}>
+                                        <span className="font-medium truncate">{file.filename}</span>
+                                        <span className="text-muted-foreground truncate hidden sm:block">
                                             {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
                                         </span>
                                         {(file.additions !== null || file.deletions !== null) && (
@@ -398,7 +437,7 @@ function CommitItem({
                                                 )}
                                             </span>
                                         )}
-                                    </div>
+                                    </button>
                                     {file.semantic_buckets && <SemanticBucketChips buckets={file.semantic_buckets} />}
                                 </div>
                             );
@@ -413,6 +452,7 @@ export function HistoryViewer({
     projectId,
     branchRef,
     onViewCommit,
+    onOpenVisualizer,
     canCompareDiffs,
     canComment,
 }: HistoryViewerProps) {
@@ -426,10 +466,12 @@ export function HistoryViewer({
     const [commitsHasMore, setCommitsHasMore] = useState(false);
     const [releasesHasMore, setReleasesHasMore] = useState(false);
     const [commitsPage, setCommitsPage] = useState(0);
+    const [commitsPageSize, setCommitsPageSize] = useState(DEFAULT_COMMITS_PAGE_SIZE);
     const [releasesPage, setReleasesPage] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [branchTipSha, setBranchTipSha] = useState<string | null>(null);
+    const [copiedReleaseTag, setCopiedReleaseTag] = useState<string | null>(null);
     const [baseRevision, setBaseRevision] = useState<RevisionRef | null>(() => {
         const sha = comparisonUrl.base;
         return sha ? { sha, label: sha.slice(0, 10), kind: "commit" } : null;
@@ -517,6 +559,16 @@ export function HistoryViewer({
         onViewCommit(commitHash);
     }, [onViewCommit, setSearchParams]);
 
+    const handleCopyReleaseHash = useCallback(async (tag: string, fullHash: string) => {
+        try {
+            await navigator.clipboard.writeText(fullHash);
+            setCopiedReleaseTag(tag);
+            setTimeout(() => setCopiedReleaseTag((current) => current === tag ? null : current), 2000);
+        } catch (error) {
+            console.warn("Failed to copy release hash", error);
+        }
+    }, []);
+
     useEffect(() => {
         setCommitsPage(0);
         setReleasesPage(0);
@@ -531,8 +583,8 @@ export function HistoryViewer({
         const fetchHistory = async () => {
             const params = new URLSearchParams();
             if (branchRef) params.set("ref", branchRef);
-            params.set("limit", String(COMMITS_PAGE_SIZE));
-            params.set("offset", String(commitsPage * COMMITS_PAGE_SIZE));
+            params.set("limit", String(commitsPageSize));
+            params.set("offset", String(commitsPage * commitsPageSize));
             params.set("include_total", "false");
             const commitsQuery = params.toString();
 
@@ -615,7 +667,7 @@ export function HistoryViewer({
         });
 
         return () => controller.abort();
-    }, [projectId, branchRef, commitsPage, releasesPage]);
+    }, [projectId, branchRef, commitsPage, commitsPageSize, releasesPage]);
 
     if (loading) {
         return (
@@ -665,9 +717,21 @@ export function HistoryViewer({
                                         <span className="font-semibold">{release.tag}</span>
                                     </div>
                                     <div className="flex items-center gap-1">
-                                        <code className="text-xs bg-muted px-2 py-1 rounded">
-                                            {release.commit_hash}
-                                        </code>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <code
+                                                    className="text-xs bg-muted px-2 py-1 rounded cursor-pointer hover:bg-muted-foreground/20 flex items-center gap-1"
+                                                    onClick={() => handleCopyReleaseHash(release.tag, release.full_hash)}
+                                                >
+                                                    {copiedReleaseTag === release.tag
+                                                        ? <Check className="h-3 w-3 text-success" />
+                                                        : release.commit_hash}
+                                                </code>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                {copiedReleaseTag === release.tag ? "Copied" : "Click to copy full hash"}
+                                            </TooltipContent>
+                                        </Tooltip>
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -687,11 +751,11 @@ export function HistoryViewer({
                                     {formatDate(release.date)}
                                 </div>
                                 {canCompareDiffs && (
-                                    <div className="mt-3 flex gap-2 border-t pt-3">
+                                    <div className="mt-4 flex justify-end gap-1.5">
                                         <Button
                                             variant={baseRevision?.sha === release.full_hash ? "secondary" : "outline"}
                                             size="sm"
-                                            className="h-7 flex-1 text-xs"
+                                            className="h-6 px-2.5 text-xs"
                                             disabled={compareRevision?.sha === release.full_hash}
                                             onClick={() => setRevision("base", {
                                                 sha: release.full_hash,
@@ -704,7 +768,7 @@ export function HistoryViewer({
                                         <Button
                                             variant={compareRevision?.sha === release.full_hash ? "secondary" : "outline"}
                                             size="sm"
-                                            className="h-7 flex-1 text-xs"
+                                            className="h-6 px-2.5 text-xs"
                                             disabled={baseRevision?.sha === release.full_hash}
                                             onClick={() => setRevision("compare", {
                                                 sha: release.full_hash,
@@ -752,6 +816,27 @@ export function HistoryViewer({
                         <GitCommit className="h-5 w-5" />
                         Commits
                     </h3>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">Per page</span>
+                        <Select
+                            value={String(commitsPageSize)}
+                            onValueChange={(value) => {
+                                setCommitsPageSize(Number(value));
+                                setCommitsPage(0);
+                            }}
+                        >
+                            <SelectTrigger size="sm" className="w-20">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {COMMITS_PAGE_SIZE_OPTIONS.map((size) => (
+                                    <SelectItem key={size} value={String(size)}>
+                                        {size}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
                 </div>
 
                 {commits.length === 0 ? (
@@ -766,6 +851,7 @@ export function HistoryViewer({
                                 commit={commit}
                                 projectId={projectId}
                                 onViewCommit={handleViewCommitLocal}
+                                onOpenVisualizer={onOpenVisualizer}
                                 isBase={baseRevision?.sha === commit.full_hash}
                                 isCompare={compareRevision?.sha === commit.full_hash}
                                 onSetBase={() => setRevision("base", {

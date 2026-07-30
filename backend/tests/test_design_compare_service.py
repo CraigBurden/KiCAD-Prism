@@ -81,135 +81,327 @@ class DesignCompareServiceTests(unittest.TestCase):
             self.assertTrue((destination / "board.kicad_sch").exists())
             self.assertFalse((destination / "Manufacturing-Outputs").exists())
 
-    def test_geometry_extract_preserves_native_ids_and_routing_shapes(self) -> None:
-        segment_id = "11111111-1111-1111-1111-111111111111"
-        arc_id = "22222222-2222-2222-2222-222222222222"
-        via_id = "33333333-3333-3333-3333-333333333333"
-        footprint_id = "44444444-4444-4444-4444-444444444444"
-        symbol_id = "55555555-5555-5555-5555-555555555555"
-        wire_id = "66666666-6666-6666-6666-666666666666"
-        label_id = "77777777-7777-7777-7777-777777777777"
-        global_label_id = "88888888-8888-8888-8888-888888888888"
-        junction_id = "99999999-9999-9999-9999-999999999999"
-        pin_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-        semantic_index = {
-            "components": [
-                {
-                    "componentUid": "cmp:u1",
-                    "reference": "U1",
-                }
-            ],
-            "nets": [{"netUid": "net:vcc", "name": "VCC"}],
-            "indexes": {
-                "componentBySchematicUuid": {symbol_id: 0},
-                "componentByPcbFootprintUuid": {footprint_id: 0},
-                "netBySchematicUuid": {wire_id: 0},
-                "netByPcbUuid": {segment_id: 0, arc_id: 0, via_id: 0},
-            },
-        }
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / "board.kicad_sch").write_text(
-                f"""
-                (kicad_sch
-                  (symbol (lib_id "Device:R") (at 10 20) (uuid "{symbol_id}")
-                    (pin "1" (uuid "{pin_id}")))
-                  (wire (pts (xy 1 2) (xy 3 4)) (uuid "{wire_id}"))
-                  (label "LOCAL" (at 5 6 0) (uuid "{label_id}"))
-                  (global_label "GLOBAL" (at 7 8 0) (uuid "{global_label_id}"))
-                  (junction (at 9 10) (diameter 0) (uuid "{junction_id}"))
-                )
-                """,
-                encoding="utf-8",
-            )
-            (root / "board.kicad_pcb").write_text(
-                f"""
-                (kicad_pcb
-                  (net 1 "VCC")
-                  (segment (start 0 0) (end 3 4) (width 0.25)
-                    (layer "F.Cu") (net 1) (uuid "{segment_id}"))
-                  (arc (start 1 0) (mid 0.7071 0.7071) (end 0 1)
-                    (width 0.25) (layer "F.Cu") (net 1) (uuid "{arc_id}"))
-                  (via (at 2 3) (size 0.8) (drill 0.4)
-                    (layers "F.Cu" "B.Cu") (net 1) (uuid "{via_id}"))
-                  (footprint "Package:QFN" (layer "F.Cu")
-                    (uuid "{footprint_id}") (at 20 30 90))
-                )
-                """,
-                encoding="utf-8",
-            )
-            geometry = design_compare_service._extract_geometry(root, semantic_index)
-
-        self.assertEqual(geometry["pcb"][segment_id]["source_id"], segment_id)
-        self.assertEqual(geometry["pcb"][segment_id]["semantic_id"], "net:vcc")
-        self.assertEqual(geometry["pcb"][arc_id]["kind"], "arc")
-        self.assertEqual(geometry["pcb"][via_id]["layers"], ["F.Cu", "B.Cu"])
-        self.assertEqual(geometry["pcb"][footprint_id]["reference"], "U1")
-        self.assertEqual(geometry["pcb"][footprint_id]["rotation"], 90)
-        self.assertEqual(geometry["schematic"][wire_id]["net"], "VCC")
-        self.assertEqual(geometry["schematic"][label_id]["kind"], "label")
-        self.assertEqual(geometry["schematic"][global_label_id]["page"], "board.kicad_sch")
-        self.assertEqual(geometry["schematic"][junction_id]["kind"], "junction")
-        self.assertEqual(geometry["schematic"][pin_id]["kind"], "pin")
-        self.assertEqual(
-            geometry["schematic"][pin_id]["parent_source_id"],
-            symbol_id,
-        )
-        self.assertEqual(geometry["schematic"][pin_id]["page"], "board.kicad_sch")
-
-    def test_pcb_footprint_rotation_is_a_physical_modification(self) -> None:
-        source_id = "44444444-4444-4444-4444-444444444444"
-        base = {
-            "pcb": {
-                source_id: {
+    def test_node_change_routes_native_identity_without_geometry(self) -> None:
+        change = design_compare_service._node_change(
+            {
+                "key": "board.kicad_pcb#u1",
+                "status": "modified",
+                "reasons": ["moved", "rotated"],
+                "positionDelta": {"dx": 3, "dy": 4, "distance": 5},
+                "base": {
+                    "uuid": "u1",
                     "kind": "footprint",
-                    "source_id": source_id,
-                    "semantic_id": "cmp:u1",
-                    "reference": "U1",
-                    "x": 20,
-                    "y": 30,
+                    "documentPath": "board.kicad_pcb",
+                    "at": [10, 20],
                     "rotation": 0,
+                    "refdes": "U1",
                 },
-            },
-        }
-        compare = {
-            "pcb": {
-                source_id: {
-                    **base["pcb"][source_id],
+                "compare": {
+                    "uuid": "u1",
+                    "kind": "footprint",
+                    "documentPath": "board.kicad_pcb",
+                    "at": [13, 24],
                     "rotation": 90,
+                    "refdes": "U1",
                 },
-            },
-        }
+            }
+        )
 
-        changes = design_compare_service._diff_geometry(base, compare, "pcb")
+        self.assertEqual(change["kind"], "changed")
+        self.assertEqual(change["page"], "board.kicad_pcb")
+        self.assertEqual(change["object_kind"], "footprint")
+        self.assertEqual(change["position_base"], [10, 20])
+        self.assertEqual(change["position_compare"], [13, 24])
+        self.assertNotIn("geometry", change)
+        self.assertNotIn("oldGeometry", change)
 
-        self.assertEqual(len(changes), 1)
-        self.assertEqual(changes[0]["kind"], "changed")
-        self.assertEqual(changes[0]["category"], "components")
-
-    def test_geometry_extract_preserves_schematic_repository_path(self) -> None:
-        symbol_id = "55555555-5555-5555-5555-555555555555"
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            subsheets = root / "Subsheets"
-            subsheets.mkdir()
-            (subsheets / "Power.kicad_sch").write_text(
-                f"""
-                (kicad_sch
-                  (symbol (lib_id "Device:R") (at 10 20) (uuid "{symbol_id}"))
-                )
-                """,
-                encoding="utf-8",
-            )
-            geometry = design_compare_service._extract_geometry(
-                root,
-                {"components": [], "nets": [], "indexes": {}},
-            )
+    def test_node_change_normalizes_structured_parser_layers(self) -> None:
+        change = design_compare_service._node_change(
+            {
+                "key": "board.kicad_pcb#graphic-1",
+                "status": "modified",
+                "base": {
+                    "uuid": "graphic-1",
+                    "kind": "drawing",
+                    "documentPath": "board.kicad_pcb",
+                    "layer": {"name": "F.SilkS", "knockout": False},
+                },
+                "compare": {
+                    "uuid": "graphic-1",
+                    "kind": "drawing",
+                    "documentPath": "board.kicad_pcb",
+                    "layer": {"name": "B.SilkS", "knockout": False},
+                    "layers": [{"canonical_name": "User.Drawings"}],
+                },
+            }
+        )
 
         self.assertEqual(
-            geometry["schematic"][symbol_id]["page"],
-            "Subsheets/Power.kicad_sch",
+            change["layers"],
+            ["B.SilkS", "F.SilkS", "User.Drawings"],
         )
+        self.assertEqual(change["base_item"]["layer"], "F.SilkS")
+        self.assertEqual(change["compare_item"]["layer"], "B.SilkS")
+
+    def test_native_target_hydration_uses_document_parent_and_centroid(self) -> None:
+        change = {
+            "reasons": ["connectivity-changed"],
+            "details": {
+                "visualTargets": [
+                    {
+                        "side": "comparison",
+                        "status": "modified",
+                        "sourceId": "pin-a1",
+                        "parentSourceId": "symbol-u1",
+                        "page": "/Power/",
+                        "role": "terminal",
+                    }
+                ]
+            },
+        }
+        design_compare_service._hydrate_native_targets(
+            [change],
+            {"nativeObjects": []},
+            {
+                "nativeObjects": [
+                    {
+                        "uuid": "symbol-u1",
+                        "kind": "symbol",
+                        "documentPath": "Sheets/Power.kicad_sch",
+                        "at": [10, 20],
+                    }
+                ]
+            },
+        )
+
+        target = change["details"]["visualTargets"][0]
+        self.assertEqual(target["page"], "Sheets/Power.kicad_sch")
+        self.assertEqual(target["sheetPath"], "/Power/")
+        self.assertEqual(target["kind"], "symbol")
+        self.assertEqual(target["at"], [10, 20])
+
+    def test_parser_components_drive_bom_projection(self) -> None:
+        components = design_compare_service._parser_components(
+            {
+                "componentObjects": [
+                    {
+                        "uuid": "symbol-u1",
+                        "kind": "symbol",
+                        "documentPath": "root.kicad_sch",
+                        "refdes": "U1",
+                        "instances": [{"reference": "U1", "path": "/symbol-u1"}],
+                        "properties": [
+                            {"name": "Value", "value": "MCU"},
+                            {"name": "Footprint", "value": "Package:QFN"},
+                        ],
+                    },
+                    {
+                        "uuid": "footprint-u1",
+                        "kind": "footprint",
+                        "documentPath": "board.kicad_pcb",
+                        "refdes": "U1",
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(len(components), 1)
+        self.assertEqual(components[0]["reference"], "U1")
+        self.assertEqual(
+            components[0]["pcbRefs"],
+            [{"footprintUuid": "footprint-u1"}],
+        )
+        self.assertEqual(
+            design_compare_service._semantic_bom_rows({"components": components})[0][
+                "Value"
+            ],
+            "MCU",
+        )
+
+    def test_power_symbols_are_connectivity_not_components(self) -> None:
+        power = {
+            "uuid": "power-flag",
+            "kind": "symbol",
+            "documentPath": "root.kicad_sch",
+            "libId": "power:PWR_FLAG",
+            "refdes": "#FLG01",
+            "properties": [{"name": "Value", "value": "PWR_FLAG"}],
+        }
+        self.assertEqual(
+            design_compare_service._parser_components(
+                {"componentObjects": [power]}
+            ),
+            [],
+        )
+
+        change = design_compare_service._node_change(
+            {
+                "key": "root.kicad_sch#power-flag",
+                "status": "added",
+                **power,
+                "compare": power,
+            }
+        )
+        self.assertEqual(change["category"], "nets")
+        self.assertEqual(change["net"], "PWR_FLAG")
+        self.assertIsNone(change["reference"])
+        self.assertEqual(change["details"]["visualTargets"][0]["role"], "label")
+
+    def test_property_attribute_deltas_survive_the_python_adapter(self) -> None:
+        change = design_compare_service._node_change(
+            {
+                "key": "root.kicad_sch#u1",
+                "status": "modified",
+                "base": {
+                    "uuid": "u1",
+                    "kind": "symbol",
+                    "documentPath": "root.kicad_sch",
+                    "refdes": "U1",
+                },
+                "compare": {
+                    "uuid": "u1",
+                    "kind": "symbol",
+                    "documentPath": "root.kicad_sch",
+                    "refdes": "U1",
+                },
+                "properties": [{
+                    "name": "Value",
+                    "from": "MCU",
+                    "to": "MCU",
+                    "attributesChanged": True,
+                    "fromAttributes": {"at": [1, 2], "hide": False},
+                    "toAttributes": {"at": [3, 4], "hide": True},
+                }],
+            }
+        )
+        self.assertNotIn("Value", change["fields"])
+        self.assertEqual(
+            change["fields"]["Value attributes"],
+            {
+                "old": '{"at":[1,2]}',
+                "new": '{"at":[3,4],"hide":true}',
+            },
+        )
+
+    def test_net_targets_are_distinct_per_sheet_instance(self) -> None:
+        targets = design_compare_service._net_bucket_targets(
+            {
+                "schematicRefs": [
+                    {
+                        "sheetInstancePath": "/channel-a/",
+                        "page": "shared.kicad_sch",
+                        "labelUuids": ["label-shared"],
+                    },
+                    {
+                        "sheetInstancePath": "/channel-b/",
+                        "page": "shared.kicad_sch",
+                        "labelUuids": ["label-shared"],
+                    },
+                ]
+            },
+            side="comparison",
+            status="modified",
+        )
+        self.assertEqual(len(targets), 2)
+        self.assertEqual(
+            [target["sheetPath"] for target in targets],
+            ["/channel-a/", "/channel-b/"],
+        )
+        self.assertEqual(
+            len(design_compare_service._dedupe_visual_targets(targets)),
+            2,
+        )
+
+    def test_bus_membership_changes_are_semantic_net_changes(self) -> None:
+        base_net = self._net("DATA0", "net-data0", "wire-data0")
+        compare_net = copy.deepcopy(base_net)
+        base_net["aliases"] = ["DATA[0..7]"]
+        compare_net["aliases"] = ["DATA[0..15]"]
+
+        result = design_compare_service._diff_designs(
+            self._design(nets=[base_net]),
+            self._design(nets=[compare_net]),
+        )
+
+        self.assertEqual(len(result["changes"]), 1)
+        change = result["changes"][0]
+        self.assertIn("bus-membership-changed", change["reasons"])
+        self.assertEqual(
+            change["fields"]["busMembership"],
+            {"old": "DATA[0..7]", "new": "DATA[0..15]"},
+        )
+
+    def test_bus_and_sheet_instances_are_first_class_semantic_changes(self) -> None:
+        result = design_compare_service._semantic_structure_changes(
+            {"buses": [], "sheetInstances": []},
+            {
+                "buses": [{
+                    "busUid": "bus:1",
+                    "kind": "bus",
+                    "sourceUuid": "bus-native",
+                    "sheetInstancePath": "/root/",
+                    "page": "root.kicad_sch",
+                    "points": [[0, 0], [10, 0]],
+                }],
+                "sheetInstances": [{
+                    "sheetInstanceUid": "sheet-instance:1",
+                    "sheetInstancePath": "/root/power/",
+                    "parentSheetInstancePath": "/root/",
+                    "sheetPath": "/Power/",
+                    "page": "power.kicad_sch",
+                    "parentPage": "root.kicad_sch",
+                    "sheetSymbolUuid": "sheet-native",
+                    "sheetName": "Power",
+                }],
+            },
+        )
+
+        self.assertEqual(
+            [(change["category"], change["kind"]) for change in result],
+            [("nets", "added"), ("sheets", "added")],
+        )
+        self.assertEqual(
+            result[0]["details"]["visualTargets"][0]["sourceId"],
+            "bus-native",
+        )
+        self.assertEqual(
+            result[1]["details"]["visualTargets"][0],
+            {
+                "side": "comparison",
+                "status": "added",
+                "sourceId": "sheet-native",
+                "page": "root.kicad_sch",
+                "sheetPath": "/root/",
+                "role": "sheet",
+                "kind": "sheet",
+            },
+        )
+
+    def test_route_metrics_finish_compact_parser_aggregates(self) -> None:
+        metrics = design_compare_service._route_metrics_from_digest(
+            {
+                "routeMetrics": {
+                    "VCC": {
+                        "routeLengthMm": 6.570796,
+                        "viaCount": 1,
+                        "usedLayers": ["F.Cu", "B.Cu"],
+                        "viaSpans": {"F.Cu|B.Cu": 1},
+                    }
+                }
+            },
+            {
+                "layers": [
+                    {"name": "F.Cu", "thickness": 0.035},
+                    {"name": "dielectric", "thickness": 1.53},
+                    {"name": "B.Cu", "thickness": 0.035},
+                ]
+            },
+        )["VCC"]
+
+        self.assertEqual(metrics["centerline_length_mm"], 6.5708)
+        self.assertEqual(metrics["via_count"], 1)
+        self.assertEqual(metrics["via_barrel_length_mm"], 1.6)
+        self.assertIsNone(metrics["propagation_delay"])
 
     def test_semantic_diff_has_explicit_base_compare_identity(self) -> None:
         base = {
@@ -258,42 +450,6 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual(len(pairs), len(base))
         self.assertEqual(calls, len(base) + len(compare))
         self.assertTrue(all(old is not None and new is not None for old, new in pairs))
-
-    def test_same_page_symbol_movement_and_wire_reroute_are_suppressed(self) -> None:
-        component = self._component("U1", "u1")
-        semantic = design_compare_service._diff_designs(
-            self._design(
-                components=[component],
-                nets=[self._net("VCC", "net:vcc", "wire-old")],
-                terminals=[{"reference": "U1", "pin": "1", "netUid": "net:vcc"}],
-            ),
-            self._design(
-                components=[component],
-                nets=[self._net("VCC", "net:vcc", "wire-new")],
-                terminals=[{"reference": "U1", "pin": "1", "netUid": "net:vcc"}],
-            ),
-        )
-        geometry = [
-            {
-                "id": "moved-u1",
-                "kind": "changed",
-                "category": "components",
-                "classification": "primary",
-                "semantic_id": "cmp:u1",
-            },
-            {
-                "id": "rerouted-vcc",
-                "kind": "changed",
-                "category": "nets",
-                "classification": "primary",
-                "semantic_id": "net:vcc",
-            },
-        ]
-        self.assertEqual(semantic["changes"], [])
-        self.assertEqual(
-            design_compare_service._merge_semantic_geometry_changes([], geometry),
-            [],
-        )
 
     def test_component_field_change_has_structured_reason(self) -> None:
         result = design_compare_service._diff_designs(
@@ -397,40 +553,6 @@ class DesignCompareServiceTests(unittest.TestCase):
             ],
         )
 
-    def test_net_semantics_cannot_inherit_component_category(self) -> None:
-        semantic = [{
-            "id": "semantic-net",
-            "kind": "changed",
-            "domain": "schematic",
-            "category": "nets",
-            "classification": "primary",
-            "label": "USB_D_P",
-            "net": "USB_D_P",
-            "semantic_id": "shared-id",
-            "reasons": ["connectivity-changed"],
-            "details": {},
-        }]
-        geometry = [{
-            "id": "native-symbol",
-            "kind": "added",
-            "domain": "schematic",
-            "category": "components",
-            "classification": "primary",
-            "label": "J1",
-            "semantic_id": "shared-id",
-            "geometry": {"kind": "symbol", "bounds": [0, 0, 1, 1]},
-        }]
-        merged = design_compare_service._merge_semantic_geometry_changes(
-            semantic,
-            geometry,
-        )
-        self.assertEqual(len(merged), 1)
-        self.assertEqual(merged[0]["category"], "nets")
-        self.assertEqual(
-            design_compare_service._group_changes(merged)[0]["category"],
-            "nets",
-        )
-
     def test_unconnected_addition_targets_pin_with_component_fallback(self) -> None:
         component = self._component("U30", "symbol-u30", page="io.kicad_sch")
         added_net = {
@@ -491,95 +613,6 @@ class DesignCompareServiceTests(unittest.TestCase):
             {"old": 0, "new": 1},
         )
 
-    def test_label_uuid_churn_is_matched_by_nearest_geometry(self) -> None:
-        change = {
-            "reasons": ["label-count-changed"],
-            "details": {
-                "visualTargets": [
-                    {
-                        "side": "reference",
-                        "status": "removed",
-                        "sourceId": "old-label",
-                        "role": "label",
-                    },
-                    {
-                        "side": "comparison",
-                        "status": "added",
-                        "sourceId": "replacement-label",
-                        "role": "label",
-                    },
-                    {
-                        "side": "comparison",
-                        "status": "added",
-                        "sourceId": "new-extra-label",
-                        "role": "label",
-                    },
-                ],
-            },
-        }
-        design_compare_service._hydrate_visual_target_pages_and_match_labels(
-            [change],
-            {
-                "old-label": {
-                    "page": "root.kicad_sch",
-                    "bounds": [10, 10, 2, 1],
-                },
-            },
-            {
-                "replacement-label": {
-                    "page": "root.kicad_sch",
-                    "bounds": [10.1, 10, 2, 1],
-                },
-                "new-extra-label": {
-                    "page": "root.kicad_sch",
-                    "bounds": [40, 40, 2, 1],
-                },
-            },
-        )
-        self.assertEqual(
-            change["details"]["visualTargets"],
-            [{
-                "side": "comparison",
-                "status": "added",
-                "sourceId": "new-extra-label",
-                "role": "label",
-                "page": "root.kicad_sch",
-            }],
-        )
-
-    def test_human_hierarchy_is_replaced_by_native_document_path(self) -> None:
-        change = {
-            "reasons": ["connectivity-changed"],
-            "details": {
-                "visualTargets": [{
-                    "side": "comparison",
-                    "status": "modified",
-                    "sourceId": "pin-a1",
-                    "page": "/S32G399/Boot & Low Speed Interfaces/",
-                    "role": "terminal",
-                }],
-            },
-        }
-        design_compare_service._hydrate_visual_target_pages_and_match_labels(
-            [change],
-            {},
-            {
-                "pin-a1": {
-                    "page": "Subsheets/S32G3_Boot_LS_Interfaces.kicad_sch",
-                    "bounds": [10, 20, 1, 1],
-                },
-            },
-        )
-        target = change["details"]["visualTargets"][0]
-        self.assertEqual(
-            target["page"],
-            "Subsheets/S32G3_Boot_LS_Interfaces.kicad_sch",
-        )
-        self.assertEqual(
-            target["sheetPath"],
-            "/S32G399/Boot & Low Speed Interfaces/",
-        )
-
     def test_cross_page_symbol_move_is_semantic_change(self) -> None:
         change = design_compare_service._diff_designs(
             self._design(components=[self._component("U1", "u1", page="A.kicad_sch")]),
@@ -590,15 +623,6 @@ class DesignCompareServiceTests(unittest.TestCase):
             change["details"]["sheetChange"],
             {"old": "A.kicad_sch", "new": "B.kicad_sch"},
         )
-
-    def test_pcb_placement_change_remains_reportable(self) -> None:
-        changes = design_compare_service._diff_geometry(
-            {"pcb": {"u1": {"kind": "footprint", "semantic_id": "cmp:u1", "x": 1, "y": 2}}},
-            {"pcb": {"u1": {"kind": "footprint", "semantic_id": "cmp:u1", "x": 4, "y": 6}}},
-            "pcb",
-        )
-        self.assertEqual(len(changes), 1)
-        self.assertEqual(changes[0]["kind"], "changed")
 
     def test_revision_builds_overlap_and_identical_shas_are_deduplicated(self) -> None:
         barrier = threading.Barrier(2)
@@ -718,37 +742,6 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual(change["source_id_compare"], "wire-1")
         self.assertNotIn("connections", change["fields"])
 
-    def test_component_uuid_replacement_matches_by_semantic_identity(self) -> None:
-        base = {
-            "schematic": {},
-            "pcb": {
-                "old-source": {
-                    "kind": "footprint",
-                    "semantic_id": "cmp:u1",
-                    "reference": "U1",
-                    "x": 10,
-                    "y": 10,
-                }
-            },
-        }
-        compare = {
-            "schematic": {},
-            "pcb": {
-                "new-source": {
-                    "kind": "footprint",
-                    "semantic_id": "cmp:u1",
-                    "reference": "U1",
-                    "x": 20,
-                    "y": 10,
-                }
-            },
-        }
-        changes = design_compare_service._diff_geometry(base, compare, "pcb")
-        self.assertEqual(len(changes), 1)
-        self.assertEqual(changes[0]["kind"], "changed")
-        self.assertEqual(changes[0]["source_id_base"], "old-source")
-        self.assertEqual(changes[0]["source_id_compare"], "new-source")
-
     def test_groups_keep_secondary_graphics_but_classify_them(self) -> None:
         changes = [
             {
@@ -771,46 +764,6 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual({group["classification"] for group in groups}, {"primary", "secondary"})
         self.assertTrue(all(group["id"].startswith("grp:") for group in groups))
 
-    def test_semantic_component_change_folds_into_exact_native_geometry(self) -> None:
-        semantic = [{
-            "id": "sch-comp-del-cmp:u1",
-            "kind": "removed",
-            "domain": "schematic",
-            "category": "components",
-            "label": "U1",
-            "reference": "U1",
-            "semantic_id": "cmp:u1",
-            "page": "Power",
-            "source_id_base": "uuid-u1",
-            "source_id_compare": None,
-            "fields": {"Value": {"old": "MCU", "new": None}},
-        }]
-        geometry = [{
-            "id": "sch-removed-cmp:u1",
-            "kind": "removed",
-            "domain": "schematic",
-            "category": "components",
-            "label": "U1",
-            "reference": "U1",
-            "semantic_id": "cmp:u1",
-            "page": "Power.kicad_sch",
-            "source_id_base": "uuid-u1",
-            "source_id_compare": None,
-            "oldGeometry": {
-                "kind": "symbol",
-                "source_id": "uuid-u1",
-                "bounds": [10, 20, 4, 5],
-            },
-        }]
-        merged = design_compare_service._merge_semantic_geometry_changes(
-            semantic,
-            geometry,
-        )
-        self.assertEqual(len(merged), 1)
-        self.assertEqual(merged[0]["page"], "Power.kicad_sch")
-        self.assertEqual(merged[0]["oldGeometry"]["bounds"], [10, 20, 4, 5])
-        self.assertIn("Value", merged[0]["fields"])
-
     def test_groups_include_position_delta_and_geometry_bounds(self) -> None:
         groups = design_compare_service._group_changes([{
             "id": "pcb-changed-u1",
@@ -820,52 +773,14 @@ class DesignCompareServiceTests(unittest.TestCase):
             "classification": "primary",
             "label": "U1",
             "semantic_id": "cmp:u1",
-            "oldGeometry": {"x": 10.0, "y": 20.0, "bounds": [8, 18, 4, 4]},
-            "geometry": {"x": 13.0, "y": 24.0, "bounds": [11, 22, 4, 4]},
+            "position_base": [10.0, 20.0],
+            "position_compare": [13.0, 24.0],
         }])
         self.assertEqual(
             groups[0]["position_delta"],
             {"dx": 3.0, "dy": 4.0, "distance": 5.0},
         )
-        self.assertEqual(groups[0]["geometry_bounds"]["base"], [[8, 18, 4, 4]])
-
-    def test_route_metrics_include_arc_via_layers_and_diagnostics(self) -> None:
-        geometry = {
-            "pcb": {
-                "track": {
-                    "kind": "track",
-                    "net": "VCC",
-                    "layer": "F.Cu",
-                    "points": [[0, 0], [3, 4]],
-                },
-                "arc": {
-                    "kind": "arc",
-                    "net": "VCC",
-                    "layer": "B.Cu",
-                    "points": [[1, 0], [0.707106, 0.707106], [0, 1]],
-                },
-                "via": {
-                    "kind": "via",
-                    "net": "VCC",
-                    "layers": ["F.Cu", "B.Cu"],
-                },
-            }
-        }
-        metrics = design_compare_service._route_metrics(
-            geometry,
-            {
-                "layers": [
-                    {"name": "F.Cu", "thickness": 0.035},
-                    {"name": "dielectric", "thickness": 1.53},
-                    {"name": "B.Cu", "thickness": 0.035},
-                ]
-            },
-        )["VCC"]
-        self.assertAlmostEqual(metrics["centerline_length_mm"], 5 + 1.5708, places=3)
-        self.assertEqual(metrics["via_count"], 1)
-        self.assertEqual(metrics["used_layers"], ["B.Cu", "F.Cu"])
-        self.assertAlmostEqual(metrics["via_barrel_length_mm"], 1.6)
-        self.assertIsNone(metrics["propagation_delay"])
+        self.assertEqual(groups[0]["geometry_bounds"], {"base": [], "compare": []})
 
     def test_bom_unchanged_rows_are_opt_in_and_detected_fields_are_exposed(self) -> None:
         old = [{"Reference": "R1", "Value": "10k", "Tolerance": "1%"}]
@@ -1169,6 +1084,11 @@ class DesignCompareServiceTests(unittest.TestCase):
             base="base",
             head="head",
             revisions={"base": revision, "head": revision},
+            object_delta={
+                "changes": [],
+                "base": {"nativeObjects": [], "routeMetrics": {}},
+                "head": {"nativeObjects": [], "routeMetrics": {}},
+            },
             include_unchanged=False,
             benchmark=benchmark,
         )
@@ -1177,39 +1097,6 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual(result["readiness"]["domains"]["bom"], "ready")
         self.assertEqual(result["readiness"]["domains"]["pcb"], "building")
         self.assertEqual(result["readiness"]["domains"]["stackup"], "building")
-
-    def test_pcb_geometry_reuses_stage_one_component_and_net_identities(self) -> None:
-        semantic = {
-            "components": [{"componentUid": "cmp:u1", "reference": "U1"}],
-            "nets": [{"netUid": "net:sig", "name": "SIG"}],
-            "indexes": {
-                "componentByReference": {"U1": 0},
-                "componentByPcbFootprintUuid": {},
-                "netByName": {"SIG": 0},
-                "netByPcbUuid": {},
-            },
-        }
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / "board.kicad_pcb").write_text(
-                '''(kicad_pcb
-                  (net 1 "SIG")
-                  (segment (start 1 2) (end 3 4) (width 0.2) (layer "F.Cu")
-                    (net 1) (uuid "11111111-1111-1111-1111-111111111111"))
-                  (footprint "Demo:Part" (layer "F.Cu") (at 10 20)
-                    (property "Reference" "U1")
-                    (uuid "22222222-2222-2222-2222-222222222222")))''',
-                encoding="utf-8",
-            )
-            geometry = design_compare_service._extract_geometry(root, semantic, {"pcb"})["pcb"]
-
-        self.assertEqual(
-            geometry["11111111-1111-1111-1111-111111111111"]["semantic_id"],
-            "net:sig",
-        )
-        footprint = geometry["22222222-2222-2222-2222-222222222222"]
-        self.assertEqual(footprint["semantic_id"], "cmp:u1")
-        self.assertEqual(footprint["reference"], "U1")
 
     def test_job_publishes_initial_result_before_starting_background_stage(self) -> None:
         events = []
@@ -1273,8 +1160,19 @@ class DesignCompareServiceTests(unittest.TestCase):
             return_value=(Path("/repo"), None, Path("/repo")),
         ), mock.patch.object(
             design_compare_service,
+            "_prepare_comparison_snapshots",
+        ), mock.patch.object(
+            design_compare_service,
             "_build_initial_revisions",
             return_value=({"base": {}, "head": {}}, {"base": [], "head": []}),
+        ), mock.patch.object(
+            design_compare_service,
+            "_run_ecad_object_delta",
+            return_value={
+                "changes": [],
+                "base": {"nativeObjects": [], "routeMetrics": {}},
+                "head": {"nativeObjects": [], "routeMetrics": {}},
+            },
         ), mock.patch.object(
             design_compare_service,
             "_assemble_initial_comparison",
@@ -1355,8 +1253,19 @@ class DesignCompareServiceTests(unittest.TestCase):
             return_value=(Path("/repo"), None, Path("/repo")),
         ), mock.patch.object(
             design_compare_service,
+            "_prepare_comparison_snapshots",
+        ), mock.patch.object(
+            design_compare_service,
             "_build_initial_revisions",
             return_value=({"base": {}, "head": {}}, {"base": [], "head": []}),
+        ), mock.patch.object(
+            design_compare_service,
+            "_run_ecad_object_delta",
+            return_value={
+                "changes": [],
+                "base": {"nativeObjects": [], "routeMetrics": {}},
+                "head": {"nativeObjects": [], "routeMetrics": {}},
+            },
         ), mock.patch.object(
             design_compare_service,
             "_assemble_initial_comparison",

@@ -54,6 +54,10 @@ import { hydrateDesignComparePayload } from "./comparison-result-loader";
 import { BomPanel } from "./bom-panel";
 import { StackupPanel } from "./stackup-panel";
 import { ComparisonDiscussionRail } from "./comparison-discussion-rail";
+import {
+    ComparisonComponentRail,
+    type ComparisonComponentSelection,
+} from "./comparison-component-rail";
 import type { Comment, CommentsFile } from "@/types/comments";
 import type {
     ChangeItem,
@@ -61,7 +65,6 @@ import type {
     DesignCompareBundle,
     DesignCompareJobStatus,
     DesignCompareResult,
-    RouteMetrics,
     SemanticChangeGroup,
 } from "./types";
 
@@ -295,7 +298,6 @@ function DifferencesPane({
     onPreviewChange,
     onPrevious,
     onNext,
-    routeMetrics,
 }: {
     groups: ChangeGroup[];
     totalGroups: number;
@@ -317,7 +319,6 @@ function DifferencesPane({
     onPreviewChange: (selection: ComparisonSelection) => void;
     onPrevious: () => void;
     onNext: () => void;
-    routeMetrics?: { base?: RouteMetrics; compare?: RouteMetrics } | null;
 }) {
     const paneRef = useRef<HTMLElement | null>(null);
     const totalPages = Math.max(1, Math.ceil(totalGroups / pageSize));
@@ -659,70 +660,6 @@ function DifferencesPane({
                 </div>
             )}
 
-            {selectedGroup && (
-                <div className="max-h-48 overflow-auto border-t bg-muted/10 p-3 text-xs">
-                    <div className="font-medium">{selectedGroup.label}</div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                        {changeSummary(
-                            selectedGroup.changes.find(
-                                (change) => change.id === selectedChangeId,
-                            ) ?? selectedGroup.changes[0]!,
-                        )}
-                    </div>
-                    {routeMetrics && (
-                        <div className="mt-2 rounded border bg-background/60 p-2">
-                            <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-1 tabular-nums">
-                                <span className="text-muted-foreground">Routing</span>
-                                <span className="text-muted-foreground">Base</span>
-                                <span className="text-muted-foreground">Compare</span>
-                                <span>Length</span>
-                                <span>{routeMetrics.base?.centerline_length_mm.toFixed(3) ?? "—"} mm</span>
-                                <span>{routeMetrics.compare?.centerline_length_mm.toFixed(3) ?? "—"} mm</span>
-                                <span>Vias</span>
-                                <span>{routeMetrics.base?.via_count ?? "—"}</span>
-                                <span>{routeMetrics.compare?.via_count ?? "—"}</span>
-                            </div>
-                        </div>
-                    )}
-                    {!!Object.keys(
-                        selectedGroup.changes.find((change) => change.id === selectedChangeId)?.fields ?? {},
-                    ).length && (
-                        <div className="mt-2 overflow-hidden rounded border bg-background/60">
-                            <div className="grid grid-cols-[minmax(4rem,1fr)_1fr_1fr] border-b px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                                <span>Field</span><span>Old</span><span>New</span>
-                            </div>
-                            {Object.entries(
-                                selectedGroup.changes.find((change) => change.id === selectedChangeId)?.fields ?? {},
-                            ).map(([field, value]) => {
-                                const delta = value && typeof value === "object" ? value : null;
-                                return (
-                                    <div key={field} className="grid grid-cols-[minmax(4rem,1fr)_1fr_1fr] gap-2 border-b px-2 py-1.5 last:border-0">
-                                        <span className="truncate text-muted-foreground">{field}</span>
-                                        <span className="break-words font-mono text-[10px]">{String(delta?.old ?? "—")}</span>
-                                        <span className="break-words font-mono text-[10px]">{String(delta?.new ?? "—")}</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                    {(() => {
-                        const details = selectedGroup.changes.find(
-                            (change) => change.id === selectedChangeId,
-                        )?.details?.connectivity;
-                        if (!details) return null;
-                        return (
-                            <div className="mt-2 space-y-1 font-mono text-[10px]">
-                                {details.addedTerminals.map((terminal) => (
-                                    <div key={`add-${terminal}`} className="text-success">+ {terminal}</div>
-                                ))}
-                                {details.removedTerminals.map((terminal) => (
-                                    <div key={`remove-${terminal}`} className="text-destructive">− {terminal}</div>
-                                ))}
-                            </div>
-                        );
-                    })()}
-                </div>
-            )}
         </aside>
     );
 }
@@ -764,11 +701,12 @@ export function DesignComparisonWorkspace({
     const [visibleLayers, setVisibleLayers] = useState<string[]>(initial.layers);
     const [differencesPage, setDifferencesPage] = useState(0);
     const [comments, setComments] = useState<Comment[]>([]);
+    // Closed by default; the user opens it deliberately from the rail.
     const [comparisonRightRailTab, setComparisonRightRailTab] = useState<
-        "layers" | "discussion" | null
-    >(() => window.matchMedia("(max-width: 1023px)").matches
-        ? null
-        : "discussion");
+        "layers" | "discussion" | "component" | null
+    >(null);
+    const [componentSelection, setComponentSelection] =
+        useState<ComparisonComponentSelection | null>(null);
     const showDiscussion = comparisonRightRailTab === "discussion";
     const [previewSelection, setPreviewSelection] =
         useState<ComparisonSelection>(null);
@@ -851,14 +789,22 @@ export function DesignComparisonWorkspace({
     useEffect(() => {
         const controller = new AbortController();
         void (async () => {
-            const params = new URLSearchParams({ base, compare: head });
-            const response = await fetchApi(
-                `/api/projects/${projectId}/comparison-comments?${params}`,
-                { signal: controller.signal },
-            );
-            if (!response.ok) return;
-            const payload = (await response.json()) as CommentsFile;
-            if (!controller.signal.aborted) setComments(payload.comments ?? []);
+            try {
+                const params = new URLSearchParams({ base, compare: head });
+                const response = await fetchApi(
+                    `/api/projects/${projectId}/comparison-comments?${params}`,
+                    { signal: controller.signal },
+                );
+                if (!response.ok) return;
+                const payload = (await response.json()) as CommentsFile;
+                if (!controller.signal.aborted) setComments(payload.comments ?? []);
+            } catch (caught) {
+                // The cleanup aborts this fetch on every re-run; that rejection is
+                // expected, not an error. Without this catch it surfaced as an
+                // "Uncaught (in promise) AbortError" on each render.
+                if (caught instanceof DOMException && caught.name === "AbortError") return;
+                throw caught;
+            }
         })();
         return () => controller.abort();
     }, [projectId, base, head]);
@@ -977,6 +923,22 @@ export function DesignComparisonWorkspace({
         onClose();
     };
 
+    /**
+     * Escape clears the current selection rather than closing the comparison.
+     *
+     * Building a comparison is expensive and Escape is the reflex for
+     * "dismiss this panel"; having it tear down the whole workspace made a
+     * stray keypress cost a full rebuild. Closing stays on the X and on the
+     * overlay. When there is nothing selected Escape does nothing, which is
+     * deliberate — it never becomes a close shortcut again by accident.
+     */
+    const dismissSelection = () => {
+        setReviewSelection(null);
+        setPreviewSelection(null);
+        setComponentSelection(null);
+        setComparisonRightRailTab(null);
+    };
+
     const domain = activeTab === "pcb" ? "pcb" : "schematic";
     const domainChanges = useMemo(() => {
         if (!result) return [];
@@ -1028,6 +990,25 @@ export function DesignComparisonWorkspace({
         () => hydrateServerGroups(domainChanges, domainServerGroups, comments),
         [domainChanges, domainServerGroups, comments],
     );
+    const schematicNavigationGroups = useMemo(
+        () => hydrateServerGroups(
+            result?.schematic.changes ?? [],
+            result?.schematic.groups ?? [],
+            comments,
+        ),
+        [comments, result],
+    );
+    const pcbNavigationGroups = useMemo(
+        () => hydrateServerGroups(
+            result?.pcb.changes ?? [],
+            result?.pcb.groups ?? [],
+            comments,
+        ),
+        [comments, result],
+    );
+    const visitedDomainsRef = useRef<Set<"schematic" | "pcb">>(new Set());
+    if (activeTab === "sch") visitedDomainsRef.current.add("schematic");
+    if (activeTab === "pcb") visitedDomainsRef.current.add("pcb");
 
     useEffect(() => {
         setDifferencesPage(0);
@@ -1063,15 +1044,6 @@ export function DesignComparisonWorkspace({
         ) ?? null,
         [navigationGroups, reviewSelection, selectedChangeId],
     );
-    const selectedRouteMetrics = useMemo(() => {
-        if (activeTab !== "pcb" || !selectedChange?.net || !result?.pcb.route_metrics) {
-            return null;
-        }
-        return {
-            base: result.pcb.route_metrics.base[selectedChange.net],
-            compare: result.pcb.route_metrics.compare[selectedChange.net],
-        };
-    }, [activeTab, result, selectedChange]);
 
     const selectChange = (change: ChangeItem, documentPath?: string) => {
         logComparisonDebug("difference.click", {
@@ -1265,19 +1237,165 @@ export function DesignComparisonWorkspace({
         setPresentationMode(next);
     };
 
+    // The switcher belongs in the bar of the panel it controls, but both domain
+    // shells stay mounted, so exactly one instance is built here and handed to
+    // whichever shell is on screen. Rendering it inside the shell would put two
+    // in the DOM under one accessible name, one of them hidden.
+    const presentationSwitcher = (
+        <div
+            className="inline-flex shrink-0 items-center gap-0.5 rounded-md border bg-background p-0.5"
+            role="group"
+            aria-label="Presentation mode"
+        >
+            <Button
+                variant={presentationMode === "composite" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => choosePresentationMode("composite")}
+                aria-pressed={presentationMode === "composite"}
+            >
+                <Square className="mr-1.5 h-3.5 w-3.5" />
+                Composite
+            </Button>
+            <Button
+                variant={presentationMode === "side-by-side" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => choosePresentationMode("side-by-side")}
+                aria-pressed={presentationMode === "side-by-side"}
+            >
+                <Columns2 className="mr-1.5 h-3.5 w-3.5" />
+                Side by side
+            </Button>
+            <Button
+                variant={presentationMode === "old-new" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => choosePresentationMode("old-new")}
+                aria-label="Single revision presentation mode"
+                aria-pressed={presentationMode === "old-new"}
+            >
+                <ToggleLeft className="mr-1.5 h-3.5 w-3.5" />
+                Old / New
+            </Button>
+        </div>
+    );
+
+    // A component click opens the rail on that pane's revision; a click on bare
+    // canvas closes it again. Only the Component tab is touched, so a reviewer
+    // reading Comments is not yanked away by a stray click.
+    const handleComponentSelect = useCallback(
+        (next: ComparisonComponentSelection | null) => {
+            setComponentSelection(next);
+            setComparisonRightRailTab((tab) =>
+                next ? "component" : tab === "component" ? null : tab,
+            );
+        },
+        [],
+    );
+
+    const renderDomainShell = (
+        shellDomain: "schematic" | "pcb",
+        shellGroups: ChangeGroup[],
+    ) => {
+        if (!result?.document_diff) return null;
+        const isActive = domain === shellDomain;
+        return (
+            <div
+                key={shellDomain}
+                className={cn(
+                    "flex min-h-0 min-w-0 flex-1",
+                    !isActive && "hidden",
+                )}
+                aria-hidden={!isActive}
+            >
+                <ComparisonPresentationShell
+                    key={`${shellDomain}:${base}:${head}`}
+                    projectId={projectId}
+                    domain={shellDomain}
+                    base={base}
+                    compare={head}
+                    presentationMode={presentationMode}
+                    documentDiff={result.document_diff}
+                    files={result.files}
+                    reviewGroups={shellGroups}
+                    selection={isActive ? reviewSelection : null}
+                    previewSelection={isActive ? previewSelection : null}
+                    toolbarContent={isActive ? presentationSwitcher : null}
+                    onComponentSelect={isActive ? handleComponentSelect : undefined}
+                    componentContent={(
+                        <ComparisonComponentRail
+                            selection={componentSelection}
+                            bom={result.bom}
+                            baseLabel={base.slice(0, 7)}
+                            compareLabel={head.slice(0, 7)}
+                            onClose={() => {
+                                setComponentSelection(null);
+                                setComparisonRightRailTab(null);
+                            }}
+                            embedded
+                        />
+                    )}
+                    initialVisibleLayers={visibleLayers}
+                    onVisibleLayersChange={setVisibleLayers}
+                    rightRailTab={comparisonRightRailTab}
+                    onRightRailTabChange={setComparisonRightRailTab}
+                    discussionCount={comments.filter(
+                        (comment) => comment.status === "OPEN",
+                    ).length}
+                    discussionContent={(
+                        <ComparisonDiscussionRail
+                            projectId={projectId}
+                            base={base}
+                            compare={head}
+                            domain={shellDomain === "pcb" ? "PCB" : "SCH"}
+                            anchor={isActive && selectedReviewGroup
+                                ? {
+                                    id: selectedReviewGroup.id,
+                                    label: selectedReviewGroup.label,
+                                    page: selectedChange?.page,
+                                }
+                                : null}
+                            comments={comments}
+                            canComment={canComment}
+                            onCommentsChange={setComments}
+                            onClose={() => setComparisonRightRailTab(null)}
+                            embedded
+                        />
+                    )}
+                />
+            </div>
+        );
+    };
+
     return (
         <Dialog open onOpenChange={(open) => !open && handleClose()}>
-            <DialogContent className="flex h-[96vh] w-[98vw] max-w-none flex-col gap-0 overflow-hidden p-0">
+            <DialogContent
+                className="flex h-[96vh] w-[98vw] max-w-none flex-col gap-0 overflow-hidden p-0"
+                onEscapeKeyDown={(event) => {
+                    event.preventDefault();
+                    dismissSelection();
+                }}
+            >
                 <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                         <DialogTitle>Design comparison</DialogTitle>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="rounded border bg-muted px-2 py-1 font-mono">
-                                Base {base.slice(0, 10)}
+                            {/* Label outside the chip, SHA inside it, so the tag
+                                reads as a name pointing at a value rather than
+                                one solid block. */}
+                            <span className="flex items-center gap-1.5">
+                                Base
+                                <span className="rounded border bg-muted px-2 py-1 font-mono">
+                                    {base.slice(0, 10)}
+                                </span>
                             </span>
                             <ChevronRight className="h-3.5 w-3.5" />
-                            <span className="rounded border bg-primary/10 px-2 py-1 font-mono text-primary">
-                                Compare {head.slice(0, 10)}
+                            <span className="flex items-center gap-1.5">
+                                Compare
+                                <span className="rounded border bg-primary/10 px-2 py-1 font-mono text-primary">
+                                    {head.slice(0, 10)}
+                                </span>
                             </span>
                             {branchTipLabel && (
                                 <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] text-primary">
@@ -1319,45 +1437,6 @@ export function DesignComparisonWorkspace({
                                     </Button>
                                 );
                             })}
-                            {(activeTab === "sch" || activeTab === "pcb")
-                                && activeTabStatus === "ready" && (
-                                <div
-                                    className="ml-2 flex items-center gap-0.5 rounded-md border bg-background p-0.5"
-                                    role="group"
-                                    aria-label="Presentation mode"
-                                >
-                                    <Button
-                                        variant={presentationMode === "composite" ? "secondary" : "ghost"}
-                                        size="sm"
-                                        className="h-7 text-xs"
-                                        onClick={() => choosePresentationMode("composite")}
-                                        aria-pressed={presentationMode === "composite"}
-                                    >
-                                        <Square className="mr-1.5 h-3.5 w-3.5" />
-                                        Composite
-                                    </Button>
-                                    <Button
-                                        variant={presentationMode === "side-by-side" ? "secondary" : "ghost"}
-                                        size="sm"
-                                        className="h-7 text-xs"
-                                        onClick={() => choosePresentationMode("side-by-side")}
-                                        aria-pressed={presentationMode === "side-by-side"}
-                                    >
-                                        <Columns2 className="mr-1.5 h-3.5 w-3.5" />
-                                        Side by side
-                                    </Button>
-                                    <Button
-                                        variant={presentationMode === "old-new" ? "secondary" : "ghost"}
-                                        size="sm"
-                                        className="h-7 text-xs"
-                                        onClick={() => choosePresentationMode("old-new")}
-                                        aria-pressed={presentationMode === "old-new"}
-                                    >
-                                        <ToggleLeft className="mr-1.5 h-3.5 w-3.5" />
-                                        Old / New
-                                    </Button>
-                                </div>
-                            )}
                             <Button
                                 variant={showDiscussion ? "secondary" : "ghost"}
                                 size="sm"
@@ -1368,7 +1447,7 @@ export function DesignComparisonWorkspace({
                                 aria-pressed={showDiscussion}
                             >
                                 <MessageSquare className="mr-2 h-3.5 w-3.5" />
-                                Discussion
+                                Comments
                                 {comments.some((comment) => comment.status === "OPEN") && (
                                     <span className="ml-2 rounded-full bg-muted px-1.5 text-[10px]">
                                         {comments.filter((comment) => comment.status === "OPEN").length}
@@ -1390,9 +1469,22 @@ export function DesignComparisonWorkspace({
                         )}
 
                         <div className="flex min-h-0 flex-1">
-                            {(activeTab === "sch" || activeTab === "pcb")
-                                && activeTabStatus === "ready" && (
-                                <>
+                            {/* Keep the sch/pcb block mounted once visited, hidden
+                                when a non-viewer tab (BOM/stackup) is active, so
+                                switching away and back does not remount and reparse
+                                the viewers. */}
+                            {(visitedDomainsRef.current.has("schematic")
+                                || visitedDomainsRef.current.has("pcb"))
+                                && (activeTab === "sch" || activeTab === "pcb"
+                                    ? activeTabStatus === "ready"
+                                    : true) && (
+                                <div
+                                    className={cn(
+                                        "flex min-h-0 min-w-0 flex-1",
+                                        !(activeTab === "sch" || activeTab === "pcb")
+                                            && "hidden",
+                                    )}
+                                >
                                     <Profiler
                                         id="differences-pane"
                                         onRender={logRenderPerformance}
@@ -1431,7 +1523,6 @@ export function DesignComparisonWorkspace({
                                             onPreviewChange={setPreviewSelection}
                                             onPrevious={() => navigate(-1)}
                                             onNext={() => navigate(1)}
-                                            routeMetrics={selectedRouteMetrics}
                                         />
                                     </Profiler>
                                     {result.document_diff ? (
@@ -1439,44 +1530,16 @@ export function DesignComparisonWorkspace({
                                             id="comparison-presentation"
                                             onRender={logRenderPerformance}
                                         >
-                                            <ComparisonPresentationShell
-                                                key={`${domain}:${base}:${head}`}
-                                                projectId={projectId}
-                                                domain={domain}
-                                                base={base}
-                                                compare={head}
-                                                presentationMode={presentationMode}
-                                                documentDiff={result.document_diff}
-                                                files={result.files}
-                                                reviewGroups={navigationGroups}
-                                                selection={reviewSelection}
-                                                previewSelection={previewSelection}
-                                                initialVisibleLayers={visibleLayers}
-                                                onVisibleLayersChange={setVisibleLayers}
-                                                rightRailTab={comparisonRightRailTab}
-                                                onRightRailTabChange={setComparisonRightRailTab}
-                                                discussionCount={comments.filter((comment) => comment.status === "OPEN").length}
-                                                discussionContent={(
-                                                    <ComparisonDiscussionRail
-                                                        projectId={projectId}
-                                                        base={base}
-                                                        compare={head}
-                                                        domain={activeTab === "pcb" ? "PCB" : "SCH"}
-                                                        anchor={selectedReviewGroup
-                                                            ? {
-                                                                id: selectedReviewGroup.id,
-                                                                label: selectedReviewGroup.label,
-                                                                page: selectedChange?.page,
-                                                            }
-                                                            : null}
-                                                        comments={comments}
-                                                        canComment={canComment}
-                                                        onCommentsChange={setComments}
-                                                        onClose={() => setComparisonRightRailTab(null)}
-                                                        embedded
-                                                    />
+                                            {visitedDomainsRef.current.has("schematic")
+                                                && renderDomainShell(
+                                                    "schematic",
+                                                    schematicNavigationGroups,
                                                 )}
-                                            />
+                                            {visitedDomainsRef.current.has("pcb")
+                                                && renderDomainShell(
+                                                    "pcb",
+                                                    pcbNavigationGroups,
+                                                )}
                                         </Profiler>
                                     ) : (
                                         <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
@@ -1487,7 +1550,7 @@ export function DesignComparisonWorkspace({
                                             </div>
                                         </div>
                                     )}
-                                </>
+                                </div>
                             )}
                             {activeTabStatus !== "ready" && (
                                 <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">

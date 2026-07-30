@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -292,7 +293,19 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         setPcbViewerElement(node);
     }, []);
 
-    const [activeTab, setActiveTab] = useState<VisualizerTab>("sch");
+    // Open on the tab a caller asked for (e.g. clicking a changed .kicad_pcb in
+    // the history file list), read once on mount; defaults to the schematic.
+    const [searchParams] = useSearchParams();
+    const [activeTab, setActiveTab] = useState<VisualizerTab>(() => {
+        const requested = searchParams.get("tab");
+        return requested === "pcb"
+            || requested === "3d"
+            || requested === "bom"
+            || requested === "stackup"
+            || requested === "assembly"
+            ? requested
+            : "sch";
+    });
     const [threeDActivated, setThreeDActivated] = useState(false);
     const [schematicContent, setSchematicContent] = useState<string | null>(null);
     const [subsheets, setSubsheets] = useState<{ filename: string, content: string }[]>([]);
@@ -575,40 +588,41 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         }
     }, [activeTab, schematicContentLoaded, projectId, appendCommit]);
 
-    // Lazy load PCB content when PCB tab is first accessed
+    // Load PCB content eagerly, not on first PCB-tab visit. Waiting until the tab
+    // was opened left the board unloaded behind a "open the PCB tab" placeholder;
+    // fetching up front means the board is ready the moment the tab is shown.
     useEffect(() => {
-        if (activeTab === "pcb" && !pcbContentLoaded) {
-            const controller = new AbortController();
-            const signal = controller.signal;
+        if (pcbContentLoaded) return;
+        const controller = new AbortController();
+        const signal = controller.signal;
 
-            const loadPcb = async () => {
-                try {
-                    const baseUrl = `/api/projects/${projectId}`;
-                    const pcbRes = await fetch(appendCommit(`${baseUrl}/pcb`), { signal });
+        const loadPcb = async () => {
+            try {
+                const baseUrl = `/api/projects/${projectId}`;
+                const pcbRes = await fetch(appendCommit(`${baseUrl}/pcb`), { signal });
 
-                    if (pcbRes.ok) {
-                        const pcbText = await pcbRes.text();
-                        if (signal.aborted) return;
-                        setPcbContent(pcbText);
-                    } else {
-                        console.error("PCB not found");
-                        setPcbContent(null);
-                    }
-                } catch (err) {
-                    if (!isAbortError(err)) {
-                        console.error("Error loading PCB content", err);
-                    }
-                } finally {
-                    if (!signal.aborted) {
-                        setPcbContentLoaded(true);
-                    }
+                if (pcbRes.ok) {
+                    const pcbText = await pcbRes.text();
+                    if (signal.aborted) return;
+                    setPcbContent(pcbText);
+                } else {
+                    console.error("PCB not found");
+                    setPcbContent(null);
                 }
-            };
+            } catch (err) {
+                if (!isAbortError(err)) {
+                    console.error("Error loading PCB content", err);
+                }
+            } finally {
+                if (!signal.aborted) {
+                    setPcbContentLoaded(true);
+                }
+            }
+        };
 
-            void loadPcb();
-            return () => controller.abort();
-        }
-    }, [activeTab, pcbContentLoaded, projectId, appendCommit]);
+        void loadPcb();
+        return () => controller.abort();
+    }, [pcbContentLoaded, projectId, appendCommit]);
 
     // Reset lazy loading flags when project changes
     useEffect(() => {
@@ -682,7 +696,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             const detail = (event as CustomEvent<EcadSemanticSelectionDetail>).detail;
             lastSelectionRef.current = detail;
             const normalized = normalizeEcadSelection(detail, revisionKey);
-            if (normalized) selectGlobal(normalized);
+            if (normalized) {
+                selectGlobal(normalized);
+            } else {
+                // Empty selection: a click on empty canvas away from any item.
+                // Clear the current selection so it deselects and the selection
+                // side panel closes, rather than leaving the last item stuck.
+                clearGlobalSelection();
+            }
         };
 
         const handleCrossProbe = (event: Event) => {
@@ -703,7 +724,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             schematicViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
             pcbViewer?.removeEventListener("ecad-viewer:crossprobe", handleCrossProbe as EventListener);
         };
-    }, [commit, crossProbeGlobal, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey]);
+    }, [commit, clearGlobalSelection, crossProbeGlobal, pcbViewerElement, schematicViewerElement, selectGlobal, semanticIndex?.sourceRevisionKey]);
 
     useEffect(() => {
         const applySelection = (
@@ -759,7 +780,14 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     }, [commit, pcbViewerElement, projectId, registerClient, schematicViewerElement, semanticIndex]);
 
     useEffect(() => {
-        if (globalSelection) setRightRailTab("selection");
+        if (globalSelection) {
+            setRightRailTab("selection");
+        } else {
+            // Selection cleared (deselect / click-away): close the selection panel
+            // so the side menu does not linger with nothing selected. Leave other
+            // rail tabs (comments) alone.
+            setRightRailTab((tab) => (tab === "selection" ? null : tab));
+        }
     }, [globalSelection]);
 
     useEffect(() => {
@@ -1258,7 +1286,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             )
                         ) : (
                             <div className="flex h-full items-center justify-center text-muted-foreground">
-                                <p>Open the PCB tab to load the board source.</p>
+                                <p>Loading the board source…</p>
                             </div>
                         )}
                     </div>

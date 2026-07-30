@@ -17,12 +17,19 @@ _TYPE_NAMES = {
     "wire": "SCH_LINE",
     "label": "SCH_LABEL",
     "junction": "SCH_JUNCTION",
+    "pin": "SCH_PIN",
+    "sheet_pin": "SCH_SHEET_PIN",
+    "sheet": "SCH_SHEET",
+    "bus": "SCH_BUS_WIRE",
+    "bus_entry": "SCH_BUS_ENTRY",
+    "no_connect": "SCH_NO_CONNECT",
     "graphic": "SCH_SHAPE",
     "footprint": "PCB_FOOTPRINT",
     "track": "PCB_TRACK",
     "arc": "PCB_ARC",
     "via": "PCB_VIA",
     "zone": "ZONE",
+    "pad": "PCB_PAD",
 }
 
 _KIND_NAMES = {
@@ -72,17 +79,6 @@ def _document_path(
     return str(path).replace("\\", "/") if path else None
 
 
-def _bbox_iu(bounds: Any, domain: str) -> List[int]:
-    if (
-        not isinstance(bounds, (list, tuple))
-        or len(bounds) != 4
-        or not all(isinstance(value, (int, float)) for value in bounds)
-    ):
-        return [0, 0, 0, 0]
-    iu_per_mm = 1_000_000 if domain == "pcb" else 10_000
-    return [round(float(value) * iu_per_mm) for value in bounds]
-
-
 def _diff_value(value: Any) -> Dict[str, Any]:
     if value is None:
         return {"type": "null", "v": None}
@@ -125,7 +121,9 @@ def _item_change(
 ) -> Dict[str, Any]:
     source_id = str(target.get("sourceId") or "")
     role = str(target.get("role") or "")
-    type_name = _TYPE_NAMES.get(str(target_geometry.get("kind") or ""))
+    type_name = _TYPE_NAMES.get(
+        str(target.get("kind") or target_geometry.get("kind") or change.get("object_kind") or "")
+    )
     if not type_name:
         type_name = {
             "component": "SCH_SYMBOL",
@@ -136,12 +134,11 @@ def _item_change(
         }.get(role, "EDA_ITEM")
     refdes = change.get("reference") or change.get("net")
     return {
-        "id": f"/{source_id}",
+        "id": _change_id(change, target),
         "typeName": type_name,
         "kind": _KIND_NAMES[str(target.get("status") or change.get("kind"))],
         "sourceSide": str(target.get("side") or "comparison"),
         "properties": _property_deltas(change) if include_properties else [],
-        "bbox": _bbox_iu(target_geometry.get("bounds"), str(change.get("domain"))),
         **({"refdes": str(refdes)} if refdes else {}),
         **({"retainReference": True} if retain_reference else {}),
         "children": children or [],
@@ -192,6 +189,45 @@ def _is_native_schematic_path(value: Any) -> bool:
     return isinstance(value, str) and value.replace("\\", "/").endswith(".kicad_sch")
 
 
+def _sheet_instance_path(
+    change: Mapping[str, Any],
+    target: Mapping[str, Any],
+) -> Optional[str]:
+    """The KIID_PATH prefix for a hierarchical symbol, or None.
+
+    A sheet reused across a hierarchy is one file, so every instance of it
+    shares the same symbol UUIDs. KiCad identifies a symbol by
+    ``sheetInstancePath + symbolUuid``; the UUID alone is ambiguous exactly as
+    often as a sheet is instantiated more than once.
+
+    Connectivity extraction can name a sheet by its human hierarchy; native
+    target hydration moves that into ``sheetPath`` and rewrites ``page`` to the
+    loadable filename supplied by the ecad-viewer parser.
+    """
+    if change.get("domain") == "pcb":
+        return None
+    for candidate in (
+        target.get("sheetPath"),
+        target.get("page"),
+        change.get("page"),
+    ):
+        if not isinstance(candidate, str):
+            continue
+        normalized = candidate.replace("\\", "/")
+        if not normalized.startswith("/") or _is_native_schematic_path(normalized):
+            continue
+        # The root sheet is "/", which contributes no disambiguating segment.
+        return normalized.rstrip("/") or None
+    return None
+
+
+def _change_id(change: Mapping[str, Any], target: Mapping[str, Any]) -> str:
+    """Native item id: the full KIID_PATH where the hierarchy supplies one."""
+    source_id = str(target.get("sourceId") or "")
+    prefix = _sheet_instance_path(change, target)
+    return f"{prefix}/{source_id}" if prefix else f"/{source_id}"
+
+
 def build_project_diff(
     *,
     schematic_changes: Iterable[Mapping[str, Any]],
@@ -206,6 +242,7 @@ def build_project_diff(
     document_types: Dict[str, str] = {}
     navigation: Dict[str, Dict[str, Any]] = {}
     diagnostics: List[Dict[str, str]] = []
+    claimed_targets: set[tuple[str, str, str]] = set()
 
     for original_change in [*schematic_changes, *pcb_changes]:
         change = dict(original_change)
@@ -225,12 +262,17 @@ def build_project_diff(
             List[tuple[Dict[str, Any], Mapping[str, Any]]],
         ] = defaultdict(list)
         candidates: List[tuple[Dict[str, Any], Mapping[str, Any], Optional[str]]] = []
-        seen_targets: set[tuple[str, str, str]] = set()
+        seen_targets: set[tuple[str, str, str, str]] = set()
         for target in targets:
             source_id = str(target.get("sourceId") or "")
             side = str(target.get("side") or "comparison")
             status = str(target.get("status") or "modified")
-            key = (side, status, source_id)
+            key = (
+                side,
+                status,
+                source_id,
+                str(target.get("sheetPath") or ""),
+            )
             if not source_id or key in seen_targets:
                 continue
             seen_targets.add(key)
@@ -238,7 +280,8 @@ def build_project_diff(
             raw_path = (
                 pcb_path
                 if change.get("domain") == "pcb"
-                else target_geometry.get("page")
+                else target.get("documentPath")
+                or target_geometry.get("page")
                 or target.get("page")
                 or change.get("page")
                 or (change.get("compare_item") or {}).get("page")
@@ -286,7 +329,36 @@ def build_project_diff(
 
         navigation_documents: List[Dict[str, Any]] = []
         for path, resolved_targets in resolved_by_document.items():
-            first_target, first_geometry = resolved_targets[0]
+            unique_targets: List[
+                tuple[Dict[str, Any], Mapping[str, Any]]
+            ] = []
+            duplicate_change_ids: List[str] = []
+            for target, target_geometry in resolved_targets:
+                change_id = _change_id(change, target)
+                native_key = (
+                    path,
+                    change_id,
+                    str(target.get("side") or "comparison"),
+                )
+                if native_key in claimed_targets:
+                    duplicate_change_ids.append(change_id)
+                    continue
+                claimed_targets.add(native_key)
+                unique_targets.append((target, target_geometry))
+
+            if not unique_targets:
+                change_ids = list(dict.fromkeys(duplicate_change_ids))
+                if change_ids:
+                    navigation_documents.append(
+                        {
+                            "documentPath": path,
+                            "changeId": change_ids[0],
+                            "changeIds": change_ids,
+                        }
+                    )
+                continue
+
+            first_target, first_geometry = unique_targets[0]
             children = [
                 _item_change(
                     change,
@@ -295,7 +367,7 @@ def build_project_diff(
                     include_properties=False,
                     retain_reference=True,
                 )
-                for target, target_geometry in resolved_targets[1:]
+                for target, target_geometry in unique_targets[1:]
             ]
             item = _item_change(
                 change,
@@ -314,6 +386,7 @@ def build_project_diff(
                     "changeIds": [
                         item["id"],
                         *(child["id"] for child in children),
+                        *duplicate_change_ids,
                     ],
                 }
             )

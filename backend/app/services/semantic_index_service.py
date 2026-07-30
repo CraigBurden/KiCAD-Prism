@@ -496,6 +496,233 @@ def _net_code(item: object) -> int | None:
     return int(ordinal) if isinstance(ordinal, int) else None
 
 
+def _relative_schematic_page(project_file: Path, source_path: object) -> str:
+    if source_path is None:
+        return ""
+    path = Path(str(source_path))
+    try:
+        return path.resolve().relative_to(project_file.parent.resolve()).as_posix()
+    except (OSError, ValueError):
+        return path.name
+
+
+def _schematic_semantic_projection(
+    design: object,
+    project_file: Path,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, list[dict[str, str]]],
+]:
+    """Project concrete hierarchy placements and bus objects."""
+
+    get_instances = getattr(design, "schematic_instances", None)
+    instances = list(get_instances() or ()) if callable(get_instances) else []
+    sheet_instances: list[dict[str, Any]] = []
+    buses: list[dict[str, Any]] = []
+    placements: dict[str, list[dict[str, str]]] = {}
+
+    def remember(source_uuid: object, placement: dict[str, str]) -> None:
+        value = _string(source_uuid)
+        if not value:
+            return
+        rows = placements.setdefault(value, [])
+        if placement not in rows:
+            rows.append(placement)
+
+    for instance in instances:
+        sheet_path = _string(getattr(instance, "sheet_path", "")) or "/"
+        instance_path = (
+            _string(getattr(instance, "sheet_instance_path", ""))
+            or _string(getattr(instance, "sheet_path_uuids", ""))
+            or sheet_path
+            or "/"
+        )
+        page = _relative_schematic_page(
+            project_file,
+            getattr(instance, "source_path", None),
+        )
+        parent_path = (
+            _string(getattr(instance, "parent_sheet_instance_path", ""))
+            or _string(getattr(instance, "parent_sheet_path_uuids", ""))
+            or _string(getattr(instance, "parent_sheet_path", ""))
+        )
+        sheet_symbol_uuid = _string(getattr(instance, "sheet_symbol_uid", ""))
+        placement = {
+            "sheetInstancePath": instance_path,
+            "sheetPath": sheet_path,
+            "page": page,
+        }
+        sheet_instances.append(
+            {
+                "sheetInstanceUid": _stable_uid(
+                    "sheet-instance",
+                    instance_path,
+                    page,
+                ),
+                "sheetInstancePath": instance_path,
+                "sheetPath": sheet_path,
+                "page": page,
+                "parentSheetInstancePath": parent_path or None,
+                "sheetSymbolUuid": sheet_symbol_uuid or None,
+                "sheetName": _string(getattr(instance, "sheet_name", "")),
+                "isTopLevel": bool(getattr(instance, "is_top_level", False)),
+            }
+        )
+
+        schematic = getattr(instance, "schematic", None)
+        if schematic is None:
+            continue
+        for collection in (
+            "wires",
+            "junctions",
+            "labels",
+            "global_labels",
+            "hierarchical_labels",
+            "symbols",
+        ):
+            for item in getattr(schematic, collection, ()) or ():
+                remember(getattr(item, "uuid", ""), placement)
+                for pin in getattr(item, "pins", ()) or ():
+                    remember(getattr(pin, "uuid", ""), placement)
+
+        for kind, collection in (
+            ("bus", "buses"),
+            ("bus_entry", "bus_entries"),
+        ):
+            for item in getattr(schematic, collection, ()) or ():
+                source_uuid = _string(getattr(item, "uuid", ""))
+                remember(source_uuid, placement)
+                buses.append(
+                    {
+                        "busUid": _stable_uid(
+                            "bus",
+                            kind,
+                            instance_path,
+                            source_uuid,
+                        ),
+                        "kind": kind,
+                        "sourceUuid": source_uuid,
+                        "sheetInstancePath": instance_path,
+                        "sheetPath": sheet_path,
+                        "page": page,
+                        "points": [
+                            [float(point[0]), float(point[1])]
+                            for point in getattr(item, "points", ()) or ()
+                        ],
+                        "at": (
+                            [
+                                float(getattr(item, "at_x")),
+                                float(getattr(item, "at_y")),
+                            ]
+                            if getattr(item, "at_x", None) is not None
+                            and getattr(item, "at_y", None) is not None
+                            else None
+                        ),
+                        "size": (
+                            [
+                                float(getattr(item, "size_x")),
+                                float(getattr(item, "size_y")),
+                            ]
+                            if getattr(item, "size_x", None) is not None
+                            and getattr(item, "size_y", None) is not None
+                            else None
+                        ),
+                    }
+                )
+
+        for alias in getattr(schematic, "bus_aliases", ()) or ():
+            name = _string(getattr(alias, "name", ""))
+            buses.append(
+                {
+                    "busUid": _stable_uid("bus-alias", instance_path, name),
+                    "kind": "bus_alias",
+                    "name": name,
+                    "members": sorted(
+                        _string(value)
+                        for value in getattr(alias, "members", ()) or ()
+                        if _string(value)
+                    ),
+                    "sheetInstancePath": instance_path,
+                    "sheetPath": sheet_path,
+                    "page": page,
+                }
+            )
+
+    pages_by_instance = {
+        _string(item.get("sheetInstancePath")): _string(item.get("page"))
+        for item in sheet_instances
+    }
+    for item in sheet_instances:
+        parent_path = _string(item.get("parentSheetInstancePath"))
+        item["parentPage"] = pages_by_instance.get(parent_path) or None
+
+    return sheet_instances, buses, placements
+
+
+def _group_schematic_refs(
+    graphical: dict[str, Any],
+    placements: dict[str, list[dict[str, str]]],
+) -> list[dict[str, Any]]:
+    bucket_sources = {
+        "wireUuids": list(graphical.get("wires") or ()),
+        "labelUuids": (
+            list(graphical.get("labels") or ())
+            + list(graphical.get("ports") or ())
+            + list(graphical.get("power_ports") or ())
+        ),
+        "junctionUuids": (
+            list(graphical.get("junctions") or ())
+            + list(graphical.get("sheet_entries") or ())
+        ),
+    }
+    counted_labels = {
+        _string(value) for value in graphical.get("labels") or () if _string(value)
+    }
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    unplaced = {
+        "wireUuids": [],
+        "labelUuids": [],
+        "junctionUuids": [],
+        "pinUuids": [],
+        "labelInstanceCount": 0,
+    }
+    for bucket, values in bucket_sources.items():
+        for raw_value in values:
+            source_uuid = _string(raw_value)
+            source_placements = placements.get(source_uuid) or []
+            if not source_placements:
+                unplaced[bucket].append(source_uuid)
+                continue
+            for placement in source_placements:
+                key = (
+                    placement.get("sheetInstancePath") or "/",
+                    placement.get("page") or "",
+                )
+                ref = grouped.setdefault(
+                    key,
+                    {
+                        **placement,
+                        "wireUuids": [],
+                        "labelUuids": [],
+                        "junctionUuids": [],
+                        "pinUuids": [],
+                        "labelInstanceCount": 0,
+                    },
+                )
+                if source_uuid not in ref[bucket]:
+                    ref[bucket].append(source_uuid)
+                if bucket == "labelUuids" and source_uuid in counted_labels:
+                    ref["labelInstanceCount"] += 1
+    refs = list(grouped.values())
+    if any(unplaced[bucket] for bucket in bucket_sources):
+        unplaced["labelInstanceCount"] = len(list(graphical.get("labels") or ()))
+        refs.append(unplaced)
+    if not refs:
+        refs.append(unplaced)
+    return refs
+
+
 def build_semantic_index(
     project_file: Path,
     *,
@@ -503,6 +730,7 @@ def build_semantic_index(
     commit: str | None = None,
     timing_callback: Callable[[dict[str, Any]], None] | None = None,
     include_pcb: bool = True,
+    include_components: bool = True,
 ) -> dict[str, Any]:
     def timed(phase: str, action: Callable[[], Any], **metadata: Any) -> Any:
         started_ns = time.perf_counter_ns()
@@ -559,9 +787,17 @@ def build_semantic_index(
         nets=len(getattr(netlist, "nets", ()) or ()),
         includePcb=include_pcb,
     )
-    source_fields_by_uuid = timed(
-        "scan-instance-fields",
-        lambda: _schematic_instance_fields(project_file),
+    sheet_instances, buses, schematic_placements = timed(
+        "project-schematic-instances",
+        lambda: _schematic_semantic_projection(design, project_file),
+    )
+    source_fields_by_uuid = (
+        timed(
+            "scan-instance-fields",
+            lambda: _schematic_instance_fields(project_file),
+        )
+        if include_components
+        else {}
     )
 
     components: list[dict[str, Any]] = []
@@ -578,12 +814,22 @@ def build_semantic_index(
         "netByNetCode": {},
         "netBySchematicUuid": {},
         "netByPcbUuid": {},
+        "sheetInstanceByPath": {},
+        "busByUid": {},
     }
+    for index, instance in enumerate(sheet_instances):
+        path = _string(instance.get("sheetInstancePath"))
+        if path:
+            indexes["sheetInstanceByPath"][path] = index
+    for index, bus in enumerate(buses):
+        uid = _string(bus.get("busUid"))
+        if uid:
+            indexes["busByUid"][uid] = index
 
     projection_started_ns = time.perf_counter_ns()
     projection_cpu_started_ns = time.thread_time_ns()
     component_by_reference: dict[str, dict[str, Any]] = {}
-    for raw in design_payload.get("components", ()):
+    for raw in design_payload.get("components", ()) if include_components else ():
         reference = _string(raw.get("designator") or raw.get("reference"))
         if not reference:
             continue
@@ -638,21 +884,22 @@ def build_semantic_index(
         if not name:
             continue
         graphical = raw.get("graphical") or {}
-        schematic_ref = {
-            "wireUuids": list(graphical.get("wires") or ()),
-            "labelUuids": list(graphical.get("labels") or ()) + list(graphical.get("ports") or ()) + list(graphical.get("power_ports") or ()),
-            # Only local and global labels participate in semantic instance-count
-            # comparison. Hierarchical ports and power symbols remain available in
-            # labelUuids for navigation, but do not create false count changes.
-            "labelInstanceCount": len(graphical.get("labels") or ()),
-            "junctionUuids": list(graphical.get("junctions") or ()) + list(graphical.get("sheet_entries") or ()),
-            "pinUuids": [],
-        }
+        schematic_refs = _group_schematic_refs(graphical, schematic_placements)
         net_entry = {
             "netUid": _stable_uid("net", name),
             "name": name,
             "netClass": _string(raw.get("net_class")),
-            "schematicRefs": [schematic_ref],
+            "aliases": sorted(
+                _string(value)
+                for value in raw.get("aliases") or ()
+                if _string(value)
+            ),
+            "sourceSheets": sorted(
+                _string(value)
+                for value in raw.get("source_sheets") or ()
+                if _string(value)
+            ),
+            "schematicRefs": schematic_refs,
             "pcbRefs": [{"trackUuids": [], "arcUuids": [], "viaUuids": [], "zoneUuids": [], "padUuids": []}],
             "webgpuRefs": [],
         }
@@ -661,9 +908,10 @@ def build_semantic_index(
         net_by_name[name] = net_entry
         net_index_by_name[name] = net_index
         indexes["netByName"][name] = net_index
-        for bucket in ("wireUuids", "labelUuids", "junctionUuids"):
-            for source_uuid in schematic_ref[bucket]:
-                indexes["netBySchematicUuid"][_string(source_uuid)] = net_index
+        for schematic_ref in schematic_refs:
+            for bucket in ("wireUuids", "labelUuids", "junctionUuids"):
+                for source_uuid in schematic_ref[bucket]:
+                    indexes["netBySchematicUuid"][_string(source_uuid)] = net_index
 
         pins_by_pair: dict[str, dict[str, Any]] = {}
         for pin in graphical.get("pins") or ():
@@ -711,7 +959,19 @@ def build_semantic_index(
             terminal_index_by_pair[pair] = terminal_index
             indexes["terminalByReferencePin"][pair] = terminal_index
             if pin_uuid:
-                schematic_ref["pinUuids"].append(pin_uuid)
+                pin_placements = schematic_placements.get(pin_uuid) or []
+                matching_refs = [
+                    ref
+                    for ref in schematic_refs
+                    if any(
+                        ref.get("sheetInstancePath")
+                        == placement.get("sheetInstancePath")
+                        for placement in pin_placements
+                    )
+                ]
+                for schematic_ref in matching_refs or schematic_refs[:1]:
+                    if pin_uuid not in schematic_ref["pinUuids"]:
+                        schematic_ref["pinUuids"].append(pin_uuid)
                 indexes["terminalBySchematicPinUuid"][pin_uuid] = terminal_index
                 indexes["netBySchematicUuid"][pin_uuid] = net_index
 
@@ -847,6 +1107,8 @@ def build_semantic_index(
         "components": components,
         "nets": nets,
         "terminals": terminals,
+        "sheetInstances": sheet_instances,
+        "buses": buses,
         "indexes": indexes,
     }
     return result

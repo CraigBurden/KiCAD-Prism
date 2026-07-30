@@ -1,8 +1,4 @@
-"""
-Design Comparison service — monkey design.a0 structured diff + geometry sidecars.
-
-Replaces raster kicad-cli SVG overlays for History Design Comparison.
-"""
+"""Design Comparison service — connectivity semantics plus ecad-viewer object deltas."""
 
 from __future__ import annotations
 
@@ -49,8 +45,8 @@ _JOB_ROOT = Path(
     os.environ.get("PRISM_DESIGN_COMPARE_JOBS")
     or Path(tempfile.gettempdir()) / "prism_design_compare"
 )
-_CACHE_SCHEMA = "prism.design_compare_revision_v5"
-_INITIAL_CACHE_SCHEMA = "prism.design_compare_revision_initial_v1"
+_CACHE_SCHEMA = "prism.design_compare_revision_v7"
+_INITIAL_CACHE_SCHEMA = "prism.design_compare_revision_initial_v3"
 _CACHE_LOCKS: Dict[str, threading.Lock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
 _GENERATED_PARTS = {
@@ -374,13 +370,16 @@ def _load_or_build_initial_revision(
             return cached
 
         snap = cache / "snapshot"
-        logs.append(f"Snapshotting {commit[:7]}…")
-        if on_progress:
-            on_progress(f"Snapshotting {commit[:7]}…")
-        timed(
-            "snapshot",
-            lambda: _snapshot_commit(repo_path, commit, snap, relative_path),
-        )
+        if not snap.exists():
+            logs.append(f"Snapshotting {commit[:7]}…")
+            if on_progress:
+                on_progress(f"Snapshotting {commit[:7]}…")
+            timed(
+                "snapshot",
+                lambda: _snapshot_commit(repo_path, commit, snap, relative_path),
+            )
+        else:
+            logs.append(f"Snapshot ready for {commit[:7]}")
 
         pro = _find_pro(snap)
         semantic_index: Dict[str, Any] = {
@@ -406,6 +405,7 @@ def _load_or_build_initial_revision(
                             stage="initial",
                         ),
                         include_pcb=False,
+                        include_components=False,
                     ),
                 )
                 logs.append(f"Built schematic semantic index for {commit[:7]}")
@@ -419,32 +419,11 @@ def _load_or_build_initial_revision(
                     "indexes": {},
                 }
 
-            try:
-                if on_progress:
-                    on_progress(f"Extracting schematic geometry for {commit[:7]}…")
-                geometry = timed(
-                    "schematic-geometry",
-                    lambda: _extract_geometry(
-                        snap,
-                        semantic_index,
-                        {"schematic"},
-                    ),
-                )
-                logs.append(
-                    f"Schematic geometry {commit[:7]}: "
-                    f"{len(geometry.get('schematic') or {})} objects"
-                )
-            except Exception as exc:
-                logs.append(f"Schematic geometry extract failed: {exc}")
-                geometry = {"schematic": {}, "pcb": {}}
-        else:
-            geometry = {"schematic": {}, "pcb": {}}
 
         payload = {
             "schema": _INITIAL_CACHE_SCHEMA,
             "commit": commit,
             "semantic": semantic_index,
-            "geometry": geometry,
             "stackup": {"present": False, "layers": []},
             "bom_rows": timed(
                 "bom-projection",
@@ -511,19 +490,6 @@ def _load_or_build_pcb_revision(
         snap = cache / "snapshot"
         semantic_index = copy.deepcopy(initial.get("semantic") or {})
 
-        geometry = copy.deepcopy(initial.get("geometry") or {"schematic": {}, "pcb": {}})
-        try:
-            if on_progress:
-                on_progress(f"Indexing PCB geometry for {commit[:7]}…")
-            pcb_geometry = timed(
-                "pcb-geometry",
-                lambda: _extract_geometry(snap, semantic_index, {"pcb"}),
-            )
-            geometry["pcb"] = pcb_geometry.get("pcb") or {}
-        except Exception as exc:
-            logs.append(f"PCB geometry extract failed for {commit[:7]}: {exc}")
-            geometry["pcb"] = {}
-
         try:
             stackup = timed("stackup", lambda: _extract_stackup(snap))
         except Exception as exc:
@@ -534,7 +500,6 @@ def _load_or_build_pcb_revision(
             **initial,
             "schema": _CACHE_SCHEMA,
             "semantic": semantic_index,
-            "geometry": geometry,
             "stackup": stackup,
             "timings": timings,
         }
@@ -694,305 +659,6 @@ def _iter_sexpr_blocks(text: str, kind: str):
         end = semantic_index_service._balanced_s_expression_end(text, match.start())
         if end is not None:
             yield text[match.start():end]
-
-
-def _source_id(block: str) -> Optional[str]:
-    match = _UUID_RE.search(block)
-    return next((value for value in match.groups() if value), None) if match else None
-
-
-def _point(block: str, key: str) -> Optional[List[float]]:
-    match = re.search(
-        rf"\({re.escape(key)}\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)",
-        block,
-    )
-    return [float(match.group(1)), float(match.group(2))] if match else None
-
-
-def _point_angle(block: str, key: str) -> Optional[float]:
-    match = re.search(
-        rf"\({re.escape(key)}\s+[-+0-9.eE]+\s+[-+0-9.eE]+(?:\s+([-+0-9.eE]+))?",
-        block,
-    )
-    if not match:
-        return None
-    return float(match.group(1) or 0)
-
-
-def _points(block: str) -> List[List[float]]:
-    return [
-        [float(x), float(y)]
-        for x, y in re.findall(r"\(xy\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\)", block)
-    ]
-
-
-def _bounds(points: List[List[float]]) -> Optional[List[float]]:
-    if not points:
-        return None
-    xs = [point[0] for point in points]
-    ys = [point[1] for point in points]
-    return [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
-
-
-def _semantic_lookup(index: Dict[str, Any], bucket: str, source_id: str) -> Optional[Dict[str, Any]]:
-    position = (index.get("indexes") or {}).get(bucket, {}).get(source_id)
-    if not isinstance(position, int):
-        return None
-    collection = "components" if "component" in bucket.lower() else "nets"
-    values = index.get(collection) or []
-    return values[position] if 0 <= position < len(values) else None
-
-
-def _enrich_geometry(
-    entry: Dict[str, Any],
-    *,
-    source_id: str,
-    semantic_index: Dict[str, Any],
-    context: str,
-) -> Dict[str, Any]:
-    entry["source_id"] = source_id
-    component_bucket = (
-        "componentBySchematicUuid" if context == "schematic" else "componentByPcbFootprintUuid"
-    )
-    net_bucket = "netBySchematicUuid" if context == "schematic" else "netByPcbUuid"
-    component = _semantic_lookup(semantic_index, component_bucket, source_id)
-    net = _semantic_lookup(semantic_index, net_bucket, source_id)
-    if context == "pcb" and component is None and entry.get("reference"):
-        component = _semantic_lookup(
-            semantic_index,
-            "componentByReference",
-            str(entry["reference"]),
-        )
-    if context == "pcb" and net is None and entry.get("net"):
-        net = _semantic_lookup(
-            semantic_index,
-            "netByName",
-            str(entry["net"]),
-        )
-    if component:
-        entry["semantic_id"] = component.get("componentUid")
-        entry["reference"] = component.get("reference")
-    if net:
-        entry["semantic_id"] = net.get("netUid")
-        entry["net"] = net.get("name") or entry.get("net")
-    elif context == "pcb" and entry.get("net"):
-        entry["semantic_id"] = semantic_index_service._stable_uid(
-            "net",
-            entry["net"],
-        )
-    return entry
-
-
-def _extract_geometry(
-    snap: Path,
-    semantic_index: Dict[str, Any],
-    domains: Optional[set[str]] = None,
-) -> Dict[str, Any]:
-    """Compact native source-id → exact/fallback geometry sidecars."""
-    sch_geom: Dict[str, Any] = {}
-    pcb_geom: Dict[str, Any] = {}
-    requested = domains or {"schematic", "pcb"}
-
-    schematic_paths = snap.rglob("*.kicad_sch") if "schematic" in requested else ()
-    for sch in schematic_paths:
-        if _is_generated_kicad_path(sch, snap):
-            continue
-        page = sch.relative_to(snap).as_posix()
-        text = sch.read_text(encoding="utf-8", errors="replace")
-        for block in _iter_sexpr_blocks(text, "symbol"):
-            if "(lib_id " not in block:
-                continue
-            source_id = _source_id(block)
-            at = _point(block, "at")
-            if not source_id or not at:
-                continue
-            symbol_bounds = [at[0] - 2.54, at[1] - 2.54, 5.08, 5.08]
-            sch_geom[source_id] = _enrich_geometry(
-                {
-                    "kind": "symbol",
-                    "page": page,
-                    "x": at[0],
-                    "y": at[1],
-                    "bounds": symbol_bounds,
-                },
-                source_id=source_id,
-                semantic_index=semantic_index,
-                context="schematic",
-            )
-            # Instance pins have native UUIDs but no independent `(at ...)` in
-            # the schematic file. Index them against their owning symbol so a
-            # terminal-only semantic net can still resolve the correct page
-            # and let ecad-viewer obtain the exact painted pin bounds.
-            for pin_block in _iter_sexpr_blocks(block, "pin"):
-                pin_source_id = _source_id(pin_block)
-                if not pin_source_id:
-                    continue
-                sch_geom[pin_source_id] = _enrich_geometry(
-                    {
-                        "kind": "pin",
-                        "page": page,
-                        "x": at[0],
-                        "y": at[1],
-                        "bounds": symbol_bounds,
-                        "parent_source_id": source_id,
-                    },
-                    source_id=pin_source_id,
-                    semantic_index=semantic_index,
-                    context="schematic",
-                )
-        for kind in (
-            "wire",
-            "bus",
-            "polyline",
-            "arc",
-            "circle",
-            "text",
-            "text_box",
-            "label",
-            "global_label",
-            "hierarchical_label",
-            "junction",
-            "no_connect",
-        ):
-            for block in _iter_sexpr_blocks(text, kind):
-                source_id = _source_id(block)
-                if not source_id:
-                    continue
-                points = _points(block)
-                at = _point(block, "at")
-                if kind in {"label", "global_label", "hierarchical_label"}:
-                    geometry_kind = "label"
-                elif kind == "junction":
-                    geometry_kind = "junction"
-                elif kind == "no_connect":
-                    geometry_kind = "graphic"
-                else:
-                    geometry_kind = "wire" if kind in {"wire", "bus"} else "graphic"
-                entry: Dict[str, Any] = {
-                    "kind": geometry_kind,
-                    "page": page,
-                }
-                if points:
-                    entry["points"] = points
-                    entry["bounds"] = _bounds(points)
-                    entry["x"] = sum(point[0] for point in points) / len(points)
-                    entry["y"] = sum(point[1] for point in points) / len(points)
-                elif at:
-                    entry.update({"x": at[0], "y": at[1], "bounds": [at[0] - 1, at[1] - 1, 2, 2]})
-                sch_geom[source_id] = _enrich_geometry(
-                    entry,
-                    source_id=source_id,
-                    semantic_index=semantic_index,
-                    context="schematic",
-                )
-
-    pcb = next(
-        (
-            path
-            for path in snap.rglob("*.kicad_pcb")
-            if not _is_generated_kicad_path(path, snap)
-        ),
-        None,
-    ) if "pcb" in requested else None
-    if pcb:
-        text = pcb.read_text(encoding="utf-8", errors="replace")
-        net_names = {
-            int(code): name
-            for code, name in re.findall(r'\(net\s+(\d+)\s+"([^"]*)"\)', text)
-        }
-
-        def common(block: str, kind: str) -> tuple[Optional[str], Dict[str, Any]]:
-            source_id = _source_id(block)
-            entry: Dict[str, Any] = {"kind": kind}
-            layer = re.search(r'\(layer\s+"([^"]+)"\)', block)
-            if layer:
-                entry["layer"] = layer.group(1)
-            net_code = re.search(r"\(net\s+(\d+)(?:\s|\))", block)
-            if net_code:
-                entry["net"] = net_names.get(int(net_code.group(1)), "")
-            width = re.search(r"\(width\s+([-+0-9.eE]+)\)", block)
-            if width:
-                entry["width"] = float(width.group(1))
-            return source_id, entry
-
-        for block in _iter_sexpr_blocks(text, "segment"):
-            source_id, entry = common(block, "track")
-            start, end = _point(block, "start"), _point(block, "end")
-            if not source_id or not start or not end:
-                continue
-            entry.update({"points": [start, end], "bounds": _bounds([start, end])})
-            pcb_geom[source_id] = _enrich_geometry(
-                entry, source_id=source_id, semantic_index=semantic_index, context="pcb"
-            )
-
-        for block in _iter_sexpr_blocks(text, "arc"):
-            source_id, entry = common(block, "arc")
-            start, mid, end = _point(block, "start"), _point(block, "mid"), _point(block, "end")
-            if not source_id or not start or not mid or not end:
-                continue
-            entry.update({"points": [start, mid, end], "bounds": _bounds([start, mid, end])})
-            pcb_geom[source_id] = _enrich_geometry(
-                entry, source_id=source_id, semantic_index=semantic_index, context="pcb"
-            )
-
-        for block in _iter_sexpr_blocks(text, "via"):
-            source_id, entry = common(block, "via")
-            at = _point(block, "at")
-            size = re.search(r"\(size\s+([-+0-9.eE]+)\)", block)
-            if not source_id or not at:
-                continue
-            radius = float(size.group(1)) / 2 if size else 0.3
-            layer_pair = re.search(r'\(layers\s+"([^"]+)"\s+"([^"]+)"\)', block)
-            entry.update(
-                {
-                    "x": at[0],
-                    "y": at[1],
-                    "radius": radius,
-                    "bounds": [at[0] - radius, at[1] - radius, radius * 2, radius * 2],
-                    "layers": list(layer_pair.groups()) if layer_pair else [],
-                }
-            )
-            pcb_geom[source_id] = _enrich_geometry(
-                entry, source_id=source_id, semantic_index=semantic_index, context="pcb"
-            )
-
-        for block in _iter_sexpr_blocks(text, "zone"):
-            source_id, entry = common(block, "zone")
-            points = _points(block)
-            if not source_id:
-                continue
-            entry.update({"points": points, "bounds": _bounds(points)})
-            pcb_geom[source_id] = _enrich_geometry(
-                entry, source_id=source_id, semantic_index=semantic_index, context="pcb"
-            )
-
-        for block in _iter_sexpr_blocks(text, "footprint"):
-            source_id, entry = common(block, "footprint")
-            at = _point(block, "at")
-            rotation = _point_angle(block, "at")
-            if not source_id or not at:
-                continue
-            lib_id = re.match(r'\(footprint\s+"([^"]+)"', block)
-            reference_match = re.search(
-                r'\(property\s+"Reference"\s+"((?:\\.|[^"\\])*)"',
-                block,
-            )
-            entry.update(
-                {
-                    "lib_id": lib_id.group(1) if lib_id else "",
-                    "reference": reference_match.group(1) if reference_match else "",
-                    "x": at[0],
-                    "y": at[1],
-                    "rotation": rotation or 0,
-                    # Used only if native UUID focus is unavailable.
-                    "bounds": [at[0] - 5, at[1] - 5, 10, 10],
-                }
-            )
-            pcb_geom[source_id] = _enrich_geometry(
-                entry, source_id=source_id, semantic_index=semantic_index, context="pcb"
-            )
-
-    return {"schematic": sch_geom, "pcb": pcb_geom}
 
 
 def _component_source(component: Dict[str, Any], context: str) -> Optional[str]:
@@ -1156,21 +822,23 @@ def _net_bucket_targets(
     targets: List[Dict[str, Any]] = []
     for ref in net.get("schematicRefs") or []:
         page = ref.get("page")
+        sheet_instance_path = ref.get("sheetInstancePath")
         for bucket, role in roles.items():
             if bucket not in selected:
                 continue
             for source_id in ref.get(bucket) or []:
                 if not source_id:
                     continue
-                targets.append(
-                    {
-                        "side": side,
-                        "status": status,
-                        "sourceId": str(source_id),
-                        "page": str(page) if page else None,
-                        "role": role,
-                    }
-                )
+                target = {
+                    "side": side,
+                    "status": status,
+                    "sourceId": str(source_id),
+                    "page": str(page) if page else None,
+                    "role": role,
+                }
+                if sheet_instance_path:
+                    target["sheetPath"] = str(sheet_instance_path)
+                targets.append(target)
     return targets
 
 
@@ -1223,12 +891,13 @@ def _terminal_visual_target(
 
 def _dedupe_visual_targets(targets: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
-    positions: Dict[tuple[str, str, str], int] = {}
+    positions: Dict[tuple[str, str, str, str], int] = {}
     for target in targets:
         key = (
             str(target.get("side") or ""),
             str(target.get("status") or ""),
             str(target.get("sourceId") or ""),
+            str(target.get("sheetPath") or ""),
         )
         if not key[2]:
             continue
@@ -1334,6 +1003,178 @@ def _summary(changes: List[Dict[str, Any]]) -> Dict[str, int]:
         "removed": sum(1 for change in changes if change["kind"] == "removed"),
         "changed": sum(1 for change in changes if change["kind"] == "changed"),
     }
+
+
+def _semantic_structure_changes(
+    base: Dict[str, Any],
+    head: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """First-class tier-1 changes for buses and concrete sheet instances."""
+
+    changes: List[Dict[str, Any]] = []
+
+    def target(
+        item: Dict[str, Any],
+        *,
+        side: str,
+        status: str,
+        sheet_instance: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        source_id = item.get("sheetSymbolUuid") if sheet_instance else item.get("sourceUuid")
+        if not source_id:
+            return None
+        return {
+            "side": side,
+            "status": status,
+            "sourceId": source_id,
+            "page": item.get("parentPage") if sheet_instance else item.get("page"),
+            "sheetPath": (
+                item.get("parentSheetInstancePath")
+                if sheet_instance
+                else item.get("sheetInstancePath")
+            ),
+            "role": "sheet" if sheet_instance else item.get("kind") or "bus",
+            "kind": "sheet" if sheet_instance else item.get("kind") or "bus",
+        }
+
+    def emit_collection(
+        collection: str,
+        uid_field: str,
+        *,
+        category: str,
+        sheet_instance: bool = False,
+    ) -> None:
+        old_by_uid = {
+            str(item.get(uid_field)): item
+            for item in base.get(collection) or []
+            if item.get(uid_field)
+        }
+        new_by_uid = {
+            str(item.get(uid_field)): item
+            for item in head.get(collection) or []
+            if item.get(uid_field)
+        }
+        for uid in sorted(old_by_uid.keys() | new_by_uid.keys()):
+            old = old_by_uid.get(uid)
+            new = new_by_uid.get(uid)
+            if old == new:
+                continue
+            kind = "added" if old is None else "removed" if new is None else "changed"
+            if kind == "added":
+                visual_targets = [
+                    value
+                    for value in [
+                        target(
+                            new or {},
+                            side="comparison",
+                            status="added",
+                            sheet_instance=sheet_instance,
+                        )
+                    ]
+                    if value
+                ]
+            elif kind == "removed":
+                visual_targets = [
+                    value
+                    for value in [
+                        target(
+                            old or {},
+                            side="reference",
+                            status="removed",
+                            sheet_instance=sheet_instance,
+                        )
+                    ]
+                    if value
+                ]
+            else:
+                visual_targets = [
+                    value
+                    for value in (
+                        target(
+                            old or {},
+                            side="reference",
+                            status="modified",
+                            sheet_instance=sheet_instance,
+                        ),
+                        target(
+                            new or {},
+                            side="comparison",
+                            status="modified",
+                            sheet_instance=sheet_instance,
+                        ),
+                    )
+                    if value
+                ]
+            # The root sheet and a bus alias have no native selectable object.
+            # They remain indexed, but do not manufacture an unresolved change.
+            if not visual_targets:
+                continue
+            active = new or old or {}
+            fields: Dict[str, Any] = {}
+            if sheet_instance:
+                for name in ("sheetPath", "sheetInstancePath", "page"):
+                    before = (old or {}).get(name)
+                    after = (new or {}).get(name)
+                    if before != after:
+                        fields[name] = {"old": before, "new": after}
+            elif kind == "changed":
+                fields["busContent"] = {
+                    "old": json.dumps(old, sort_keys=True, separators=(",", ":")),
+                    "new": json.dumps(new, sort_keys=True, separators=(",", ":")),
+                }
+            else:
+                fields["instances"] = {
+                    "old": 0 if old is None else 1,
+                    "new": 0 if new is None else 1,
+                }
+            label = (
+                active.get("sheetName")
+                or active.get("name")
+                or active.get("kind")
+                or uid
+            )
+            changes.append(
+                {
+                    "id": f"sch-{category}-{kind}-{uid}",
+                    "kind": kind,
+                    "domain": "schematic",
+                    "category": category,
+                    "classification": "primary",
+                    "label": str(label),
+                    "semantic_id": uid,
+                    "page": visual_targets[0].get("page"),
+                    "source_id_base": (old or {}).get(
+                        "sheetSymbolUuid" if sheet_instance else "sourceUuid"
+                    ),
+                    "source_id_compare": (new or {}).get(
+                        "sheetSymbolUuid" if sheet_instance else "sourceUuid"
+                    ),
+                    "source_side": "reference" if kind == "removed" else "comparison",
+                    "fields": fields,
+                    "reasons": [
+                        "object-added"
+                        if kind == "added"
+                        else "object-removed"
+                        if kind == "removed"
+                        else "sheet-changed"
+                        if sheet_instance
+                        else "content-changed"
+                    ],
+                    "details": {
+                        "visualTargets": _dedupe_visual_targets(visual_targets)
+                    },
+                    "object_kind": "sheet" if sheet_instance else active.get("kind"),
+                }
+            )
+
+    emit_collection("buses", "busUid", category="nets")
+    emit_collection(
+        "sheetInstances",
+        "sheetInstanceUid",
+        category="sheets",
+        sheet_instance=True,
+    )
+    return changes
 
 
 def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
@@ -1702,6 +1543,14 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
                     "old": base_label_count,
                     "new": compare_label_count,
                 }
+            old_aliases = sorted(str(value) for value in old.get("aliases") or [])
+            new_aliases = sorted(str(value) for value in new.get("aliases") or [])
+            if old_aliases != new_aliases:
+                fields["busMembership"] = {
+                    "old": ", ".join(old_aliases),
+                    "new": ", ".join(new_aliases),
+                }
+                reasons.append("bus-membership-changed")
             if not reasons:
                 continue
         elif kind == "added":
@@ -1828,6 +1677,21 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
                     for target in new_labels
                     if str(target["sourceId"]) not in old_ids
                 )
+            if "bus-membership-changed" in reasons:
+                visual_targets.extend(
+                    _net_bucket_targets(
+                        old,
+                        side="reference",
+                        status="modified",
+                    )
+                )
+                visual_targets.extend(
+                    _net_bucket_targets(
+                        new,
+                        side="comparison",
+                        status="modified",
+                    )
+                )
 
         visual_targets = _dedupe_visual_targets(visual_targets)
         if not visual_targets:
@@ -1885,321 +1749,460 @@ def _diff_designs(base: Dict[str, Any], head: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
 
+    changes.extend(_semantic_structure_changes(base, head))
     return {"changes": changes, "summary": _summary(changes)}
 
 
-def _geometry_identity(source_id: str, item: Dict[str, Any]) -> str:
-    # Prefer semantic identity, then native UUID — never refdes alone across commits.
-    if item.get("kind") in {"footprint", "symbol"}:
-        return str(item.get("semantic_id") or source_id)
-    return source_id
+_PARSER_KIND_NAMES = {
+    "arc_segment": "arc",
+    "drawing": "graphic",
+    "footprint_zone": "zone",
+    "global_label": "label",
+    "hierarchical_label": "label",
+}
 
 
-def _geometry_category(item: Dict[str, Any]) -> tuple[str, str]:
-    kind = item.get("kind")
-    if kind in {"footprint", "symbol"}:
-        return "components", "primary"
-    if kind in {"track", "arc", "via", "wire"} or (kind == "zone" and item.get("net")):
-        return "nets", "primary"
-    return "graphics", "secondary"
+def _run_ecad_object_delta(
+    project_id: str,
+    base: str,
+    head: str,
+) -> Dict[str, Any]:
+    """Parse both cached snapshots once with ecad-viewer's parser."""
 
-
-def _diff_geometry(
-    base_geom: Dict[str, Any],
-    head_geom: Dict[str, Any],
-    domain: str,
-) -> List[Dict[str, Any]]:
-    base = base_geom.get(domain) or {}
-    head = head_geom.get(domain) or {}
-    base_by_identity = {_geometry_identity(uid, item): (uid, item) for uid, item in base.items()}
-    head_by_identity = {_geometry_identity(uid, item): (uid, item) for uid, item in head.items()}
-    changes: List[Dict[str, Any]] = []
-
-    for identity in sorted(base_by_identity.keys() | head_by_identity.keys()):
-        base_pair, compare_pair = base_by_identity.get(identity), head_by_identity.get(identity)
-        base_source, old = base_pair if base_pair else (None, None)
-        compare_source, new = compare_pair if compare_pair else (None, None)
-        if old == new:
-            continue
-        kind = "added" if old is None else "removed" if new is None else "changed"
-        item = new or old or {}
-        category, classification = _geometry_category(item)
-        semantic_id = item.get("semantic_id")
-        label = item.get("reference") or item.get("net") or item.get("lib_id") or str(identity)[:12]
-        layers = sorted(
-            {
-                value
-                for candidate in (old, new)
-                if candidate
-                for value in ([candidate.get("layer")] + list(candidate.get("layers") or []))
-                if value
-            }
-        )
-        prefix = "sch" if domain == "schematic" else "pcb"
-        changes.append(
-            {
-                "id": f"{prefix}-{kind}-{semantic_id or identity}",
-                "kind": kind,
-                "domain": domain,
-                "category": category,
-                "classification": classification,
-                "label": label,
-                "page": item.get("page"),
-                "alsoOnPages": [item["page"]] if item.get("page") else [],
-                "reference": item.get("reference"),
-                "net": item.get("net"),
-                "semantic_id": semantic_id,
-                "uuid": compare_source or base_source,
-                "source_id_base": base_source,
-                "source_id_compare": compare_source,
-                "layers": layers,
-                "geometry": new,
-                "oldGeometry": old,
-                "base_item": _native_item(
-                    source_id=base_source,
-                    semantic_id=semantic_id,
-                    page=(old or {}).get("page"),
-                    layer=(old or {}).get("layer"),
-                    reference=(old or {}).get("reference"),
-                    net=(old or {}).get("net"),
-                ),
-                "compare_item": _native_item(
-                    source_id=compare_source,
-                    semantic_id=semantic_id,
-                    page=(new or {}).get("page"),
-                    layer=(new or {}).get("layer"),
-                    reference=(new or {}).get("reference"),
-                    net=(new or {}).get("net"),
-                ),
-            }
-        )
-    return changes
-
-
-def _merge_semantic_geometry_changes(
-    semantic_changes: List[Dict[str, Any]],
-    geometry_changes: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    """Fold duplicate component records into the exact native geometry record.
-
-    kicad-monkey owns semantic identity and field changes, while the granular
-    extractor owns the source filename and exact native geometry. A component
-    addition/removal can be reported by both adapters; presenting both creates
-    duplicate review rows and can select kicad-monkey's hierarchy label instead
-    of the renderable KiCad filename. Keep one record with data from both.
-    """
-    geometry_by_semantic: Dict[str, Dict[str, Any]] = {
-        str(change["semantic_id"]): change
-        for change in geometry_changes
-        if change.get("category") == "components" and change.get("semantic_id")
-    }
-    merged_geometry_ids: set[int] = set()
-    merged: List[Dict[str, Any]] = []
-
-    for semantic in semantic_changes:
-        semantic_id = semantic.get("semantic_id")
-        native = (
-            geometry_by_semantic.get(str(semantic_id))
-            if semantic_id and semantic.get("category") == "components"
-            else None
-        )
-        if not native:
-            merged.append(semantic)
-            continue
-
-        merged_geometry_ids.add(id(native))
-        combined = {**semantic, **native}
-        combined["id"] = semantic["id"]
-        combined["category"] = semantic["category"]
-        combined["classification"] = semantic.get("classification", "primary")
-        combined["label"] = semantic["label"]
-        combined["reference"] = semantic.get("reference")
-        combined["net"] = semantic.get("net")
-        combined["reasons"] = semantic.get("reasons") or []
-        combined["details"] = semantic.get("details") or {}
-        combined["kind"] = (
-            semantic["kind"]
-            if semantic["kind"] == native["kind"]
-            else "changed"
-        )
-        combined["fields"] = {
-            **(native.get("fields") or {}),
-            **(semantic.get("fields") or {}),
-        }
-        combined["source_id_base"] = (
-            native.get("source_id_base") or semantic.get("source_id_base")
-        )
-        combined["source_id_compare"] = (
-            native.get("source_id_compare") or semantic.get("source_id_compare")
-        )
-        combined["base_item"] = native.get("base_item") or semantic.get("base_item")
-        combined["compare_item"] = native.get("compare_item") or semantic.get("compare_item")
-        combined["page"] = native.get("page") or semantic.get("page")
-        combined["alsoOnPages"] = list(
-            dict.fromkeys(
-                [
-                    value
-                    for value in (
-                        *(native.get("alsoOnPages") or []),
-                        *(semantic.get("alsoOnPages") or []),
-                    )
-                    if value
-                ]
+    script = next(
+        (
+            candidate
+            for candidate in (
+                Path(__file__).parents[3] / "scripts" / "ecad-diff.mjs",
+                Path(__file__).parents[2] / "scripts" / "ecad-diff.mjs",
             )
-        )
-        merged.append(combined)
-
-    merged.extend(
-        change
-        for change in geometry_changes
-        if id(change) not in merged_geometry_ids
-        and change.get("classification") == "secondary"
-        and change.get("kind") in {"added", "removed"}
+            if candidate.exists()
+        ),
+        None,
     )
-    return merged
-
-
-def _hydrate_visual_target_pages_and_match_labels(
-    changes: List[Dict[str, Any]],
-    base_geometry: Dict[str, Any],
-    compare_geometry: Dict[str, Any],
-) -> None:
-    """Attach source pages and remove deterministically matched label churn."""
-
-    def geometry_for(target: Dict[str, Any]) -> Dict[str, Any]:
-        index = base_geometry if target.get("side") == "reference" else compare_geometry
-        return (
-            index.get(target.get("sourceId"))
-            or index.get(target.get("parentSourceId"))
-            or {}
+    if script is None:
+        raise RuntimeError("ecad-viewer parser diff script is not installed")
+    base_snapshot = _cache_dir(project_id, base) / "snapshot"
+    head_snapshot = _cache_dir(project_id, head) / "snapshot"
+    if not base_snapshot.exists() or not head_snapshot.exists():
+        raise RuntimeError("Design comparison snapshots are not ready for object diff")
+    with tempfile.TemporaryDirectory(prefix="prism-ecad-diff-") as temporary:
+        output = Path(temporary) / "delta.json"
+        process = subprocess.run(
+            [
+                "node",
+                str(script),
+                str(base_snapshot),
+                str(head_snapshot),
+                "--out",
+                str(output),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
         )
+        if process.returncode != 0:
+            detail = (process.stderr or process.stdout or "unknown error").strip()
+            raise RuntimeError(f"ecad-viewer parser diff failed: {detail}")
+        return json.loads(output.read_text(encoding="utf-8"))
 
-    def center(target: Dict[str, Any]) -> tuple[float, float]:
-        geometry = geometry_for(target)
-        bounds = geometry.get("bounds") or []
-        if len(bounds) == 4:
-            return (
-                float(bounds[0]) + float(bounds[2]) / 2,
-                float(bounds[1]) + float(bounds[3]) / 2,
+
+def _native_index(side: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    return {
+        str(item["uuid"]): item
+        for item in side.get("nativeObjects") or []
+        if item.get("uuid")
+    }
+
+
+def _parser_components(side: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Project parser symbols into the component shape used by BOM and diff."""
+
+    footprints = {
+        str(item.get("refdes")): item
+        for item in side.get("componentObjects") or []
+        if item.get("kind") == "footprint" and item.get("refdes")
+    }
+    components: List[Dict[str, Any]] = []
+    for item in side.get("componentObjects") or []:
+        if item.get("kind") != "symbol" or _is_power_symbol(item):
+            continue
+        properties = {
+            str(prop.get("name")): prop.get("value")
+            for prop in item.get("properties") or []
+            if prop.get("name")
+        }
+        instances = item.get("instances") or [{"reference": item.get("refdes")}]
+        for instance in instances:
+            reference = str(instance.get("reference") or item.get("refdes") or "")
+            if not reference:
+                continue
+            path = str(instance.get("path") or "")
+            sheet_path = (
+                path[: -(len(str(item["uuid"])) + 1)] or "/"
+                if path.endswith(f"/{item['uuid']}")
+                else "/"
             )
-        return (float(geometry.get("x") or 0), float(geometry.get("y") or 0))
+            footprint = footprints.get(reference)
+            fields = {
+                key: "" if value is None else str(value)
+                for key, value in properties.items()
+            }
+            fields["kicad_in_bom"] = "false" if item.get("inBom") is False else "true"
+            fields["kicad_dnp"] = "true" if item.get("dnp") else "false"
+            components.append(
+                {
+                    "componentUid": semantic_index_service._stable_uid(
+                        "cmp", reference, str(item["uuid"]), path
+                    ),
+                    "reference": reference,
+                    "value": str(properties.get("Value") or ""),
+                    "footprint": str(properties.get("Footprint") or ""),
+                    "fields": fields,
+                    "schematicRefs": [
+                        {
+                            "sheetInstancePath": sheet_path,
+                            "page": item.get("documentPath"),
+                            "symbolUuid": item["uuid"],
+                        }
+                    ],
+                    "pcbRefs": (
+                        [{"footprintUuid": footprint["uuid"]}]
+                        if footprint is not None
+                        else []
+                    ),
+                    "webgpuRefs": [],
+                }
+            )
+    return components
 
+
+def _property_value(item: Dict[str, Any], name: str) -> str:
+    for prop in item.get("properties") or []:
+        if str(prop.get("name") or "") == name:
+            return str(prop.get("value") or "")
+    return ""
+
+
+def _is_power_symbol(item: Dict[str, Any]) -> bool:
+    """Power ports and PWR_FLAG markers are connectivity, never components."""
+
+    return (
+        str(item.get("kind") or "") == "symbol"
+        and str(item.get("libId") or "").casefold().startswith("power:")
+    )
+
+
+def _property_attributes_text(value: Any) -> Optional[str]:
+    if not isinstance(value, dict):
+        return None
+    compact = {
+        key: item
+        for key, item in value.items()
+        if item not in (None, False, "", [], {})
+    }
+    return json.dumps(compact, sort_keys=True, separators=(",", ":"))
+
+
+def _semantic_with_parser_components(
+    revision: Dict[str, Any],
+    side: Dict[str, Any],
+) -> Dict[str, Any]:
+    semantic = dict(revision.get("semantic") or {})
+    semantic["components"] = _parser_components(side)
+    return semantic
+
+
+def _node_change(change: Dict[str, Any]) -> Dict[str, Any]:
+    before = change.get("base") or {}
+    after = change.get("compare") or {}
+    active = after or before or change
+    parser_kind = str(active.get("kind") or change.get("kind") or "")
+    native_kind = _PARSER_KIND_NAMES.get(parser_kind, parser_kind)
+    domain = (
+        "pcb"
+        if str(active.get("documentPath") or change.get("documentPath") or "").endswith(
+            ".kicad_pcb"
+        )
+        else "schematic"
+    )
+    power_symbol = _is_power_symbol(active)
+    if native_kind in {"footprint", "symbol"} and not power_symbol:
+        category, classification = "components", "primary"
+    elif power_symbol or native_kind in {
+        "track",
+        "segment",
+        "arc",
+        "via",
+        "wire",
+        "bus",
+        "label",
+        "junction",
+        "pin",
+        "pad",
+        "zone",
+    } or active.get("net"):
+        category, classification = "nets", "primary"
+    else:
+        category, classification = "graphics", "secondary"
+    reference = None if power_symbol else active.get("refdes")
+    net = (
+        active.get("net")
+        or (_property_value(active, "Value") if power_symbol else None)
+        or (str(active.get("libId") or "").split(":", 1)[-1] if power_symbol else None)
+    )
+    semantic_id = (
+        semantic_index_service._stable_uid("cmp", str(reference))
+        if reference
+        else semantic_index_service._stable_uid("net", str(net))
+        if net
+        else None
+    )
+    status = str(change.get("status") or "")
+    kind = "changed" if status == "modified" else status
+    base_source = before.get("uuid") if before else None
+    compare_source = after.get("uuid") if after else None
+    source_side = "reference" if kind == "removed" else "comparison"
+    fields: Dict[str, Any] = {}
+    for delta in change.get("properties") or []:
+        name = str(delta.get("name") or "")
+        if not name:
+            continue
+        if delta.get("from") != delta.get("to"):
+            fields[name] = {"old": delta.get("from"), "new": delta.get("to")}
+        if delta.get("attributesChanged"):
+            fields[f"{name} attributes"] = {
+                "old": _property_attributes_text(delta.get("fromAttributes")),
+                "new": _property_attributes_text(delta.get("toAttributes")),
+            }
+    def targets_for(item: Dict[str, Any], side: str, target_status: str) -> List[Dict[str, Any]]:
+        paths = item.get("kiidPaths") or [None]
+        return [
+            {
+                "side": side,
+                "status": target_status,
+                "sourceId": item.get("uuid"),
+                "parentSourceId": item.get("parentUuid"),
+                "page": item.get("documentPath"),
+                "documentPath": item.get("documentPath"),
+                "sheetPath": (
+                    str(path)[: -(len(str(item.get("uuid") or "")) + 1)] or "/"
+                    if path and str(path).endswith(f"/{item.get('uuid')}")
+                    else None
+                ),
+                "kind": native_kind,
+                "at": item.get("at"),
+                "role": (
+                    "component"
+                    if category == "components"
+                    else "label"
+                    if power_symbol
+                    else native_kind
+                ),
+            }
+            for path in paths
+        ]
+
+    targets = targets_for(
+        before if source_side == "reference" else after or before,
+        source_side,
+        "modified" if kind == "changed" else kind,
+    )
+    if kind == "changed" and "re-pathed" in (change.get("reasons") or []):
+        targets = [
+            *targets_for(before, "reference", "modified"),
+            *targets_for(after, "comparison", "modified"),
+        ]
+    digest = hashlib.sha256(str(change.get("key") or "").encode("utf-8")).hexdigest()[:20]
+    old_at = before.get("at")
+    new_at = after.get("at")
+    def layer_name(value: Any) -> Optional[str]:
+        if isinstance(value, dict):
+            value = value.get("name") or value.get("canonical_name")
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    return {
+        "id": f"{'sch' if domain == 'schematic' else 'pcb'}-{kind}-{digest}",
+        "kind": kind,
+        "domain": domain,
+        "category": category,
+        "classification": classification,
+        "label": reference or net or active.get("libId") or str(active.get("uuid") or "")[:12],
+        "page": active.get("documentPath"),
+        "alsoOnPages": [active["documentPath"]] if active.get("documentPath") else [],
+        "reference": reference,
+        "net": net,
+        "semantic_id": semantic_id,
+        "uuid": compare_source or base_source,
+        "source_id_base": base_source,
+        "source_id_compare": compare_source,
+        "parent_source_id_base": before.get("parentUuid"),
+        "parent_source_id_compare": after.get("parentUuid"),
+        "source_side": source_side,
+        "layers": sorted(
+            {
+                normalized
+                for item in (before, after)
+                for layer in [item.get("layer"), *(item.get("layers") or [])]
+                if (normalized := layer_name(layer))
+            }
+        ),
+        "position_base": old_at,
+        "position_compare": new_at,
+        "position_delta": change.get("positionDelta"),
+        "base_item": _native_item(
+            source_id=base_source,
+            semantic_id=semantic_id,
+            page=before.get("documentPath"),
+            layer=layer_name(before.get("layer")),
+            reference=before.get("refdes"),
+            net=before.get("net"),
+            parent_source_id=before.get("parentUuid"),
+        ),
+        "compare_item": _native_item(
+            source_id=compare_source,
+            semantic_id=semantic_id,
+            page=after.get("documentPath"),
+            layer=layer_name(after.get("layer")),
+            reference=after.get("refdes"),
+            net=after.get("net"),
+            parent_source_id=after.get("parentUuid"),
+        ),
+        "fields": fields,
+        "reasons": change.get("reasons")
+        or (["object-added"] if kind == "added" else ["object-removed"]),
+        "details": {"visualTargets": targets},
+        "object_kind": native_kind,
+    }
+
+
+def _node_changes(delta: Dict[str, Any], domain: str) -> List[Dict[str, Any]]:
+    return [
+        adapted
+        for change in delta.get("changes") or []
+        if (adapted := _node_change(change)).get("domain") == domain
+    ]
+
+
+def _hydrate_native_targets(
+    changes: List[Dict[str, Any]],
+    base_side: Dict[str, Any],
+    head_side: Dict[str, Any],
+) -> None:
+    indexes = {
+        "reference": _native_index(base_side),
+        "comparison": _native_index(head_side),
+    }
     for change in changes:
         details = change.get("details") or {}
         targets = list(details.get("visualTargets") or [])
         for target in targets:
-            # Semantic extraction names a sheet by its human hierarchy
-            # (for example "/S32G399/Boot & Low Speed Interfaces/"). Native
-            # rendering must load the actual KiCad filename. Preserve the
-            # hierarchy separately, then make `page` the paintable document
-            # identity resolved from the source UUID's geometry sidecar.
-            geometry_page = geometry_for(target).get("page")
+            index = indexes[
+                "reference" if target.get("side") == "reference" else "comparison"
+            ]
+            native = index.get(str(target.get("sourceId") or "")) or index.get(
+                str(target.get("parentSourceId") or "")
+            )
+            if not native:
+                continue
             semantic_page = target.get("page")
-            if geometry_page:
-                if semantic_page and semantic_page != geometry_page:
-                    target["sheetPath"] = str(semantic_page)
-                target["page"] = str(geometry_page)
-
-        if "label-count-changed" not in (change.get("reasons") or []):
-            details["visualTargets"] = targets
-            continue
-        removed = [
-            target
-            for target in targets
-            if target.get("role") == "label" and target.get("side") == "reference"
-        ]
-        added = [
-            target
-            for target in targets
-            if target.get("role") == "label" and target.get("side") == "comparison"
-        ]
-        paired: set[int] = set()
-        removed_pairs: set[int] = set()
-        for old_target in sorted(removed, key=lambda target: str(target.get("sourceId"))):
-            old_page = old_target.get("sheetPath") or old_target.get("page")
-            old_center = center(old_target)
-            candidates = [
-                (index, target)
-                for index, target in enumerate(added)
-                if index not in paired
-                and (
-                    not old_page
-                    or not (target.get("sheetPath") or target.get("page"))
-                    or (target.get("sheetPath") or target.get("page")) == old_page
+            native_page = native.get("documentPath")
+            if semantic_page and semantic_page != native_page:
+                target["sheetPath"] = str(semantic_page)
+            target.update(
+                {
+                    "page": native_page,
+                    "documentPath": native_page,
+                    "kind": _PARSER_KIND_NAMES.get(
+                        str(native.get("kind") or ""), native.get("kind")
+                    ),
+                    "parentSourceId": native.get("parentUuid"),
+                    "at": native.get("at"),
+                }
+            )
+        if "label-count-changed" in (change.get("reasons") or []):
+            removed = [
+                target
+                for target in targets
+                if target.get("role") == "label"
+                and target.get("side") == "reference"
+            ]
+            added = [
+                target
+                for target in targets
+                if target.get("role") == "label"
+                and target.get("side") == "comparison"
+            ]
+            paired_added: set[int] = set()
+            paired_removed: set[int] = set()
+            for old_target in sorted(
+                removed, key=lambda target: str(target.get("sourceId"))
+            ):
+                old_page = old_target.get("sheetPath") or old_target.get("page")
+                old_at = old_target.get("at") or [0, 0]
+                candidates = [
+                    (index, target)
+                    for index, target in enumerate(added)
+                    if index not in paired_added
+                    and (
+                        not old_page
+                        or not (target.get("sheetPath") or target.get("page"))
+                        or (target.get("sheetPath") or target.get("page")) == old_page
+                    )
+                ]
+                if not candidates:
+                    continue
+                match_index, _match = min(
+                    candidates,
+                    key=lambda candidate: (
+                        math.hypot(
+                            float((candidate[1].get("at") or [0, 0])[0])
+                            - float(old_at[0]),
+                            float((candidate[1].get("at") or [0, 0])[1])
+                            - float(old_at[1]),
+                        ),
+                        str(candidate[1].get("sourceId")),
+                    ),
+                )
+                paired_added.add(match_index)
+                paired_removed.add(id(old_target))
+            targets = [
+                target
+                for target in targets
+                if id(target) not in paired_removed
+                and not (
+                    target.get("role") == "label"
+                    and target.get("side") == "comparison"
+                    and any(target is added[index] for index in paired_added)
                 )
             ]
-            if not candidates:
-                continue
-            match_index, _match = min(
-                candidates,
-                key=lambda candidate: (
-                    math.hypot(
-                        center(candidate[1])[0] - old_center[0],
-                        center(candidate[1])[1] - old_center[1],
-                    ),
-                    str(candidate[1].get("sourceId")),
-                ),
-            )
-            paired.add(match_index)
-            removed_pairs.add(id(old_target))
-        details["visualTargets"] = [
-            target
-            for target in targets
-            if id(target) not in removed_pairs
-            and not (
-                target.get("role") == "label"
-                and target.get("side") == "comparison"
-                and target in [added[index] for index in paired]
-            )
-        ]
+        details["visualTargets"] = targets
 
 
-def _arc_length(points: List[List[float]]) -> float:
-    if len(points) != 3:
-        return 0.0
-    (ax, ay), (bx, by), (cx, cy) = points
-    determinant = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-    if abs(determinant) < 1e-9:
-        return math.hypot(cx - ax, cy - ay)
-    ux = (
-        (ax * ax + ay * ay) * (by - cy)
-        + (bx * bx + by * by) * (cy - ay)
-        + (cx * cx + cy * cy) * (ay - by)
-    ) / determinant
-    uy = (
-        (ax * ax + ay * ay) * (cx - bx)
-        + (bx * bx + by * by) * (ax - cx)
-        + (cx * cx + cy * cy) * (bx - ax)
-    ) / determinant
-    radius = math.hypot(ax - ux, ay - uy)
-    start = math.atan2(ay - uy, ax - ux)
-    middle = math.atan2(by - uy, bx - ux)
-    end = math.atan2(cy - uy, cx - ux)
-    ccw = (end - start) % (2 * math.pi)
-    mid_ccw = (middle - start) % (2 * math.pi)
-    sweep = ccw if mid_ccw <= ccw else (2 * math.pi - ccw)
-    return radius * sweep
+def _route_metrics_from_digest(
+    digest: Dict[str, Any],
+    stackup: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Finish route metrics from the parser's compact per-net aggregates."""
 
-
-def _route_metrics(geometry: Dict[str, Any], stackup: Dict[str, Any]) -> Dict[str, Any]:
-    metrics: Dict[str, Dict[str, Any]] = {}
     stack_layers = stackup.get("layers") or []
+    layer_indexes = {
+        str(layer.get("name")): index
+        for index, layer in enumerate(stack_layers)
+        if layer.get("name")
+    }
 
-    def via_span(item: Dict[str, Any]) -> Optional[float]:
-        endpoints = item.get("layers") or []
-        if len(endpoints) != 2:
+    def span_length(span: str) -> Optional[float]:
+        endpoints = span.split("|") if span else []
+        if len(endpoints) != 2 or any(name not in layer_indexes for name in endpoints):
             return None
-        indexes = {
-            str(layer.get("name")): index
-            for index, layer in enumerate(stack_layers)
-            if layer.get("name")
-        }
-        if endpoints[0] not in indexes or endpoints[1] not in indexes:
-            return None
-        start, end = sorted((indexes[endpoints[0]], indexes[endpoints[1]]))
+        start, end = sorted(layer_indexes[name] for name in endpoints)
         thicknesses = [
             layer.get("thickness")
-            for layer in stack_layers[start:end + 1]
+            for layer in stack_layers[start : end + 1]
         ]
         if not thicknesses or not all(
             isinstance(value, (int, float)) for value in thicknesses
@@ -2207,50 +2210,34 @@ def _route_metrics(geometry: Dict[str, Any], stackup: Dict[str, Any]) -> Dict[st
             return None
         return float(sum(thicknesses))
 
-    for item in (geometry.get("pcb") or {}).values():
-        net = str(item.get("net") or "").strip()
-        if not net:
+    result: Dict[str, Any] = {}
+    for net, raw in (digest.get("routeMetrics") or {}).items():
+        name = str(net).strip()
+        if not name:
             continue
-        current = metrics.setdefault(
-            net,
-            {
-                "centerline_length_mm": 0.0,
-                "via_count": 0,
-                "used_layers": set(),
-                "via_barrel_length_mm": 0.0,
-                "_barrel_reliable": True,
-            },
-        )
-        if item.get("kind") == "track" and len(item.get("points") or []) >= 2:
-            start, end = item["points"][0], item["points"][-1]
-            current["centerline_length_mm"] += math.hypot(end[0] - start[0], end[1] - start[1])
-        elif item.get("kind") == "arc":
-            current["centerline_length_mm"] += _arc_length(item.get("points") or [])
-        elif item.get("kind") == "via":
-            current["via_count"] += 1
-            span = via_span(item)
-            if span is None:
-                current["_barrel_reliable"] = False
+        reliable = True
+        barrel = 0.0
+        for span, count in (raw.get("viaSpans") or {}).items():
+            length = span_length(str(span))
+            if length is None:
+                reliable = False
             else:
-                current["via_barrel_length_mm"] += span
-        if item.get("layer"):
-            current["used_layers"].add(item["layer"])
-        current["used_layers"].update(item.get("layers") or [])
-    for value in metrics.values():
-        value["centerline_length_mm"] = round(value["centerline_length_mm"], 4)
-        barrel_reliable = value.pop("_barrel_reliable")
-        if not barrel_reliable:
-            value["via_barrel_length_mm"] = None
-        else:
-            value["via_barrel_length_mm"] = round(value["via_barrel_length_mm"], 4)
-        value["used_layers"] = sorted(value["used_layers"])
-        value["propagation_delay"] = None
-        value["diagnostics"] = ["Propagation delay is not available from source geometry."]
-        if not barrel_reliable and value["via_count"]:
-            value["diagnostics"].append(
+                barrel += length * int(count)
+        via_count = int(raw.get("viaCount") or 0)
+        diagnostics = ["Propagation delay is not available from source geometry."]
+        if not reliable and via_count:
+            diagnostics.append(
                 "Via barrel length is unavailable because the via span or stack thickness is incomplete."
             )
-    return metrics
+        result[name] = {
+            "centerline_length_mm": round(float(raw.get("routeLengthMm") or 0), 4),
+            "via_count": via_count,
+            "used_layers": sorted(str(value) for value in raw.get("usedLayers") or []),
+            "via_barrel_length_mm": round(barrel, 4) if reliable else None,
+            "propagation_delay": None,
+            "diagnostics": diagnostics,
+        }
+    return result
 
 
 def _group_changes(changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -2289,22 +2276,38 @@ def _group_changes(changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             if (member.get("geometry") or {}).get("bounds")
         ]
         old_points = [
-            (
-                (member.get("oldGeometry") or {}).get("x"),
-                (member.get("oldGeometry") or {}).get("y"),
+            tuple(
+                member.get("position_base")
+                or [
+                    (member.get("oldGeometry") or {}).get("x"),
+                    (member.get("oldGeometry") or {}).get("y"),
+                ]
             )
             for member in members
-            if (member.get("oldGeometry") or {}).get("x") is not None
-            and (member.get("oldGeometry") or {}).get("y") is not None
+            if (
+                len(member.get("position_base") or ()) == 2
+                or (
+                    (member.get("oldGeometry") or {}).get("x") is not None
+                    and (member.get("oldGeometry") or {}).get("y") is not None
+                )
+            )
         ]
         new_points = [
-            (
-                (member.get("geometry") or {}).get("x"),
-                (member.get("geometry") or {}).get("y"),
+            tuple(
+                member.get("position_compare")
+                or [
+                    (member.get("geometry") or {}).get("x"),
+                    (member.get("geometry") or {}).get("y"),
+                ]
             )
             for member in members
-            if (member.get("geometry") or {}).get("x") is not None
-            and (member.get("geometry") or {}).get("y") is not None
+            if (
+                len(member.get("position_compare") or ()) == 2
+                or (
+                    (member.get("geometry") or {}).get("x") is not None
+                    and (member.get("geometry") or {}).get("y") is not None
+                )
+            )
         ]
         position_delta = None
         if old_points and new_points:
@@ -2636,6 +2639,34 @@ def _build_initial_revisions(
     return revisions, revision_logs
 
 
+def _prepare_comparison_snapshots(
+    project_id: str,
+    repo_path: Path,
+    relative_path: Optional[str],
+    base: str,
+    head: str,
+    heartbeat: Callable[[str, Optional[float]], None],
+) -> None:
+    """Materialize both snapshots before the independent parsers start."""
+
+    commits = list(dict.fromkeys((base, head)))
+
+    def prepare(commit: str) -> None:
+        snapshot = _cache_dir(project_id, commit) / "snapshot"
+        if snapshot.exists():
+            return
+        with _cache_lock(project_id, commit):
+            if not snapshot.exists():
+                _snapshot_commit(repo_path, commit, snapshot, relative_path)
+
+    heartbeat("Preparing old and new design snapshots…", 8)
+    with ThreadPoolExecutor(
+        max_workers=min(2, len(commits)),
+        thread_name_prefix="design-compare-snapshot",
+    ) as executor:
+        list(executor.map(prepare, commits))
+
+
 def _build_pcb_revisions(
     project_id: str,
     base: str,
@@ -2717,6 +2748,7 @@ def _assemble_initial_comparison(
     base: str,
     head: str,
     revisions: Dict[str, Dict[str, Any]],
+    object_delta: Dict[str, Any],
     include_unchanged: bool,
     benchmark: DesignCompareBenchmark,
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
@@ -2726,35 +2758,40 @@ def _assemble_initial_comparison(
 
     base_rev = revisions[base]
     head_rev = revisions[head]
+    base_semantic = _semantic_with_parser_components(base_rev, object_delta["base"])
+    head_semantic = _semantic_with_parser_components(head_rev, object_delta["head"])
     sch_diff = assemble(
         "schematic-semantic-diff",
-        lambda: _diff_designs(base_rev.get("semantic") or {}, head_rev.get("semantic") or {}),
+        lambda: _diff_designs(base_semantic, head_semantic),
     )
-    sch_geometry_changes = assemble(
-        "schematic-geometry-diff",
-        lambda: _diff_geometry(
-            base_rev.get("geometry") or {},
-            head_rev.get("geometry") or {},
-            "schematic",
-        ),
+    parser_changes = assemble(
+        "schematic-object-diff",
+        lambda: _node_changes(object_delta, "schematic"),
     )
     schematic_changes = assemble(
         "schematic-change-merge",
-        lambda: _merge_semantic_geometry_changes(sch_diff["changes"], sch_geometry_changes),
+        lambda: [
+            *parser_changes,
+            *[
+                change
+                for change in sch_diff["changes"]
+                if change.get("category") in {"nets", "sheets"}
+            ],
+        ],
     )
     assemble(
-        "visual-target-hydration",
-        lambda: _hydrate_visual_target_pages_and_match_labels(
+        "native-target-hydration",
+        lambda: _hydrate_native_targets(
             schematic_changes,
-            (base_rev.get("geometry") or {}).get("schematic") or {},
-            (head_rev.get("geometry") or {}).get("schematic") or {},
+            object_delta["base"],
+            object_delta["head"],
         ),
     )
     bom = assemble(
         "bom-diff",
         lambda: bom_diff_service.diff_boms(
-            _revision_bom_rows(base_rev),
-            _revision_bom_rows(head_rev),
+            _semantic_bom_rows(base_semantic),
+            _semantic_bom_rows(head_semantic),
             _comparison_bom_fields(project_id, head),
             include_unchanged=include_unchanged,
         ),
@@ -2770,10 +2807,6 @@ def _assemble_initial_comparison(
             schematic_changes=schematic_changes,
             pcb_changes=empty_pcb_changes,
             files=source_files,
-            geometry={
-                "base": base_rev.get("geometry") or {},
-                "head": head_rev.get("geometry") or {},
-            },
         ),
     )
     sheets = sorted(
@@ -2815,7 +2848,7 @@ def _assemble_initial_comparison(
         "bom": bom,
         "stackup": {"base": [], "head": [], "changed": False, "present": False},
     }
-    state = {"schematic_changes": schematic_changes}
+    state = {"schematic_changes": schematic_changes, "object_delta": object_delta}
     return result, state
 
 
@@ -2834,13 +2867,10 @@ def _complete_comparison(
 
     base_rev = revisions[base]
     head_rev = revisions[head]
+    object_delta = assembly_state["object_delta"]
     pcb_changes = assemble(
-        "pcb-geometry-diff",
-        lambda: _diff_geometry(
-            base_rev.get("geometry") or {},
-            head_rev.get("geometry") or {},
-            "pcb",
-        ),
+        "pcb-object-diff",
+        lambda: _node_changes(object_delta, "pcb"),
     )
     stackup = assemble(
         "stackup-diff",
@@ -2849,8 +2879,12 @@ def _complete_comparison(
     route_metrics = assemble(
         "route-metrics",
         lambda: {
-            "base": _route_metrics(base_rev.get("geometry") or {}, base_rev.get("stackup") or {}),
-            "compare": _route_metrics(head_rev.get("geometry") or {}, head_rev.get("stackup") or {}),
+            "base": _route_metrics_from_digest(
+                object_delta["base"], base_rev.get("stackup") or {}
+            ),
+            "compare": _route_metrics_from_digest(
+                object_delta["head"], head_rev.get("stackup") or {}
+            ),
         },
     )
     source_files = initial_result["files"]
@@ -2861,10 +2895,6 @@ def _complete_comparison(
             schematic_changes=schematic_changes,
             pcb_changes=pcb_changes,
             files=source_files,
-            geometry={
-                "base": base_rev.get("geometry") or {},
-                "head": head_rev.get("geometry") or {},
-            },
         ),
     )
     return {
@@ -3048,16 +3078,36 @@ def _run_job(
     try:
         repo_path, relative_path, _checkout = _repo_paths(project_id)
         initial_started = time.perf_counter()
-        with benchmark.span("initial-revision-pipeline"):
-            initial_revisions, initial_logs = _build_initial_revisions(
+        with benchmark.span("snapshot-pipeline"):
+            _prepare_comparison_snapshots(
                 project_id,
                 repo_path,
                 relative_path,
                 base,
                 head,
                 heartbeat,
-                benchmark=benchmark,
             )
+        with ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="design-compare-object-delta",
+        ) as parser_executor:
+            def build_object_delta() -> Dict[str, Any]:
+                with benchmark.span("ecad-object-delta"):
+                    return _run_ecad_object_delta(project_id, base, head)
+
+            object_future = parser_executor.submit(build_object_delta)
+            with benchmark.span("initial-revision-pipeline"):
+                initial_revisions, initial_logs = _build_initial_revisions(
+                    project_id,
+                    repo_path,
+                    relative_path,
+                    base,
+                    head,
+                    heartbeat,
+                    benchmark=benchmark,
+                )
+            heartbeat("Finishing native object differences…", 45)
+            object_delta = object_future.result()
         append_revision_logs(initial_logs, stage="initial")
 
         heartbeat("Assembling Schematic and BOM differences…", 50)
@@ -3066,6 +3116,7 @@ def _run_job(
             base=base,
             head=head,
             revisions=initial_revisions,
+            object_delta=object_delta,
             include_unchanged=include_unchanged,
             benchmark=benchmark,
         )
@@ -3378,16 +3429,37 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
 
     try:
         context.check_cancelled()
-        with benchmark.span("initial-revision-pipeline"):
-            initial_revisions, initial_logs = _build_initial_revisions(
+        with benchmark.span("snapshot-pipeline"):
+            _prepare_comparison_snapshots(
                 project_id,
                 repo_path,
                 relative_path,
                 base,
                 head,
                 heartbeat,
-                benchmark=benchmark,
             )
+        with ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="design-compare-object-delta",
+        ) as parser_executor:
+            def build_object_delta() -> Dict[str, Any]:
+                with benchmark.span("ecad-object-delta"):
+                    return _run_ecad_object_delta(project_id, base, head)
+
+            object_future = parser_executor.submit(build_object_delta)
+            with benchmark.span("initial-revision-pipeline"):
+                initial_revisions, initial_logs = _build_initial_revisions(
+                    project_id,
+                    repo_path,
+                    relative_path,
+                    base,
+                    head,
+                    heartbeat,
+                    benchmark=benchmark,
+                )
+            context.check_cancelled()
+            heartbeat("Finishing native object differences…", 45)
+            object_delta = object_future.result()
         append_revision_logs(initial_logs, "initial")
         context.check_cancelled()
         heartbeat("Assembling Schematic and BOM differences…", 50)
@@ -3396,6 +3468,7 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
             base=base,
             head=head,
             revisions=initial_revisions,
+            object_delta=object_delta,
             include_unchanged=include_unchanged,
             benchmark=benchmark,
         )

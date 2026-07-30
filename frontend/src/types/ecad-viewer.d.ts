@@ -144,7 +144,7 @@ export interface EcadCommentAreaDetail {
 
 export interface EcadPreparedDiffTarget {
     id: string;
-    kind: "change" | "group";
+    kind: "change" | "group" | "changes";
     category: "added" | "removed" | "modified" | "conflict";
     label: string;
     memberIds: string[];
@@ -155,17 +155,47 @@ export interface EcadPreparedDiffTarget {
     overlayLines: Array<Array<[number, number]>>;
 }
 
+export type EcadDiffResolutionReason =
+    | "missing-source-id"
+    | "item-not-found"
+    | "source-id-ambiguous"
+    | "duplicate-change-target"
+    | "paint-bounds-not-found";
+
+export interface EcadDiffResolutionDiagnostic {
+    changeId: string;
+    sourceId?: string;
+    side: "reference" | "comparison";
+    reason: EcadDiffResolutionReason;
+    /** Paint items claiming this source id. */
+    matchCount?: number;
+    /** KiCad type name, for grouping failures by object kind. */
+    typeName?: string;
+}
+
+/** Resolution counters after native identity has been matched and painted. */
+export interface EcadDiffResolutionSummary {
+    changes: number;
+    sourceResolved: number;
+    ambiguousSourceIds: number;
+    duplicateChangeTargets: number;
+    targets: number;
+    targetsWithPaintedBounds: number;
+    targetsUsingProvidedBounds: number;
+    targetsNonFocusable: number;
+    visuals: number;
+    visualsWithPaintedBounds: number;
+    visualsUsingProvidedBounds: number;
+    visualsNonFocusable: number;
+}
+
 export interface EcadDocumentComparisonPreparation {
     comparisonKey: string;
     context: "SCH" | "PCB";
     document: { path: string; docType: string; changes: unknown[] };
     targets: ReadonlyMap<string, EcadPreparedDiffTarget>;
-    diagnostics: Array<{
-        changeId: string;
-        sourceId?: string;
-        side: "reference" | "comparison";
-        reason: "missing-source-id" | "item-not-found";
-    }>;
+    diagnostics: Array<EcadDiffResolutionDiagnostic>;
+    resolution?: EcadDiffResolutionSummary;
     prepareMs: number;
     sourceCacheHit: boolean;
     /** True when the reference revision has no matching document file. */
@@ -183,27 +213,75 @@ export interface EcadDocumentComparisonSelectionResult {
     parserCount: number;
 }
 
+export type EcadDocumentComparisonSelection =
+    | { kind: "change" | "group"; id: string }
+    | { kind: "changes"; ids: string[] };
+
+export type EcadComparisonPresentation =
+    | "composite"
+    | "reference"
+    | "comparison";
+
+export interface EcadComparisonPresentationResult {
+    presentation: EcadComparisonPresentation;
+    preparation: EcadDocumentComparisonPreparation;
+    switchMs: number;
+    parserCount: number;
+    paintCount: number;
+}
+
+export interface EcadComparisonSessionMetrics {
+    prepareMs: number;
+    parserCount: number;
+    switchCount: number;
+    lastSwitchMs: number;
+    maxSwitchMs: number;
+    lastSwitchParserCount: number;
+    retainedViewports: number;
+    retainedScenes: number;
+    sourceBytes: number;
+    heapBytesAtPrepare?: number;
+    heapBytesCurrent?: number;
+}
+
+export interface EcadComparisonSession {
+    readonly comparisonKey: string;
+    readonly preparation: EcadDocumentComparisonPreparation;
+    setPresentation(
+        presentation: EcadComparisonPresentation,
+        viewport?: ECadViewerElement,
+    ): Promise<EcadComparisonPresentationResult>;
+    getPreparation(
+        viewport?: ECadViewerElement,
+    ): EcadDocumentComparisonPreparation | null;
+    getMetrics(): EcadComparisonSessionMetrics;
+    dispose(): void;
+}
+
+export interface EcadDocumentComparisonRequest {
+    comparisonKey: string;
+    reference: {
+        revisionKey: string;
+        sources: Array<{ filename: string; content: string }>;
+    };
+    comparison: {
+        revisionKey: string;
+        sources: Array<{ filename: string; content: string }>;
+    };
+    diff: unknown;
+    /** Native KiCad requires bbox; Prism resolves geometry after paint. */
+    diffFormat?: "native-kicad" | "prism";
+    documentPath?: string;
+    /** Prefer this hierarchical schematic project path when activating SCH. */
+    activeSheetPath?: string;
+}
+
 /** Value-based camera state from <ecad-viewer> (world center + zoom + rotation). */
 export interface CameraState {
     x: number;
     y: number;
     zoom: number;
     rotation: number;
-}
-
-export interface EcadRevisionDiffPresentationRequest {
-    context: "SCH" | "PCB";
-    targets: Array<{
-        id: string;
-        label?: string;
-        visuals: Array<{
-            sourceId: string;
-            parentSourceId?: string | null;
-            status: "added" | "removed" | "modified" | "conflict";
-            bounds?: [number, number, number, number];
-            routing?: boolean;
-        }>;
-    }>;
 }
 
 export interface EcadTransitionTraceDetail {
@@ -236,37 +314,19 @@ export interface ECadViewerElement extends HTMLElement {
     setCommentMode?(enabled: boolean): void;
     setCommentOverlays(request: EcadCommentOverlaySet): void;
     clearCommentOverlays(context?: EcadCommentContext): void;
-    loadDocumentComparison(request: {
-        comparisonKey: string;
-        reference: {
-            revisionKey: string;
-            sources: Array<{ filename: string; content: string }>;
-        };
-        comparison: {
-            revisionKey: string;
-            sources: Array<{ filename: string; content: string }>;
-        };
-        diff: unknown;
-        documentPath?: string;
-        /** Prefer this hierarchical schematic project path when activating SCH. */
-        activeSheetPath?: string;
-    }): Promise<EcadDocumentComparisonPreparation>;
-    selectDocumentDiff(selection: {
-        kind: "change" | "group";
-        id: string;
-    }): Promise<EcadDocumentComparisonSelectionResult>;
-    previewDocumentDiff?(selection: {
-        kind: "change" | "group";
-        id: string;
-    } | null): void;
-    setRevisionDiffPresentation?(
-        request: EcadRevisionDiffPresentationRequest | null,
+    loadDocumentComparison(
+        request: EcadDocumentComparisonRequest,
+    ): Promise<EcadDocumentComparisonPreparation>;
+    prepareComparison(
+        request: EcadDocumentComparisonRequest,
+    ): Promise<EcadComparisonSession>;
+    selectDocumentDiff(
+        selection: EcadDocumentComparisonSelection,
+    ): Promise<EcadDocumentComparisonSelectionResult>;
+    previewDocumentDiff?(
+        selection: EcadDocumentComparisonSelection | null,
     ): void;
-    selectRevisionDiff?(
-        id: string | null,
-        options?: { focus?: boolean },
-    ): Promise<boolean>;
-    previewRevisionDiff?(id: string | null): void;
+    clearDocumentDiffSelection?(): void;
     /** Abort in-flight comparison loads without tearing down painted presentation. */
     abortDocumentComparisonLoad?(): void;
     clearDocumentComparison(): void;

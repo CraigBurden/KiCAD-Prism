@@ -144,7 +144,16 @@ export function useRevisionSources(
             }
         })();
         return () => controller.abort();
-    }, [commit, domain, files, projectId, requestKey, rootName]);
+        // `files` is intentionally NOT a dependency. For a fixed commit the source
+        // list is fixed, but the parent re-creates the `files` array on most
+        // renders, giving it a new identity each time. Including it re-ran this
+        // effect on every render; each re-run aborted the in-flight fetch before
+        // its `finally` could set `resolvedKey`, so `isCurrent` stayed false and
+        // `loading` was reported true forever — the comparison hung at "Preparing
+        // native comparison…" with no error. `requestKey` (projectId:commit:domain)
+        // already captures every input that changes what is fetched.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [commit, domain, projectId, requestKey, rootName]);
 
     const isCurrent = resolvedKey === requestKey;
     return {
