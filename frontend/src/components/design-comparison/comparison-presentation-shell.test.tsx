@@ -445,6 +445,31 @@ describe("ComparisonPresentationShell", () => {
         });
     });
 
+    it("renders host toolbar content once, beside its own Old/New toggle", async () => {
+        // The presentation switcher lives in this bar but is owned by the
+        // workspace, because both domain shells stay mounted and a
+        // shell-rendered switcher would put two in the DOM under one
+        // accessible name. The shell renders whatever it is handed, once.
+        const view = render(
+            <ComparisonPresentationShell
+                {...shellProps}
+                presentationMode="old-new"
+                toolbarContent={(
+                    <div role="group" aria-label="Presentation mode" />
+                )}
+            />,
+        );
+
+        expect(view.getAllByRole("group", { name: "Presentation mode" }))
+            .toHaveLength(1);
+        // Both groups share the bar; the revision-side buttons must still
+        // resolve unambiguously against a bare /Old/ query.
+        expect(view.getByRole("button", { name: /Old/ }).textContent)
+            .toContain("Old");
+        expect(view.getAllByRole("group", { name: "Revision side" }))
+            .toHaveLength(1);
+    });
+
     it("mounts and loads exactly two hosts in side-by-side mode", async () => {
         render(
             <ComparisonPresentationShell

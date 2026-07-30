@@ -65,6 +65,15 @@ type ComparisonPresentationShellProps = {
     ) => void;
     discussionContent?: ReactNode;
     discussionCount?: number;
+    /**
+     * Rendered at the head of the panel's own top bar. The presentation
+     * switcher belongs visually to the panel it controls, but both domain
+     * shells stay mounted at once, so it cannot be rendered *by* the shell —
+     * two of them would sit in the DOM sharing one accessible name, one of
+     * them inside `hidden`. The workspace owns the single instance and hands
+     * it to whichever shell is on screen.
+     */
+    toolbarContent?: ReactNode;
 };
 
 type SessionPhase = "waiting-layout" | "loading" | "ready" | "error";
@@ -176,6 +185,7 @@ export function ComparisonPresentationShell({
     onRightRailTabChange = ignoreRightRailChange,
     discussionContent = null,
     discussionCount = 0,
+    toolbarContent = null,
 }: ComparisonPresentationShellProps) {
     const [primaryViewer, setPrimaryViewer] =
         useState<ECadViewerElement | null>(null);
@@ -862,43 +872,41 @@ export function ComparisonPresentationShell({
 
     return (
         <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-            <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-muted/20 px-3 py-2 text-xs">
-                {presentationMode === "composite" ? (
-                    // The added/removed/modified colors are already explained by
-                    // the change list beside this panel; repeating them here was
-                    // redundant.
-                    <span className="mr-auto" />
-                ) : presentationMode === "old-new" ? (
-                    <>
-                        <div
-                            className="flex items-center gap-0.5 rounded-md border bg-background p-0.5"
-                            role="group"
-                            aria-label="Revision side"
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-muted/20 px-3 py-2 text-xs">
+                {toolbarContent}
+                {presentationMode === "old-new" && (
+                    // Sits beside the mode switcher rather than replacing it.
+                    // Both carry explicit aria-labels: this group's "Old" and
+                    // the switcher's "Old / New" otherwise collide on a bare
+                    // /Old/ accessible-name query.
+                    <div
+                        className="inline-flex shrink-0 items-center gap-0.5 rounded-md border bg-background p-0.5"
+                        role="group"
+                        aria-label="Revision side"
+                    >
+                        <Button
+                            variant={oldNewSide === "base" ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => setOldNewSide("base")}
+                            aria-label="Old revision"
+                            aria-pressed={oldNewSide === "base"}
                         >
-                            <Button
-                                variant={oldNewSide === "base" ? "secondary" : "ghost"}
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => setOldNewSide("base")}
-                                aria-pressed={oldNewSide === "base"}
-                            >
-                                Old
-                            </Button>
-                            <Button
-                                variant={oldNewSide === "compare" ? "secondary" : "ghost"}
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => setOldNewSide("compare")}
-                                aria-pressed={oldNewSide === "compare"}
-                            >
-                                New
-                            </Button>
-                        </div>
-                        <span className="mr-auto" />
-                    </>
-                ) : (
-                    <span className="mr-auto" />
+                            Old
+                        </Button>
+                        <Button
+                            variant={oldNewSide === "compare" ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => setOldNewSide("compare")}
+                            aria-label="New revision"
+                            aria-pressed={oldNewSide === "compare"}
+                        >
+                            New
+                        </Button>
+                    </div>
                 )}
+                <span className="mr-auto" />
                 {domain === "pcb" && (
                     <ComparisonPcbLayersToggle
                         open={showLayers}

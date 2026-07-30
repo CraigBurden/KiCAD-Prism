@@ -1291,6 +1291,50 @@ export function DesignComparisonWorkspace({
         setPresentationMode(next);
     };
 
+    // The switcher belongs in the bar of the panel it controls, but both domain
+    // shells stay mounted, so exactly one instance is built here and handed to
+    // whichever shell is on screen. Rendering it inside the shell would put two
+    // in the DOM under one accessible name, one of them hidden.
+    const presentationSwitcher = (
+        <div
+            className="inline-flex shrink-0 items-center gap-0.5 rounded-md border bg-background p-0.5"
+            role="group"
+            aria-label="Presentation mode"
+        >
+            <Button
+                variant={presentationMode === "composite" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => choosePresentationMode("composite")}
+                aria-pressed={presentationMode === "composite"}
+            >
+                <Square className="mr-1.5 h-3.5 w-3.5" />
+                Composite
+            </Button>
+            <Button
+                variant={presentationMode === "side-by-side" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => choosePresentationMode("side-by-side")}
+                aria-pressed={presentationMode === "side-by-side"}
+            >
+                <Columns2 className="mr-1.5 h-3.5 w-3.5" />
+                Side by side
+            </Button>
+            <Button
+                variant={presentationMode === "old-new" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => choosePresentationMode("old-new")}
+                aria-label="Single revision presentation mode"
+                aria-pressed={presentationMode === "old-new"}
+            >
+                <ToggleLeft className="mr-1.5 h-3.5 w-3.5" />
+                Old / New
+            </Button>
+        </div>
+    );
+
     const renderDomainShell = (
         shellDomain: "schematic" | "pcb",
         shellGroups: ChangeGroup[],
@@ -1318,6 +1362,7 @@ export function DesignComparisonWorkspace({
                     reviewGroups={shellGroups}
                     selection={isActive ? reviewSelection : null}
                     previewSelection={isActive ? previewSelection : null}
+                    toolbarContent={isActive ? presentationSwitcher : null}
                     initialVisibleLayers={visibleLayers}
                     onVisibleLayersChange={setVisibleLayers}
                     rightRailTab={comparisonRightRailTab}
@@ -1357,12 +1402,21 @@ export function DesignComparisonWorkspace({
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                         <DialogTitle>Design comparison</DialogTitle>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="rounded border bg-muted px-2 py-1 font-mono">
-                                Base {base.slice(0, 10)}
+                            {/* Label outside the chip, SHA inside it, so the tag
+                                reads as a name pointing at a value rather than
+                                one solid block. */}
+                            <span className="flex items-center gap-1.5">
+                                Base
+                                <span className="rounded border bg-muted px-2 py-1 font-mono">
+                                    {base.slice(0, 10)}
+                                </span>
                             </span>
                             <ChevronRight className="h-3.5 w-3.5" />
-                            <span className="rounded border bg-primary/10 px-2 py-1 font-mono text-primary">
-                                Compare {head.slice(0, 10)}
+                            <span className="flex items-center gap-1.5">
+                                Compare
+                                <span className="rounded border bg-primary/10 px-2 py-1 font-mono text-primary">
+                                    {head.slice(0, 10)}
+                                </span>
                             </span>
                             {branchTipLabel && (
                                 <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] text-primary">
@@ -1404,45 +1458,6 @@ export function DesignComparisonWorkspace({
                                     </Button>
                                 );
                             })}
-                            {(activeTab === "sch" || activeTab === "pcb")
-                                && activeTabStatus === "ready" && (
-                                <div
-                                    className="ml-2 flex items-center gap-0.5 rounded-md border bg-background p-0.5"
-                                    role="group"
-                                    aria-label="Presentation mode"
-                                >
-                                    <Button
-                                        variant={presentationMode === "composite" ? "secondary" : "ghost"}
-                                        size="sm"
-                                        className="h-7 text-xs"
-                                        onClick={() => choosePresentationMode("composite")}
-                                        aria-pressed={presentationMode === "composite"}
-                                    >
-                                        <Square className="mr-1.5 h-3.5 w-3.5" />
-                                        Composite
-                                    </Button>
-                                    <Button
-                                        variant={presentationMode === "side-by-side" ? "secondary" : "ghost"}
-                                        size="sm"
-                                        className="h-7 text-xs"
-                                        onClick={() => choosePresentationMode("side-by-side")}
-                                        aria-pressed={presentationMode === "side-by-side"}
-                                    >
-                                        <Columns2 className="mr-1.5 h-3.5 w-3.5" />
-                                        Side by side
-                                    </Button>
-                                    <Button
-                                        variant={presentationMode === "old-new" ? "secondary" : "ghost"}
-                                        size="sm"
-                                        className="h-7 text-xs"
-                                        onClick={() => choosePresentationMode("old-new")}
-                                        aria-pressed={presentationMode === "old-new"}
-                                    >
-                                        <ToggleLeft className="mr-1.5 h-3.5 w-3.5" />
-                                        Old / New
-                                    </Button>
-                                </div>
-                            )}
                             <Button
                                 variant={showDiscussion ? "secondary" : "ghost"}
                                 size="sm"
