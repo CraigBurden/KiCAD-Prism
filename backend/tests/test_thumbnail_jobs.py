@@ -51,6 +51,47 @@ class ThumbnailJobEnqueue(unittest.TestCase):
             self.assertIsNone(project_import_service.start_thumbnail_job("missing"))
         enqueue.assert_not_called()
 
+    def test_bulk_enqueue_validates_before_starting_each_job(self) -> None:
+        with (
+            mock.patch.object(
+                project_import_service.workspace,
+                "get_project_by_id",
+                side_effect=lambda project_id: {"id": project_id},
+            ),
+            mock.patch.object(
+                project_import_service,
+                "start_thumbnail_job",
+                side_effect=["job-1", "job-2"],
+            ) as start,
+        ):
+            job_ids = project_import_service.start_thumbnail_jobs(
+                ["prj_1", "prj_2", "prj_1"],
+                requested_by="designer@example.com",
+            )
+
+        self.assertEqual(job_ids, ["job-1", "job-2"])
+        self.assertEqual(
+            start.call_args_list,
+            [
+                mock.call("prj_1", requested_by="designer@example.com"),
+                mock.call("prj_2", requested_by="designer@example.com"),
+            ],
+        )
+
+    def test_bulk_enqueue_rejects_missing_project_before_starting_jobs(self) -> None:
+        with (
+            mock.patch.object(
+                project_import_service.workspace,
+                "get_project_by_id",
+                side_effect=lambda project_id: None if project_id == "missing" else {"id": project_id},
+            ),
+            mock.patch.object(project_import_service, "start_thumbnail_job") as start,
+        ):
+            with self.assertRaisesRegex(ValueError, "Project not found: missing"):
+                project_import_service.start_thumbnail_jobs(["prj_1", "missing"])
+
+        start.assert_not_called()
+
 
 class ThumbnailJobHandler(unittest.TestCase):
     def test_handler_renders_and_records_the_result(self) -> None:
@@ -87,6 +128,71 @@ class ThumbnailJobHandler(unittest.TestCase):
             "prj_1", thumbnail_source="generated"
         )
         self.assertTrue(result.details["rendered"])
+
+    def test_handler_fails_when_the_renderer_produces_no_thumbnail(self) -> None:
+        with tempfile.TemporaryDirectory() as project_path:
+            context = SimpleNamespace(
+                payload={"project_id": "prj_1"},
+                check_cancelled=mock.Mock(),
+                progress=lambda **values: None,
+            )
+
+            def failed_render(_project_path, logs):
+                logs.append("kicad-cli render failed (code 1): render error")
+                return False
+
+            with (
+                mock.patch.object(
+                    project_import_service.workspace,
+                    "get_project_by_id",
+                    return_value={"id": "prj_1", "path": project_path},
+                ),
+                mock.patch.object(
+                    project_import_service,
+                    "generate_thumbnail_for_project",
+                    side_effect=failed_render,
+                ),
+                mock.patch.object(
+                    project_import_service, "refresh_project_assets"
+                ) as refresh,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "kicad-cli render failed"):
+                    project_import_service.run_project_thumbnail_job_v3(context)
+
+        refresh.assert_not_called()
+
+    def test_handler_completes_as_not_applicable_when_project_has_no_board(self) -> None:
+        with tempfile.TemporaryDirectory() as project_path:
+            context = SimpleNamespace(
+                payload={"project_id": "prj_1"},
+                check_cancelled=mock.Mock(),
+                progress=lambda **values: None,
+            )
+
+            def no_board(_project_path, logs):
+                logs.append(f"No .kicad_pcb file found to generate thumbnail for {_project_path}")
+                return False
+
+            with (
+                mock.patch.object(
+                    project_import_service.workspace,
+                    "get_project_by_id",
+                    return_value={"id": "prj_1", "path": project_path},
+                ),
+                mock.patch.object(
+                    project_import_service,
+                    "generate_thumbnail_for_project",
+                    side_effect=no_board,
+                ),
+                mock.patch.object(
+                    project_import_service, "refresh_project_assets", return_value={}
+                ) as refresh,
+            ):
+                result = project_import_service.run_project_thumbnail_job_v3(context)
+
+        refresh.assert_called_once_with("prj_1")
+        self.assertEqual(result.message, "No board to render")
+        self.assertFalse(result.details["rendered"])
 
     def test_handler_rejects_a_project_whose_checkout_is_gone(self) -> None:
         context = SimpleNamespace(

@@ -4,6 +4,7 @@ user's Git checkout untouched."""
 from __future__ import annotations
 
 import io
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -47,6 +48,18 @@ class ThumbnailStorageStaysOutsideTheCheckout(unittest.TestCase):
         self.assertEqual(found, stored)
         self.assertEqual(size, len(b"render-bytes"))
         self.assertTrue(digest)
+
+    def test_stored_thumbnail_is_readable_by_the_nginx_worker(self) -> None:
+        source = self._write_render()
+        source.chmod(0o600)
+
+        stored, _, _ = derived_assets.store_thumbnail(self.checkout, source)
+
+        mode = stat.S_IMODE(stored.stat().st_mode)
+        self.assertEqual(
+            mode & (stat.S_IRGRP | stat.S_IROTH),
+            stat.S_IRGRP | stat.S_IROTH,
+        )
 
     def test_regenerating_replaces_rather_than_accumulates(self) -> None:
         derived_assets.store_thumbnail(self.checkout, self._write_render(b"first"))

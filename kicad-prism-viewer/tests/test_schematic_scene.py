@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
 
 from pipeline.topology_compiler.schematic_scene import (
     SCHEMA,
@@ -10,6 +12,7 @@ from pipeline.topology_compiler.schematic_scene import (
     _pin_lookup_indexes,
     _polyline_bounds,
     _page_chunks,
+    _record_feature,
     _symbol_owner_features,
     _native_preview_svg,
     _native_overlay_svg,
@@ -607,6 +610,93 @@ class SchematicSceneSchemaTests(unittest.TestCase):
         descriptors = _operation_descriptors(page, record, 1, parent, {"bySvgId": {}, "byDesignatorPin": {}}, {})
 
         self.assertTrue(descriptors[0]["metadata"]["dnp"])
+
+    def test_vr5510_dnp_passives_keep_cross_as_a_top_layer_feature(self):
+        """Regression for issue #86 using sanitized R106/R108/C111 IR.
+
+        The fixture contains only the body and DNP-marker operations parsed
+        from the reported schematic; no project fields or net data are copied.
+        """
+        fixture_path = Path(__file__).parent / "fixtures" / "vr5510_dnp_passives.json"
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        page = {
+            "id": "page-vr5510",
+            "name": "VR5510_PMIC",
+            "sheetInstancePath": "/root/vr5510",
+            "sourceWidthMm": 420,
+            "sourceHeightMm": 297,
+        }
+
+        for item in fixture["symbols"]:
+            with self.subTest(reference=item["reference"]):
+                record = FakeSymbolRecord(
+                    [FakeOperation(operation) for operation in [*item["body"], *item["marker"]]],
+                    extras={
+                        "reference": item["reference"],
+                        "lib_id": item["libId"],
+                        "dnp": True,
+                        "in_bom": True,
+                        "on_board": True,
+                    },
+                )
+                record.uuid = f"fixture-{item['reference'].lower()}"
+                parent = _record_feature(
+                    page["id"],
+                    page["sheetInstancePath"],
+                    record,
+                    1,
+                    0,
+                    {},
+                )
+                self.assertTrue(parent["dnp"])
+
+                owners = _symbol_owner_features(
+                    page["id"],
+                    page["sheetInstancePath"],
+                    record,
+                    1,
+                    parent,
+                    {"bySvgId": {}, "byDesignatorPin": {}},
+                    {},
+                )
+                body = next(feature for feature in owners if feature["kind"] == "symbol_body")
+                marker = next(feature for feature in owners if feature["kind"] == "dnp_marker")
+                self.assertTrue(marker["dnp"])
+                self.assertLess(body["boundsMm"][0], body["boundsMm"][2])
+                self.assertLess(marker["boundsMm"][0], body["boundsMm"][0])
+                self.assertGreater(marker["boundsMm"][2], body["boundsMm"][2])
+
+                feature_ids = deterministic_feature_ids(
+                    {parent["stableKey"], *(feature["stableKey"] for feature in owners)}
+                )
+                parent["id"] = feature_ids[parent["stableKey"]]
+                for feature in owners:
+                    feature["id"] = feature_ids[feature["stableKey"]]
+                _, _, lod2, unsupported, primitive_features = _page_chunks(
+                    page,
+                    [record],
+                    [parent, *owners],
+                    feature_ids,
+                )
+
+                self.assertEqual(unsupported, [])
+                marker_primitives = [
+                    primitive
+                    for primitive in lod2["primitives"]
+                    if primitive["semanticRole"] == "dnp_marker"
+                ]
+                self.assertEqual(len(marker_primitives), 2)
+                self.assertEqual(
+                    {primitive["featureId"] for primitive in marker_primitives},
+                    {marker["id"]},
+                )
+                self.assertEqual(
+                    [primitive["semanticRole"] for primitive in lod2["primitives"][-2:]],
+                    ["dnp_marker", "dnp_marker"],
+                )
+                self.assertTrue(
+                    all(feature["kind"] == "dnp_marker" for feature in primitive_features[-2:])
+                )
 
     def test_repeated_hierarchy_symbol_and_pin_keys_are_instance_scoped(self):
         symbol_uuid = "same-symbol"

@@ -38,6 +38,15 @@ interface AnalysisResult {
   imported_paths?: string[];
 }
 
+export function importReviewTitle(
+  analysis: Pick<AnalysisResult, "import_type" | "projects">,
+): string {
+  if (analysis.projects.length === 0) return "No Projects Detected";
+  return analysis.import_type === "type1"
+    ? "Single Project Detected"
+    : "Multiple Projects Detected";
+}
+
 interface JobStatus {
   job_id: string;
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -610,9 +619,7 @@ export function ImportDialog({
           <>
             <DialogHeader>
               <DialogTitle>
-                {state.analysis.import_type === "type1"
-                  ? "Single Project Detected"
-                  : "Multiple Projects Detected"}
+                {importReviewTitle(state.analysis)}
               </DialogTitle>
               <DialogDescription>
                 {state.analysis.projects.length === 0
