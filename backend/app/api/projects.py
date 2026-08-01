@@ -554,8 +554,15 @@ class ImportRequest(BaseModel):
     selected_paths: Optional[List[str]] = None
     ref: Optional[str] = None
 
-@router.post("/analyze", dependencies=[Depends(require_designer)])
-async def analyze_repository(request: AnalyzeRequest):
+
+class RegenerateThumbnailsRequest(BaseModel):
+    project_ids: List[str] = Field(min_length=1)
+
+@router.post("/analyze")
+async def analyze_repository(
+    request: AnalyzeRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+):
     """
     Analyze a repository to determine import type and discover KiCAD projects.
     Returns Type-1 or Type-2 classification and project list.
@@ -565,6 +572,7 @@ async def analyze_repository(request: AnalyzeRequest):
             project_import_service.start_analyze_job,
             request.url,
             request.ref,
+            requested_by=user.email,
         )
         return {"job_id": job_id, "status": "started"}
 
@@ -604,8 +612,11 @@ async def import_access_help(request: AnalyzeRequest):
     }
 
 
-@router.post("/import", dependencies=[Depends(require_designer)])
-async def import_project(request: ImportRequest):
+@router.post("/import")
+async def import_project(
+    request: ImportRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+):
     """
     Start an async project import job.
     For Type-1: imports single project at root.
@@ -618,6 +629,7 @@ async def import_project(request: ImportRequest):
             import_type=request.import_type,
             selected_paths=request.selected_paths,
             ref=request.ref,
+            requested_by=user.email,
         )
         return {"job_id": job_id, "status": "started"}
     except (RemoteUrlError, GitAccessError, ValueError) as e:
@@ -987,6 +999,39 @@ async def regenerate_project_thumbnail(project_id: str, user: AuthenticatedUser 
         "status": "queued",
         "job_id": job_id,
         "message": "Rendering the board thumbnail",
+    }
+
+
+@router.post("/thumbnails/regenerate")
+async def regenerate_project_thumbnails(
+    request: RegenerateThumbnailsRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Queue board renders for all selected visible projects."""
+    project_ids = list(dict.fromkeys(project_id.strip() for project_id in request.project_ids if project_id.strip()))
+    if not project_ids:
+        raise HTTPException(status_code=400, detail="At least one project is required")
+
+    # Apply the same role-aware visibility check used by the single-project
+    # endpoint before any jobs are enqueued.
+    for project_id in project_ids:
+        get_project_for_role_or_404(project_id, user.role)
+
+    try:
+        job_ids = await asyncio.to_thread(
+            project_import_service.start_thumbnail_jobs,
+            project_ids,
+            requested_by=user.email,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+    count = len(job_ids)
+    return {
+        "status": "queued",
+        "job_ids": job_ids,
+        "count": count,
+        "message": f"Rendering {count} board thumbnail{'s' if count != 1 else ''}",
     }
 
 

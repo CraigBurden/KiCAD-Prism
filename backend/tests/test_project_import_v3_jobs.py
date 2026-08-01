@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from app.services import project_import_service
+from app.services.git_failures import GitAccessError
 from app.services.git_remote_url import RemoteUrlError
 
 
@@ -80,6 +81,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
                 "https://example.com/boards.git",
                 "type2",
                 ["boards/a", "boards/b"],
+                requested_by="designer@example.com",
             )
 
         self.assertEqual(job_id, "job-import")
@@ -88,6 +90,67 @@ class ProjectImportV3JobTests(unittest.TestCase):
         self.assertEqual(call.kwargs["resources"]["import"], 1)
         self.assertEqual(call.kwargs["locks"][0]["mode"], "write")
         self.assertEqual(call.kwargs["max_attempts"], 1)
+        self.assertEqual(call.kwargs["requested_by"], "designer@example.com")
+
+    def test_private_github_https_falls_back_to_workspace_ssh(self) -> None:
+        https = project_import_service.parse_remote_url(
+            "https://github.com/example/private-board"
+        )
+        credential_error = GitAccessError(
+            "HTTPS credentials required", reason="credentials-required"
+        )
+        with mock.patch.object(
+            project_import_service,
+            "list_remote_branches",
+            side_effect=[credential_error, (["main"], "main")],
+        ) as list_branches:
+            resolved, branches, default_branch = (
+                project_import_service.resolve_remote_access(https)
+            )
+
+        self.assertEqual(resolved.url, "git@github.com:example/private-board.git")
+        self.assertEqual(branches, ["main"])
+        self.assertEqual(default_branch, "main")
+        self.assertEqual(
+            [call.args[0].url for call in list_branches.call_args_list],
+            [
+                "https://github.com/example/private-board",
+                "git@github.com:example/private-board.git",
+            ],
+        )
+
+    def test_successful_https_access_does_not_switch_transport(self) -> None:
+        https = project_import_service.parse_remote_url(
+            "https://github.com/example/public-board.git"
+        )
+        with mock.patch.object(
+            project_import_service,
+            "list_remote_branches",
+            return_value=(["main"], "main"),
+        ) as list_branches:
+            resolved, _branches, _default_branch = (
+                project_import_service.resolve_remote_access(https)
+            )
+
+        self.assertIs(resolved, https)
+        list_branches.assert_called_once_with(https)
+
+    def test_ssh_diagnostic_replaces_generic_https_credential_error(self) -> None:
+        https = project_import_service.parse_remote_url(
+            "https://github.com/example/private-board"
+        )
+        with mock.patch.object(
+            project_import_service,
+            "list_remote_branches",
+            side_effect=[
+                GitAccessError("HTTPS credentials required", reason="credentials-required"),
+                GitAccessError("SSH key refused", reason="ssh-key-not-authorized"),
+            ],
+        ):
+            with self.assertRaises(GitAccessError) as caught:
+                project_import_service.resolve_remote_access(https)
+
+        self.assertEqual(caught.exception.reason, "ssh-key-not-authorized")
 
     def test_analyze_handler_returns_legacy_compatible_result_shape(self) -> None:
         progress_updates: list[dict[str, object]] = []
@@ -332,6 +395,21 @@ class EnqueueValidatesRemoteUrls(unittest.TestCase):
         first, second = enqueue.call_args_list
         self.assertEqual(
             first.kwargs["locks"][0]["key"], second.kwargs["locks"][0]["key"]
+        )
+
+    def test_analyze_enqueue_records_authenticated_requester(self) -> None:
+        with mock.patch.object(
+            project_import_service.v3_jobs,
+            "enqueue",
+            return_value={"job_id": "job-1"},
+        ) as enqueue:
+            project_import_service.start_analyze_job(
+                "git@github.com:org/repo.git",
+                requested_by="rhythm@pixxel.co.in",
+            )
+
+        self.assertEqual(
+            enqueue.call_args.kwargs["requested_by"], "rhythm@pixxel.co.in"
         )
 
 

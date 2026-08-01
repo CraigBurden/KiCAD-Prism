@@ -104,6 +104,7 @@ _ITALIC_TILT = 1.0 / 8.0
 _LABEL_TEXT_INSET_MM = 1.05
 _LABEL_TEXT_KINDS = {"label", "hierarchical_label"}
 _SVG_TAG_RE = re.compile(r"<\s*([a-zA-Z][\w:-]*)\b")
+_DNP_MARKER_RGB = "#dc090d"
 
 
 def _mm(value: Any) -> float:
@@ -1032,6 +1033,20 @@ def _is_symbol_record(record: Any) -> bool:
     return str(getattr(record, "kind", "") or "") in {"symbol_instance", "symbol_overplot"}
 
 
+def _is_dnp_marker_operation(data: dict[str, Any]) -> bool:
+    """Identify KiCad's red assembly-exclusion cross operations.
+
+    kicad-monkey emits the cross as two thick segments at the end of a DNP
+    symbol record.  They used to be folded into the generic ``symbol_body``
+    feature, which let later body geometry obscure them and made their bounds
+    indistinguishable from the grey symbol.  The layer color is KiCad's stable
+    semantic marker for these otherwise ordinary segments.
+    """
+    kind = str(data.get("kind") or "")
+    color = str(data.get("stroke_color") or data.get("color") or "").casefold()
+    return kind in {"Line", "PenTo", "ThickSegment"} and color.startswith(_DNP_MARKER_RGB)
+
+
 def _component_indexes(design_payload: dict[str, Any], topology: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     by_designator: dict[str, dict[str, Any]] = {}
     for component in design_payload.get("components", []) or []:
@@ -1228,6 +1243,10 @@ def _symbol_body_key(sheet_instance_path: str, source_id: str) -> str:
     return stable_feature_key(sheet_instance_path, source_id, 0, "symbol_body", 0)
 
 
+def _dnp_marker_key(sheet_instance_path: str, source_id: str) -> str:
+    return stable_feature_key(sheet_instance_path, source_id, 0, "dnp_marker", 0)
+
+
 def _pin_feature_key(sheet_instance_path: str, pin_source_id: str) -> str:
     return stable_feature_key(sheet_instance_path, pin_source_id, 0, "pin", 0)
 
@@ -1289,6 +1308,7 @@ def _symbol_owner_features(
     pin_bounds: dict[str, list[list[float]]] = defaultdict(list)
     current_pin: dict[str, Any] | None = None
     body_bounds: list[list[float]] = []
+    dnp_marker_bounds: list[list[float]] = []
     for operation in getattr(record, "operations", []) or []:
         data = operation.to_dict() if hasattr(operation, "to_dict") else dict(operation)
         kind = str(data.get("kind") or "")
@@ -1307,7 +1327,9 @@ def _symbol_owner_features(
             continue
         if current_pin:
             pin_bounds[current_pin["pinSourceId"]].append(bounds)
-        elif kind not in NON_GEOMETRY_OPERATION_KINDS:
+        elif _is_dnp_marker_operation(data):
+            dnp_marker_bounds.append(bounds)
+        elif kind not in NON_GEOMETRY_OPERATION_KINDS and kind != "Text":
             body_bounds.append(bounds)
 
     component_meta = component_by_designator.get(reference, {})
@@ -1344,6 +1366,22 @@ def _symbol_owner_features(
     if bounds := _union_bounds(body_bounds) or parent_feature.get("boundsMm"):
         body["boundsMm"] = bounds
     features = [body]
+    if marker_bounds := _union_bounds(dnp_marker_bounds):
+        features.append(
+            {
+                **feature_base,
+                "id": 0,
+                "stableKey": _dnp_marker_key(sheet_instance_path, source_id),
+                "sourceId": f"{source_id}:dnp-marker",
+                "uuid": parent_feature.get("uuid", ""),
+                "objectId": parent_feature.get("objectId", ""),
+                "kind": "dnp_marker",
+                "semanticRole": "dnp_marker",
+                "parentStableKey": body["stableKey"],
+                "boundsMm": marker_bounds,
+                "dnp": True,
+            }
+        )
     for pin_source_id, pin in sorted(pins.items()):
         feature = {
             **feature_base,
@@ -1425,7 +1463,10 @@ def _operation_descriptors(
                 semantic_role = "pin_body"
             metadata = dict(current_pin)
         elif is_symbol:
-            if operation_kind == "Text":
+            if _is_dnp_marker_operation(data):
+                semantic_role = "dnp_marker"
+                parent_stable_key = _dnp_marker_key(page["sheetInstancePath"], source_id)
+            elif operation_kind == "Text":
                 semantic_role = _symbol_text_role(data, parent_feature, outside_text_count, inferred_reference)
                 outside_text_count += 1
             else:
@@ -1448,6 +1489,9 @@ def _operation_descriptors(
         elif semantic_role == "symbol_body":
             feature_key = _symbol_body_key(page["sheetInstancePath"], source_id)
             feature_role = "symbol_body"
+        elif semantic_role == "dnp_marker":
+            feature_key = _dnp_marker_key(page["sheetInstancePath"], source_id)
+            feature_role = "dnp_marker"
         elif semantic_role == "pin_body":
             feature_key = _pin_feature_key(page["sheetInstancePath"], feature_source_id)
             feature_role = "pin"
@@ -1602,6 +1646,15 @@ def _record_feature(
         value = extras.get(key)
         if value not in (None, ""):
             feature[key] = str(value)
+    if _is_symbol_record(record):
+        feature.update(
+            {
+                "dnp": bool(extras.get("dnp")),
+                "excludeFromSimulation": bool(extras.get("exclude_from_sim")),
+                "inBom": bool(extras.get("in_bom", True)),
+                "onBoard": bool(extras.get("on_board", True)),
+            }
+        )
     if component_by_designator and feature.get("reference"):
         component_meta = component_by_designator.get(str(feature["reference"]), {})
         for key, value in component_meta.items():
@@ -1717,6 +1770,16 @@ def _page_chunks(
                 primitive_feature["boundsMm"] = primitive["boundsMm"]
             primitives.append(primitive)
             primitive_features.append(primitive_feature)
+
+    # DNP crosses are an overplot in KiCad and must remain above all symbol,
+    # pin and wire geometry, including records that happen to follow the
+    # component in the source schematic.
+    order = sorted(
+        range(len(primitives)),
+        key=lambda index: primitives[index].get("semanticRole") == "dnp_marker",
+    )
+    primitives = [primitives[index] for index in order]
+    primitive_features = [primitive_features[index] for index in order]
 
     lod0 = {
         "schema": f"{SCHEMA}.chunk",

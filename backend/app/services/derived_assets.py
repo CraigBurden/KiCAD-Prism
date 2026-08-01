@@ -84,6 +84,14 @@ def store_thumbnail(
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / f"{prefix}.{digest[:16]}.webp"
     source.replace(target)
+    # Render/encode staging files are created with NamedTemporaryFile and are
+    # therefore mode 0600 on Linux.  ``replace`` preserves that mode, but the
+    # generated asset is served by nginx (a different uid from the worker), so
+    # a successfully rendered thumbnail otherwise becomes unreadable at the
+    # final hand-off.  The derived store contains public workspace thumbnails,
+    # not credentials; make the completed artifact readable by its serving
+    # process while keeping it non-executable and owner-writable only.
+    target.chmod(0o644)
     for stale in directory.glob(f"{prefix}.*.webp"):
         if stale != target:
             stale.unlink(missing_ok=True)

@@ -2233,6 +2233,7 @@ function parseColor(color) {
 
 function vectorColor(feature, primitiveKind, sourceColor = "") {
   const parsed = parseColor(sourceColor || feature?.color || "");
+  if (feature?.kind === "dnp_marker") return parsed || [0.86, 0.04, 0.05, 0.85];
   if (feature?.dnp && ["symbol_reference", "symbol_value", "symbol_text"].includes(String(feature?.kind || ""))) {
     return [0.50, 0.52, 0.54, 0.56];
   }
@@ -2255,6 +2256,7 @@ function mutedVectorColor(feature, primitiveKind, sourceColor = "") {
 
 function nativeStrokePixelWidth(feature, primitiveKind, selected) {
   if (selected) return 5.5;
+  if (feature?.kind === "dnp_marker") return 3.0;
   if (["pin_name", "pin_number"].includes(String(feature?.kind || ""))) return 1.5;
   if (feature?.kind === "pin_body") return 1.7;
   if (String(primitiveKind || "").startsWith("text")) return 1.35;

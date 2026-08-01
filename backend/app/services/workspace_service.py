@@ -401,7 +401,61 @@ class WorkspaceService:
         return cur.rowcount > 0
 
     def move_project_to_folder(self, project_id: str, folder_id: Optional[str]) -> bool:
-        return self.update_project(project_id, folder_id=folder_id)
+        try:
+            return self.move_projects_to_folder([project_id], folder_id) == 1
+        except ValueError as error:
+            if "project not found" in str(error).lower():
+                return False
+            raise
+
+    def move_projects_to_folder(self, project_ids: List[str], folder_id: Optional[str]) -> int:
+        """Move a validated set of projects in one database transaction.
+
+        Both the destination and the complete project set are locked and
+        validated before the UPDATE is issued. This prevents a partial move
+        when a stale or invalid project id is included in a bulk selection.
+        """
+        normalized_ids = list(
+            dict.fromkeys(
+                project_id.strip()
+                for project_id in project_ids
+                if project_id.strip()
+            )
+        )
+        if not normalized_ids:
+            raise ValueError("At least one project is required")
+
+        with self._connect() as conn:
+            if folder_id is not None:
+                folder = conn.execute(
+                    "SELECT id FROM ws_folders WHERE id=%s FOR KEY SHARE",
+                    (folder_id,),
+                ).fetchone()
+                if not folder:
+                    raise ValueError("Folder not found")
+
+            rows = conn.execute(
+                "SELECT id FROM ws_projects WHERE id = ANY(%s) FOR UPDATE",
+                (normalized_ids,),
+            ).fetchall()
+            existing_ids = {str(row["id"]) for row in rows}
+            missing_ids = [
+                project_id
+                for project_id in normalized_ids
+                if project_id not in existing_ids
+            ]
+            if missing_ids:
+                noun = "Project" if len(missing_ids) == 1 else "Projects"
+                raise ValueError(f"{noun} not found: {', '.join(missing_ids)}")
+
+            cursor = conn.execute(
+                "UPDATE ws_projects SET folder_id=%s WHERE id = ANY(%s)",
+                (folder_id, normalized_ids),
+            )
+            if cursor.rowcount != len(normalized_ids):
+                raise RuntimeError("Bulk project move did not update the validated project set")
+            conn.commit()
+        return len(normalized_ids)
 
     def delete_project(self, project_id: str) -> bool:
         with self._connect() as conn:

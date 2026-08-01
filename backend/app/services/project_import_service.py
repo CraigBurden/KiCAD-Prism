@@ -10,7 +10,7 @@ import subprocess
 import shutil
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 from dataclasses import dataclass
 from git import Git, Repo, RemoteProgress
 from app.core.config import settings
@@ -146,6 +146,72 @@ def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]
             branches.append(parts[1].removeprefix("refs/heads/"))
     branches.sort(key=lambda name: (name != default_branch, name.casefold()))
     return branches, default_branch
+
+
+def _github_ssh_equivalent(parsed: ParsedRemote) -> Optional[ParsedRemote]:
+    """Return the workspace-SSH spelling of one GitHub HTTPS remote.
+
+    GitHub's Clone menu presents HTTPS first, while Prism's deployment uses a
+    shared machine-user SSH key for private repositories.  Requiring every
+    designer to understand that deployment detail made imports appear tied to
+    the laptop or role of the person pasting the URL.  Keep HTTPS as the first
+    attempt (so public repositories and ``GITHUB_TOKEN`` continue to work), but
+    provide the equivalent SSH address when that attempt needs credentials.
+    """
+    if parsed.scheme != "https" or parsed.host.casefold() != "github.com":
+        return None
+    if parsed.port not in (None, 443):
+        return None
+    path = parsed.path.strip("/")
+    if not path:
+        return None
+    if not path.endswith(".git"):
+        path += ".git"
+    return parse_remote_url(f"git@github.com:{path}", remote_url_policy())
+
+
+def resolve_remote_access(
+    parsed: ParsedRemote,
+) -> tuple[ParsedRemote, List[str], Optional[str]]:
+    """Resolve a readable transport and return its branch information.
+
+    A private GitHub repository addressed by HTTPS normally responds with a
+    credentials error even when Prism's workspace SSH identity is authorized.
+    In that narrow case, retry the same canonical repository over SSH.  Other
+    failures retain their original meaning and SSH URLs remain untouched.
+    """
+    try:
+        branches, default_branch = list_remote_branches(parsed)
+        return parsed, branches, default_branch
+    except GitAccessError as https_error:
+        if https_error.reason not in {"credentials-required", "repository-not-found"}:
+            raise
+        ssh_remote = _github_ssh_equivalent(parsed)
+        if ssh_remote is None:
+            raise
+
+        print(
+            f"HTTPS access to {_describe_target(parsed)} needs credentials; "
+            "retrying with Prism's workspace SSH identity",
+            flush=True,
+        )
+        try:
+            branches, default_branch = list_remote_branches(ssh_remote)
+        except GitAccessError as ssh_error:
+            # SSH-specific diagnostics (missing/untrusted client or an
+            # unauthorized key) are more actionable than the original generic
+            # HTTPS credential prompt.  A not-found response after the SSH
+            # attempt also correctly covers a typo or a key lacking this one
+            # repository's permission.
+            if ssh_error.reason in {
+                "ssh-unavailable",
+                "host-key-unverified",
+                "ssh-key-not-authorized",
+                "repository-not-found",
+            }:
+                raise ssh_error from https_error
+            raise https_error from ssh_error
+        return ssh_remote, branches, default_branch
 
 
 def _validate_ref(ref: Optional[str]) -> Optional[str]:
@@ -550,7 +616,9 @@ def _repository_lock_key(parsed: ParsedRemote) -> str:
 
 def start_import_job(repo_url: str, import_type: str,
                      selected_paths: Optional[List[str]] = None,
-                     ref: Optional[str] = None) -> str:
+                     ref: Optional[str] = None,
+                     *,
+                     requested_by: str = "project-import") -> str:
     """
     Start an asynchronous import job.
     Returns job ID for polling.
@@ -578,7 +646,7 @@ def start_import_job(repo_url: str, import_type: str,
         },
         worker_pool="prism",
         artifact_key=active_key,
-        requested_by="project-import",
+        requested_by=requested_by,
         max_attempts=1,
         resources={"prism_worker": 1, "import": 1},
         locks=[{"key": _repository_lock_key(parsed), "mode": "write"}],
@@ -586,7 +654,12 @@ def start_import_job(repo_url: str, import_type: str,
     return str(queued["job_id"])
 
 
-def start_analyze_job(repo_url: str, ref: Optional[str] = None) -> str:
+def start_analyze_job(
+    repo_url: str,
+    ref: Optional[str] = None,
+    *,
+    requested_by: str = "project-import",
+) -> str:
     """
     Start an asynchronous analysis job.
     Returns job ID.
@@ -601,7 +674,7 @@ def start_analyze_job(repo_url: str, ref: Optional[str] = None) -> str:
         {"repo_url": parsed.url, "ref": validated_ref},
         worker_pool="prism",
         artifact_key=active_key,
-        requested_by="project-import",
+        requested_by=requested_by,
         max_attempts=2,
         resources={"prism_worker": 1, "import": 1},
         locks=[{"key": _repository_lock_key(parsed), "mode": "read"}],
@@ -666,7 +739,7 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
     context.progress(
         stage="list-branches", message="Listing remote branches", percent=0, force=True
     )
-    branches, default_branch = list_remote_branches(parsed)
+    parsed, branches, default_branch = resolve_remote_access(parsed)
     if requested_ref and branches and requested_ref not in branches:
         raise ValueError(f"Branch '{requested_ref}' does not exist on this remote")
     selected_ref = requested_ref or default_branch
@@ -792,8 +865,6 @@ def _discover_remote_projects(
 def run_project_import_job_v3(context: JobContext) -> JobResult:
     payload = context.payload
     parsed = parse_remote_url(str(payload["repo_url"]), remote_url_policy())
-    repo_url = parsed.url
-    repo_name = parsed.repo_name
     requested_paths = [str(path) for path in payload.get("selected_paths") or []]
     ref = _validate_ref(payload.get("ref"))
     cloned_in_job = False
@@ -804,6 +875,10 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
         percent=0,
         force=True,
     )
+    if _github_ssh_equivalent(parsed) is not None:
+        parsed, _branches, _default_branch = resolve_remote_access(parsed)
+    repo_url = parsed.url
+    repo_name = parsed.repo_name
     existing_repo = find_existing_repository(parsed)
 
     # The client's import_type and selected_paths are hints. Re-derive both from
@@ -1030,6 +1105,46 @@ def start_thumbnail_job(project_id: str, *, requested_by: str = "") -> Optional[
     return str(queued["job_id"])
 
 
+def start_thumbnail_jobs(
+    project_ids: Sequence[str],
+    *,
+    requested_by: str = "",
+) -> list[str]:
+    """Queue fresh board renders for a validated set of projects.
+
+    Validate the complete selection before enqueueing anything so a stale
+    visible-result selection cannot produce a confusing partial bulk action.
+    Individual jobs remain independently deduplicated and independently
+    reportable to the worker queue.
+    """
+    normalized_ids = list(
+        dict.fromkeys(
+            project_id.strip()
+            for project_id in project_ids
+            if project_id and project_id.strip()
+        )
+    )
+    if not normalized_ids:
+        raise ValueError("At least one project is required")
+
+    missing_ids = [
+        project_id
+        for project_id in normalized_ids
+        if not workspace.get_project_by_id(project_id)
+    ]
+    if missing_ids:
+        noun = "Project" if len(missing_ids) == 1 else "Projects"
+        raise ValueError(f"{noun} not found: {', '.join(missing_ids)}")
+
+    job_ids: list[str] = []
+    for project_id in normalized_ids:
+        job_id = start_thumbnail_job(project_id, requested_by=requested_by)
+        if not job_id:
+            raise ValueError(f"Project not found: {project_id}")
+        job_ids.append(job_id)
+    return job_ids
+
+
 def run_project_thumbnail_job_v3(context: JobContext) -> JobResult:
     project_id = str(context.payload["project_id"])
     row = workspace.get_project_by_id(project_id)
@@ -1050,6 +1165,20 @@ def run_project_thumbnail_job_v3(context: JobContext) -> JobResult:
     for line in logs:
         print(line, flush=True)
     context.check_cancelled()
+
+    # ``generate_thumbnail_for_project`` reports every renderer/encoder
+    # failure as ``False`` so callers that merely refresh a project can remain
+    # best-effort.  A thumbnail *job* has a stronger contract: returning a
+    # JobResult marks it completed.  Surface the captured renderer diagnostic
+    # as an exception instead of recording a failed kicad-cli invocation as a
+    # successful job.
+    no_board = any(
+        line.startswith("No .kicad_pcb file found")
+        for line in logs
+    )
+    if not rendered and not no_board:
+        detail = logs[-1] if logs else "Thumbnail renderer did not produce an image"
+        raise RuntimeError(detail)
 
     context.progress(
         stage="record-thumbnail", message="Recording thumbnail", percent=90, force=True
