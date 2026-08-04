@@ -123,227 +123,298 @@ function isFabricationLayer(layer: string): boolean {
         );
 }
 
-function schematicRecommendation(
-    change: ChangeItem,
-): ComparisonPresentationRecommendation {
-    const kinds = objectKinds(change);
+/**
+ * Everything a rule is allowed to ask about a change, derived once.
+ *
+ * Both domains asked the same questions of the same change and each derived the
+ * answers itself. Deriving them here means a rule is a predicate over settled
+ * facts rather than a place that can compute `kinds` slightly differently from
+ * its neighbour.
+ */
+type PolicyFacts = {
+    change: ChangeItem;
+    kinds: Set<string>;
+    reasons: Set<string>;
+    /** The change moved, rotated, mirrored, re-pathed, or changed layer. */
+    spatial: boolean;
+    hasFields: boolean;
+    /** `#PWR`/`#FLG` reference: a power symbol, reviewed as connectivity. */
+    powerSymbol: boolean;
+    /** Any layer that a fabricator builds from, rather than reads. */
+    fabricationLayer: boolean;
+};
+
+/**
+ * One row of the policy.
+ *
+ * `rule` is the stable id quoted in `docs/design-comparison/
+ * reviewer-presentation-policy.md`; keeping the tables below in the doc's order
+ * is what makes the two diffable against each other.
+ */
+type PolicyRule = {
+    rule: string;
+    mode: ComparisonPresentationMode;
+    reason: string;
+    when: (facts: PolicyFacts) => boolean;
+};
+
+/** Terminal row: every table ends in one so evaluation always resolves. */
+const ALWAYS = () => true;
+
+function policyFacts(change: ChangeItem): PolicyFacts {
     const reasons = new Set<string>(change.reasons ?? []);
-    const spatial = hasAny(reasons, SPATIAL_REASONS);
-    const hasFields = Object.keys(change.fields ?? {}).length > 0;
-    const powerSymbol = /^#(?:PWR|FLG)/i.test(change.reference ?? change.label);
-
-    if (hasAny(kinds, DOCUMENTATION_OBJECTS) || change.category === "text") {
-        return recommendation(
-            "old-new",
-            "A clean revision is easier to inspect for text, image, or table content than an overlapping overlay.",
-            "schematic-documentation",
-        );
-    }
-
-    if (
-        powerSymbol
-        || reasons.has("connectivity-changed")
-        || reasons.has("instance-replaced")
-        || reasons.has("instance-count-changed")
-        || reasons.has("sheet-changed")
-        || reasons.has("bus-membership-changed")
-        || hasAny(kinds, SCHEMATIC_EXACT_OBJECTS)
-    ) {
-        return recommendation(
-            "side-by-side",
-            "Both revisions must remain visible to verify the exact terminal, hierarchy, or topology change.",
-            "schematic-electrical-exact",
-        );
-    }
-
-    if (
-        change.category === "components"
-        || change.category === "symbols"
-        || kinds.has("symbol")
-    ) {
-        if (change.kind !== "changed") {
-            return recommendation(
-                "composite",
-                "A simple symbol addition or removal is clearest in full schematic context.",
-                "schematic-component-add-remove",
-            );
-        }
-        const fieldOnly = hasFields
-            && !spatial
-            && !reasons.has("lib-changed")
-            && [...reasons].every((reason) => COMPONENT_FIELD_REASONS.has(reason));
-        if (fieldOnly) {
-            return recommendation(
-                "old-new",
-                "This is a field or BOM-state edit; inspect each clean revision while the structured values remain visible.",
-                "schematic-component-fields",
-            );
-        }
-        return recommendation(
-            "side-by-side",
-            "Symbol placement, orientation, or library changes need simultaneous old and new geometry.",
-            "schematic-component-geometry",
-        );
-    }
-
-    if (reasons.has("net-renamed") && reasons.size === 1) {
-        return recommendation(
-            "side-by-side",
-            "The electrical scope is unchanged, but both clean label states should remain visible while the rename is verified.",
-            "schematic-net-rename",
-        );
-    }
-
-    if (kinds.has("graphic") || change.category === "graphics") {
-        if (spatial) {
-            return recommendation(
-                "side-by-side",
-                "The authored drawing moved or changed geometry, so both placements should be compared directly.",
-                "schematic-graphic-geometry",
-            );
-        }
-        return recommendation(
-            "old-new",
-            "A clean revision view keeps documentation graphics legible without overlay clutter.",
-            "schematic-graphic-content",
-        );
-    }
-
-    if (hasAny(kinds, SCHEMATIC_NET_OBJECTS) || change.category === "nets") {
-        if (change.kind === "changed") {
-            return recommendation(
-                "side-by-side",
-                "Modified wires, labels, or junctions need simultaneous old and new geometry.",
-                "schematic-net-geometry",
-            );
-        }
-        return recommendation(
-            "composite",
-            "A net addition or removal is best reviewed with its surrounding connectivity visible.",
-            "schematic-net-add-remove",
-        );
-    }
-
-    if (change.kind === "changed") {
-        return recommendation(
-            "side-by-side",
-            "The change modifies an existing schematic object, so preserve both revisions for comparison.",
-            "schematic-modified-fallback",
-        );
-    }
-    return recommendation(
-        "composite",
-        "The full schematic provides the most useful context for this addition or removal.",
-        "schematic-add-remove-fallback",
-    );
+    return {
+        change,
+        reasons,
+        kinds: objectKinds(change),
+        spatial: hasAny(reasons, SPATIAL_REASONS),
+        hasFields: Object.keys(change.fields ?? {}).length > 0,
+        powerSymbol: /^#(?:PWR|FLG)/i.test(change.reference ?? change.label),
+        fabricationLayer: (change.layers ?? []).some(isFabricationLayer),
+    };
 }
 
-function pcbRecommendation(
-    change: ChangeItem,
-): ComparisonPresentationRecommendation {
-    const kinds = objectKinds(change);
-    const reasons = new Set<string>(change.reasons ?? []);
-    const layers = change.layers ?? [];
-    const fabricationLayer = layers.some(isFabricationLayer);
+/** A change whose only edits are BOM/field values, with no geometry or library move. */
+function isFieldOnlyComponentEdit({ reasons, spatial, hasFields }: PolicyFacts): boolean {
+    return hasFields
+        && !spatial
+        && !reasons.has("lib-changed")
+        && [...reasons].every((reason) => COMPONENT_FIELD_REASONS.has(reason));
+}
 
-    if (kinds.has("net_class") || kinds.has("net_class_assignment")) {
-        return recommendation(
-            "old-new",
-            "Constraint definitions have no direct canvas geometry; compare the structured old/new rules with one clean board revision at a time.",
-            "pcb-net-class",
-        );
-    }
+function isComponentLike({ change, kinds }: PolicyFacts): boolean {
+    return change.category === "components"
+        || change.category === "symbols"
+        || kinds.has("symbol");
+}
 
-    if (kinds.has("group") && change.classification === "secondary") {
-        return recommendation(
-            "composite",
-            "Board-group membership is organizational; the board-wide context is sufficient.",
-            "pcb-group",
-        );
-    }
+function isSchematicGraphic({ change, kinds }: PolicyFacts): boolean {
+    return kinds.has("graphic") || change.category === "graphics";
+}
 
-    if (
-        hasAny(kinds, DOCUMENTATION_OBJECTS)
+function isSchematicNet({ change, kinds }: PolicyFacts): boolean {
+    return hasAny(kinds, SCHEMATIC_NET_OBJECTS) || change.category === "nets";
+}
+
+function isPcbGraphic({ change, kinds }: PolicyFacts): boolean {
+    return hasAny(kinds, DOCUMENTATION_OBJECTS)
         || kinds.has("drawing")
         || kinds.has("graphic")
         || kinds.has("footprint_graphic")
-        || change.category === "graphics"
-    ) {
-        if (fabricationLayer || hasAny(reasons, SPATIAL_REASONS)) {
-            return recommendation(
-                "side-by-side",
-                "Fabrication, outline, courtyard, or placement geometry must be checked in both revisions.",
-                "pcb-fabrication-graphic",
-            );
-        }
-        return recommendation(
-            "old-new",
-            "This is documentation-layer content; clean revision inspection avoids overlapping text and lines.",
-            "pcb-documentation-graphic",
-        );
-    }
+        || change.category === "graphics";
+}
 
+/** Applies whatever the domain, and so evaluated before either table. */
+const COMMON_RULES: PolicyRule[] = [
+    {
+        rule: "structured-rule",
+        mode: "old-new",
+        reason:
+            "This authored rule or constraint has no direct canvas geometry; review its structured old/new values against one clean revision at a time.",
+        when: ({ change }) =>
+            Boolean(change.details?.reviewOnly) || change.category === "rules",
+    },
+];
+
+const SCHEMATIC_RULES: PolicyRule[] = [
+    {
+        rule: "schematic-documentation",
+        mode: "old-new",
+        reason:
+            "A clean revision is easier to inspect for text, image, or table content than an overlapping overlay.",
+        when: ({ change, kinds }) =>
+            hasAny(kinds, DOCUMENTATION_OBJECTS) || change.category === "text",
+    },
+    {
+        rule: "schematic-electrical-exact",
+        mode: "side-by-side",
+        reason:
+            "Both revisions must remain visible to verify the exact terminal, hierarchy, or topology change.",
+        when: ({ kinds, reasons, powerSymbol }) =>
+            powerSymbol
+            || reasons.has("connectivity-changed")
+            || reasons.has("instance-replaced")
+            || reasons.has("instance-count-changed")
+            || reasons.has("sheet-changed")
+            || reasons.has("bus-membership-changed")
+            || hasAny(kinds, SCHEMATIC_EXACT_OBJECTS),
+    },
+    // The three component rows share a guard and are ordered add/remove →
+    // field-only → everything else, matching the nesting they replaced.
+    {
+        rule: "schematic-component-add-remove",
+        mode: "composite",
+        reason:
+            "A simple symbol addition or removal is clearest in full schematic context.",
+        when: (facts) => isComponentLike(facts) && facts.change.kind !== "changed",
+    },
+    {
+        rule: "schematic-component-fields",
+        mode: "old-new",
+        reason:
+            "This is a field or BOM-state edit; inspect each clean revision while the structured values remain visible.",
+        when: (facts) => isComponentLike(facts) && isFieldOnlyComponentEdit(facts),
+    },
+    {
+        rule: "schematic-component-geometry",
+        mode: "side-by-side",
+        reason:
+            "Symbol placement, orientation, or library changes need simultaneous old and new geometry.",
+        when: isComponentLike,
+    },
+    {
+        rule: "schematic-net-rename",
+        mode: "side-by-side",
+        reason:
+            "The electrical scope is unchanged, but both clean label states should remain visible while the rename is verified.",
+        when: ({ reasons }) => reasons.has("net-renamed") && reasons.size === 1,
+    },
+    {
+        rule: "schematic-graphic-geometry",
+        mode: "side-by-side",
+        reason:
+            "The authored drawing moved or changed geometry, so both placements should be compared directly.",
+        when: (facts) => isSchematicGraphic(facts) && facts.spatial,
+    },
+    {
+        rule: "schematic-graphic-content",
+        mode: "old-new",
+        reason:
+            "A clean revision view keeps documentation graphics legible without overlay clutter.",
+        when: isSchematicGraphic,
+    },
+    {
+        rule: "schematic-net-geometry",
+        mode: "side-by-side",
+        reason:
+            "Modified wires, labels, or junctions need simultaneous old and new geometry.",
+        when: (facts) => isSchematicNet(facts) && facts.change.kind === "changed",
+    },
+    {
+        rule: "schematic-net-add-remove",
+        mode: "composite",
+        reason:
+            "A net addition or removal is best reviewed with its surrounding connectivity visible.",
+        when: isSchematicNet,
+    },
+    {
+        rule: "schematic-modified-fallback",
+        mode: "side-by-side",
+        reason:
+            "The change modifies an existing schematic object, so preserve both revisions for comparison.",
+        when: ({ change }) => change.kind === "changed",
+    },
+    {
+        rule: "schematic-add-remove-fallback",
+        mode: "composite",
+        reason:
+            "The full schematic provides the most useful context for this addition or removal.",
+        when: ALWAYS,
+    },
+];
+
+const PCB_RULES: PolicyRule[] = [
+    {
+        rule: "pcb-net-class",
+        mode: "old-new",
+        reason:
+            "Constraint definitions have no direct canvas geometry; compare the structured old/new rules with one clean board revision at a time.",
+        when: ({ kinds }) =>
+            kinds.has("net_class") || kinds.has("net_class_assignment"),
+    },
+    {
+        rule: "pcb-group",
+        mode: "composite",
+        reason:
+            "Board-group membership is organizational; the board-wide context is sufficient.",
+        when: ({ change, kinds }) =>
+            kinds.has("group") && change.classification === "secondary",
+    },
+    {
+        rule: "pcb-fabrication-graphic",
+        mode: "side-by-side",
+        reason:
+            "Fabrication, outline, courtyard, or placement geometry must be checked in both revisions.",
+        when: (facts) =>
+            isPcbGraphic(facts) && (facts.fabricationLayer || facts.spatial),
+    },
+    {
+        rule: "pcb-documentation-graphic",
+        mode: "old-new",
+        reason:
+            "This is documentation-layer content; clean revision inspection avoids overlapping text and lines.",
+        when: isPcbGraphic,
+    },
     // A pure addition or removal has nothing to compare against: one pane
     // would be empty, and half the width would go to proving an absence that
     // the composite scene states in place, in board context, with its status
     // colour. Side-by-side earns its cost only when both revisions hold
     // geometry for the same object.
-    if (
-        (change.kind === "added" || change.kind === "removed")
-        && !reasons.has("net-changed")
-        && !reasons.has("moved")
-        && !reasons.has("layer-changed")
-    ) {
-        return recommendation(
-            "composite",
+    {
+        rule: "pcb-one-sided",
+        mode: "composite",
+        reason:
             "The object exists in only one revision; the composite scene shows it in board context without spending a pane on an empty board.",
-            "pcb-one-sided",
-        );
-    }
-
-    if (
-        hasAny(kinds, PCB_FABRICATION_OBJECTS)
-        || change.category === "components"
-        || change.category === "zones"
-        || change.category === "nets"
-        || change.net
-        || reasons.has("net-changed")
-        || reasons.has("content-changed")
-    ) {
-        return recommendation(
-            "side-by-side",
+        when: ({ change, reasons }) =>
+            (change.kind === "added" || change.kind === "removed")
+            && !reasons.has("net-changed")
+            && !reasons.has("moved")
+            && !reasons.has("layer-changed"),
+    },
+    {
+        rule: "pcb-fabrication-object",
+        mode: "side-by-side",
+        reason:
             "Fabricated geometry or copper connectivity changed; simultaneous revisions provide the strongest release evidence.",
-            "pcb-fabrication-object",
-        );
-    }
-
-    if (change.kind === "changed") {
-        return recommendation(
-            "side-by-side",
+        when: ({ change, kinds, reasons }) =>
+            hasAny(kinds, PCB_FABRICATION_OBJECTS)
+            || change.category === "components"
+            || change.category === "zones"
+            || change.category === "nets"
+            || Boolean(change.net)
+            || reasons.has("net-changed")
+            || reasons.has("content-changed"),
+    },
+    {
+        rule: "pcb-modified-fallback",
+        mode: "side-by-side",
+        reason:
             "An existing board object changed, so compare its old and new manufactured state directly.",
-            "pcb-modified-fallback",
-        );
+        when: ({ change }) => change.kind === "changed",
+    },
+    {
+        rule: "pcb-add-remove-fallback",
+        mode: "composite",
+        reason:
+            "The board-wide overlay provides useful placement context for this non-fabrication addition or removal.",
+        when: ALWAYS,
+    },
+];
+
+function firstMatch(
+    rules: PolicyRule[],
+    facts: PolicyFacts,
+): ComparisonPresentationRecommendation | null {
+    for (const rule of rules) {
+        if (rule.when(facts)) return recommendation(rule.mode, rule.reason, rule.rule);
     }
-    return recommendation(
-        "composite",
-        "The board-wide overlay provides useful placement context for this non-fabrication addition or removal.",
-        "pcb-add-remove-fallback",
-    );
+    return null;
 }
 
 export function recommendPresentationForChange(
     change: ChangeItem,
 ): ComparisonPresentationRecommendation {
-    if (change.details?.reviewOnly || change.category === "rules") {
-        return recommendation(
-            "old-new",
-            "This authored rule or constraint has no direct canvas geometry; review its structured old/new values against one clean revision at a time.",
-            "structured-rule",
-        );
-    }
-    return change.domain === "pcb"
-        ? pcbRecommendation(change)
-        : schematicRecommendation(change);
+    const facts = policyFacts(change);
+    const domainRules = change.domain === "pcb" ? PCB_RULES : SCHEMATIC_RULES;
+    const matched = firstMatch(COMMON_RULES, facts) ?? firstMatch(domainRules, facts);
+    // Both domain tables end in an unconditional rule, so a match is certain.
+    // Returning a default rather than throwing keeps a malformed table from
+    // taking down the workspace: this runs during render.
+    return matched ?? recommendation(
+        "composite",
+        "The full design provides the most useful context for this change.",
+        "unmatched",
+    );
 }
 
 export function recommendPresentationForChanges(

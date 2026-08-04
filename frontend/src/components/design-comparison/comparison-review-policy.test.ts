@@ -388,4 +388,42 @@ describe("review presentation policy", () => {
             "old-new",
         );
     });
+
+    /**
+     * The tables are evaluated in order and each ends in an unconditional rule,
+     * so every change resolves to a named rule. `recommendPresentationForChange`
+     * falls back to `unmatched` only if that terminator is ever removed —
+     * deliberately a safe default rather than a throw, because this runs during
+     * render. This proves the fallback stays unreachable.
+     */
+    it("resolves every change to a named rule, never the safety fallback", () => {
+        const domains = ["schematic", "pcb"] as const;
+        const kinds = ["added", "removed", "changed"] as const;
+        const categories = [
+            undefined, "components", "symbols", "nets", "graphics", "text",
+            "rules", "zones", "constraints",
+        ];
+        const objectKinds = [
+            undefined, "symbol", "pin", "sheet", "wire", "label", "junction",
+            "footprint", "pad", "track", "via", "zone", "group", "net_class",
+            "image", "text", "graphic", "drawing",
+        ];
+
+        for (const domain of domains) {
+            for (const kind of kinds) {
+                for (const category of categories) {
+                    for (const objectKind of objectKinds) {
+                        const result = recommendPresentationForChange(reviewChange({
+                            domain,
+                            kind,
+                            category,
+                            object_kind: objectKind,
+                        }));
+                        expect(result.rule).not.toBe("unmatched");
+                        expect(result.mode).toBeTruthy();
+                    }
+                }
+            }
+        }
+    });
 });
