@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
+import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
@@ -273,8 +274,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const redoStack = useRef<StagedRows[]>([]);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const preferencesLoaded = useRef(false);
-  const gridViewportRef = useRef<HTMLDivElement>(null);
-  const [gridViewport, setGridViewport] = useState({ height: 640, scrollTop: 0 });
+  const gridViewport = useVirtualViewport();
   const isAdmin = user?.role === "admin";
   const canEdit = canWriteCatalog(user?.role);
   // An empty grid means something different when filters are active than when the
@@ -357,16 +357,6 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const firstVisibleRow = Math.max(0, Math.floor(Math.max(0, gridViewport.scrollTop - 40) / GRID_ROW_HEIGHT) - GRID_OVERSCAN);
   const lastVisibleRow = Math.min(items.length, Math.ceil((gridViewport.scrollTop + gridViewport.height) / GRID_ROW_HEIGHT) + GRID_OVERSCAN);
   const visibleRows = items.slice(firstVisibleRow, lastVisibleRow);
-
-  useEffect(() => {
-    const viewport = gridViewportRef.current;
-    if (!viewport) return;
-    const updateHeight = () => setGridViewport((current) => ({ ...current, height: viewport.clientHeight || current.height }));
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(viewport);
-    return () => observer.disconnect();
-  }, []);
 
   const commitStaged = useCallback((next: StagedRows) => {
     setStaged((current) => { undoStack.current.push(cloneStaged(current)); if (undoStack.current.length > 100) undoStack.current.shift(); redoStack.current = []; return next; });
@@ -535,7 +525,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
       <main className="flex min-w-0 flex-1 flex-col p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading components…" : `${items.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${Math.min(page * PAGE_SIZE, total)} of ${total.toLocaleString()}`}</span><span>{visibleFields.length} visible fields · {Object.keys(staged).length} staged components</span></div>
-        <div ref={gridViewportRef} className={cn("min-h-0 flex-1 overflow-auto border", loading && "opacity-60")} onScroll={(event) => setGridViewport((current) => ({ ...current, scrollTop: event.currentTarget.scrollTop }))} onPaste={handleGridPaste} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); } if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "y") { event.preventDefault(); redo(); } }}>
+        <div ref={gridViewport.viewportRef} className={cn("min-h-0 flex-1 overflow-auto border", loading && "opacity-60")} onScroll={gridViewport.onScroll} onPaste={handleGridPaste} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); } if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "y") { event.preventDefault(); redo(); } }}>
           <div className="min-w-max" style={{ width: IDENTITY_WIDTH + visibleFields.reduce((sum, field) => sum + (preferences.widths[field.key] || DEFAULT_WIDTH), 0) }}>
             <div className="sticky top-0 z-20 grid h-10 border-b bg-muted text-xs font-medium" style={{ gridTemplateColumns: gridTemplate }}>
               <div className="sticky left-0 z-30 flex items-center border-r bg-muted px-3">Component</div>
