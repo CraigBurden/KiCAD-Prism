@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { fetchJson } from "@/lib/api";
 import {
   AVAILABILITY_BADGE_TITLE,
@@ -306,8 +307,7 @@ export function LibraryCatalogWorkspace({
   const [selectedLoading, setSelectedLoading] = useState(false);
   const [selectedError, setSelectedError] = useState("");
   const [selectedRefreshKey, setSelectedRefreshKey] = useState(0);
-  const catalogViewportRef = useRef<HTMLDivElement>(null);
-  const [catalogViewport, setCatalogViewport] = useState({ height: 640, scrollTop: 0 });
+  const catalogViewport = useVirtualViewport();
   const canCreate = canWriteCatalog(user?.role);
 
   const updateCatalogParams = useCallback((values: Record<string, string | null>, replace = false) => {
@@ -398,20 +398,10 @@ export function LibraryCatalogWorkspace({
     return () => controller.abort();
   }, [items, selectedComponentId, selectedRefreshKey]);
 
+  const { resetScroll } = catalogViewport;
   useEffect(() => {
-    const viewport = catalogViewportRef.current;
-    if (!viewport) return;
-    const updateHeight = () => setCatalogViewport((current) => ({ ...current, height: viewport.clientHeight || current.height }));
-    updateHeight();
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(viewport);
-    return () => observer.disconnect();
-  }, [items.length]);
-
-  useEffect(() => {
-    if (catalogViewportRef.current) catalogViewportRef.current.scrollTop = 0;
-    setCatalogViewport((current) => ({ ...current, scrollTop: 0 }));
-  }, [availability, category, page, sortDirection, sortKey, urlQuery, validation, workflow]);
+    resetScroll();
+  }, [availability, category, page, resetScroll, sortDirection, sortKey, urlQuery, validation, workflow]);
 
   const [pageInput, setPageInput] = useState("");
   const activeFilterCount = [workflow, availability, validation, category].filter((value) => value !== "all").length;
@@ -511,9 +501,9 @@ export function LibraryCatalogWorkspace({
               <span className="min-w-0"><SortControl label="Revision / Updated" sortKey="updated_at" activeKey={sortKey} direction={sortDirection} onSort={handleSort} /></span>
             </div>
             <div
-              ref={catalogViewportRef}
+              ref={catalogViewport.viewportRef}
               className="min-h-0 flex-1 overflow-auto"
-              onScroll={(event) => setCatalogViewport((current) => ({ ...current, scrollTop: event.currentTarget.scrollTop }))}
+              onScroll={catalogViewport.onScroll}
             >
               <div className="relative" style={{ height: items.length * CATALOG_ROW_HEIGHT }}>
               {visibleItems.map((component, visibleIndex) => (
