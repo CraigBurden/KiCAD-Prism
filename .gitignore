@@ -14,7 +14,9 @@ backend/venv/
 backend/app/static/remote_provider/
 
 # Frontend
-frontend/node_modules/
+# Unanchored so it also catches a stray root-level node_modules, which vitest
+# creates for its .vite cache when run from the repo root.
+node_modules/
 frontend/dist/
 frontend/.env.local
 # frontend/.env.example
