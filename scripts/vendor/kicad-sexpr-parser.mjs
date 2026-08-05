@@ -362,6 +362,7 @@ var P = {
   },
   atom(name, values) {
     let typefn;
+    const is_flag = !values;
     if (values) {
       typefn = T.string;
     } else {
@@ -373,8 +374,12 @@ var P = {
       name,
       accepts: values,
       fn(obj, name2, e) {
-        if (Array.isArray(e) && e.length == 1) {
-          e = e[0];
+        if (Array.isArray(e)) {
+          if (e.length == 1) {
+            e = e[0];
+          } else if (is_flag) {
+            e = e[1];
+          }
         }
         return typefn(obj, name2, e);
       }
@@ -1302,6 +1307,9 @@ function escapeString(str) {
   if (str === void 0) return "";
   return str.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n");
 }
+function serializeFlag(name, value) {
+  return value ? ` (${name} yes)` : "";
+}
 function serializeAt(at, level = 0, forceRotation = false) {
   if (!at) {
     return "(at 0 0 0)";
@@ -1841,14 +1849,14 @@ function serializeNoConnect(noConnect) {
 }
 function serializeNetLabel(label) {
   let result = `(label "${escapeString(label.text)}" ${serializeAt(label.at, 0, true)} ${serializeEffects(label.effects)}`;
-  result += ` (fields_autoplaced ${label.fields_autoplaced ? "yes" : "no"})`;
+  result += serializeFlag("fields_autoplaced", label.fields_autoplaced);
   if (label.uuid) result += ` (uuid "${escapeString(label.uuid)}")`;
   result += ")";
   return result;
 }
 function serializeGlobalLabel(label) {
   let result = `(global_label "${escapeString(label.text)}" ${serializeAt(label.at, 0, true)} ${serializeEffects(label.effects)}`;
-  result += ` (fields_autoplaced ${label.fields_autoplaced ? "yes" : "no"})`;
+  result += serializeFlag("fields_autoplaced", label.fields_autoplaced);
   if (label.uuid) result += ` (uuid "${escapeString(label.uuid)}")`;
   result += ` (shape ${label.shape})`;
   if (label.properties && label.properties.length > 0) {
@@ -1861,7 +1869,7 @@ function serializeGlobalLabel(label) {
 }
 function serializeHierarchicalLabel(label) {
   let result = `(hierarchical_label "${escapeString(label.text)}" ${serializeAt(label.at, 0, true)} ${serializeEffects(label.effects)}`;
-  result += ` (fields_autoplaced ${label.fields_autoplaced ? "yes" : "no"})`;
+  result += serializeFlag("fields_autoplaced", label.fields_autoplaced);
   if (label.uuid) result += ` (uuid "${escapeString(label.uuid)}")`;
   result += ` (shape ${label.shape})`;
   result += ")";
@@ -1920,8 +1928,10 @@ function serializeSchematicSymbol(symbol, level = 0) {
     result += `${indentString(level + 1)}(${token} ${body_style})
 `;
   }
-  result += `${indentString(level + 1)}(fields_autoplaced ${symbol.fields_autoplaced ? "yes" : "no"})
+  if (symbol.fields_autoplaced) {
+    result += `${indentString(level + 1)}(fields_autoplaced yes)
 `;
+  }
   result += `${indentString(level + 1)}(uuid "${escapeString(symbol.uuid)}")
 `;
   if (symbol.properties && symbol.properties.length > 0) {
@@ -2034,8 +2044,10 @@ function serializeSchematicSheet(sheet, level = 0) {
     result += `${indentString(level + 1)}(dnp ${sheet.dnp ? "yes" : "no"})
 `;
   }
-  result += `${indentString(level + 1)}(fields_autoplaced ${sheet.fields_autoplaced ? "yes" : "no"})
+  if (sheet.fields_autoplaced) {
+    result += `${indentString(level + 1)}(fields_autoplaced yes)
 `;
+  }
   result += `${indentString(level + 1)}${serializeStroke(sheet.stroke)}
 `;
   const fillStr = serializeFill(sheet.fill);
