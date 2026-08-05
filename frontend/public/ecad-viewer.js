@@ -1253,7 +1253,7 @@ ${t})`,n}a(Gm,"serializePin");function Rs(i,e=0){let t=L(e),r=`${t}(symbol "${se
 `),i.embedded_files&&(r+=`${L(e+1)}(embedded_files "${se(i.embedded_files)}")
 `),r+=`${t})
 `,r}a(Rs,"serializeLibSymbol");function Jm(i){let e="(wire (pts";for(let t of i.pts)e+=` (xy ${le(t.x)} ${le(t.y)})`;return e+=")",e+=` ${Be(i.stroke)}`,e+=` (uuid "${se(i.uuid)}")`,e+=")",e}a(Jm,"serializeWire");function Am(i){let e="(bus (pts";for(let t of i.pts)e+=` (xy ${le(t.x)} ${le(t.y)})`;return e+=")",e+=` ${Be(i.stroke)}`,e+=` (uuid "${se(i.uuid)}")`,e+=")",e}a(Am,"serializeBus");function Dm(i){let e="(bus_entry ";if(i.at){let t=i.at.position?.x||0,r=i.at.position?.y||0;e+=`(at ${le(t)} ${le(r)})`}else e+="(at 0 0)";return e+=` (size ${le(i.size.x)} ${le(i.size.y)})`,e+=` ${Be(i.stroke)}`,e+=` (uuid "${se(i.uuid)}")`,e+=")",e}a(Dm,"serializeBusEntry");function Bm(i){let e="";if(i.members&&Array.isArray(i.members))for(let t of i.members)e.length>0&&(e+=" "),e+=`"${se(t)}"`;return`(bus_alias "${se(i.name)}" (members ${e}))`}a(Bm,"serializeBusAlias");function $m(i){let e="(junction ";if(i.at){let t=i.at.position?.x||0,r=i.at.position?.y||0;e+=`(at ${le(t)} ${le(r)})`}else e+="(at 0 0)";return i.diameter!==void 0&&(e+=` (diameter ${le(i.diameter)})`),i.color&&(e+=` (color ${Math.round(i.color.r*255)} ${Math.round(i.color.g*255)} ${Math.round(i.color.b*255)} ${Pc(i.color.a)})`),e+=` (uuid "${se(i.uuid)}")`,e+=")",e}a($m,"serializeJunction");function zm(i){let e="(no_connect ";if(i.at){let t=i.at.position?.x||0,r=i.at.position?.y||0;e+=`(at ${le(t)} ${le(r)})`}else e+="(at 0 0)";return e+=` (uuid "${se(i.uuid)}")`,e+=")",e}a(zm,"serializeNoConnect");function jm(i){let e=`(label "${se(i.text)}" ${mt(i.at,0,!0)} ${Nt(i.effects)}`;return e+=` (fields_autoplaced ${i.fields_autoplaced?"yes":"no"})`,i.uuid&&(e+=` (uuid "${se(i.uuid)}")`),e+=")",e}a(jm,"serializeNetLabel");function qm(i){let e=`(global_label "${se(i.text)}" ${mt(i.at,0,!0)} ${Nt(i.effects)}`;if(e+=` (fields_autoplaced ${i.fields_autoplaced?"yes":"no"})`,i.uuid&&(e+=` (uuid "${se(i.uuid)}")`),e+=` (shape ${i.shape})`,i.properties&&i.properties.length>0)for(let t of i.properties)e+=` ${la(t)}`;return e+=")",e}a(qm,"serializeGlobalLabel");function e_(i){let e=`(hierarchical_label "${se(i.text)}" ${mt(i.at,0,!0)} ${Nt(i.effects)}`;return e+=` (fields_autoplaced ${i.fields_autoplaced?"yes":"no"})`,i.uuid&&(e+=` (uuid "${se(i.uuid)}")`),e+=` (shape ${i.shape})`,e+=")",e}a(e_,"serializeHierarchicalLabel");function t_(i){let e="(pin ",t=["input","output","bidirectional","tri_state","passive","dot","round","diamond","rectangle","power_in","power_out","open_collector","open_emitter"];return i.number!==void 0&&i.number!==null?i.number.trim()!==""&&!t.includes(i.number)?e+=`"${se(i.number)}"`:i.number.trim()!==""&&t.includes(i.number)?e+=i.number:e+='""':e+="power_in",e+=` (uuid "${se(i.uuid)}")`,i.alternate&&(e+=` (alternate "${se(i.alternate)}")`),e+=")",e}a(t_,"serializePinInstance");function Xh(i,e=0){let t=L(e),r=`${t}(symbol
-`;if(i.lib_name&&(r+=`${L(e+1)}(lib_name "${se(i.lib_name)}")
+`;i.lib_name&&(r+=`${L(e+1)}(lib_name "${se(i.lib_name)}")
 `),r+=`${L(e+1)}(lib_id "${se(i.lib_id)}")
 `,r+=`${L(e+1)}${mt(i.at,0,!0)}
 `,i.mirror&&(r+=`${L(e+1)}(mirror ${i.mirror})
@@ -1262,24 +1262,24 @@ ${t})`,n}a(Gm,"serializePin");function Rs(i,e=0){let t=L(e),r=`${t}(symbol "${se
 `),i.in_bom!==void 0&&(r+=`${L(e+1)}(in_bom ${i.in_bom?"yes":"no"})
 `),i.on_board!==void 0&&(r+=`${L(e+1)}(on_board ${i.on_board?"yes":"no"})
 `),i.dnp!==void 0&&(r+=`${L(e+1)}(dnp ${i.dnp?"yes":"no"})
-`),typeof i.convert<"u"&&i.convert!==null&&(r+=`${L(e+1)}(convert ${i.convert})
-`),r+=`${L(e+1)}(fields_autoplaced ${i.fields_autoplaced?"yes":"no"})
+`);let n=i.body_style??i.convert;if(typeof n<"u"&&n!==null){let s=typeof i.body_style<"u"&&i.body_style!==null?"body_style":"convert";r+=`${L(e+1)}(${s} ${n})
+`}if(r+=`${L(e+1)}(fields_autoplaced ${i.fields_autoplaced?"yes":"no"})
 `,r+=`${L(e+1)}(uuid "${se(i.uuid)}")
-`,i.properties&&i.properties.length>0)for(let n of i.properties)r+=`${la(n,e+1)}
-`;if(i.pins&&i.pins.length>0)for(let n of i.pins)r+=`${L(e+1)}${t_(n)}
-`;if(i.default_instance){let n=i.default_instance.reference&&i.default_instance.reference.trim()!=="",s=i.default_instance.unit!==void 0&&i.default_instance.unit!==null,o=i.default_instance.value&&i.default_instance.value.trim()!=="",c=i.default_instance.footprint&&i.default_instance.footprint.trim()!=="";if(n||s||o||c){if(r+=`${L(e+1)}(default_instance
-`,n&&(r+=`${L(e+2)}(reference "${se(i.default_instance.reference)}")
-`),s){let l=i.default_instance.unit!==void 0&&i.default_instance.unit!==null?i.default_instance.unit:1;r+=`${L(e+2)}(unit ${l})
-`}o&&(r+=`${L(e+2)}(value "${se(i.default_instance.value)}")
-`),c&&(r+=`${L(e+2)}(footprint "${se(i.default_instance.footprint)}")
+`,i.properties&&i.properties.length>0)for(let s of i.properties)r+=`${la(s,e+1)}
+`;if(i.pins&&i.pins.length>0)for(let s of i.pins)r+=`${L(e+1)}${t_(s)}
+`;if(i.default_instance){let s=i.default_instance.reference&&i.default_instance.reference.trim()!=="",o=i.default_instance.unit!==void 0&&i.default_instance.unit!==null,c=i.default_instance.value&&i.default_instance.value.trim()!=="",l=i.default_instance.footprint&&i.default_instance.footprint.trim()!=="";if(s||o||c||l){if(r+=`${L(e+1)}(default_instance
+`,s&&(r+=`${L(e+2)}(reference "${se(i.default_instance.reference)}")
+`),o){let u=i.default_instance.unit!==void 0&&i.default_instance.unit!==null?i.default_instance.unit:1;r+=`${L(e+2)}(unit ${u})
+`}c&&(r+=`${L(e+2)}(value "${se(i.default_instance.value)}")
+`),l&&(r+=`${L(e+2)}(footprint "${se(i.default_instance.footprint)}")
 `),r+=`${L(e+1)})
 `}}if(i.instances){if(r+=`${L(e+1)}(instances
-`,i.instances.projects&&i.instances.projects.length>0)for(let n of i.instances.projects){if(r+=`${L(e+2)}(project "${se(n.name)}"
-`,n.paths&&n.paths.length>0)for(let s of n.paths)r+=`${L(e+3)}(path "${se(s.path)}"
-`,s.reference&&(r+=`${L(e+4)}(reference "${se(s.reference)}")
-`),s.value&&(r+=`${L(e+4)}(value "${se(s.value)}")
-`),s.unit&&(r+=`${L(e+4)}(unit ${s.unit})
-`),s.footprint&&(r+=`${L(e+4)}(footprint "${se(s.footprint)}")
+`,i.instances.projects&&i.instances.projects.length>0)for(let s of i.instances.projects){if(r+=`${L(e+2)}(project "${se(s.name)}"
+`,s.paths&&s.paths.length>0)for(let o of s.paths)r+=`${L(e+3)}(path "${se(o.path)}"
+`,o.reference&&(r+=`${L(e+4)}(reference "${se(o.reference)}")
+`),o.value&&(r+=`${L(e+4)}(value "${se(o.value)}")
+`),o.unit&&(r+=`${L(e+4)}(unit ${o.unit})
+`),o.footprint&&(r+=`${L(e+4)}(footprint "${se(o.footprint)}")
 `),r+=`${L(e+3)})
 `;r+=`${L(e+2)})
 `}r+=`${L(e+1)})
