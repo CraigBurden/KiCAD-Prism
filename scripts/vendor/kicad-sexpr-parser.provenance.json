@@ -2,8 +2,8 @@
   "artifact": "kicad-sexpr-parser.mjs",
   "package": "kicad-sexpr-parser",
   "version": "1.5.3",
-  "sourceCommit": "ff1a0e14302da19ae2b92b1720875c6c5a61ed5f",
-  "sourceTreeSha256": "fd9e92b61163282816597a5a5a71f6a290a9f6f0aa1d2ad2c0226f2712e7739d",
-  "artifactSha256": "51dd0c0924f3995cbd263fc20f18c3163d5298cf7200d276b5394dec9a45490e",
+  "sourceCommit": "bd272f1f6a22320e7b033a5511224b09018e5823",
+  "sourceTreeSha256": "396d9dbefe6bc795cb607db5728d3f050841587b08ce8cac7c6451cc85ca51e7",
+  "artifactSha256": "4bfe33189d83466d588c20e1160ca4952148b5625caf94df77349c55418b0deb",
   "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=es2022"
 }

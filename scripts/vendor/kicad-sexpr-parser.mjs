@@ -1914,8 +1914,10 @@ function serializeSchematicSymbol(symbol, level = 0) {
   }
   if (symbol.dnp !== void 0) result += `${indentString(level + 1)}(dnp ${symbol.dnp ? "yes" : "no"})
 `;
-  if (typeof symbol.convert !== "undefined" && symbol.convert !== null) {
-    result += `${indentString(level + 1)}(convert ${symbol.convert})
+  const body_style = symbol.body_style ?? symbol.convert;
+  if (typeof body_style !== "undefined" && body_style !== null) {
+    const token = typeof symbol.body_style !== "undefined" && symbol.body_style !== null ? "body_style" : "convert";
+    result += `${indentString(level + 1)}(${token} ${body_style})
 `;
   }
   result += `${indentString(level + 1)}(fields_autoplaced ${symbol.fields_autoplaced ? "yes" : "no"})
