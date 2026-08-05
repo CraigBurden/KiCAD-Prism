@@ -62,10 +62,12 @@ export function WorkspaceGalleryView({
           ) : (
             <div className={PROJECT_GRID_CLASS}>
               {searchResults.map((project) => (
-                <div key={project.id} className="relative">
+                <div key={project.id} className="group relative">
                   {canManageProjects && (
                     <div
-                      className="absolute left-2 top-2 z-10"
+                      className={`absolute left-2 top-2 z-10 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${
+                        bulkSelectedProjectIds.has(project.id) ? "opacity-100" : "opacity-0"
+                      }`}
                       onClick={(event) => event.stopPropagation()}
                       onDoubleClick={(event) => event.stopPropagation()}
                     >
@@ -154,16 +156,18 @@ export function WorkspaceGalleryView({
             ) : (
               <div className={PROJECT_GRID_CLASS}>
                 {visibleProjects.map((project) => (
-                  <div key={project.id} className="relative">
-                  {canManageProjects && (
-                    <div
-                      className="absolute left-2 top-2 z-10"
-                      onClick={(event) => event.stopPropagation()}
-                      onDoubleClick={(event) => event.stopPropagation()}
-                    >
-                      <Checkbox
-                        className="h-5 w-5 border-2 bg-background/95 shadow-md"
-                        checked={bulkSelectedProjectIds.has(project.id)}
+                  <div key={project.id} className="group relative">
+                    {canManageProjects && (
+                      <div
+                        className={`absolute left-2 top-2 z-10 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${
+                          bulkSelectedProjectIds.has(project.id) ? "opacity-100" : "opacity-0"
+                        }`}
+                        onClick={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                      >
+                        <Checkbox
+                          className="h-5 w-5 border-2 bg-background/95 shadow-md"
+                          checked={bulkSelectedProjectIds.has(project.id)}
                           onCheckedChange={(checked) => onToggleProjectSelection(project.id, checked === true)}
                           aria-label={`Select ${getProjectDisplayName(project)}`}
                         />
