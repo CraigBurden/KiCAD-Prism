@@ -1,9 +1,7 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { useVirtualViewport } from "./use-virtual-viewport";
-
-afterEach(cleanup);
 
 beforeAll(() => {
   // jsdom ships no ResizeObserver; the hook only needs it to not explode.
