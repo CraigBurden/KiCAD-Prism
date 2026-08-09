@@ -14,6 +14,7 @@ import type {
     EcadDocumentComparisonPreparation,
     EcadDocumentComparisonRequest,
     EcadPcbLayerState,
+    EcadSchematicPageState,
 } from "@/types/ecad-viewer";
 import {
     comparisonLifecycleReducer,
@@ -159,6 +160,11 @@ class FakeEcadViewer extends HTMLElement {
 class FakeComparisonSession implements EcadComparisonSession {
     readonly comparisonKey: string;
     readonly preparation: EcadDocumentComparisonPreparation;
+    readonly request: EcadDocumentComparisonRequest;
+    private readonly schematicPages: {
+        reference: EcadSchematicPageState[];
+        comparison: EcadSchematicPageState[];
+    };
     readonly setPresentation = vi.fn(
         async (
             presentation: EcadComparisonPresentation,
@@ -177,6 +183,7 @@ class FakeComparisonSession implements EcadComparisonSession {
     readonly dispose = vi.fn();
 
     constructor(request: EcadDocumentComparisonRequest) {
+        this.request = request;
         const documentPath = request.documentPath ?? "main.kicad_sch";
         const hasDocument = (
             sources: EcadDocumentComparisonRequest["reference"]["sources"],
@@ -187,6 +194,40 @@ class FakeComparisonSession implements EcadComparisonSession {
                 || documentPath.endsWith(`/${normalized}`);
         });
         this.comparisonKey = request.comparisonKey;
+        const catalog = (
+            sources: EcadDocumentComparisonRequest["reference"]["sources"],
+            activeSheetPath?: string,
+        ): EcadSchematicPageState[] => {
+            const pages = sources
+                .filter(({ filename }) => filename.endsWith(".kicad_sch"))
+                .map(({ filename }, index) => {
+                    const sheetPath = `/${filename}`;
+                    const projectPath = `${filename}:${sheetPath}`;
+                    return {
+                        name: filename.split("/").at(-1) ?? filename,
+                        filename,
+                        page: String(index + 1),
+                        depth: 0,
+                        projectPath,
+                        sheetPath,
+                        active: activeSheetPath === projectPath,
+                    };
+                });
+            if (!pages.some((page) => page.active) && pages[0]) {
+                pages[0].active = true;
+            }
+            return pages;
+        };
+        this.schematicPages = {
+            reference: catalog(
+                request.reference.sources,
+                request.referenceSheetPath,
+            ),
+            comparison: catalog(
+                request.comparison.sources,
+                request.comparisonSheetPath,
+            ),
+        };
         this.preparation = {
             comparisonKey: request.comparisonKey,
             context: documentPath.endsWith(".kicad_pcb") ? "PCB" : "SCH",
@@ -208,6 +249,13 @@ class FakeComparisonSession implements EcadComparisonSession {
 
     getPreparation(): EcadDocumentComparisonPreparation {
         return this.preparation;
+    }
+
+    getSchematicPages(): {
+        reference: EcadSchematicPageState[];
+        comparison: EcadSchematicPageState[];
+    } {
+        return this.schematicPages;
     }
 
     getMetrics(): EcadComparisonSessionMetrics {
@@ -1252,6 +1300,132 @@ describe("ComparisonPresentationShell", () => {
                 .toHaveBeenCalledWith(
                     expect.objectContaining({ documentPath: "two.kicad_sch" }),
                 );
+        });
+    });
+
+    it("prepares both revision paths and keeps the selected sheet across Old/New", async () => {
+        const multiPageDiff: KiCadProjectDiffBundle = {
+            ...documentDiff,
+            project: {
+                documents: [
+                    { path: "main.kicad_sch", docType: "kicad_sch", changes: [] },
+                    { path: "child.kicad_sch", docType: "kicad_sch", changes: [] },
+                ],
+            },
+        };
+        const files = {
+            base: [
+                { filename: "main.kicad_sch", path: "main.kicad_sch" },
+                { filename: "child.kicad_sch", path: "child.kicad_sch" },
+            ],
+            head: [
+                { filename: "main.kicad_sch", path: "main.kicad_sch" },
+                { filename: "child.kicad_sch", path: "child.kicad_sch" },
+            ],
+        };
+        const view = render(
+            <ComparisonPresentationShell
+                {...shellProps}
+                documentDiff={multiPageDiff}
+                files={files}
+                presentationMode="old-new"
+            />,
+        );
+
+        await waitFor(() => expect(FakeEcadViewer.sessions).toHaveLength(1));
+        expect(FakeEcadViewer.sessions[0]?.getSchematicPages().reference)
+            .toHaveLength(2);
+        const rootSession = FakeEcadViewer.sessions[0]!;
+        const rootPresentationCalls = rootSession.setPresentation.mock.calls.length;
+        fireEvent.click(view.getByRole("button", { name: "main.kicad_sch" }));
+        fireEvent.click(await screen.findByRole("button", {
+            name: /child\.kicad_sch/,
+        }));
+
+        await waitFor(() => expect(FakeEcadViewer.sessions).toHaveLength(2));
+        expect(rootSession.dispose).toHaveBeenCalledTimes(1);
+        expect(rootSession.setPresentation)
+            .toHaveBeenCalledTimes(rootPresentationCalls);
+        const childSession = FakeEcadViewer.sessions.at(-1)!;
+        expect(childSession.request).toMatchObject({
+            documentPath: "child.kicad_sch",
+            referenceSheetPath: "child.kicad_sch:/child.kicad_sch",
+            comparisonSheetPath: "child.kicad_sch:/child.kicad_sch",
+        });
+        expect(childSession.comparisonKey).toContain("sheet:/child.kicad_sch");
+        const prepareCalls = FakeEcadViewer.instances[0]!.prepareComparison
+            .mock.calls.length;
+
+        fireEvent.click(view.getByRole("button", { name: "Old revision" }));
+        await waitFor(() => {
+            expect(childSession.setPresentation).toHaveBeenLastCalledWith(
+                "reference",
+                FakeEcadViewer.instances[0],
+            );
+        });
+        expect(FakeEcadViewer.instances[0]?.prepareComparison)
+            .toHaveBeenCalledTimes(prepareCalls);
+        expect(view.getByRole("button", { name: "child.kicad_sch" }))
+            .toBeTruthy();
+    });
+
+    it("resets a manual sheet override when the selected change moves pages", async () => {
+        const multiPageDiff: KiCadProjectDiffBundle = {
+            ...documentDiff,
+            project: {
+                documents: [
+                    { path: "main.kicad_sch", docType: "kicad_sch", changes: [] },
+                    { path: "child.kicad_sch", docType: "kicad_sch", changes: [] },
+                ],
+            },
+        };
+        const files = {
+            base: [
+                { filename: "main.kicad_sch", path: "main.kicad_sch" },
+                { filename: "child.kicad_sch", path: "child.kicad_sch" },
+            ],
+            head: [
+                { filename: "main.kicad_sch", path: "main.kicad_sch" },
+                { filename: "child.kicad_sch", path: "child.kicad_sch" },
+            ],
+        };
+        const view = render(
+            <ComparisonPresentationShell
+                {...shellProps}
+                documentDiff={multiPageDiff}
+                files={files}
+                presentationMode="composite"
+            />,
+        );
+
+        await waitFor(() => expect(FakeEcadViewer.sessions).toHaveLength(1));
+        expect(FakeEcadViewer.sessions[0]?.getSchematicPages().reference)
+            .toHaveLength(2);
+        fireEvent.click(view.getByRole("button", { name: "main.kicad_sch" }));
+        fireEvent.click(await screen.findByRole("button", {
+            name: /child\.kicad_sch/,
+        }));
+        await waitFor(() => {
+            expect(FakeEcadViewer.sessions.at(-1)?.request.documentPath)
+                .toBe("child.kicad_sch");
+        });
+
+        view.rerender(
+            <ComparisonPresentationShell
+                {...shellProps}
+                documentDiff={multiPageDiff}
+                files={files}
+                presentationMode="composite"
+                selection={{
+                    kind: "item",
+                    id: "selected-main-change",
+                    documentPath: "main.kicad_sch",
+                }}
+            />,
+        );
+        await waitFor(() => {
+            expect(FakeEcadViewer.sessions.at(-1)?.request.documentPath)
+                .toBe("main.kicad_sch");
         });
     });
 

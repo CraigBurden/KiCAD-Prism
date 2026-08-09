@@ -16,6 +16,7 @@ import {
     ListFilter,
     Search,
     Undo2,
+    X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -355,21 +356,32 @@ export function PcbLayerList({
  * the canvas sheet trigger. `hasChanges` lets the comparison mark sheets that
  * carry differences; the Visualizer leaves it unset and gets the plain tree.
  */
+type SchematicNavigatorPage = EcadSchematicPageState & {
+    navigatorKey?: string;
+    parentNavigatorKey?: string;
+    statusLabel?: string;
+};
+
 export function SchematicPageTree({
     viewer,
+    pages: controlledPages,
     hasChanges,
     onNavigate,
 }: {
     viewer: ECadViewerElement | null;
+    pages?: SchematicNavigatorPage[];
     hasChanges?: (page: EcadSchematicPageState) => boolean;
-    onNavigate?: (page: EcadSchematicPageState | null) => void;
+    onNavigate?: (page: SchematicNavigatorPage) => void;
 }) {
-    const [pages, setPages] = useState<EcadSchematicPageState[]>([]);
+    const [viewerPages, setViewerPages] = useState<EcadSchematicPageState[]>([]);
     const [query, setQuery] = useState("");
+    const pages: SchematicNavigatorPage[] = controlledPages ?? viewerPages;
 
     const refresh = useCallback(() => {
-        setPages(viewer?.getSchematicPages?.() ?? []);
-    }, [viewer]);
+        if (!controlledPages) {
+            setViewerPages(viewer?.getSchematicPages?.() ?? []);
+        }
+    }, [controlledPages, viewer]);
 
     useEffect(() => {
         refresh();
@@ -388,48 +400,88 @@ export function SchematicPageTree({
                 .some((value) => value!.toLocaleLowerCase().includes(normalized)),
         );
     }, [pages, query]);
+    const activePage = pages.find((page) => page.active);
+    const parentPage = activePage
+        ? pages.find((page) =>
+            activePage.parentNavigatorKey
+                ? (page.navigatorKey ?? page.projectPath)
+                    === activePage.parentNavigatorKey
+                : page.projectPath === activePage.parentProjectPath
+        )
+        : undefined;
 
     return (
         <>
-            <div className="space-y-2 border-b p-3">
+            <div className="shrink-0 space-y-2 border-b p-3">
                 <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder="Find page…"
-                        className="h-8 pl-8 text-xs"
+                        aria-label="Find schematic page"
+                        className="h-8 pl-8 pr-8 text-xs"
                     />
+                    {query && (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0.5 top-1/2 size-7 -translate-y-1/2 text-muted-foreground"
+                            onClick={() => setQuery("")}
+                            aria-label="Clear page search"
+                        >
+                            <X className="size-3.5" />
+                        </Button>
+                    )}
                 </div>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-full justify-start text-xs"
-                    onClick={() => {
-                        viewer?.navigateSchematicParent?.();
-                        refresh();
-                        onNavigate?.(null);
-                    }}
-                >
-                    <Undo2 className="mr-2 size-3.5" />
-                    Parent sheet
-                    <span className="ml-auto text-[10px] text-muted-foreground">⌥⌫</span>
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 min-w-0 flex-1 justify-start text-xs"
+                        disabled={!parentPage}
+                        onClick={() => {
+                            if (!parentPage) return;
+                            if (!controlledPages) {
+                                viewer?.navigateSchematicParent?.();
+                                refresh();
+                            }
+                            onNavigate?.(parentPage);
+                        }}
+                    >
+                        <Undo2 className="mr-2 size-3.5 shrink-0" />
+                        <span className="truncate">Parent sheet</span>
+                        <span className="ml-auto text-[10px] text-muted-foreground">⌥⌫</span>
+                    </Button>
+                    <span
+                        className="shrink-0 text-[10px] tabular-nums text-muted-foreground"
+                        aria-live="polite"
+                    >
+                        {visiblePages.length}/{pages.length}
+                    </span>
+                </div>
             </div>
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea
+                className="min-h-0 flex-1 touch-pan-y overscroll-contain [scrollbar-gutter:stable]"
+                aria-label="Schematic page list"
+                tabIndex={0}
+            >
                 <div className="p-2">
                     {visiblePages.map((page) => (
                         <button
-                            key={page.projectPath}
+                            key={page.navigatorKey ?? page.projectPath}
                             type="button"
                             className={cn(
-                                "flex w-full items-center gap-2 border-l-2 px-2 py-2 text-left text-xs transition-colors hover:bg-accent",
+                                "flex w-full items-center gap-2 rounded-sm border-l-2 px-2 py-2 text-left text-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                                 page.active ? "border-primary bg-accent text-accent-foreground" : "border-transparent text-muted-foreground",
                             )}
                             style={{ paddingLeft: `${0.5 + Math.min(page.depth, 6) * 0.75}rem` }}
                             onClick={() => {
-                                viewer?.switchPage(page.projectPath);
-                                refresh();
+                                if (!controlledPages) {
+                                    viewer?.switchPage(page.projectPath);
+                                    refresh();
+                                }
                                 onNavigate?.(page);
                             }}
                             aria-current={page.active ? "page" : undefined}
@@ -446,6 +498,11 @@ export function SchematicPageTree({
                                     role="img"
                                     aria-label="Has changes"
                                 />
+                            )}
+                            {page.statusLabel && (
+                                <span className="shrink-0 rounded-sm border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                    {page.statusLabel}
+                                </span>
                             )}
                         </button>
                     ))}

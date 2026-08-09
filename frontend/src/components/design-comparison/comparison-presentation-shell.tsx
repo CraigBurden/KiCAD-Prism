@@ -52,6 +52,11 @@ import {
     useRevisionSources,
     type ComparisonDomain,
 } from "./revision-sources";
+import {
+    buildComparisonSchematicPages,
+    comparisonPageDocumentPath,
+    type ComparisonSchematicPage,
+} from "./schematic-comparison-navigator";
 import type {
     ChangeItem,
     DesignCompareResult,
@@ -262,6 +267,18 @@ export function ComparisonPresentationShell({
         onPcbLayersChange?.(pcbLayers);
     }, [onPcbLayersChange, pcbLayers]);
     const [layerFocusOverridden, setLayerFocusOverridden] = useState(false);
+    const [manualPageOverride, setManualPageOverride] =
+        useState<ComparisonSchematicPage | null>(null);
+    const [schematicNavigatorOpen, setSchematicNavigatorOpen] = useState(false);
+    const [schematicCatalogs, setSchematicCatalogs] = useState<{
+        pairKey: string;
+        reference: ReturnType<
+            EcadComparisonSession["getSchematicPages"]
+        >["reference"];
+        comparison: ReturnType<
+            EcadComparisonSession["getSchematicPages"]
+        >["comparison"];
+    } | null>(null);
 
     const sessionGenerationRef = useRef(0);
     const presentationGenerationRef = useRef(0);
@@ -275,6 +292,7 @@ export function ComparisonPresentationShell({
     const preFocusLayersRef = useRef<string[] | null>(null);
     const mountedSecondaryRef = useRef(false);
     const sessionRef = useRef<EcadComparisonSession | null>(null);
+    const selectedCatalogPageRef = useRef<ComparisonSchematicPage | null>(null);
     if (presentationMode === "side-by-side") {
         mountedSecondaryRef.current = true;
     }
@@ -308,11 +326,55 @@ export function ComparisonPresentationShell({
         compare,
         files.head,
     );
-    const documentPath =
+    const selectedDocumentPath =
         activeDocument?.path
         ?? baseSources.rootName
         ?? compareSources.rootName
         ?? null;
+    const comparisonPairKey = `${projectId}:${base}:${compare}:${domain}`;
+    const comparisonDocumentPaths = useMemo(
+        () => documentDiff.project.documents.map((document) => document.path),
+        [documentDiff],
+    );
+    const unionPages = useMemo(
+        () => schematicCatalogs?.pairKey === comparisonPairKey
+            ? buildComparisonSchematicPages(
+                schematicCatalogs.reference,
+                schematicCatalogs.comparison,
+            )
+            : [],
+        [comparisonPairKey, schematicCatalogs],
+    );
+    const selectedCatalogPage = useMemo(() => {
+        if (manualPageOverride) return manualPageOverride;
+        if (!selectedDocumentPath) return undefined;
+        return unionPages.find((page) =>
+            (page.reference
+                && sameDocument(page.reference.filename, selectedDocumentPath))
+            || (page.comparison
+                && sameDocument(page.comparison.filename, selectedDocumentPath))
+        );
+    }, [manualPageOverride, selectedDocumentPath, unionPages]);
+    const documentPath = selectedCatalogPage
+        ? comparisonPageDocumentPath(
+            selectedCatalogPage,
+            comparisonDocumentPaths,
+        )
+        : selectedDocumentPath;
+    useEffect(() => {
+        selectedCatalogPageRef.current = selectedCatalogPage ?? null;
+    }, [selectedCatalogPage]);
+    const selectedSheetIdentity = manualPageOverride?.navigatorKey
+        ?? `document:${normalizedPath(documentPath ?? "unknown")}`;
+    const selectedNavigatorIdentity = selectedCatalogPage?.navigatorKey
+        ?? selectedSheetIdentity;
+    const navigatorPages = useMemo(
+        () => unionPages.map((page) => ({
+            ...page,
+            active: page.navigatorKey === selectedNavigatorIdentity,
+        })),
+        [selectedNavigatorIdentity, unionPages],
+    );
     const comparisonDiff = useMemo(
         () => diffForDocument(documentDiff, documentPath, domain),
         [documentDiff, documentPath, domain],
@@ -339,9 +401,9 @@ export function ComparisonPresentationShell({
         && (!baseMissingRoot || !compareMissingRoot);
     const baseRevisionKey = revisionSourceKey(projectId, base, domain);
     const compareRevisionKey = revisionSourceKey(projectId, compare, domain);
-    const comparisonKey = `${projectId}:${base}:${compare}:${domain}`;
-    const primaryHostKey = `${comparisonKey}:primary`;
-    const secondaryHostKey = `${comparisonKey}:secondary`;
+    const comparisonKey = `${comparisonPairKey}:sheet:${selectedSheetIdentity}`;
+    const primaryHostKey = `${comparisonPairKey}:primary`;
+    const secondaryHostKey = `${comparisonPairKey}:secondary`;
     /**
      * What "the scene is ready" means right now.
      *
@@ -351,12 +413,19 @@ export function ComparisonPresentationShell({
      */
     const presentationKey =
         `${comparisonKey}:${documentPath}:${presentationMode}:${oldNewSide}`;
-    const baseHasDocument = preparation
-        ? !preparation.missingReference
-        : revisionHasDocument(files.base, documentPath);
-    const compareHasDocument = preparation
-        ? !preparation.missingComparison
-        : revisionHasDocument(files.head, documentPath);
+    const currentPreparation = preparation?.comparisonKey === comparisonKey
+        ? preparation
+        : null;
+    const baseHasDocument = currentPreparation
+        ? !currentPreparation.missingReference
+        : selectedCatalogPage
+            ? Boolean(selectedCatalogPage.reference)
+            : revisionHasDocument(files.base, documentPath);
+    const compareHasDocument = currentPreparation
+        ? !currentPreparation.missingComparison
+        : selectedCatalogPage
+            ? Boolean(selectedCatalogPage.comparison)
+            : revisionHasDocument(files.head, documentPath);
     /**
      * The panes on screen: each attached viewer, the revision it shows, and
      * whether that revision actually contains the current document.
@@ -447,6 +516,15 @@ export function ComparisonPresentationShell({
     }, []);
 
     useEffect(() => {
+        setManualPageOverride(null);
+    }, [selection?.documentPath, selection?.id, selection?.kind]);
+
+    useEffect(() => {
+        setManualPageOverride(null);
+        setSchematicCatalogs(null);
+    }, [base, compare, domain]);
+
+    useEffect(() => {
         setDismissedBanner(null);
     }, [comparisonKey, documentPath]);
 
@@ -496,8 +574,9 @@ export function ComparisonPresentationShell({
         const generation = ++sessionGenerationRef.current;
         let cancelled = false;
         let created: EcadComparisonSession | null = null;
-        sessionRef.current?.dispose();
+        const previousSession = sessionRef.current;
         sessionRef.current = null;
+        previousSession?.dispose();
         setSession(null);
         setPreparation(null);
         setSessionError(null);
@@ -505,12 +584,16 @@ export function ComparisonPresentationShell({
         presentationReadyKeyRef.current = null;
         lastSelectionKeyRef.current = null;
         unresolvedSelectionKeyRef.current = null;
+        const requestedCatalogPage = selectedCatalogPageRef.current;
         logComparisonDebug("session.prepare.start", {
             generation,
             comparisonKey,
             documentPath,
             baseRevisionKey,
             compareRevisionKey,
+            selectedSheetIdentity,
+            referenceSheetPath: requestedCatalogPage?.referenceSheetPath,
+            comparisonSheetPath: requestedCatalogPage?.comparisonSheetPath,
         });
         // Guard against the viewer promise never settling. prepareComparison
         // lives in the vendored ecad-viewer bundle; if it hangs on input it
@@ -555,6 +638,8 @@ export function ComparisonPresentationShell({
                 diff: comparisonDiff,
                 diffFormat: "prism",
                 documentPath,
+                referenceSheetPath: requestedCatalogPage?.referenceSheetPath,
+                comparisonSheetPath: requestedCatalogPage?.comparisonSheetPath,
                 activeSheetPath: documentPath,
             }),
             prepareTimeout,
@@ -569,6 +654,12 @@ export function ComparisonPresentationShell({
             sessionRef.current = next;
             setSession(next);
             setPreparation(next.preparation);
+            const pages = next.getSchematicPages();
+            setSchematicCatalogs({
+                pairKey: comparisonPairKey,
+                reference: pages.reference,
+                comparison: pages.comparison,
+            });
             setSessionPhase("ready");
             logComparisonDebug("session.prepare.ready", {
                 generation,
@@ -602,7 +693,10 @@ export function ComparisonPresentationShell({
         });
         return () => {
             cancelled = true;
-            created?.dispose();
+            if (created && sessionRef.current === created) {
+                sessionRef.current = null;
+                created.dispose();
+            }
             primaryViewer.abortDocumentComparisonLoad?.();
         };
     }, [
@@ -612,16 +706,19 @@ export function ComparisonPresentationShell({
         compareSources.sources,
         comparisonDiff,
         comparisonKey,
+        comparisonPairKey,
         documentPath,
         domain,
         primaryLayoutReady,
         primaryViewer,
+        selectedSheetIdentity,
         sourcesReady,
     ]);
 
     useEffect(() => {
         if (
             !session
+            || session.comparisonKey !== comparisonKey
             || sessionPhase !== "ready"
             || !primaryViewer
             || !primaryLayoutReady
@@ -1179,10 +1276,15 @@ export function ComparisonPresentationShell({
                     </div>
                 )}
                 {domain === "schematic" && primaryViewer && (
-                    // The comparison had no way to browse sheets: the document
-                    // was only ever a side effect of the selected change. This
-                    // is the Visualizer's own page tree, in a popover.
-                    <Popover>
+                    /* The comparison dialog owns a document-level scroll lock.
+                       Keep its portalled page navigator modal while open so
+                       trackpad wheel gestures are not treated as outside the
+                       dialog and cancelled before the list sees them. */
+                    <Popover
+                        modal
+                        open={schematicNavigatorOpen}
+                        onOpenChange={setSchematicNavigatorOpen}
+                    >
                         <PopoverTrigger asChild>
                             <Button
                                 variant="outline"
@@ -1200,13 +1302,20 @@ export function ComparisonPresentationShell({
                         </PopoverTrigger>
                         <PopoverContent
                             align="start"
-                            className="flex max-h-96 w-72 flex-col p-0"
+                            className="flex max-h-[min(32rem,var(--radix-popover-content-available-height))] w-80 flex-col overflow-hidden p-0"
                         >
                             <SchematicPageTree
                                 viewer={primaryViewer}
+                                pages={navigatorPages}
                                 hasChanges={(page) => changedDocuments.has(
-                                    page.filename,
+                                    page.filename.split("/").at(-1) ?? page.filename,
                                 )}
+                                onNavigate={(page) => {
+                                    setManualPageOverride(
+                                        page as ComparisonSchematicPage,
+                                    );
+                                    setSchematicNavigatorOpen(false);
+                                }}
                             />
                         </PopoverContent>
                     </Popover>

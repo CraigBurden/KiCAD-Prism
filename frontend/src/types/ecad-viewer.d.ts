@@ -79,6 +79,7 @@ export interface EcadSchematicPageState {
     projectPath: string;
     sheetPath: string;
     filename: string;
+    parentProjectPath?: string;
     name?: string;
     page?: string;
     depth: number;
@@ -254,6 +255,10 @@ export interface EcadComparisonSession {
     getPreparation(
         viewport?: ECadViewerElement,
     ): EcadDocumentComparisonPreparation | null;
+    getSchematicPages(): {
+        reference: EcadSchematicPageState[];
+        comparison: EcadSchematicPageState[];
+    };
     getMetrics(): EcadComparisonSessionMetrics;
     dispose(): void;
 }
@@ -272,7 +277,11 @@ export interface EcadDocumentComparisonRequest {
     /** Native KiCad requires bbox; Prism resolves geometry after paint. */
     diffFormat?: "native-kicad" | "prism";
     documentPath?: string;
-    /** Prefer this hierarchical schematic project path when activating SCH. */
+    /** Exact hierarchical schematic project path for the reference revision. */
+    referenceSheetPath?: string;
+    /** Exact hierarchical schematic project path for the comparison revision. */
+    comparisonSheetPath?: string;
+    /** Compatibility alias for clients that do not send side-specific paths. */
     activeSheetPath?: string;
 }
 
@@ -296,6 +305,7 @@ export interface EcadTransitionTraceDetail {
         projectPath: string;
         sheetPath: string;
         filename: string;
+        parentProjectPath?: string;
         name?: string;
         page?: string;
     } | null;
