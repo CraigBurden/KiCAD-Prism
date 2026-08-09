@@ -152,8 +152,10 @@ describe("semantic comparison state", () => {
 
     it("opens and clears comparison params without dropping unrelated keys", () => {
         const opened = applyOpenComparisonParams(
-            new URLSearchParams("branch=main&section=overview"),
-            { base: "aaa", compare: "bbb", diff: "pcb" },
+            new URLSearchParams(
+                "branch=main&section=overview&item=stale&secondary=1&layers=F.Cu",
+            ),
+            { base: "aaa", compare: "bbb", diff: "pcb", item: "component-c102" },
         );
         expect(opened.get("section")).toBe("history");
         expect(opened.get("branch")).toBe("main");
@@ -161,6 +163,9 @@ describe("semantic comparison state", () => {
         expect(opened.get("compare")).toBe("bbb");
         expect(opened.get("view")).toBe("semantic");
         expect(opened.get("diff")).toBe("pcb");
+        expect(opened.get("item")).toBe("component-c102");
+        expect(opened.get("secondary")).toBeNull();
+        expect(opened.get("layers")).toBeNull();
 
         const cleared = clearComparisonParams(opened);
         expect(cleared.get("section")).toBe("history");

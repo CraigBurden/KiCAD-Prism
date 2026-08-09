@@ -1542,14 +1542,19 @@ async def get_project_commit_summary(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
-    Return files changed in a commit vs its parent, with status, line stats,
-    and (for .kicad_sch/.kicad_pcb) lightweight semantic bucket counts.
+    Return files changed in a commit plus its explicit first-parent comparison
+    pair. The frontend uses that pair with Design Comparison for real semantic
+    item identities and old/new evidence.
     For Type-2 projects, the file list is scoped to the subproject path.
     """
     project = get_project_for_role_or_404(project_id, user.role)
     repo_path, relative_path = _repo_context(project)
-    files = await asyncio.to_thread(get_commit_file_summary, repo_path, commit_hash, relative_path)
-    return {"files": files}
+    return await asyncio.to_thread(
+        get_commit_file_summary,
+        repo_path,
+        commit_hash,
+        relative_path,
+    )
 
 
 @router.get("/{project_id}/schematic")

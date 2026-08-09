@@ -1,7 +1,7 @@
 import logging
 import hashlib
 import os
-import re
+from pathlib import PurePosixPath
 from fastapi import HTTPException
 from git import Repo
 from git.exc import BadName, GitCommandError
@@ -574,99 +574,90 @@ def file_exists_in_commit(repo_path: str, commit_hash: str, file_path: str) -> b
         return False
 
 
-# --- Lightweight per-file "semantic bucket" counts -------------------------
-#
-# This is intentionally NOT a real item-level diff (no per-item identity, no
-# click-to-navigate). It's a cheap regex-based approximation — comparing raw
-# s-expression token counts between the two file revisions — good enough for
-# an at-a-glance summary in the commit list. Full semantic diffing (with
-# per-item identity, added/removed/changed lists) belongs to the future
-# Design Comparison workspace.
-_SCH_BUCKET_TOKENS: dict[str, list[str]] = {
-    "components": ["symbol"],
-    "nets": ["wire", "bus", "label", "global_label", "hierarchical_label", "junction", "no_connect"],
-    "sheets": ["sheet"],
-    "text": ["text"],
-}
-
-_PCB_BUCKET_TOKENS: dict[str, list[str]] = {
-    "components": ["footprint"],
-    "nets": ["segment", "via"],
-    "zones": ["zone"],
-    "graphics": ["gr_line", "gr_circle", "gr_rect", "gr_arc", "gr_poly", "gr_text"],
-}
-
-_sexp_token_re_cache: dict[str, "re.Pattern[str]"] = {}
+_EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
-def _count_sexp_token(content: str, token: str) -> int:
-    pattern = _sexp_token_re_cache.get(token)
-    if pattern is None:
-        pattern = re.compile(r"\(" + re.escape(token) + r"[\s)]")
-        _sexp_token_re_cache[token] = pattern
-    return len(pattern.findall(content))
-
-
-def _semantic_bucket_delta(
-    old_content: str | None, new_content: str | None, tokens: dict[str, list[str]]
-) -> dict[str, dict[str, int]]:
-    """
-    Approximate added/removed counts per category by comparing token counts
-    between the two revisions. `old_content`/`new_content` may be None (e.g.
-    for added/removed files) and are treated as empty.
-    """
-    old_content = old_content or ""
-    new_content = new_content or ""
-    buckets: dict[str, dict[str, int]] = {}
-    for category, token_list in tokens.items():
-        old_count = sum(_count_sexp_token(old_content, t) for t in token_list)
-        new_count = sum(_count_sexp_token(new_content, t) for t in token_list)
-        if old_count == 0 and new_count == 0:
-            continue
-        delta = new_count - old_count
-        buckets[category] = {"added": max(delta, 0), "removed": max(-delta, 0)}
-    return buckets
-
-
-def _bucket_tokens_for_filename(filename: str) -> dict[str, list[str]] | None:
-    if filename.endswith(".kicad_sch"):
-        return _SCH_BUCKET_TOKENS
-    if filename.endswith(".kicad_pcb"):
-        return _PCB_BUCKET_TOKENS
-    return None
-
-
-def _read_blob_text(blob) -> str | None:
-    if blob is None:
-        return None
+def _path_is_within(path: str, relative_path: str | None) -> bool:
+    """Match a repository path to a Type-2 project on component boundaries."""
+    if not relative_path:
+        return True
+    candidate = PurePosixPath(path)
+    root = PurePosixPath(relative_path.strip("/"))
     try:
-        if not (blob.mime_type or "").startswith("text") or blob.size > 500_000:
-            return None
-        return blob.data_stream.read().decode("utf-8", errors="replace")
-    except Exception as error:
-        logger.debug("Could not read blob text: %s", error)
-        return None
+        candidate.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _diff_line_stats(
+    repo: Repo,
+    old_sha: str,
+    new_sha: str,
+    *paths: str,
+) -> tuple[int | None, int | None]:
+    """Ask Git for real line statistics without reading or size-capping blobs."""
+    unique_paths = list(dict.fromkeys(path for path in paths if path))
+    try:
+        output = repo.git.diff(
+            "--numstat",
+            "--no-renames",
+            old_sha,
+            new_sha,
+            "--",
+            *unique_paths,
+        )
+    except GitCommandError as error:
+        logger.debug(
+            "Could not calculate line stats for %s: %s",
+            unique_paths,
+            error,
+        )
+        return None, None
+
+    additions = 0
+    deletions = 0
+    saw_text = False
+    for line in output.splitlines():
+        columns = line.split("\t", 2)
+        if len(columns) < 2 or columns[0] == "-" or columns[1] == "-":
+            continue
+        try:
+            additions += int(columns[0])
+            deletions += int(columns[1])
+            saw_text = True
+        except ValueError:
+            continue
+    return (additions, deletions) if saw_text else (None, None)
 
 
 def get_commit_file_summary(
     repo_path: str, commit_hash: str, relative_path: str = None
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """
-    Return the list of files changed in a commit vs its parent.
-    Each entry: { path, filename, status, additions, deletions, semantic_buckets? }
-    Optionally filtered to files under relative_path (Type-2 projects).
+    Return a commit's first-parent review context and changed files.
+
+    The explicit base/compare pair lets History reuse Design Comparison's real
+    semantic parser instead of presenting regex token counts as item changes.
+    Merge commits intentionally compare against their first parent, matching
+    the file list and GitHub's default commit view.
     """
     try:
         repo = _open_repo(repo_path)
         commit = repo.commit(commit_hash)
         parent = commit.parents[0] if commit.parents else None
+        base_sha = parent.hexsha if parent else _EMPTY_TREE_SHA
 
-        diffs = parent.diff(commit) if parent else commit.diff(None)
+        diffs = (
+            parent.diff(commit)
+            if parent
+            else repo.tree(_EMPTY_TREE_SHA).diff(commit)
+        )
 
         result = []
         for d in diffs:
             path = d.b_path or d.a_path
-            if relative_path and not path.startswith(relative_path):
+            if not path or not _path_is_within(path, relative_path):
                 continue
             if d.change_type == "A":
                 status = "added"
@@ -677,19 +668,13 @@ def get_commit_file_summary(
             else:
                 status = "modified"
 
-            old_text = _read_blob_text(d.a_blob)
-            new_text = _read_blob_text(d.b_blob)
-
-            additions, deletions = None, None
-            if old_text is not None and new_text is not None:
-                old_lines = set(old_text.splitlines())
-                new_lines = set(new_text.splitlines())
-                additions = len(new_lines - old_lines)
-                deletions = len(old_lines - new_lines)
-            elif new_text is not None:
-                additions = len(new_text.splitlines())
-            elif old_text is not None:
-                deletions = len(old_text.splitlines())
+            additions, deletions = _diff_line_stats(
+                repo,
+                base_sha,
+                commit.hexsha,
+                d.a_path or "",
+                d.b_path or "",
+            )
 
             filename = path.split("/")[-1]
             entry: dict[str, Any] = {
@@ -700,16 +685,16 @@ def get_commit_file_summary(
                 "deletions": deletions,
             }
 
-            tokens = _bucket_tokens_for_filename(filename)
-            if tokens is not None and status in ("added", "removed", "modified"):
-                buckets = _semantic_bucket_delta(old_text, new_text, tokens)
-                if buckets:
-                    entry["semantic_buckets"] = buckets
-
             result.append(entry)
 
         result.sort(key=lambda x: x["path"])
-        return result
+        return {
+            "files": result,
+            "base_commit": parent.hexsha if parent else None,
+            "compare_commit": commit.hexsha,
+            "parent_count": len(commit.parents),
+            "comparison_basis": "first-parent" if parent else "root",
+        }
     except HTTPException:
         raise
     except Exception as error:

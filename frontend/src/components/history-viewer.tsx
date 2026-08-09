@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
     GitCommit,
@@ -36,11 +36,18 @@ import {
     readComparisonUrlState,
 } from "./design-comparison/comparison-url";
 import { fetchJson } from "@/lib/api";
-import { CATEGORY_META, type Category } from "@/lib/diff-grouping";
 import {
     selectRevisionSlot,
     type RevisionRef,
 } from "./history-comparison-selection";
+import { useDesignCompareJob } from "./design-comparison/use-design-compare-job";
+import type { ComparisonUrlTab } from "./design-comparison/comparison-url";
+import {
+    buildHistoryReviewSummary,
+    historyReviewSectionLabel,
+    type HistoryReviewEntry,
+    type HistoryReviewSection,
+} from "./history-review-summary";
 
 interface Release {
     tag: string;
@@ -87,23 +94,20 @@ const COMMITS_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
 const DEFAULT_COMMITS_PAGE_SIZE = 50;
 const RELEASES_PAGE_SIZE = 9;
 
-/** Cheap, regex-based approximation of per-category added/removed counts for
-    a single .kicad_sch/.kicad_pcb file — see backend git_service.py. Not a
-    real item-level diff (no per-item identity / click-to-navigate); that
-    lives in the future Design Comparison workspace. */
-type SemanticBuckets = Partial<Record<Category, { added: number; removed: number }>>;
-
 interface CommitFile {
     path: string;
     filename: string;
     status: "added" | "removed" | "modified" | "renamed";
     additions: number | null;
     deletions: number | null;
-    semantic_buckets?: SemanticBuckets;
 }
 
 interface CommitSummary {
     files: CommitFile[];
+    base_commit: string | null;
+    compare_commit: string;
+    parent_count: number;
+    comparison_basis: "first-parent" | "root";
 }
 
 interface HistoryViewerProps {
@@ -159,9 +163,9 @@ function fileSortRank(filename: string): number {
 function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string } {
     if (filename.endsWith(".kicad_sch")) return { Icon: CircuitBoard, color: "text-primary" };
     if (filename.endsWith(".kicad_pcb")) return { Icon: Cpu, color: "text-success" };
-    if (filename.endsWith(".kicad_pro")) return { Icon: Settings, color: "text-violet-500" };
+    if (filename.endsWith(".kicad_pro")) return { Icon: Settings, color: "text-muted-foreground" };
     if (filename.endsWith(".kicad_sym") || filename.endsWith(".kicad_mod")) {
-        return { Icon: FileCode, color: "text-cyan-500" };
+        return { Icon: FileCode, color: "text-primary" };
     }
     return { Icon: FileText, color: "text-muted-foreground" };
 }
@@ -193,28 +197,201 @@ function KicadChip({ icon: Icon, label, count, color }: {
     );
 }
 
-// Renders the lightweight semantic bucket counts for one file (e.g.
-// "Components +2", "Nets +5 -1") using the shared category taxonomy from
-// diff-grouping.ts so labelling stays consistent with the future Design
-// Comparison workspace.
-function SemanticBucketChips({ buckets }: { buckets: SemanticBuckets }) {
-    const entries = (Object.entries(buckets) as [Category, { added: number; removed: number }][])
-        .filter(([, b]) => b.added > 0 || b.removed > 0)
-        .sort((a, b) => CATEGORY_META[a[0]].order - CATEGORY_META[b[0]].order);
+interface HistoryComparisonTarget {
+    base: string;
+    compare: string;
+    diff: ComparisonUrlTab;
+    item: string;
+}
 
-    if (entries.length === 0) return null;
+const REVIEW_KIND_LABEL: Record<HistoryReviewEntry["kind"], string> = {
+    added: "Added",
+    changed: "Modified",
+    removed: "Removed",
+};
+
+const REVIEW_KIND_DOT: Record<HistoryReviewEntry["kind"], string> = {
+    added: "bg-success",
+    changed: "bg-warning",
+    removed: "bg-destructive",
+};
+
+function ReviewEntryRow({
+    entry,
+    base,
+    compare,
+    onOpen,
+}: {
+    entry: HistoryReviewEntry;
+    base: string;
+    compare: string;
+    onOpen: (target: HistoryComparisonTarget) => void;
+}) {
+    return (
+        <button
+            type="button"
+            className="group flex w-full items-start gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onOpen({
+                base,
+                compare,
+                diff: entry.domain === "pcb" ? "pcb" : "sch",
+                item: entry.changeId,
+            })}
+            aria-label={`Open ${entry.label} in Design Comparison`}
+        >
+            <span
+                className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${REVIEW_KIND_DOT[entry.kind]}`}
+                aria-hidden="true"
+            />
+            <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-mono text-xs font-semibold text-foreground">
+                        {entry.label}
+                    </span>
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {REVIEW_KIND_LABEL[entry.kind]}
+                    </span>
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {entry.domains.length > 1
+                            ? "Schematic + PCB"
+                            : entry.domain === "pcb" ? "PCB" : "Schematic"}
+                    </span>
+                </span>
+                {entry.evidence.length > 0 && (
+                    <span className="mt-0.5 block truncate text-xs text-foreground/80">
+                        {entry.evidence.join(" · ")}
+                    </span>
+                )}
+                <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                    {entry.page}
+                </span>
+            </span>
+            <ArrowLeftRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+        </button>
+    );
+}
+
+function HistorySemanticSummary({
+    projectId,
+    base,
+    compare,
+    parentCount,
+    onOpen,
+}: {
+    projectId: string;
+    base: string;
+    compare: string;
+    parentCount: number;
+    onOpen: (target: HistoryComparisonTarget) => void;
+}) {
+    const { result, status, error } = useDesignCompareJob(projectId, base, compare);
+    const review = useMemo(
+        () => result ? buildHistoryReviewSummary(result) : null,
+        [result],
+    );
+    const componentEntries = review?.entries.filter(
+        (entry) => entry.section === "components",
+    ) ?? [];
+    const supportingEntries = review?.entries.filter(
+        (entry) => entry.section !== "components",
+    ) ?? [];
+    const comparisonComplete = status?.status === "completed";
+
+    if (error) {
+        return (
+            <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <p>Design details could not be loaded: {error}</p>
+                <p className="mt-1 text-destructive/80">Collapse and reopen this commit to retry.</p>
+            </div>
+        );
+    }
+
+    if (!review) {
+        return (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Identifying components and design changes…
+            </div>
+        );
+    }
 
     return (
-        <div className="ml-9 flex items-center gap-3 flex-wrap text-[11px] pb-1">
-            {entries.map(([category, b]) => (
-                <span key={category} className="inline-flex items-center gap-1 text-muted-foreground">
-                    <span className="uppercase tracking-wider text-[10px] text-muted-foreground/70">
-                        {CATEGORY_META[category].label}
+        <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <h4 className="text-xs font-semibold text-foreground">Review-ready changes</h4>
+                    <p className="text-[11px] text-muted-foreground">
+                        Compared with {parentCount > 1 ? "the first parent of this merge" : "its parent"}
+                    </p>
+                </div>
+                {!comparisonComplete && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Checking remaining domains
                     </span>
-                    {b.added > 0 && <span className="text-success font-medium">+{b.added}</span>}
-                    {b.removed > 0 && <span className="text-destructive font-medium">−{b.removed}</span>}
-                </span>
-            ))}
+                )}
+            </div>
+
+            {componentEntries.length > 0 && (
+                <section className="rounded-md border bg-background">
+                    <div className="flex items-center justify-between border-b px-3 py-2">
+                        <span className="text-xs font-semibold">Components</span>
+                        <span className="text-[10px] tabular-nums text-muted-foreground">
+                            {componentEntries.length}
+                        </span>
+                    </div>
+                    <div className="divide-y">
+                        {componentEntries.map((entry) => (
+                            <ReviewEntryRow
+                                key={entry.id}
+                                entry={entry}
+                                base={base}
+                                compare={compare}
+                                onOpen={onOpen}
+                            />
+                        ))}
+                    </div>
+                </section>
+            )}
+
+            {comparisonComplete && review.entries.length === 0 && (
+                <p className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    No authored schematic or PCB changes were identified.
+                </p>
+            )}
+
+            {supportingEntries.length > 0 && (
+                <details className="rounded-md border bg-background">
+                    <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                        Supporting design changes
+                        <span className="ml-1.5 text-muted-foreground">({supportingEntries.length})</span>
+                    </summary>
+                    <div className="border-t">
+                        {(["nets", "sheets", "other"] as HistoryReviewSection[]).map((section) => {
+                            const entries = supportingEntries.filter((entry) => entry.section === section);
+                            if (!entries.length) return null;
+                            return (
+                                <section key={section} className="border-b last:border-b-0">
+                                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        {historyReviewSectionLabel(section)} · {entries.length}
+                                    </div>
+                                    <div className="divide-y">
+                                        {entries.map((entry) => (
+                                            <ReviewEntryRow
+                                                key={entry.id}
+                                                entry={entry}
+                                                base={base}
+                                                compare={compare}
+                                                onOpen={onOpen}
+                                            />
+                                        ))}
+                                    </div>
+                                </section>
+                            );
+                        })}
+                    </div>
+                </details>
+            )}
         </div>
     );
 }
@@ -229,6 +406,7 @@ interface CommitItemProps {
     onSetBase: () => void;
     onSetCompare: () => void;
     selectable: boolean;
+    onOpenComparisonChange: (target: HistoryComparisonTarget) => void;
 }
 
 function CommitItem({
@@ -241,12 +419,15 @@ function CommitItem({
     onSetBase,
     onSetCompare,
     selectable,
+    onOpenComparisonChange,
 }: CommitItemProps) {
     const [copied, setCopied] = useState(false);
     const [expanded, setExpanded] = useState(false);
     const [summary, setSummary] = useState<CommitSummary | null>(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [summaryError, setSummaryError] = useState<string | null>(null);
+    const summaryAbortRef = useRef<AbortController | null>(null);
+    const mountedRef = useRef(true);
 
     const handleCopy = async () => {
         try {
@@ -262,17 +443,25 @@ function CommitItem({
         if (summary || summaryLoading) return;
         setSummaryLoading(true);
         setSummaryError(null);
+        const controller = new AbortController();
+        summaryAbortRef.current = controller;
         try {
             const data = await fetchJson<CommitSummary>(
                 `/api/projects/${projectId}/commits/${commit.full_hash}/summary`,
-                {},
+                { signal: controller.signal },
                 "Failed to load commit summary"
             );
-            setSummary(data);
+            if (mountedRef.current) setSummary(data);
         } catch (e) {
-            setSummaryError(e instanceof Error ? e.message : "Failed to load");
+            if (e instanceof DOMException && e.name === "AbortError") return;
+            if (mountedRef.current) {
+                setSummaryError(e instanceof Error ? e.message : "Failed to load");
+            }
         } finally {
-            setSummaryLoading(false);
+            if (mountedRef.current) setSummaryLoading(false);
+            if (summaryAbortRef.current === controller) {
+                summaryAbortRef.current = null;
+            }
         }
     }, [projectId, commit.full_hash, summary, summaryLoading]);
 
@@ -281,6 +470,11 @@ function CommitItem({
         setExpanded(next);
         if (next) loadSummary();
     };
+
+    useEffect(() => () => {
+        mountedRef.current = false;
+        summaryAbortRef.current?.abort();
+    }, []);
 
     return (
         <div className={`border rounded-lg transition-colors ${
@@ -293,8 +487,10 @@ function CommitItem({
                 <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-4 mb-2">
                         <button
+                            type="button"
                             className="text-sm font-medium leading-relaxed text-left hover:underline flex items-center gap-1.5 min-w-0"
                             onClick={handleExpand}
+                            aria-expanded={expanded}
                         >
                             {expanded
                                 ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -304,14 +500,16 @@ function CommitItem({
                         <div className="flex items-center gap-1 flex-shrink-0">
                             <Tooltip>
                                 <TooltipTrigger asChild>
-                                    <code
-                                        className="text-xs bg-muted px-2 py-1 rounded cursor-pointer hover:bg-muted-foreground/20 flex items-center gap-1"
+                                    <button
+                                        type="button"
+                                        className="flex items-center gap-1 rounded bg-muted px-2 py-1 font-mono text-xs hover:bg-muted-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                         onClick={handleCopy}
+                                        aria-label={`Copy full commit hash ${commit.full_hash}`}
                                     >
                                         {copied
                                             ? <Check className="h-3 w-3 text-success" />
                                             : commit.hash}
-                                    </code>
+                                    </button>
                                 </TooltipTrigger>
                                 <TooltipContent>
                                     {copied ? "Copied" : "Click to copy full hash"}
@@ -324,6 +522,7 @@ function CommitItem({
                                         size="sm"
                                         className="h-6 w-6 p-0"
                                         onClick={() => onOpenVisualizer(commit.full_hash)}
+                                        aria-label={`Open commit ${commit.hash} in the visualizer`}
                                     >
                                         <Eye className="h-3 w-3" />
                                     </Button>
@@ -337,6 +536,7 @@ function CommitItem({
                                         size="sm"
                                         className="h-6 w-6 p-0"
                                         onClick={() => onViewCommit(commit.full_hash)}
+                                        aria-label={`View commit ${commit.hash} in history`}
                                     >
                                         <GitBranch className="h-3 w-3" />
                                     </Button>
@@ -378,7 +578,7 @@ function CommitItem({
                             <div className="flex items-center gap-1">
                                 <KicadChip icon={CircuitBoard} label="Schematic" count={commit.kicad_changes.sch} color="text-primary" />
                                 <KicadChip icon={Cpu} label="PCB" count={commit.kicad_changes.pcb} color="text-success" />
-                                <KicadChip icon={Settings} label="Project" count={commit.kicad_changes.pro} color="text-violet-500" />
+                                <KicadChip icon={Settings} label="Project" count={commit.kicad_changes.pro} color="text-muted-foreground" />
                             </div>
                         )}
                         <div className="flex items-center gap-1">
@@ -389,9 +589,9 @@ function CommitItem({
                 </div>
             </div>
 
-            {/* Expandable file summary */}
+            {/* Expandable semantic review summary with files as audit detail. */}
             {expanded && (
-                <div className="border-t px-4 py-3 space-y-1">
+                <div className="border-t px-4 py-3 space-y-3">
                     {summaryLoading && (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
                             <Loader2 className="h-3 w-3 animate-spin" />
@@ -399,50 +599,87 @@ function CommitItem({
                         </div>
                     )}
                     {summaryError && (
-                        <p className="text-xs text-destructive py-1">{summaryError}</p>
+                        <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                            <span>{summaryError}</span>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-6 shrink-0 px-2 text-[10px]"
+                                onClick={() => void loadSummary()}
+                            >
+                                Try again
+                            </Button>
+                        </div>
                     )}
                     {summary && summary.files.length === 0 && (
                         <p className="text-xs text-muted-foreground py-1">No tracked files changed</p>
                     )}
-                    {summary?.files
-                        .slice()
-                        .sort((a, b) => fileSortRank(a.filename) - fileSortRank(b.filename))
-                        .map((file) => {
-                            const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
-                            return (
-                                <div key={file.path} className="space-y-0.5">
-                                    <button
-                                        type="button"
-                                        className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/60"
-                                        onClick={() => onOpenVisualizer(
-                                            commit.full_hash,
-                                            visualizerTabForFile(file.filename),
-                                        )}
-                                        title={`Open ${file.filename} at this commit`}
-                                    >
-                                        <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
-                                            {STATUS_ICON[file.status]}
-                                        </span>
-                                        <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
-                                        <span className="font-medium truncate">{file.filename}</span>
-                                        <span className="text-muted-foreground truncate hidden sm:block">
-                                            {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
-                                        </span>
-                                        {(file.additions !== null || file.deletions !== null) && (
-                                            <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
-                                                {file.additions !== null && file.additions > 0 && (
-                                                    <span className="text-success">+{file.additions}</span>
-                                                )}
-                                                {file.deletions !== null && file.deletions > 0 && (
-                                                    <span className="text-destructive">-{file.deletions}</span>
-                                                )}
-                                            </span>
-                                        )}
-                                    </button>
-                                    {file.semantic_buckets && <SemanticBucketChips buckets={file.semantic_buckets} />}
-                                </div>
-                            );
-                        })}
+                    {summary?.base_commit && selectable && (
+                        <HistorySemanticSummary
+                            projectId={projectId}
+                            base={summary.base_commit}
+                            compare={summary.compare_commit}
+                            parentCount={summary.parent_count}
+                            onOpen={(target) => {
+                                setExpanded(false);
+                                onOpenComparisonChange(target);
+                            }}
+                        />
+                    )}
+                    {summary && !summary.base_commit && (
+                        <p className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                            This is the root commit, so there is no earlier revision to compare.
+                        </p>
+                    )}
+                    {summary && summary.files.length > 0 && (
+                        <details className="rounded-md border bg-background">
+                            <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                                Files touched
+                                <span className="ml-1.5 text-muted-foreground">({summary.files.length})</span>
+                            </summary>
+                            <div className="space-y-0.5 border-t p-2">
+                                {summary.files
+                                    .slice()
+                                    .sort((a, b) => fileSortRank(a.filename) - fileSortRank(b.filename))
+                                    .map((file) => {
+                                        const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
+                                        return (
+                                            <div key={file.path}>
+                                                <button
+                                                    type="button"
+                                                    className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                                    onClick={() => onOpenVisualizer(
+                                                        commit.full_hash,
+                                                        visualizerTabForFile(file.filename),
+                                                    )}
+                                                    title={`Open ${file.filename} at this commit`}
+                                                >
+                                                    <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
+                                                        {STATUS_ICON[file.status]}
+                                                    </span>
+                                                    <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${typeColor}`} />
+                                                    <span className="font-medium truncate">{file.filename}</span>
+                                                    <span className="text-muted-foreground truncate hidden sm:block">
+                                                        {file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/")) : ""}
+                                                    </span>
+                                                    {(file.additions !== null || file.deletions !== null) && (
+                                                        <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
+                                                            {file.additions !== null && file.additions > 0 && (
+                                                                <span className="text-success">+{file.additions}</span>
+                                                            )}
+                                                            {file.deletions !== null && file.deletions > 0 && (
+                                                                <span className="text-destructive">-{file.deletions}</span>
+                                                            )}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                            </div>
+                        </details>
+                    )}
                 </div>
             )}
         </div>
@@ -534,6 +771,30 @@ export function HistoryViewer({
                     base: base.sha,
                     compare: compare.sha,
                 }),
+            { replace: true },
+        );
+    }, [setSearchParams]);
+
+    const openComparisonChange = useCallback((target: HistoryComparisonTarget) => {
+        const base = {
+            sha: target.base,
+            label: target.base.slice(0, 10),
+            kind: "commit" as const,
+        };
+        const compare = {
+            sha: target.compare,
+            label: target.compare.slice(0, 10),
+            kind: "commit" as const,
+        };
+        setBaseRevision(base);
+        setCompareRevision(compare);
+        setSearchParams(
+            (current) => applyOpenComparisonParams(current, {
+                base: target.base,
+                compare: target.compare,
+                diff: target.diff,
+                item: target.item,
+            }),
             { replace: true },
         );
     }, [setSearchParams]);
@@ -728,14 +989,16 @@ export function HistoryViewer({
                                     <div className="flex items-center gap-1">
                                         <Tooltip>
                                             <TooltipTrigger asChild>
-                                                <code
-                                                    className="text-xs bg-muted px-2 py-1 rounded cursor-pointer hover:bg-muted-foreground/20 flex items-center gap-1"
+                                                <button
+                                                    type="button"
+                                                    className="flex items-center gap-1 rounded bg-muted px-2 py-1 font-mono text-xs hover:bg-muted-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                                     onClick={() => handleCopyReleaseHash(release.tag, release.full_hash)}
+                                                    aria-label={`Copy full release commit hash ${release.full_hash}`}
                                                 >
                                                     {copiedReleaseTag === release.tag
                                                         ? <Check className="h-3 w-3 text-success" />
                                                         : release.commit_hash}
-                                                </code>
+                                                </button>
                                             </TooltipTrigger>
                                             <TooltipContent>
                                                 {copiedReleaseTag === release.tag ? "Copied" : "Click to copy full hash"}
@@ -747,6 +1010,7 @@ export function HistoryViewer({
                                             className="h-6 w-6 p-0"
                                             onClick={() => handleViewCommitLocal(release.full_hash)}
                                             title="View this release"
+                                            aria-label={`View release ${release.tag} in history`}
                                         >
                                             <Eye className="h-3 w-3" />
                                         </Button>
@@ -834,7 +1098,7 @@ export function HistoryViewer({
                                 setCommitsPage(0);
                             }}
                         >
-                            <SelectTrigger size="sm" className="w-20">
+                            <SelectTrigger size="sm" className="w-20" aria-label="Commits per page">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -874,6 +1138,7 @@ export function HistoryViewer({
                                     kind: "commit",
                                 })}
                                 selectable={canCompareDiffs}
+                                onOpenComparisonChange={openComparisonChange}
                             />
                         ))}
                     </div>
