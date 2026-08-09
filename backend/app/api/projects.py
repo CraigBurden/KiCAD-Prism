@@ -1542,9 +1542,8 @@ async def get_project_commit_summary(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
-    Return files changed in a commit plus its explicit first-parent comparison
-    pair. The frontend uses that pair with Design Comparison for real semantic
-    item identities and old/new evidence.
+    Return files changed in a commit using Git's exact line statistics and
+    explicit first-parent semantics.
     For Type-2 projects, the file list is scoped to the subproject path.
     """
     project = get_project_for_role_or_404(project_id, user.role)

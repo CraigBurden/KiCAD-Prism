@@ -116,6 +116,9 @@ class GitCommitSummaryTests(unittest.TestCase):
             other = root / "README.md"
             other.write_text("main\n", encoding="utf-8")
             first_parent = _commit_all(repo, "main")
+            with repo.config_writer() as config:
+                config.set_value("user", "name", AUTHOR.name)
+                config.set_value("user", "email", AUTHOR.email)
             repo.git.merge("feature", "--no-ff", "-m", "merge feature")
             merge = repo.head.commit
 

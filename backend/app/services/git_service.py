@@ -635,12 +635,11 @@ def get_commit_file_summary(
     repo_path: str, commit_hash: str, relative_path: str = None
 ) -> dict[str, Any]:
     """
-    Return a commit's first-parent review context and changed files.
+    Return a commit's changed files with explicit first-parent context.
 
-    The explicit base/compare pair lets History reuse Design Comparison's real
-    semantic parser instead of presenting regex token counts as item changes.
     Merge commits intentionally compare against their first parent, matching
-    the file list and GitHub's default commit view.
+    the file list and GitHub's default commit view. Root commits compare with
+    Git's empty tree.
     """
     try:
         repo = _open_repo(repo_path)
