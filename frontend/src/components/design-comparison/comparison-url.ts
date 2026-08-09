@@ -79,6 +79,8 @@ export function applyOpenComparisonParams(
         compare: string;
         diff?: ComparisonUrlTab;
         presentationOverride?: ComparisonPresentationMode | null;
+        /** Exact semantic change to focus after the comparison is ready. */
+        item?: string | null;
     },
 ): URLSearchParams {
     const next = new URLSearchParams(params);
@@ -92,6 +94,12 @@ export function applyOpenComparisonParams(
     } else {
         next.delete("presentation");
     }
+    if (input.item) next.set("item", input.item);
+    else next.delete("item");
+    // Review filters and layer visibility belong to the comparison being left.
+    // Workspace URL syncing adds current values back after this reset.
+    next.delete("secondary");
+    next.delete("layers");
     return next;
 }
 
