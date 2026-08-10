@@ -109,6 +109,40 @@ describe("semantic comparison state", () => {
         });
     });
 
+    it("round-trips exact added, changed, removed, and multi-sheet items", () => {
+        const changes = [
+            change("component-added", "added", "new-component"),
+            change("component-changed", "changed", "shared-component"),
+            change("component-removed", "removed", "old-component"),
+            {
+                ...change("component-multi-sheet", "changed", "multi-sheet"),
+                domain: "schematic" as const,
+                page: "root.kicad_sch",
+                alsoOnPages: ["root.kicad_sch", "power.kicad_sch"],
+            },
+        ];
+        const groups = [{ id: "components", changes }];
+
+        for (const expected of changes) {
+            const params = applyWorkspaceComparisonParams(
+                new URLSearchParams("section=history"),
+                {
+                    base: "base-sha",
+                    compare: "compare-sha",
+                    activeTab: expected.domain === "schematic" ? "sch" : "pcb",
+                    presentationOverride: null,
+                    selectedChangeId: expected.id,
+                    showSecondary: false,
+                    visibleLayers: [],
+                },
+            );
+            expect(readInitialUrlState(params).selectedChangeId).toBe(expected.id);
+            expect(selectedChanges({ kind: "item", id: expected.id }, groups))
+                .toEqual([expected]);
+        }
+        expect(selectedChanges({ kind: "item", id: "missing" }, groups)).toEqual([]);
+    });
+
     it("distinguishes automatic presentation from an explicit Composite override", () => {
         // No parameter means "follow the selected change", which is what a
         // shared link should do. An explicit `composite` is a reviewer's

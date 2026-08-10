@@ -12,15 +12,21 @@ import contextlib
 import json
 import os
 import platform
-import resource
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Iterator
 
+try:
+    import resource  # Unix only; absent on Windows.
+except ImportError:  # pragma: no cover - platform dependent
+    resource = None
+
 
 def _peak_rss_bytes() -> int:
+    if resource is None:
+        return 0
     value = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     # Darwin reports bytes; Linux and the BSDs report KiB.
     return value if sys.platform == "darwin" else value * 1024

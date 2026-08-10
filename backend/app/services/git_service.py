@@ -590,45 +590,37 @@ def _path_is_within(path: str, relative_path: str | None) -> bool:
         return False
 
 
-def _diff_line_stats(
+def _diff_line_stats_map(
     repo: Repo,
     old_sha: str,
     new_sha: str,
-    *paths: str,
-) -> tuple[int | None, int | None]:
-    """Ask Git for real line statistics without reading or size-capping blobs."""
-    unique_paths = list(dict.fromkeys(path for path in paths if path))
+) -> dict[str, tuple[int | None, int | None]]:
+    """Return every changed path's line statistics with one Git invocation."""
+    stats: dict[str, tuple[int | None, int | None]] = {}
     try:
-        output = repo.git.diff(
-            "--numstat",
-            "--no-renames",
-            old_sha,
-            new_sha,
-            "--",
-            *unique_paths,
-        )
+        output = repo.git.diff("--numstat", "--no-renames", old_sha, new_sha)
     except GitCommandError as error:
         logger.debug(
-            "Could not calculate line stats for %s: %s",
-            unique_paths,
+            "Could not calculate line stats for %s..%s: %s",
+            old_sha,
+            new_sha,
             error,
         )
-        return None, None
+        return stats
 
-    additions = 0
-    deletions = 0
-    saw_text = False
     for line in output.splitlines():
         columns = line.split("\t", 2)
-        if len(columns) < 2 or columns[0] == "-" or columns[1] == "-":
+        if len(columns) < 3:
+            continue
+        additions, deletions, path = columns
+        if additions == "-" or deletions == "-":
+            stats[path] = (None, None)
             continue
         try:
-            additions += int(columns[0])
-            deletions += int(columns[1])
-            saw_text = True
+            stats[path] = (int(additions), int(deletions))
         except ValueError:
             continue
-    return (additions, deletions) if saw_text else (None, None)
+    return stats
 
 
 def get_commit_file_summary(
@@ -652,6 +644,7 @@ def get_commit_file_summary(
             if parent
             else repo.tree(_EMPTY_TREE_SHA).diff(commit)
         )
+        line_stats = _diff_line_stats_map(repo, base_sha, commit.hexsha)
 
         result = []
         for d in diffs:
@@ -667,12 +660,9 @@ def get_commit_file_summary(
             else:
                 status = "modified"
 
-            additions, deletions = _diff_line_stats(
-                repo,
-                base_sha,
-                commit.hexsha,
-                d.a_path or "",
+            additions, deletions = line_stats.get(
                 d.b_path or "",
+                line_stats.get(d.a_path or "", (None, None)),
             )
 
             filename = path.split("/")[-1]

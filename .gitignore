@@ -40,8 +40,10 @@ generated.bak.*/
 loadtest/.env.loadtest
 loadtest/results/
 
-# Python packaging metadata
+# Python packaging + tooling artifacts
 *.egg-info/
+build/
+.pytest_cache/
 
 # Project Data
 # (The project database is currently outside the repo, but just in case)

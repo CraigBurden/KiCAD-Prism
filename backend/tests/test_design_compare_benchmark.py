@@ -4,10 +4,17 @@ import threading
 import unittest
 from pathlib import Path
 
+from unittest.mock import patch
+
+from app.services import design_compare_benchmark
 from app.services.design_compare_benchmark import DesignCompareBenchmark
 
 
 class DesignCompareBenchmarkTests(unittest.TestCase):
+    def test_windows_without_resource_reports_no_process_rss(self) -> None:
+        with patch.object(design_compare_benchmark, "resource", None):
+            self.assertEqual(design_compare_benchmark._peak_rss_bytes(), 0)
+
     def test_records_parallel_scopes_and_publishes_atomically(self) -> None:
         benchmark = DesignCompareBenchmark(
             job_id="benchmark-test",
