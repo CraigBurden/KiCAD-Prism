@@ -1,10 +1,17 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from "react";
 import { Button } from "@/components/ui/button";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { toast } from "sonner";
+import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
+import {
+    comparisonIsOpen,
+    readComparisonUrlState,
+} from "@/components/design-comparison/comparison-url";
 
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -63,11 +70,6 @@ interface WorkflowJobResponse {
     job_id: string;
 }
 
-interface WorkflowJobStatus {
-    status: string;
-    logs?: string[];
-}
-
 type Section = "overview" | "history" | "visualizers" | "assets" | "documentation" | "workflows";
 
 
@@ -84,7 +86,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [searchParams, setSearchParams] = useSearchParams();
     const [commitsBehind, setCommitsBehind] = useState<number>(0);
     const [syncing, setSyncing] = useState(false);
-    const [syncMessage, setSyncMessage] = useState<string | null>(null);
     const [visualizerLoaded, setVisualizerLoaded] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [pathConfigOpen, setPathConfigOpen] = useState(false);
@@ -111,12 +112,49 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         [branches, selectedBranchRef]
     );
     const activeCommit = currentCommit || selectedBranch?.commit || null;
+    const comparisonUrl = useMemo(
+        () => readComparisonUrlState(searchParams),
+        [searchParams],
+    );
+    const comparisonOpen = comparisonIsOpen(comparisonUrl);
+
+    useEffect(() => {
+        const section = searchParams.get("section");
+        if (
+            section === "overview"
+            || section === "history"
+            || section === "visualizers"
+            || section === "assets"
+            || section === "documentation"
+            || section === "workflows"
+        ) {
+            setActiveSection(section);
+        }
+    }, [searchParams]);
+
+    const handleSectionChange = (section: Section) => {
+        setActiveSection(section);
+        const next = new URLSearchParams(searchParams);
+        next.set("section", section);
+        setSearchParams(next);
+    };
 
     const handleViewCommit = (commitHash: string) => {
-        const next: Record<string, string> = { commit: commitHash };
-        if (selectedBranchRef) {
-            next.branch = selectedBranchRef;
-        }
+        const next = new URLSearchParams(searchParams);
+        next.set("section", "history");
+        next.set("commit", commitHash);
+        setSearchParams(next);
+    };
+
+    // Open the design at a commit directly in the visualizer, read-only. Distinct
+    // from handleViewCommit, which keeps you in the history section. An optional
+    // tab opens straight onto a specific view (e.g. a changed .kicad_pcb).
+    const handleOpenCommitVisualizer = (commitHash: string, tab?: string) => {
+        const next = new URLSearchParams(searchParams);
+        next.set("section", "visualizers");
+        next.set("commit", commitHash);
+        if (tab) next.set("tab", tab);
+        else next.delete("tab");
         setSearchParams(next);
     };
 
@@ -129,27 +167,42 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     };
 
     const handleBranchChange = (branchRef: string) => {
-        setSearchParams(branchRef ? { branch: branchRef } : {});
+        const next = new URLSearchParams(searchParams);
+        if (branchRef) next.set("branch", branchRef);
+        else next.delete("branch");
+        setSearchParams(next);
     };
 
     const handleSync = async () => {
         if (!projectId || syncing || !canMutateProject) return;
 
         setSyncing(true);
-        setSyncMessage(null);
+        // One toast, updated in place, so progress and outcome share a slot
+        // instead of the app having two feedback systems. Success and failure
+        // come from the job's own state rather than from reading its prose.
+        const toastId = toast.loading("Syncing repository");
 
         try {
-            const data = await fetchJson<{ message?: string }>(
+            const data = await fetchJson<{ job_id: string; message?: string }>(
                 `/api/projects/${projectId}/sync`,
                 { method: "POST" },
                 "Sync failed"
             );
-            setSyncMessage(data.message || "Sync completed.");
+            const job = await watchPrismJob(data.job_id, {
+                onUpdate: (update) => {
+                    toast.loading(
+                        `${update.message || "Syncing repository"} (${Math.round(update.percent)}%)`,
+                        { id: toastId },
+                    );
+                },
+            });
+            throwIfJobFailed(job, "Sync failed");
+            toast.success(job.message || "Sync completed", { id: toastId });
             // Refresh project data and readme without full reload
             setRefreshKey((prev) => prev + 1);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Sync failed";
-            setSyncMessage(`Sync failed: ${message}`);
+            toast.error(message, { id: toastId });
         } finally {
             setSyncing(false);
         }
@@ -327,7 +380,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                         <button
                                             key={item.id}
                                             onClick={() => {
-                                                setActiveSection(item.id);
+                                                handleSectionChange(item.id);
                                                 // Close sheet hack
                                                 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
                                             }}
@@ -413,29 +466,11 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                 )}
             </header>
 
-            {/* Sync Message Banner */}
-            {syncMessage && (
-                <div className={cn(
-                    "px-6 py-2 text-sm border-b",
-                    syncMessage.includes('failed')
-                        ? "bg-red-500/10 border-red-500/20 text-red-500"
-                        : "bg-green-500/10 border-green-500/20 text-green-500"
-                )}>
-                    {syncMessage}
-                    <button
-                        onClick={() => setSyncMessage(null)}
-                        className="ml-2 text-xs underline"
-                    >
-                        Dismiss
-                    </button>
-                </div>
-            )}
-
             {/* Version Banner */}
             {(currentCommit || selectedBranch) && (
-                <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-3 flex items-center justify-between">
+                <div className="bg-warning/10 border-b border-warning/20 px-6 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm">
-                        <GitBranch className="h-4 w-4 text-amber-500" />
+                        <GitBranch className="h-4 w-4 text-warning" />
                         <span className="font-medium">
                             {currentCommit
                                 ? `Viewing commit ${currentCommit.substring(0, 7)}`
@@ -493,7 +528,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                             return (
                                 <button
                                     key={item.id}
-                                    onClick={() => setActiveSection(item.id)}
+                                    onClick={() => handleSectionChange(item.id)}
                                     className={cn(
                                         "w-full flex items-center rounded-md text-sm transition-colors",
                                         isExpanded ? "gap-3 px-3 py-2" : "justify-center py-2",
@@ -513,63 +548,74 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </nav>
                 </aside>
 
-                <main className="flex-1 overflow-auto p-6">
-                    {activeSection === "overview" && (
-                        <div className="space-y-6">
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <span>Last Updated: {project.last_modified}</span>
+                <main className={cn("min-h-0 min-w-0 flex-1", activeSection === "visualizers" ? "overflow-hidden" : "overflow-auto p-6")}>
+                    {/* Keyed to the section: a reviewer whose History tab throws
+                        can move to Assets and back to get a fresh attempt,
+                        rather than being stuck with a dead tab until reload.
+                        The viewer and history panels carry their own boundaries
+                        inside this one, so the heavy code fails closer to where
+                        it broke. */}
+                    <ErrorBoundary label="this tab" resetKeys={[activeSection, projectId]}>
+                        {activeSection === "overview" && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <span>Last Updated: {project.last_modified}</span>
+                                </div>
+
+                                {readme && (
+                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
+                                        <MarkdownContent
+                                            content={readme}
+                                            resolveImageSrc={resolveProjectAssetSrc}
+                                        />
+                                    </Suspense>
+                                )}
+
+                                {!readme && (
+                                    <p className="text-muted-foreground">No README.md found for this project.</p>
+                                )}
                             </div>
+                        )}
 
-                            {readme && (
-                                <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
-                                    <MarkdownContent
-                                        content={readme}
-                                        resolveImageSrc={resolveProjectAssetSrc}
-                                    />
-                                </Suspense>
-                            )}
+                        {activeSection === "assets" && (
+                            <div>
+                                <h2 className="text-2xl font-bold mb-6">Assets Portal</h2>
+                                {projectId && (
+                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading assets...</div>}>
+                                        <AssetsPortal projectId={projectId} commit={activeCommit} />
+                                    </Suspense>
+                                )}
+                            </div>
+                        )}
 
-                            {!readme && (
-                                <p className="text-muted-foreground">No README.md found for this project.</p>
-                            )}
-                        </div>
-                    )}
+                        {activeSection === "documentation" && (
+                            <div>
+                                <h2 className="text-2xl font-bold mb-6">Documentation</h2>
+                                {projectId && (
+                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading documentation...</div>}>
+                                        <DocumentationBrowser projectId={projectId} commit={activeCommit} key={activeSection} />
+                                    </Suspense>
+                                )}
+                            </div>
+                        )}
 
-                    {activeSection === "assets" && (
-                        <div>
-                            <h2 className="text-2xl font-bold mb-6">Assets Portal</h2>
-                            {projectId && (
-                                <Suspense fallback={<div className="text-sm text-muted-foreground">Loading assets...</div>}>
-                                    <AssetsPortal projectId={projectId} commit={activeCommit} />
-                                </Suspense>
-                            )}
-                        </div>
-                    )}
-
-                    {activeSection === "documentation" && (
-                        <div>
-                            <h2 className="text-2xl font-bold mb-6">Documentation</h2>
-                            {projectId && (
-                                <Suspense fallback={<div className="text-sm text-muted-foreground">Loading documentation...</div>}>
-                                    <DocumentationBrowser projectId={projectId} commit={activeCommit} key={activeSection} />
-                                </Suspense>
-                            )}
-                        </div>
-                    )}
-
-                    {activeSection === "history" && (
-                        <div>
-                            <h2 className="text-2xl font-bold mb-6">History</h2>
-                            {projectId && (
-                                <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
-                                    <HistoryViewer
-                                        key={refreshKey}
-                                        projectId={projectId}
-                                        branchRef={selectedBranchRef}
-                                        onViewCommit={handleViewCommit}
-                                        canCompareDiffs={canMutateProject}
-                                    />
-                                </Suspense>
+                        {activeSection === "history" && (
+                            <div>
+                                <h2 className="text-2xl font-bold mb-6">History</h2>
+                                {projectId && (
+                                    <ErrorBoundary label="the history viewer" resetKeys={[projectId, selectedBranchRef, refreshKey]}>
+                                        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
+                                            <HistoryViewer
+                                                key={refreshKey}
+                                                projectId={projectId}
+                                                branchRef={selectedBranchRef}
+                                                onViewCommit={handleViewCommit}
+                                                onOpenVisualizer={handleOpenCommitVisualizer}
+                                                canCompareDiffs
+                                                canComment={canMutateProject}
+                                            />
+                                        </Suspense>
+                                </ErrorBoundary>
                             )}
                         </div>
                     )}
@@ -581,12 +627,21 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                 activeSection !== "visualizers" && "hidden" // Hide if not active
                             )}
                         >
-                            <h2 className="text-2xl font-bold mb-6">Visualizers</h2>
                             <div className="flex-1 min-h-0">
                                 {projectId && (
-                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading visualizers...</div>}>
-                                        <Visualizer projectId={projectId} user={user} commit={activeCommit} />
-                                    </Suspense>
+                                    // Its own boundary because this stays mounted while other
+                                    // tabs are on screen: a viewer crash must not reach the
+                                    // section boundary and take down whatever is being viewed.
+                                    <ErrorBoundary label="the visualizer" resetKeys={[projectId, activeCommit]}>
+                                        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading visualizers...</div>}>
+                                            <Visualizer
+                                                projectId={projectId}
+                                                user={user}
+                                                commit={activeCommit}
+                                                active={!comparisonOpen && activeSection === "visualizers"}
+                                            />
+                                        </Suspense>
+                                    </ErrorBoundary>
                                 )}
                             </div>
                         </div>
@@ -598,7 +653,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         </div>
                     )}
 
-
+                    </ErrorBoundary>
                 </main>
             </div>
         </div>
@@ -612,41 +667,29 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
     const [status, setStatus] = useState<string>("idle");
 
     useEffect(() => {
-        let pollInterval: ReturnType<typeof window.setInterval> | null = null;
-
-        if (runningJob) {
-            pollInterval = setInterval(async () => {
-                try {
-                    const job = await fetchJson<WorkflowJobStatus>(`/api/projects/jobs/${runningJob.id}`);
-                    setLogs(job.logs || []);
-                    setStatus(job.status);
-
-                    if (job.status === 'completed' || job.status === 'failed') {
-                        // Keep logs visible but stop polling after a short delay to ensure final update
-                        setTimeout(() => {
-                            if (pollInterval) {
-                                clearInterval(pollInterval);
-                                pollInterval = null;
-                            }
-                            // Optional: Reset running job after some time? No, let user see result.
-                        }, 1000);
-                    }
-                } catch (e) {
-                    console.error("Poll error", e);
-                }
-            }, 1000);
-        }
-
-        return () => {
-            if (pollInterval) {
-                clearInterval(pollInterval);
-            }
-        };
+        if (!runningJob) return;
+        const controller = new AbortController();
+        void watchPrismJob(runningJob.id, {
+            signal: controller.signal,
+            includeLogs: true,
+            onUpdate: (job, nextLogs) => {
+                setLogs(nextLogs);
+                setStatus(job.status);
+            },
+        }).catch((error: unknown) => {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+            setStatus("failed");
+            setLogs((current) => [
+                ...current,
+                error instanceof Error ? error.message : "Failed to poll workflow",
+            ]);
+        });
+        return () => controller.abort();
     }, [runningJob]);
 
     const runWorkflow = async (type: string) => {
         if (!canRun) {
-            alert("You do not have permission to run workflows.");
+            toast.error("Your role does not allow you to run workflows.");
             return;
         }
         setLogs([]);
@@ -666,12 +709,12 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
                 setRunningJob({ id: data.job_id, type });
             } else {
                 const message = await readApiError(res, "Failed to start workflow");
-                alert(`Error: ${message}`);
+                toast.error(message);
                 setStatus("idle");
             }
         } catch (e) {
             const message = e instanceof Error ? e.message : "Failed to start workflow";
-            alert(message);
+            toast.error(message);
             setStatus("idle");
         }
     };
@@ -708,9 +751,9 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
                 <div className="bg-zinc-950 rounded-lg border border-zinc-800 p-4 font-mono text-xs md:text-sm h-96 overflow-auto shadow-inner text-zinc-300">
                     <div className="flex items-center justify-between mb-2 text-zinc-500 border-b border-zinc-800 pb-2">
                         <span>Job: {runningJob.type.toUpperCase()} ({status})</span>
-                        {status === 'running' && <span className="animate-pulse text-amber-500">Running...</span>}
-                        {status === 'completed' && <span className="text-green-500">Completed</span>}
-                        {status === 'failed' && <span className="text-red-500">Failed</span>}
+                        {status === 'running' && <span className="animate-pulse text-warning">Running...</span>}
+                        {status === 'completed' && <span className="text-success">Completed</span>}
+                        {status === 'failed' && <span className="text-destructive">Failed</span>}
                     </div>
                     <div className="space-y-1">
                         {logs.map((log, i) => (
