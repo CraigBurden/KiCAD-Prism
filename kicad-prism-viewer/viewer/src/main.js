@@ -1,5 +1,6 @@
 import { CameraController } from "./camera.js";
 import { BomViewer } from "./bom-viewer.js";
+import { escapeHtml } from "./escape-html.js";
 import { loadGltf } from "./gltf-loader.js";
 import { clamp } from "./math.js";
 import { Renderer } from "./renderer.js";
@@ -1827,7 +1828,7 @@ function refreshControls() {
     <label class="layer-row">
       <input type="checkbox" data-layer="${layer.id}" ${selected.has(Number(layer.id)) ? "checked" : ""}>
       <span class="swatch" style="background:${rgbCss(layerColor(layer))}"></span>
-      <span>${layer.name}</span><small>${index + 1}</small>
+      <span>${escapeHtml(layer.name)}</span><small>${index + 1}</small>
     </label>`).join("");
   list.querySelectorAll("[data-layer]").forEach((input) => input.addEventListener("change", () => {
     const layerId = Number(input.dataset.layer);
@@ -3058,13 +3059,6 @@ function updateDiagnostics(now) {
 
 function rgbCss(color) {
   return `rgb(${color.slice(0, 3).map((value) => Math.round(value * 255)).join(" ")})`;
-}
-
-function escapeHtml(value) {
-  return String(value).replace(
-    /[&<>"']/g,
-    (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character],
-  );
 }
 
 function renderStackupWorkspace() {

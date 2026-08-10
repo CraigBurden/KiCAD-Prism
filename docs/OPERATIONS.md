@@ -6,6 +6,10 @@ for a shared KiCAD Prism installation.
 Run commands from the active deployment directory containing `compose.yml` and
 `.env`. Source-built installations use `docker-compose.yml` instead.
 
+These procedures describe PostgreSQL-backed V3 installations. They do not
+convert a V2 alpha SQLite data directory into V3; use a fresh V3 data location
+and the release-specific re-import steps for that transition.
+
 For an upgrade, follow [Upgrades and backups](UPGRADES.md) instead of assembling
 the steps below by hand. It wraps the backup, the archive check and the schema
 ladder into one ordered procedure, and `scripts/prism_backup.py` captures the
@@ -168,8 +172,9 @@ docker compose --env-file .env -f docker-compose.yml config --quiet
 docker compose up --build -d
 ```
 
-Prefer migration to the release-bundle contract when a later stable release
-provides one.
+Prefer moving to the release-bundle contract when a later stable release
+provides one. Follow that release's data-migration notes explicitly; do not
+assume that a V2 alpha SQLite installation can be upgraded in place.
 
 ## Post-change verification
 

@@ -7,15 +7,24 @@ catalog, the imported projects, or anything else that took work to create.
 narrower thing: the exact sequence for an upgrade, what protects you at each
 step, and what to do when a step goes wrong.
 
+> **Scope:** This procedure applies to PostgreSQL-backed V3 installations and
+> later releases that use the same storage model. It is not a migration from
+> the V2 alpha SQLite layout to V3 PostgreSQL. For that transition, deploy V3
+> into a fresh data location and re-import the projects and component sources
+> as described in the V3 release notes. Alpha releases do not promise
+> backwards-compatible data or API contracts.
+
 ## The rule the whole scheme rests on
 
 > **An upgrade may only add.** Anything that removes or narrows waits for a
 > later release, once the version that needed it is out of support.
 
-That is why a rollback normally costs nothing. New columns and new tables are
-invisible to older code, so the previous release can open a database a newer one
-has migrated. Break the rule and rolling back requires restoring data, which
-means losing everything since the upgrade.
+Within that PostgreSQL release line, a rollback can normally use the previous
+application images without restoring data: new columns and tables are designed
+to be ignored by older code. This is an application and schema convention, not
+a general alpha compatibility guarantee. Read the release notes for the exact
+release before relying on an image-only rollback; if the release changed data
+incompatibly, restoring the matching backup is required.
 
 Prism enforces its half of this. Both schemas carry numbered ledgers applied at
 startup under an advisory lock:
@@ -28,7 +37,9 @@ startup under an advisory lock:
 Derived state sits outside those ledgers on purpose. Component-head projections,
 search indexes and integrity guards are rebuilt whenever their definition version
 changes, which a run-once ledger cannot express. They rebuild from authoritative
-data, so they are never backed up and never migrated.
+data, so they are not schema-migrated and are omitted from the standard
+`prism_backup.py` archive. Include them separately when faster recovery is worth
+the additional storage.
 
 ## What is authoritative, and what is not
 
@@ -179,10 +190,12 @@ If the release did change data incompatibly, restore instead:
 python3 scripts/prism_backup.py restore prism-backup-<timestamp>.tar.gz
 ```
 
-Restore refuses to run an archive into an older build than the one that wrote
-it, because that would leave the database below the schema version its contents
-assume. It replaces the database, project storage and SSH keys in place, and
-asks before it does.
+When both schema ledgers can be read, restore refuses an archive newer than the
+build receiving it, because that would leave the database below the schema
+version its contents assume. On an empty or otherwise unreadable database it
+warns that this comparison could not run; stop and investigate before
+continuing. Restore replaces the database, project storage and SSH keys in
+place, and asks before it does.
 
 Never move or recreate a published Git tag to roll back. The previous bundle
 still pins the original image digests; that is what makes it a rollback.
@@ -257,10 +270,11 @@ had never fired, because the version had never been bumped — so the first
 release to change a catalog table would have discovered it on somebody's
 production database, mid-upgrade, after the old stack had been stopped.
 
-The ladder replaced it. The old version row is still written on every startup so
-that an older Prism, which treats that row as a hard precondition, can still
-open a database a newer build has touched. That is the expand-only rule applied
-to its own enforcement.
+The ladder replaced it. The legacy version row is still written on every startup
+so that an older Prism, which treats that row as a hard precondition, can still
+open a database a newer V3 build has touched. That preserves the catalog
+rollback convention; it does not make a V2 SQLite installation or arbitrary
+alpha API changes backwards-compatible.
 
 ---
 
