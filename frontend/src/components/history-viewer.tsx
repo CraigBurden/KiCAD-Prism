@@ -109,6 +109,7 @@ interface HistoryViewerProps {
     onOpenVisualizer: (commitHash: string, tab?: string) => void;
     canCompareDiffs: boolean;
     canComment: boolean;
+    active?: boolean;
 }
 
 function formatDate(isoDate: string): string {
@@ -262,9 +263,12 @@ function CommitItem({
         if (next) loadSummary();
     };
 
-    useEffect(() => () => {
-        mountedRef.current = false;
-        summaryAbortRef.current?.abort();
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            summaryAbortRef.current?.abort();
+        };
     }, []);
 
     return (
@@ -456,6 +460,7 @@ export function HistoryViewer({
     onOpenVisualizer,
     canCompareDiffs,
     canComment,
+    active = true,
 }: HistoryViewerProps) {
     const [searchParams, setSearchParams] = useSearchParams();
     const comparisonUrl = useMemo(
@@ -688,7 +693,7 @@ export function HistoryViewer({
             )}
 
             {/* Design Comparison Workspace */}
-            {showDiff && baseRevision && compareRevision && (
+            {active && showDiff && baseRevision && compareRevision && (
                 // Contained separately from the commit list: a comparison that
                 // throws should still leave the reviewer their history, and the
                 // revision pair they picked is what to retry on.

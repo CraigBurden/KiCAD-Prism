@@ -73,8 +73,11 @@ class _CatalogConnection:
         return self._connection.execute(sql, params, prepare=False)
 
     def executescript(self, script: str) -> None:
-        for statement in _split_sql_script(script):
-            self.execute(statement)
+        # Psycopg accepts parameter-free multi-statement DDL through the simple
+        # protocol. The catalog script is idempotent, so send it in one round
+        # trip rather than splitting it into dozens of remote calls.
+        if script.strip():
+            self._connection.execute(script, prepare=False)
 
     def commit(self) -> None:
         self._connection.commit()

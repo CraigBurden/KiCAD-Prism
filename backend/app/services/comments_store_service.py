@@ -239,33 +239,36 @@ class CommentsStoreService:
                     """,
                     prepare=False,
                 )
-                # Additive columns for area/element-anchored comments (safe on existing DBs).
-                for statement in (
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_x REAL",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_y REAL",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_w REAL",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_h REAL",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_id TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_ref TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_type TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS comment_class TEXT NOT NULL DEFAULT 'general'",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'info'",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]'::jsonb",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'canvas'",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS base_commit TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS compare_commit TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS comparison_domain TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS file_path TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS semantic_item_id TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_kind TEXT",
-                    # Reserved for future GitHub/GitLab Issues projection (unused today).
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_provider TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_id TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_url TEXT",
-                    "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_sync_state TEXT",
-                ):
-                    conn.execute(statement)
+                # Keep the additive migration idempotent while paying one remote
+                # database round trip instead of one for every column.
+                conn.execute(
+                    ";\n".join((
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_x REAL",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_y REAL",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_w REAL",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS area_h REAL",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_id TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_ref TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS element_type TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS comment_class TEXT NOT NULL DEFAULT 'general'",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'info'",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS mentions JSONB NOT NULL DEFAULT '[]'::jsonb",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'canvas'",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS base_commit TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS compare_commit TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS comparison_domain TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS file_path TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS semantic_item_id TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS anchor_kind TEXT",
+                        # Reserved for future GitHub/GitLab Issues projection (unused today).
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_provider TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_id TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_issue_url TEXT",
+                        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS forge_sync_state TEXT",
+                    )),
+                    prepare=False,
+                )
                 conn.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_comments_comparison

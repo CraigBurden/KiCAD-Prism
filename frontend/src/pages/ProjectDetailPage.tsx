@@ -12,6 +12,11 @@ import {
     comparisonIsOpen,
     readComparisonUrlState,
 } from "@/components/design-comparison/comparison-url";
+import {
+    ProjectSectionPanel,
+    useVisitedProjectSections,
+    type ProjectSection,
+} from "./project-section-cache";
 
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -70,23 +75,34 @@ interface WorkflowJobResponse {
     job_id: string;
 }
 
-type Section = "overview" | "history" | "visualizers" | "assets" | "documentation" | "workflows";
-
-
+function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection {
+    const section = searchParams.get("section");
+    if (
+        section === "history"
+        || section === "visualizers"
+        || section === "assets"
+        || section === "documentation"
+        || section === "workflows"
+    ) {
+        return section;
+    }
+    return "overview";
+}
 
 export function ProjectDetailPage({ user }: { user: User | null }) {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [project, setProject] = useState<Project | null>(null);
     const [readme, setReadme] = useState<string>("");
     const [loading, setLoading] = useState(true);
-    const [activeSection, setActiveSection] = useState<Section>("overview");
+    const [activeSection, setActiveSection] = useState<ProjectSection>(() => (
+        sectionFromSearchParams(searchParams)
+    ));
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [sidebarHovered, setSidebarHovered] = useState(false);
-    const [searchParams, setSearchParams] = useSearchParams();
     const [commitsBehind, setCommitsBehind] = useState<number>(0);
     const [syncing, setSyncing] = useState(false);
-    const [visualizerLoaded, setVisualizerLoaded] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [pathConfigOpen, setPathConfigOpen] = useState(false);
     const [branches, setBranches] = useState<ProjectBranch[]>([]);
@@ -98,12 +114,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const getDisplayName = (project: Project) => {
         return project.display_name || project.name;
     };
-
-    useEffect(() => {
-        if (activeSection === 'visualizers') {
-            setVisualizerLoaded(true);
-        }
-    }, [activeSection]);
 
     const selectedBranchRef = searchParams.get('branch');
     const currentCommit = searchParams.get('commit');
@@ -117,22 +127,15 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         [searchParams],
     );
     const comparisonOpen = comparisonIsOpen(comparisonUrl);
+    const comparisonVisible = comparisonOpen && activeSection === "history";
 
     useEffect(() => {
-        const section = searchParams.get("section");
-        if (
-            section === "overview"
-            || section === "history"
-            || section === "visualizers"
-            || section === "assets"
-            || section === "documentation"
-            || section === "workflows"
-        ) {
-            setActiveSection(section);
-        }
+        setActiveSection(sectionFromSearchParams(searchParams));
     }, [searchParams]);
 
-    const handleSectionChange = (section: Section) => {
+    const visitedSections = useVisitedProjectSections(projectId, activeSection);
+
+    const handleSectionChange = (section: ProjectSection) => {
         setActiveSection(section);
         const next = new URLSearchParams(searchParams);
         next.set("section", section);
@@ -337,12 +340,12 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     }
 
     const navItems = [
-        { id: "overview" as Section, label: "Overview", icon: FileText },
-        { id: "history" as Section, label: "History", icon: History },
-        { id: "visualizers" as Section, label: "Visualizers", icon: Box },
-        { id: "workflows" as Section, label: "Workflows", icon: PlayCircle },
-        { id: "assets" as Section, label: "Assets Portal", icon: FolderOpen },
-        { id: "documentation" as Section, label: "Documentation", icon: FileText },
+        { id: "overview" as ProjectSection, label: "Overview", icon: FileText },
+        { id: "history" as ProjectSection, label: "History", icon: History },
+        { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
+        { id: "workflows" as ProjectSection, label: "Workflows", icon: PlayCircle },
+        { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
+        { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
     ];
 
     const handleBackNavigation = () => {
@@ -548,112 +551,120 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </nav>
                 </aside>
 
-                <main className={cn("min-h-0 min-w-0 flex-1", activeSection === "visualizers" ? "overflow-hidden" : "overflow-auto p-6")}>
-                    {/* Keyed to the section: a reviewer whose History tab throws
-                        can move to Assets and back to get a fresh attempt,
-                        rather than being stuck with a dead tab until reload.
-                        The viewer and history panels carry their own boundaries
-                        inside this one, so the heavy code fails closer to where
-                        it broke. */}
-                    <ErrorBoundary label="this tab" resetKeys={[activeSection, projectId]}>
-                        {activeSection === "overview" && (
-                            <div className="space-y-6">
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <span>Last Updated: {project.last_modified}</span>
+                <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                    {visitedSections.has("overview") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:overview`}
+                            active={activeSection === "overview"}
+                        >
+                            <ErrorBoundary label="the project overview" resetKeys={[projectId, activeCommit, refreshKey]}>
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <span>Last Updated: {project.last_modified}</span>
+                                    </div>
+                                    {readme ? (
+                                        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
+                                            <MarkdownContent
+                                                content={readme}
+                                                resolveImageSrc={resolveProjectAssetSrc}
+                                            />
+                                        </Suspense>
+                                    ) : (
+                                        <p className="text-muted-foreground">No README.md found for this project.</p>
+                                    )}
                                 </div>
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
+                    )}
 
-                                {readme && (
-                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
-                                        <MarkdownContent
-                                            content={readme}
-                                            resolveImageSrc={resolveProjectAssetSrc}
-                                        />
-                                    </Suspense>
-                                )}
-
-                                {!readme && (
-                                    <p className="text-muted-foreground">No README.md found for this project.</p>
-                                )}
-                            </div>
-                        )}
-
-                        {activeSection === "assets" && (
-                            <div>
-                                <h2 className="text-2xl font-bold mb-6">Assets Portal</h2>
+                    {visitedSections.has("assets") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:assets`}
+                            active={activeSection === "assets"}
+                        >
+                            <ErrorBoundary label="the assets portal" resetKeys={[projectId, activeCommit, refreshKey]}>
+                                <h2 className="mb-6 text-2xl font-bold">Assets Portal</h2>
                                 {projectId && (
                                     <Suspense fallback={<div className="text-sm text-muted-foreground">Loading assets...</div>}>
                                         <AssetsPortal projectId={projectId} commit={activeCommit} />
                                     </Suspense>
                                 )}
-                            </div>
-                        )}
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
+                    )}
 
-                        {activeSection === "documentation" && (
-                            <div>
-                                <h2 className="text-2xl font-bold mb-6">Documentation</h2>
+                    {visitedSections.has("documentation") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:documentation`}
+                            active={activeSection === "documentation"}
+                        >
+                            <ErrorBoundary label="the documentation browser" resetKeys={[projectId, activeCommit, refreshKey]}>
+                                <h2 className="mb-6 text-2xl font-bold">Documentation</h2>
                                 {projectId && (
                                     <Suspense fallback={<div className="text-sm text-muted-foreground">Loading documentation...</div>}>
-                                        <DocumentationBrowser projectId={projectId} commit={activeCommit} key={activeSection} />
+                                        <DocumentationBrowser projectId={projectId} commit={activeCommit} />
                                     </Suspense>
                                 )}
-                            </div>
-                        )}
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
+                    )}
 
-                        {activeSection === "history" && (
-                            <div>
-                                <h2 className="text-2xl font-bold mb-6">History</h2>
-                                {projectId && (
-                                    <ErrorBoundary label="the history viewer" resetKeys={[projectId, selectedBranchRef, refreshKey]}>
-                                        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
-                                            <HistoryViewer
-                                                key={refreshKey}
-                                                projectId={projectId}
-                                                branchRef={selectedBranchRef}
-                                                onViewCommit={handleViewCommit}
-                                                onOpenVisualizer={handleOpenCommitVisualizer}
-                                                canCompareDiffs
-                                                canComment={canMutateProject}
-                                            />
-                                        </Suspense>
+                    {visitedSections.has("history") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:history`}
+                            active={activeSection === "history"}
+                        >
+                            <h2 className="mb-6 text-2xl font-bold">History</h2>
+                            {projectId && (
+                                <ErrorBoundary label="the history viewer" resetKeys={[projectId, selectedBranchRef, refreshKey]}>
+                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
+                                        <HistoryViewer
+                                            key={refreshKey}
+                                            projectId={projectId}
+                                            branchRef={selectedBranchRef}
+                                            onViewCommit={handleViewCommit}
+                                            onOpenVisualizer={handleOpenCommitVisualizer}
+                                            canCompareDiffs
+                                            canComment={canMutateProject}
+                                            active={activeSection === "history"}
+                                        />
+                                    </Suspense>
                                 </ErrorBoundary>
                             )}
-                        </div>
+                        </ProjectSectionPanel>
                     )}
 
-                    {visualizerLoaded && ( // Render only if visualizer has been loaded at least once
-                        <div
-                            className={cn(
-                                "h-full flex flex-col",
-                                activeSection !== "visualizers" && "hidden" // Hide if not active
-                            )}
+                    {visitedSections.has("visualizers") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:visualizers`}
+                            active={activeSection === "visualizers"}
+                            fill
                         >
-                            <div className="flex-1 min-h-0">
-                                {projectId && (
-                                    // Its own boundary because this stays mounted while other
-                                    // tabs are on screen: a viewer crash must not reach the
-                                    // section boundary and take down whatever is being viewed.
-                                    <ErrorBoundary label="the visualizer" resetKeys={[projectId, activeCommit]}>
-                                        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading visualizers...</div>}>
-                                            <Visualizer
-                                                projectId={projectId}
-                                                user={user}
-                                                commit={activeCommit}
-                                                active={!comparisonOpen && activeSection === "visualizers"}
-                                            />
-                                        </Suspense>
-                                    </ErrorBoundary>
-                                )}
-                            </div>
-                        </div>
+                            {projectId && (
+                                <ErrorBoundary label="the visualizer" resetKeys={[projectId, activeCommit]}>
+                                    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading visualizers...</div>}>
+                                        <Visualizer
+                                            projectId={projectId}
+                                            user={user}
+                                            commit={activeCommit}
+                                            active={!comparisonVisible && activeSection === "visualizers"}
+                                        />
+                                    </Suspense>
+                                </ErrorBoundary>
+                            )}
+                        </ProjectSectionPanel>
                     )}
 
-                    {activeSection === "workflows" && (
-                        <div>
-                            <WorkflowsPanel projectId={projectId!} user={user} canRun={canMutateProject} />
-                        </div>
+                    {visitedSections.has("workflows") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:workflows`}
+                            active={activeSection === "workflows"}
+                        >
+                            <ErrorBoundary label="the workflows panel" resetKeys={[projectId]}>
+                                <WorkflowsPanel projectId={projectId!} user={user} canRun={canMutateProject} />
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
                     )}
-
-                    </ErrorBoundary>
                 </main>
             </div>
         </div>
