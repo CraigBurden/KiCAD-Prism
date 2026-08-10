@@ -68,6 +68,49 @@ Follow [Deployment](docs/DEPLOYMENT.md) for OIDC, TLS, storage, sizing, and
 production checks. If a historical release predates deployment bundles, build
 that stable tag from source as documented there.
 
+## First-time setup with the guided installer
+
+For a first deployment from a source checkout, the guided installer can render
+the environment and proxy configuration for you instead of requiring every
+Compose setting to be assembled by hand. It supports Linux, macOS, WSL2, and
+Windows PowerShell, and requires Python 3.9 or newer plus Docker Compose v2.
+
+From the repository root, run the launcher for your platform:
+
+```bash
+./deploy.sh
+```
+
+```powershell
+.\deploy.ps1
+```
+
+The installer asks which HTTPS/network scheme applies, collects the required
+OIDC and deployment settings, runs preflight and network checks, and writes the
+generated configuration under `generated/`. The output includes the environment
+file, proxy configuration, Compose overlay, a redacted run record, and a
+`NEXT_STEPS.md` checklist. Review the generated files before starting the
+services, or let the installer start them after all checks pass:
+
+```bash
+./deploy.sh --start
+```
+
+Useful first-run modes include:
+
+```bash
+./deploy.sh --dry-run                         # render without writing files
+./deploy.sh --fresh                           # ignore existing generated config
+./deploy.sh --answers answers.json --non-interactive
+```
+
+Generated configuration contains deployment secrets and is excluded from Git;
+back it up with the rest of the Prism deployment state. The installer is a
+guided configuration layer, not a replacement for the [Deployment](docs/DEPLOYMENT.md)
+and [Operations](docs/OPERATIONS.md) guides. For a stable release archive,
+follow the pull-only bundle instructions above and use the installer only when
+working from a source checkout that includes `deploy.sh` or `deploy.ps1`.
+
 ## Develop from source
 
 All feature development and source testing happen through `dev`:
