@@ -262,9 +262,12 @@ function CommitItem({
         if (next) loadSummary();
     };
 
-    useEffect(() => () => {
-        mountedRef.current = false;
-        summaryAbortRef.current?.abort();
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            summaryAbortRef.current?.abort();
+        };
     }, []);
 
     return (
