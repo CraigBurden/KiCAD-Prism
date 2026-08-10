@@ -113,8 +113,9 @@ take time to prepare; repeated comparisons may reuse generated caches.
 The default `Auto` presentation follows the selected change: Composite for
 simple schematic additions/removals, Side-by-side for connectivity, geometry,
 and fabrication changes, and Old/New for clean content or constraint review.
-A manually selected presentation remains in force until `Auto` is selected
-again. See the
+A manual presentation choice applies to the selected change. Selecting another
+change hands the decision back to `Auto`; an explicit URL choice can still seed
+the presentation for the change it names. See the
 [reviewer presentation policy](design-comparison/reviewer-presentation-policy.md)
 for the complete schematic and PCB map.
 

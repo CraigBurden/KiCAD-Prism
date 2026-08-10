@@ -139,9 +139,10 @@ Why this wins:
 - **x86 matters.** Your `.env` currently targets
   `KICAD_BASE_IMAGE=kicad/kicad:10.0.4-arm64-local` — a base image you built
   yourself on Apple Silicon, which does not exist in any registry. On an x86 host
-  you switch to the upstream multi-arch `kicad/kicad:10.0.0` and it just works.
-  On an ARM host you would have to recompile KiCad from source on the server
-  (see `kicad-docker/.kicad-native-arm64/`), which is a multi-hour build.
+  use the repository's pinned upstream `kicad/kicad:10.0.4` AMD64 image and its
+  digest. Native ARM64 release images are not published; Docker Desktop can
+  emulate the supported AMD64 image for local testing, but AMD64 is the public
+  deployment target.
 - Everything you already have — `docker-compose.yml`, `deploy/Caddyfile` — runs
   unchanged.
 
@@ -332,13 +333,13 @@ skip that section, the defaults are unsafe for public hosting**):
 
 ```env
 # --- Platform: switch off the local ARM base image ---
-KICAD_BASE_IMAGE=kicad/kicad:10.0.0
+KICAD_BASE_IMAGE=kicad/kicad:10.0.4@sha256:ee71e88396f8563168eb1ef282cda9ff2670fe86a677c63dd78b35e3d464454c
 KICAD_BASE_PLATFORM=linux/amd64
 DOCKER_PLATFORM=linux/amd64
 
 # --- Public, no-login demo ---
 AUTH_ENABLED=false
-DEV_GUEST_ROLE=viewer          # CRITICAL: default is 'admin'
+DEV_GUEST_ROLE=viewer          # Keep the least-privilege guest role explicit
 DEV_MODE=false
 
 WORKSPACE_NAME=KiCAD Prism — Public Demo
@@ -473,17 +474,18 @@ reach the 3D view?"), self-host **Umami** or **Plausible** as one extra containe
 ## 4. Changes needed on Prism's side
 
 Prism already has a guest mode (`AUTH_ENABLED=false`), so this is *mostly*
-configuration. But the current defaults are actively unsafe for public hosting,
-and read-only mode breaks two headline features. Details below, roughly in
-priority order.
+configuration. Guest mode remains unsuitable for an internet-facing service,
+but the default role and open-deployment guard are now least-privilege. The
+remaining demo work is rate limiting, pre-baking expensive views, and shaping
+the UI around read-only access.
 
-### 4.1 CRITICAL: guest mode currently grants **admin**, not viewer
+### 4.1 Guest role hardening (implemented)
 
-`backend/app/core/config.py:219`:
+The default guest role in `backend/app/core/config.py` is now `viewer`:
 
 ```python
 DEV_GUEST_ROLE: str = Field(
-    default="admin",
+    default="viewer",
     description="Role granted to the implicit guest user when AUTH_ENABLED is false."
 )
 ```
@@ -491,34 +493,15 @@ DEV_GUEST_ROLE: str = Field(
 and `docker-compose.yml` passes it straight through:
 
 ```yaml
-- DEV_GUEST_ROLE=${DEV_GUEST_ROLE:-admin}
+- DEV_GUEST_ROLE=${DEV_GUEST_ROLE:-viewer}
 ```
 
-So `AUTH_ENABLED=false` on a public host, with no other changes, gives **every
-anonymous visitor on the internet full admin rights.** Concretely, a visitor
-could:
-
-- `DELETE /api/projects/{id}` — delete any project
-- `POST /api/projects/import` — make your server clone arbitrary Git URLs
-- `POST /api/settings/ssh-key/generate` — destroy and regenerate the server's Git
-  deploy key (the whole `settings` router is admin-guarded via
-  `APIRouter(dependencies=[Depends(require_admin)])`, which is correct — but
-  "admin" is exactly what a guest is by default)
-- `GET /api/settings/access/users` — read every stored user email
-- `PUT /api/settings/access/users/{email}` — rewrite RBAC
-- `POST /api/projects/{id}/workflows` — run KiCad jobsets on your machine
-
-**Fix:** set `DEV_GUEST_ROLE=viewer` in `.env`. This is mandatory.
-
-**Recommended hardening beyond the demo**, because this is a footgun that will
-eventually catch someone: make the *safe* value the default. Change the default
-to `viewer`, and have `validate_auth_configuration()` in
-`backend/app/main.py` refuse to start when `AUTH_ENABLED=false` **and**
-`DEV_GUEST_ROLE` resolves to `admin` **and** the server is not bound to
-localhost. The codebase already has exactly this instinct elsewhere — incomplete
-OIDC config is a hard startup failure rather than a silent auth bypass
-(`config.py:563`), and there's already a loud warning banner at `main.py:166`.
-Anonymous-admin deserves the same treatment.
+`AUTH_ENABLED=false` still serves every request as that configured guest role,
+so keep `DEV_GUEST_ROLE=viewer` explicit in a public-demo environment. The
+configuration validator refuses open HTTPS deployments and refuses an
+anonymous-admin configuration when the public origin is not local. Startup
+also logs a prominent guest-mode warning. An administrator guest is appropriate
+only for a private local seed/evaluation machine.
 
 ### 4.2 `viewer` breaks two features you probably want in the demo
 
@@ -551,9 +534,9 @@ compelling things Prism does. Two ways to handle it:
   resolution. Do **not** solve this by promoting guests to `designer` — that
   would hand them project deletion, repo import, and jobset execution.
 
-Comments being read-only is fine, and arguably desirable: the visualizer
-commenting UI isn't shipped in the current release anyway, and public write
-access to comments is a spam magnet.
+The comments UI is shipped, but guest viewers cannot create or reply to
+comments. That keeps a public demo read-only while preserving discussion review;
+public write access would be a spam magnet.
 
 ### 4.3 Endpoints that are viewer-guarded but expensive — the real abuse surface
 
@@ -573,10 +556,10 @@ are the ones that can cost you money or take the box down:
    aid with rotation, but it is an anonymous write primitive. **Disable it
    entirely when `PRISM_DEMO_MODE=true`.**
 
-3. **`POST /api/jobs/{job_id}/cancel` (`require_viewer`)** — any visitor can
-   cancel any other visitor's running job, since all guests share one identity.
-   Low severity but it will produce confusing demo behaviour. Scope cancellation
-   to jobs the caller started, or disable in demo mode.
+3. **Job cancellation is designer-gated.** `POST /api/jobs/{job_id}/cancel`
+   requires a designer (or the catalog write role for catalog jobs), so a guest
+   viewer cannot cancel another visitor's work. Keep this authorization in place
+   when shaping a public-demo overlay.
 
 Note that Prism's existing `rate_limit_service` is wired into the *login* and
 *OAuth* paths only (`auth.py:104`, `oauth.py:26`) — not the job-creating
@@ -665,8 +648,8 @@ and rsyncs it — you already have a self-hosted runner checked out in
 
 ## 6. Suggested order of work
 
-1. §4.1 — set `DEV_GUEST_ROLE=viewer`, and fix the unsafe default upstream
-2. §4.3 — neutralise the anonymous design-compare and debug-log endpoints
+1. §4.1 — keep `DEV_GUEST_ROLE=viewer` and verify the open-deployment guard
+2. §4.3 — neutralise or rate-limit the anonymous design-compare and debug-log endpoints
 3. §4.4 — write `docker-compose.demo.yml` (drop workers, unpublish port 8000)
 4. Test the whole thing **locally** with `DEV_GUEST_ROLE=viewer` and confirm the
    demo is still compelling with everything a viewer can't do removed
