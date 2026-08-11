@@ -1278,8 +1278,9 @@ def create_release_record(
                 id, project_id, config_key, candidate_id, build_id, release_label,
                 document_number, revision, dossier_digest, manifest_digest,
                 attestation_digest, signature, signing_key_id, attestation_artifact_id,
-                commit_sha, variant, released_by, policy_snapshot, approval_snapshot
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                commit_sha, variant, released_by, policy_snapshot, approval_snapshot,
+                attestation_body
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 record_id, candidate["project_id"], candidate["config_key"],
@@ -1289,6 +1290,7 @@ def create_release_record(
                 attestation_artifact_id, candidate["commit_sha"], candidate["variant"],
                 released_by, json.dumps(dict(policy_snapshot)),
                 json.dumps([dict(item) for item in approval_snapshot]),
+                json.dumps(dict(attestation)),
             ),
         )
         conn.execute(

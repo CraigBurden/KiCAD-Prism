@@ -1527,6 +1527,15 @@ def _release_studio_rule_outcomes(conn: Any) -> None:
         "ON ws_release_rule_outcomes(evaluation_id)"
     )
 
+    # The signed attestation body is what the offline verifier hashes.  Storing
+    # only its digest would make the release archive unreproducible after the
+    # fact: the exact bytes that were signed cannot be re-derived from the
+    # snapshots, because canonical JSON is order-normalized but not invertible.
+    conn.execute(
+        "ALTER TABLE ws_release_records "
+        "ADD COLUMN IF NOT EXISTS attestation_body JSONB NOT NULL DEFAULT '{}'::jsonb"
+    )
+
 
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
