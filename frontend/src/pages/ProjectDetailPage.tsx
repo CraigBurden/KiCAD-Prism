@@ -1,8 +1,9 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from "react";
 import { Button } from "@/components/ui/button";
+import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings } from "lucide-react";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
@@ -83,6 +84,7 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
         || section === "assets"
         || section === "documentation"
         || section === "workflows"
+        || section === "release-studio"
     ) {
         return section;
     }
@@ -344,6 +346,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         { id: "history" as ProjectSection, label: "History", icon: History },
         { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
         { id: "workflows" as ProjectSection, label: "Workflows", icon: PlayCircle },
+        { id: "release-studio" as ProjectSection, label: "Release Studio", icon: ShieldCheck },
         { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
         { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
     ];
@@ -652,6 +655,20 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                     </Suspense>
                                 </ErrorBoundary>
                             )}
+                        </ProjectSectionPanel>
+                    )}
+
+                    {visitedSections.has("release-studio") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:release-studio`}
+                            active={activeSection === "release-studio"}
+                        >
+                            <ErrorBoundary label="the release studio panel" resetKeys={[projectId]}>
+                                <ReleaseStudioPanel
+                                    projectId={projectId!}
+                                    canMutate={canMutateProject}
+                                />
+                            </ErrorBoundary>
                         </ProjectSectionPanel>
                     )}
 
