@@ -41,12 +41,21 @@ services:
       - ./data/projects:/app/projects
       # Mount SSH directory for Git persistence (GitLab/GitHub SSH)
       - ./data/ssh:/root/.ssh:rw
+      # Release Studio signing key. Read-only, and mounted only into the API:
+      # the private key must never reach the worker or the database.
+      - ./data/secrets:/run/secrets/prism:ro
     environment:
       - PYTHONUNBUFFERED=1
       # Root directory for storing projects
       - KICAD_PROJECTS_ROOT=/app/projects
       # Friendly workspace name shown on login page
       - WORKSPACE_NAME=${WORKSPACE_NAME:-KiCAD Prism}
+      # Release Studio attestation signing (R18a). Without these the release
+      # endpoint returns 503 rather than issuing something a recipient cannot
+      # verify. Generate a key with docs/release-studio/MANUAL_TESTING.md.
+      - PRISM_RELEASE_SIGNING_KEY_ID=${PRISM_RELEASE_SIGNING_KEY_ID:-}
+      - PRISM_RELEASE_SIGNING_KEY_FILE=${PRISM_RELEASE_SIGNING_KEY_FILE:-}
+      - PRISM_RELEASE_ISSUER=${PRISM_RELEASE_ISSUER:-}
       # OIDC/OAuth2 Configuration (required for authentication)
       - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
