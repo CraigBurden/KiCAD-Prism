@@ -25,10 +25,16 @@ from app.release_studio.canonical import (
 )
 from app.release_studio.closure import materialize_input_closure
 from app.release_studio.config import (
+    list_configuration_keys,
     load_configuration_at_commit,
+    load_configuration_from_checkout,
     technical_config_digest,
 )
-from app.release_studio.jobset import classify_output_hermetic
+from app.release_studio.jobset import (
+    StepTypeStatus,
+    classify_output_hermetic,
+    load_jobset,
+)
 from app.release_studio.steps import StepExecutionError, resolve_cli_path, run_step_catalogue
 from app.services import release_studio_service as store
 from app.services.job_artifact_service import JobArtifactService
@@ -78,6 +84,50 @@ def toolchain_identity(cli_version: str = "") -> tuple[dict[str, Any], str]:
     return record, digest
 
 
+def sync_configurations(project_id: str) -> list[dict[str, Any]]:
+    """Reconcile the project's committed configurations into the registry.
+
+    A release configuration is authored in Git under
+    ``.prism/release-studio/configurations/*.yaml``; ``ws_release_configurations``
+    is a queryable registry of what the working tree currently declares, not a
+    second source of truth.  Reconciling on read is what lets a designer commit
+    a configuration and immediately see it in the UI, and it keeps the two from
+    drifting without a separate sync step to remember.
+
+    A configuration that no longer parses is skipped rather than failing the
+    listing: one bad file must not hide the others.
+    """
+
+    from app.services.design_compare_service import _repo_paths
+
+    try:
+        _repo, _relative, checkout = _repo_paths(project_id)
+    except Exception:  # noqa: BLE001 - an unregistered project simply has none
+        return store.list_configurations(project_id)
+
+    for config_key in list_configuration_keys(checkout):
+        try:
+            config = load_configuration_from_checkout(checkout, config_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "release studio configuration %s/%s did not load: %s",
+                project_id,
+                config_key,
+                exc,
+            )
+            continue
+        store.upsert_configuration(
+            project_id=project_id,
+            config_key=config_key,
+            title=str(config.get("title") or config_key),
+            board_rel=str(config.get("board") or ""),
+            schematic_rel=str(config.get("schematic") or ""),
+            jobset_rel=str(config.get("jobset") or ""),
+            default_variant=str(config.get("default_variant") or ""),
+        )
+    return store.list_configurations(project_id)
+
+
 def prepare_candidate(
     *,
     project_id: str,
@@ -111,6 +161,12 @@ def prepare_candidate(
     )
 
     hermetic, reasons = _hermeticity(closure_root, config)
+    # A reference the closure could resolve into neither itself nor the pinned
+    # toolchain is a hermeticity finding, not a materialization failure.
+    closure_reasons = closure.non_hermetic_reasons()
+    if closure_reasons:
+        hermetic = False
+        reasons = [*reasons, *closure_reasons]
     _toolchain, toolchain_digest = toolchain_identity()
 
     candidate = store.create_candidate(
@@ -148,14 +204,27 @@ def _hermeticity(closure_root: Path, config: Mapping[str, Any]) -> tuple[bool, l
     if not jobset_path.is_file():
         return False, [f"jobset not present in the closure: {jobset_rel}"]
     try:
-        closure = classify_output_hermetic(jobset_path.read_text(encoding="utf-8"))
+        model = load_jobset(jobset_path)
     except Exception as exc:  # noqa: BLE001 - an unparseable jobset fails closed
-        return False, [f"jobset could not be classified: {exc}"]
-    if isinstance(closure, dict):  # pragma: no cover - defensive
-        return True, []
-    reasons = [str(reason) for reason in getattr(closure, "unsupported_reasons", ())]
-    reasons += [str(reason) for reason in getattr(closure, "non_hermetic_reasons", ())]
-    return bool(getattr(closure, "hermetic", True)), reasons
+        return False, [f"jobset could not be parsed: {exc}"]
+
+    # Hermeticity is judged over each output's *selected* closure, never over
+    # jobset presence: the reference jobset carries a `special_execute` job that
+    # none of its outputs reference, and that must not taint the build.
+    reasons: list[str] = []
+    hermetic = True
+    for output in model.outputs:
+        try:
+            closure = classify_output_hermetic(model, output.id)
+        except Exception as exc:  # noqa: BLE001
+            hermetic = False
+            reasons.append(f"output {output.id} could not be classified: {exc}")
+            continue
+        if closure.status is not StepTypeStatus.HERMETIC:
+            hermetic = False
+        reasons.extend(str(reason) for reason in closure.non_hermetic_reasons)
+        reasons.extend(str(reason) for reason in closure.unsupported_reasons)
+    return hermetic, reasons
 
 
 def _closure_rows(closure) -> list[dict[str, Any]]:
@@ -258,13 +327,27 @@ def execute_build(
             artifact_key=f"release-evidence:{candidate['build_key']}",
         )
 
+        # Register the artifact rows before the build row: `ws_release_builds`
+        # references them ON DELETE RESTRICT, and the registration re-validates
+        # the fence, so a stale worker's artifact can never become the record.
         context.progress(stage="record", message="Recording the build", percent=92)
+        artifact_ids = context.service.register_fenced_artifacts(
+            context.job_id,
+            context.worker_id,
+            context.fence,
+            (dossier_artifact.__dict__, evidence_artifact.__dict__),
+        )
+        if artifact_ids is None:
+            raise BuildError(
+                "the build's fence is no longer authoritative; artifacts were "
+                "not registered"
+            )
         completed = store.complete_build(
             build_id=build["id"],
             dossier=assembled,
             toolchain=toolchain,
-            dossier_artifact_id=dossier_artifact.digest,
-            evidence_artifact_id=evidence_artifact.digest,
+            dossier_artifact_id=artifact_ids[0],
+            evidence_artifact_id=artifact_ids[1],
             fence=context.fence,
             actor=str(context.payload.get("author") or ""),
         )

@@ -305,6 +305,36 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         )
         self.assertEqual(counts, {"error": 2, "warning": 1, "exclusion": 1, "total": 4})
 
+    def test_every_protel_gerber_extension_resolves_to_the_gerber_canonicalizer(self) -> None:
+        # Transcribed from the pinned KiCad 10.0.4 source,
+        # `pcbnew/pcbplot.cpp:44` `GetGerberProtelExtension`.  A jobset with
+        # Protel extensions enabled emits these, and a gap fails the build only
+        # once real fabrication artwork reaches canonicalization.
+        protel = [
+            "gtl", "gbl",              # F_Cu, B_Cu
+            "gta", "gba",              # F_Adhes, B_Adhes
+            "gto", "gbo",              # F_SilkS, B_SilkS
+            "gts", "gbs",              # F_Mask, B_Mask
+            "gtp", "gbp",              # F_Paste, B_Paste
+            "gm1",                     # Edge_Cuts
+            "gbr",                     # the documented default
+        ]
+        for extension in protel:
+            with self.subTest(extension=extension):
+                self.assertEqual(
+                    dossier_module.canonicalizer_for(f"fabrication/board.{extension}", ""),
+                    "gerber",
+                )
+
+        # Inner copper is `g` + the copper layer ordinal, so it has no fixed
+        # extension and cannot be enumerated in a static table.
+        for ordinal in (1, 2, 9, 30):
+            with self.subTest(inner=ordinal):
+                self.assertEqual(
+                    dossier_module.canonicalizer_for(f"fabrication/board.g{ordinal}", ""),
+                    "gerber",
+                )
+
     def test_unknown_member_type_fails_closed(self) -> None:
         with self.assertRaisesRegex(DossierError, "no canonicalizer registered"):
             dossier_module.canonicalizer_for("fabrication/mystery.xyz", "")

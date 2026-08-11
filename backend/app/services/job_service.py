@@ -955,6 +955,61 @@ class JobService:
             conn.commit()
             return cursor.rowcount == 1
 
+    def register_fenced_artifacts(
+        self,
+        job_id: str,
+        worker_id: str,
+        fence: int,
+        artifacts: Sequence[Mapping[str, Any]],
+    ) -> list[str] | None:
+        """Register artifact rows mid-job and return their ids, in order.
+
+        Release Studio needs the ``ws_artifacts`` row ids *before* it writes the
+        build row, because ``ws_release_builds`` references them with
+        ``ON DELETE RESTRICT``.  ``publish_partial_artifact`` registers rows but
+        returns only a boolean, and ``complete_artifact`` would end the job
+        early, so this is the seam between the two.
+
+        Returns ``None`` when the caller's fence is no longer authoritative --
+        that is what keeps a stale worker from making its artifact the record.
+        """
+
+        self.initialize()
+        with self._connect() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            if not self._authoritative_claim(conn, job_id, worker_id, fence):
+                conn.commit()
+                return None
+            artifact_ids: list[str] = []
+            for artifact in artifacts:
+                self._insert_artifact(
+                    conn,
+                    str(uuid.uuid4()),
+                    artifact,
+                    job_id=job_id,
+                    fence=fence,
+                )
+                # `_insert_artifact` upserts on (kind, artifact_key, digest), so
+                # a retried build reuses the existing row rather than orphaning
+                # the id we just generated.
+                row = conn.execute(
+                    """
+                    SELECT id FROM ws_artifacts
+                    WHERE kind = %s AND artifact_key = %s AND digest = %s
+                    """,
+                    (
+                        artifact["kind"],
+                        artifact["artifact_key"],
+                        artifact["digest"],
+                    ),
+                ).fetchone()
+                if row is None:
+                    conn.rollback()
+                    return None
+                artifact_ids.append(str(row["id"]))
+            conn.commit()
+            return artifact_ids
+
     def complete_artifact(
         self,
         job_id: str,

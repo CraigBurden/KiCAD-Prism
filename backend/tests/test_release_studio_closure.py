@@ -233,6 +233,48 @@ class ReleaseStudioClosureTests(unittest.TestCase):
                 relative_path="hardware/board",
             )
 
+    def test_a_stock_3d_model_reference_is_non_hermetic_not_a_hard_failure(self) -> None:
+        # Every real KiCad board carries `(model "${KICAD9_3DMODEL_DIR}/...")`
+        # nodes pointing at the stock 3D library, which the pinned executor
+        # image does not ship.  No Stage 1 manufacturing step reads them, so the
+        # closure records the offending path and marks the build non-hermetic
+        # rather than refusing to materialize.
+        self.repo.joinpath("hardware/board/model.step").write_bytes(
+            b"small hydrated STEP payload\n"
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(general (thickness 1.6)) '
+            '(model "${KIPRJMOD}/model.step") '
+            '(model "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step"))\n',
+            encoding="utf-8",
+        )
+        commit = self._commit(self.repo, "stock 3d model reference")
+
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "stock-3d",
+            relative_path="hardware/board",
+        )
+
+        external = closure.external_references
+        self.assertEqual(len(external), 1)
+        self.assertEqual(external[0].source_path, "hardware/board/board.kicad_pcb")
+        self.assertIn("KICAD9_3DMODEL_DIR", external[0].reference)
+        reasons = closure.non_hermetic_reasons()
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("R_0603.step", reasons[0])
+        # The project's own model still resolves into the closure.
+        self.assertIn(
+            "hardware/board/model.step",
+            {
+                reference.resolved_path
+                for reference in closure.library_references
+                if reference.location == "closure"
+            },
+        )
+
     def test_symlink_and_regular_file_are_distinct_closure_inputs(self) -> None:
         repository = self.root / "link-repo"
         self._init_repo(repository)
@@ -384,3 +426,119 @@ class ReleaseStudioClosureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PathReferenceDiscriminationTests(unittest.TestCase):
+    """KiCad text variables are not library paths.
+
+    A real board substitutes built-in *text* variables into field and
+    drawing-sheet content. Treating a bare ``${DNP}`` as a library path failed
+    the closure closed on boards that are perfectly hermetic, which is the
+    worst kind of false negative: it blocks a correct release.
+    """
+
+    def test_builtin_text_variables_are_not_path_references(self) -> None:
+        from app.release_studio.closure import _is_path_reference
+
+        for value in (
+            "${DNP}",
+            "${REFERENCE}",
+            "${VALUE}",
+            "${FOOTPRINT}",
+            "${DATASHEET}",
+            "${ISSUE_DATE}",
+            "${COMMENT1}",
+            "${SHEETNAME}",
+            "${SHEETPATH}",
+            "${PROJECTNAME}",
+            "${DNP} not fitted",
+            # KiCad binds this itself for a special_execute job and it names an
+            # output directory, so it can never resolve into the closure.
+            "${JOBSET_OUTPUT_WORK_PATH}",
+            "${JOBSET_OUTPUT_WORK_PATH}/archive.zip",
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(_is_path_reference(value))
+
+    def test_genuine_path_references_are_still_detected(self) -> None:
+        from app.release_studio.closure import _is_path_reference
+
+        for value in (
+            "${KIPRJMOD}",
+            "${KIPRJMOD}/../../common/footprints",
+            "${KICAD10_FOOTPRINT_DIR}",
+            "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes",
+            "${MY_LIBRARY_PATH}",
+            "some/relative/${VAR}/path",
+        ):
+            with self.subTest(value=value):
+                self.assertTrue(_is_path_reference(value))
+
+    def test_a_board_using_text_variables_still_closes(self) -> None:
+        """End to end: a DNP-annotated board must not be rejected."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            self._init_repo(repo)
+            (repo / "board.kicad_pcb").write_text(
+                '(kicad_pcb (version 20240108)\n'
+                '  (property "Reference" "${REFERENCE}")\n'
+                '  (property "Fitted" "${DNP}")\n'
+                '  (gr_text "Issued ${ISSUE_DATE}")\n'
+                ')\n',
+                encoding="utf-8",
+            )
+            commit = self._commit(repo, "board with text variables")
+
+            closure = materialize_input_closure(repo, commit, root / "out")
+            self.assertTrue(closure.input_closure_digest)
+            self.assertEqual(closure.library_references, ())
+
+    def _init_repo(self, path: Path) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        self._git(path, "init", "--quiet", "--initial-branch=main")
+        self._git(path, "config", "user.name", "Release Studio Fixture")
+        self._git(path, "config", "user.email", "release-studio@example.test")
+
+    def _commit(self, path: Path, message: str) -> str:
+        self._git(path, "add", "--all")
+        self._git(path, "commit", "--quiet", "-m", message)
+        return self._git(path, "rev-parse", "HEAD").strip()
+
+    def _git(self, path: Path, *args: str) -> str:
+        process = subprocess.run(
+            [GIT or "git", "-C", str(path), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            shell=False,
+        )
+        return process.stdout
+
+    def test_a_jobset_special_execute_command_does_not_break_the_closure(self) -> None:
+        """The reference jobset's plugin command must not fail a hermetic board.
+
+        `Outputs.kicad_jobset` invokes InteractiveHtmlBom through
+        `${KICAD9_3RD_PARTY}` inside a `special_execute` command that none of
+        its outputs reference. Those paths belong to the command, not to the
+        project, and R1 already classifies the job by type.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            self._init_repo(repo)
+            (repo / "board.kicad_pcb").write_text("(kicad_pcb (version 20240108))\n")
+            (repo / "Outputs.kicad_jobset").write_text(
+                '{"jobs": [{"id": "x", "type": "special_execute", "settings": '
+                '{"command": "python \\"${KICAD9_3RD_PARTY}plugins/ibom.py\\" '
+                '--dest-dir \\"${JOBSET_OUTPUT_WORK_PATH}.\\""}}], "outputs": []}\n'
+            )
+            commit = self._commit(repo, "jobset with a plugin command")
+
+            closure = materialize_input_closure(repo, commit, root / "out")
+            self.assertTrue(closure.input_closure_digest)
+            self.assertIn(
+                "Outputs.kicad_jobset", {item.path for item in closure.repository_inputs}
+            )

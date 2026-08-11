@@ -36,6 +36,7 @@ from app.release_studio.policy import (
     resolve_policy,
 )
 from app.release_studio.verify import verify_archive_bytes
+from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
 from app.services.job_service import jobs
 
@@ -100,7 +101,7 @@ class ReleaseRequest(BaseModel):
 @router.get("/{project_id}/release-studio/configurations")
 async def list_configurations(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     get_project_for_role_or_404(project_id, user.role)
-    return {"configurations": store.list_configurations(project_id)}
+    return {"configurations": build_service.sync_configurations(project_id)}
 
 
 @router.get("/{project_id}/release-studio/rule-catalogue")
@@ -143,10 +144,10 @@ async def create_candidate(
             "config_key": request.config_key,
             "commit_sha": request.commit_sha,
             "variant": request.variant,
-            "author": user.username,
+            "author": user.email,
         },
         project_id=project_id,
-        requested_by=user.username,
+        requested_by=user.email,
         artifact_key=f"release-studio:{project_id}:{request.config_key}:{request.commit_sha}",
     )
     return {"job": job}
@@ -225,7 +226,7 @@ async def evaluate_build(
     get_project_for_role_or_404(project_id, user.role)
     build = _build_or_404(project_id, build_id)
     candidate = store.get_candidate(build["candidate_id"]) or {}
-    result = _evaluate(project_id, request.config_key, build, candidate, actor=user.username)
+    result = _evaluate(project_id, request.config_key, build, candidate, actor=user.email)
     return {"evaluation": store.latest_evaluation(build_id), "outcome": result.outcome}
 
 
@@ -315,7 +316,7 @@ async def create_waiver(
             rule_id=request.rule_id,
             domain=request.domain,
             reason=request.reason,
-            owner=user.username,
+            owner=user.email,
             subject_pattern=request.subject_pattern,
             finding_key=request.finding_key,
             expires_at=request.expires_at,
@@ -338,7 +339,7 @@ async def transition_waiver(
         raise HTTPException(status_code=400, detail=f"Unknown waiver action: {action}")
     try:
         return store.transition_waiver(
-            waiver_id, status=status, actor=user.username, reason=request.reason
+            waiver_id, status=status, actor=user.email, reason=request.reason
         )
     except store.ReleaseStudioError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -364,11 +365,11 @@ async def create_approval(
             role=request.role,
             domains=request.domains,
             decision=request.decision,
-            approver=user.username,
+            approver=user.email,
             note=request.note,
             exception_kind=request.exception_kind,
             exception_reason=request.exception_reason,
-            reauth_context={"method": "session", "username": user.username},
+            reauth_context={"method": "session", "email": user.email},
         )
     except store.ReleaseStudioError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -395,7 +396,7 @@ async def create_release(
     if evaluation is None:
         raise HTTPException(status_code=400, detail="Build has not been evaluated")
 
-    result = _evaluate(project_id, config_key, build, candidate, actor=user.username)
+    result = _evaluate(project_id, config_key, build, candidate, actor=user.email)
     permitted, reason = release_is_permitted(result)
     if not permitted:
         raise HTTPException(status_code=409, detail=f"Release refused: {reason}")
@@ -430,7 +431,7 @@ async def create_release(
         release_label=request.release_label,
         document_number=request.document_number,
         revision=request.revision,
-        released_by=user.username,
+        released_by=user.email,
         released_at_iso=_now_iso(),
         policy_snapshot={
             "policy_binding_digest": result.policy_binding_digest,
@@ -454,7 +455,7 @@ async def create_release(
     signature = key.sign_hex(attestation["attestation_digest"])
     store.upsert_signing_key(
         key_id=key.key_id, algorithm="ed25519", public_key=key.public_pem,
-        created_by=user.username,
+        created_by=user.email,
     )
     try:
         record = store.create_release_record(
@@ -462,7 +463,7 @@ async def create_release(
             release_label=request.release_label,
             document_number=request.document_number,
             revision=request.revision,
-            released_by=user.username,
+            released_by=user.email,
             attestation=attestation,
             signature=signature,
             signing_key_id=key.key_id,
@@ -548,6 +549,22 @@ async def verify_audit(
 @public_router.get("/api/release-studio/signing-keys")
 async def signing_keys():
     """Public key material only. Superseded keys stay listed so old releases verify."""
+
+    # Publish the configured key as soon as it is readable, not only once the
+    # first release is issued: a recipient must be able to pin the key before
+    # there is anything signed with it, and an operator needs to see that the
+    # deployment is actually configured to sign.
+    try:
+        configured = load_signing_key()
+    except Exception:  # noqa: BLE001 - an unconfigured deployment lists nothing
+        configured = None
+    if configured is not None:
+        store.upsert_signing_key(
+            key_id=configured.key_id,
+            algorithm="ed25519",
+            public_key=configured.public_pem,
+            created_by="",
+        )
 
     return {
         "keys": [

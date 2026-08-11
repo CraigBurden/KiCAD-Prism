@@ -35,8 +35,20 @@ _URI_RE = re.compile(
     re.IGNORECASE,
 )
 _QUOTED_RE = re.compile(r'"((?:\\.|[^"\\])*)"')
+# Variables the executor binds at run time rather than the project supplying.
+# `JOBSET_OUTPUT_WORK_PATH` is KiCad's temporary output directory for a
+# `special_execute` job (pinned source `common/jobs/job_special_execute.h:26`);
+# it names an output, never an input, so it cannot resolve into the closure.
+_TOOL_PROVIDED_VARIABLES = frozenset({"JOBSET_OUTPUT_WORK_PATH"})
+
+# `.kicad_jobset` is deliberately absent.  A jobset's variables name *outputs*
+# and a `special_execute` job carries an arbitrary command line whose paths are
+# that command's own concern, not project inputs -- the reference jobset invokes
+# a plugin via `${KICAD9_3RD_PARTY}`, which is neither a project library nor
+# something the closure could contain.  Scraping it here would fail a build that
+# is hermetic: jobset hermeticity is judged by R1 over each output's *selected*
+# closure, which is where an executed command is correctly classified.
 _PATH_INPUT_SUFFIXES = {
-    ".kicad_jobset",
     ".kicad_pcb",
     ".kicad_pro",
     ".kicad_sch",
@@ -218,6 +230,28 @@ class InputClosure:
         """Compatibility spelling for consumers that call the record's digest."""
 
         return self.input_closure_digest
+
+    @property
+    def external_references(self) -> tuple[ResolvedLibraryPath, ...]:
+        """References that resolved to neither the closure nor the toolchain."""
+
+        return tuple(
+            reference
+            for reference in self.library_references
+            if reference.location == "external"
+        )
+
+    def non_hermetic_reasons(self) -> list[str]:
+        """One reason per external reference, naming the offending input path."""
+
+        return [
+            f"{reference.source_path}: {reference.reference} resolves outside "
+            "the release closure and the pinned toolchain"
+            for reference in sorted(
+                self.external_references,
+                key=lambda item: (item.source_path, item.reference),
+            )
+        ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -805,7 +839,28 @@ def _resolve_project_paths(
                     references.append((item.path, value, "project_path"))
 
     deduped = sorted(set(references), key=lambda item: item)
-    resolved = [resolver.resolve(source, reference, kind) for source, reference, kind in deduped]
+    resolved: list[ResolvedLibraryPath] = []
+    for source, reference, kind in deduped:
+        try:
+            resolved.append(resolver.resolve(source, reference, kind))
+        except ExternalPathError:
+            # A library table names a library the tools will certainly load, so
+            # a host-resolved entry stays a hard failure.  A `${VAR}` path
+            # embedded in board or project content need not be a build input at
+            # all -- a `(model ...)` node names a 3D asset no Stage 1 step
+            # reads -- so per the hermeticity definition it is *recorded* with
+            # the offending path and marks the build non-hermetic rather than
+            # refusing a closure the manufacturing outputs do not depend on.
+            if kind != "project_path":
+                raise
+            resolved.append(
+                ResolvedLibraryPath(
+                    source_path=source,
+                    reference=reference,
+                    resolved_path="",
+                    location="external",
+                )
+            )
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)
 
 
@@ -940,9 +995,39 @@ def _is_path_input(path: str) -> bool:
 
 
 def _is_path_reference(value: str) -> bool:
-    return bool(_VARIABLE_RE.search(value)) and (
-        "/" in value or "\\" in value or value.startswith("${")
-    )
+    """Does this substituted value name a filesystem path?
+
+    A bare ``${VAR}`` is not enough.  KiCad substitutes built-in *text*
+    variables into ordinary field and drawing-sheet content -- ``${DNP}``,
+    ``${REFERENCE}``, ``${VALUE}``, ``${ISSUE_DATE}`` and friends -- and
+    treating those as library paths fails a build closed on a board that is
+    perfectly hermetic.  A real path either carries a separator
+    (``${KIPRJMOD}/../common``) or names a path variable outright.
+
+    Library-table ``(uri ...)`` values do not come through here; they are
+    already known to be paths and are resolved unconditionally.
+    """
+
+    if not _VARIABLE_RE.search(value):
+        return False
+    if any(
+        match.group(1).upper() in _TOOL_PROVIDED_VARIABLES
+        for match in _VARIABLE_RE.finditer(value)
+    ):
+        # KiCad binds these itself at run time and they name *outputs*, so they
+        # are not closure inputs and must not fail resolution.
+        return False
+    if "/" in value or "\\" in value:
+        return True
+    match = _VARIABLE_RE.fullmatch(value.strip())
+    return match is not None and _is_path_variable(match.group(1))
+
+
+def _is_path_variable(name: str) -> bool:
+    """KiCad's path variables are ``KIPRJMOD`` and the ``*_DIR`` family."""
+
+    upper = name.upper()
+    return upper == "KIPRJMOD" or upper.endswith("_DIR") or upper.endswith("_PATH")
 
 
 def _read_materialized_text(destination: Path, relative_path: str) -> str:

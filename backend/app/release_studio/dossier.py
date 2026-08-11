@@ -10,6 +10,7 @@ invalidate an approval without pretending the build changed.  It is enforced by
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -48,17 +49,23 @@ FORBIDDEN_MANIFEST_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# The Protel extension set is KiCad's own, transcribed from the pinned 10.0.4
+# source (`pcbnew/pcbplot.cpp:44` `GetGerberProtelExtension`).  A jobset that
+# enables Protel filename extensions emits these instead of `.gbr`, and a
+# missing one fails the build at canonicalization rather than at plot time.
 _SUFFIX_CANONICALIZERS: Mapping[str, str] = {
     ".gbr": "gerber",
-    ".gbl": "gerber",
-    ".gbo": "gerber",
-    ".gbp": "gerber",
-    ".gbs": "gerber",
-    ".gtl": "gerber",
-    ".gto": "gerber",
-    ".gtp": "gerber",
-    ".gts": "gerber",
-    ".gm1": "gerber",
+    ".gtl": "gerber",  # F_Cu
+    ".gbl": "gerber",  # B_Cu
+    ".gta": "gerber",  # F_Adhes
+    ".gba": "gerber",  # B_Adhes
+    ".gto": "gerber",  # F_SilkS
+    ".gbo": "gerber",  # B_SilkS
+    ".gts": "gerber",  # F_Mask
+    ".gbs": "gerber",  # B_Mask
+    ".gtp": "gerber",  # F_Paste
+    ".gbp": "gerber",  # B_Paste
+    ".gm1": "gerber",  # Edge_Cuts
     ".gbrjob": "gbrjob",
     ".drl": "excellon",
     ".csv": "csv",
@@ -67,6 +74,10 @@ _SUFFIX_CANONICALIZERS: Mapping[str, str] = {
     ".step": "step",
     ".stp": "step",
 }
+
+# Inner copper has no fixed extension: KiCad emits `g` + the copper layer's
+# ordinal (`pcbplot.cpp:53`), so a four-layer board yields `.g1`/`.g2`.
+_INNER_COPPER_SUFFIX = re.compile(r"^\.g[0-9]+$")
 
 _MEDIA_TYPES: Mapping[str, str] = {
     "gerber": "application/vnd.gerber",
@@ -132,6 +143,8 @@ def canonicalizer_for(relative_path: str, spec_canonicalizer: str) -> str:
         return spec_canonicalizer
     suffix = Path(relative_path).suffix.lower()
     resolved = _SUFFIX_CANONICALIZERS.get(suffix)
+    if resolved is None and _INNER_COPPER_SUFFIX.match(suffix):
+        resolved = "gerber"
     if resolved is None:
         raise DossierError(
             f"no canonicalizer registered for {relative_path!r}; add one to the "
