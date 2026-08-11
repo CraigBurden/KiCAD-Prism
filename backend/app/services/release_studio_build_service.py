@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import logging
 import shutil
+import subprocess
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from app.release_studio import dossier as dossier_module
 from app.release_studio.canonical import (
@@ -35,7 +36,13 @@ from app.release_studio.jobset import (
     classify_output_hermetic,
     load_jobset,
 )
-from app.release_studio.steps import StepExecutionError, resolve_cli_path, run_step_catalogue
+from app.release_studio.steps import (
+    DOCUMENT_STEP_SPEC,
+    StepExecutionError,
+    StepOutput,
+    resolve_cli_path,
+    run_step_catalogue,
+)
 from app.services import release_studio_service as store
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_runtime import JobContext, JobResult
@@ -67,18 +74,24 @@ def executor_image() -> str:
 def toolchain_identity(cli_version: str = "") -> tuple[dict[str, Any], str]:
     """Return the human-readable toolchain record and its hashed identity."""
 
+    from app.release_studio.documents import RENDERER_VERSION
+
     image = executor_image()
     record = {
         "kicad_version": cli_version or "10.0.4",
         "executor_image": image,
         "generator_build": GENERATOR_BUILD,
         "canonicalizer_registry": f"{CANONICALIZER_REGISTRY_NAME}/{CANONICALIZER_REGISTRY_VERSION}",
+        "renderer": RENDERER_VERSION,
     }
     digest = sha256_canonical(
         {
             "executor_image_digest": image,
             "generator_build": GENERATOR_BUILD,
             "canonicalizer_registry_version": CANONICALIZER_REGISTRY_VERSION,
+            # The renderer is part of the toolchain identity: a change that
+            # alters composed sheets for unchanged input must move the build key.
+            "renderer_version": RENDERER_VERSION,
         }
     )
     return record, digest
@@ -296,6 +309,17 @@ def execute_build(
             cli_path=cli_path,
             progress=lambda **kwargs: context.progress(**kwargs),
         )
+        context.progress(stage="documents", message="Composing documentation", percent=70)
+        outputs = _with_documents(
+            outputs,
+            closure_root=closure_root,
+            config=config,
+            candidate=candidate,
+            output_root=output_root,
+            cli_path=cli_path,
+            staging=context.staging_dir,
+        )
+
         context.progress(stage="package", message="Canonicalizing and packaging", percent=75)
 
         toolchain, toolchain_digest = toolchain_identity()
@@ -362,6 +386,163 @@ def execute_build(
     except Exception as exc:  # noqa: BLE001 - the build row must not stay running
         store.fail_build(build["id"], error_code="build_failed", error_message=str(exc))
         raise
+
+
+def _with_documents(
+    outputs: Sequence[StepOutput],
+    *,
+    closure_root: Path,
+    config: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    output_root: Path,
+    cli_path: str | None,
+    staging: Path,
+) -> list[StepOutput]:
+    """Compose the Stage 2 sheets and append them as a member-producing step.
+
+    The Documentation Engine is a member producer: it adds files under the
+    ``documentation`` domain and changes nothing else.  A failure here degrades
+    the document set rather than the build -- the manufacturing outputs are
+    already produced and are what the release is fundamentally about.
+    """
+
+    from app.release_studio.documents import compose
+    from app.release_studio.projections import (
+        project_board_stats_file,
+        project_stackup,
+        project_variants,
+    )
+
+    board_rel = str(config.get("board") or "")
+    board = closure_root / board_rel if board_rel else None
+
+    def _project(label: str, fn, default):
+        """Run one projection; a failure costs that table, not the sheet set."""
+
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Release Studio projection %s unavailable: %s", label, exc)
+            return default
+
+    try:
+        stats_file = output_root / "fabrication/board-stats.json"
+        stats = (
+            _project("board_stats", lambda: project_board_stats_file(stats_file), {})
+            if stats_file.is_file()
+            else {}
+        )
+
+        stackup: dict[str, Any] = {}
+        variants: dict[str, Any] = {}
+        if board is not None and board.is_file():
+            stackup = _project("stackup", lambda: project_stackup(board), {})
+            # Schematic variants live in the *project* file, not the schematic:
+            # `schematic_settings.cpp:266` reads them from `.kicad_pro`.
+            project_file = board.with_suffix(".kicad_pro")
+            variants = _project(
+                "variants",
+                lambda: project_variants(
+                    board, project_file if project_file.is_file() else None
+                ),
+                {},
+            )
+
+        placements = _placements(output_root / "assembly/positions.csv")
+
+        # The cover lists the members produced so far; it cannot list itself.
+        existing = dossier_module.build_members(list(outputs))
+        member_rows = [
+            {
+                "path": member.path,
+                "canonicalizer": member.canonicalizer,
+                "released_digest": member.released_digest,
+            }
+            for member in existing
+        ]
+
+        document_set = compose(
+            context={
+                "title": str(config.get("title") or config.get("document_number") or "RELEASE"),
+                "document_number": str(config.get("document_number") or ""),
+                "revision": str(config.get("revision") or ""),
+                "commit_sha": str(candidate.get("commit_sha") or ""),
+                "variant": str(candidate.get("variant") or ""),
+                "commit_date": _commit_date(closure_root, str(candidate.get("commit_sha") or "")),
+            },
+            stats=stats,
+            stackup=stackup,
+            variants=variants,
+            placements=placements,
+            members=member_rows,
+            board=board if board and board.is_file() else None,
+            cli_path=cli_path,
+            workdir=staging / "artwork",
+        )
+    except Exception:  # noqa: BLE001
+        # `exception` not `warning`: without the traceback a vanished document
+        # set looks identical to one that was never configured.
+        logger.exception("Documentation Engine produced no sheets")
+        return list(outputs)
+
+    for warning in document_set.warnings:
+        logger.warning("Documentation Engine: %s", warning)
+
+    written: list[Path] = []
+    for relative, payload in sorted(document_set.files().items()):
+        target = output_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+        written.append(target)
+
+    if not written:
+        return list(outputs)
+
+    return [
+        *outputs,
+        StepOutput(
+            step_id=DOCUMENT_STEP_SPEC.step_id,
+            step_type=DOCUMENT_STEP_SPEC.step_type,
+            normalized_argv=("prism", "compose", "documents"),
+            returncode=0,
+            files=tuple(written),
+            root=output_root,
+            spec=DOCUMENT_STEP_SPEC,
+        ),
+    ]
+
+
+def _placements(positions_csv: Path) -> list[dict[str, Any]]:
+    """Read side information out of the position file, if one was produced."""
+
+    if not positions_csv.is_file():
+        return []
+    import csv
+
+    rows: list[dict[str, Any]] = []
+    try:
+        text = positions_csv.read_text(encoding="utf-8", errors="replace")
+        for row in csv.DictReader(text.splitlines()):
+            side = (row.get("Side") or row.get("side") or "").strip().lower()
+            rows.append({"side": side, "ref": (row.get("Ref") or row.get("ref") or "").strip()})
+    except Exception:  # noqa: BLE001 - the sheet degrades to a zero count
+        return []
+    return rows
+
+
+def _commit_date(repo_root: Path, commit: str) -> str:
+    """The commit's author date -- a property of the revision, not of the render."""
+
+    if not commit:
+        return ""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "show", "-s", "--format=%as", commit],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError:
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 def _publish(

@@ -604,16 +604,40 @@ class ReleaseStudioGeneratedSemanticTests(unittest.TestCase):
         self.assertIsNone(_VOLATILE_TIMESTAMP.search(cleaned_text))
         self.assertIn("TF.GenerationSoftware", cleaned_text)
 
-    def test_gbrjob_removes_only_general_specs_creation_date(self) -> None:
+    def test_gbrjob_removes_the_creation_date_wherever_kicad_writes_it(self) -> None:
+        """KiCad puts it in ``Header``, not ``GeneralSpecs``.
+
+        The earlier version of this test asserted only the ``GeneralSpecs``
+        location, so it passed against a real job file whose date sat in
+        ``Header`` and survived -- which made every build of every board
+        irreproducible on that one member.
+        """
+
         raw_payload = json.loads(self.samples["gbrjob"].read_bytes())
+        # The fixture is a real generated file; confirm the premise rather than
+        # assuming it, so a future KiCad move is caught here.
+        self.assertIn("CreationDate", raw_payload.get("Header", {}))
+
         cleaned_payload = json.loads(canonicalize("gbrjob", json.dumps(raw_payload).encode()))
+
         expected = copy.deepcopy(raw_payload)
-        general = expected.get("GeneralSpecs")
-        self.assertIsInstance(general, dict)
-        if isinstance(general, dict):
-            general.pop("CreationDate", None)
+        for section in ("Header", "GeneralSpecs"):
+            if isinstance(expected.get(section), dict):
+                expected[section].pop("CreationDate", None)
         self.assertEqual(cleaned_payload, expected)
-        self.assertNotIn("CreationDate", cleaned_payload.get("GeneralSpecs", {}))
+
+        # Nothing volatile anywhere; provenance retained.
+        self.assertNotIn("CreationDate", json.dumps(cleaned_payload))
+        self.assertIn("GenerationSoftware", cleaned_payload.get("Header", {}))
+
+    def test_gbrjob_canonicalization_is_stable_across_plot_times(self) -> None:
+        raw_payload = json.loads(self.samples["gbrjob"].read_bytes())
+        later = copy.deepcopy(raw_payload)
+        later.setdefault("Header", {})["CreationDate"] = "2099-01-01T00:00:00+00:00"
+
+        first = canonicalize("gbrjob", json.dumps(raw_payload).encode())
+        second = canonicalize("gbrjob", json.dumps(later).encode())
+        self.assertEqual(first, second)
 
     def test_excellon_removes_header_metadata_only_and_preserves_tool_holes(self) -> None:
         raw = self.samples["excellon"].read_bytes()

@@ -188,6 +188,25 @@ STEP_CATALOGUE: tuple[StepSpec, ...] = (
 
 STEP_BY_ID: Mapping[str, StepSpec] = {spec.step_id: spec for spec in STEP_CATALOGUE}
 
+# The Documentation Engine's sheets, deliberately *outside* `STEP_CATALOGUE`:
+# they are composed in-process rather than by a `kicad-cli` invocation, so they
+# have no step type in KiCad's job registry and `run_step_catalogue` must not
+# try to execute them. The spec exists so composed sheets travel through the
+# same member pipeline as everything else, with the canonicalizer resolved per
+# file by suffix.
+DOCUMENT_STEP_SPEC = StepSpec(
+    step_id="documents",
+    step_type="prism_compose_documents",
+    argv=(),
+    source="board",
+    output_kind="dir",
+    output_name="documentation",
+    member_kind="document_sheet",
+    canonicalizer="",
+    domains=("documentation",),
+    optional=True,
+)
+
 # Which steps produce release evidence rather than shipped artwork.
 EVIDENCE_STEPS: Mapping[str, str] = {"drc": "drc", "erc": "erc"}
 

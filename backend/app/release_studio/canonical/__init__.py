@@ -25,7 +25,9 @@ Canonicalizer = Callable[[bytes], bytes]
 # This identifier is part of toolchain identity.  Bump it when the byte
 # contract changes, even when the Python API remains source-compatible.
 CANONICALIZER_REGISTRY_NAME = "release-studio"
-CANONICALIZER_REGISTRY_VERSION = "r4.2"
+# r4.3: `.gbrjob` creation dates are under `Header`, not `GeneralSpecs`, so the
+# previous version left every job file volatile and no build was reproducible.
+CANONICALIZER_REGISTRY_VERSION = "r4.3"
 CANONICALIZER_VERSION = "1"
 
 STEP_FILE_NAME_SENTINEL = "PRISM-RELEASE-STUDIO"
@@ -118,16 +120,24 @@ def canonicalize_gerber(data: bytes) -> bytes:
 
 
 def canonicalize_gbrjob(data: bytes) -> bytes:
-    """Drop exactly ``GeneralSpecs.CreationDate`` from a Gerber job file."""
+    """Drop the creation timestamp from a Gerber job file.
+
+    KiCad writes it as ``Header.CreationDate`` -- verified against the pinned
+    10.0.4 output, where ``Header`` also carries ``GenerationSoftware``, which
+    is retained because it is provenance rather than volatile metadata.
+    ``GeneralSpecs`` is checked too so a file from another writer that puts the
+    date there is still normalized.
+    """
 
     payload = _json_object(data, "Gerber job")
-    general = payload.get("GeneralSpecs")
-    if isinstance(general, dict) and "CreationDate" in general:
-        updated_general = dict(general)
-        del updated_general["CreationDate"]
-        payload = dict(payload)
-        payload["GeneralSpecs"] = updated_general
-    return _canonical_json_file(payload)
+    cleaned = dict(payload)
+    for section in ("Header", "GeneralSpecs"):
+        block = cleaned.get(section)
+        if isinstance(block, dict) and "CreationDate" in block:
+            updated = dict(block)
+            del updated["CreationDate"]
+            cleaned[section] = updated
+    return _canonical_json_file(cleaned)
 
 
 def canonicalize_excellon(data: bytes) -> bytes:

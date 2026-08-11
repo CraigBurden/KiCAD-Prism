@@ -25,6 +25,36 @@ from app.release_studio.dossier import GOVERNED_DOMAINS
 from app.services.postgres_database import database
 from app.services.workspace_schema_migrations import apply_workspace_migrations
 
+SELF_APPROVAL_BYPASS_REASON = "two-person rule bypassed by deployment configuration"
+
+
+def self_approval_bypassed() -> bool:
+    """May one identity both raise and approve, with no second person?
+
+    Automatic when authentication is off, because there is then exactly one
+    identity in the entire deployment and the two-person rule is not merely
+    inconvenient but unsatisfiable.  ``PRISM_RELEASE_ALLOW_SELF_APPROVAL``
+    forces it on for an authenticated deployment that has made that call
+    deliberately.
+
+    The bypass changes who may approve; it never changes what is recorded.  A
+    self-approval taken under it is still written to the row and to the
+    hash-chained audit trail as a ``self_approval`` exception, so a reader can
+    always tell that no second person was involved.
+    """
+
+    import os
+
+    flag = os.environ.get("PRISM_RELEASE_ALLOW_SELF_APPROVAL", "").strip().casefold()
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    if flag in {"0", "false", "no", "off"}:
+        return False
+
+    from app.core.config import settings
+
+    return not settings.AUTH_ENABLED
+
 CANDIDATE_STATUSES = ("draft", "building", "built", "failed", "superseded", "frozen")
 APPROVAL_DECISIONS = ("approved", "rejected", "changes_requested")
 EXCEPTION_KINDS = ("self_approval", "emergency", "self_approval_and_emergency")
@@ -927,9 +957,11 @@ def transition_waiver(
             raise ReleaseStudioError("waiver not found")
         if status == "approved":
             own = str(row["owner"]).casefold() == actor.casefold()
-            # The two-person rule stands. Approving one's own waiver is possible
-            # only as a named exception with a written reason, on the same terms
-            # `ws_release_approvals` already imposes -- never a quiet bypass.
+            if own and exception_kind != "self_approval" and self_approval_bypassed():
+                # Still recorded as an exception: the bypass decides who may
+                # approve, not what the trail says happened.
+                exception_kind = "self_approval"
+                exception_reason = SELF_APPROVAL_BYPASS_REASON
             if own and exception_kind != "self_approval":
                 raise ReleaseStudioError(
                     "a waiver cannot be approved by its own owner without an "
@@ -1089,11 +1121,15 @@ def create_approval(
         if missing:
             raise ReleaseStudioError(f"build has no fingerprint for domain(s) {missing}")
 
-        if (
+        is_self = (
             str(candidate["created_by"] or "").casefold() == approver.casefold()
             and decision == "approved"
             and not (exception_kind and "self_approval" in exception_kind)
-        ):
+        )
+        if is_self and self_approval_bypassed():
+            exception_kind = "self_approval"
+            exception_reason = exception_reason or SELF_APPROVAL_BYPASS_REASON
+        elif is_self:
             raise ReleaseStudioError(
                 "two-person approval required: the candidate author cannot approve it "
                 "without an audited self-approval exception"
@@ -1481,6 +1517,7 @@ __all__ = [
     "list_waivers",
     "record_evaluation",
     "set_candidate_status",
+    "self_approval_bypassed",
     "start_build",
     "transition_waiver",
     "upsert_configuration",

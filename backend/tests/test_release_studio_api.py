@@ -112,6 +112,12 @@ class ReleaseStudioApiTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+        # Pin the self-approval bypass off: it defaults to on wherever auth is
+        # off, which would make the two-person assertions below vacuous.
+        bypass = patch.dict(os.environ, {"PRISM_RELEASE_ALLOW_SELF_APPROVAL": "0"})
+        bypass.start()
+        self.addCleanup(bypass.stop)
+
         self.user = _User("quality")
         self.project_id = "proj-1"
 

@@ -1,0 +1,380 @@
+"""Board artwork acquisition and placement (D3).
+
+Prism never re-implements KiCad's plotter.  Artwork is acquired by running
+``kicad-cli`` and then *placed*: the SVG backend inlines the emitted geometry
+inside a transformed group, and the PDF backend composites KiCad's own PDF page
+onto the composed sheet with pikepdf.  In both cases the geometry that reaches
+the released drawing is exactly the geometry KiCad produced.
+
+The scale contract is explicit and testable.  ``kicad-cli pcb export svg``
+emits a user-unit-per-millimetre document, so a placement at scale *s* means
+one board millimetre occupies *s* sheet millimetres; a sheet claiming 1:1 must
+measure 50.000 mm across a 50.000 mm board feature.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import re
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Sequence
+
+from app.release_studio.documents.layout import Artwork, Rect
+
+_SVG_OPEN = re.compile(r"<svg\b[^>]*>", re.IGNORECASE | re.DOTALL)
+_SVG_CLOSE = re.compile(r"</svg\s*>\s*$", re.IGNORECASE)
+
+# `kicad-cli pcb export svg` writes
+#   <title>SVG Image created as board.svg date 2026-08-11T17:09:53 </title>
+# which carries both the output filename and the plot time. Inlining that into
+# a composed sheet makes the sheet vary per build, and hashing it makes the
+# clip-path id vary too -- so it is removed at acquisition rather than left for
+# a downstream canonicalizer to catch in a nested position.
+_KICAD_TITLE = re.compile(
+    r"<title>\s*SVG Image created as\b.*?</title>", re.IGNORECASE | re.DOTALL
+)
+_DATED_COMMENT = re.compile(
+    r"<!--(?:(?!-->).)*?(?:date|created|generated|timestamp)(?:(?!-->).)*-->",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def sanitize_artwork_pdf(payload: bytes) -> bytes:
+    """Strip plot-time metadata from an acquired artwork PDF.
+
+    KiCad writes ``/Producer (KiCad PDF)`` and ``/CreationDate``; with those
+    removed its output is byte-identical across runs, which is what lets a
+    composed sheet carrying that artwork have a stable released digest.
+    """
+
+    import pikepdf
+
+    try:
+        with pikepdf.open(io.BytesIO(payload)) as document:
+            for key in list(document.docinfo.keys()):
+                del document.docinfo[key]
+            with document.open_metadata(set_pikepdf_as_editor=False) as meta:
+                meta.clear()
+            out = io.BytesIO()
+            document.save(out, deterministic_id=True, linearize=False)
+            return out.getvalue()
+    except Exception:  # noqa: BLE001 - an unreadable overlay is handled upstream
+        return payload
+
+
+def sanitize_artwork(svg_text: str) -> str:
+    """Remove plot-time metadata from acquired artwork.
+
+    Semantically null by construction: it deletes a title and comments, never
+    geometry, so the placed drawing is the same drawing.
+    """
+
+    cleaned = _KICAD_TITLE.sub("", svg_text)
+    return _DATED_COMMENT.sub("", cleaned)
+_VIEWBOX = re.compile(r'viewBox\s*=\s*"([^"]+)"', re.IGNORECASE)
+_WIDTH = re.compile(r'\bwidth\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
+_HEIGHT = re.compile(r'\bheight\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
+
+# `kicad-cli pcb export svg` writes user units per millimetre; anything else
+# would make the scale contract below wrong, so it is asserted, not assumed.
+_UNIT_TO_MM = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72.0, "": 1.0}
+
+
+class ArtworkError(RuntimeError):
+    """Artwork could not be acquired or understood."""
+
+
+@dataclass(frozen=True, slots=True)
+class AcquiredArtwork:
+    """One plotted view of the board, with the geometry needed to place it."""
+
+    layers: tuple[str, ...]
+    svg_text: str
+    pdf_bytes: bytes
+    #: The artwork's own extents in millimetres.
+    view_x: float
+    view_y: float
+    view_width: float
+    view_height: float
+    digest: str
+
+    @property
+    def body(self) -> str:
+        """The artwork's contents with its own ``<svg>`` wrapper removed."""
+
+        opened = _SVG_OPEN.search(self.svg_text)
+        if opened is None:
+            raise ArtworkError("acquired artwork is not an SVG document")
+        inner = self.svg_text[opened.end():]
+        return _SVG_CLOSE.sub("", inner).strip()
+
+
+def acquire(
+    cli_path: str,
+    board: Path,
+    layers: Sequence[str],
+    workdir: Path,
+    *,
+    variant: str = "",
+    black_and_white: bool = True,
+    runner=subprocess.run,
+) -> AcquiredArtwork:
+    """Plot *layers* of *board* to SVG and PDF via ``kicad-cli``.
+
+    Both formats come from the same invocation set so the SVG placed in an SVG
+    sheet and the PDF composited into a PDF sheet show the same geometry.
+    ``--exclude-drawing-sheet`` matters: the composed sheet supplies its own
+    frame, and KiCad's would collide with it.
+    """
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    stem = "-".join(layer.replace(".", "_") for layer in layers) or "board"
+    svg_path = workdir / f"{stem}.svg"
+    pdf_path = workdir / f"{stem}.pdf"
+
+    for fmt, out in (("svg", svg_path), ("pdf", pdf_path)):
+        argv = [
+            cli_path, "pcb", "export", fmt,
+            "--layers", ",".join(layers),
+            # `--mode-single` makes `--output` a file rather than a directory.
+            "--mode-single",
+            "--output", str(out),
+        ]
+        if fmt == "svg":
+            # Verified against the pinned 10.0.4 CLI: `pcb export svg` takes
+            # `--exclude-drawing-sheet` and `--page-size-mode`, while
+            # `pcb export pdf` takes neither and omits the border by default.
+            # There is no `--svgprecision` on `pcb export` at all -- that flag
+            # belongs to the schematic exporter.
+            argv.extend(["--exclude-drawing-sheet", "--page-size-mode", "2"])
+        if black_and_white:
+            argv.append("--black-and-white")
+        if variant:
+            argv.extend(["--variant", variant])
+        argv.append(str(board))
+
+        result = runner(argv, capture_output=True, text=True)
+        if getattr(result, "returncode", 1) != 0:
+            # kicad-cli reports argument errors on stdout, so a stderr-only
+            # message would be empty exactly when it is most needed.
+            detail = " ".join(
+                part.strip()
+                for part in (
+                    getattr(result, "stderr", "") or "",
+                    getattr(result, "stdout", "") or "",
+                )
+                if part and part.strip()
+            )
+            raise ArtworkError(
+                f"kicad-cli pcb export {fmt} failed for layers {','.join(layers)}: "
+                f"{detail[:400]}"
+            )
+        if not out.is_file():
+            raise ArtworkError(f"kicad-cli produced no {fmt} for layers {','.join(layers)}")
+
+    svg_text = sanitize_artwork(svg_path.read_text(encoding="utf-8"))
+    pdf_bytes = sanitize_artwork_pdf(pdf_path.read_bytes())
+    x, y, width, height = extents(svg_text)
+    return AcquiredArtwork(
+        layers=tuple(layers),
+        svg_text=svg_text,
+        pdf_bytes=pdf_bytes,
+        view_x=x,
+        view_y=y,
+        view_width=width,
+        view_height=height,
+        # Hashed *after* sanitizing: this digest becomes the clip-path id in the
+        # composed sheet, so a volatile input here would move the sheet even
+        # when the geometry is identical.
+        digest=hashlib.sha256(svg_text.encode("utf-8")).hexdigest(),
+    )
+
+
+def extents(svg_text: str) -> tuple[float, float, float, float]:
+    """Return the artwork's ``(x, y, width, height)`` in millimetres.
+
+    The viewBox gives the user-unit extents and the ``width``/``height``
+    attributes give the same extents in real units; their ratio is the
+    user-units-per-millimetre factor.  Reading both is what makes the scale
+    contract checkable rather than assumed.
+    """
+
+    opened = _SVG_OPEN.search(svg_text)
+    if opened is None:
+        raise ArtworkError("artwork is not an SVG document")
+    header = opened.group(0)
+
+    box = _VIEWBOX.search(header)
+    if box is None:
+        raise ArtworkError("artwork has no viewBox and cannot be placed")
+    try:
+        vx, vy, vw, vh = (float(part) for part in box.group(1).replace(",", " ").split())
+    except ValueError as exc:
+        raise ArtworkError(f"artwork viewBox is unreadable: {box.group(1)!r}") from exc
+    if vw <= 0 or vh <= 0:
+        raise ArtworkError("artwork viewBox has no area")
+
+    width_attr = _WIDTH.search(header)
+    height_attr = _HEIGHT.search(header)
+    if width_attr is None or height_attr is None:
+        # No physical size to check against; the viewBox is then taken as
+        # millimetres, which is what kicad-cli emits.
+        return vx, vy, vw, vh
+
+    width_mm = float(width_attr.group(1)) * _UNIT_TO_MM.get(width_attr.group(2).lower(), 1.0)
+    height_mm = float(height_attr.group(1)) * _UNIT_TO_MM.get(height_attr.group(2).lower(), 1.0)
+    if width_mm <= 0 or height_mm <= 0:
+        raise ArtworkError("artwork declares a non-positive physical size")
+
+    # Report extents in millimetres so callers reason in one unit only.
+    return vx * width_mm / vw, vy * height_mm / vh, width_mm, height_mm
+
+
+def user_units_per_mm(svg_text: str) -> float:
+    """How many artwork user units make one millimetre."""
+
+    opened = _SVG_OPEN.search(svg_text)
+    if opened is None:
+        raise ArtworkError("artwork is not an SVG document")
+    header = opened.group(0)
+    box = _VIEWBOX.search(header)
+    width_attr = _WIDTH.search(header)
+    if box is None or width_attr is None:
+        return 1.0
+    _vx, _vy, vw, _vh = (float(part) for part in box.group(1).replace(",", " ").split())
+    width_mm = float(width_attr.group(1)) * _UNIT_TO_MM.get(width_attr.group(2).lower(), 1.0)
+    if width_mm <= 0:
+        raise ArtworkError("artwork declares a non-positive width")
+    return vw / width_mm
+
+
+def place(
+    art: AcquiredArtwork,
+    window: Rect,
+    *,
+    scale: float | None = None,
+    label: str = "",
+) -> tuple[Artwork, float]:
+    """Place *art* inside *window*, returning the element and the scale used.
+
+    With ``scale`` given, the placement is at exactly that ratio and the caller
+    is responsible for the artwork fitting -- a drawing labelled 1:1 must be
+    1:1 even if that means it overruns.  With ``scale`` omitted, the largest
+    ratio that fits is chosen and reported back so the sheet can state it.
+    """
+
+    if art.view_width <= 0 or art.view_height <= 0:
+        raise ArtworkError("artwork has no extent to place")
+
+    if scale is None:
+        scale = min(window.width / art.view_width, window.height / art.view_height)
+    if scale <= 0:
+        raise ArtworkError(f"invalid artwork scale: {scale}")
+
+    # Centre the artwork in its window, then undo the artwork's own origin.
+    drawn_width = art.view_width * scale
+    drawn_height = art.view_height * scale
+    left = window.x + (window.width - drawn_width) / 2
+    top = window.y + (window.height - drawn_height) / 2
+
+    units = user_units_per_mm(art.svg_text)
+    # `scale` is sheet-mm per board-mm; the group transform works in the
+    # artwork's user units, so convert once here.
+    group_scale = scale / units
+    return (
+        Artwork(
+            rect=window,
+            scale=group_scale,
+            offset_x=left - art.view_x * scale,
+            offset_y=top - art.view_y * scale,
+            source_digest=art.digest,
+            svg_body=art.body,
+            label=label,
+        ),
+        scale,
+    )
+
+
+def scale_label(scale: float) -> str:
+    """Render a placement ratio the way a drawing states it."""
+
+    def trim(value: float) -> str:
+        text = f"{value:.3f}".rstrip("0").rstrip(".")
+        return text or "0"
+
+    if abs(scale - 1.0) < 1e-9:
+        return "1:1"
+    if scale > 1.0:
+        return f"{trim(scale)}:1"
+    return f"1:{trim(1 / scale)}"
+
+
+def composite_pdf(sheet_pdf: bytes, art: AcquiredArtwork, window: Rect, scale: float) -> bytes:
+    """Stamp KiCad's own artwork PDF onto a composed sheet page.
+
+    Keeping the artwork as a composited PDF page rather than re-drawing it
+    preserves KiCad's geometry exactly, which is the same guarantee the SVG
+    path gives by inlining the emitted markup.
+    """
+
+    import pikepdf
+
+    from app.release_studio.documents.pdf import MM_TO_PT
+
+    with pikepdf.open(io.BytesIO(sheet_pdf)) as base, pikepdf.open(
+        io.BytesIO(art.pdf_bytes)
+    ) as overlay:
+        if len(overlay.pages) == 0:
+            raise ArtworkError("artwork PDF has no pages")
+        page = base.pages[0]
+        source = overlay.pages[0]
+
+        drawn_width = art.view_width * scale
+        drawn_height = art.view_height * scale
+        left = window.x + (window.width - drawn_width) / 2
+        top = window.y + (window.height - drawn_height) / 2
+
+        media = page.mediabox
+        page_height_pt = float(media[3]) - float(media[1])
+
+        source_box = source.mediabox
+        source_width_pt = float(source_box[2]) - float(source_box[0])
+        if source_width_pt <= 0:
+            raise ArtworkError("artwork PDF page has no width")
+        # The overlay page is already the board's size; scale it so the drawn
+        # width matches the placement computed for the SVG path.
+        factor = (drawn_width * MM_TO_PT) / source_width_pt
+
+        rect = pikepdf.Rectangle(
+            left * MM_TO_PT,
+            page_height_pt - (top + drawn_height) * MM_TO_PT,
+            (left + drawn_width) * MM_TO_PT,
+            page_height_pt - top * MM_TO_PT,
+        )
+        _ = factor  # placement is expressed by the target rectangle
+
+        # `Page.add_overlay` invents a *random* XObject resource name, which
+        # would make the composed sheet's bytes differ on every render even
+        # though the drawing is identical. Placing the form explicitly under a
+        # fixed name is the same operation with a name we control.
+        form = source.as_form_xobject()
+        name = pikepdf.Name("/PrismArtwork")
+        page.add_resource(form, pikepdf.Name("/XObject"), name=name)
+        page.contents_add(
+            page.calc_form_xobject_placement(
+                form, name, rect, allow_shrink=True, allow_expand=True
+            )
+        )
+
+        # KiCad's PDF carries /CreationDate and a Producer banner; strip
+        # anything the copy may have brought across.
+        for key in ("/CreationDate", "/ModDate", "/Producer", "/Creator"):
+            if key in base.docinfo:
+                del base.docinfo[key]
+
+        out = io.BytesIO()
+        base.save(out, deterministic_id=True, linearize=False)
+        return out.getvalue()

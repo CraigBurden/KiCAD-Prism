@@ -109,8 +109,18 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
         cls.schema = f"rs_gov_{uuid.uuid4().hex[:10]}"
 
     def setUp(self) -> None:
+        from unittest.mock import patch
+
         from app.services import release_studio_service as service
         from app.services.workspace_schema_migrations import apply_workspace_migrations
+
+        # The self-approval bypass defaults to *on* wherever authentication is
+        # off, which includes the test environment. Pin it off so the tests that
+        # assert the two-person rule are testing the rule and not the ambient
+        # configuration; the bypass has its own test that pins it on.
+        bypass = patch.dict(os.environ, {"PRISM_RELEASE_ALLOW_SELF_APPROVAL": "0"})
+        bypass.start()
+        self.addCleanup(bypass.stop)
 
         self.service = service
         self.conn = psycopg.connect(TEST_POSTGRES_URL, row_factory=psycopg.rows.dict_row)
@@ -398,6 +408,52 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
         self.assertEqual(event["details"]["exception_kind"], "self_approval")
         self.assertIn("sole operator", event["details"]["exception_reason"])
         self.assertTrue(self.service.verify_audit_chain(self.project_id, self.config_key)["ok"])
+
+    def test_the_bypass_permits_self_approval_but_still_records_it(self) -> None:
+        """A deployment may switch the rule off; it may not switch the trail off.
+
+        The bypass exists because a single-operator deployment has exactly one
+        identity, so the two-person rule is unsatisfiable rather than merely
+        inconvenient. What it must never do is make a self-approval look like an
+        ordinary one.
+        """
+
+        from unittest.mock import patch
+
+        waiver = self.service.create_waiver(
+            project_id=self.project_id, config_key=self.config_key,
+            rule_id="drc.clean", domain="evidence", reason="agreed with CM",
+            owner="solo", subject_pattern="drc/*",
+        )
+
+        with patch.dict(os.environ, {"PRISM_RELEASE_ALLOW_SELF_APPROVAL": "1"}):
+            self.assertTrue(self.service.self_approval_bypassed())
+            approved = self.service.transition_waiver(
+                waiver["id"], status="approved", actor="solo"
+            )
+
+        self.assertEqual(approved["status"], "approved")
+        self.assertEqual(approved["approver"], "solo")
+        # Recorded, not hidden.
+        self.assertEqual(approved["exception_kind"], "self_approval")
+        self.assertEqual(
+            approved["exception_reason"], self.service.SELF_APPROVAL_BYPASS_REASON
+        )
+        event = next(
+            item
+            for item in self.service.list_audit_events(self.project_id, self.config_key)
+            if item["event_type"] == "waiver.approved"
+        )
+        self.assertEqual(event["details"]["exception_kind"], "self_approval")
+        self.assertTrue(self.service.verify_audit_chain(self.project_id, self.config_key)["ok"])
+
+    def test_the_bypass_is_off_when_explicitly_disabled(self) -> None:
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {"PRISM_RELEASE_ALLOW_SELF_APPROVAL": "false"}):
+            self.assertFalse(self.service.self_approval_bypassed())
+        with patch.dict(os.environ, {"PRISM_RELEASE_ALLOW_SELF_APPROVAL": "yes"}):
+            self.assertTrue(self.service.self_approval_bypassed())
 
     def test_a_waiver_approved_by_another_person_takes_no_exception(self) -> None:
         waiver = self.service.create_waiver(
