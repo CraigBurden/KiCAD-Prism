@@ -57,6 +57,25 @@ _PATH_INPUT_SUFFIXES = {
     ".yml",
 }
 
+# Classifies which unresolved references are worth refusing a release for.
+_UNRESOLVED_WORDING = {
+    "external": "resolves outside the release closure and the pinned toolchain",
+    "missing": "is not present in the release closure",
+}
+
+# Suffixes of assets no Stage 1 step opens.  A footprint's `(model ...)` node
+# names one of these, and boards routinely carry stale ones whose case or
+# extension no longer matches anything on disk.
+_ADVISORY_SUFFIXES = {
+    ".step", ".stp", ".stpz", ".wrl", ".vrml", ".x3d", ".igs", ".iges", ".wings",
+}
+
+# `(property "Sheetfile" "Subsheets/Power.kicad_sch")` -- how a hierarchical
+# sheet names the file it instantiates (`sch_io_kicad_sexpr_parser.cpp`).
+_SHEET_FILE_RE = re.compile(
+    r'\(\s*property\s+"Sheetfile"\s+"((?:\\.|[^"\\])*)"', re.IGNORECASE
+)
+
 
 class ClosureError(RuntimeError):
     """Base class for fail-closed input closure errors."""
@@ -172,19 +191,28 @@ class EnvBinding:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedLibraryPath:
-    """A project path reference and its closure/toolchain destination."""
+    """A project path reference and its closure/toolchain destination.
+
+    ``advisory`` marks a reference no build step reads.  A 3D model named by a
+    footprint is the case that matters: nothing in the Stage 1 catalogue opens
+    one, so an unresolvable model is worth recording and not worth refusing a
+    release for.  It is still reported, just never as a reason the build is
+    non-hermetic.
+    """
 
     source_path: str
     reference: str
     resolved_path: str
     location: str
+    advisory: bool = False
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "source_path": self.source_path,
             "reference": self.reference,
             "resolved_path": self.resolved_path,
             "location": self.location,
+            "advisory": self.advisory,
         }
 
 
@@ -233,26 +261,44 @@ class InputClosure:
 
     @property
     def external_references(self) -> tuple[ResolvedLibraryPath, ...]:
-        """References that resolved to neither the closure nor the toolchain."""
+        """Unresolved references that a build step actually reads."""
 
         return tuple(
             reference
             for reference in self.library_references
-            if reference.location in {"external", "missing"}
+            if reference.location in {"external", "missing"} and not reference.advisory
+        )
+
+    @property
+    def advisory_references(self) -> tuple[ResolvedLibraryPath, ...]:
+        """Unresolved references no build step reads -- 3D models, in practice."""
+
+        return tuple(
+            reference
+            for reference in self.library_references
+            if reference.location in {"external", "missing"} and reference.advisory
         )
 
     def non_hermetic_reasons(self) -> list[str]:
-        """One reason per external reference, naming the offending input path."""
+        """One reason per unresolved reference a build step reads."""
 
-        wording = {
-            "external": "resolves outside the release closure and the pinned toolchain",
-            "missing": "is not present in the release closure",
-        }
         return [
             f"{reference.source_path}: {reference.reference} "
-            f"{wording[reference.location]}"
+            f"{_UNRESOLVED_WORDING[reference.location]}"
             for reference in sorted(
                 self.external_references,
+                key=lambda item: (item.source_path, item.reference),
+            )
+        ]
+
+    def advisory_reasons(self) -> list[str]:
+        """One note per unresolved reference that does not affect the release."""
+
+        return [
+            f"{reference.source_path}: {reference.reference} "
+            f"{_UNRESOLVED_WORDING[reference.location]} (no build step reads it)"
+            for reference in sorted(
+                self.advisory_references,
                 key=lambda item: (item.source_path, item.reference),
             )
         ]
@@ -809,6 +855,139 @@ def _verify_resource_digest(name: str, root: Path, supplied: object) -> str:
     return digest
 
 
+def _design_inputs(
+    destination: Path,
+    repository_inputs: Sequence[RepositoryInput],
+    project_rel: str,
+) -> set[str]:
+    """The files whose path references belong to *this* design.
+
+    A repository holds more KiCad files than a release is made of.  Scanning all
+    of them made an archived revision's stale library paths look like defects in
+    the release under construction -- most of the hermeticity findings on a real
+    project came from boards that are not in it.
+
+    The design is therefore delimited structurally:
+
+    * the board and project files **in the project directory itself**;
+    * the root schematics beside them;
+    * every schematic reachable from those roots through ``Sheetfile``, at any
+      depth -- which is what "part of this design" actually means;
+    * every schematic sitting in a directory a root sheet points into, so a
+      sheet detached from the hierarchy but still filed with its siblings is
+      not quietly dropped;
+    * library tables, wherever they sit, because KiCad loads them by location;
+    * this project's own ``.prism`` configuration.
+    """
+
+    prefix = "" if project_rel in ("", ".") else f"{project_rel.rstrip('/')}/"
+    by_path = {item.path: item for item in repository_inputs if item.type == "regular_file"}
+
+    def in_project(path: str) -> bool:
+        return path.startswith(prefix)
+
+    def local(path: str) -> str:
+        return path[len(prefix):]
+
+    def at_root(path: str) -> bool:
+        return in_project(path) and "/" not in local(path)
+
+    selected: set[str] = set()
+    roots: list[str] = []
+    for path in by_path:
+        name = path.rsplit("/", 1)[-1].casefold()
+        suffix = Path(path).suffix.casefold()
+        if name in {"fp-lib-table", "sym-lib-table"}:
+            selected.add(path)
+        elif suffix in {".yaml", ".yml"} and in_project(path) and local(path).startswith(".prism/"):
+            selected.add(path)
+        elif at_root(path) and suffix in {".kicad_pcb", ".kicad_pro", ".kicad_wks"}:
+            selected.add(path)
+        elif at_root(path) and suffix == ".kicad_sch":
+            selected.add(path)
+            roots.append(path)
+
+    # Walk the hierarchy. `pending` holds sheets still to be read; `sibling_dirs`
+    # accumulates the directories the roots point into.
+    sibling_dirs: set[str] = set()
+    pending = list(roots)
+    seen = set(roots)
+    while pending:
+        current = pending.pop()
+        for child in _sheet_references(destination, current):
+            if child in by_path and child not in seen:
+                seen.add(child)
+                selected.add(child)
+                pending.append(child)
+            if current in roots:
+                sibling_dirs.add(child.rsplit("/", 1)[0] if "/" in child else "")
+
+    for path in by_path:
+        if Path(path).suffix.casefold() != ".kicad_sch":
+            continue
+        directory = path.rsplit("/", 1)[0] if "/" in path else ""
+        if directory in sibling_dirs:
+            selected.add(path)
+
+    return selected
+
+
+def _sheet_references(destination: Path, schematic: str) -> list[str]:
+    """Repository-relative paths of the sheets *schematic* instantiates."""
+
+    try:
+        text = _read_materialized_text(destination, schematic)
+    except OSError:
+        return []
+    base = schematic.rsplit("/", 1)[0] if "/" in schematic else ""
+    children: list[str] = []
+    for match in _SHEET_FILE_RE.finditer(text):
+        reference = _decode_kicad_string(match.group(1)).strip()
+        if not reference or reference.startswith("${") or "://" in reference:
+            continue
+        resolved = _join_relative(base, reference)
+        if resolved is not None:
+            children.append(resolved)
+    return children
+
+
+def _is_advisory_reference(reference: str) -> bool:
+    """Whether *reference* names an asset no build step opens.
+
+    Judged by suffix, which is what a ``(model ...)`` node carries.  The
+    alternative -- deciding from the s-expression node the path sits in --
+    would need a board parser here for no extra accuracy: nothing else in a
+    board file points at a ``.step`` or a ``.wrl``.
+    """
+
+    return Path(reference.replace("\\", "/")).suffix.casefold() in _ADVISORY_SUFFIXES
+
+
+def _join_relative(base: str, reference: str) -> str | None:
+    """Resolve *reference* against *base*, or ``None`` if it leaves the tree.
+
+    A monorepo sheet may legitimately be reached as ``../common/Power.kicad_sch``,
+    so ``..`` is collapsed rather than rejected -- but a reference that climbs
+    past the repository root names nothing in the closure and is dropped.
+    """
+
+    reference = reference.replace("\\", "/")
+    if reference.startswith("/"):
+        return None
+    parts = (base.split("/") if base else []) + reference.split("/")
+    stack: list[str] = []
+    for part in parts:
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not stack:
+                return None
+            stack.pop()
+            continue
+        stack.append(part)
+    return "/".join(stack) or None
+
+
 def _resolve_project_paths(
     destination: Path,
     repository_inputs: Sequence[RepositoryInput],
@@ -817,9 +996,12 @@ def _resolve_project_paths(
     toolchain_specs: Sequence[_ToolchainSpec],
 ) -> tuple[list[ResolvedLibraryPath], list[EnvBinding]]:
     resolver = _PathResolver(destination, project_rel, env, toolchain_specs)
+    scanned = _design_inputs(destination, repository_inputs, project_rel)
     references: list[tuple[str, str, str]] = []
     for item in repository_inputs:
         if item.type != "regular_file":
+            continue
+        if item.path not in scanned:
             continue
         if item.path.rsplit("/", 1)[-1].casefold() in {"fp-lib-table", "sym-lib-table"}:
             text = _read_materialized_text(destination, item.path)
@@ -859,11 +1041,8 @@ def _resolve_project_paths(
             # A library table names a library the tools will certainly load, so
             # an unresolvable or missing entry there stays a hard failure.  A
             # `${VAR}` path embedded in board or project content need not be a
-            # build input at all -- a `(model ...)` node names a 3D asset no
-            # Stage 1 step reads, and boards routinely carry stale ones whose
-            # case or extension no longer matches the file on disk -- so per the
-            # hermeticity definition it is *recorded* with the offending path
-            # and marks the build non-hermetic rather than refusing a closure
+            # build input at all, so per the hermeticity definition it is
+            # *recorded* with the offending path rather than refusing a closure
             # the manufacturing outputs do not depend on.
             if kind != "project_path":
                 raise
@@ -876,6 +1055,7 @@ def _resolve_project_paths(
                     reference=reference,
                     resolved_path="",
                     location="external" if isinstance(exc, ExternalPathError) else "missing",
+                    advisory=_is_advisory_reference(reference),
                 )
             )
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)

@@ -362,6 +362,12 @@ def draw_title_block(
     return Rect(area.x, area.y, area.width, block.y - area.y)
 
 
+#: Smallest text a released drawing may carry.  ISO 3098 puts the floor for
+#: printed technical lettering at 1.8 mm, and a table nobody can read is not a
+#: cheaper way to fit content -- it is a missing table.
+MIN_TABLE_FONT = 1.8
+
+
 @dataclass(frozen=True, slots=True)
 class Table:
     """A simple column-aligned table."""
@@ -377,6 +383,127 @@ class Table:
     def height(self) -> float:
         header = self.row_height + (5.0 if self.title else 0.0)
         return header + self.row_height * len(self.rows)
+
+    def width(self) -> float:
+        return sum(self.widths)
+
+    def scaled(self, factor: float) -> "Table":
+        """The same table drawn at *factor*.
+
+        Column widths, text size and row pitch all move together, so a scaled
+        table is the same table smaller -- not a table whose columns no longer
+        fit their contents.
+        """
+
+        if factor >= 1.0:
+            return self
+        return Table(
+            columns=self.columns,
+            rows=self.rows,
+            widths=tuple(width * factor for width in self.widths),
+            align=self.align,
+            font_size=self.font_size * factor,
+            row_height=self.row_height * factor,
+            title=self.title,
+        )
+
+    def truncated(self, keep: int, note: str = "and {count} more") -> "Table":
+        """Keep *keep* rows and state how many were dropped.
+
+        A table that silently stops is worse than one that says it stopped: the
+        rows are all in the dossier as data, and the sheet has to admit that it
+        is showing a subset.
+        """
+
+        if keep >= len(self.rows) or keep < 0:
+            return self
+        dropped = len(self.rows) - keep
+        marker = (note.format(count=dropped),) + ("",) * (len(self.columns) - 1)
+        return Table(
+            columns=self.columns,
+            rows=tuple(self.rows[:keep]) + (marker,),
+            widths=self.widths,
+            align=self.align,
+            font_size=self.font_size,
+            row_height=self.row_height,
+            title=self.title,
+        )
+
+
+def _column_height(tables: Sequence[Table], gap: float) -> float:
+    if not tables:
+        return 0.0
+    return sum(table.height() for table in tables) + gap * (len(tables) - 1)
+
+
+def fit_columns(
+    columns: Sequence[Sequence[Table]],
+    area: "Rect",
+    *,
+    gap: float = 6.0,
+    column_gap: float = 10.0,
+    min_font: float = MIN_TABLE_FONT,
+) -> tuple[list[list[Table]], float]:
+    """Scale *columns* of stacked tables to sit inside *area*.
+
+    The sheet size is chosen for the **board**; the tables then have to live on
+    the sheet the board earned.  Growing the paper because a stackup gained
+    rows would hand a small board an A1 sheet that is nine-tenths white, so the
+    tables shrink instead -- one factor for all of them, so the sheet still
+    reads as one document -- down to a legibility floor, and only past that by
+    dropping rows with the count stated.
+    """
+
+    present = [list(column) for column in columns if column]
+    if not present:
+        return [list(column) for column in columns], 1.0
+
+    widths = [max(table.width() for table in column) for column in present]
+    needed_width = sum(widths) + column_gap * (len(present) - 1)
+    needed_height = max(_column_height(column, gap) for column in present)
+    if needed_width <= 0 or needed_height <= 0:
+        return [list(column) for column in columns], 1.0
+
+    # The two dimensions are not symmetric.  A column that is too *wide* has no
+    # remedy but to shrink -- there is nowhere for it to go.  A column that is
+    # too *tall* does: stop shrinking at the legibility floor and drop rows,
+    # saying how many, because unreadable rows are not better than stated ones.
+    smallest = min(table.font_size for column in present for table in column)
+    floor = min(1.0, min_font / smallest)
+    width_factor = min(1.0, area.width / needed_width)
+    height_factor = min(1.0, area.height / needed_height)
+    factor = min(width_factor, max(height_factor, floor))
+
+    fitted: list[list[Table]] = []
+    for column in columns:
+        scaled = [table.scaled(factor) for table in column]
+        height = _column_height(scaled, gap)
+        if height > area.height and scaled:
+            # Still too tall at the legibility floor: give each table its share
+            # of the column and state what it dropped.
+            budget = area.height - gap * (len(scaled) - 1)
+            trimmed = []
+            for table in scaled:
+                share = budget * (table.height() / height)
+                header = table.row_height + (5.0 if table.title else 0.0)
+                keep = int((share - header) // table.row_height) - 1
+                trimmed.append(table.truncated(max(keep, 0)))
+            scaled = trimmed
+        fitted.append(scaled)
+    return fitted, factor
+
+
+def fit_tables(
+    tables: Sequence[Table],
+    area: "Rect",
+    *,
+    gap: float = 6.0,
+    min_font: float = MIN_TABLE_FONT,
+) -> tuple[list[Table], float]:
+    """Scale one stacked column of tables to sit inside *area*."""
+
+    fitted, factor = fit_columns([tables], area, gap=gap, min_font=min_font)
+    return fitted[0], factor
 
 
 #: Gutter kept clear at a cell's trailing edge, so a right-aligned value cannot

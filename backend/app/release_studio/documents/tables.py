@@ -147,15 +147,20 @@ def variant_table(variants: Mapping[str, Any], selected: str) -> Table:
     )
 
 
-def member_table(members: Sequence[Mapping[str, Any]], *, limit: int = 28) -> Table:
+def member_table(members: Sequence[Mapping[str, Any]]) -> Table:
     """The released members and their digests.
 
     This is the sheet that makes the drawing self-describing: a recipient can
     hash the files they received and compare them here without any Prism.
+
+    Every member is listed.  Capping the list here would decide, before the
+    sheet size is known, that a release is too long to describe -- whereas
+    `layout.fit_columns` knows how much room the sheet actually has and trims
+    with the count stated only when it must.
     """
 
     rows: list[tuple[str, ...]] = []
-    for member in members[:limit]:
+    for member in members:
         rows.append(
             (
                 _text(member.get("path")),
@@ -163,8 +168,6 @@ def member_table(members: Sequence[Mapping[str, Any]], *, limit: int = 28) -> Ta
                 str(member.get("released_digest") or "")[:16],
             )
         )
-    if len(members) > limit:
-        rows.append((f"… and {len(members) - limit} more", "", ""))
     return Table(
         title="RELEASED MEMBERS",
         columns=("Path", "Canonicalizer", "Released digest"),

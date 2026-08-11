@@ -24,11 +24,12 @@ from app.release_studio.documents.svg import render_svg
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
-#: d3 -- sheet size is chosen from the ISO A ladder to suit the board and the
-#: tables, placement ratios are quantized to ISO 5455, and the PDF composite is
-#: positioned from the artwork's location on KiCad's page rather than by fitting
-#: that whole page into the artwork window.
-RENDERER_VERSION = "release-studio-documents/d3"
+#: d4 -- the sheet is sized from the ISO A ladder for the *board*, tables are
+#: scaled to the sheet the board earned rather than growing it, placement ratios
+#: are quantized to ISO 5455, the drill sheet carries the drill map, and the PDF
+#: composite is positioned from the artwork's location on KiCad's page rather
+#: than by fitting that whole page into the artwork window.
+RENDERER_VERSION = "release-studio-documents/d4"
 
 __all__ = [
     "ARTWORK_LAYERS",

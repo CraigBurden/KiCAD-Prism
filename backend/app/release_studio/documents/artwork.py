@@ -244,6 +244,179 @@ def _coordinate_pairs(svg_text: str, limit: int = 64) -> list[tuple[float, float
     return pairs
 
 
+def acquire_drill_map(
+    cli_path: str,
+    board: Path,
+    workdir: Path,
+    *,
+    runner=subprocess.run,
+) -> AcquiredArtwork:
+    """Plot the drill map -- hole symbols, outline, and symbol key.
+
+    A drill drawing that shows only the board outline documents nothing, and
+    the holes are not a layer that ``pcb export svg`` can plot.  They come from
+    ``pcb export drill --generate-map``, which writes a full page in both
+    formats, so the placement extent is measured from the plotted ink rather
+    than taken from a crop KiCad cannot perform here.
+
+    The symbol key below the board is deliberately inside the placed extent:
+    it is what tells a reader which mark is which diameter, and the sheet's own
+    drill schedule does not carry the symbols.
+    """
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    outputs: dict[str, Path] = {}
+    for fmt in ("svg", "pdf"):
+        target = workdir / fmt
+        target.mkdir(parents=True, exist_ok=True)
+        argv = [
+            cli_path, "pcb", "export", "drill",
+            "--generate-map", "--map-format", fmt,
+            "--output", f"{target}/",
+            str(board),
+        ]
+        result = runner(argv, capture_output=True, text=True)
+        if getattr(result, "returncode", 1) != 0:
+            detail = " ".join(
+                part.strip()
+                for part in (
+                    getattr(result, "stderr", "") or "",
+                    getattr(result, "stdout", "") or "",
+                )
+                if part and part.strip()
+            )
+            raise ArtworkError(f"kicad-cli pcb export drill failed: {detail[:400]}")
+        found = sorted(target.glob(f"*drl_map.{fmt}"))
+        if not found:
+            raise ArtworkError(f"kicad-cli produced no drill map in {fmt}")
+        outputs[fmt] = found[0]
+
+    svg_text = sanitize_artwork(outputs["svg"].read_text(encoding="utf-8"))
+    pdf_bytes = sanitize_artwork_pdf(outputs["pdf"].read_bytes())
+    extent = ink_extent(svg_text)
+    if extent is None:
+        raise ArtworkError("the drill map carries no plotted geometry")
+    x, y, width, height = extent
+    return AcquiredArtwork(
+        layers=("Drill.Map",),
+        svg_text=svg_text,
+        pdf_bytes=pdf_bytes,
+        view_x=x,
+        view_y=y,
+        view_width=width,
+        view_height=height,
+        digest=hashlib.sha256(svg_text.encode("utf-8")).hexdigest(),
+        # Both formats are the same full page, so the ink sits at the same
+        # place in each and no cross-plot comparison is needed.
+        page_offset_x=x,
+        page_offset_y=y,
+    )
+
+
+# One SVG path command letter, or one number.
+_PATH_TOKEN = re.compile(r"([MmLlHhVvCcSsQqTtAaZz])|(-?\d*\.?\d+(?:[eE][-+]?\d+)?)")
+#: Parameters each path command consumes, per SVG 1.1.
+_PATH_ARITY = {
+    "m": 2, "l": 2, "h": 1, "v": 1, "c": 6, "s": 4, "q": 4, "t": 2, "a": 7, "z": 0,
+}
+_STROKE_WIDTH = re.compile(r"stroke-width\s*:\s*([0-9.]+)", re.IGNORECASE)
+_CIRCLE = re.compile(
+    r'<circle\b[^>]*\bcx\s*=\s*"([-0-9.]+)"[^>]*\bcy\s*=\s*"([-0-9.]+)"'
+    r'[^>]*\br\s*=\s*"([0-9.]+)"',
+    re.IGNORECASE,
+)
+
+
+def _path_points(data: str) -> list[tuple[float, float, float]]:
+    """Absolute ``(x, y, pad)`` points a path visits.
+
+    ``pad`` is how far the drawn curve may bulge past that point: zero for a
+    line, the arc radius for an arc.  Bounding an arc by its endpoints alone
+    would clip a circle in half, and solving arcs exactly buys nothing here --
+    over-reaching only pads the placement, while under-reaching cuts ink off.
+    """
+
+    points: list[tuple[float, float, float]] = []
+    numbers: list[float] = []
+    command = ""
+    x = y = 0.0
+
+    for token in _PATH_TOKEN.finditer(data):
+        letter, number = token.group(1), token.group(2)
+        if letter is not None:
+            command = letter
+            numbers = []
+            continue
+        if not command:
+            continue
+        numbers.append(float(number))
+        arity = _PATH_ARITY.get(command.lower(), 0)
+        if arity == 0 or len(numbers) < arity:
+            continue
+
+        chunk, numbers = numbers, []
+        lower = command.lower()
+        relative = command.islower()
+        radius = 0.0
+        if lower == "h":
+            x = x + chunk[0] if relative else chunk[0]
+        elif lower == "v":
+            y = y + chunk[0] if relative else chunk[0]
+        else:
+            if lower == "a":
+                radius = max(abs(chunk[0]), abs(chunk[1]))
+            dx, dy = chunk[-2], chunk[-1]
+            x = x + dx if relative else dx
+            y = y + dy if relative else dy
+        points.append((x, y, radius))
+
+        # Repeated parameter sets continue the same command, except that a
+        # move-to's repeats are line-tos -- which is exactly how KiCad writes
+        # a polyline: one `M`, then bare coordinate pairs.
+        if lower == "m":
+            command = "l" if relative else "L"
+
+    return points
+
+
+def ink_extent(svg_text: str) -> tuple[float, float, float, float] | None:
+    """The drawn extent of *svg_text*, in millimetres, or ``None`` if empty.
+
+    Needed where ``kicad-cli`` cannot crop for us.  ``pcb export drill`` always
+    writes a full page, so the only way to place a drill map beside a board
+    drawn at a stated ratio is to measure where its ink actually is.
+    """
+
+    try:
+        units = user_units_per_mm(svg_text)
+    except ArtworkError:
+        return None
+    if units <= 0:
+        return None
+
+    widths = [float(match.group(1)) for match in _STROKE_WIDTH.finditer(svg_text)]
+    pad = (max(widths) / 2.0) if widths else 0.0
+
+    xs: list[float] = []
+    ys: list[float] = []
+
+    def note(x: float, y: float, radius: float) -> None:
+        xs.extend((x - radius - pad, x + radius + pad))
+        ys.extend((y - radius - pad, y + radius + pad))
+
+    for match in _PATH_DATA.finditer(svg_text):
+        for x, y, radius in _path_points(match.group(1)):
+            note(x, y, radius)
+    for match in _CIRCLE.finditer(svg_text):
+        note(float(match.group(1)), float(match.group(2)), float(match.group(3)))
+
+    if not xs:
+        return None
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+    return left / units, top / units, (right - left) / units, (bottom - top) / units
+
+
 def page_offset(cropped_svg: str, page_svg: str) -> tuple[float, float] | None:
     """Where the cropped artwork sits on the full page, in millimetres.
 

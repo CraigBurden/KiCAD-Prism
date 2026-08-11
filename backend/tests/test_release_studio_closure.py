@@ -233,12 +233,13 @@ class ReleaseStudioClosureTests(unittest.TestCase):
                 relative_path="hardware/board",
             )
 
-    def test_a_stock_3d_model_reference_is_non_hermetic_not_a_hard_failure(self) -> None:
+    def test_a_stock_3d_model_reference_is_advisory_not_a_blocker(self) -> None:
         # Every real KiCad board carries `(model "${KICAD9_3DMODEL_DIR}/...")`
         # nodes pointing at the stock 3D library, which the pinned executor
-        # image does not ship.  No Stage 1 manufacturing step reads them, so the
-        # closure records the offending path and marks the build non-hermetic
-        # rather than refusing to materialize.
+        # image does not ship.  No Stage 1 manufacturing step reads one, so the
+        # closure records the offending path and says so -- but it does not
+        # count against hermeticity, because the released outputs do not depend
+        # on it and a release must not be blocked by it.
         self.repo.joinpath("hardware/board/model.step").write_bytes(
             b"small hydrated STEP payload\n"
         )
@@ -258,13 +259,18 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             relative_path="hardware/board",
         )
 
-        external = closure.external_references
-        self.assertEqual(len(external), 1)
-        self.assertEqual(external[0].source_path, "hardware/board/board.kicad_pcb")
-        self.assertIn("KICAD9_3DMODEL_DIR", external[0].reference)
-        reasons = closure.non_hermetic_reasons()
-        self.assertEqual(len(reasons), 1)
-        self.assertIn("R_0603.step", reasons[0])
+        self.assertEqual(closure.external_references, ())
+        self.assertEqual(closure.non_hermetic_reasons(), [])
+
+        advisory = closure.advisory_references
+        self.assertEqual(len(advisory), 1)
+        self.assertEqual(advisory[0].source_path, "hardware/board/board.kicad_pcb")
+        self.assertIn("KICAD9_3DMODEL_DIR", advisory[0].reference)
+        self.assertTrue(advisory[0].advisory)
+        notes = closure.advisory_reasons()
+        self.assertEqual(len(notes), 1)
+        self.assertIn("R_0603.step", notes[0])
+        self.assertIn("no build step reads it", notes[0])
         # The project's own model still resolves into the closure.
         self.assertIn(
             "hardware/board/model.step",
@@ -311,10 +317,10 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             },
         )
 
-    def test_a_model_missing_from_the_closure_is_non_hermetic_not_a_hard_failure(self) -> None:
+    def test_a_model_missing_from_the_closure_is_advisory_not_a_blocker(self) -> None:
         # Boards routinely carry stale `(model ...)` paths whose case or
         # extension no longer matches the file on disk.  No Stage 1 step reads
-        # them, so they are reported, not fatal.
+        # them, so they are reported and do not block a release.
         self.repo.joinpath("hardware/board/model.step").write_bytes(
             b"small hydrated STEP payload\n"
         )
@@ -333,13 +339,71 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             relative_path="hardware/board",
         )
 
-        external = closure.external_references
-        self.assertEqual(len(external), 1)
-        self.assertEqual(external[0].location, "missing")
-        reasons = closure.non_hermetic_reasons()
-        self.assertEqual(len(reasons), 1)
-        self.assertIn("is not present in the release closure", reasons[0])
-        self.assertIn("Absent.STEP", reasons[0])
+        self.assertEqual(closure.non_hermetic_reasons(), [])
+        advisory = closure.advisory_references
+        self.assertEqual(len(advisory), 1)
+        self.assertEqual(advisory[0].location, "missing")
+        notes = closure.advisory_reasons()
+        self.assertEqual(len(notes), 1)
+        self.assertIn("is not present in the release closure", notes[0])
+        self.assertIn("Absent.STEP", notes[0])
+
+    def test_only_this_designs_files_are_scanned_for_path_references(self) -> None:
+        """An archived revision's stale paths are not defects in this release.
+
+        Scanning every KiCad file in the repository made a project's own
+        `archive/` directory the source of most of its hermeticity findings --
+        for boards that are not in the release and are not built.
+        """
+
+        board = self.repo / "hardware/board"
+        board.joinpath("model.step").write_bytes(b"small hydrated STEP payload\n")
+
+        # An archived board and its schematic, both carrying an unresolvable
+        # library path of the kind that used to fail the whole closure.
+        archive = board / "archive/rev-a"
+        archive.mkdir(parents=True, exist_ok=True)
+        for name in ("old.kicad_pcb", "old.kicad_sch"):
+            archive.joinpath(name).write_text(
+                '(kicad_pcb (lib (uri "${NOT_BOUND_ANYWHERE}/gone.pretty")))\n',
+                encoding="utf-8",
+            )
+
+        # The design itself: a root schematic pointing into `Subsheets/`, one
+        # of which points on to a third sheet.
+        board.joinpath("board.kicad_sch").write_text(
+            '(kicad_sch (sheet (property "Sheetfile" "Subsheets/power.kicad_sch")))\n',
+            encoding="utf-8",
+        )
+        subsheets = board / "Subsheets"
+        subsheets.mkdir(parents=True, exist_ok=True)
+        subsheets.joinpath("power.kicad_sch").write_text(
+            '(kicad_sch (sheet (property "Sheetfile" "regulator.kicad_sch")))\n',
+            encoding="utf-8",
+        )
+        subsheets.joinpath("regulator.kicad_sch").write_text(
+            '(kicad_sch (model "${KIPRJMOD}/model.step"))\n', encoding="utf-8"
+        )
+        # Filed with its siblings but not instantiated: still part of the design.
+        subsheets.joinpath("detached.kicad_sch").write_text(
+            '(kicad_sch (model "${KIPRJMOD}/model.step"))\n', encoding="utf-8"
+        )
+        commit = self._commit(self.repo, "archive and hierarchy")
+
+        closure = materialize_input_closure(
+            self.repo, commit, self.root / "scoped", relative_path="hardware/board"
+        )
+
+        # The archived revision contributed nothing at all.
+        self.assertEqual(closure.non_hermetic_reasons(), [])
+        sources = {reference.source_path for reference in closure.library_references}
+        self.assertFalse(
+            {path for path in sources if "archive/" in path},
+            f"an archived revision was scanned: {sources}",
+        )
+        # The design's own hierarchy was.
+        self.assertIn("hardware/board/Subsheets/regulator.kicad_sch", sources)
+        self.assertIn("hardware/board/Subsheets/detached.kicad_sch", sources)
 
     def test_a_missing_library_table_entry_is_still_a_hard_failure(self) -> None:
         # A library table names a library the tools will certainly load, so it

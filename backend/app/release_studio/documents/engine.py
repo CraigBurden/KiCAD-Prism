@@ -19,7 +19,13 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from app.release_studio.documents import sheets as sheet_templates
-from app.release_studio.documents.artwork import AcquiredArtwork, ArtworkError, acquire, composite_pdf
+from app.release_studio.documents.artwork import (
+    AcquiredArtwork,
+    ArtworkError,
+    acquire,
+    acquire_drill_map,
+    composite_pdf,
+)
 from app.release_studio.documents.layout import Rect, Sheet
 from app.release_studio.documents.pdf import render_pdf
 from app.release_studio.documents.svg import render_svg
@@ -34,8 +40,11 @@ ARTWORK_LAYERS: dict[str, tuple[str, ...]] = {
     "fabrication": ("Edge.Cuts", "F.Cu"),
     "assembly-top": ("F.Fab", "F.Silkscreen", "Edge.Cuts"),
     "assembly-bottom": ("B.Fab", "B.Silkscreen", "Edge.Cuts"),
-    "drill": ("Edge.Cuts",),
 }
+
+#: The drill sheet's artwork is not a layer plot: holes are not a layer, so the
+#: view comes from `pcb export drill --generate-map` instead.
+DRILL_ARTWORK_KEY = "drill"
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +91,7 @@ def compose(
     workdir: Path | None = None,
     sheet_size: str | None = None,
     acquirer: Callable[..., AcquiredArtwork] | None = None,
+    drill_acquirer: Callable[..., AcquiredArtwork] | None = None,
 ) -> DocumentSet:
     """Compose the full document set.
 
@@ -105,11 +115,18 @@ def compose(
                 # A missing view degrades one sheet, never the document set.
                 warnings.append(f"artwork for {key} unavailable: {exc}")
                 logger.warning("Release Studio artwork for %s unavailable: %s", key, exc)
+        try:
+            art[DRILL_ARTWORK_KEY] = (drill_acquirer or acquire_drill_map)(
+                cli_path, board, workdir / DRILL_ARTWORK_KEY
+            )
+        except (ArtworkError, OSError) as exc:
+            warnings.append(f"artwork for {DRILL_ARTWORK_KEY} unavailable: {exc}")
+            logger.warning("Release Studio drill map unavailable: %s", exc)
     else:
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
     if sheet_size is None:
-        sheet_size = _select_size(stats, stackup, variants, members, art, context)
+        sheet_size = _select_size(stats, art)
 
     outputs: list[DocumentOutput] = []
 
@@ -178,21 +195,21 @@ def board_extent(
     board = stats.get("board") if isinstance(stats, Mapping) else None
     width = _mm_value((board or {}).get("width"))
     height = _mm_value((board or {}).get("height"))
-    for acquired in (art or {}).values():
+    for key, acquired in (art or {}).items():
+        # The drill map is deliberately excluded: its extent includes the
+        # symbol key printed below the board, which is sheet furniture and not
+        # a reason to hand the board a larger page.
+        if key == DRILL_ARTWORK_KEY:
+            continue
         width = max(width, acquired.view_width)
         height = max(height, acquired.view_height)
     return width, height
 
 
 def _select_size(
-    stats: Mapping[str, Any],
-    stackup: Mapping[str, Any],
-    variants: Mapping[str, Any],
-    members: Sequence[Mapping[str, Any]],
-    art: Mapping[str, AcquiredArtwork],
-    context: Mapping[str, Any],
+    stats: Mapping[str, Any], art: Mapping[str, AcquiredArtwork]
 ) -> str:
-    """Pick one standard sheet size for the whole set."""
+    """Pick one standard sheet size for the whole set, from the board alone."""
 
     width, height = board_extent(stats, art)
     if width <= 0 or height <= 0:
@@ -200,14 +217,7 @@ def _select_size(
         # Sizing from a guess would be worse than stating a conventional
         # default, so the set keeps the historical one.
         return sheet_templates.DEFAULT_SIZE
-    return sheet_templates.select_sheet_size(
-        width,
-        height,
-        table_height=sheet_templates.required_table_height(
-            stats, stackup, variants, members, str(context.get("variant") or "")
-        ),
-        table_width=sheet_templates.required_body_width(members),
-    )
+    return sheet_templates.select_sheet_size(width, height)
 
 
 def _artwork_window(sheet: Sheet) -> Rect | None:

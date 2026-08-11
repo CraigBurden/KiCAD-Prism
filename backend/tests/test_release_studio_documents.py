@@ -239,19 +239,80 @@ class ArtworkPlacementTests(unittest.TestCase):
 class SheetSizingTests(unittest.TestCase):
     """The sheet is chosen for the drawing, not fixed to one board."""
 
-    def _size(self, width: float, height: float, members=MEMBERS) -> str:
-        return sheet_templates.select_sheet_size(
-            width,
-            height,
-            table_height=sheet_templates.required_table_height(
-                STATS, STACKUP, VARIANTS, members, "default"
-            ),
-            table_width=sheet_templates.required_body_width(members),
-        )
+    def _size(self, width: float, height: float) -> str:
+        return sheet_templates.select_sheet_size(width, height)
 
     def test_bigger_boards_get_bigger_sheets(self) -> None:
-        ladder = [self._size(w, h) for w, h in ((50, 40), (300, 250), (500, 400), (900, 700))]
-        self.assertEqual(ladder, ["A3", "A2", "A1", "A0"])
+        ladder = [
+            self._size(w, h)
+            for w, h in ((50, 40), (200, 150), (300, 250), (500, 400), (900, 700))
+        ]
+        self.assertEqual(ladder, ["A4", "A3", "A2", "A1", "A0"])
+
+    def test_content_never_makes_the_sheet_grow(self) -> None:
+        """A long table is a reason to draw smaller, not to use more paper.
+
+        Sizing the page for the tables gives a 40 mm board an A2 sheet because
+        its stackup has rows, which is exactly the waste this avoids.
+        """
+
+        few = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+        )
+        many = compose(
+            context=CONTEXT, stats=STATS,
+            stackup={**STACKUP, "layers": STACKUP["layers"] * 20},
+            variants=VARIANTS, placements=PLACEMENTS,
+            members=[
+                dict(MEMBERS[0], path=f"fabrication/gerbers/layer-{index}.gbr")
+                for index in range(120)
+            ],
+        )
+        self.assertEqual(few.sheet_size, many.sheet_size)
+
+    def test_tables_are_scaled_to_the_sheet_they_land_on(self) -> None:
+        from app.release_studio.documents.layout import MIN_TABLE_FONT, Table, fit_columns
+
+        table = Table(
+            columns=("A", "B"),
+            rows=tuple(("x", "y") for _ in range(40)),
+            widths=(60.0, 60.0),
+        )
+        fitted, factor = fit_columns([[table]], Rect(0.0, 0.0, 60.0, 90.0))
+        self.assertLess(factor, 1.0)
+        self.assertLessEqual(fitted[0][0].width(), 60.0)
+        self.assertLessEqual(fitted[0][0].height(), 90.0)
+
+    def test_height_alone_never_shrinks_text_below_the_legibility_floor(self) -> None:
+        """Too tall has a remedy -- dropping rows. Too wide has none."""
+
+        from app.release_studio.documents.layout import MIN_TABLE_FONT, Table, fit_columns
+
+        table = Table(
+            columns=("A", "B"),
+            rows=tuple(("x", "y") for _ in range(80)),
+            widths=(30.0, 30.0),
+        )
+        fitted, _factor = fit_columns([[table]], Rect(0.0, 0.0, 120.0, 60.0))
+        self.assertGreaterEqual(fitted[0][0].font_size, MIN_TABLE_FONT - 1e-9)
+        self.assertLessEqual(fitted[0][0].height(), 60.0)
+        self.assertIn("more", fitted[0][0].rows[-1][0])
+
+    def test_a_table_that_cannot_shrink_far_enough_states_what_it_dropped(self) -> None:
+        from app.release_studio.documents.layout import Table, fit_columns
+
+        table = Table(
+            columns=("A", "B"),
+            rows=tuple((str(index), "y") for index in range(400)),
+            widths=(60.0, 60.0),
+        )
+        fitted, _factor = fit_columns([[table]], Rect(0.0, 0.0, 60.0, 40.0))
+        result = fitted[0][0]
+        self.assertLess(len(result.rows), len(table.rows))
+        self.assertLessEqual(result.height(), 40.0)
+        # Silently stopping would read as "that is all of them".
+        self.assertIn("more", result.rows[-1][0])
 
     def test_the_ladder_is_monotonic_in_board_size(self) -> None:
         """A larger board never lands on a smaller sheet."""
@@ -272,19 +333,6 @@ class SheetSizingTests(unittest.TestCase):
         used = preferred_scale(2000.0, 1500.0, window)
         self.assertLess(used, 1.0)
         self.assertAlmostEqual(used, 0.5, places=9)
-
-    def test_a_long_member_list_can_be_what_makes_the_sheet_grow(self) -> None:
-        """Sizing is content-driven, not only board-driven."""
-
-        many = [dict(MEMBERS[0], path=f"fabrication/gerbers/layer-{index}.gbr") for index in range(40)]
-        self.assertEqual(
-            sheet_templates.required_table_height(STATS, STACKUP, VARIANTS, many, "default"),
-            sheet_templates.required_table_height(STATS, STACKUP, VARIANTS, many, "default"),
-        )
-        self.assertGreater(
-            sheet_templates.required_table_height(STATS, STACKUP, VARIANTS, many, "default"),
-            sheet_templates.required_table_height(STATS, STACKUP, VARIANTS, MEMBERS, "default"),
-        )
 
     def test_the_predicted_body_matches_the_drawn_one(self) -> None:
         """`select_sheet_size` reasons about a sheet it has not drawn yet."""
@@ -324,7 +372,7 @@ class SheetSizingTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
         )
-        self.assertEqual(result.sheet_size, "A3")
+        self.assertEqual(result.sheet_size, "A4")
         widths = set()
         for payload in result.files().values():
             match = re.search(rb'width="([0-9.]+)mm"', payload)
@@ -657,25 +705,25 @@ class RendererVersionTests(unittest.TestCase):
     #: never one without the other.
     GOLDEN = {
         "documentation/assembly-bottom.pdf":
-            "497c1c0f2c25efc22a80e7bc3feb534160ce66b759c77eef735acbd66254684b",
+            "179d4ddff58616d43b79d6af190ea79f3b42c9802f2abf257fbf11296c7395c2",
         "documentation/assembly-bottom.svg":
-            "3f8057bada680ac9baec80118f7c5ddc59587f239f8aad3f74afae44c92a7f85",
+            "6835a4ba7615b608a3ee190c7e8e20f9d1814968a12ea7d372c8b2bb78644a42",
         "documentation/assembly-top.pdf":
-            "8b08e8fd2acf6f5eed38432b1eb92aa8db54b991f1f9813d282e97dc6cfd53b1",
+            "667080699bb6c22a6da75921d7d8bcb82df3d5b200ad419e19b217088bd2b55d",
         "documentation/assembly-top.svg":
-            "891ac75808b4124b2d63d4e62717952c8a2d55c647df91136525d43b5c6f9de1",
+            "6426501245f366c9c2095cec629a01e6f781e7183c80b54304ad9b50c0e1570e",
         "documentation/cover.pdf":
-            "a62572a87f58d38ba48c26fd2bb578214d088f26b6eb359385c22b850b4ec624",
+            "ade4cf9ee0d0fd5c93644ac008a139f4f61ab5f45ab986b39261e5b3e47da829",
         "documentation/cover.svg":
-            "5eff62fb29ddc5118f0690b922d5a97aaec463eaa53dbdacd70571316b360f43",
+            "ee690a55c6562b819db008d0f9dd43293d7e94baeb86866ed11c3ee0c791950d",
         "documentation/drill.pdf":
-            "8eddf2abe3698666de887e6e3f5d0922cbe7a61456f283bd538b79091076d4c5",
+            "cc2674642da708a461bb7635c36b8e914d4a457c818556e6fb073f0c2ac9debf",
         "documentation/drill.svg":
-            "de1feefb210032898e5b01193a2bd30ba186a58a7612aa05256e94bc67bc8c8c",
+            "b1cf23caaf335150b62fcd94f6a6571529a935695d209943c134bc2c067bfe33",
         "documentation/fabrication.pdf":
-            "87c004c174c690e397eb70dcdcb542ed85584fb82c30270bb17aae1ca8d27399",
+            "4b2b043f8554bef99e89500585b5b49b4668607ccebb32b4b650a41a5f62db0c",
         "documentation/fabrication.svg":
-            "66640cd0e759153b32b27c4910e8923e1bb2da7a9c02d2cb44064d2e86205c57",
+            "9bdd17a1d468cee389e39146dfd4977a88949e1198b4113e6c976d3265dd8bc2",
     }
 
     #: A placed sheet, so a change to sheet selection or to the scale ladder
@@ -703,7 +751,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d3",
+            "release-studio-documents/d4",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

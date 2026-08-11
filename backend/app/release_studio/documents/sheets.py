@@ -26,6 +26,7 @@ from app.release_studio.documents.layout import (
     draw_notes,
     draw_table,
     draw_title_block,
+    fit_columns,
     preferred_scale,
 )
 
@@ -80,17 +81,17 @@ def select_sheet_size(
     board_width: float,
     board_height: float,
     *,
-    table_height: float = 0.0,
-    table_width: float = 0.0,
     ladder: Sequence[str] = SHEET_LADDER,
 ) -> str:
-    """The smallest standard sheet this drawing fits on.
+    """The smallest standard sheet the **board** fits on at 1:1.
 
-    Three things have to fit, and any of them can be the binding constraint:
-    the board at 1:1 in the artwork window, the tallest table column, and the
-    widest table row.  The board is measured against the *narrowest* window in
-    the set so that one size serves every sheet -- a document set whose pages
-    are different sizes is a nuisance to print and to file.
+    Only the board decides.  Table content does not: a stackup that gained rows
+    is a reason to draw the table smaller, not a reason to hand a 40 mm board a
+    sheet four times the size it needs -- see `layout.fit_columns`.
+
+    The board is measured against the *narrowest* artwork window in the set so
+    that one size serves every sheet; a document set whose pages are different
+    sizes is a nuisance to print and to file.
 
     Nothing here is tuned to a particular board.  A 38 mm trigger board and a
     500 mm backplane land on their sheets by the same rule.
@@ -102,17 +103,23 @@ def select_sheet_size(
     widest_table = max(TABLE_WIDTHS.values())
     for size in ladder:
         window = artwork_window(size, widest_table)
-        body = body_rect(size)
-        if (
-            board_width <= window.width
-            and board_height <= window.height
-            and table_height <= body.height
-            and table_width <= body.width
-        ):
+        if board_width <= window.width and board_height <= window.height:
             return size
     # Larger than A0 at 1:1: the scale ladder reduces it onto the biggest sheet
     # rather than silently overflowing a smaller one.
     return ladder[-1]
+
+
+def table_area(size: str, table_width: float) -> Rect:
+    """The column beside the artwork window that carries this sheet's tables."""
+
+    body = body_rect(size)
+    return Rect(
+        body.right - table_width - 2.0,
+        body.y + _WINDOW_TOP,
+        table_width,
+        body.height - _WINDOW_TOP - 2.0,
+    )
 
 
 def _title_fields(context: Mapping[str, Any], extra: Sequence[TitleBlockField] = ()) -> list[
@@ -181,72 +188,20 @@ def _draw_artwork(
 _TABLE_GAP = 6.0
 _COVER_NOTES_HEIGHT = 26.0
 _COVER_TABLE_WIDTH = 120.0
+_COVER_COLUMN_GAP = 10.0
+#: Space kept below a sheet's tables for its note block.
+_NOTES_RESERVE = 30.0
 
 
-def required_table_height(
-    stats: Mapping[str, Any],
-    stackup: Mapping[str, Any],
-    variants: Mapping[str, Any],
-    members: Sequence[Mapping[str, Any]],
-    selected_variant: str = "",
-) -> float:
-    """Body height the tallest table column in the set needs.
+def _draw_column(builder: SheetBuilder, column: Sequence, origin: tuple[float, float]) -> float:
+    """Draw a stack of tables from *origin*; return the y after the last one."""
 
-    A twelve-layer stackup or a hundred-member dossier can be the reason a
-    sheet has to grow, not just a large board -- so sheet selection asks for
-    this alongside the board extent rather than assuming content always fits.
-    """
-
-    def column(*heights: float) -> float:
-        return sum(heights) + _TABLE_GAP * len(heights) + _WINDOW_TOP
-
-    fabrication = column(
-        tables.stackup_table(stackup).height(),
-        tables.drill_table(stackup, stats).height(),
-        tables.key_value_table(
-            "CHARACTERISTICS",
-            tables.board_characteristics(stats, stackup),
-            width=TABLE_WIDTHS["fabrication"],
-        ).height(),
-    )
-    cover_left = column(
-        tables.key_value_table(
-            "BOARD CHARACTERISTICS",
-            tables.board_characteristics(stats, stackup),
-            width=_COVER_TABLE_WIDTH,
-        ).height(),
-        tables.variant_table(variants, selected_variant).height(),
-    )
-    cover_right = column(tables.member_table(members).height())
-    # The cover's notes are anchored to the bottom of the body, so the tables
-    # have to finish above them.
-    cover = max(cover_left, cover_right) + _COVER_NOTES_HEIGHT
-    return max(fabrication, cover)
-
-
-#: Horizontal offset of the cover's right-hand column from its left column.
-_COVER_COLUMN_SPLIT = 130.0
-#: Narrowest artwork window worth placing a board in.
-_MIN_ARTWORK_WIDTH = 60.0
-
-
-def required_body_width(members: Sequence[Mapping[str, Any]]) -> float:
-    """Body width the widest sheet in the set needs.
-
-    The cover's member table is the usual reason a set cannot sit on A4: its
-    columns are sized for a path, a canonicalizer name, and a digest prefix.
-    Deriving the requirement from the table rather than asserting a minimum
-    size means a narrower cover would reach A4 on its own.
-    """
-
-    cover = (
-        _WINDOW_INSET
-        + _COVER_COLUMN_SPLIT
-        + sum(tables.member_table(members).widths)
-        + _WINDOW_INSET
-    )
-    artwork = max(TABLE_WIDTHS.values()) + 3 * _WINDOW_INSET + _MIN_ARTWORK_WIDTH
-    return max(cover, artwork)
+    x, cursor = origin
+    for index, table in enumerate(column):
+        if index:
+            cursor += _TABLE_GAP
+        cursor = draw_table(builder, table, (x, cursor))
+    return cursor
 
 
 def technical_cover(
@@ -262,21 +217,32 @@ def technical_cover(
 
     builder, body = _shell("cover", str(context.get("title") or "RELEASE COVER"), context, size)
 
-    left = body.x + 4.0
-    top = body.y + 6.0
-
-    cursor = draw_table(
-        builder,
-        tables.key_value_table(
-            "BOARD CHARACTERISTICS", tables.board_characteristics(stats, stackup), width=120.0
-        ),
-        (left, top),
+    area = Rect(
+        body.x + _WINDOW_INSET,
+        body.y + _WINDOW_TOP,
+        body.width - 2 * _WINDOW_INSET,
+        body.height - _WINDOW_TOP - _COVER_NOTES_HEIGHT,
     )
-    cursor = draw_table(builder, tables.variant_table(variants, str(context.get("variant") or "")),
-                        (left, cursor + 6.0))
+    columns, _factor = fit_columns(
+        [
+            [
+                tables.key_value_table(
+                    "BOARD CHARACTERISTICS",
+                    tables.board_characteristics(stats, stackup),
+                    width=_COVER_TABLE_WIDTH,
+                ),
+                tables.variant_table(variants, str(context.get("variant") or "")),
+            ],
+            [tables.member_table(members)],
+        ],
+        area,
+        gap=_TABLE_GAP,
+        column_gap=_COVER_COLUMN_GAP,
+    )
 
-    right = left + 130.0
-    draw_table(builder, tables.member_table(members), (right, top))
+    _draw_column(builder, columns[0], (area.x, area.y))
+    left_width = max((table.width() for table in columns[0]), default=0.0)
+    _draw_column(builder, columns[1], (area.x + left_width + _COVER_COLUMN_GAP, area.y))
 
     draw_notes(
         builder,
@@ -288,8 +254,8 @@ def technical_cover(
             "It carries no build time and no approver, so re-rendering it cannot "
             "change its digest.",
         ],
-        (left, body.bottom - 26.0),
-        width=body.width - 8.0,
+        (area.x, body.bottom - _COVER_NOTES_HEIGHT),
+        width=body.width - 2 * _WINDOW_INSET,
     )
     return builder.build()
 
@@ -311,16 +277,21 @@ def fabrication_sheet(
     window = artwork_window(size, table_width)
     used = _draw_artwork(builder, window, art, label="board artwork", scale=scale)
 
-    right = body.right - table_width - 2.0
-    cursor = draw_table(builder, tables.stackup_table(stackup), (right, body.y + 6.0))
-    cursor = draw_table(builder, tables.drill_table(stackup, stats), (right, cursor + 6.0))
-    draw_table(
-        builder,
-        tables.key_value_table(
-            "CHARACTERISTICS", tables.board_characteristics(stats, stackup), width=table_width
-        ),
-        (right, cursor + 6.0),
+    area = table_area(size, table_width)
+    column, _factor = fit_columns(
+        [[
+            tables.stackup_table(stackup),
+            tables.drill_table(stackup, stats),
+            tables.key_value_table(
+                "CHARACTERISTICS",
+                tables.board_characteristics(stats, stackup),
+                width=table_width,
+            ),
+        ]],
+        area,
+        gap=_TABLE_GAP,
     )
+    _draw_column(builder, column[0], (area.x, area.y))
     return builder.build(), used
 
 
@@ -350,18 +321,20 @@ def assembly_sheet(
         ("Placements", str(len(fitted))),
         ("Variant", str(context.get("variant") or "default")),
     )
-    right = body.right - table_width - 2.0
-    cursor = draw_table(
-        builder, tables.key_value_table("POPULATION", summary, width=table_width),
-        (right, body.y + 6.0),
+    area = table_area(size, table_width)
+    column, _factor = fit_columns(
+        [[tables.key_value_table("POPULATION", summary, width=table_width)]],
+        Rect(area.x, area.y, area.width, area.height - _NOTES_RESERVE),
+        gap=_TABLE_GAP,
     )
+    cursor = _draw_column(builder, column[0], (area.x, area.y))
     draw_notes(
         builder,
         [
             "Reference designators follow the position file in this dossier.",
             "Do-not-populate parts are excluded from the placement count above.",
         ],
-        (right, cursor + 6.0),
+        (area.x, cursor + _TABLE_GAP),
         width=table_width,
     )
     return builder.build(), used
@@ -384,15 +357,20 @@ def drill_sheet(
     window = artwork_window(size, table_width)
     used = _draw_artwork(builder, window, art, label="drill artwork", scale=scale)
 
-    right = body.right - table_width - 2.0
-    cursor = draw_table(builder, tables.drill_table(stackup, stats), (right, body.y + 6.0))
+    area = table_area(size, table_width)
+    column, _factor = fit_columns(
+        [[tables.drill_table(stackup, stats)]],
+        Rect(area.x, area.y, area.width, area.height - _NOTES_RESERVE),
+        gap=_TABLE_GAP,
+    )
+    cursor = _draw_column(builder, column[0], (area.x, area.y))
     draw_notes(
         builder,
         [
             "Hole sizes are finished diameters unless a tolerance is stated.",
             "The Excellon file in this dossier is authoritative; this sheet is a view of it.",
         ],
-        (right, cursor + 6.0),
+        (area.x, cursor + _TABLE_GAP),
         width=table_width,
     )
     return builder.build(), used

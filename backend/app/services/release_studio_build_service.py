@@ -180,6 +180,14 @@ def prepare_candidate(
     if closure_reasons:
         hermetic = False
         reasons = [*reasons, *closure_reasons]
+    # References no build step reads -- 3D models -- are reported rather than
+    # counted against hermeticity, so they cannot block a release whose outputs
+    # do not depend on them.
+    advisory = closure.advisory_reasons()
+    if advisory:
+        logger.info(
+            "Release Studio closure carries %d advisory reference(s)", len(advisory)
+        )
     _toolchain, toolchain_digest = toolchain_identity()
 
     candidate = store.create_candidate(
@@ -199,6 +207,7 @@ def prepare_candidate(
     )
     candidate["_closure_root"] = str(closure_root)
     candidate["_config"] = config
+    candidate["_advisory_reasons"] = advisory
     return candidate
 
 
@@ -381,7 +390,13 @@ def execute_build(
             evidence_artifact_id=artifact_ids[1],
             fence=context.fence,
             actor=str(context.payload.get("author") or ""),
-            warnings=document_warnings,
+            warnings=[
+                *(
+                    f"closure: {reason}"
+                    for reason in candidate.get("_advisory_reasons") or ()
+                ),
+                *document_warnings,
+            ],
         )
         return {
             "build": completed,
