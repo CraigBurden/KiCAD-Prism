@@ -352,6 +352,70 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
         for expected in ("waiver.proposed", "waiver.approved", "waiver.revoked"):
             self.assertIn(expected, events)
 
+    def test_self_approving_a_waiver_requires_an_audited_exception(self) -> None:
+        # A single-operator deployment owns every waiver it raises, so a flat
+        # prohibition makes every blocker permanently unclearable. The two-person
+        # rule still stands; it is escapable only on the same terms an approval
+        # already imposes -- a named kind, a written reason, and an audit event.
+        waiver = self.service.create_waiver(
+            project_id=self.project_id, config_key=self.config_key,
+            rule_id="drc.clean", domain="evidence", reason="agreed with CM",
+            owner="solo", subject_pattern="drc/*",
+        )
+
+        with self.assertRaisesRegex(self.service.ReleaseStudioError, "audited"):
+            self.service.transition_waiver(
+                waiver["id"], status="approved", actor="solo"
+            )
+        with self.assertRaisesRegex(self.service.ReleaseStudioError, "written"):
+            self.service.transition_waiver(
+                waiver["id"], status="approved", actor="solo",
+                exception_kind="self_approval",
+            )
+        with self.assertRaisesRegex(self.service.ReleaseStudioError, "unknown waiver exception"):
+            self.service.transition_waiver(
+                waiver["id"], status="approved", actor="solo",
+                exception_kind="emergency", exception_reason="because",
+            )
+
+        approved = self.service.transition_waiver(
+            waiver["id"], status="approved", actor="solo",
+            exception_kind="self_approval",
+            exception_reason="sole operator on a local deployment",
+        )
+        self.assertEqual(approved["status"], "approved")
+        self.assertEqual(approved["exception_kind"], "self_approval")
+        self.assertEqual(
+            approved["exception_reason"], "sole operator on a local deployment"
+        )
+
+        # The exception must be in the hash-chained trail, not only on the row.
+        event = next(
+            item
+            for item in self.service.list_audit_events(self.project_id, self.config_key)
+            if item["event_type"] == "waiver.approved"
+        )
+        self.assertEqual(event["details"]["exception_kind"], "self_approval")
+        self.assertIn("sole operator", event["details"]["exception_reason"])
+        self.assertTrue(self.service.verify_audit_chain(self.project_id, self.config_key)["ok"])
+
+    def test_a_waiver_approved_by_another_person_takes_no_exception(self) -> None:
+        waiver = self.service.create_waiver(
+            project_id=self.project_id, config_key=self.config_key,
+            rule_id="erc.clean", domain="evidence", reason="agreed with CM",
+            owner="designer", subject_pattern="erc/*",
+        )
+        with self.assertRaisesRegex(self.service.ReleaseStudioError, "takes no exception"):
+            self.service.transition_waiver(
+                waiver["id"], status="approved", actor="quality",
+                exception_kind="self_approval", exception_reason="not applicable",
+            )
+        approved = self.service.transition_waiver(
+            waiver["id"], status="approved", actor="quality"
+        )
+        self.assertEqual(approved["status"], "approved")
+        self.assertIsNone(approved["exception_kind"])
+
     def test_expired_waiver_stops_applying_without_deletion(self) -> None:
         waiver = self.service.create_waiver(
             project_id=self.project_id, config_key=self.config_key,

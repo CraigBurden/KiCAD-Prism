@@ -670,6 +670,22 @@ def latest_build(candidate_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def get_artifact(artifact_id: str) -> dict[str, Any] | None:
+    """Resolve one published artifact row by id.
+
+    Builds reference artifacts by ``ws_artifacts(id)``, so serving a dossier
+    means looking the object location up rather than deriving it from a digest.
+    """
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id, kind, digest, object_path, media_type, size_bytes "
+            "FROM ws_artifacts WHERE id = %s",
+            (artifact_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def build_members(build_id: str) -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
@@ -889,12 +905,20 @@ def create_waiver(
 
 
 def transition_waiver(
-    waiver_id: str, *, status: str, actor: str, reason: str = ""
+    waiver_id: str,
+    *,
+    status: str,
+    actor: str,
+    reason: str = "",
+    exception_kind: str | None = None,
+    exception_reason: str = "",
 ) -> dict[str, Any]:
     """Waiver rows are never deleted; every transition is audited."""
 
     if status not in WAIVER_STATUSES:
         raise ReleaseStudioError(f"unknown waiver status: {status!r}")
+    if exception_kind is not None and exception_kind != "self_approval":
+        raise ReleaseStudioError(f"unknown waiver exception kind: {exception_kind!r}")
     with connect() as conn:
         row = conn.execute(
             "SELECT * FROM ws_release_waivers WHERE id = %s FOR UPDATE", (waiver_id,)
@@ -902,14 +926,35 @@ def transition_waiver(
         if row is None:
             raise ReleaseStudioError("waiver not found")
         if status == "approved":
-            if str(row["owner"]).casefold() == actor.casefold():
-                raise ReleaseStudioError("a waiver cannot be approved by its own owner")
+            own = str(row["owner"]).casefold() == actor.casefold()
+            # The two-person rule stands. Approving one's own waiver is possible
+            # only as a named exception with a written reason, on the same terms
+            # `ws_release_approvals` already imposes -- never a quiet bypass.
+            if own and exception_kind != "self_approval":
+                raise ReleaseStudioError(
+                    "a waiver cannot be approved by its own owner without an "
+                    "audited self_approval exception"
+                )
+            if own and not exception_reason.strip():
+                raise ReleaseStudioError(
+                    "a self-approved waiver requires a written exception reason"
+                )
+            if not own and exception_kind is not None:
+                raise ReleaseStudioError(
+                    "a waiver approved by another person takes no exception"
+                )
             conn.execute(
                 """
                 UPDATE ws_release_waivers SET status='approved', approver=%s,
-                       approved_at=NOW() WHERE id=%s
+                       approved_at=NOW(), exception_kind=%s, exception_reason=%s
+                WHERE id=%s
                 """,
-                (actor, waiver_id),
+                (
+                    actor,
+                    exception_kind,
+                    exception_reason.strip() if exception_kind else None,
+                    waiver_id,
+                ),
             )
         elif status == "revoked":
             conn.execute(
@@ -927,7 +972,21 @@ def transition_waiver(
             conn, project_id=row["project_id"], config_key=row["config_key"],
             event_type=f"waiver.{status}", actor=actor,
             subject_kind="waiver", subject_id=waiver_id,
-            details={"from": row["status"], "to": status, "reason": reason},
+            details={
+                "from": row["status"],
+                "to": status,
+                "reason": reason,
+                # The exception is the whole point of the escape hatch: it must
+                # be in the hash-chained trail, not only on the waiver row.
+                **(
+                    {
+                        "exception_kind": exception_kind,
+                        "exception_reason": exception_reason.strip(),
+                    }
+                    if exception_kind
+                    else {}
+                ),
+            },
         )
         conn.commit()
     return get_waiver(waiver_id) or {}
@@ -1403,6 +1462,7 @@ __all__ = [
     "current_audit_head",
     "effective_approvals",
     "fail_build",
+    "get_artifact",
     "get_build",
     "get_candidate",
     "get_configuration",

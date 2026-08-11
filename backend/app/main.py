@@ -158,6 +158,20 @@ def announce_configuration_warnings() -> None:
 verify_auth_configuration_or_exit()
 
 
+def _publish_release_signing_key() -> None:
+    """Make the release key's public half distributable before the first release."""
+
+    from app.api.release_studio import publish_configured_signing_key
+
+    try:
+        key_id = publish_configured_signing_key()
+    except Exception as error:  # never block startup on the key set
+        logger.warning("Release signing key could not be published: %s", error)
+        return
+    if key_id:
+        logger.info("Release Studio signing key %s published to the org key set.", key_id)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -169,6 +183,7 @@ async def lifespan(app: FastAPI):
     catalog_service.initialize()
     workspace.initialize()
     jobs.initialize()
+    _publish_release_signing_key()
     if settings.AUTH_ENABLED:
         session_store_service.initialize_session_store()
         session_store_service.prune_expired_sessions()

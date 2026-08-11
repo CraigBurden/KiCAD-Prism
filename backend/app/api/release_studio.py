@@ -11,9 +11,11 @@ credentials.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +77,8 @@ class WaiverRequest(BaseModel):
 
 class WaiverTransitionRequest(BaseModel):
     reason: str = Field("", max_length=4000)
+    exception_kind: str | None = None
+    exception_reason: str = Field("", max_length=4000)
 
 
 class ApprovalRequest(BaseModel):
@@ -192,6 +196,72 @@ async def download_dossier(
         content=payload,
         media_type="application/gzip",
         headers={"Content-Disposition": f'attachment; filename="dossier-{build_id}.tar.gz"'},
+    )
+
+
+@router.get("/{project_id}/release-studio/builds/{build_id}/members/{member_path:path}")
+async def download_member(
+    project_id: str,
+    build_id: str,
+    member_path: str,
+    disposition: str = Query("inline", pattern="^(inline|attachment)$"),
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """Serve one released member out of the dossier, digest-checked.
+
+    Viewing an output is only meaningful if what you are shown is the released
+    bytes, so the extracted member is hashed and compared with the manifest's
+    ``released_digest`` before it is returned.  A mismatch means the stored
+    dossier no longer matches the record and is a hard error, never a silent
+    best effort.
+    """
+
+    get_project_for_role_or_404(project_id, user.role)
+    build = _build_or_404(project_id, build_id)
+
+    member = next(
+        (item for item in store.build_members(build_id) if item["path"] == member_path),
+        None,
+    )
+    # Resolving through the members table is also what keeps a crafted path from
+    # reaching an arbitrary archive entry: only recorded members are addressable.
+    if member is None:
+        raise HTTPException(status_code=404, detail="Member not found in this build")
+
+    payload = _artifact_bytes(build["dossier_artifact_id"])
+    try:
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            extracted = archive.extractfile(member_path)
+            if extracted is None:
+                raise HTTPException(
+                    status_code=404, detail="Member is absent from the stored dossier"
+                )
+            data = extracted.read()
+    except tarfile.TarError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"The stored dossier could not be read: {exc}"
+        ) from exc
+
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != member["released_digest"]:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Released digest mismatch for {member_path}: the manifest records "
+                f"{member['released_digest']} but the stored dossier holds {actual}"
+            ),
+        )
+
+    filename = member_path.rsplit("/", 1)[-1]
+    return Response(
+        content=data,
+        media_type=member["media_type"] or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            # The bytes are immutable and named by their digest.
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "ETag": f'"{actual}"',
+        },
     )
 
 
@@ -339,7 +409,12 @@ async def transition_waiver(
         raise HTTPException(status_code=400, detail=f"Unknown waiver action: {action}")
     try:
         return store.transition_waiver(
-            waiver_id, status=status, actor=user.email, reason=request.reason
+            waiver_id,
+            status=status,
+            actor=user.email,
+            reason=request.reason,
+            exception_kind=request.exception_kind,
+            exception_reason=request.exception_reason,
         )
     except store.ReleaseStudioError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -550,24 +625,6 @@ async def verify_audit(
 async def signing_keys():
     """Public key material only. Superseded keys stay listed so old releases verify."""
 
-    # Publish the configured key as soon as it is readable, not only once the
-    # first release is issued: a recipient must be able to pin the key before
-    # there is anything signed with it, and an operator needs to see that the
-    # deployment is actually configured to sign.
-    try:
-        configured = _signing_key()
-    except HTTPException:
-        # 503 here means the deployment simply is not configured to sign, which
-        # is a legitimate state for the key set to be empty in.
-        configured = None
-    if configured is not None:
-        store.upsert_signing_key(
-            key_id=configured.key_id,
-            algorithm="ed25519",
-            public_key=configured.public_pem,
-            created_by="",
-        )
-
     return {
         "keys": [
             {
@@ -604,16 +661,61 @@ def _build_or_404(project_id: str, build_id: str) -> dict[str, Any]:
     return build
 
 
-def _artifact_bytes(artifact_digest: str | None) -> bytes:
-    if not artifact_digest:
-        raise HTTPException(status_code=404, detail="Artifact not available")
-    from app.services.job_artifact_service import JobArtifactService
+def _artifact_bytes(artifact_id: str | None) -> bytes:
+    """Read a published artifact by its ``ws_artifacts`` row id.
 
-    objects = JobArtifactService().objects
-    path = objects / artifact_digest[:2] / artifact_digest[2:4] / artifact_digest
+    The build rows reference artifacts by id, not by digest -- the FK targets
+    ``ws_artifacts(id)`` -- so the object location is resolved from the row
+    rather than reconstructed from a digest.  The bytes are re-hashed against
+    the recorded digest because a content-addressed store that hands back
+    something else has failed at its one job.
+    """
+
+    if not artifact_id:
+        raise HTTPException(status_code=404, detail="Artifact not available")
+    artifact = store.get_artifact(artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Artifact metadata is no longer present")
+
+    path = Path(str(artifact["object_path"]))
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Artifact object is no longer present")
-    return path.read_bytes()
+    payload = path.read_bytes()
+
+    digest = str(artifact["digest"] or "")
+    actual = hashlib.sha256(payload).hexdigest()
+    if digest and actual != digest:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Artifact {artifact_id} is corrupt: recorded digest {digest}, "
+                f"stored object hashes to {actual}"
+            ),
+        )
+    return payload
+
+
+def publish_configured_signing_key() -> str:
+    """Publish the configured key's public half into the org key set.
+
+    Called once at startup rather than lazily from the key-set route: a
+    recipient must be able to pin the key before anything has been signed with
+    it, and an operator needs to see that the deployment is configured to sign
+    at all -- but a GET must not carry a write whose outcome depends on the
+    process environment.
+
+    Returns the published ``key_id``, or "" when signing is not configured,
+    which is a legitimate state and never an error.
+    """
+
+    try:
+        key = _signing_key()
+    except HTTPException:
+        return ""
+    store.upsert_signing_key(
+        key_id=key.key_id, algorithm="ed25519", public_key=key.public_pem, created_by=""
+    )
+    return key.key_id
 
 
 def _signing_key():

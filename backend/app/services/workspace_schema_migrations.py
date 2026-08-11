@@ -1537,6 +1537,53 @@ def _release_studio_rule_outcomes(conn: Any) -> None:
     )
 
 
+def _release_studio_waiver_exceptions(conn: Any) -> None:
+    """Give waivers the audited self-approval exception approvals already have.
+
+    ``ws_release_approvals`` carries ``(exception_kind, exception_reason)`` so
+    that an author approving their own revision is *recorded as an exception*
+    rather than either silently permitted or flatly impossible.  Waivers had
+    only the flat prohibition, which makes the release path unreachable for a
+    single-operator deployment: the sole identity owns every waiver it raises,
+    so no waiver can ever be approved and no blocker can ever be cleared.
+
+    The prohibition itself is unchanged.  What this adds is the same escape
+    hatch on the same terms: an explicit kind, a written reason, and an audit
+    event -- never a quiet bypass.
+
+    R23 must fold this into the collapsed ``_release_studio`` migration along
+    with M9 and M10; it is a separate rung only because amending M8 in place
+    would require recreating databases that already hold real projects.
+    """
+
+    conn.execute(
+        "ALTER TABLE ws_release_waivers "
+        "ADD COLUMN IF NOT EXISTS exception_kind TEXT"
+    )
+    conn.execute(
+        "ALTER TABLE ws_release_waivers "
+        "ADD COLUMN IF NOT EXISTS exception_reason TEXT"
+    )
+    conn.execute(
+        "ALTER TABLE ws_release_waivers "
+        "DROP CONSTRAINT IF EXISTS ck_ws_release_waivers_exception"
+    )
+    conn.execute(
+        """
+        ALTER TABLE ws_release_waivers
+            ADD CONSTRAINT ck_ws_release_waivers_exception
+            CHECK (
+                (exception_kind IS NULL AND exception_reason IS NULL)
+                OR (
+                    exception_kind = 'self_approval'
+                    AND exception_reason IS NOT NULL
+                    AND length(btrim(exception_reason)) > 0
+                )
+            )
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -1548,6 +1595,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (8, "release_studio", _release_studio),
     (9, "release_studio_hardening", _release_studio_hardening),
     (10, "release_studio_rule_outcomes", _release_studio_rule_outcomes),
+    (11, "release_studio_waiver_exceptions", _release_studio_waiver_exceptions),
 )
 
 

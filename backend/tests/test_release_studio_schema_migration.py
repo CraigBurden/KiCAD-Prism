@@ -1867,6 +1867,7 @@ class ReleaseStudioMigrationLadderTests(unittest.TestCase):
                 (8, "release_studio"),
                 (9, "release_studio_hardening"),
                 (10, "release_studio_rule_outcomes"),
+                (11, "release_studio_waiver_exceptions"),
             ],
         )
 

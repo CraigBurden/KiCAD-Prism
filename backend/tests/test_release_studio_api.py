@@ -33,7 +33,14 @@ TEST_POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
 
 @dataclass
 class _User:
-    username: str
+    """Mirrors the identity fields the routes actually read off AuthenticatedUser.
+
+    `email` is the identity the routes record as actor/owner/approver; the stub
+    carried `username`, which the real model does not have, so the stub could
+    not have caught the routes referencing a non-existent attribute.
+    """
+
+    email: str
     role: str = "designer"
 
 
@@ -261,6 +268,22 @@ class ReleaseStudioApiTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("own owner", caught.exception.detail)
+
+        # The exception path is reachable through the API on the same terms the
+        # service imposes: a named kind plus a written reason.
+        approved = _run(
+            self.api.transition_waiver(
+                self.project_id, waiver["id"], "approve",
+                self.api.WaiverTransitionRequest(
+                    reason="",
+                    exception_kind="self_approval",
+                    exception_reason="sole operator on this deployment",
+                ),
+                user=_User("designer"),
+            )
+        )
+        self.assertEqual(approved["status"], "approved")
+        self.assertEqual(approved["exception_kind"], "self_approval")
 
     def test_audit_verify_reports_a_healthy_chain(self) -> None:
         self._built()

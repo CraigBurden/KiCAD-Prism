@@ -30,6 +30,7 @@ import type {
     Finding,
     ReleaseCandidate,
     ReleaseConfiguration,
+    ReleaseMember,
     ReleaseRecord,
     RuleOutcome,
     VerificationReport,
@@ -459,8 +460,12 @@ function BuildDetailView({
     const [exceptionReason, setExceptionReason] = useState("");
     const [label, setLabel] = useState("");
     const [revision, setRevision] = useState("A");
+    // Track the member by path rather than by object so the viewer follows the
+    // same file across a refresh that replaces the member rows.
+    const [viewedMemberPath, setViewedMemberPath] = useState("");
     const build = detail.build;
     const evaluation = detail.evaluation;
+    const viewedMember = detail.members.find((item) => item.path === viewedMemberPath) ?? null;
 
     return (
         <Card>
@@ -546,7 +551,15 @@ function BuildDetailView({
                         )}
                     </TabsContent>
 
-                    <TabsContent value="members" className="pt-4">
+                    <TabsContent value="members" className="space-y-3 pt-4">
+                        {viewedMember && (
+                            <MemberViewer
+                                projectId={projectId}
+                                buildId={detail.build.id}
+                                member={viewedMember}
+                                onClose={() => setViewedMemberPath("")}
+                            />
+                        )}
                         <div className="max-h-96 overflow-y-auto">
                             <table className="w-full text-xs">
                                 <thead className="sticky top-0 bg-background">
@@ -559,7 +572,11 @@ function BuildDetailView({
                                 </thead>
                                 <tbody>
                                     {detail.members.map((member) => (
-                                        <tr key={member.id} className="border-b last:border-0">
+                                        <tr
+                                            key={member.id}
+                                            className="cursor-pointer border-b last:border-0 hover:bg-muted/50"
+                                            onClick={() => setViewedMemberPath(member.path)}
+                                        >
                                             <td className="py-1 font-mono">{member.path}</td>
                                             <td>
                                                 {member.domains.map((domain) => (
@@ -688,20 +705,18 @@ function BuildDetailView({
                                     {waiver.approver ? ` · approved by ${waiver.approver}` : ""}
                                     {waiver.expires_at ? ` · expires ${waiver.expires_at}` : ""}
                                 </span>
+                                {waiver.exception_kind && (
+                                    <span className="text-xs text-amber-600 dark:text-amber-500">
+                                        self-approved · {waiver.exception_reason}
+                                    </span>
+                                )}
                                 {canMutate && waiver.status === "proposed" && (
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="ml-auto"
-                                        disabled={Boolean(busy)}
-                                        onClick={() =>
-                                            void onRun("waiver", () =>
-                                                api.transitionWaiver(projectId, waiver.id, "approve"),
-                                            )
-                                        }
-                                    >
-                                        Approve waiver
-                                    </Button>
+                                    <WaiverApproval
+                                        projectId={projectId}
+                                        waiver={waiver}
+                                        busy={busy}
+                                        onRun={onRun}
+                                    />
                                 )}
                             </div>
                         ))}
@@ -869,6 +884,219 @@ export function ApprovalList({ approvals }: { approvals: Approval[] }) {
                     </div>
                 );
             })}
+        </div>
+    );
+}
+
+/** Media types this panel can render in place; everything else is a download. */
+function previewKind(mediaType: string, path: string): "pdf" | "image" | "text" | "none" {
+    const type = (mediaType || "").toLowerCase();
+    if (type === "application/pdf") return "pdf";
+    if (type.startsWith("image/")) return "image";
+    if (
+        type.startsWith("text/")
+        || type === "application/json"
+        // Gerber and Excellon are plain text with vendor media types, and being
+        // able to read the released artwork header is most of the point.
+        || type === "application/vnd.gerber"
+        || /\.(gbr|g[a-z0-9]{2}|drl|csv|json|txt)$/i.test(path)
+    ) {
+        return "text";
+    }
+    return "none";
+}
+
+/**
+ * Render one released member inside Prism.
+ *
+ * The bytes come from the digest-checked member route, so what is displayed is
+ * the released artefact itself rather than a re-derived preview.
+ */
+function MemberViewer({
+    projectId,
+    buildId,
+    member,
+    onClose,
+}: {
+    projectId: string;
+    buildId: string;
+    member: ReleaseMember;
+    onClose: () => void;
+}) {
+    const [objectUrl, setObjectUrl] = useState<string>("");
+    const [text, setText] = useState<string>("");
+    const [failure, setFailure] = useState<string>("");
+    const kind = previewKind(member.media_type, member.path);
+
+    useEffect(() => {
+        let revoked = false;
+        let created = "";
+        setObjectUrl("");
+        setText("");
+        setFailure("");
+        if (kind === "none") return undefined;
+
+        void api
+            .memberObjectUrl(projectId, buildId, member.path)
+            .then(async ({ url }) => {
+                if (revoked) {
+                    URL.revokeObjectURL(url);
+                    return;
+                }
+                created = url;
+                if (kind === "text") {
+                    const body = await (await fetch(url)).text();
+                    if (!revoked) setText(body);
+                } else {
+                    setObjectUrl(url);
+                }
+            })
+            .catch((cause: unknown) => {
+                if (!revoked) {
+                    setFailure(cause instanceof Error ? cause.message : String(cause));
+                }
+            });
+
+        return () => {
+            revoked = true;
+            if (created) URL.revokeObjectURL(created);
+        };
+    }, [projectId, buildId, member.path, kind]);
+
+    return (
+        <div className="space-y-2 rounded-md border p-3">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-sm">{member.path}</span>
+                <Badge variant="outline">{member.media_type || "unknown"}</Badge>
+                <span className="font-mono text-xs text-muted-foreground">
+                    {shortDigest(member.released_digest)}
+                </span>
+                <div className="ml-auto flex gap-2">
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                            void api.downloadFile(
+                                api.downloadUrl(
+                                    projectId,
+                                    `builds/${encodeURIComponent(buildId)}/members/`
+                                        + `${member.path.split("/").map(encodeURIComponent).join("/")}`
+                                        + "?disposition=attachment",
+                                ),
+                                member.path.split("/").pop() ?? "member",
+                            )
+                        }
+                    >
+                        Download
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={onClose}>
+                        Close
+                    </Button>
+                </div>
+            </div>
+
+            {failure && <p className="text-sm text-destructive">{failure}</p>}
+
+            {!failure && kind === "none" && (
+                <p className="text-sm text-muted-foreground">
+                    This member type has no in-app preview. Download it to inspect the
+                    released bytes.
+                </p>
+            )}
+            {!failure && kind === "pdf" && objectUrl && (
+                <iframe title={member.path} src={objectUrl} className="h-[70vh] w-full rounded border" />
+            )}
+            {!failure && kind === "image" && objectUrl && (
+                <img
+                    alt={member.path}
+                    src={objectUrl}
+                    className="max-h-[70vh] w-full rounded border bg-white object-contain"
+                />
+            )}
+            {!failure && kind === "text" && text && (
+                <pre className="max-h-[70vh] overflow-auto rounded border bg-muted/40 p-2 text-xs">
+                    {text}
+                </pre>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Approving a waiver you raised yourself is possible only as a named exception
+ * with a written reason, which the audit chain records. The reason field is
+ * revealed rather than always present so the ordinary two-person path stays the
+ * obvious one and the exception stays a deliberate act.
+ */
+function WaiverApproval({
+    projectId,
+    waiver,
+    busy,
+    onRun,
+}: {
+    projectId: string;
+    waiver: Waiver;
+    busy: string;
+    onRun: DetailProps["onRun"];
+}) {
+    const [claiming, setClaiming] = useState(false);
+    const [exceptionReason, setExceptionReason] = useState("");
+
+    const approve = (exception?: { exception_kind: "self_approval"; exception_reason: string }) =>
+        void onRun("waiver", () =>
+            api.transitionWaiver(projectId, waiver.id, "approve", "", exception),
+        );
+
+    if (claiming) {
+        return (
+            <div className="ml-auto flex w-full flex-col gap-2 sm:w-80">
+                <Textarea
+                    value={exceptionReason}
+                    onChange={(event) => setExceptionReason(event.target.value)}
+                    placeholder="Why is no second approver available?"
+                    rows={2}
+                    className="text-sm"
+                />
+                <div className="flex gap-2">
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={Boolean(busy) || !exceptionReason.trim()}
+                        onClick={() =>
+                            approve({
+                                exception_kind: "self_approval",
+                                exception_reason: exceptionReason.trim(),
+                            })
+                        }
+                    >
+                        Record exception and approve
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setClaiming(false)}>
+                        Cancel
+                    </Button>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="ml-auto flex gap-2">
+            <Button
+                size="sm"
+                variant="outline"
+                disabled={Boolean(busy)}
+                onClick={() => approve()}
+            >
+                Approve waiver
+            </Button>
+            <Button
+                size="sm"
+                variant="ghost"
+                disabled={Boolean(busy)}
+                onClick={() => setClaiming(true)}
+            >
+                Self-approve…
+            </Button>
         </div>
     );
 }

@@ -135,6 +135,9 @@ export type Waiver = {
     owner: string;
     approver: string | null;
     status: "proposed" | "approved" | "rejected" | "revoked" | "expired";
+    /** Set only when the owner approved their own waiver, with a written reason. */
+    exception_kind: "self_approval" | null;
+    exception_reason: string | null;
     expires_at: string | null;
     created_at: string;
 };

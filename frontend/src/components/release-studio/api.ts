@@ -106,13 +106,14 @@ export async function transitionWaiver(
     waiverId: string,
     action: "approve" | "reject" | "revoke",
     reason = "",
+    exception?: { exception_kind: "self_approval"; exception_reason: string },
 ): Promise<Waiver> {
     return fetchJson(
         `${base(projectId)}/waivers/${encodeURIComponent(waiverId)}/${action}`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reason }),
+            body: JSON.stringify({ reason, ...(exception ?? {}) }),
         },
         "Could not update the waiver",
     );
@@ -192,6 +193,36 @@ export async function verifyAudit(
 
 export function downloadUrl(projectId: string, path: string): string {
     return `${base(projectId)}/${path}`;
+}
+
+/**
+ * Fetch one released member as an object URL for inline display.
+ *
+ * The bytes go through `fetchApi` rather than a bare `<img src>`/`<iframe src>`
+ * so the request carries credentials and a non-200 surfaces as an error instead
+ * of a silently broken frame. Callers must revoke the URL when done.
+ */
+export async function memberObjectUrl(
+    projectId: string,
+    buildId: string,
+    memberPath: string,
+): Promise<{ url: string; mediaType: string }> {
+    const encoded = memberPath.split("/").map(encodeURIComponent).join("/");
+    const response = await fetchApi(
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}/members/${encoded}`,
+    );
+    if (!response.ok) {
+        let detail = `Could not load ${memberPath} (${response.status})`;
+        try {
+            const body = await response.json();
+            if (body?.detail) detail = body.detail;
+        } catch {
+            // A non-JSON error body leaves the status-derived message in place.
+        }
+        throw new Error(detail);
+    }
+    const blob = await response.blob();
+    return { url: URL.createObjectURL(blob), mediaType: blob.type };
 }
 
 export async function downloadFile(url: string, filename: string): Promise<void> {
