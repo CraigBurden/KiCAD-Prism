@@ -1853,7 +1853,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                     self.conn.commit()
 
 class ReleaseStudioMigrationLadderTests(unittest.TestCase):
-    def test_migration_ladder_remains_ordered_through_migration_9(self) -> None:
+    def test_migration_ladder_remains_ordered_through_migration_10(self) -> None:
         self.assertEqual(
             [(version, name) for version, name, _ in MIGRATIONS],
             [
@@ -1866,6 +1866,7 @@ class ReleaseStudioMigrationLadderTests(unittest.TestCase):
                 (7, "generated_thumbnail_default"),
                 (8, "release_studio"),
                 (9, "release_studio_hardening"),
+                (10, "release_studio_rule_outcomes"),
             ],
         )
 

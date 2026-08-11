@@ -1482,6 +1482,52 @@ def _release_studio_hardening(conn: Any) -> None:
     )
 
 
+def _release_studio_rule_outcomes(conn: Any) -> None:
+    """Add the per-rule outcome table R3b reserved for R13.
+
+    ``ws_release_findings`` is deliberately a *problem* table: its severities
+    are `warning|failure|blocker` and its statuses are `open|waived`.  An
+    evaluation state such as `pass`, `info`, or `unsupported` is not a problem
+    and must not be storable as one, otherwise "the projection this rule needs
+    is missing" becomes indistinguishable from "this rule passed".  This is
+    additive and lands with R13's evaluator, which is its first writer.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ws_release_rule_outcomes (
+            id                 TEXT PRIMARY KEY,
+            evaluation_id      TEXT NOT NULL
+                               REFERENCES ws_release_evaluations(id) ON DELETE CASCADE,
+            rule_id            TEXT NOT NULL,
+            rule_version       TEXT NOT NULL DEFAULT '',
+            outcome            TEXT NOT NULL,
+            finding_count      INTEGER NOT NULL DEFAULT 0,
+            unsupported_reason TEXT NOT NULL DEFAULT '',
+            created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (evaluation_id, rule_id)
+        )
+        """
+    )
+    conn.execute(
+        "ALTER TABLE ws_release_rule_outcomes "
+        "DROP CONSTRAINT IF EXISTS ck_ws_release_rule_outcomes_outcome"
+    )
+    conn.execute(
+        """
+        ALTER TABLE ws_release_rule_outcomes
+            ADD CONSTRAINT ck_ws_release_rule_outcomes_outcome
+            CHECK (outcome IN (
+                'pass', 'info', 'warning', 'failure', 'blocker', 'unsupported'
+            ))
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ws_release_rule_outcomes_evaluation "
+        "ON ws_release_rule_outcomes(evaluation_id)"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -1492,6 +1538,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (7, "generated_thumbnail_default", _generated_thumbnail_default),
     (8, "release_studio", _release_studio),
     (9, "release_studio_hardening", _release_studio_hardening),
+    (10, "release_studio_rule_outcomes", _release_studio_rule_outcomes),
 )
 
 
