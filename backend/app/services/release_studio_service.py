@@ -524,6 +524,7 @@ def complete_build(
     evidence_artifact_id: str | None = None,
     fence: int | None = None,
     actor: str = "",
+    warnings: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Finalize one build in a single transaction, re-validating the fence.
 
@@ -551,13 +552,13 @@ def complete_build(
             UPDATE ws_release_builds SET
                 status='succeeded', manifest_digest=%s, dossier_digest=%s,
                 dossier_artifact_id=%s, evidence_artifact_id=%s,
-                toolchain=%s, completed_at=NOW()
+                toolchain=%s, warnings=%s, completed_at=NOW()
             WHERE id = %s
             """,
             (
                 dossier.manifest_digest, dossier.dossier_digest,
                 dossier_artifact_id, evidence_artifact_id,
-                json.dumps(dict(toolchain)), build_id,
+                json.dumps(dict(toolchain)), json.dumps(list(warnings)), build_id,
             ),
         )
         conn.execute("DELETE FROM ws_release_members WHERE build_id = %s", (build_id,))

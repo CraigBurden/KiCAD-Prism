@@ -109,7 +109,10 @@ def drill_table(stackup: Mapping[str, Any], stats: Mapping[str, Any]) -> Table:
         rows.append(
             (
                 _text(entry.get("source")),
-                f"{_text(entry.get('start_layer'))} → {_text(entry.get('stop_layer'))}",
+                # An arrow would be nicer, but it is outside WinAnsi and the PDF
+                # backend can only emit what the base-14 fonts encode -- so the
+                # two renderings of this sheet would show different text.
+                f"{_text(entry.get('start_layer'))} - {_text(entry.get('stop_layer'))}",
                 _text(entry.get("x_size")),
                 "yes" if entry.get("plated") else "no",
                 _text(entry.get("count")),

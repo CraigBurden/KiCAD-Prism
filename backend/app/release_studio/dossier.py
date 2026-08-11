@@ -435,13 +435,16 @@ def _evidence_records(
         kind = EVIDENCE_STEPS.get(output.step_id)
         if kind is None or not output.ran or not output.files:
             continue
-        member = next(
-            (m for m in members if m.step_id == output.step_id),
-            None,
-        )
+        # Match the member to the *file the report was read from*.  Members are
+        # sorted by path and a step's files are in emission order, so taking
+        # `files[0]` alongside the first member of the step would attribute one
+        # file's digest to another file's counts as soon as a step emits two.
+        report_file = output.files[0]
+        relative = report_file.relative_to(output.root).as_posix()
+        member = next((m for m in members if m.path == relative), None)
         if member is None:
             continue
-        canonical = canonicalize(member.canonicalizer, output.files[0].read_bytes())
+        canonical = canonicalize(member.canonicalizer, report_file.read_bytes())
         try:
             report = _json.loads(canonical.decode("utf-8"))
         except ValueError:

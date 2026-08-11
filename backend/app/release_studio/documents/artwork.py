@@ -89,7 +89,17 @@ class ArtworkError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class AcquiredArtwork:
-    """One plotted view of the board, with the geometry needed to place it."""
+    """One plotted view of the board, with the geometry needed to place it.
+
+    Two coordinate frames are recorded because ``kicad-cli`` gives the two
+    formats different pages.  ``pcb export svg --page-size-mode 2`` crops to the
+    plotted content, so the SVG's frame *is* the artwork's extent.  ``pcb export
+    pdf`` has no such option -- verified against the pinned 10.0.4 CLI -- so its
+    page is the board's configured page size with the artwork sitting somewhere
+    inside it.  ``page_offset_*`` locates the artwork within that page, which is
+    what lets the PDF composite land at the same scale and position as the SVG
+    instead of shrinking the whole page into the artwork's window.
+    """
 
     layers: tuple[str, ...]
     svg_text: str
@@ -100,6 +110,11 @@ class AcquiredArtwork:
     view_width: float
     view_height: float
     digest: str
+    #: Where the artwork's top-left sits on the PDF page, in millimetres from
+    #: that page's top-left.  ``None`` when it could not be established, in
+    #: which case the PDF composite is skipped rather than placed wrongly.
+    page_offset_x: float | None = None
+    page_offset_y: float | None = None
 
     @property
     def body(self) -> str:
@@ -133,9 +148,18 @@ def acquire(
     workdir.mkdir(parents=True, exist_ok=True)
     stem = "-".join(layer.replace(".", "_") for layer in layers) or "board"
     svg_path = workdir / f"{stem}.svg"
+    page_svg_path = workdir / f"{stem}-page.svg"
     pdf_path = workdir / f"{stem}.pdf"
 
-    for fmt, out in (("svg", svg_path), ("pdf", pdf_path)):
+    # Three plots of one view.  The cropped SVG is the artwork; the PDF is what
+    # gets composited; the full-page SVG exists only to locate the artwork
+    # inside the PDF's page, because `pcb export pdf` cannot crop.
+    plots = (
+        ("svg", svg_path, ("--exclude-drawing-sheet", "--page-size-mode", "2")),
+        ("svg", page_svg_path, ("--exclude-drawing-sheet",)),
+        ("pdf", pdf_path, ()),
+    )
+    for fmt, out, extra in plots:
         argv = [
             cli_path, "pcb", "export", fmt,
             "--layers", ",".join(layers),
@@ -143,13 +167,12 @@ def acquire(
             "--mode-single",
             "--output", str(out),
         ]
-        if fmt == "svg":
-            # Verified against the pinned 10.0.4 CLI: `pcb export svg` takes
-            # `--exclude-drawing-sheet` and `--page-size-mode`, while
-            # `pcb export pdf` takes neither and omits the border by default.
-            # There is no `--svgprecision` on `pcb export` at all -- that flag
-            # belongs to the schematic exporter.
-            argv.extend(["--exclude-drawing-sheet", "--page-size-mode", "2"])
+        # Verified against the pinned 10.0.4 CLI: `pcb export svg` takes
+        # `--exclude-drawing-sheet` and `--page-size-mode`, while `pcb export
+        # pdf` takes neither and omits the border unless asked.  There is no
+        # `--svgprecision` on `pcb export` at all -- that flag belongs to the
+        # schematic exporter.
+        argv.extend(extra)
         if black_and_white:
             argv.append("--black-and-white")
         if variant:
@@ -178,6 +201,7 @@ def acquire(
     svg_text = sanitize_artwork(svg_path.read_text(encoding="utf-8"))
     pdf_bytes = sanitize_artwork_pdf(pdf_path.read_bytes())
     x, y, width, height = extents(svg_text)
+    offset = page_offset(svg_text, page_svg_path.read_text(encoding="utf-8"))
     return AcquiredArtwork(
         layers=tuple(layers),
         svg_text=svg_text,
@@ -190,7 +214,70 @@ def acquire(
         # composed sheet, so a volatile input here would move the sheet even
         # when the geometry is identical.
         digest=hashlib.sha256(svg_text.encode("utf-8")).hexdigest(),
+        page_offset_x=offset[0] if offset else None,
+        page_offset_y=offset[1] if offset else None,
     )
+
+
+_PATH_DATA = re.compile(r'\bd\s*=\s*"([^"]*)"', re.IGNORECASE)
+# Each subpath's move-to, whatever separator the plotter used.  KiCad writes
+# `M 0.0000,0.0000` for filled shapes and `M126.0000 90.0000` for strokes, so a
+# comma-only reader finds nothing at all on an outline-only plot -- which is
+# exactly the drill sheet.
+_MOVE_TO = re.compile(r"[Mm]\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)")
+
+
+def _coordinate_pairs(svg_text: str, limit: int = 64) -> list[tuple[float, float]]:
+    """The first *limit* subpath origins in the document's path data.
+
+    Move-to points are enough: the two plots being compared contain the same
+    subpaths in the same order, so their origins differ by exactly the crop
+    translation and nothing else has to be parsed.
+    """
+
+    pairs: list[tuple[float, float]] = []
+    for match in _PATH_DATA.finditer(svg_text):
+        for pair in _MOVE_TO.finditer(match.group(1)):
+            pairs.append((float(pair.group(1)), float(pair.group(2))))
+            if len(pairs) >= limit:
+                return pairs
+    return pairs
+
+
+def page_offset(cropped_svg: str, page_svg: str) -> tuple[float, float] | None:
+    """Where the cropped artwork sits on the full page, in millimetres.
+
+    The two documents are the same plot of the same layers, so their geometry
+    differs by exactly the crop translation.  Reading that translation off the
+    coordinates is exact, and it is the only way to learn it -- ``pcb export
+    pdf`` cannot crop, and nothing in the PDF says where the ink is.
+
+    Returns ``None`` rather than a guess when the two plots do not line up, so
+    the caller can skip the composite instead of placing artwork wrongly.
+    """
+
+    try:
+        cropped_units = user_units_per_mm(cropped_svg)
+        page_units = user_units_per_mm(page_svg)
+    except ArtworkError:
+        return None
+    if cropped_units <= 0 or page_units <= 0:
+        return None
+
+    cropped = _coordinate_pairs(cropped_svg)
+    full = _coordinate_pairs(page_svg)
+    if not cropped or len(cropped) != len(full):
+        return None
+    # Both documents are read in their own user units; the comparison is only
+    # meaningful in millimetres.
+    deltas = {
+        (round(fx / page_units - cx / cropped_units, 3),
+         round(fy / page_units - cy / cropped_units, 3))
+        for (cx, cy), (fx, fy) in zip(cropped, full)
+    }
+    if len(deltas) != 1:
+        return None
+    return deltas.pop()
 
 
 def extents(svg_text: str) -> tuple[float, float, float, float]:
@@ -318,11 +405,26 @@ def composite_pdf(sheet_pdf: bytes, art: AcquiredArtwork, window: Rect, scale: f
     Keeping the artwork as a composited PDF page rather than re-drawing it
     preserves KiCad's geometry exactly, which is the same guarantee the SVG
     path gives by inlining the emitted markup.
+
+    The placement is computed for the *artwork*, not for the page that carries
+    it.  Fitting the overlay page into the artwork's window -- which is what
+    the obvious `calc_form_xobject_placement` call does -- puts the board on
+    the sheet at the ratio of board to page, roughly eight times smaller than
+    the ``SCALE`` the sheet states, and disagreeing with the SVG rendering of
+    the same sheet.
     """
 
     import pikepdf
 
     from app.release_studio.documents.pdf import MM_TO_PT
+
+    if art.page_offset_x is None or art.page_offset_y is None:
+        raise ArtworkError(
+            "the artwork's position on its PDF page is unknown; the composite "
+            "would be placed at the wrong scale"
+        )
+    if art.view_width <= 0 or art.view_height <= 0:
+        raise ArtworkError("artwork has no extent to place")
 
     with pikepdf.open(io.BytesIO(sheet_pdf)) as base, pikepdf.open(
         io.BytesIO(art.pdf_bytes)
@@ -338,23 +440,26 @@ def composite_pdf(sheet_pdf: bytes, art: AcquiredArtwork, window: Rect, scale: f
         top = window.y + (window.height - drawn_height) / 2
 
         media = page.mediabox
-        page_height_pt = float(media[3]) - float(media[1])
+        sheet_height_pt = float(media[3]) - float(media[1])
 
         source_box = source.mediabox
-        source_width_pt = float(source_box[2]) - float(source_box[0])
-        if source_width_pt <= 0:
-            raise ArtworkError("artwork PDF page has no width")
-        # The overlay page is already the board's size; scale it so the drawn
-        # width matches the placement computed for the SVG path.
-        factor = (drawn_width * MM_TO_PT) / source_width_pt
+        source_x0 = float(source_box[0])
+        source_y1 = float(source_box[3])
 
-        rect = pikepdf.Rectangle(
-            left * MM_TO_PT,
-            page_height_pt - (top + drawn_height) * MM_TO_PT,
-            (left + drawn_width) * MM_TO_PT,
-            page_height_pt - top * MM_TO_PT,
-        )
-        _ = factor  # placement is expressed by the target rectangle
+        # The artwork's top-left on the overlay page, expressed in that page's
+        # own PDF coordinates (origin bottom-left).
+        art_x_pt = source_x0 + art.page_offset_x * MM_TO_PT
+        art_top_pt = source_y1 - art.page_offset_y * MM_TO_PT
+        art_bottom_pt = art_top_pt - art.view_height * MM_TO_PT
+
+        # Target: the same artwork corner, on the sheet, at the stated ratio.
+        target_x_pt = left * MM_TO_PT
+        target_bottom_pt = sheet_height_pt - (top + drawn_height) * MM_TO_PT
+
+        # `scale` is sheet-millimetres per board-millimetre, and both pages are
+        # in points, so it is also the point-to-point factor.
+        tx = target_x_pt - scale * art_x_pt
+        ty = target_bottom_pt - scale * art_bottom_pt
 
         # `Page.add_overlay` invents a *random* XObject resource name, which
         # would make the composed sheet's bytes differ on every render even
@@ -363,10 +468,25 @@ def composite_pdf(sheet_pdf: bytes, art: AcquiredArtwork, window: Rect, scale: f
         form = source.as_form_xobject()
         name = pikepdf.Name("/PrismArtwork")
         page.add_resource(form, pikepdf.Name("/XObject"), name=name)
+
+        def number(value: float) -> str:
+            text = f"{round(value, 4):.4f}".rstrip("0").rstrip(".")
+            return text or "0"
+
+        # Clip to the window so the rest of the overlay page -- which is mostly
+        # empty, but is a whole A-series page -- cannot spill over the frame,
+        # the title block, or the tables.
+        clip = (
+            f"{number(window.x * MM_TO_PT)} "
+            f"{number(sheet_height_pt - window.bottom * MM_TO_PT)} "
+            f"{number(window.width * MM_TO_PT)} {number(window.height * MM_TO_PT)} re W n"
+        )
         page.contents_add(
-            page.calc_form_xobject_placement(
-                form, name, rect, allow_shrink=True, allow_expand=True
-            )
+            (
+                f"q\n{clip}\n"
+                f"{number(scale)} 0 0 {number(scale)} {number(tx)} {number(ty)} cm\n"
+                "/PrismArtwork Do\nQ\n"
+            ).encode("ascii")
         )
 
         # KiCad's PDF carries /CreationDate and a Producer banner; strip

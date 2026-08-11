@@ -261,6 +261,12 @@ async def download_member(
             # The bytes are immutable and named by their digest.
             "Cache-Control": "private, max-age=31536000, immutable",
             "ETag": f'"{actual}"',
+            # Released members are third-party bytes -- KiCad's SVG plots most
+            # of all -- and SVG served inline from this origin is script.  The
+            # sandbox and the sniffing block keep an inline view from becoming
+            # a way to run code against a logged-in session.
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            "X-Content-Type-Options": "nosniff",
         },
     )
 

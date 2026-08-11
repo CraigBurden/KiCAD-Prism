@@ -56,13 +56,15 @@ def _rgb(colour: str) -> tuple[float, float, float]:
 def _escape_pdf_text(value: str) -> bytes:
     """Encode a string literal for a base-14 font.
 
-    The base-14 fonts are single-byte; characters outside Latin-1 (the ellipsis
-    that `fit_text` appends, most often) are replaced rather than emitted as
-    mojibake.
+    The fonts are declared ``/WinAnsiEncoding``, so the bytes must be cp1252 --
+    not Latin-1.  The difference is not academic: the em dash the tables use for
+    an absent value, and the ellipsis `fit_text` appends, both exist in WinAnsi
+    and neither exists in Latin-1, so encoding as Latin-1 turned every one of
+    them into a literal ``?`` while the SVG rendering of the same sheet showed
+    it correctly.
     """
 
-    replaced = value.replace("…", "...")
-    encoded = replaced.encode("latin-1", errors="replace")
+    encoded = value.encode("cp1252", errors="replace")
     out = bytearray()
     for byte in encoded:
         if byte in (0x28, 0x29, 0x5C):  # ( ) \

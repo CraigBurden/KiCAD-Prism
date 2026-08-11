@@ -62,20 +62,15 @@ _SVG_METADATA = re.compile(
     r"<metadata\b[^>]*(?:/>|>.*?</metadata\s*>)",
     re.IGNORECASE | re.DOTALL,
 )
-_EXCELLON_METADATA_COMMENT = re.compile(
-    r"^;\s*(?:"
-    r"DATE(?:\s*[:=].*)?"
-    r"|DRILL\s+FILE\b.*\b(?:DATE|CREATED|GENERATED|CREATION)\b.*"
-    r"|(?:CREATED|GENERATED|CREATION)\s+(?:BY|ON|AT|DATE|TIME)\b.*"
-    r")$",
-    re.IGNORECASE,
-)
-_CSV_GENERATED_HEADER = re.compile(
-    r"^\s*(?:#|//|;)\s*(?:"
-    r"(?:GENERATED|CREATED)\s+(?:ON|AT|BY)\b.*"
-    r"|(?:GENERATION|CREATION)\s+(?:DATE|TIME)\b.*"
-    r")",
-    re.IGNORECASE,
+# Imported, never re-declared.  These tests assert that *only* the lines the
+# rule identifies are removed, so a private copy of the rule is not a second
+# opinion -- it is a second implementation that goes stale.  It did: when the
+# X1 `; #@! TF.CreationDate` form was added to the canonicalizer, the copy here
+# kept the old pattern and this test began asserting that a timestamp KiCad
+# writes must survive canonicalization.
+from app.release_studio.canonical import (  # noqa: E402
+    _CSV_GENERATED_HEADER,
+    _EXCELLON_METADATA_COMMENT,
 )
 
 

@@ -13,6 +13,7 @@ document set and say what is missing, rather than fail.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -55,6 +56,8 @@ class DocumentOutput:
 class DocumentSet:
     outputs: tuple[DocumentOutput, ...]
     warnings: tuple[str, ...] = ()
+    #: The standard sheet size the whole set was composed on.
+    sheet_size: str = ""
 
     def files(self) -> dict[str, bytes]:
         """Released path -> bytes, ready to become dossier members."""
@@ -77,13 +80,14 @@ def compose(
     board: Path | None = None,
     cli_path: str | None = None,
     workdir: Path | None = None,
-    sheet_size: str = sheet_templates.DEFAULT_SIZE,
+    sheet_size: str | None = None,
     acquirer: Callable[..., AcquiredArtwork] | None = None,
 ) -> DocumentSet:
     """Compose the full document set.
 
-    ``acquirer`` is injectable so the templates can be exercised without a
-    KiCad installation; the default acquires from ``kicad-cli``.
+    ``sheet_size`` is chosen from the standard ladder to suit the board and the
+    tables unless a caller pins one; ``acquirer`` is injectable so the templates
+    can be exercised without a KiCad installation.
     """
 
     warnings: list[str] = []
@@ -104,6 +108,9 @@ def compose(
     else:
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
+    if sheet_size is None:
+        sheet_size = _select_size(stats, stackup, variants, members, art, context)
+
     outputs: list[DocumentOutput] = []
 
     cover = sheet_templates.technical_cover(
@@ -116,7 +123,7 @@ def compose(
     )
     outputs.append(
         _serialize(fabrication, "fabrication", fab_scale, art.get("fabrication"),
-                   _artwork_window(fabrication))
+                   _artwork_window(fabrication), warnings)
     )
 
     for side in ("top", "bottom"):
@@ -124,16 +131,83 @@ def compose(
         sheet, scale = sheet_templates.assembly_sheet(
             context, side, art.get(key), placements, size=sheet_size
         )
-        outputs.append(_serialize(sheet, key, scale, art.get(key), _artwork_window(sheet)))
+        outputs.append(
+            _serialize(sheet, key, scale, art.get(key), _artwork_window(sheet), warnings)
+        )
 
     drill, drill_scale = sheet_templates.drill_sheet(
         context, stats, stackup, art.get("drill"), size=sheet_size
     )
     outputs.append(
-        _serialize(drill, "drill", drill_scale, art.get("drill"), _artwork_window(drill))
+        _serialize(drill, "drill", drill_scale, art.get("drill"), _artwork_window(drill),
+                   warnings)
     )
 
-    return DocumentSet(outputs=tuple(outputs), warnings=tuple(warnings))
+    return DocumentSet(
+        outputs=tuple(outputs), warnings=tuple(warnings), sheet_size=sheet_size
+    )
+
+
+_MM_VALUE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _mm_value(value: Any) -> float:
+    """Read a millimetre figure out of an R5 projection value.
+
+    The projections hand back KiCad's own formatting -- ``"38.0000 mm"`` -- and
+    the tables deliberately pass that through untouched.  Sizing needs the
+    number, so it is parsed here rather than by changing what the tables show.
+    """
+
+    if isinstance(value, (int, float)):
+        return float(value)
+    match = _MM_VALUE.search(str(value or ""))
+    return float(match.group(0)) if match else 0.0
+
+
+def board_extent(
+    stats: Mapping[str, Any], art: Mapping[str, AcquiredArtwork] | None = None
+) -> tuple[float, float]:
+    """The largest extent any sheet has to accommodate, in millimetres.
+
+    Both sources matter and neither subsumes the other: the board statistics
+    give the outline even when no artwork could be plotted, while a plotted view
+    includes silkscreen and fabrication content that overhangs the outline.
+    """
+
+    board = stats.get("board") if isinstance(stats, Mapping) else None
+    width = _mm_value((board or {}).get("width"))
+    height = _mm_value((board or {}).get("height"))
+    for acquired in (art or {}).values():
+        width = max(width, acquired.view_width)
+        height = max(height, acquired.view_height)
+    return width, height
+
+
+def _select_size(
+    stats: Mapping[str, Any],
+    stackup: Mapping[str, Any],
+    variants: Mapping[str, Any],
+    members: Sequence[Mapping[str, Any]],
+    art: Mapping[str, AcquiredArtwork],
+    context: Mapping[str, Any],
+) -> str:
+    """Pick one standard sheet size for the whole set."""
+
+    width, height = board_extent(stats, art)
+    if width <= 0 or height <= 0:
+        # Nothing is known about the board -- no projections and no artwork.
+        # Sizing from a guess would be worse than stating a conventional
+        # default, so the set keeps the historical one.
+        return sheet_templates.DEFAULT_SIZE
+    return sheet_templates.select_sheet_size(
+        width,
+        height,
+        table_height=sheet_templates.required_table_height(
+            stats, stackup, variants, members, str(context.get("variant") or "")
+        ),
+        table_width=sheet_templates.required_body_width(members),
+    )
 
 
 def _artwork_window(sheet: Sheet) -> Rect | None:
@@ -151,6 +225,7 @@ def _serialize(
     scale: float,
     art: AcquiredArtwork | None,
     window: Rect | None,
+    warnings: list[str] | None = None,
 ) -> DocumentOutput:
     svg_bytes = render_svg(sheet).encode("utf-8")
     pdf_bytes = render_pdf(sheet)
@@ -159,7 +234,12 @@ def _serialize(
         try:
             pdf_bytes = composite_pdf(pdf_bytes, art, window, scale)
         except Exception as exc:  # noqa: BLE001 - the furniture-only PDF still stands
+            # The SVG sheet still carries the artwork, so this is a divergence
+            # between two renderings of one sheet and has to be stated rather
+            # than left to a log line nobody reads.
             logger.warning("Artwork could not be composited into %s: %s", key, exc)
+            if warnings is not None:
+                warnings.append(f"{key}.pdf carries no board artwork: {exc}")
 
     return DocumentOutput(
         key=key,

@@ -290,8 +290,14 @@ def execute_build(
     config: Mapping[str, Any],
     artifacts: JobArtifactService | None = None,
     cli_path: str | None = None,
+    repo_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Run the catalogue, assemble the dossier, and publish it under the fence."""
+    """Run the catalogue, assemble the dossier, and publish it under the fence.
+
+    ``repo_root`` is the source repository.  The closure is materialized from
+    Git objects and has no ``.git`` of its own, so anything that needs commit
+    metadata -- the date a sheet states -- has to ask the repository.
+    """
 
     artifact_service = artifacts or JobArtifactService()
     build = store.start_build(
@@ -310,7 +316,7 @@ def execute_build(
             progress=lambda **kwargs: context.progress(**kwargs),
         )
         context.progress(stage="documents", message="Composing documentation", percent=70)
-        outputs = _with_documents(
+        outputs, document_warnings = _with_documents(
             outputs,
             closure_root=closure_root,
             config=config,
@@ -318,6 +324,7 @@ def execute_build(
             output_root=output_root,
             cli_path=cli_path,
             staging=context.staging_dir,
+            repo_root=repo_root,
         )
 
         context.progress(stage="package", message="Canonicalizing and packaging", percent=75)
@@ -374,6 +381,7 @@ def execute_build(
             evidence_artifact_id=artifact_ids[1],
             fence=context.fence,
             actor=str(context.payload.get("author") or ""),
+            warnings=document_warnings,
         )
         return {
             "build": completed,
@@ -397,14 +405,21 @@ def _with_documents(
     output_root: Path,
     cli_path: str | None,
     staging: Path,
-) -> list[StepOutput]:
+    repo_root: Path | None = None,
+) -> tuple[list[StepOutput], list[str]]:
     """Compose the Stage 2 sheets and append them as a member-producing step.
 
     The Documentation Engine is a member producer: it adds files under the
     ``documentation`` domain and changes nothing else.  A failure here degrades
     the document set rather than the build -- the manufacturing outputs are
     already produced and are what the release is fundamentally about.
+
+    Every degradation is returned so it can be recorded on the build row.  A
+    log line is not enough: this runs in a job subprocess, so a document set
+    that silently vanished looked exactly like one that was never configured.
     """
+
+    warnings: list[str] = []
 
     from app.release_studio.documents import compose
     from app.release_studio.projections import (
@@ -423,6 +438,7 @@ def _with_documents(
             return fn()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Release Studio projection %s unavailable: %s", label, exc)
+            warnings.append(f"documentation: the {label} projection is unavailable ({exc})")
             return default
 
     try:
@@ -468,7 +484,9 @@ def _with_documents(
                 "revision": str(config.get("revision") or ""),
                 "commit_sha": str(candidate.get("commit_sha") or ""),
                 "variant": str(candidate.get("variant") or ""),
-                "commit_date": _commit_date(closure_root, str(candidate.get("commit_sha") or "")),
+                "commit_date": _commit_date(
+                    repo_root or closure_root, str(candidate.get("commit_sha") or "")
+                ),
             },
             stats=stats,
             stackup=stackup,
@@ -479,14 +497,16 @@ def _with_documents(
             cli_path=cli_path,
             workdir=staging / "artwork",
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         # `exception` not `warning`: without the traceback a vanished document
         # set looks identical to one that was never configured.
         logger.exception("Documentation Engine produced no sheets")
-        return list(outputs)
+        warnings.append(f"documentation: no sheets were composed ({exc})")
+        return list(outputs), warnings
 
     for warning in document_set.warnings:
         logger.warning("Documentation Engine: %s", warning)
+        warnings.append(f"documentation: {warning}")
 
     written: list[Path] = []
     for relative, payload in sorted(document_set.files().items()):
@@ -496,7 +516,8 @@ def _with_documents(
         written.append(target)
 
     if not written:
-        return list(outputs)
+        warnings.append("documentation: the engine composed no sheets")
+        return list(outputs), warnings
 
     return [
         *outputs,
@@ -509,7 +530,7 @@ def _with_documents(
             root=output_root,
             spec=DOCUMENT_STEP_SPEC,
         ),
-    ]
+    ], warnings
 
 
 def _placements(positions_csv: Path) -> list[dict[str, Any]]:
@@ -609,6 +630,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         closure_root=Path(candidate["_closure_root"]),
         config=candidate["_config"],
         cli_path=_cli_path_or_none(),
+        repo_root=repo_root,
     )
     build = result["build"]
     return JobResult(

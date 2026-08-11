@@ -33,6 +33,42 @@ SHEET_SIZES: dict[str, tuple[float, float]] = {
     "D": (863.6, 558.8),
 }
 
+#: The sizes a sheet is allowed to be chosen from, smallest first.
+#:
+#: Only ISO A sizes: a released drawing is printed and filed by people who have
+#: A-series paper, and mixing in ANSI sizes would make the choice depend on
+#: which ladder a board happened to land on.  ``A5`` is excluded -- it cannot
+#: hold a title block plus a table column at a legible font size.
+SHEET_LADDER: tuple[str, ...] = ("A4", "A3", "A2", "A1", "A0")
+
+#: Placement ratios a drawing is allowed to state, largest first.
+#:
+#: The ISO 5455 preferred series.  A drawing states its scale and a reader
+#: measures against it, so ratios like ``1:1.187`` -- which is what "shrink
+#: until it fits" produces -- are unusable; the placement is quantized to the
+#: standard series and the sheet grows instead when none of them fit.  Note
+#: that 4:1 and 1:4 are deliberately absent: they are not in the series.
+PREFERRED_SCALES: tuple[float, ...] = (
+    10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01,
+)
+
+
+def preferred_scale(view_width: float, view_height: float, window: "Rect") -> float:
+    """The largest preferred ratio at which *view* fits inside *window*.
+
+    Falls back to an exact fit only when the artwork is too large for even the
+    smallest preferred reduction, which on an A0 sheet means a board over ten
+    metres across.  The ratio is reported either way, so a sheet never claims a
+    scale it was not placed at.
+    """
+
+    if view_width <= 0 or view_height <= 0:
+        raise ValueError("artwork has no extent to scale")
+    for ratio in PREFERRED_SCALES:
+        if view_width * ratio <= window.width and view_height * ratio <= window.height:
+            return ratio
+    return min(window.width / view_width, window.height / view_height)
+
 Anchor = Literal["start", "middle", "end"]
 Family = Literal["sans", "mono"]
 
@@ -343,6 +379,19 @@ class Table:
         return header + self.row_height * len(self.rows)
 
 
+#: Gutter kept clear at a cell's trailing edge, so a right-aligned value cannot
+#: sit flush against the next column's left-aligned one and read as one word.
+_CELL_GUTTER = 1.0
+
+
+def _cell_anchor(offset: float, width: float, align: Anchor) -> float:
+    if align == "end":
+        return offset + width - _CELL_GUTTER
+    if align == "middle":
+        return offset + width / 2
+    return offset
+
+
 def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float]) -> float:
     """Draw *table* with its top-left at *origin*; return the y after it."""
 
@@ -357,9 +406,7 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
     header_baseline = cursor + table.row_height - 1.4
     offset = x0
     for column, width, align in zip(table.columns, table.widths, aligns):
-        anchor_x = offset if align == "start" else (
-            offset + width if align == "end" else offset + width / 2
-        )
+        anchor_x = _cell_anchor(offset, width, align)
         builder.text(
             anchor_x,
             header_baseline,
