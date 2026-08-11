@@ -555,8 +555,10 @@ async def signing_keys():
     # there is anything signed with it, and an operator needs to see that the
     # deployment is actually configured to sign.
     try:
-        configured = load_signing_key()
-    except Exception:  # noqa: BLE001 - an unconfigured deployment lists nothing
+        configured = _signing_key()
+    except HTTPException:
+        # 503 here means the deployment simply is not configured to sign, which
+        # is a legitimate state for the key set to be empty in.
         configured = None
     if configured is not None:
         store.upsert_signing_key(
