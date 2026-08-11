@@ -247,6 +247,185 @@ class ReleaseStudioApiTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 503)
         self.assertIn("signing is not configured", caught.exception.detail)
 
+    def _published_build(self):
+        """A build whose dossier artifact genuinely exists and is self-consistent.
+
+        The other fixtures record placeholder digests, which is fine for the
+        governance gates but cannot exercise the archive path: the offline
+        verifier hashes the bytes it is given, so the tarball, the members
+        table, and the manifest all have to agree.
+        """
+
+        import hashlib
+        import tempfile
+        import uuid as _uuid
+
+        from tests.test_release_studio_governance import _Dossier, _Member
+        from app.release_studio.canonical import sha256_canonical, write_deterministic_archive
+        from app.release_studio.canonical.json import canonical_json_bytes
+
+        files = {
+            "fabrication/gerbers/board-F_Cu.gbr": b"%FSLAX46Y46*%\nD10*\nM02*\n",
+            "fabrication/drill/board.drl": b"M48\nT1C0.300\n%\nM30\n",
+            "assembly/positions.csv": b"Ref,Val,X,Y\nR1,10k,1.0,2.0\n",
+        }
+        domains = {
+            "fabrication/gerbers/board-F_Cu.gbr": ("bare_board",),
+            "fabrication/drill/board.drl": ("bare_board",),
+            "assembly/positions.csv": ("assembly",),
+        }
+        members = tuple(
+            _Member(
+                path, "gerber", "application/vnd.gerber", len(data),
+                hashlib.sha256(data).hexdigest(), "r" * 64, "gerber", domains[path],
+            )
+            for path, data in sorted(files.items())
+        )
+        dossier_digest = sha256_canonical(
+            [[m.path, m.released_digest] for m in sorted(members, key=lambda m: m.path)]
+        )
+        manifest = {
+            "schema": "prism.release-studio.manifest/1",
+            "config_key": "default",
+            "commit_sha": "a" * 40,
+            "variant": "default",
+            "dossier_digest": dossier_digest,
+            "members": {
+                m.path: {
+                    "member_kind": m.member_kind,
+                    "media_type": m.media_type,
+                    "size_bytes": m.size_bytes,
+                    "released_digest": m.released_digest,
+                    "canonicalizer": m.canonicalizer,
+                    "domains": list(m.domains),
+                }
+                for m in members
+            },
+        }
+        payload = dict(files)
+        payload["manifest.json"] = canonical_json_bytes(manifest)
+        archive_bytes = write_deterministic_archive(payload)
+
+        fingerprints = {
+            domain: {
+                "domain": domain,
+                "fingerprint": sha256_canonical({"domain_id": domain}),
+                "inputs": {"domain_id": domain},
+                "fidelity": "artifact",
+            }
+            for domain in ("bare_board", "assembly", "evidence")
+        }
+        dossier = _Dossier(
+            manifest_digest=sha256_canonical(manifest),
+            dossier_digest=dossier_digest,
+            members=members,
+            evidence=(
+                {"kind": "drc", "report_digest": "d" * 64, "counts": {"error": 0, "total": 0}},
+                {"kind": "erc", "report_digest": "e" * 64, "counts": {"error": 0, "total": 0}},
+            ),
+            fingerprints=fingerprints,
+        )
+
+        # Publish the object exactly where `_artifact_bytes` will look for it.
+        objects = Path(tempfile.mkdtemp())
+        digest = hashlib.sha256(archive_bytes).hexdigest()
+        object_path = objects / digest
+        object_path.write_bytes(archive_bytes)
+        artifact_id = str(_uuid.uuid4())
+        self.conn.execute(
+            """
+            INSERT INTO ws_artifacts (
+                id, kind, artifact_key, digest, object_path, media_type,
+                size_bytes, schema_version, generator_version, readiness
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                artifact_id, "release_dossier", f"release-dossier:{digest}", digest,
+                str(object_path), "application/gzip", len(archive_bytes), "", "r11", "ready",
+            ),
+        )
+        # The service opens its own connection, so this has to be visible to it.
+        self.conn.commit()
+
+        candidate = self.service.create_candidate(
+            project_id=self.project_id, repository_id="repo-1", config_key="default",
+            commit_sha="a" * 40, variant="default",
+            technical_config_digest="tc" * 32, input_closure_digest="ic" * 32,
+            toolchain_digest="tl" * 32, generator_build="r11", hermetic=True,
+            created_by="designer",
+        )
+        build = self.service.start_build(candidate["id"], job_id=None, fence=1)
+        completed = self.service.complete_build(
+            build_id=build["id"], dossier=dossier, toolchain={}, fence=1,
+            dossier_artifact_id=artifact_id,
+        )
+        return candidate, completed
+
+    def test_a_governed_release_is_signed_and_verifies_offline(self) -> None:
+        """The whole point of the feature, end to end through the API.
+
+        Build -> evaluate -> waive every blocker -> approve both required roles
+        -> release -> download the archive -> verify it with the standalone
+        verifier and nothing else.
+        """
+
+        candidate, build = self._published_build()
+        _run(
+            self.api.evaluate_build(
+                self.project_id, build["id"],
+                self.api.EvaluateRequest(config_key="default"), user=self.user,
+            )
+        )
+
+        evaluation = self.service.latest_evaluation(build["id"])
+        for finding in evaluation["findings"]:
+            waiver = self.service.create_waiver(
+                project_id=self.project_id, config_key="default",
+                rule_id=finding["rule_id"], domain=finding["domain"],
+                reason="synthetic fixture", owner="designer",
+                finding_key=finding["finding_key"],
+            )
+            self.service.transition_waiver(waiver["id"], status="approved", actor="quality")
+
+        for role, domain in (("pcb_design", "bare_board"), ("manufacturing", "assembly")):
+            _run(
+                self.api.create_approval(
+                    self.project_id, build["id"],
+                    self.api.ApprovalRequest(role=role, domains=[domain], decision="approved"),
+                    user=_User("quality"),
+                )
+            )
+
+        record = _run(
+            self.api.create_release(
+                self.project_id, build["id"],
+                self.api.ReleaseRequest(
+                    release_label="REL-1", document_number="DOC-1", revision="A"
+                ),
+                user=self.user,
+            )
+        )
+        self.assertEqual(record["release_label"], "REL-1")
+        self.assertTrue(record["signature"])
+        self.assertTrue(record["attestation_digest"])
+        self.assertEqual(record["dossier_digest"], build["dossier_digest"])
+
+        # The archive a recipient actually receives.
+        response = _run(
+            self.api.download_release_archive(self.project_id, record["id"], user=self.user)
+        )
+        archive = response.body
+
+        from app.release_studio.verify import verify_archive_bytes
+
+        report = verify_archive_bytes(archive, trusted_key_ids=(record["signing_key_id"],))
+        self.assertTrue(report.ok, report.to_dict())
+
+        # An untrusted key must fail even though every digest is internally
+        # consistent: consistency is not authenticity.
+        untrusted = verify_archive_bytes(archive, trusted_key_ids=("someone-else",))
+        self.assertFalse(untrusted.ok)
+
     def test_waiver_cannot_be_approved_by_its_owner_through_the_api(self) -> None:
         waiver = _run(
             self.api.create_waiver(
