@@ -5,6 +5,16 @@ import { ApprovalList, ReleaseStudioPanel, RuleOutcomeList } from "./ReleaseStud
 import type { Approval, BuildDetail, ReleaseCandidate } from "./types";
 
 vi.mock("./api", () => ({
+    listConfigurations: vi.fn(async () => [
+        {
+            config_key: "default",
+            title: "Default",
+            board_rel: "board.kicad_pcb",
+            schematic_rel: "board.kicad_sch",
+            jobset_rel: "Outputs.kicad_jobset",
+            default_variant: "",
+        },
+    ]),
     listCandidates: vi.fn(),
     listRecords: vi.fn(async () => []),
     listWaivers: vi.fn(async () => []),
@@ -15,7 +25,10 @@ vi.mock("./api", () => ({
     downloadFile: vi.fn(),
 }));
 
-vi.mock("@/lib/jobs", () => ({ watchPrismJob: vi.fn() }));
+vi.mock("@/lib/jobs", () => ({
+    watchPrismJob: vi.fn(),
+    throwIfJobFailed: vi.fn(),
+}));
 
 import * as api from "./api";
 
@@ -110,6 +123,21 @@ describe("ReleaseStudioPanel", () => {
     beforeEach(() => {
         vi.mocked(api.listCandidates).mockResolvedValue([candidate]);
         vi.mocked(api.getBuild).mockResolvedValue(detail);
+    });
+
+    it("explains an unbuildable project instead of leaving Build inert", async () => {
+        // A project with no committed configuration used to enqueue a job that
+        // failed in the worker while the panel reported nothing at all.
+        vi.mocked(api.listConfigurations).mockResolvedValue([]);
+        vi.mocked(api.listCandidates).mockResolvedValue([]);
+
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+
+        await waitFor(() =>
+            expect(screen.getByText(/no release configuration/i)).toBeTruthy(),
+        );
+        const build = screen.getByRole("button", { name: /build/i });
+        expect((build as HTMLButtonElement).disabled).toBe(true);
     });
 
     it("renders unsupported distinctly from pass", async () => {

@@ -5,6 +5,7 @@ import type {
     AuditEvent,
     BuildDetail,
     ReleaseCandidate,
+    ReleaseConfiguration,
     ReleaseRecord,
     VerificationReport,
     Waiver,
@@ -12,6 +13,17 @@ import type {
 
 const base = (projectId: string) =>
     `/api/projects/${encodeURIComponent(projectId)}/release-studio`;
+
+export async function listConfigurations(
+    projectId: string,
+): Promise<ReleaseConfiguration[]> {
+    const data = await fetchJson<{ configurations: ReleaseConfiguration[] }>(
+        `${base(projectId)}/configurations`,
+        undefined,
+        "Could not load release configurations",
+    );
+    return data.configurations ?? [];
+}
 
 export async function listCandidates(
     projectId: string,

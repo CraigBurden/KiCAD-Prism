@@ -1,5 +1,19 @@
 export type GovernedDomain = "bare_board" | "assembly" | "documentation" | "evidence";
 
+/**
+ * A release configuration authored in Git under
+ * `.prism/release-studio/configurations/`. A project without one cannot be
+ * built, which is the difference between "no candidates yet" and "not set up".
+ */
+export type ReleaseConfiguration = {
+    config_key: string;
+    title: string;
+    board_rel: string;
+    schematic_rel: string;
+    jobset_rel: string;
+    default_variant: string;
+};
+
 export type ReleaseCandidate = {
     id: string;
     project_id: string;

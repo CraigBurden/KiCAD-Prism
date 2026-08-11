@@ -238,15 +238,19 @@ class InputClosure:
         return tuple(
             reference
             for reference in self.library_references
-            if reference.location == "external"
+            if reference.location in {"external", "missing"}
         )
 
     def non_hermetic_reasons(self) -> list[str]:
         """One reason per external reference, naming the offending input path."""
 
+        wording = {
+            "external": "resolves outside the release closure and the pinned toolchain",
+            "missing": "is not present in the release closure",
+        }
         return [
-            f"{reference.source_path}: {reference.reference} resolves outside "
-            "the release closure and the pinned toolchain"
+            f"{reference.source_path}: {reference.reference} "
+            f"{wording[reference.location]}"
             for reference in sorted(
                 self.external_references,
                 key=lambda item: (item.source_path, item.reference),
@@ -833,7 +837,15 @@ def _resolve_project_paths(
             for value in _quoted_values(text):
                 if _is_path_reference(value):
                     references.append((item.path, value, "project_path"))
+            # The unquoted scan exists for variables in bare s-expression
+            # content; inside a quoted string the value above is already exact.
+            # Running both would also mangle any path the delimiter scan cannot
+            # represent -- `"${KIPRJMOD}/packages3D/BUK9K18-40E,115.stp"` stops
+            # at the comma and yields a file that was never referenced.
+            quoted_spans = [match.span() for match in _QUOTED_RE.finditer(text)]
             for match in _VARIABLE_RE.finditer(text):
+                if any(start <= match.start() < end for start, end in quoted_spans):
+                    continue
                 value = _unquoted_reference(text, match.start(), match.end())
                 if _is_path_reference(value):
                     references.append((item.path, value, "project_path"))
@@ -843,22 +855,27 @@ def _resolve_project_paths(
     for source, reference, kind in deduped:
         try:
             resolved.append(resolver.resolve(source, reference, kind))
-        except ExternalPathError:
+        except ClosureError as exc:
             # A library table names a library the tools will certainly load, so
-            # a host-resolved entry stays a hard failure.  A `${VAR}` path
-            # embedded in board or project content need not be a build input at
-            # all -- a `(model ...)` node names a 3D asset no Stage 1 step
-            # reads -- so per the hermeticity definition it is *recorded* with
-            # the offending path and marks the build non-hermetic rather than
-            # refusing a closure the manufacturing outputs do not depend on.
+            # an unresolvable or missing entry there stays a hard failure.  A
+            # `${VAR}` path embedded in board or project content need not be a
+            # build input at all -- a `(model ...)` node names a 3D asset no
+            # Stage 1 step reads, and boards routinely carry stale ones whose
+            # case or extension no longer matches the file on disk -- so per the
+            # hermeticity definition it is *recorded* with the offending path
+            # and marks the build non-hermetic rather than refusing a closure
+            # the manufacturing outputs do not depend on.
             if kind != "project_path":
                 raise
+            # Classify into a fixed vocabulary rather than carrying the
+            # exception text: the message embeds the worker's staging path, and
+            # `input_closure_digest` must not vary by host.
             resolved.append(
                 ResolvedLibraryPath(
                     source_path=source,
                     reference=reference,
                     resolved_path="",
-                    location="external",
+                    location="external" if isinstance(exc, ExternalPathError) else "missing",
                 )
             )
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)

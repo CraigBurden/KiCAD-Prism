@@ -275,6 +275,94 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             },
         )
 
+    def test_a_comma_in_a_quoted_model_path_is_not_truncated(self) -> None:
+        # The unquoted-variable scan stops at `,`, so running it over a quoted
+        # value invented a reference to `.../BUK9K18-40E` for a real file named
+        # `BUK9K18-40E,115.stp` -- and then failed the build because the
+        # invented path does not exist.
+        self.repo.joinpath("hardware/board/model.step").write_bytes(
+            b"small hydrated STEP payload\n"
+        )
+        models = self.repo / "hardware/board/packages3D"
+        models.mkdir(parents=True, exist_ok=True)
+        (models / "BUK9K18-40E,115.stp").write_text("solid", encoding="utf-8")
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(general (thickness 1.6)) '
+            '(model "${KIPRJMOD}/packages3D/BUK9K18-40E,115.stp"))\n',
+            encoding="utf-8",
+        )
+        commit = self._commit(self.repo, "comma in a model filename")
+
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "comma",
+            relative_path="hardware/board",
+        )
+
+        self.assertEqual(closure.non_hermetic_reasons(), [])
+        self.assertIn(
+            "hardware/board/packages3D/BUK9K18-40E,115.stp",
+            {
+                reference.resolved_path
+                for reference in closure.library_references
+                if reference.location == "closure"
+            },
+        )
+
+    def test_a_model_missing_from_the_closure_is_non_hermetic_not_a_hard_failure(self) -> None:
+        # Boards routinely carry stale `(model ...)` paths whose case or
+        # extension no longer matches the file on disk.  No Stage 1 step reads
+        # them, so they are reported, not fatal.
+        self.repo.joinpath("hardware/board/model.step").write_bytes(
+            b"small hydrated STEP payload\n"
+        )
+        self.repo.joinpath("hardware/board/board.kicad_pcb").write_text(
+            '(kicad_pcb (version 20240108) '
+            '(general (thickness 1.6)) '
+            '(model "${KIPRJMOD}/packages3D/Absent.STEP"))\n',
+            encoding="utf-8",
+        )
+        commit = self._commit(self.repo, "stale model path")
+
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "stale-model",
+            relative_path="hardware/board",
+        )
+
+        external = closure.external_references
+        self.assertEqual(len(external), 1)
+        self.assertEqual(external[0].location, "missing")
+        reasons = closure.non_hermetic_reasons()
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("is not present in the release closure", reasons[0])
+        self.assertIn("Absent.STEP", reasons[0])
+
+    def test_a_missing_library_table_entry_is_still_a_hard_failure(self) -> None:
+        # A library table names a library the tools will certainly load, so it
+        # must not be downgraded to a hermeticity finding alongside 3D models.
+        self.repo.joinpath("hardware/board/model.step").write_bytes(
+            b"small hydrated STEP payload\n"
+        )
+        self.repo.joinpath("hardware/board/fp-lib-table").write_text(
+            '(fp_lib_table (version 7) '
+            '(lib (name "Gone") (type "KiCad") '
+            '(uri "${KIPRJMOD}/libraries/absent.pretty") (options "") (descr "")))\n',
+            encoding="utf-8",
+        )
+        commit = self._commit(self.repo, "missing footprint library")
+
+        with self.assertRaisesRegex(ClosureError, "does not exist"):
+            materialize_input_closure(
+                self.repo,
+                commit,
+                self.root / "missing-lib",
+                relative_path="hardware/board",
+            )
+
     def test_symlink_and_regular_file_are_distinct_closure_inputs(self) -> None:
         repository = self.root / "link-repo"
         self._init_repo(repository)

@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { watchPrismJob } from "@/lib/jobs";
+import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 
 import * as api from "./api";
@@ -29,6 +29,7 @@ import type {
     BuildDetail,
     Finding,
     ReleaseCandidate,
+    ReleaseConfiguration,
     ReleaseRecord,
     RuleOutcome,
     VerificationReport,
@@ -83,17 +84,20 @@ export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD
     const [commit, setCommit] = useState(defaultCommit);
     const [variant, setVariant] = useState("");
     const [jobStatus, setJobStatus] = useState<string>("");
+    const [configurations, setConfigurations] = useState<ReleaseConfiguration[] | null>(null);
 
     const refresh = useCallback(async () => {
         try {
-            const [nextCandidates, nextRecords, nextWaivers, nextAudit, chain] =
+            const [nextConfigurations, nextCandidates, nextRecords, nextWaivers, nextAudit, chain] =
                 await Promise.all([
+                    api.listConfigurations(projectId),
                     api.listCandidates(projectId),
                     api.listRecords(projectId),
                     api.listWaivers(projectId, DEFAULT_CONFIG),
                     api.listAudit(projectId, DEFAULT_CONFIG),
                     api.verifyAudit(projectId, DEFAULT_CONFIG).catch(() => null),
                 ]);
+            setConfigurations(nextConfigurations);
             setCandidates(nextCandidates);
             setRecords(nextRecords);
             setWaivers(nextWaivers);
@@ -156,10 +160,14 @@ export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD
                 variant: variant.trim(),
             });
             setJobStatus("queued");
-            await watchPrismJob(job.job_id, {
+            const finished = await watchPrismJob(job.job_id, {
                 onUpdate: (value) => setJobStatus(value.status),
             });
             setJobStatus("");
+            // `watchPrismJob` resolves on any terminal status, so without this a
+            // failed build reports "Build finished." and the operator sees the
+            // button return to idle with nothing else changed.
+            throwIfJobFailed(finished, "The build failed.");
         }, "Build finished.");
 
     const evaluation = detail?.evaluation ?? null;
@@ -227,7 +235,10 @@ export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD
                         />
                     </div>
                     {canMutate && (
-                        <Button onClick={handleBuild} disabled={Boolean(busy)}>
+                        <Button
+                            onClick={handleBuild}
+                            disabled={Boolean(busy) || configurations?.length === 0}
+                        >
                             {busy === "build" ? (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             ) : (
@@ -238,6 +249,15 @@ export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD
                     )}
                     {jobStatus && (
                         <span className="text-xs text-muted-foreground">Job: {jobStatus}</span>
+                    )}
+                    {configurations?.length === 0 && (
+                        <span className="text-xs text-muted-foreground">
+                            This project has no release configuration. Commit one to{" "}
+                            <code className="font-mono">
+                                .prism/release-studio/configurations/{DEFAULT_CONFIG}.yaml
+                            </code>{" "}
+                            to enable builds.
+                        </span>
                     )}
                 </CardContent>
             </Card>
