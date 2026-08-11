@@ -25,46 +25,96 @@ Canonicalizer = Callable[[bytes], bytes]
 # This identifier is part of toolchain identity.  Bump it when the byte
 # contract changes, even when the Python API remains source-compatible.
 CANONICALIZER_REGISTRY_NAME = "release-studio"
-CANONICALIZER_REGISTRY_VERSION = "r4.1"
+CANONICALIZER_REGISTRY_VERSION = "r4.2"
 CANONICALIZER_VERSION = "1"
 
 STEP_FILE_NAME_SENTINEL = "PRISM-RELEASE-STUDIO"
 SVG_PRECISION = 6
 
+# KiCad 10.0.4 stamps wall-clock time into several places per file.  The
+# authoritative emission sites in the pinned source
+# (tag f7414d419cae5df2d00e7eaacb16fc0e803799bc) are:
+#
+#   common/plotters/GERBER_plotter.cpp:289  G04 Created by KiCad (...) date ...*
+#   include/gbr_metadata.h:46               G04 #@! TF.CreationDate,...*   (X1)
+#   include/gbr_metadata.h:52               %TF.CreationDate,...*%         (X2)
+#   include/gbr_metadata.h:49               ; #@! TF.CreationDate,...      (NC drill)
+#   pcbnew/exporters/gendrill_excellon_writer.cpp:568  ; DRILL file ... date ...
+#   common/plotters/SVG_plotter.cpp:806     <title>... date ...</title>
+#   pcbnew/exporters/place_file_exporter.cpp:229/311   ### ... created on ... ###
+#
+# Missing any one of them silently breaks reproducibility, so every removal
+# below names the site it exists for.
 _CREATION_DATE_TF = re.compile(r"%TF\.CreationDate,[^*]*\*%", re.IGNORECASE)
+_GERBER_VOLATILE_LINE = re.compile(
+    r"^(?:"
+    # X1 attribute form: G04 #@! TF.CreationDate,<iso>*
+    r"G04\s+#@!\s*TF\.CreationDate,[^*]*\*"
+    # Unconditional plotter header: G04 Created by KiCad (<version>) date <iso>*
+    r"|G04\s+Created\s+by\b[^*]*\bdate\b[^*]*\*"
+    r")$",
+    re.IGNORECASE,
+)
 _EXCELLON_METADATA_COMMENT = re.compile(
     r"^;\s*(?:"
     r"DATE(?:\s*[:=].*)?"
     r"|DRILL\s+FILE\b.*\b(?:DATE|CREATED|GENERATED|CREATION)\b.*"
     r"|(?:CREATED|GENERATED|CREATION)\s+(?:BY|ON|AT|DATE|TIME)\b.*"
+    # NC drill X1 attribute form: ; #@! TF.CreationDate,<iso>
+    r"|#@!\s*TF\.CreationDate,.*"
     r")$",
     re.IGNORECASE,
 )
+# An ISO-8601-ish instant.  Used only to recognize volatile leading comment
+# rows; it never matches CSV data because the guard requires a comment marker.
+_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}")
 _CSV_GENERATED_HEADER = re.compile(
-    r"^\s*(?:#|//|;)\s*(?:"
+    r"^\s*(?:#|//|;)+\s*(?:"
     r"(?:GENERATED|CREATED)\s+(?:ON|AT|BY)\b.*"
     r"|(?:GENERATION|CREATION)\s+(?:DATE|TIME)\b.*"
-    r")",
+    # place_file_exporter.cpp:229/311 prefix the timestamp with free text:
+    # "### Footprint positions - created on <iso> ###"
+    r"|.*\b(?:CREATED|GENERATED)\s+(?:ON|AT|BY)\b.*"
+    r")$",
     re.IGNORECASE,
 )
 _SVG_METADATA = re.compile(
     r"<metadata\b[^>]*(?:/>|>.*?</metadata\s*>)",
     re.IGNORECASE | re.DOTALL,
 )
+# Tempered so a lazy span can never cross the end of the comment it started in;
+# an unanchored `.*?` deletes every element between two comments.
 _SVG_DATE_COMMENT = re.compile(
-    r"<!--.*?(?:date|created|generated|timestamp).*?-->",
+    r"<!--(?:(?!-->).)*?(?:date|created|generated|timestamp)(?:(?!-->).)*-->",
     re.IGNORECASE | re.DOTALL,
+)
+# SVG_plotter.cpp:806-810 writes the plot time into the document title.  Only
+# the timestamp is replaced; the source filename stays as provenance, exactly
+# as %TF.GenerationSoftware does for Gerber.
+_SVG_TITLE_DATE = re.compile(
+    r"(<title>\s*SVG Image created as [^<]*?\bdate\s)[^<]*(</title>)",
+    re.IGNORECASE,
 )
 _STEP_FILE_NAME = re.compile(r"\bFILE_NAME\s*\(", re.IGNORECASE)
 _REPORT_VIOLATION_LIST_KEYS = ("violations", "unconnected_items", "schematic_parity")
 
 
 def canonicalize_gerber(data: bytes) -> bytes:
-    """Drop only the RS-274X creation attribute and normalize newlines."""
+    """Drop only KiCad's creation timestamps and normalize newlines.
 
-    text = _as_text(data)
-    text = _CREATION_DATE_TF.sub("", text)
-    return _normalize_newlines(text).encode("utf-8")
+    Three distinct forms carry the plot time: the X2 ``%TF.CreationDate`` block,
+    the X1 ``G04 #@! TF.CreationDate`` comment, and the plotter's own
+    ``G04 Created by ... date ...`` header line.  Aperture definitions,
+    coordinates, and every other attribute are untouched.
+    """
+
+    text = _normalize_newlines(_as_text(data))
+    kept = [
+        line
+        for line in text.split("\n")
+        if not _GERBER_VOLATILE_LINE.fullmatch(line.strip())
+    ]
+    return _CREATION_DATE_TF.sub("", "\n".join(kept)).encode("utf-8")
 
 
 def canonicalize_gbrjob(data: bytes) -> bytes:
@@ -142,7 +192,9 @@ def canonicalize_csv(data: bytes) -> bytes:
     """Remove recognized generated-on comment rows before the CSV header.
 
     Comments after the header are data-adjacent content and are retained even
-    when they contain words such as ``date`` or ``created``.
+    when they contain words such as ``date`` or ``created``.  A *leading*
+    comment row carrying a real timestamp is dropped whatever its wording,
+    which covers ``place_file_exporter.cpp``'s free-text position header.
     """
 
     text = _normalize_newlines(_as_text(data))
@@ -151,8 +203,9 @@ def canonicalize_csv(data: bytes) -> bytes:
     leading_header = True
     for line in lines:
         stripped = line.strip()
-        if leading_header and _CSV_GENERATED_HEADER.fullmatch(stripped):
-            continue
+        if leading_header and stripped.startswith(("#", "//", ";")):
+            if _CSV_GENERATED_HEADER.fullmatch(stripped) or _TIMESTAMP.search(stripped):
+                continue
         result.append(line.rstrip())
         if stripped and not stripped.startswith(("#", "//", ";")):
             leading_header = False
@@ -174,6 +227,7 @@ def canonicalize_svg(data: bytes) -> bytes:
     text = _as_text(data)
     text = _SVG_METADATA.sub("", text)
     text = _SVG_DATE_COMMENT.sub("", text)
+    text = _SVG_TITLE_DATE.sub(rf"\g<1>{STEP_FILE_NAME_SENTINEL}\g<2>", text)
     text = _normalize_newlines(text)
     declaration_index = text.find("<?xml")
     if declaration_index > 0 and not text[:declaration_index].strip():
