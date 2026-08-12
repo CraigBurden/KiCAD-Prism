@@ -306,13 +306,21 @@ def write_deterministic_archive(
     members: dict[str, bytes],
     *,
     gzip_compress: bool = True,
+    mtime: int = 0,
 ) -> bytes:
     """Build a deterministic tar/tar.gz without filesystem metadata.
 
     This is the only archive writer used by Release Studio.  In particular it
     must not delegate to ``JobArtifactService.prepare_directory`` or
     ``shutil.make_archive``, both of which inherit source mtimes and modes.
+    ``mtime`` is explicit revision or release metadata, never a filesystem or
+    wall-clock read. Epoch zero remains the neutral default for generic
+    canonicalization callers.
     """
+
+    mtime = int(mtime)
+    if not 0 <= mtime <= 0xFFFFFFFF:
+        raise ValueError("archive mtime must fit the gzip unsigned 32-bit field")
 
     tar_buffer = io.BytesIO()
     with tarfile.open(
@@ -327,7 +335,7 @@ def write_deterministic_archive(
                 raise TypeError(f"archive member {name!r} must be bytes")
             info = tarfile.TarInfo(name=name)
             info.size = len(payload)
-            info.mtime = 0
+            info.mtime = mtime
             info.uid = 0
             info.gid = 0
             info.uname = ""
@@ -339,7 +347,7 @@ def write_deterministic_archive(
         return raw
 
     output = io.BytesIO()
-    with gzip.GzipFile(fileobj=output, mode="wb", filename="", mtime=0) as compressed:
+    with gzip.GzipFile(fileobj=output, mode="wb", filename="", mtime=mtime) as compressed:
         compressed.write(raw)
     return output.getvalue()
 

@@ -10,6 +10,17 @@ from .errors import ConfigSchemaError
 
 CONFIGURATION_SCHEMA = "prism.release-studio.configuration/1"
 POLICY_SCHEMA = "prism.release-studio.policy/1"
+DEFAULT_TYPOGRAPHY = "kicad-newstroke"
+TYPOGRAPHY_PRESETS = frozenset(
+    {
+        "kicad-newstroke",
+        "geist-pixel-square",
+        "geist-pixel-grid",
+        "geist-pixel-circle",
+        "geist-pixel-triangle",
+        "geist-pixel-line",
+    }
+)
 
 CONFIGURATION_KEYS = frozenset(
     {
@@ -27,6 +38,7 @@ CONFIGURATION_KEYS = frozenset(
         "variants",
         "template",
         "sheets",
+        "typography",
     }
 )
 
@@ -37,6 +49,7 @@ POLICY_KEYS = frozenset(
         "version",
         "title",
         "rules",
+        "required_approvals",
         "waivers",
     }
 )
@@ -133,6 +146,16 @@ def validate_configuration_mapping(
         description="variants",
     )
 
+    typography = data.get("typography", DEFAULT_TYPOGRAPHY)
+    typography = _require_nonblank_string(
+        typography, source=f"{source}.typography"
+    ).lower()
+    if typography not in TYPOGRAPHY_PRESETS:
+        supported = ", ".join(sorted(TYPOGRAPHY_PRESETS))
+        raise ConfigSchemaError(
+            f"{source}.typography: unknown preset {typography!r}; choose one of: {supported}"
+        )
+
     sheets = data.get("sheets")
     if sheets is not None:
         if not isinstance(sheets, list):
@@ -159,6 +182,7 @@ def validate_configuration_mapping(
         "fields": dict(fields),
         "notes": {key: list(value) for key, value in notes.items()},
         "variants": variants,
+        "typography": typography,
     }
     if policy is not None:
         normalized["policy"] = _normalize_policy_reference(
@@ -221,6 +245,16 @@ def validate_policy_mapping(
                 f"{source}.rules[{index}]: must not be blank"
             )
 
+    required_approvals = data.get("required_approvals", [])
+    if required_approvals is None:
+        required_approvals = []
+    if not isinstance(required_approvals, list) or not all(
+        isinstance(item, Mapping) for item in required_approvals
+    ):
+        raise ConfigSchemaError(
+            f"{source}.required_approvals: must be a list of mappings"
+        )
+
     waivers = data.get("waivers")
     if waivers is not None and not isinstance(waivers, Mapping):
         raise ConfigSchemaError(f"{source}.waivers: must be a mapping")
@@ -240,6 +274,10 @@ def validate_policy_mapping(
         "schema": POLICY_SCHEMA,
         "rules": list(rules),
     }
+    if "required_approvals" in data:
+        normalized["required_approvals"] = [
+            dict(item) for item in required_approvals
+        ]
     if extends is not None:
         normalized["extends"] = extends
     if version is not None:

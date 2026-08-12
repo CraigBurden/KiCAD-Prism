@@ -19,6 +19,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Literal, Sequence
 
+from app.release_studio.documents.fonts import (
+    DEFAULT_TYPOGRAPHY,
+    advance_width,
+    typography_preset,
+)
+
 # ISO A and ANSI sheet sizes in millimetres, landscape (width, height).
 SHEET_SIZES: dict[str, tuple[float, float]] = {
     "A5": (210.0, 148.0),
@@ -70,7 +76,7 @@ def preferred_scale(view_width: float, view_height: float, window: "Rect") -> fl
     return min(window.width / view_width, window.height / view_height)
 
 Anchor = Literal["start", "middle", "end"]
-Family = Literal["sans", "mono"]
+Family = Literal["display", "sans", "mono"]
 
 
 def fmt(value: float) -> str:
@@ -181,6 +187,7 @@ class Sheet:
     key: str
     title: str
     size: str
+    typography: str = DEFAULT_TYPOGRAPHY
     elements: tuple[Element, ...] = ()
 
     @property
@@ -203,12 +210,21 @@ class SheetBuilder:
     code that describes it rather than of a sort applied afterwards.
     """
 
-    def __init__(self, key: str, title: str, size: str = "A3") -> None:
+    def __init__(
+        self,
+        key: str,
+        title: str,
+        size: str = "A3",
+        *,
+        typography: str = DEFAULT_TYPOGRAPHY,
+    ) -> None:
         if size not in SHEET_SIZES:
             raise ValueError(f"unknown sheet size: {size!r}")
+        typography_preset(typography)
         self.key = key
         self.title = title
         self.size = size
+        self.typography = typography
         self._elements: list[Element] = []
 
     @property
@@ -236,7 +252,11 @@ class SheetBuilder:
 
     def build(self) -> Sheet:
         return Sheet(
-            key=self.key, title=self.title, size=self.size, elements=tuple(self._elements)
+            key=self.key,
+            title=self.title,
+            size=self.size,
+            typography=self.typography,
+            elements=tuple(self._elements),
         )
 
 
@@ -244,51 +264,49 @@ class SheetBuilder:
 # Text metrics
 # ---------------------------------------------------------------------------
 
-# Helvetica advance widths (units per 1000 em) for the printable ASCII range,
-# taken from the standard AFM set.  The PDF backend needs these to right- and
-# centre-align text, because unlike SVG it has no `text-anchor`.
-_HELVETICA_WIDTHS: dict[int, int] = {
-    32: 278, 33: 278, 34: 355, 35: 556, 36: 556, 37: 889, 38: 667, 39: 191,
-    40: 333, 41: 333, 42: 389, 43: 584, 44: 278, 45: 333, 46: 278, 47: 278,
-    48: 556, 49: 556, 50: 556, 51: 556, 52: 556, 53: 556, 54: 556, 55: 556,
-    56: 556, 57: 556, 58: 278, 59: 278, 60: 584, 61: 584, 62: 584, 63: 556,
-    64: 1015, 65: 667, 66: 667, 67: 722, 68: 722, 69: 667, 70: 611, 71: 778,
-    72: 722, 73: 278, 74: 500, 75: 667, 76: 556, 77: 833, 78: 722, 79: 778,
-    80: 667, 81: 778, 82: 722, 83: 667, 84: 611, 85: 722, 86: 667, 87: 944,
-    88: 667, 89: 667, 90: 611, 91: 278, 92: 278, 93: 278, 94: 469, 95: 556,
-    96: 333, 97: 556, 98: 556, 99: 500, 100: 556, 101: 556, 102: 278, 103: 556,
-    104: 556, 105: 222, 106: 222, 107: 500, 108: 222, 109: 833, 110: 556,
-    111: 556, 112: 556, 113: 556, 114: 333, 115: 500, 116: 278, 117: 556,
-    118: 500, 119: 722, 120: 500, 121: 500, 122: 500, 123: 334, 124: 260,
-    125: 334, 126: 584,
-}
-_HELVETICA_BOLD_EXTRA = 1.06  # Bold is uniformly a little wider than regular.
-_COURIER_WIDTH = 600
+def text_width(
+    value: str,
+    size: float,
+    *,
+    family: Family = "sans",
+    bold: bool = False,
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> float:
+    """Advance width from the exact bundled OpenType metrics, in millimetres."""
+
+    return advance_width(
+        value, size, role=family, bold=bold, typography=typography
+    )
 
 
-def text_width(value: str, size: float, *, family: Family = "sans", bold: bool = False) -> float:
-    """Advance width of *value* in millimetres at *size* millimetres."""
-
-    if family == "mono":
-        return len(value) * _COURIER_WIDTH / 1000.0 * size
-    total = sum(_HELVETICA_WIDTHS.get(ord(ch), 556) for ch in value)
-    width = total / 1000.0 * size
-    return width * _HELVETICA_BOLD_EXTRA if bold else width
-
-
-def fit_text(value: str, limit: float, size: float, *, family: Family = "sans",
-             bold: bool = False) -> str:
+def fit_text(
+    value: str,
+    limit: float,
+    size: float,
+    *,
+    family: Family = "sans",
+    bold: bool = False,
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> str:
     """Truncate *value* with an ellipsis so it fits *limit* millimetres.
 
     A table cell that silently overflows its column is worse than one that
     admits it was too narrow, so truncation is visible rather than clipped.
     """
 
-    if text_width(value, size, family=family, bold=bold) <= limit:
+    if text_width(
+        value, size, family=family, bold=bold, typography=typography
+    ) <= limit:
         return value
     ellipsis = "…"
     trimmed = value
-    while trimmed and text_width(trimmed + ellipsis, size, family=family, bold=bold) > limit:
+    while trimmed and text_width(
+        trimmed + ellipsis,
+        size,
+        family=family,
+        bold=bold,
+        typography=typography,
+    ) > limit:
         trimmed = trimmed[:-1]
     return (trimmed + ellipsis) if trimmed else ""
 
@@ -337,9 +355,15 @@ def draw_title_block(
     builder.text(
         block.x + 2.0,
         block.y + title_height - 2.5,
-        fit_text(title, width - 4.0, 3.5, bold=True),
+        fit_text(
+            title,
+            width - 4.0,
+            3.5,
+            family="display",
+            typography=builder.typography,
+        ),
         size=3.5,
-        bold=True,
+        family="display",
     )
 
     rows = max(1, len(fields))
@@ -349,11 +373,24 @@ def draw_title_block(
         if index:
             builder.line(block.x, top, block.right, top, width=0.2, colour="#666666")
         baseline = top + row_height - 1.6
-        builder.text(block.x + 2.0, baseline, entry.label, size=2.2, colour="#444444")
+        builder.text(
+            block.x + 2.0,
+            baseline,
+            entry.label,
+            size=2.2,
+            family="display",
+            colour="#444444",
+        )
         builder.text(
             block.right - 2.0,
             baseline,
-            fit_text(entry.value, width - 34.0, 2.6, family="mono"),
+            fit_text(
+                entry.value,
+                width - 34.0,
+                2.6,
+                family="mono",
+                typography=builder.typography,
+            ),
             size=2.6,
             anchor="end",
             family="mono",
@@ -526,7 +563,9 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
     cursor = y0
 
     if table.title:
-        builder.text(x0, cursor + 3.2, table.title, size=3.0, bold=True)
+        builder.text(
+            x0, cursor + 3.2, table.title, size=3.0, family="display"
+        )
         cursor += 5.0
 
     aligns = table.align or tuple("start" for _ in table.columns)
@@ -537,7 +576,13 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
         builder.text(
             anchor_x,
             header_baseline,
-            fit_text(column, width - 1.0, table.font_size, bold=True),
+            fit_text(
+                column,
+                width - 1.0,
+                table.font_size,
+                bold=True,
+                typography=builder.typography,
+            ),
             size=table.font_size,
             anchor=align,
             bold=True,
@@ -557,7 +602,13 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
             builder.text(
                 anchor_x,
                 baseline,
-                fit_text(str(value), width - 1.0, table.font_size, family="mono"),
+                fit_text(
+                    str(value),
+                    width - 1.0,
+                    table.font_size,
+                    family="mono",
+                    typography=builder.typography,
+                ),
                 size=table.font_size,
                 anchor=align,
                 family="mono",
@@ -582,26 +633,32 @@ def draw_notes(
     x0, y0 = origin
     cursor = y0
     if title:
-        builder.text(x0, cursor + 3.2, title, size=3.0, bold=True)
+        builder.text(x0, cursor + 3.2, title, size=3.0, family="display")
         cursor += 5.5
 
     for index, note in enumerate(notes, start=1):
         prefix = f"{index}."
         builder.text(x0, cursor + size, prefix, size=size)
-        for line in _wrap(note, width - 6.0, size):
+        for line in _wrap(note, width - 6.0, size, typography=builder.typography):
             builder.text(x0 + 6.0, cursor + size, line, size=size)
             cursor += size * 1.5
         cursor += size * 0.5
     return cursor
 
 
-def _wrap(value: str, width: float, size: float) -> list[str]:
+def _wrap(
+    value: str,
+    width: float,
+    size: float,
+    *,
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> list[str]:
     words = value.split()
     lines: list[str] = []
     current = ""
     for word in words:
         candidate = f"{current} {word}".strip()
-        if current and text_width(candidate, size) > width:
+        if current and text_width(candidate, size, typography=typography) > width:
             lines.append(current)
             current = word
         else:

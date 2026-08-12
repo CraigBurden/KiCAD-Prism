@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -163,6 +164,7 @@ def build_release_archive(
     valid_from: str = "",
     valid_to: str = "",
     issuer: str = "",
+    archive_mtime: int | None = None,
 ) -> bytes:
     """Package ``release.tar.gz`` including the standalone verifier."""
 
@@ -182,7 +184,23 @@ def build_release_archive(
         "verify.py": _VERIFIER_SOURCE.read_bytes(),
         "VERIFY.md": _verify_readme(signing_key_id).encode("utf-8"),
     }
-    return write_deterministic_archive(members)
+    if archive_mtime is None:
+        archive_mtime = _iso_timestamp(str(attestation.get("released_at") or ""))
+    return write_deterministic_archive(members, mtime=archive_mtime)
+
+
+def _iso_timestamp(value: str) -> int:
+    """Convert a signed ISO release instant to deterministic archive metadata."""
+
+    if not value:
+        return 0
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if parsed.tzinfo is None:
+        return 0
+    return max(0, int(parsed.timestamp()))
 
 
 def _verify_readme(signing_key_id: str) -> str:
@@ -192,7 +210,8 @@ This archive is verifiable offline. It needs no Prism instance, no database,
 and no network access.
 
 ```sh
-python3 verify.py release.tar.gz --trusted-key-id {signing_key_id}
+python3 verify.py release.tar.gz \
+  --trusted-key {signing_key_id}=/path/to/{signing_key_id}.pem
 ```
 
 The verifier checks, in order:
@@ -201,18 +220,20 @@ The verifier checks, in order:
 2. `H(sorted[(path, released_digest)])` equals `dossier_digest`
 3. `H(canonical(manifest))` equals the attestation's `manifest_digest`
 4. `H(canonical(attestation))` equals `attestation_digest`
-5. the Ed25519 signature in `attestation.sig` verifies `attestation_digest`
-   under the public key in `signing-key.json`
-6. the signing key id is one you trust
+5. the public key in `signing-key.json` equals independently trusted public
+   key material supplied with `--trusted-key`
+6. the Ed25519 signature in `attestation.sig` verifies `attestation_digest`
+   under that independently trusted key
 
 Steps 1-4 prove the archive is internally consistent. Step 5 is what proves it
 was issued by the holder of the organization's release key: recomputing every
 digest after editing an approver name still fails, because the signature no
 longer matches.
 
-Obtain the organization's published keys from
-`GET /api/release-studio/signing-keys`, or pin `{signing_key_id}` out of band.
-The exit status is 0 only if every check passed.
+Obtain the organization's published key material from
+`GET /api/release-studio/signing-keys` over an authenticated TLS connection, or
+through another trusted channel. A key id alone is not a trust anchor. The exit
+status is 0 only if every check passed.
 """
 
 

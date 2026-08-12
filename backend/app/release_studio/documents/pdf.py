@@ -1,19 +1,25 @@
-"""Deterministic PDF writer for composed sheets (D2).
+"""Deterministic PDF writer for composed sheets (D2/D5).
 
-Writes the sheet furniture -- frame, title block, tables, notes -- as a single
-page using only the base-14 fonts, so nothing has to be embedded and no new
-dependency is introduced.  Board artwork is *not* redrawn here: it is acquired
-from ``kicad-cli`` as PDF and overlaid by
-:mod:`app.release_studio.documents.artwork`, which keeps KiCad's plotter as the
-only thing that ever renders copper.
-
-The file carries no ``/CreationDate``, no ``/Producer`` and a fixed ``/ID``, so
-two renders of the same sheet are byte-identical before canonicalization ever
-runs.
+Visible default text uses the same Monkey-backed KiCad NewStroke geometry as
+the SVG backend. A deterministic invisible Base-14 text layer keeps that vector
+lettering searchable until upstream packages its generated NewStroke TTF assets.
+Legacy bundled OpenType presets retain their embedded Type0/CIDFontType2 path.
+Board artwork is composited separately; KiCad remains the renderer of copper.
 """
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+
+from app.release_studio.documents.fonts import (
+    FontAsset,
+    is_newstroke,
+    newstroke_polylines,
+    newstroke_width,
+    ttfont,
+    typography_preset,
+)
 from app.release_studio.documents.layout import (
     Artwork,
     Line,
@@ -26,12 +32,28 @@ from app.release_studio.documents.layout import (
 
 MM_TO_PT = 72.0 / 25.4
 
-_FONTS = {
-    ("sans", False): ("F1", "Helvetica"),
-    ("sans", True): ("F2", "Helvetica-Bold"),
-    ("mono", False): ("F3", "Courier"),
-    ("mono", True): ("F4", "Courier-Bold"),
-}
+
+@dataclass(frozen=True, slots=True)
+class _FontPlan:
+    resource: str
+    asset: FontAsset
+
+
+def _font_plans(typography: str) -> tuple[_FontPlan, ...]:
+    preset = typography_preset(typography)
+    if is_newstroke(typography):
+        return ()
+    return (
+        _FontPlan("F1", preset.asset("display")),
+        _FontPlan("F2", preset.asset("sans")),
+        _FontPlan("F3", preset.asset("sans", bold=True)),
+    )
+
+
+def _resource_for(element: Text) -> str:
+    if element.family == "display":
+        return "F1"
+    return "F3" if element.bold else "F2"
 
 
 def _pt(value: float) -> str:
@@ -53,45 +75,50 @@ def _rgb(colour: str) -> tuple[float, float, float]:
     return tuple(int(value[i:i + 2], 16) / 255.0 for i in (0, 2, 4))  # type: ignore[return-value]
 
 
-def _escape_pdf_text(value: str) -> bytes:
-    """Encode a string literal for a base-14 font.
+def _glyph_hex(value: str, asset: FontAsset) -> tuple[str, dict[int, int]]:
+    """Encode text as glyph IDs and return the used CID→Unicode mapping."""
 
-    The fonts are declared ``/WinAnsiEncoding``, so the bytes must be cp1252 --
-    not Latin-1.  The difference is not academic: the em dash the tables use for
-    an absent value, and the ellipsis `fit_text` appends, both exist in WinAnsi
-    and neither exists in Latin-1, so encoding as Latin-1 turned every one of
-    them into a literal ``?`` while the SVG rendering of the same sheet showed
-    it correctly.
-    """
-
-    encoded = value.encode("cp1252", errors="replace")
-    out = bytearray()
-    for byte in encoded:
-        if byte in (0x28, 0x29, 0x5C):  # ( ) \
-            out.append(0x5C)
-        out.append(byte)
-    return bytes(out)
+    font = ttfont(asset)
+    cmap = font.getBestCmap() or {}
+    glyph_ids = font.getReverseGlyphMap()
+    encoded = bytearray()
+    used: dict[int, int] = {}
+    missing: list[str] = []
+    for char in value:
+        glyph_name = cmap.get(ord(char))
+        if glyph_name is None:
+            missing.append(f"U+{ord(char):04X}")
+            continue
+        glyph_id = glyph_ids[glyph_name]
+        if glyph_id > 0xFFFF:
+            raise ValueError(f"glyph id {glyph_id} does not fit Identity-H")
+        encoded += glyph_id.to_bytes(2, "big")
+        used.setdefault(glyph_id, ord(char))
+    if missing:
+        raise ValueError(
+            f"{asset.filename} cannot render " + ", ".join(sorted(set(missing)))
+        )
+    return encoded.hex().upper(), used
 
 
 def render_pdf(sheet: Sheet) -> bytes:
-    """Serialize *sheet* to a one-page PDF."""
+    """Serialize *sheet* to a standalone one-page PDF."""
 
     height_pt = sheet.height * MM_TO_PT
     width_pt = sheet.width * MM_TO_PT
+    plans = _font_plans(sheet.typography)
+    vector_text = is_newstroke(sheet.typography)
+    plan_by_resource = {plan.resource: plan for plan in plans}
+    used_glyphs: dict[str, dict[int, int]] = {plan.resource: {} for plan in plans}
+    use_search_font = False
 
     def y(value: float) -> float:
-        """Flip millimetre-from-top into PDF points-from-bottom."""
-
         return height_pt - value * MM_TO_PT
 
     def x(value: float) -> float:
         return value * MM_TO_PT
 
-    ops: list[str] = ["1 J", "1 j"]  # round caps and joins
-    used_fonts: set[tuple[str, bool]] = set()
-
-    # A white page: a released drawing must not depend on the viewer's theme.
-    ops.append("1 1 1 rg")
+    ops: list[str] = ["1 J", "1 j", "1 1 1 rg"]
     ops.append(f"0 0 {_pt(width_pt)} {_pt(height_pt)} re f")
 
     for element in sheet.elements:
@@ -130,13 +157,70 @@ def render_pdf(sheet: Sheet) -> bytes:
                     ops.append(f"{_pt(x(px))} {_pt(y(py))} l")
                 ops.append("h S" if element.close else "S")
         elif isinstance(element, Text):
-            key = (element.family, element.bold)
-            used_fonts.add(key)
-            resource, _name = _FONTS[key]
-            # PDF has no text-anchor, so alignment is resolved here from the
-            # same metrics the SVG backend relies on the renderer to apply.
+            if vector_text:
+                r, g, b = _rgb(element.colour)
+                ops.append(f"{_pt(r)} {_pt(g)} {_pt(b)} RG")
+                ops.append(
+                    f"{_pt(newstroke_width(element.size, bold=element.bold) * MM_TO_PT)} w"
+                )
+                rows = element.value.splitlines() or [""]
+                for row_index, row in enumerate(rows):
+                    row_y = element.y + row_index * element.size * 1.2
+                    for line in newstroke_polylines(
+                        row,
+                        x=element.x,
+                        y=row_y,
+                        size=element.size,
+                        anchor=element.anchor,
+                    ):
+                        if len(line) < 2:
+                            continue
+                        first = line[0]
+                        ops.append(f"{_pt(x(first[0]))} {_pt(y(first[1]))} m")
+                        for px, py in line[1:]:
+                            ops.append(f"{_pt(x(px))} {_pt(y(py))} l")
+                        ops.append("S")
+
+                    # The visible glyphs above are authoritative. This hidden
+                    # WinAnsi layer exists solely for search/copy and never
+                    # affects appearance or host font selection.
+                    encoded = row.encode("cp1252", errors="replace").hex().upper()
+                    width = text_width(
+                        row,
+                        element.size,
+                        family=element.family,
+                        bold=element.bold,
+                        typography=sheet.typography,
+                    )
+                    start = element.x
+                    if element.anchor == "middle":
+                        start -= width / 2
+                    elif element.anchor == "end":
+                        start -= width
+                    ops.extend(
+                        [
+                            "BT",
+                            "3 Tr",
+                            f"/FText {_pt(element.size * MM_TO_PT)} Tf",
+                            f"1 0 0 1 {_pt(x(start))} {_pt(y(row_y))} Tm",
+                            f"<{encoded}> Tj",
+                            "0 Tr",
+                            "ET",
+                        ]
+                    )
+                    use_search_font = True
+                continue
+
+            resource = _resource_for(element)
+            plan = plan_by_resource[resource]
+            glyph_hex, mapping = _glyph_hex(element.value, plan.asset)
+            used_glyphs[resource].update(mapping)
             width = text_width(
-                element.value, element.size, family=element.family, bold=element.bold
+                element.value,
+                element.size,
+                family=element.family,
+                bold=element.bold,
+                typography=sheet.typography,
             )
             start = element.x
             if element.anchor == "middle":
@@ -144,16 +228,17 @@ def render_pdf(sheet: Sheet) -> bytes:
             elif element.anchor == "end":
                 start -= width
             r, g, b = _rgb(element.colour)
-            ops.append("BT")
-            ops.append(f"{_pt(r)} {_pt(g)} {_pt(b)} rg")
-            ops.append(f"/{resource} {_pt(element.size * MM_TO_PT)} Tf")
-            ops.append(f"1 0 0 1 {_pt(x(start))} {_pt(y(element.y))} Tm")
-            literal = _escape_pdf_text(element.value).decode("latin-1")
-            ops.append(f"({literal}) Tj")
-            ops.append("ET")
+            ops.extend(
+                [
+                    "BT",
+                    f"{_pt(r)} {_pt(g)} {_pt(b)} rg",
+                    f"/{resource} {_pt(element.size * MM_TO_PT)} Tf",
+                    f"1 0 0 1 {_pt(x(start))} {_pt(y(element.y))} Tm",
+                    f"<{glyph_hex}> Tj",
+                    "ET",
+                ]
+            )
         elif isinstance(element, Artwork):
-            # Placeholder outline only. Real artwork is stamped in by the
-            # overlay step, which composites KiCad's own PDF onto this page.
             ops.append("0.6 0.6 0.6 RG")
             ops.append(f"{_pt(0.2 * MM_TO_PT)} w")
             rect = element.rect
@@ -164,23 +249,102 @@ def render_pdf(sheet: Sheet) -> bytes:
         else:  # pragma: no cover - guarded by the layout element union
             raise TypeError(f"unrenderable sheet element: {type(element).__name__}")
 
-    content = "\n".join(ops).encode("latin-1", errors="replace")
-    return _assemble(content, width_pt, height_pt, used_fonts)
+    content = "\n".join(ops).encode("ascii")
+    return _assemble(
+        content,
+        width_pt,
+        height_pt,
+        plans,
+        used_glyphs,
+        use_search_font=use_search_font,
+    )
+
+
+def _pdf_name(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.+-]", "-", value) or "PrismFont"
+
+
+def _name(font, name_id: int, fallback: str) -> str:
+    table = font["name"]
+    for record in table.names:
+        if record.nameID == name_id:
+            try:
+                return record.toUnicode()
+            except UnicodeDecodeError:
+                continue
+    return fallback
+
+
+def _font_metrics(asset: FontAsset) -> dict[str, object]:
+    font = ttfont(asset)
+    units = float(font["head"].unitsPerEm)
+
+    def scale(value: float) -> int:
+        return int(round(value * 1000.0 / units))
+
+    head = font["head"]
+    hhea = font["hhea"]
+    os2 = font["OS/2"]
+    post = font["post"]
+    glyph_order = font.getGlyphOrder()
+    widths = {
+        glyph_id: scale(font["hmtx"].metrics[name][0])
+        for glyph_id, name in enumerate(glyph_order)
+    }
+    return {
+        "postscript": _pdf_name(_name(font, 6, asset.key)),
+        "bbox": [scale(head.xMin), scale(head.yMin), scale(head.xMax), scale(head.yMax)],
+        "ascent": scale(hhea.ascent),
+        "descent": scale(hhea.descent),
+        "cap_height": scale(getattr(os2, "sCapHeight", hhea.ascent)),
+        "italic_angle": float(post.italicAngle),
+        "flags": 32 | (1 if post.isFixedPitch else 0),
+        "widths": widths,
+    }
+
+
+def _utf16_hex(codepoint: int) -> str:
+    return chr(codepoint).encode("utf-16-be").hex().upper()
+
+
+def _to_unicode(mapping: dict[int, int]) -> bytes:
+    rows = [f"<{gid:04X}> <{_utf16_hex(codepoint)}>" for gid, codepoint in sorted(mapping.items())]
+    blocks: list[str] = []
+    for index in range(0, len(rows), 100):
+        chunk = rows[index:index + 100]
+        blocks.append(f"{len(chunk)} beginbfchar\n" + "\n".join(chunk) + "\nendbfchar")
+    body = "\n".join(blocks)
+    return (
+        "/CIDInit /ProcSet findresource begin\n"
+        "12 dict begin\n"
+        "begincmap\n"
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+        "/CMapName /Prism-ToUnicode def\n"
+        "/CMapType 2 def\n"
+        "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
+        f"{body}\n"
+        "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+    ).encode("ascii")
+
+
+def _stream(payload: bytes, *, extra: bytes = b"") -> bytes:
+    suffix = (b" " + extra.strip()) if extra.strip() else b""
+    return (
+        b"<< /Length " + str(len(payload)).encode("ascii") + suffix
+        + b" >>\nstream\n" + payload + b"\nendstream"
+    )
 
 
 def _assemble(
     content: bytes,
     width_pt: float,
     height_pt: float,
-    used_fonts: set[tuple[str, bool]],
+    plans: tuple[_FontPlan, ...],
+    used_glyphs: dict[str, dict[int, int]],
+    *,
+    use_search_font: bool = False,
 ) -> bytes:
-    """Build the PDF object graph with a fixed, content-independent trailer."""
-
-    # Always emit every base-14 font: making the resource dictionary depend on
-    # which fonts a sheet happened to use would make byte output vary with
-    # content in a way that is invisible and annoying to diff.
-    _ = used_fonts
-    font_objects = sorted(_FONTS.items(), key=lambda item: item[1][0])
+    """Build the PDF object graph with fixed ordering and no volatile metadata."""
 
     objects: list[bytes] = []
 
@@ -189,25 +353,57 @@ def _assemble(
         return len(objects)
 
     font_ids: dict[str, int] = {}
-    for _key, (resource, base_font) in font_objects:
-        font_ids[resource] = add(
-            b"<< /Type /Font /Subtype /Type1 /BaseFont /"
-            + base_font.encode("ascii")
-            + b" /Encoding /WinAnsiEncoding >>"
+    for plan in plans:
+        metrics = _font_metrics(plan.asset)
+        font_bytes = plan.asset.bytes()
+        font_file_id = add(
+            _stream(font_bytes, extra=b"/Length1 " + str(len(font_bytes)).encode("ascii"))
+        )
+        bbox = " ".join(str(value) for value in metrics["bbox"])
+        descriptor_id = add(
+            (
+                f"<< /Type /FontDescriptor /FontName /{metrics['postscript']} "
+                f"/Flags {metrics['flags']} /FontBBox [{bbox}] "
+                f"/ItalicAngle {_pt(metrics['italic_angle'])} /Ascent {metrics['ascent']} "
+                f"/Descent {metrics['descent']} /CapHeight {metrics['cap_height']} "
+                f"/StemV 80 /FontFile2 {font_file_id} 0 R >>"
+            ).encode("ascii")
+        )
+        unicode_payload = _to_unicode(used_glyphs[plan.resource])
+        unicode_id = add(_stream(unicode_payload))
+        widths: dict[int, int] = metrics["widths"]  # type: ignore[assignment]
+        used_widths = " ".join(
+            f"{gid} [{widths[gid]}]" for gid in sorted(used_glyphs[plan.resource])
+        )
+        cidfont_id = add(
+            (
+                f"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{metrics['postscript']} "
+                "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> "
+                f"/FontDescriptor {descriptor_id} 0 R /DW 1000 /W [{used_widths}] "
+                "/CIDToGIDMap /Identity >>"
+            ).encode("ascii")
+        )
+        font_ids[plan.resource] = add(
+            (
+                f"<< /Type /Font /Subtype /Type0 /BaseFont /{metrics['postscript']} "
+                f"/Encoding /Identity-H /DescendantFonts [{cidfont_id} 0 R] "
+                f"/ToUnicode {unicode_id} 0 R >>"
+            ).encode("ascii")
         )
 
-    content_id = add(
-        b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n"
-        + content
-        + b"\nendstream"
-    )
+    if use_search_font:
+        font_ids["FText"] = add(
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
+            b"/Encoding /WinAnsiEncoding >>"
+        )
 
+    content_id = add(_stream(content))
     resources = b"<< /Font << " + b" ".join(
         b"/" + resource.encode("ascii") + b" " + str(font_ids[resource]).encode("ascii") + b" 0 R"
-        for resource, _ in sorted(font_ids.items())
+        for resource in sorted(font_ids)
     ) + b" >> >>"
 
-    pages_id = len(objects) + 2  # page object is next, pages after it
+    pages_id = len(objects) + 2
     page_id = add(
         b"<< /Type /Page /Parent " + str(pages_id).encode("ascii") + b" 0 R"
         b" /MediaBox [0 0 " + _pt(width_pt).encode("ascii") + b" "
@@ -215,9 +411,7 @@ def _assemble(
         b" /Resources " + resources
         + b" /Contents " + str(content_id).encode("ascii") + b" 0 R >>"
     )
-    add(
-        b"<< /Type /Pages /Kids [" + str(page_id).encode("ascii") + b" 0 R] /Count 1 >>"
-    )
+    add(b"<< /Type /Pages /Kids [" + str(page_id).encode("ascii") + b" 0 R] /Count 1 >>")
     catalog_id = add(b"<< /Type /Catalog /Pages " + str(pages_id).encode("ascii") + b" 0 R >>")
 
     out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
@@ -232,9 +426,6 @@ def _assemble(
     out += b"0000000000 65535 f \n"
     for offset in offsets:
         out += f"{offset:010d} 00000 n \n".encode("ascii")
-
-    # A fixed /ID and no /Info: an identical sheet must produce identical bytes,
-    # and a creation date would defeat that before canonicalization saw it.
     out += (
         b"trailer\n<< /Size " + str(count).encode("ascii")
         + b" /Root " + str(catalog_id).encode("ascii") + b" 0 R"

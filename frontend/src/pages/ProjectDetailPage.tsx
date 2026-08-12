@@ -667,6 +667,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                 <ReleaseStudioPanel
                                     projectId={projectId!}
                                     canMutate={canMutateProject}
+                                    isAdmin={user?.role === "admin"}
                                 />
                             </ErrorBoundary>
                         </ProjectSectionPanel>

@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+from importlib import metadata
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -29,7 +30,9 @@ from app.release_studio.config import (
     list_configuration_keys,
     load_configuration_at_commit,
     load_configuration_from_checkout,
+    load_policy_for_configuration_at_commit,
     technical_config_digest,
+    technical_config_payload,
 )
 from app.release_studio.jobset import (
     StepTypeStatus,
@@ -75,14 +78,21 @@ def toolchain_identity(cli_version: str = "") -> tuple[dict[str, Any], str]:
     """Return the human-readable toolchain record and its hashed identity."""
 
     from app.release_studio.documents import RENDERER_VERSION
+    from app.release_studio.documents.fonts import resource_bundle_digest
 
     image = executor_image()
+    monkey_version = _distribution_version("kicad-monkey", "kicad_monkey")
+    cruncher_version = _distribution_version("kicad-cruncher", "kicad_cruncher")
+    resources = resource_bundle_digest()
     record = {
         "kicad_version": cli_version or "10.0.4",
         "executor_image": image,
         "generator_build": GENERATOR_BUILD,
         "canonicalizer_registry": f"{CANONICALIZER_REGISTRY_NAME}/{CANONICALIZER_REGISTRY_VERSION}",
         "renderer": RENDERER_VERSION,
+        "kicad_monkey_version": monkey_version,
+        "kicad_cruncher_version": cruncher_version,
+        "resource_bundle_digest": resources,
     }
     digest = sha256_canonical(
         {
@@ -92,9 +102,28 @@ def toolchain_identity(cli_version: str = "") -> tuple[dict[str, Any], str]:
             # The renderer is part of the toolchain identity: a change that
             # alters composed sheets for unchanged input must move the build key.
             "renderer_version": RENDERER_VERSION,
+            "kicad_monkey_version": monkey_version,
+            # Cruncher owns workflow-level derived artifacts. It is included
+            # even before every document view migrates so adopting another
+            # Cruncher workflow can never silently preserve an old build key.
+            "kicad_cruncher_version": cruncher_version,
+            "resource_bundle_digest": resources,
         }
     )
     return record, digest
+
+
+def _distribution_version(distribution: str, module_name: str) -> str:
+    """Resolve a packaged tool identity without depending on host paths."""
+
+    try:
+        return metadata.version(distribution)
+    except metadata.PackageNotFoundError:
+        try:
+            module = __import__(module_name)
+        except ImportError:
+            return "unavailable"
+        return str(getattr(module, "__version__", "unversioned"))
 
 
 def sync_configurations(project_id: str) -> list[dict[str, Any]]:
@@ -118,6 +147,7 @@ def sync_configurations(project_id: str) -> list[dict[str, Any]]:
     except Exception:  # noqa: BLE001 - an unregistered project simply has none
         return store.list_configurations(project_id)
 
+    loaded_configs: dict[str, dict[str, Any]] = {}
     for config_key in list_configuration_keys(checkout):
         try:
             config = load_configuration_from_checkout(checkout, config_key)
@@ -129,6 +159,7 @@ def sync_configurations(project_id: str) -> list[dict[str, Any]]:
                 exc,
             )
             continue
+        loaded_configs[config_key] = config
         store.upsert_configuration(
             project_id=project_id,
             config_key=config_key,
@@ -138,7 +169,56 @@ def sync_configurations(project_id: str) -> list[dict[str, Any]]:
             jobset_rel=str(config.get("jobset") or ""),
             default_variant=str(config.get("default_variant") or ""),
         )
-    return store.list_configurations(project_id)
+    from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+
+    rows = store.list_configurations(project_id)
+    for row in rows:
+        loaded = loaded_configs.get(str(row.get("config_key") or ""))
+        if loaded is not None:
+            row["typography"] = loaded.get("typography", DEFAULT_TYPOGRAPHY)
+            row["document_number"] = loaded.get("document_number", "")
+            row["revision"] = loaded.get("revision", "")
+            row["fields"] = loaded.get("fields", {})
+            row["notes"] = loaded.get("notes", {})
+    return rows
+
+
+def policy_document_for_candidate(
+    project_id: str,
+    candidate: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Return the candidate's immutable Git-owned policy snapshot.
+
+    Candidates produced before snapshot persistence retain an exact-commit
+    compatibility path. New candidates do not depend on a mutable checkout at
+    evaluation time.
+    """
+
+    if candidate.get("policy_snapshot_captured"):
+        document = candidate.get("policy_document")
+        return dict(document) if isinstance(document, Mapping) else None
+
+    from app.services import workspace_service
+
+    row = workspace_service.workspace.get_project_by_id(project_id)
+    if not row:
+        raise BuildError("project not found")
+    project_path = Path(str(row["path"] if "path" in row else row.get("clone_path") or ""))
+    repo_root = project_path
+    for _ in range(6):
+        if (repo_root / ".git").exists():
+            break
+        repo_root = repo_root.parent
+    config = load_configuration_at_commit(
+        repo_root,
+        str(candidate.get("commit_sha") or "HEAD"),
+        str(candidate.get("config_key") or "default"),
+    )
+    return load_policy_for_configuration_at_commit(
+        repo_root,
+        str(candidate.get("commit_sha") or "HEAD"),
+        config,
+    )
 
 
 def prepare_candidate(
@@ -162,6 +242,11 @@ def prepare_candidate(
 
     config = load_configuration_at_commit(repo_root, commit_sha, config_key)
     config_digest = technical_config_digest(config)
+    policy_document = load_policy_for_configuration_at_commit(
+        repo_root,
+        commit_sha,
+        config,
+    )
 
     closure_root = workspace_root / "closure"
     if closure_root.exists():
@@ -203,6 +288,8 @@ def prepare_candidate(
         hermetic=hermetic,
         non_hermetic_reasons=reasons,
         closure_inputs=_closure_rows(closure),
+        policy_snapshot_captured=True,
+        policy_document=policy_document,
         created_by=created_by,
     )
     candidate["_closure_root"] = str(closure_root)
@@ -325,7 +412,7 @@ def execute_build(
             progress=lambda **kwargs: context.progress(**kwargs),
         )
         context.progress(stage="documents", message="Composing documentation", percent=70)
-        outputs, document_warnings = _with_documents(
+        outputs, document_warnings, projections = _with_documents(
             outputs,
             closure_root=closure_root,
             config=config,
@@ -349,11 +436,11 @@ def execute_build(
             toolchain=toolchain,
             toolchain_digest=toolchain_digest,
             build_key=str(candidate["build_key"]),
-            config_fragments={
-                key: config.get(key)
-                for key in ("board", "schematic", "jobset", "default_variant")
-                if config.get(key) is not None
-            },
+            config_fragments=technical_config_payload(config),
+            projections=projections,
+            archive_mtime=_commit_timestamp(
+                repo_root, str(candidate.get("commit_sha") or "")
+            ),
         )
 
         dossier_artifact = _publish(
@@ -421,7 +508,7 @@ def _with_documents(
     cli_path: str | None,
     staging: Path,
     repo_root: Path | None = None,
-) -> tuple[list[StepOutput], list[str]]:
+) -> tuple[list[StepOutput], list[str], dict[str, Any]]:
     """Compose the Stage 2 sheets and append them as a member-producing step.
 
     The Documentation Engine is a member producer: it adds files under the
@@ -435,13 +522,17 @@ def _with_documents(
     """
 
     warnings: list[str] = []
+    projections: dict[str, Any] = {}
 
     from app.release_studio.documents import compose
+    from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
     from app.release_studio.projections import (
         project_board_stats_file,
         project_stackup,
         project_variants,
     )
+    from app.release_studio.semantic import semantic_scope_projections
+    from app.services import semantic_index_service
 
     board_rel = str(config.get("board") or "")
     board = closure_root / board_rel if board_rel else None
@@ -468,6 +559,11 @@ def _with_documents(
         variants: dict[str, Any] = {}
         if board is not None and board.is_file():
             stackup = _project("stackup", lambda: project_stackup(board), {})
+            if stackup.get("source") == "kicad_monkey.fallback":
+                warnings.append(
+                    "documentation: stackup used the kicad_monkey targeted fallback "
+                    f"({stackup.get('fallback_reason') or 'typed model rejected the board'})"
+                )
             # Schematic variants live in the *project* file, not the schematic:
             # `schematic_settings.cpp:266` reads them from `.kicad_pro`.
             project_file = board.with_suffix(".kicad_pro")
@@ -480,6 +576,28 @@ def _with_documents(
             )
 
         placements = _placements(output_root / "assembly/positions.csv")
+        projections = {
+            "board_stats": stats,
+            "stackup": stackup,
+            "variants": variants,
+            "placements": placements,
+        }
+
+        project_file = board.with_suffix(".kicad_pro") if board is not None else None
+        if project_file is not None and project_file.is_file():
+            semantic_index = _project(
+                "semantic index",
+                lambda: semantic_index_service.build_semantic_index(
+                    project_file,
+                    source_revision_key=(
+                        semantic_index_service.source_revision_key_for_project_file(project_file)
+                    ),
+                    commit=str(candidate.get("commit_sha") or "") or None,
+                ),
+                {},
+            )
+            if semantic_index:
+                projections["semantic"] = semantic_scope_projections(semantic_index)
 
         # The cover lists the members produced so far; it cannot list itself.
         existing = dossier_module.build_members(list(outputs))
@@ -511,13 +629,16 @@ def _with_documents(
             board=board if board and board.is_file() else None,
             cli_path=cli_path,
             workdir=staging / "artwork",
+            notes=config.get("notes") or {},
+            fields=config.get("fields") or {},
+            typography=str(config.get("typography") or DEFAULT_TYPOGRAPHY),
         )
     except Exception as exc:  # noqa: BLE001
         # `exception` not `warning`: without the traceback a vanished document
         # set looks identical to one that was never configured.
         logger.exception("Documentation Engine produced no sheets")
         warnings.append(f"documentation: no sheets were composed ({exc})")
-        return list(outputs), warnings
+        return list(outputs), warnings, projections
 
     for warning in document_set.warnings:
         logger.warning("Documentation Engine: %s", warning)
@@ -532,7 +653,7 @@ def _with_documents(
 
     if not written:
         warnings.append("documentation: the engine composed no sheets")
-        return list(outputs), warnings
+        return list(outputs), warnings, projections
 
     return [
         *outputs,
@@ -545,7 +666,7 @@ def _with_documents(
             root=output_root,
             spec=DOCUMENT_STEP_SPEC,
         ),
-    ], warnings
+    ], warnings, projections
 
 
 def _placements(positions_csv: Path) -> list[dict[str, Any]]:
@@ -579,6 +700,28 @@ def _commit_date(repo_root: Path, commit: str) -> str:
     except OSError:
         return ""
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _commit_timestamp(repo_root: Path, commit: str) -> int:
+    """Commit author time as an archive-safe epoch, or the neutral epoch."""
+
+    if not commit:
+        return 0
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "show", "-s", "--format=%at", commit],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return 0
+    if result.returncode != 0:
+        return 0
+    try:
+        return max(0, int(result.stdout.strip()))
+    except ValueError:
+        return 0
 
 
 def _publish(

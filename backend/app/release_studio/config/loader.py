@@ -139,6 +139,46 @@ def load_configuration_at_commit(
     return config
 
 
+def load_policy_for_configuration_at_commit(
+    repo_root: Path | str,
+    commit: str,
+    configuration: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Load the Git-owned overlay referenced by a normalized configuration."""
+
+    reference = configuration.get("policy")
+    if reference is None:
+        return None
+    root = _checkout_root(repo_root)
+    if isinstance(reference, str):
+        if reference.startswith("org:"):
+            return {
+                "schema": "prism.release-studio.policy/1",
+                "extends": validate_org_extends(reference),
+                "rules": [],
+                "required_approvals": [],
+            }
+        text = _git_show(root, commit, reference)
+        return parse_policy_yaml(text, source=f"{commit}:{reference}")
+    if not isinstance(reference, Mapping):
+        raise ConfigLoadError("configuration policy reference is invalid")
+
+    overlay: dict[str, Any]
+    path = reference.get("path")
+    if path:
+        text = _git_show(root, commit, str(path))
+        overlay = parse_policy_yaml(text, source=f"{commit}:{path}")
+    else:
+        overlay = {
+            "schema": "prism.release-studio.policy/1",
+            "rules": [],
+            "required_approvals": [],
+        }
+    if reference.get("extends"):
+        overlay["extends"] = validate_org_extends(reference["extends"])
+    return overlay
+
+
 def _load_referenced_policy_from_checkout(
     root: Path,
     config: dict[str, Any],

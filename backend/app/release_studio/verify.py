@@ -8,7 +8,8 @@ absence degrades to a clearly reported "signature not checked" rather than a
 false pass.
 
     python3 verify.py release.tar.gz
-    python3 verify.py release.tar.gz --trusted-key-id prism-2026-08
+    python3 verify.py release.tar.gz \
+        --trusted-key prism-2026-08=/path/to/prism-2026-08.pem
 
 Exit status is 0 only when every check passed.
 """
@@ -22,6 +23,7 @@ import json
 import sys
 import tarfile
 import unicodedata
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -96,9 +98,16 @@ class Report:
 def verify_archive_bytes(
     data: bytes,
     *,
+    trusted_keys: Mapping[str, str] | None = None,
     trusted_key_ids: tuple[str, ...] = (),
 ) -> Report:
-    """Verify a ``release.tar.gz`` given only its bytes."""
+    """Verify a ``release.tar.gz`` against independently trusted key bytes.
+
+    ``signing-key.json`` is useful metadata, but it is part of the untrusted
+    archive.  Authenticity therefore requires a caller-supplied mapping from
+    key id to public PEM.  ``trusted_key_ids`` is only an additional allow-list;
+    a key id by itself is never a trust anchor.
+    """
 
     report = Report()
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as archive:
@@ -177,27 +186,66 @@ def verify_archive_bytes(
         "attestation.dossier_digest == manifest.dossier_digest",
     )
 
-    # 6-7: Ed25519 over attestation_digest, under a trusted key id.
+    # 6-8: the bundled key must equal independently trusted material, then the
+    # signature must verify under that trusted key.  A key id is metadata, not
+    # a trust anchor: an attacker can copy a legitimate id into a forged bundle.
     key_id = str(signing_key.get("key_id") or "")
     report.record(
         attestation.get("signing_key_id") == key_id,
         f"attestation names the bundled signing key ({key_id})",
     )
-    _verify_signature(report, signing_key, signature, recomputed_attestation)
+    algorithm = str(signing_key.get("algorithm") or "").lower()
+    if not report.record(
+        algorithm == "ed25519",
+        f"signing key algorithm is Ed25519 (declared {algorithm!r})",
+    ):
+        return report
     if trusted_key_ids:
         report.record(key_id in trusted_key_ids, f"signing key {key_id!r} is trusted")
-    else:
-        report.record(True, "signing key trust not pinned (pass --trusted-key-id to enforce)")
+    pinned_pem = (trusted_keys or {}).get(key_id)
+    if pinned_pem is None:
+        report.record(
+            False,
+            f"no trusted public key material was supplied for signing key {key_id!r}",
+        )
+        return report
+    if not _same_public_key(report, str(signing_key.get("public_key") or ""), pinned_pem):
+        return report
+    _verify_signature(report, pinned_pem, signature, recomputed_attestation)
     return report
 
 
+def _same_public_key(report: Report, bundled_pem: str, trusted_pem: str) -> bool:
+    """Compare public keys by normalized DER, not PEM whitespace."""
+
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+    except ImportError:  # pragma: no cover - exercised only without cryptography
+        return report.record(False, "cryptography is unavailable; key trust NOT checked")
+
+    try:
+        bundled = load_pem_public_key(bundled_pem.encode("utf-8"))
+        trusted = load_pem_public_key(trusted_pem.encode("utf-8"))
+        bundled_der = bundled.public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        trusted_der = trusted.public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    except Exception as exc:  # noqa: BLE001 - any parse failure is a rejection
+        return report.record(False, f"signing key could not be normalized: {exc}")
+    return report.record(
+        bundled_der == trusted_der,
+        "bundled signing key matches independently trusted public key material",
+    )
+
+
 def _verify_signature(
-    report: Report, signing_key: dict[str, Any], signature: bytes, digest_hex: str
+    report: Report, public_pem: str, signature: bytes, digest_hex: str
 ) -> None:
-    algorithm = str(signing_key.get("algorithm") or "").lower()
-    if algorithm != "ed25519":
-        report.record(False, f"unsupported signature algorithm: {algorithm!r}")
-        return
     try:
         from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives.serialization import load_pem_public_key
@@ -206,7 +254,7 @@ def _verify_signature(
         return
 
     try:
-        public_key = load_pem_public_key(str(signing_key["public_key"]).encode("utf-8"))
+        public_key = load_pem_public_key(public_pem.encode("utf-8"))
     except Exception as exc:  # noqa: BLE001 - any parse failure is a rejection
         report.record(False, f"signing key could not be parsed: {exc}")
         return
@@ -225,17 +273,36 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("archive", help="path to release.tar.gz")
     parser.add_argument(
+        "--trusted-key",
+        action="append",
+        default=[],
+        metavar="KEY_ID=PEM_FILE",
+        help="trusted public key material (repeatable; required for authenticity)",
+    )
+    parser.add_argument(
         "--trusted-key-id",
         action="append",
         default=[],
-        help="accept only these signing key ids (repeatable)",
+        help="additional key-id allow-list (repeatable; not a trust anchor)",
     )
     parser.add_argument("--json", action="store_true", help="emit a JSON report")
     args = parser.parse_args(argv)
 
+    trusted_keys: dict[str, str] = {}
+    for value in args.trusted_key:
+        key_id, separator, pem_path = value.partition("=")
+        if not separator or not key_id or not pem_path:
+            parser.error("--trusted-key must use KEY_ID=PEM_FILE")
+        if key_id in trusted_keys:
+            parser.error(f"duplicate --trusted-key id: {key_id}")
+        with open(pem_path, encoding="utf-8") as pem_handle:
+            trusted_keys[key_id] = pem_handle.read()
+
     with open(args.archive, "rb") as handle:
         report = verify_archive_bytes(
-            handle.read(), trusted_key_ids=tuple(args.trusted_key_id)
+            handle.read(),
+            trusted_keys=trusted_keys,
+            trusted_key_ids=tuple(args.trusted_key_id),
         )
     print(json.dumps(report.to_dict(), indent=2) if args.json else report.render())
     return 0 if report.ok else 1

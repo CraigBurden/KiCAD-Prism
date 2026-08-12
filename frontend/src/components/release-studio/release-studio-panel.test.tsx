@@ -17,10 +17,13 @@ vi.mock("./api", () => ({
     ]),
     listCandidates: vi.fn(),
     listRecords: vi.fn(async () => []),
+    listWebReleases: vi.fn(async () => []),
     listWaivers: vi.fn(async () => []),
     listAudit: vi.fn(async () => []),
     verifyAudit: vi.fn(async () => ({ ok: true, events: 3, problems: [] })),
     getBuild: vi.fn(),
+    listDocumentSheets: vi.fn(async () => []),
+    sheetObjectUrl: vi.fn(),
     downloadUrl: vi.fn(() => "/x"),
     downloadFile: vi.fn(),
 }));
@@ -155,6 +158,25 @@ describe("ReleaseStudioPanel", () => {
         }
         // The reason a rule could not run has to be legible, not just a colour.
         expect(screen.getByText(/the stackup projection is not available/)).toBeTruthy();
+    });
+
+    it("uses KiCad NewStroke in the configuration template", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        const select = await screen.findByLabelText("Display typography");
+        expect((select as HTMLSelectElement).value).toBe("kicad-newstroke");
+        expect(screen.getByDisplayValue(/typography: kicad-newstroke/)).toBeTruthy();
+    });
+
+    it("lists composed documentation sheets as a dedicated preview surface", async () => {
+        vi.mocked(api.listDocumentSheets).mockResolvedValue([
+            {
+                key: "fabrication",
+                svg: { path: "documentation/fabrication.svg", released_digest: "a".repeat(64), media_type: "image/svg+xml" },
+                pdf: { path: "documentation/fabrication.pdf", released_digest: "b".repeat(64), media_type: "application/pdf" },
+            },
+        ]);
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await waitFor(() => expect(screen.getByText("Documents (1)")).toBeTruthy());
     });
 
     it("names which half of the approval binding went stale", () => {

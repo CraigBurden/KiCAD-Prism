@@ -4,11 +4,16 @@ import type {
     Approval,
     AuditEvent,
     BuildDetail,
+    DocumentSheet,
+    OrganizationPolicy,
+    PolicyVersion,
     ReleaseCandidate,
     ReleaseConfiguration,
     ReleaseRecord,
+    RuleCatalogueEntry,
     VerificationReport,
     Waiver,
+    WebReleaseShare,
 } from "./types";
 
 const base = (projectId: string) =>
@@ -23,6 +28,31 @@ export async function listConfigurations(
         "Could not load release configurations",
     );
     return data.configurations ?? [];
+}
+
+export async function listDocumentSheets(
+    projectId: string,
+    buildId: string,
+): Promise<DocumentSheet[]> {
+    const data = await fetchJson<{ sheets: DocumentSheet[] }>(
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}/sheets`,
+        undefined,
+        "Could not load documentation sheets",
+    );
+    return data.sheets ?? [];
+}
+
+export async function sheetObjectUrl(
+    projectId: string,
+    buildId: string,
+    sheetKey: string,
+): Promise<string> {
+    const response = await fetchApi(
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}`
+            + `/sheets/${encodeURIComponent(sheetKey)}.svg`,
+    );
+    if (!response.ok) throw new Error(`Could not load ${sheetKey} (${response.status})`);
+    return URL.createObjectURL(await response.blob());
 }
 
 export async function listCandidates(
@@ -158,6 +188,105 @@ export async function listRecords(projectId: string): Promise<ReleaseRecord[]> {
         "Could not load release records",
     );
     return data.records ?? [];
+}
+
+export async function createWebRelease(
+    projectId: string,
+    recordId: string,
+    expiresAt: string | null = null,
+): Promise<{ share: WebReleaseShare; token: string; url: string }> {
+    return fetchJson(
+        `${base(projectId)}/records/${encodeURIComponent(recordId)}/web-release`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expires_at: expiresAt }),
+        },
+        "Could not create the public release link",
+    );
+}
+
+export async function listWebReleases(
+    projectId: string,
+    recordId: string,
+): Promise<WebReleaseShare[]> {
+    const data = await fetchJson<{ shares: WebReleaseShare[] }>(
+        `${base(projectId)}/records/${encodeURIComponent(recordId)}/web-releases`,
+        undefined,
+        "Could not load public release links",
+    );
+    return data.shares ?? [];
+}
+
+export async function revokeWebRelease(
+    projectId: string,
+    shareId: string,
+): Promise<WebReleaseShare> {
+    return fetchJson(
+        `${base(projectId)}/web-releases/${encodeURIComponent(shareId)}/revoke`,
+        { method: "POST" },
+        "Could not revoke the public release link",
+    );
+}
+
+const policyBase = "/api/release-policies";
+
+export async function ruleCatalogue(): Promise<RuleCatalogueEntry[]> {
+    const data = await fetchJson<{ rules: RuleCatalogueEntry[] }>(
+        `${policyBase}/catalogue`, undefined, "Could not load the rule catalogue",
+    );
+    return data.rules ?? [];
+}
+
+export async function listOrganizationPolicies(): Promise<OrganizationPolicy[]> {
+    const data = await fetchJson<{ policies: OrganizationPolicy[] }>(
+        policyBase, undefined, "Could not load organization policies",
+    );
+    return data.policies ?? [];
+}
+
+export async function getOrganizationPolicy(key: string): Promise<OrganizationPolicy> {
+    return fetchJson(`${policyBase}/${encodeURIComponent(key)}`, undefined, "Could not load the policy");
+}
+
+export async function createOrganizationPolicy(
+    policyKey: string,
+    title: string,
+): Promise<OrganizationPolicy> {
+    return fetchJson(policyBase, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ policy_key: policyKey, title }),
+    }, "Could not create the policy");
+}
+
+export async function createPolicyVersion(
+    policyKey: string,
+    document: Record<string, unknown>,
+): Promise<PolicyVersion> {
+    return fetchJson(`${policyBase}/${encodeURIComponent(policyKey)}/versions`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document }),
+    }, "Could not create the policy draft");
+}
+
+export async function publishPolicyVersion(policyKey: string, version: number): Promise<PolicyVersion> {
+    return fetchJson(`${policyBase}/${encodeURIComponent(policyKey)}/versions/${version}/publish`, { method: "POST" }, "Could not publish the policy version");
+}
+
+export async function policyVersionDiff(policyKey: string, from: number, to: number) {
+    return fetchJson<{ changes: Array<{ path: string; change: string; before?: unknown; after?: unknown }> }>(
+        `${policyBase}/${encodeURIComponent(policyKey)}/diff?from=${from}&to=${to}`,
+        undefined,
+        "Could not compare policy versions",
+    );
+}
+
+export async function previewPolicyInheritance(overlay: Record<string, unknown>) {
+    return fetchJson<{ links: Array<{ source: string; content_digest: string }>; rules: Array<Record<string, unknown>>; required_approvals: Array<Record<string, unknown>>; policy_binding_digest: string }>(
+        `${policyBase}/preview/inheritance`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ overlay }) },
+        "Could not preview policy inheritance",
+    );
 }
 
 export async function verifyRecord(

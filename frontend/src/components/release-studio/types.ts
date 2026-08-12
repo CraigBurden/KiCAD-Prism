@@ -12,6 +12,17 @@ export type ReleaseConfiguration = {
     schematic_rel: string;
     jobset_rel: string;
     default_variant: string;
+    typography?: string;
+    document_number?: string;
+    revision?: string;
+    fields?: Record<string, string>;
+    notes?: Record<string, string[]>;
+};
+
+export type DocumentSheet = {
+    key: string;
+    svg?: { path: string; released_digest: string; media_type: string };
+    pdf?: { path: string; released_digest: string; media_type: string };
 };
 
 export type ReleaseCandidate = {
@@ -174,6 +185,45 @@ export type AuditEvent = {
 export type VerificationReport = {
     ok: boolean;
     checks: { ok: boolean; message: string }[];
+};
+
+export type RuleCatalogueEntry = {
+    rule_id: string;
+    version: string;
+    title: string;
+    domain: GovernedDomain;
+    default_severity: "warning" | "failure" | "blocker";
+    applies_to: string[];
+    param_schema: Record<string, "int" | "str" | "list[str]">;
+    description: string;
+};
+
+export type PolicyVersion = {
+    id: string;
+    version: number;
+    status: "draft" | "published" | "retired";
+    rules: Record<string, unknown>;
+    content_digest: string;
+    published_at: string | null;
+    published_by: string | null;
+};
+
+export type OrganizationPolicy = {
+    id: string;
+    policy_key: string;
+    title: string;
+    latest_version?: number;
+    version_count?: number;
+    versions?: PolicyVersion[];
+};
+
+export type WebReleaseShare = {
+    id: string;
+    record_id: string;
+    status: "active" | "revoked";
+    expires_at: string | null;
+    created_by: string;
+    created_at: string;
 };
 
 export type BuildDetail = {

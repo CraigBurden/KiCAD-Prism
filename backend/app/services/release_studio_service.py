@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -357,6 +358,8 @@ def create_candidate(
     hermetic: bool,
     non_hermetic_reasons: Sequence[str] = (),
     closure_inputs: Sequence[Mapping[str, Any]] = (),
+    policy_snapshot_captured: bool = False,
+    policy_document: Mapping[str, Any] | None = None,
     created_by: str = "",
 ) -> dict[str, Any]:
     """Idempotent on ``build_key``: the same inputs return the same candidate."""
@@ -385,14 +388,16 @@ def create_candidate(
                 id, project_id, repository_id, config_key, commit_sha, variant,
                 technical_config_digest, input_closure_digest, toolchain_digest,
                 generator_build, build_key, status, hermetic, non_hermetic_reasons,
-                created_by
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s)
+                policy_snapshot_captured, policy_document, created_by
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s)
             """,
             (
                 candidate_id, project_id, repository_id, config_key, commit_sha,
                 variant, technical_config_digest, input_closure_digest,
                 toolchain_digest, generator_build, build_key, hermetic,
-                json.dumps(list(non_hermetic_reasons)), created_by,
+                json.dumps(list(non_hermetic_reasons)), policy_snapshot_captured,
+                json.dumps(dict(policy_document)) if policy_document is not None else None,
+                created_by,
             ),
         )
         for item in closure_inputs:
@@ -1475,6 +1480,129 @@ def list_signing_keys() -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+# ---------------------------------------------------------------------------
+# Public web-release shares
+# ---------------------------------------------------------------------------
+
+
+def create_web_share(
+    record_id: str,
+    *,
+    actor: str,
+    expires_at: str | None = None,
+) -> dict[str, Any]:
+    """Create a bearer share, storing only SHA-256(token) in PostgreSQL."""
+
+    token = secrets.token_urlsafe(32)
+    token_digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with connect() as conn:
+        record = conn.execute(
+            "SELECT * FROM ws_release_records WHERE id=%s", (record_id,)
+        ).fetchone()
+        if record is None:
+            raise ReleaseStudioError("release record not found")
+        share_id = _new_id("share")
+        conn.execute(
+            """
+            INSERT INTO ws_release_web_shares(
+                id, record_id, token_digest, expires_at, created_by
+            ) VALUES (%s,%s,%s,%s::timestamptz,%s)
+            """,
+            (share_id, record_id, token_digest, expires_at, actor),
+        )
+        append_audit_event(
+            conn,
+            project_id=record["project_id"],
+            config_key=record["config_key"],
+            event_type="web_share.created",
+            actor=actor,
+            subject_kind="web_share",
+            subject_id=share_id,
+            details={"record_id": record_id, "expires_at": expires_at},
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM ws_release_web_shares WHERE id=%s", (share_id,)
+        ).fetchone()
+    result = dict(row)
+    result["token"] = token
+    return result
+
+
+def list_web_shares(record_id: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, record_id, status, expires_at, created_by, created_at,
+                   revoked_by, revoked_at
+            FROM ws_release_web_shares WHERE record_id=%s
+            ORDER BY created_at DESC
+            """,
+            (record_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def resolve_web_share(token: str) -> dict[str, Any] | None:
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT s.*, r.project_id, r.config_key, r.build_id
+            FROM ws_release_web_shares s
+            JOIN ws_release_records r ON r.id=s.record_id
+            WHERE s.token_digest=%s AND s.status='active'
+              AND (s.expires_at IS NULL OR s.expires_at > NOW())
+            """,
+            (digest,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def revoke_web_share(
+    share_id: str,
+    *,
+    project_id: str,
+    actor: str,
+) -> dict[str, Any]:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT s.*, r.project_id, r.config_key
+            FROM ws_release_web_shares s
+            JOIN ws_release_records r ON r.id=s.record_id
+            WHERE s.id=%s AND r.project_id=%s FOR UPDATE OF s
+            """,
+            (share_id, project_id),
+        ).fetchone()
+        if row is None:
+            raise ReleaseStudioError("web share not found")
+        if row["status"] != "active":
+            raise ReleaseStudioError("web share is already revoked")
+        conn.execute(
+            """
+            UPDATE ws_release_web_shares
+            SET status='revoked', revoked_by=%s, revoked_at=NOW() WHERE id=%s
+            """,
+            (actor, share_id),
+        )
+        append_audit_event(
+            conn,
+            project_id=row["project_id"],
+            config_key=row["config_key"],
+            event_type="web_share.revoked",
+            actor=actor,
+            subject_kind="web_share",
+            subject_id=share_id,
+            details={"record_id": row["record_id"]},
+        )
+        conn.commit()
+        updated = conn.execute(
+            "SELECT * FROM ws_release_web_shares WHERE id=%s", (share_id,)
+        ).fetchone()
+    return dict(updated)
+
+
 __all__ = [
     "APPROVAL_DECISIONS",
     "CANDIDATE_STATUSES",
@@ -1495,6 +1623,7 @@ __all__ = [
     "create_approval",
     "create_candidate",
     "create_release_record",
+    "create_web_share",
     "create_waiver",
     "current_audit_head",
     "effective_approvals",
@@ -1515,8 +1644,11 @@ __all__ = [
     "list_configurations",
     "list_release_records",
     "list_signing_keys",
+    "list_web_shares",
     "list_waivers",
     "record_evaluation",
+    "resolve_web_share",
+    "revoke_web_share",
     "set_candidate_status",
     "self_approval_bypassed",
     "start_build",

@@ -198,6 +198,28 @@ def compute_dossier_digest(members: Sequence[Member]) -> str:
     )
 
 
+#: Which board-level projections feed which domain's fingerprint (D9).
+#:
+#: The mapping is the whole point of the fidelity upgrade.  Feeding every
+#: projection into every domain would make a stackup edit invalidate the
+#: assembly approvals, which is exactly the over-invalidation that artifact
+#: fidelity already suffers from -- it would just be more expensive.  Each
+#: domain lists the projections a reviewer of *that* domain was reasoning about:
+#:
+#: * ``bare_board`` -- the physical board: its stack, its holes, its geometry.
+#: * ``assembly`` -- what gets populated on it, and for which variant.
+#: * ``documentation`` -- everything, because a sheet can draw any of it.
+#: * ``evidence`` -- nothing: a DRC report's meaning is its own content, and
+#:   binding it to the stackup would invalidate reviewed evidence whenever an
+#:   unrelated projection moved.
+DOMAIN_PROJECTIONS: Mapping[str, tuple[str, ...]] = {
+    "bare_board": ("stackup", "board_stats"),
+    "assembly": ("variants", "placements"),
+    "documentation": ("stackup", "board_stats", "variants", "placements"),
+    "evidence": (),
+}
+
+
 def technical_scope_fingerprint(
     domain: str,
     members: Sequence[Member],
@@ -206,12 +228,34 @@ def technical_scope_fingerprint(
     normalized_argv: Mapping[str, Sequence[str]],
     config_fragments: Mapping[str, Any],
     projections: Mapping[str, Any] | None = None,
-    fidelity: str = "artifact",
 ) -> dict[str, Any]:
-    """Fingerprint one governed domain. No policy input, by construction."""
+    """Fingerprint one governed domain. No policy input, by construction.
+
+    ``projections`` are the R5/D4 board facts.  Only the ones :data:`DOMAIN_PROJECTIONS`
+    assigns to *domain* are hashed, and the fidelity the row reports follows from
+    whether any of them were actually available: a domain fingerprinted without
+    board facts is honestly ``artifact``, and claiming ``board`` for it would
+    make the ladder in §5 of the plan unreadable.
+    """
 
     domain_members = [member for member in members if domain in member.domains]
     steps = sorted({member.step_id for member in domain_members if member.step_id})
+
+    supplied = projections or {}
+    semantic_by_domain = supplied.get("semantic")
+    semantic = (
+        semantic_by_domain.get(domain)
+        if isinstance(semantic_by_domain, Mapping)
+        else None
+    )
+    relevant = {
+        key: supplied[key]
+        for key in DOMAIN_PROJECTIONS.get(domain, ())
+        # An empty projection means "we could not read this", not "it is empty".
+        # Hashing it would let a transient extraction failure silently carry an
+        # approval forward against facts nobody actually compared.
+        if supplied.get(key)
+    }
     inputs = {
         "domain_id": domain,
         "released_digests": [
@@ -220,14 +264,15 @@ def technical_scope_fingerprint(
         ],
         "normalized_argv": [list(normalized_argv.get(step, ())) for step in steps],
         "config_fragments": dict(config_fragments),
-        "projections": dict(projections or {}),
+        "projections": relevant,
+        "semantic": semantic or {},
         "toolchain_digest": toolchain_digest,
     }
     return {
         "domain": domain,
         "fingerprint": sha256_canonical(inputs),
         "inputs": inputs,
-        "fidelity": fidelity,
+        "fidelity": "semantic" if semantic else ("board" if relevant else "artifact"),
     }
 
 
@@ -304,6 +349,7 @@ def assemble(
     build_key: str,
     config_fragments: Mapping[str, Any] | None = None,
     projections: Mapping[str, Any] | None = None,
+    archive_mtime: int = 0,
 ) -> Dossier:
     """Canonicalize, fingerprint, and package one build's outputs."""
 
@@ -345,7 +391,7 @@ def assemble(
     canonical_files = _canonical_bytes_by_path(outputs, members)
     dossier_members = dict(canonical_files)
     dossier_members["manifest.json"] = _manifest_bytes(manifest)
-    dossier_bytes = write_deterministic_archive(dossier_members)
+    dossier_bytes = write_deterministic_archive(dossier_members, mtime=archive_mtime)
 
     evidence_members = {
         f"raw/{path}": data for path, data in _raw_bytes_by_path(outputs, members).items()
@@ -374,7 +420,7 @@ def assemble(
             },
         }
     )
-    evidence_bytes = write_deterministic_archive(evidence_members)
+    evidence_bytes = write_deterministic_archive(evidence_members, mtime=archive_mtime)
 
     return Dossier(
         members=members,
@@ -462,6 +508,7 @@ def _evidence_records(
 
 __all__ = [
     "FORBIDDEN_MANIFEST_KEYS",
+    "DOMAIN_PROJECTIONS",
     "GOVERNED_DOMAINS",
     "MANIFEST_SCHEMA",
     "Dossier",

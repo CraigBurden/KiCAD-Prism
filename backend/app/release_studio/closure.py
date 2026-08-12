@@ -15,6 +15,7 @@ against small local Git repositories in tests.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import stat
@@ -30,11 +31,6 @@ _LFS_POINTER_VERSION = "version https://git-lfs.github.com/spec/v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _RESOURCE_DIGEST_RE = _SHA256_RE
 _VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-_URI_RE = re.compile(
-    r"\(\s*uri\s+(?:\"((?:\\.|[^\"\\])*)\"|([^\s()]+))",
-    re.IGNORECASE,
-)
-_QUOTED_RE = re.compile(r'"((?:\\.|[^"\\])*)"')
 # Variables the executor binds at run time rather than the project supplying.
 # `JOBSET_OUTPUT_WORK_PATH` is KiCad's temporary output directory for a
 # `special_execute` job (pinned source `common/jobs/job_special_execute.h:26`);
@@ -72,11 +68,6 @@ _ADVISORY_SUFFIXES = {
 
 # `(property "Sheetfile" "Subsheets/Power.kicad_sch")` -- how a hierarchical
 # sheet names the file it instantiates (`sch_io_kicad_sexpr_parser.cpp`).
-_SHEET_FILE_RE = re.compile(
-    r'\(\s*property\s+"Sheetfile"\s+"((?:\\.|[^"\\])*)"', re.IGNORECASE
-)
-
-
 class ClosureError(RuntimeError):
     """Base class for fail-closed input closure errors."""
 
@@ -939,15 +930,29 @@ def _sheet_references(destination: Path, schematic: str) -> list[str]:
         text = _read_materialized_text(destination, schematic)
     except OSError:
         return []
+    try:
+        from kicad_monkey import find_all_elements, parse_sexp, unquote_string
+
+        root = parse_sexp(text)
+    except Exception as exc:
+        raise ClosureError(
+            f"cannot parse schematic hierarchy with kicad-monkey: {schematic}: {exc}"
+        ) from exc
     base = schematic.rsplit("/", 1)[0] if "/" in schematic else ""
     children: list[str] = []
-    for match in _SHEET_FILE_RE.finditer(text):
-        reference = _decode_kicad_string(match.group(1)).strip()
-        if not reference or reference.startswith("${") or "://" in reference:
-            continue
-        resolved = _join_relative(base, reference)
-        if resolved is not None:
-            children.append(resolved)
+    for sheet in find_all_elements(root, "sheet"):
+        for prop in find_all_elements(sheet, "property"):
+            if len(prop) < 3 or str(unquote_string(prop[1])).casefold() not in {
+                "sheetfile",
+                "sheet file",
+            }:
+                continue
+            reference = str(unquote_string(prop[2]) or "").strip()
+            if not reference or reference.startswith("${") or "://" in reference:
+                continue
+            resolved = _join_relative(base, reference)
+            if resolved is not None:
+                children.append(resolved)
     return children
 
 
@@ -1005,32 +1010,18 @@ def _resolve_project_paths(
             continue
         if item.path.rsplit("/", 1)[-1].casefold() in {"fp-lib-table", "sym-lib-table"}:
             text = _read_materialized_text(destination, item.path)
-            for match in _URI_RE.finditer(text):
-                reference = _decode_kicad_string(match.group(1) or match.group(2) or "")
+            table_references, variable_references = _structured_path_references(
+                item.path, text, library_table=True
+            )
+            for reference in table_references:
                 references.append((item.path, reference, "library_table"))
-            # A table may use a path-bearing quoted value without an uri field
-            # in a legacy hand-written fixture; variable references are still
-            # resolved below.
-            for value in _quoted_values(text):
-                if _is_path_reference(value):
-                    references.append((item.path, value, "library_table"))
+            for reference in variable_references:
+                references.append((item.path, reference, "library_table"))
         elif _is_path_input(item.path):
             text = _read_materialized_text(destination, item.path)
-            for value in _quoted_values(text):
-                if _is_path_reference(value):
-                    references.append((item.path, value, "project_path"))
-            # The unquoted scan exists for variables in bare s-expression
-            # content; inside a quoted string the value above is already exact.
-            # Running both would also mangle any path the delimiter scan cannot
-            # represent -- `"${KIPRJMOD}/packages3D/BUK9K18-40E,115.stp"` stops
-            # at the comma and yields a file that was never referenced.
-            quoted_spans = [match.span() for match in _QUOTED_RE.finditer(text)]
-            for match in _VARIABLE_RE.finditer(text):
-                if any(start <= match.start() < end for start, end in quoted_spans):
-                    continue
-                value = _unquoted_reference(text, match.start(), match.end())
-                if _is_path_reference(value):
-                    references.append((item.path, value, "project_path"))
+            _, variable_references = _structured_path_references(item.path, text)
+            for reference in variable_references:
+                references.append((item.path, reference, "project_path"))
 
     deduped = sorted(set(references), key=lambda item: item)
     resolved: list[ResolvedLibraryPath] = []
@@ -1236,20 +1227,68 @@ def _read_materialized_text(destination: Path, relative_path: str) -> str:
         return ""
 
 
-def _quoted_values(text: str) -> list[str]:
-    return [_decode_kicad_string(match.group(1)) for match in _QUOTED_RE.finditer(text)]
+def _structured_path_references(
+    path: str,
+    text: str,
+    *,
+    library_table: bool = False,
+) -> tuple[list[str], list[str]]:
+    """Read path-bearing values through format owners, never delimiters."""
+
+    suffix = Path(path).suffix.casefold()
+    name = Path(path).name.casefold()
+    uri_values: list[str] = []
+    scalar_values: list[str] = []
+    try:
+        if name in {"fp-lib-table", "sym-lib-table"} or suffix in {
+            ".kicad_pcb",
+            ".kicad_sch",
+            ".kicad_wks",
+        }:
+            from kicad_monkey import parse_sexp
+
+            tree = parse_sexp(text)
+            for form in _walk_structured_values(tree):
+                if isinstance(form, list) and form:
+                    if (
+                        library_table
+                        and str(form[0]).casefold() == "uri"
+                        and len(form) > 1
+                    ):
+                        uri_values.append(str(form[1]))
+                elif isinstance(form, str):
+                    scalar_values.append(str(form))
+        elif suffix == ".kicad_pro":
+            payload = json.loads(text)
+            scalar_values.extend(
+                str(value)
+                for value in _walk_structured_values(payload)
+                if isinstance(value, str)
+            )
+        elif suffix in {".yaml", ".yml"}:
+            import yaml
+
+            payload = yaml.safe_load(text)
+            scalar_values.extend(
+                str(value)
+                for value in _walk_structured_values(payload)
+                if isinstance(value, str)
+            )
+    except Exception as exc:
+        raise ClosureError(f"cannot parse closure input {path}: {exc}") from exc
+
+    variable_values = [value for value in scalar_values if _is_path_reference(value)]
+    return uri_values, variable_values
 
 
-def _decode_kicad_string(value: str) -> str:
-    return value.replace(r"\"", '"').replace(r"\\", "\\")
-
-
-def _unquoted_reference(text: str, start: int, end: int) -> str:
-    while start > 0 and text[start - 1] not in "\"' (\n\r\t":
-        start -= 1
-    while end < len(text) and text[end] not in "\"' )\n\r\t,":
-        end += 1
-    return _decode_kicad_string(text[start:end])
+def _walk_structured_values(value: Any) -> Iterable[Any]:
+    yield value
+    if isinstance(value, Mapping):
+        for child in value.values():
+            yield from _walk_structured_values(child)
+    elif isinstance(value, (list, tuple)):
+        for child in value:
+            yield from _walk_structured_values(child)
 
 
 def _sorted_records(records: Iterable[Any]) -> list[dict[str, Any]]:

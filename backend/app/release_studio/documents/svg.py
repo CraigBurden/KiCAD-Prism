@@ -10,6 +10,12 @@ from __future__ import annotations
 
 from xml.sax.saxutils import escape
 
+from app.release_studio.documents.fonts import (
+    is_newstroke,
+    newstroke_polylines,
+    newstroke_width,
+    svg_font_css,
+)
 from app.release_studio.documents.layout import (
     Artwork,
     Line,
@@ -21,31 +27,35 @@ from app.release_studio.documents.layout import (
 )
 
 _FONT_FAMILY = {
-    "sans": "Helvetica, Arial, sans-serif",
-    "mono": "Courier New, Courier, monospace",
+    "display": "PrismDisplay",
+    "sans": "PrismBody",
+    "mono": "PrismBody",
 }
 
 
 def render_svg(sheet: Sheet) -> str:
     """Serialize *sheet* to a standalone SVG document."""
 
+    font_css = svg_font_css(sheet.typography)
     parts: list[str] = [
         '<svg xmlns="http://www.w3.org/2000/svg" '
         f'width="{fmt(sheet.width)}mm" height="{fmt(sheet.height)}mm" '
-        f'viewBox="0 0 {fmt(sheet.width)} {fmt(sheet.height)}">',
+        f'viewBox="0 0 {fmt(sheet.width)} {fmt(sheet.height)}" '
+        f'data-typography="{escape(sheet.typography)}">',
         # A title is content, not metadata: it survives canonicalization and
         # identifies the sheet to anyone opening the file directly.
         f"<title>{escape(sheet.title)}</title>",
+        *( [f"<defs><style>{font_css}</style></defs>"] if font_css else [] ),
         f'<rect x="0" y="0" width="{fmt(sheet.width)}" height="{fmt(sheet.height)}" '
         'fill="#ffffff"/>',
     ]
     for element in sheet.elements:
-        parts.append(_render_element(element))
+        parts.append(_render_element(element, sheet.typography))
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
 
 
-def _render_element(element) -> str:
+def _render_element(element, typography: str) -> str:
     if isinstance(element, Line):
         return (
             f'<line x1="{fmt(element.x1)}" y1="{fmt(element.y1)}" '
@@ -61,7 +71,10 @@ def _render_element(element) -> str:
             f'stroke-width="{fmt(element.width)}"/>'
         )
     if isinstance(element, Text):
-        weight = ' font-weight="bold"' if element.bold else ""
+        if is_newstroke(typography):
+            return _render_newstroke_text(element)
+        weight_value = 400 if element.family == "display" else (600 if element.bold else 400)
+        weight = f' font-weight="{weight_value}"'
         return (
             f'<text x="{fmt(element.x)}" y="{fmt(element.y)}" '
             f'font-family="{_FONT_FAMILY[element.family]}" '
@@ -78,6 +91,36 @@ def _render_element(element) -> str:
     if isinstance(element, Artwork):
         return _render_artwork(element)
     raise TypeError(f"unrenderable sheet element: {type(element).__name__}")
+
+
+def _render_newstroke_text(element: Text) -> str:
+    """Emit visible KiCad NewStroke geometry with accessible source text."""
+
+    escaped = escape(element.value, {'"': "&quot;"})
+    rows = element.value.splitlines() or [""]
+    parts = [
+        f'<g data-renderer="kicad-monkey.newstroke" data-text="{escaped}" '
+        f'aria-label="{escaped}">',
+        f"<title>{escape(element.value)}</title>",
+    ]
+    width = newstroke_width(element.size, bold=element.bold)
+    for row_index, row in enumerate(rows):
+        polylines = newstroke_polylines(
+            row,
+            x=element.x,
+            y=element.y + row_index * element.size * 1.2,
+            size=element.size,
+            anchor=element.anchor,
+        )
+        for line in polylines:
+            points = " ".join(f"{fmt(x)},{fmt(y)}" for x, y in line)
+            parts.append(
+                f'<polyline points="{points}" fill="none" '
+                f'stroke="{element.colour}" stroke-width="{fmt(width)}" '
+                'stroke-linecap="round" stroke-linejoin="round"/>'
+            )
+    parts.append("</g>")
+    return "\n".join(parts)
 
 
 def _render_artwork(artwork: Artwork) -> str:

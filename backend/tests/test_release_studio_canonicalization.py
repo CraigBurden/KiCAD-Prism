@@ -555,6 +555,15 @@ class ReleaseStudioCanonicalJsonTests(unittest.TestCase):
             with self.subTest(name=unsafe_name), self.assertRaises(ValueError):
                 write_deterministic_archive({unsafe_name: b"unsafe"})
 
+    def test_deterministic_archive_accepts_an_explicit_revision_timestamp(self) -> None:
+        stamp = 1_786_447_809
+        first = write_deterministic_archive({"member.txt": b"same"}, mtime=stamp)
+        second = write_deterministic_archive({"member.txt": b"same"}, mtime=stamp)
+        self.assertEqual(first, second)
+        with tarfile.open(fileobj=io.BytesIO(first), mode="r:gz") as archive:
+            self.assertEqual(archive.getmember("member.txt").mtime, stamp)
+        self.assertNotEqual(first, write_deterministic_archive({"member.txt": b"same"}))
+
 
 class ReleaseStudioGeneratedSemanticTests(unittest.TestCase):
     _samples: dict[str, Path] | None = None

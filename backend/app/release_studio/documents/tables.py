@@ -33,43 +33,110 @@ def _drill_rows(stats: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [item for item in holes if isinstance(item, Mapping)] if isinstance(holes, list) else []
 
 
+def _yes_no(value: Any) -> str:
+    """KiCad's own `_( "Yes" ) : _( "No" )` for a boolean characteristic."""
+
+    return "Yes" if value else "No"
+
+
+#: The rows `Build_Board_Characteristics_Table` emits, in its order, with its
+#: labels (`board_characteristics_table.cpp:78-134`).  Kept as data rather than
+#: inline so the conformance test can compare this list against the labels it
+#: parses out of the pinned KiCad source, and so a KiCad change that reorders or
+#: renames a row fails a test instead of quietly making our sheet disagree.
+KICAD_CHARACTERISTIC_LABELS: tuple[str, ...] = (
+    "Copper layer count",
+    "Board thickness",
+    "Board overall dimensions",
+    "Min track/spacing",
+    "Min hole diameter",
+    "Copper finish",
+    "Impedance control",
+    "Castellated pads",
+    "Press-fit pads",
+    "Plated board edge",
+    "Edge card connectors",
+)
+
+
 def board_characteristics(
     stats: Mapping[str, Any], stackup: Mapping[str, Any]
 ) -> tuple[tuple[str, str], ...]:
-    """Key/value board characteristics, in KiCad's own presentation order.
+    """Board characteristics as KiCad itself renders them.
 
-    Mirrors the ordering of `Build_Board_Characteristics_Table`
-    (`board_characteristics_table.cpp:40`) so a reader comparing this sheet with
-    KiCad's own table finds the rows where they expect them.
+    This is a *reproduction* of `Build_Board_Characteristics_Table`
+    (`board_characteristics_table.cpp:34`), not an interpretation of it: same
+    rows, same order, same labels, same value strings.  A fabricator who opens
+    the board in KiCad and inserts its characteristics table has to see the same
+    text as the released sheet, or one of the two is lying about the board.
 
-    The values are taken from the projection *as KiCad formatted them* --
-    "38.0000 mm" rather than a float we re-render -- because re-formatting is
-    how a documentation table starts disagreeing with the tool it documents.
+    Both sides are cheap to keep aligned because both read the same numbers.
+    KiCad's table calls `ComputeBoardStatistics()`; so does
+    `pcb export stats --format json`, and it formats through the same
+    `MessageTextFromValue`.  The values are therefore passed through *as KiCad
+    wrote them* -- "38.0000 mm", never a float we re-render -- since
+    re-formatting is exactly how the two renderings would start to diverge.
+
+    The three facts the statistics JSON does not carry come from the stackup,
+    which is where KiCad's table reads them from too.
     """
 
     board = stats.get("board") or {}
+    pads = stats.get("pads") or {}
     settings = stackup.get("settings") or {}
-    holes = _drill_rows(stats)
-    total_holes = sum(int(item.get("count") or 0) for item in holes)
-    smallest = min(
-        (str(item.get("x_size") or "") for item in holes if item.get("x_size")),
-        default="",
+
+    # `wxString::Format( "%s x %s" )` -- a lowercase ASCII x, not a multiplication
+    # sign.  Trivial, and exactly the kind of difference "string-for-string"
+    # exists to catch.
+    dimensions = f"{_text(board.get('width'))} x {_text(board.get('height'))}"
+    track_spacing = (
+        f"{_text(board.get('min_track_width'))} / {_text(board.get('min_track_clearance'))}"
     )
 
+    # `edge_connector` is absent when unconstrained, "yes" when in use, and
+    # "bevelled" when bevelled (`board_stackup.cpp:808`); KiCad's table renders
+    # those three as "No", "Yes", and "Yes, Bevelled".
+    edge_connector = str(settings.get("edge_connector") or "").strip().lower()
+    connectors = {
+        "": "No",
+        "yes": "Yes",
+        "bevelled": "Yes, Bevelled",
+    }.get(edge_connector, "Yes")
+
     return (
-        ("Board size", f"{_text(board.get('width'))} × {_text(board.get('height'))}"),
-        ("Board area", _text(board.get("area"))),
-        ("Board thickness", _text(board.get("board_thickness") or stackup.get("board_thickness"))),
-        ("Copper layers", _text(stackup.get("copper_layer_count"))),
+        ("Copper layer count", _text(stackup.get("copper_layer_count"))),
+        ("Board thickness", _text(board.get("board_thickness"))),
+        ("Board overall dimensions", dimensions),
+        ("Min track/spacing", track_spacing),
+        ("Min hole diameter", _text(board.get("min_drill_diameter"))),
         ("Copper finish", _text(settings.get("copper_finish"))),
-        ("Solder mask", _text(settings.get("solder_mask_color") or settings.get("solder_mask"))),
-        ("Silkscreen", _text(settings.get("silk_screen_color") or settings.get("silk_screen"))),
-        ("Edge plating", _text(settings.get("edge_plating"))),
-        ("Castellated pads", _text(settings.get("castellated_pads"))),
-        ("Min track width", _text(board.get("min_track_width"))),
-        ("Min track clearance", _text(board.get("min_track_clearance"))),
-        ("Min drill diameter", _text(board.get("min_drill_diameter") or smallest)),
-        ("Total holes", _text(total_holes or None)),
+        ("Impedance control", _yes_no(settings.get("dielectric_constraints"))),
+        ("Castellated pads", _yes_no(pads.get("castellated"))),
+        ("Press-fit pads", _yes_no(pads.get("press_fit"))),
+        ("Plated board edge", _yes_no(settings.get("edge_plating"))),
+        ("Edge card connectors", connectors),
+    )
+
+
+def board_summary(stats: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    """Facts a release cover wants that KiCad's characteristics table omits.
+
+    Kept apart from :func:`board_characteristics` on purpose.  That table has a
+    conformance obligation to KiCad's own rendering, so anything Prism wants to
+    add to it is really a second table -- adding rows there would break the
+    correspondence it exists to maintain.
+    """
+
+    board = stats.get("board") or {}
+    holes = _drill_rows(stats)
+    components = (stats.get("components") or {}).get("total") or {}
+    total_holes = sum(int(item.get("count") or 0) for item in holes)
+
+    return (
+        ("Board area", _text(board.get("area"))),
+        ("Components", _text(components.get("total"))),
+        ("Drilled holes", _text(total_holes or None)),
+        ("Distinct drills", _text(len(holes) or None)),
     )
 
 

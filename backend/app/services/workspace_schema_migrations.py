@@ -1584,6 +1584,49 @@ def _release_studio_waiver_exceptions(conn: Any) -> None:
     )
 
 
+def _release_studio_web_shares(conn: Any) -> None:
+    """Revocable web shares and immutable candidate policy snapshots."""
+
+    # Evaluation must use the Git-owned policy read at the candidate's exact
+    # commit, not a later mutable checkout.
+    conn.execute(
+        """
+        ALTER TABLE ws_release_candidates
+            ADD COLUMN IF NOT EXISTS policy_snapshot_captured BOOLEAN
+                NOT NULL DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS policy_document JSONB
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ws_release_web_shares (
+            id            TEXT PRIMARY KEY,
+            record_id     TEXT NOT NULL
+                          REFERENCES ws_release_records(id) ON DELETE RESTRICT,
+            token_digest  TEXT NOT NULL UNIQUE,
+            status        TEXT NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active', 'revoked')),
+            expires_at    TIMESTAMPTZ,
+            created_by    TEXT NOT NULL DEFAULT '',
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            revoked_by    TEXT,
+            revoked_at    TIMESTAMPTZ,
+            CONSTRAINT ck_ws_release_web_shares_revocation
+                CHECK (
+                    (status = 'active' AND revoked_by IS NULL AND revoked_at IS NULL)
+                    OR
+                    (status = 'revoked' AND revoked_by IS NOT NULL AND revoked_at IS NOT NULL)
+                )
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ws_release_web_shares_record "
+        "ON ws_release_web_shares(record_id, created_at DESC)"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -1596,6 +1639,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (9, "release_studio_hardening", _release_studio_hardening),
     (10, "release_studio_rule_outcomes", _release_studio_rule_outcomes),
     (11, "release_studio_waiver_exceptions", _release_studio_waiver_exceptions),
+    (12, "release_studio_web_shares", _release_studio_web_shares),
 )
 
 

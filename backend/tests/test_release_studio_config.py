@@ -105,6 +105,20 @@ class ReleaseStudioConfigTests(unittest.TestCase):
                 source="bad.yaml",
             )
 
+    def test_kicad_newstroke_is_the_normalized_typography_default(self) -> None:
+        self.assertEqual(
+            parse_configuration_yaml(_MIN_CONFIG)["typography"],
+            "kicad-newstroke",
+        )
+
+    def test_typography_accepts_only_deterministic_presets(self) -> None:
+        configured = parse_configuration_yaml(
+            _MIN_CONFIG + "\ntypography: kicad-newstroke\n"
+        )
+        self.assertEqual(configured["typography"], "kicad-newstroke")
+        with self.assertRaisesRegex(ConfigSchemaError, "unknown preset 'host-font'"):
+            parse_configuration_yaml(_MIN_CONFIG + "\ntypography: host-font\n")
+
     def test_unpinned_org_extends_is_a_load_error(self) -> None:
         with self.assertRaisesRegex(ConfigSchemaError, "unpinned org reference"):
             validate_org_extends("org:default")
@@ -513,6 +527,13 @@ variants: null
         self.assertNotEqual(
             technical_config_digest(base),
             technical_config_digest(board_changed),
+        )
+        typography_changed = parse_configuration_yaml(
+            _MIN_CONFIG + "\ntypography: geist-pixel-grid\n"
+        )
+        self.assertNotEqual(
+            technical_config_digest(base),
+            technical_config_digest(typography_changed),
         )
 
     def test_load_at_commit_matches_checkout(self) -> None:

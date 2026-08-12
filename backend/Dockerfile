@@ -62,6 +62,10 @@ RUN git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-library-utils.g
 WORKDIR /app
 
 ENV UV_NO_CACHE=1
+# Pin the interpreter rather than inheriting the base image's system Python.
+# The KiCad 10.0.4 base ships 3.13; Prism's dependency set -- kicad-monkey and
+# kicad-cruncher in particular -- is validated on 3.12, so the venv selects it
+# explicitly and a base-image Python bump cannot silently move it.
 RUN uv python install 3.12 \
     && uv venv /app/venv --python 3.12
 ENV PATH="/app/venv/bin:$PATH"

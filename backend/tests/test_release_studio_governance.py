@@ -721,7 +721,9 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
             signing_key_id=key.key_id,
             public_pem=key.public_pem,
         )
-        report = verify_archive_bytes(archive, trusted_key_ids=(key.key_id,))
+        report = verify_archive_bytes(
+            archive, trusted_keys={key.key_id: key.public_pem}
+        )
         self.assertTrue(report.ok, report.render())
 
         chain = self.service.verify_audit_chain(self.project_id, self.config_key)

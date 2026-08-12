@@ -59,6 +59,8 @@ STATS = {
         "min_track_width": "0.2000 mm",
         "min_track_clearance": "0.2000 mm",
     },
+    "pads": {"through_hole": 18, "smd": 119, "npth": 2, "castellated": 0, "press_fit": 0},
+    "components": {"total": {"front": 37, "back": 0, "total": 37}},
     "drill_holes": [
         {"count": 21, "plated": True, "shape": "Round", "source": "Via",
          "start_layer": "F.Cu", "stop_layer": "B.Cu",
@@ -71,7 +73,12 @@ STATS = {
 STACKUP = {
     "board_thickness": 1.6,
     "copper_layer_count": 2,
-    "settings": {"copper_finish": "ENIG", "edge_plating": False},
+    "settings": {
+        "copper_finish": "ENIG",
+        "dielectric_constraints": True,
+        "edge_connector": None,
+        "edge_plating": False,
+    },
     "layers": [
         {"name": "F.Cu", "kind": "copper", "type": "signal",
          "thickness": None, "material": None, "epsilon_r": None, "user_name": None},
@@ -158,9 +165,16 @@ class SerializerTests(unittest.TestCase):
         # A fixed /ID is what keeps the trailer from varying per render.
         self.assertIn(b"/ID [<00000000000000000000000000000000>", pdf)
 
-    def test_pdf_escapes_literal_parentheses(self) -> None:
+    def test_pdf_keeps_newstroke_text_searchable_without_a_host_font(self) -> None:
+        from pypdf import PdfReader
+
         pdf = render_pdf(self._sheet())
-        self.assertIn(rb"(Hello \(world\)) Tj", pdf)
+        text = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+        self.assertIn("Hello (world)", text)
+        self.assertIn(b"/Subtype /Type1", pdf)
+        self.assertIn(b"/BaseFont /Helvetica", pdf)
+        self.assertIn(b"/Encoding /WinAnsiEncoding", pdf)
+        self.assertNotIn(b"/FontFile", pdf)
 
     def test_pdf_declares_the_sheet_size_in_points(self) -> None:
         sheet = self._sheet()
@@ -564,22 +578,90 @@ class ProjectionShapeTests(unittest.TestCase):
         self.assertEqual(table.rows[0][4], "21")
 
     def test_a_summary_shaped_drill_projection_does_not_crash_the_sheet(self) -> None:
-        from app.release_studio.documents.tables import board_characteristics
+        from app.release_studio.documents.tables import board_summary
 
         # Defensive: an older or future projection shape yields an empty
         # schedule rather than an AttributeError mid-render.
-        pairs = dict(board_characteristics({"drill_holes": {"total": 3}}, {}))
-        self.assertEqual(pairs["Total holes"], "—")
+        pairs = dict(board_summary({"drill_holes": {"total": 3}}))
+        self.assertEqual(pairs["Drilled holes"], "—")
 
     def test_characteristics_pass_through_kicad_formatted_values(self) -> None:
         from app.release_studio.documents.tables import board_characteristics
 
         pairs = dict(board_characteristics(STATS, STACKUP))
-        self.assertEqual(pairs["Board size"], "50.0000 mm × 40.0000 mm")
-        self.assertEqual(pairs["Min drill diameter"], "0.3000 mm")
-        self.assertEqual(pairs["Total holes"], "33")
-        self.assertEqual(pairs["Copper layers"], "2")
+        # A lowercase ASCII "x", because that is what `wxString::Format` emits.
+        self.assertEqual(pairs["Board overall dimensions"], "50.0000 mm x 40.0000 mm")
+        self.assertEqual(pairs["Min hole diameter"], "0.3000 mm")
+        self.assertEqual(pairs["Min track/spacing"], "0.2000 mm / 0.2000 mm")
+        self.assertEqual(pairs["Copper layer count"], "2")
         self.assertEqual(pairs["Copper finish"], "ENIG")
+        self.assertEqual(pairs["Impedance control"], "Yes")
+        self.assertEqual(pairs["Castellated pads"], "No")
+        self.assertEqual(pairs["Plated board edge"], "No")
+        self.assertEqual(pairs["Edge card connectors"], "No")
+
+    def test_the_summary_carries_what_kicads_table_omits(self) -> None:
+        from app.release_studio.documents.tables import (
+            KICAD_CHARACTERISTIC_LABELS,
+            board_summary,
+        )
+
+        pairs = dict(board_summary(STATS))
+        self.assertEqual(pairs["Drilled holes"], "33")
+        self.assertEqual(pairs["Components"], "37")
+        # The summary is a separate table precisely so the characteristics one
+        # keeps its correspondence with KiCad's; a row that drifted into it
+        # would break that without any test noticing.
+        self.assertFalse(set(pairs) & set(KICAD_CHARACTERISTIC_LABELS))
+
+    def test_the_characteristics_table_reproduces_kicads_own_rows(self) -> None:
+        """Stage 2's conformance criterion, against the recorded rendering."""
+
+        from tests.kicad_conformance import load_conformance
+        from app.release_studio.documents.tables import (
+            KICAD_CHARACTERISTIC_LABELS,
+            board_characteristics,
+        )
+
+        recorded = load_conformance("board-characteristics")["labels"]
+        self.assertEqual(list(KICAD_CHARACTERISTIC_LABELS), recorded)
+        # And the table actually emits them -- in order, with nothing added.
+        drawn = [label for label, _value in board_characteristics(STATS, STACKUP)]
+        self.assertEqual(drawn, recorded)
+
+    def test_the_recorded_kicad_rendering_is_still_what_kicad_renders(self) -> None:
+        """The half that catches a KiCad upgrade, where the source is present."""
+
+        from tests.kicad_conformance import (
+            KICAD_SOURCE_ENV,
+            characteristic_labels_from_source,
+            kicad_source_root,
+            load_conformance,
+        )
+
+        root = kicad_source_root()
+        if root is None:
+            self.skipTest(
+                f"no pinned KiCad source tree; set {KICAD_SOURCE_ENV} to check "
+                "the recorded rendering against it"
+            )
+        self.assertEqual(
+            characteristic_labels_from_source(root),
+            load_conformance("board-characteristics")["labels"],
+            "KiCad's characteristics table changed: re-record the conformance "
+            "fixture and update KICAD_CHARACTERISTIC_LABELS together",
+        )
+
+    def test_an_edge_connector_is_rendered_in_kicads_three_words(self) -> None:
+        from app.release_studio.documents.tables import board_characteristics
+
+        def connectors(value):
+            stackup = {**STACKUP, "settings": {**STACKUP["settings"], "edge_connector": value}}
+            return dict(board_characteristics(STATS, stackup))["Edge card connectors"]
+
+        self.assertEqual(connectors(None), "No")
+        self.assertEqual(connectors("yes"), "Yes")
+        self.assertEqual(connectors("bevelled"), "Yes, Bevelled")
 
     def test_a_layer_without_a_declared_thickness_renders_a_dash(self) -> None:
         from app.release_studio.documents.tables import stackup_table
@@ -620,50 +702,6 @@ class DocumentSetTests(unittest.TestCase):
         svg = result.files()["documentation/fabrication.svg"].decode("utf-8")
         self.assertIn("board artwork unavailable", svg)
 
-    def test_no_build_identity_reaches_a_sheet(self) -> None:
-        """A sheet carrying a build id or a render time would not be reproducible."""
-
-        # Scan for identity and time *shapes* rather than words: the notes
-        # legitimately mention approvers, and a keyword scan would flag prose
-        # while missing an actual leaked id.
-        leaks = {
-            "record id": re.compile(r"\b(?:build|cand|eval|appr|rel|wv)-[0-9a-f]{12,}\b"),
-            "wall-clock time": re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"),
-        }
-        result = self._compose()
-        for path, payload in result.files().items():
-            text = payload.decode("utf-8", errors="replace")
-            for label, pattern in leaks.items():
-                found = pattern.search(text)
-                self.assertIsNone(found, f"{label} leaked into {path}: {found}")
-
-    def test_every_glyph_a_sheet_uses_survives_the_pdf_backend(self) -> None:
-        """The two backends must show the same text, not near-enough text.
-
-        The PDF backend writes base-14 fonts in WinAnsi, so a character outside
-        that set becomes a literal `?` in the PDF while the SVG shows it -- a
-        silent divergence between two renderings of one sheet.
-        """
-
-        from app.release_studio.documents.layout import Text
-
-        sheets = [
-            sheet_templates.technical_cover(CONTEXT, STATS, STACKUP, VARIANTS, MEMBERS),
-            sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, None)[0],
-            sheet_templates.assembly_sheet(CONTEXT, "top", None, PLACEMENTS)[0],
-            sheet_templates.drill_sheet(CONTEXT, STATS, STACKUP, None)[0],
-        ]
-        for sheet in sheets:
-            for element in sheet.elements:
-                if not isinstance(element, Text):
-                    continue
-                try:
-                    element.value.encode("cp1252")
-                except UnicodeEncodeError as exc:  # pragma: no cover - the failure path
-                    self.fail(
-                        f"{sheet.key}: {element.value!r} cannot be rendered by the "
-                        f"PDF backend ({exc})"
-                    )
 
     def test_the_cover_states_the_commit_date_not_a_render_date(self) -> None:
         svg = self._compose().files()["documentation/cover.svg"].decode("utf-8")
@@ -691,6 +729,216 @@ class DocumentSetTests(unittest.TestCase):
         self.assertIn("disagree", svg)
 
 
+    def test_no_build_identity_reaches_a_sheet(self) -> None:
+        """A sheet carrying a build id or a render time would not be reproducible."""
+
+        # Scan for identity and time *shapes* rather than words: the notes
+        # legitimately mention approvers, and a keyword scan would flag prose
+        # while missing an actual leaked id.
+        leaks = {
+            "record id": re.compile(r"\b(?:build|cand|eval|appr|rel|wv)-[0-9a-f]{12,}\b"),
+            "wall-clock time": re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"),
+        }
+        result = self._compose()
+        for path, payload in result.files().items():
+            text = payload.decode("utf-8", errors="replace")
+            for label, pattern in leaks.items():
+                found = pattern.search(text)
+                self.assertIsNone(found, f"{label} leaked into {path}: {found}")
+
+    def test_every_sheet_text_survives_the_pdf_backend(self) -> None:
+        """The two backends must show the same text, not near-enough text.
+
+        The PDF backend emits glyph IDs, so the ToUnicode map is what makes the
+        resulting technical drawing searchable and copyable.
+        """
+
+        from pypdf import PdfReader
+        from app.release_studio.documents.layout import Text
+
+        sheets = [
+            sheet_templates.technical_cover(CONTEXT, STATS, STACKUP, VARIANTS, MEMBERS),
+            sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, None)[0],
+            sheet_templates.assembly_sheet(CONTEXT, "top", None, PLACEMENTS)[0],
+            sheet_templates.drill_sheet(CONTEXT, STATS, STACKUP, None)[0],
+        ]
+        for sheet in sheets:
+            extracted = PdfReader(io.BytesIO(render_pdf(sheet))).pages[0].extract_text()
+            for element in sheet.elements:
+                if not isinstance(element, Text) or not element.value:
+                    continue
+                self.assertIn(element.value, extracted, f"{sheet.key}: {element.value!r}")
+
+
+class TypographyTests(unittest.TestCase):
+    def test_kicad_newstroke_is_the_default_visible_text_renderer(self) -> None:
+        svg = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+        ).files()["documentation/cover.svg"].decode("utf-8")
+        self.assertIn('data-typography="kicad-newstroke"', svg)
+        self.assertIn('data-renderer="kicad-monkey.newstroke"', svg)
+        self.assertNotIn("data:font/ttf;base64,", svg)
+
+    def test_a_legacy_bundled_face_remains_a_technical_configuration_choice(self) -> None:
+        common = dict(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+        )
+        square = compose(**common, typography="kicad-newstroke").files()
+        grid = compose(**common, typography="geist-pixel-grid").files()
+        self.assertNotEqual(
+            square["documentation/cover.svg"], grid["documentation/cover.svg"]
+        )
+        self.assertNotEqual(
+            square["documentation/cover.pdf"], grid["documentation/cover.pdf"]
+        )
+
+    def test_an_unknown_preset_fails_before_document_generation(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown typography preset"):
+            compose(
+                context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+                placements=PLACEMENTS, members=MEMBERS, typography="host-font",
+            )
+
+
+
+class ConfiguredNotesTests(unittest.TestCase):
+    """D5: the issuing organization's own text reaches the sheet."""
+
+    def _svg(self, key: str, **overrides) -> str:
+        payload = dict(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+        )
+        payload.update(overrides)
+        return compose(**payload).files()[f"documentation/{key}.svg"].decode("utf-8")
+
+    def test_configured_notes_replace_the_default_ones(self) -> None:
+        svg = self._svg("drill", notes={"drill": ["All holes plated unless noted."]})
+        self.assertIn("All holes plated unless noted.", svg)
+        self.assertNotIn("finished diameters", svg)
+
+    def test_a_note_can_interpolate_the_revision_and_the_board(self) -> None:
+        svg = self._svg(
+            "fabrication",
+            notes={"fabrication": ["Built to {{release.revision}} at {{board.board_thickness}}."]},
+            fields={"ipc_class": "3"},
+        )
+        self.assertIn("Built to A at 1.6000 mm.", svg)
+
+    def test_a_configured_field_reaches_the_title_block_of_every_sheet(self) -> None:
+        for key in ("cover", "fabrication", "assembly-top", "drill"):
+            with self.subTest(sheet=key):
+                svg = self._svg(key, fields={"ipc_class": "3", "customer": "Acme"})
+                self.assertIn("IPC CLASS", svg)
+                self.assertIn("Acme", svg)
+
+    def test_fields_are_drawn_in_key_order_not_declaration_order(self) -> None:
+        # `technical_config_digest` canonicalizes with sorted keys, so two
+        # configurations that differ only in field order share a build key --
+        # and must therefore produce the same sheet.
+        forward = self._svg("cover", fields={"alpha": "1", "beta": "2"})
+        reverse = self._svg("cover", fields={"beta": "2", "alpha": "1"})
+        self.assertEqual(forward, reverse)
+        self.assertLess(forward.index("ALPHA"), forward.index("BETA"))
+
+    def test_an_unresolvable_note_keeps_the_default_and_says_why(self) -> None:
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            notes={"drill": ["Class {{fields.missing}}"]},
+        )
+        svg = result.files()["documentation/drill.svg"].decode("utf-8")
+        # Never the raw token: a released drawing must not carry braces.
+        self.assertNotIn("{{", svg)
+        self.assertIn("finished diameters", svg)
+        self.assertTrue(
+            any("configured notes for drill were not used" in w for w in result.warnings),
+            result.warnings,
+        )
+
+    def test_the_drawing_symbols_a_technical_note_needs_actually_render(self) -> None:
+        """NewStroke is KiCad's own font, so the drawing vocabulary is covered.
+
+        This is the reason the engine uses it rather than a general-purpose
+        text face: a drill note saying "⌀ 0.3 mm" is the ordinary way to write
+        the thing, and a font that cannot set the diameter sign forces every
+        such note into a workaround.
+        """
+
+        note = "All holes ⌀ 0.3 mm ±0.05, 90° chamfer, Ω-pads ✓"
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            notes={"drill": [note]},
+        )
+        self.assertEqual(len(result.files()), 10)
+        drill = result.files()["documentation/drill.svg"].decode("utf-8")
+        for symbol in ("⌀", "±", "°", "Ω", "✓"):
+            with self.subTest(symbol=symbol):
+                self.assertIn(symbol, drill)
+        self.assertEqual([w for w in result.warnings if "notes" in w], [])
+
+    def test_an_unsupported_note_glyph_falls_back_without_losing_documents(self) -> None:
+        """A glyph the face genuinely lacks costs one note, never the set."""
+
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            notes={"drill": ["表面処理 immersion gold"]},
+        )
+        # All ten files still present: the degradation is scoped to the note.
+        self.assertEqual(len(result.files()), 10)
+        drill = result.files()["documentation/drill.svg"].decode("utf-8")
+        self.assertNotIn("表面処理", drill)
+        self.assertIn("finished diameters", drill)
+        self.assertTrue(
+            any("U+8868" in warning for warning in result.warnings),
+            result.warnings,
+        )
+
+    def test_notes_for_a_sheet_that_does_not_exist_are_reported(self) -> None:
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            notes={"pick-and-place": ["Never rendered"]},
+        )
+        self.assertTrue(
+            any("not a sheet in this set" in w for w in result.warnings), result.warnings
+        )
+
+    def test_a_field_naming_the_build_time_cannot_be_interpolated(self) -> None:
+        # The substitution namespaces are the guard against a released sheet
+        # moving for a reason that has nothing to do with the design.
+        result = compose(
+            context={**CONTEXT, "built_at": "2026-08-12T09:00:00"},
+            stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            fields={"stamp": "{{release.built_at}}"},
+        )
+        svg = result.files()["documentation/cover.svg"].decode("utf-8")
+        self.assertNotIn("2026-08-12T09:00:00", svg)
+        self.assertTrue(
+            any("title-block field 'stamp' was not drawn" in w for w in result.warnings),
+            result.warnings,
+        )
+
+    def test_extra_fields_grow_the_title_block_instead_of_overlapping(self) -> None:
+        from app.release_studio.documents import sheets as sheet_templates
+        from app.release_studio.documents.layout import TitleBlockField
+
+        extra = tuple(TitleBlockField(f"F{index}", "x") for index in range(6))
+        plain = sheet_templates.title_block_height(CONTEXT)
+        grown = sheet_templates.title_block_height(CONTEXT, extra)
+        self.assertGreater(grown, plain)
+        # And the body shrinks by exactly as much, so nothing is drawn under it.
+        self.assertAlmostEqual(
+            sheet_templates.body_rect("A3", plain).height
+            - sheet_templates.body_rect("A3", grown).height,
+            grown - plain,
+        )
+
 class RendererVersionTests(unittest.TestCase):
     """A rendering change must be a deliberate, versioned change.
 
@@ -701,34 +949,35 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d2. These and the version move together,
-    #: never one without the other.
+    #: Recorded for RENDERER_VERSION d7 under the pinned kicad-monkey /
+    #: kicad-cruncher 2026.8.11 toolchain, and verified stable across two runs.
+    #: The version and these digests move together, never one without the other.
     GOLDEN = {
         "documentation/assembly-bottom.pdf":
-            "179d4ddff58616d43b79d6af190ea79f3b42c9802f2abf257fbf11296c7395c2",
+            "6d6f70073d4ae020b18a7d8167ca5c4ad6474f8f99df774f6c88d79cb6d96d1f",
         "documentation/assembly-bottom.svg":
-            "6835a4ba7615b608a3ee190c7e8e20f9d1814968a12ea7d372c8b2bb78644a42",
+            "7e3ecdc95e1ea26107a65d938ea9b2c66f53de7c7d8af492e0f53a5ac1a073be",
         "documentation/assembly-top.pdf":
-            "667080699bb6c22a6da75921d7d8bcb82df3d5b200ad419e19b217088bd2b55d",
+            "2b3bef12d7a4be4134600259f51542b666d09503afe8aeaa896f3277c908ce44",
         "documentation/assembly-top.svg":
-            "6426501245f366c9c2095cec629a01e6f781e7183c80b54304ad9b50c0e1570e",
+            "f3feff78c90126a9a509f752db168e88d0b29d935fff0cbfe095afcfa54fc8fb",
         "documentation/cover.pdf":
-            "ade4cf9ee0d0fd5c93644ac008a139f4f61ab5f45ab986b39261e5b3e47da829",
+            "b825ae468b5d8c7080cd757400b0fc8c47220b58cb0f93a78142dc31e51e058c",
         "documentation/cover.svg":
-            "ee690a55c6562b819db008d0f9dd43293d7e94baeb86866ed11c3ee0c791950d",
+            "c3b24a0d84bc40ff16e1cc8d7ad7a070d6e6afa2e7b30f9f3243bd966d0581ba",
         "documentation/drill.pdf":
-            "cc2674642da708a461bb7635c36b8e914d4a457c818556e6fb073f0c2ac9debf",
+            "9394029b80de9c09c372ff8dad35e64bddc83aa06486885085052efbb572fc17",
         "documentation/drill.svg":
-            "b1cf23caaf335150b62fcd94f6a6571529a935695d209943c134bc2c067bfe33",
+            "3d34952b6ce6041e7487348514c82147d78401a5b4a16aa4f519a197e48e574e",
         "documentation/fabrication.pdf":
-            "4b2b043f8554bef99e89500585b5b49b4668607ccebb32b4b650a41a5f62db0c",
+            "ceec7a353963c96105d991a097cdf6f170430087b49d997da1c387b5aae7407c",
         "documentation/fabrication.svg":
-            "9bdd17a1d468cee389e39146dfd4977a88949e1198b4113e6c976d3265dd8bc2",
+            "2bc567b2dbf49433a011eb361654d85cba600c84f0cde3623a5c1855f759e665",
     }
 
     #: A placed sheet, so a change to sheet selection or to the scale ladder
     #: trips this too -- the set above carries no artwork and would not.
-    GOLDEN_PLACED = "6bf1b09ef3d5c7b07fd3287d37acef712e70ef54780b6585e52887510580509c"
+    GOLDEN_PLACED = "832a62baa2455e58f79a464ae1aee6428975fe4ff69d22814c0af37a5e95de11"
 
     def test_a_placed_sheet_matches_its_recorded_digest(self) -> None:
         import hashlib
@@ -751,7 +1000,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d4",
+            "release-studio-documents/d7",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

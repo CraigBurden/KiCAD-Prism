@@ -9,8 +9,11 @@ unwaived blockers, unevaluable rules, then missing approvals.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import io
 import os
 import sys
+import tarfile
 import unittest
 import uuid
 from dataclasses import dataclass
@@ -46,6 +49,74 @@ class _User:
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+class ReleaseStudioDocumentSheetApiTests(unittest.TestCase):
+    """D10: composed sheets have a first-class immutable preview surface."""
+
+    def setUp(self) -> None:
+        from app.api import release_studio as api
+
+        self.api = api
+        self.user = _User("viewer", role="viewer")
+        self.svg = b'<svg xmlns="http://www.w3.org/2000/svg"><title>Fabrication</title></svg>'
+        self.digest = hashlib.sha256(self.svg).hexdigest()
+        member = {
+            "id": "member-svg",
+            "path": "documentation/fabrication.svg",
+            "released_digest": self.digest,
+            "media_type": "image/svg+xml",
+        }
+        pdf_member = {
+            "id": "member-pdf",
+            "path": "documentation/fabrication.pdf",
+            "released_digest": "p" * 64,
+            "media_type": "application/pdf",
+        }
+        payload = io.BytesIO()
+        with tarfile.open(fileobj=payload, mode="w:gz") as archive:
+            info = tarfile.TarInfo(member["path"])
+            info.size = len(self.svg)
+            archive.addfile(info, io.BytesIO(self.svg))
+
+        patches = (
+            patch.object(api, "get_project_for_role_or_404", lambda *_args: None),
+            patch.object(api, "_build_or_404", lambda *_args: {"dossier_artifact_id": "a1"}),
+            patch.object(api.store, "build_members", lambda _build: [member, pdf_member]),
+            patch.object(api, "_artifact_bytes", lambda _artifact: payload.getvalue()),
+        )
+        for patcher in patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_sheet_listing_pairs_svg_and_pdf_by_key(self) -> None:
+        result = _run(
+            self.api.list_document_sheets("proj", "build", user=self.user)
+        )
+        self.assertEqual([item["key"] for item in result["sheets"]], ["fabrication"])
+        self.assertEqual(result["sheets"][0]["svg"]["released_digest"], self.digest)
+        self.assertEqual(
+            result["sheets"][0]["pdf"]["path"], "documentation/fabrication.pdf"
+        )
+
+    def test_sheet_preview_is_digest_checked_and_immutable(self) -> None:
+        response = _run(
+            self.api.preview_document_sheet(
+                "proj", "build", "fabrication", user=self.user
+            )
+        )
+        self.assertEqual(response.body, self.svg)
+        self.assertEqual(response.headers["etag"], f'"{self.digest}"')
+        self.assertIn("immutable", response.headers["cache-control"])
+
+    def test_sheet_preview_rejects_non_key_paths(self) -> None:
+        with self.assertRaises(HTTPException) as caught:
+            _run(
+                self.api.preview_document_sheet(
+                    "proj", "build", "../manifest", user=self.user
+                )
+            )
+        self.assertEqual(caught.exception.status_code, 404)
 
 
 @unittest.skipIf(psycopg is None, "psycopg is required")
@@ -129,7 +200,12 @@ class ReleaseStudioApiTests(unittest.TestCase):
 
     # -- fixtures ----------------------------------------------------------
 
-    def _built(self, *, drc_errors: int = 0):
+    def _built(
+        self,
+        *,
+        drc_errors: int = 0,
+        projections: dict[str, object] | None = None,
+    ):
         from tests.test_release_studio_governance import _dossier
 
         candidate = self.service.create_candidate(
@@ -137,6 +213,7 @@ class ReleaseStudioApiTests(unittest.TestCase):
             commit_sha="a" * 40, variant="default",
             technical_config_digest="tc" * 32, input_closure_digest="ic" * 32,
             toolchain_digest="tl" * 32, generator_build="r11", hermetic=True,
+            policy_snapshot_captured=True,
             created_by="designer",
         )
         build = self.service.start_build(candidate["id"], job_id=None, fence=1)
@@ -153,6 +230,19 @@ class ReleaseStudioApiTests(unittest.TestCase):
                 {"kind": "erc", "report_digest": "e" * 64, "counts": {"error": 0, "total": 0}},
             ),
         )
+        if projections:
+            fingerprints = {
+                domain: {
+                    **record,
+                    "inputs": {
+                        **record.get("inputs", {}),
+                        "projections": projections if domain == "bare_board" else {},
+                    },
+                    "fidelity": "board" if domain == "bare_board" else record["fidelity"],
+                }
+                for domain, record in dossier.fingerprints.items()
+            }
+            object.__setattr__(dossier, "fingerprints", fingerprints)
         completed = self.service.complete_build(
             build_id=build["id"], dossier=dossier, toolchain={}, fence=1
         )
@@ -187,6 +277,36 @@ class ReleaseStudioApiTests(unittest.TestCase):
         # The default policy requires gerbers and drill members, which this
         # synthetic dossier does not have.
         self.assertEqual(outcomes["dossier.required_members"], "failure")
+
+    def test_evaluate_uses_the_builds_persisted_board_projection(self) -> None:
+        _candidate, build = self._built(
+            projections={"stackup": {"copper_layer_count": 2}}
+        )
+        policy = {
+            "rules": [
+                {
+                    "id": "stackup.min_copper_layers",
+                    "severity": "failure",
+                    "params": {"minimum": 4},
+                }
+            ],
+            "required_approvals": [],
+        }
+        with patch.object(self.api, "_policy_document", return_value=policy):
+            result = _run(
+                self.api.evaluate_build(
+                    self.project_id,
+                    build["id"],
+                    self.api.EvaluateRequest(config_key="default"),
+                    user=self.user,
+                )
+            )
+
+        outcomes = {
+            item["rule_id"]: item["outcome"]
+            for item in result["evaluation"]["rule_outcomes"]
+        }
+        self.assertEqual(outcomes["stackup.min_copper_layers"], "failure")
 
     def test_release_is_refused_while_a_blocker_is_unwaived(self) -> None:
         _candidate, build = self._built(drc_errors=3)
@@ -358,6 +478,7 @@ class ReleaseStudioApiTests(unittest.TestCase):
             commit_sha="a" * 40, variant="default",
             technical_config_digest="tc" * 32, input_closure_digest="ic" * 32,
             toolchain_digest="tl" * 32, generator_build="r11", hermetic=True,
+            policy_snapshot_captured=True,
             created_by="designer",
         )
         build = self.service.start_build(candidate["id"], job_id=None, fence=1)
@@ -424,12 +545,20 @@ class ReleaseStudioApiTests(unittest.TestCase):
 
         from app.release_studio.verify import verify_archive_bytes
 
-        report = verify_archive_bytes(archive, trusted_key_ids=(record["signing_key_id"],))
+        trusted_keys = {
+            item["key_id"]: item["public_key"]
+            for item in self.service.list_signing_keys()
+        }
+        report = verify_archive_bytes(archive, trusted_keys=trusted_keys)
         self.assertTrue(report.ok, report.to_dict())
 
         # An untrusted key must fail even though every digest is internally
         # consistent: consistency is not authenticity.
-        untrusted = verify_archive_bytes(archive, trusted_key_ids=("someone-else",))
+        untrusted = verify_archive_bytes(
+            archive,
+            trusted_keys=trusted_keys,
+            trusted_key_ids=("someone-else",),
+        )
         self.assertFalse(untrusted.ok)
 
     def test_waiver_cannot_be_approved_by_its_owner_through_the_api(self) -> None:

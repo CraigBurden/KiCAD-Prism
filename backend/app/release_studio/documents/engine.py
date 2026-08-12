@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from app.release_studio.documents import notes as note_templates
 from app.release_studio.documents import sheets as sheet_templates
 from app.release_studio.documents.artwork import (
     AcquiredArtwork,
@@ -26,6 +27,7 @@ from app.release_studio.documents.artwork import (
     acquire_drill_map,
     composite_pdf,
 )
+from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_preset
 from app.release_studio.documents.layout import Rect, Sheet
 from app.release_studio.documents.pdf import render_pdf
 from app.release_studio.documents.svg import render_svg
@@ -90,18 +92,38 @@ def compose(
     cli_path: str | None = None,
     workdir: Path | None = None,
     sheet_size: str | None = None,
+    notes: Mapping[str, Any] | None = None,
+    fields: Mapping[str, Any] | None = None,
+    typography: str = DEFAULT_TYPOGRAPHY,
     acquirer: Callable[..., AcquiredArtwork] | None = None,
     drill_acquirer: Callable[..., AcquiredArtwork] | None = None,
 ) -> DocumentSet:
     """Compose the full document set.
 
-    ``sheet_size`` is chosen from the standard ladder to suit the board and the
-    tables unless a caller pins one; ``acquirer`` is injectable so the templates
-    can be exercised without a KiCad installation.
+    ``sheet_size`` is chosen from the standard ladder to suit the board unless a
+    caller pins one; ``notes`` and ``fields`` are the configuration's own text
+    (D5); ``acquirer`` is injectable so the templates can be exercised without a
+    KiCad installation.
     """
 
+    # Validate before acquiring artwork so an invalid technical configuration
+    # cannot perform work and then degrade into a default-looking document.
+    typography_preset(typography)
     warnings: list[str] = []
     art: dict[str, AcquiredArtwork] = {}
+
+    substitutions = note_templates.substitution_context(context, fields=fields, stats=stats)
+    sheet_notes, note_warnings = note_templates.resolve_notes(
+        notes,
+        substitutions,
+        defaults=sheet_templates.DEFAULT_NOTES,
+        typography=typography,
+    )
+    title_fields, field_warnings = note_templates.resolve_fields(
+        fields, substitutions, typography=typography
+    )
+    warnings.extend(note_warnings)
+    warnings.extend(field_warnings)
 
     if board is not None and cli_path and workdir is not None:
         fetch = acquirer or acquire
@@ -125,39 +147,54 @@ def compose(
     else:
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
+    title_height = sheet_templates.title_block_height(context, title_fields)
     if sheet_size is None:
-        sheet_size = _select_size(stats, art)
+        sheet_size = _select_size(stats, art, title_height)
 
     outputs: list[DocumentOutput] = []
 
     cover = sheet_templates.technical_cover(
-        context, stats, stackup, variants, members, size=sheet_size
+        context, stats, stackup, variants, members, size=sheet_size,
+        notes=sheet_notes["cover"], fields=title_fields, typography=typography,
     )
-    outputs.append(_serialize(cover, "cover", 1.0, None, None))
+    _append_serialized(outputs, cover, "cover", 1.0, None, None, warnings)
 
     fabrication, fab_scale = sheet_templates.fabrication_sheet(
-        context, stats, stackup, art.get("fabrication"), size=sheet_size
+        context, stats, stackup, art.get("fabrication"), size=sheet_size,
+        notes=sheet_notes["fabrication"], fields=title_fields, typography=typography,
     )
-    outputs.append(
-        _serialize(fabrication, "fabrication", fab_scale, art.get("fabrication"),
-                   _artwork_window(fabrication), warnings)
+    _append_serialized(
+        outputs,
+        fabrication,
+        "fabrication",
+        fab_scale,
+        art.get("fabrication"),
+        _artwork_window(fabrication),
+        warnings,
     )
 
     for side in ("top", "bottom"):
         key = f"assembly-{side}"
         sheet, scale = sheet_templates.assembly_sheet(
-            context, side, art.get(key), placements, size=sheet_size
+            context, side, art.get(key), placements, size=sheet_size,
+            notes=sheet_notes[key], fields=title_fields, typography=typography,
         )
-        outputs.append(
-            _serialize(sheet, key, scale, art.get(key), _artwork_window(sheet), warnings)
+        _append_serialized(
+            outputs, sheet, key, scale, art.get(key), _artwork_window(sheet), warnings
         )
 
     drill, drill_scale = sheet_templates.drill_sheet(
-        context, stats, stackup, art.get("drill"), size=sheet_size
+        context, stats, stackup, art.get("drill"), size=sheet_size,
+        notes=sheet_notes["drill"], fields=title_fields, typography=typography,
     )
-    outputs.append(
-        _serialize(drill, "drill", drill_scale, art.get("drill"), _artwork_window(drill),
-                   warnings)
+    _append_serialized(
+        outputs,
+        drill,
+        "drill",
+        drill_scale,
+        art.get("drill"),
+        _artwork_window(drill),
+        warnings,
     )
 
     return DocumentSet(
@@ -207,7 +244,9 @@ def board_extent(
 
 
 def _select_size(
-    stats: Mapping[str, Any], art: Mapping[str, AcquiredArtwork]
+    stats: Mapping[str, Any],
+    art: Mapping[str, AcquiredArtwork],
+    title_height: float,
 ) -> str:
     """Pick one standard sheet size for the whole set, from the board alone."""
 
@@ -217,7 +256,7 @@ def _select_size(
         # Sizing from a guess would be worse than stating a conventional
         # default, so the set keeps the historical one.
         return sheet_templates.DEFAULT_SIZE
-    return sheet_templates.select_sheet_size(width, height)
+    return sheet_templates.select_sheet_size(width, height, title_height=title_height)
 
 
 def _artwork_window(sheet: Sheet) -> Rect | None:
@@ -261,3 +300,23 @@ def _serialize(
         scale=scale,
         artwork_digest=art.digest if art else "",
     )
+
+
+def _append_serialized(
+    outputs: list[DocumentOutput],
+    sheet: Sheet,
+    key: str,
+    scale: float,
+    art: AcquiredArtwork | None,
+    window: Rect | None,
+    warnings: list[str],
+) -> None:
+    """Isolate a renderer failure to one sheet instead of the document set."""
+
+    try:
+        output = _serialize(sheet, key, scale, art, window, warnings)
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        logger.warning("Release Studio sheet %s could not be composed: %s", key, exc)
+        warnings.append(f"{key} sheet was not composed: {exc}")
+        return
+    outputs.append(output)

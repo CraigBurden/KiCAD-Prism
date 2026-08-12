@@ -39,6 +39,7 @@ from app.release_studio.policy import (
 )
 from app.release_studio.verify import verify_archive_bytes
 from app.services import release_studio_build_service as build_service
+from app.services import release_policy_service as policy_store
 from app.services import release_studio_service as store
 from app.services.job_service import jobs
 
@@ -95,6 +96,10 @@ class ReleaseRequest(BaseModel):
     release_label: str = Field(..., min_length=1, max_length=200)
     document_number: str = Field("", max_length=200)
     revision: str = Field("", max_length=64)
+
+
+class WebReleaseRequest(BaseModel):
+    expires_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +204,59 @@ async def download_dossier(
     )
 
 
+@router.get("/{project_id}/release-studio/builds/{build_id}/sheets")
+async def list_document_sheets(
+    project_id: str,
+    build_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """List composed sheets without making the client infer them from members."""
+
+    get_project_for_role_or_404(project_id, user.role)
+    _build_or_404(project_id, build_id)
+    by_key: dict[str, dict[str, Any]] = {}
+    for member in store.build_members(build_id):
+        path = str(member.get("path") or "")
+        if not path.startswith("documentation/"):
+            continue
+        filename = path.removeprefix("documentation/")
+        if filename.endswith(".svg"):
+            key = filename.removesuffix(".svg")
+            by_key.setdefault(key, {"key": key})["svg"] = {
+                "path": path,
+                "released_digest": member["released_digest"],
+                "media_type": member.get("media_type") or "image/svg+xml",
+            }
+        elif filename.endswith(".pdf"):
+            key = filename.removesuffix(".pdf")
+            by_key.setdefault(key, {"key": key})["pdf"] = {
+                "path": path,
+                "released_digest": member["released_digest"],
+                "media_type": member.get("media_type") or "application/pdf",
+            }
+    return {"sheets": [by_key[key] for key in sorted(by_key)]}
+
+
+@router.get("/{project_id}/release-studio/builds/{build_id}/sheets/{sheet_key}.svg")
+async def preview_document_sheet(
+    project_id: str,
+    build_id: str,
+    sheet_key: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """Serve the immutable SVG preview for one composed documentation sheet."""
+
+    if not sheet_key or any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789-" for ch in sheet_key):
+        raise HTTPException(status_code=404, detail="Sheet not found")
+    return await download_member(
+        project_id,
+        build_id,
+        f"documentation/{sheet_key}.svg",
+        disposition="inline",
+        user=user,
+    )
+
+
 @router.get("/{project_id}/release-studio/builds/{build_id}/members/{member_path:path}")
 async def download_member(
     project_id: str,
@@ -219,8 +277,25 @@ async def download_member(
     get_project_for_role_or_404(project_id, user.role)
     build = _build_or_404(project_id, build_id)
 
+    return _released_member_response(
+        build, member_path, disposition=disposition, build_id=build_id
+    )
+
+
+def _released_member_response(
+    build: dict[str, Any],
+    member_path: str,
+    *,
+    disposition: str = "inline",
+    public_share: bool = False,
+    build_id: str | None = None,
+) -> Response:
     member = next(
-        (item for item in store.build_members(build_id) if item["path"] == member_path),
+        (
+            item
+            for item in store.build_members(build_id or build["id"])
+            if item["path"] == member_path
+        ),
         None,
     )
     # Resolving through the members table is also what keeps a crafted path from
@@ -259,7 +334,11 @@ async def download_member(
         headers={
             "Content-Disposition": f'{disposition}; filename="{filename}"',
             # The bytes are immutable and named by their digest.
-            "Cache-Control": "private, max-age=31536000, immutable",
+            "Cache-Control": (
+                "private, no-store"
+                if public_share
+                else "private, max-age=31536000, immutable"
+            ),
             "ETag": f'"{actual}"',
             # Released members are third-party bytes -- KiCad's SVG plots most
             # of all -- and SVG served inline from this origin is script.  The
@@ -267,6 +346,7 @@ async def download_member(
             # a way to run code against a logged-in session.
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
             "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
         },
     )
 
@@ -307,13 +387,16 @@ async def evaluate_build(
 
 
 def _evaluate(project_id: str, config_key: str, build, candidate, *, actor: str):
-    policy_document = _policy_document(project_id, config_key)
-    resolved = resolve_policy(policy_document)
+    policy_document = _policy_document(project_id, config_key, candidate)
+    resolved = resolve_policy(
+        policy_document,
+        org_policy_loader=policy_store.load_bound_version,
+    )
     members = [_MemberView(row) for row in store.build_members(build["id"])]
     context = RuleContext(
         members=members,
         evidence=store.build_evidence(build["id"]),
-        projections={},
+        projections=_evaluation_projections(build["id"]),
         hermetic=bool(candidate.get("hermetic", True)),
         non_hermetic_reasons=list(candidate.get("non_hermetic_reasons") or []),
         manifest={},
@@ -329,6 +412,42 @@ def _evaluate(project_id: str, config_key: str, build, candidate, *, actor: str)
     return result
 
 
+def _evaluation_projections(build_id: str) -> dict[str, Any]:
+    """Reconstruct immutable rule inputs from persisted fingerprint records.
+
+    Board and semantic projections are captured once during the build and
+    stored inside the technical fingerprint input document. Re-evaluation must
+    read those exact facts; recomputing from a checkout would make governance
+    depend on mutable files, while dropping them makes projection-backed rules
+    incorrectly report ``unsupported``.
+    """
+
+    projections: dict[str, Any] = {}
+    semantic: dict[str, Any] = {}
+    for domain, row in sorted(store.build_fingerprints(build_id).items()):
+        inputs = row.get("inputs") or {}
+        if not isinstance(inputs, dict):
+            continue
+        captured = inputs.get("projections") or {}
+        if isinstance(captured, dict):
+            for key, value in sorted(captured.items()):
+                if key in projections and projections[key] != value:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Build {build_id} contains conflicting persisted "
+                            f"{key!r} projections"
+                        ),
+                    )
+                projections[key] = value
+        domain_semantic = inputs.get("semantic")
+        if domain_semantic:
+            semantic[domain] = domain_semantic
+    if semantic:
+        projections["semantic"] = semantic
+    return projections
+
+
 class _MemberView:
     """Adapt a persisted member row to the shape rules expect."""
 
@@ -339,13 +458,21 @@ class _MemberView:
         self.released_digest = row["released_digest"]
 
 
-def _policy_document(project_id: str, config_key: str) -> dict[str, Any]:
-    """The default policy used until a project ships its own overlay.
+def _policy_document(
+    project_id: str,
+    config_key: str,
+    candidate: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Load the candidate's Git overlay, or the safe built-in baseline.
 
     Deliberately small: DRC/ERC clean, hermetic inputs, and the members a
     fabricator needs. A project overlay in Git replaces this wholesale.
     """
 
+    if candidate:
+        configured = build_service.policy_document_for_candidate(project_id, candidate)
+        if configured is not None:
+            return configured
     return {
         "rules": [
             {"id": "drc.clean", "severity": "blocker", "params": {"max_errors": 0}},
@@ -483,7 +610,10 @@ async def create_release(
         raise HTTPException(status_code=409, detail=f"Release refused: {reason}")
 
     approvals = store.effective_approvals(build_id)
-    required = resolve_policy(_policy_document(project_id, config_key)).required_approvals
+    required = resolve_policy(
+        _policy_document(project_id, config_key, candidate),
+        org_policy_loader=policy_store.load_bound_version,
+    ).required_approvals
     covered = {
         (approval["role"], domain)
         for approval in approvals
@@ -566,6 +696,60 @@ async def list_records(
     return {"records": store.list_release_records(project_id, config_key)}
 
 
+@router.post("/{project_id}/release-studio/records/{record_id}/web-release")
+async def create_web_release(
+    project_id: str,
+    record_id: str,
+    request: WebReleaseRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    get_project_for_role_or_404(project_id, user.role)
+    record = store.get_release_record(record_id)
+    if record is None or record["project_id"] != project_id:
+        raise HTTPException(status_code=404, detail="Release record not found")
+    try:
+        share = store.create_web_share(
+            record_id, actor=user.email, expires_at=request.expires_at
+        )
+    except (store.ReleaseStudioError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    token = share.pop("token")
+    return {
+        "share": share,
+        "token": token,
+        "url": f"/release-view/{token}",
+    }
+
+
+@router.get("/{project_id}/release-studio/records/{record_id}/web-releases")
+async def list_web_releases(
+    project_id: str,
+    record_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    get_project_for_role_or_404(project_id, user.role)
+    record = store.get_release_record(record_id)
+    if record is None or record["project_id"] != project_id:
+        raise HTTPException(status_code=404, detail="Release record not found")
+    return {"shares": store.list_web_shares(record_id)}
+
+
+@router.post("/{project_id}/release-studio/web-releases/{share_id}/revoke")
+async def revoke_web_release(
+    project_id: str,
+    share_id: str,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    get_project_for_role_or_404(project_id, user.role)
+    try:
+        share = store.revoke_web_share(
+            share_id, project_id=project_id, actor=user.email
+        )
+    except store.ReleaseStudioError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return share
+
+
 @router.get("/{project_id}/release-studio/records/{record_id}/release-archive")
 async def download_release_archive(
     project_id: str, record_id: str, user: AuthenticatedUser = Depends(require_viewer)
@@ -590,10 +774,12 @@ async def verify_record(
 
     get_project_for_role_or_404(project_id, user.role)
     record, archive = _release_archive(project_id, record_id)
-    trusted = tuple(
-        key["key_id"] for key in store.list_signing_keys() if key["status"] != "revoked"
-    )
-    report = verify_archive_bytes(archive, trusted_key_ids=trusted)
+    trusted = {
+        key["key_id"]: key["public_key"]
+        for key in store.list_signing_keys()
+        if key["status"] != "revoked"
+    }
+    report = verify_archive_bytes(archive, trusted_keys=trusted)
     return {"record_id": record_id, **report.to_dict()}
 
 
@@ -646,6 +832,66 @@ async def signing_keys():
     }
 
 
+@public_router.get("/api/release-view/{token}")
+async def public_release_view(token: str):
+    share, record, build = _public_share(token)
+    _, verification = _verified_public_archive(record)
+    members = [
+        {
+            "path": member["path"],
+            "member_kind": member["member_kind"],
+            "media_type": member["media_type"],
+            "size_bytes": member["size_bytes"],
+            "released_digest": member["released_digest"],
+            "domains": list(member.get("domains") or ()),
+        }
+        for member in store.build_members(build["id"])
+    ]
+    return Response(
+        content=json.dumps(
+            {
+                "release": {
+                    key: record[key]
+                    for key in (
+                        "id", "release_label", "document_number", "revision",
+                        "dossier_digest", "manifest_digest", "attestation_digest",
+                        "signing_key_id", "commit_sha", "variant", "created_at",
+                    )
+                },
+                "members": members,
+                "verification": verification,
+                "expires_at": share.get("expires_at"),
+            },
+            default=str,
+        ),
+        media_type="application/json",
+        headers=_public_response_headers(),
+    )
+
+
+@public_router.get("/api/release-view/{token}/members/{member_path:path}")
+async def public_release_member(token: str, member_path: str):
+    _, record, build = _public_share(token)
+    _verified_public_archive(record)
+    return _released_member_response(
+        build, member_path, disposition="inline", public_share=True
+    )
+
+
+@public_router.get("/api/release-view/{token}/archive")
+async def public_release_archive(token: str):
+    _, record, _ = _public_share(token)
+    archive, _ = _verified_public_archive(record)
+    return Response(
+        content=archive,
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{record["release_label"]}-release.tar.gz"',
+            **_public_response_headers(),
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -665,6 +911,54 @@ def _build_or_404(project_id: str, build_id: str) -> dict[str, Any]:
     if candidate is None or candidate["project_id"] != project_id:
         raise HTTPException(status_code=404, detail="Build not found")
     return build
+
+
+def _public_share(
+    token: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    if len(token) < 32 or len(token) > 200:
+        raise HTTPException(status_code=404, detail="Shared release not found")
+    share = store.resolve_web_share(token)
+    if share is None:
+        raise HTTPException(status_code=404, detail="Shared release not found or expired")
+    record = store.get_release_record(share["record_id"])
+    build = store.get_build(share["build_id"])
+    if record is None or build is None:
+        raise HTTPException(status_code=404, detail="Shared release is unavailable")
+    return share, record, build
+
+
+def _verified_public_archive(
+    record: dict[str, Any],
+) -> tuple[bytes, dict[str, Any]]:
+    """Fail closed before an unauthenticated route exposes release bytes."""
+
+    trusted = {
+        key["key_id"]: key["public_key"]
+        for key in store.list_signing_keys()
+        if key["status"] != "revoked"
+    }
+    _, archive = _release_archive(record["project_id"], record["id"])
+    verification = verify_archive_bytes(
+        archive,
+        trusted_keys=trusted,
+    ).to_dict()
+    if not verification["ok"]:
+        raise HTTPException(
+            status_code=409,
+            detail="The shared release failed authenticity verification",
+        )
+    return archive, verification
+
+
+def _public_response_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "private, no-store",
+        "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "X-Content-Type-Options": "nosniff",
+    }
 
 
 def _artifact_bytes(artifact_id: str | None) -> bytes:

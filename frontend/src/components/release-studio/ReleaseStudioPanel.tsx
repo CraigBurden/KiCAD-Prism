@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     AlertTriangle,
     CheckCircle2,
+    Copy,
     Download,
     FileCheck2,
+    FileImage,
     HelpCircle,
     Loader2,
     PlayCircle,
     ShieldCheck,
+    ShieldX,
     XCircle,
 } from "lucide-react";
 
@@ -23,10 +26,12 @@ import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 
 import * as api from "./api";
+import { PolicyAuthoringCard } from "./PolicyAuthoringCard";
 import type {
     Approval,
     AuditEvent,
     BuildDetail,
+    DocumentSheet,
     Finding,
     ReleaseCandidate,
     ReleaseConfiguration,
@@ -35,15 +40,25 @@ import type {
     RuleOutcome,
     VerificationReport,
     Waiver,
+    WebReleaseShare,
 } from "./types";
 
 type Props = {
     projectId: string;
     canMutate: boolean;
+    isAdmin?: boolean;
     defaultCommit?: string;
 };
 
 const DEFAULT_CONFIG = "default";
+const TYPOGRAPHY_PRESETS = [
+    ["kicad-newstroke", "KiCad NewStroke"],
+    ["geist-pixel-square", "Geist Pixel Square"],
+    ["geist-pixel-grid", "Geist Pixel Grid"],
+    ["geist-pixel-circle", "Geist Pixel Circle"],
+    ["geist-pixel-triangle", "Geist Pixel Triangle"],
+    ["geist-pixel-line", "Geist Pixel Line"],
+] as const;
 
 function shortDigest(value: string | null | undefined): string {
     if (!value) return "—";
@@ -70,7 +85,7 @@ function outcomeTone(outcome: string): string {
     }
 }
 
-export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD" }: Props) {
+export function ReleaseStudioPanel({ projectId, canMutate, isAdmin = false, defaultCommit = "HEAD" }: Props) {
     const [candidates, setCandidates] = useState<ReleaseCandidate[]>([]);
     const [selectedBuildId, setSelectedBuildId] = useState<string | null>(null);
     const [detail, setDetail] = useState<BuildDetail | null>(null);
@@ -79,6 +94,8 @@ export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD
     const [audit, setAudit] = useState<AuditEvent[]>([]);
     const [auditOk, setAuditOk] = useState<boolean | null>(null);
     const [verification, setVerification] = useState<Record<string, VerificationReport>>({});
+    const [shareUrls, setShareUrls] = useState<Record<string, string>>({});
+    const [shares, setShares] = useState<Record<string, WebReleaseShare[]>>({});
     const [busy, setBusy] = useState<string>("");
     const [error, setError] = useState<string>("");
     const [notice, setNotice] = useState<string>("");
@@ -101,6 +118,13 @@ export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD
             setConfigurations(nextConfigurations);
             setCandidates(nextCandidates);
             setRecords(nextRecords);
+            const shareEntries = await Promise.all(
+                nextRecords.map(async (record) => [
+                    record.id,
+                    await api.listWebReleases(projectId, record.id).catch(() => []),
+                ] as const),
+            );
+            setShares(Object.fromEntries(shareEntries));
             setWaivers(nextWaivers);
             setAudit(nextAudit);
             setAuditOk(chain ? chain.ok : null);
@@ -263,6 +287,9 @@ export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD
                 </CardContent>
             </Card>
 
+            <TypographyTemplateForm configuration={configurations?.[0] ?? null} />
+            {isAdmin && <PolicyAuthoringCard />}
+
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-base">Candidates</CardTitle>
@@ -374,8 +401,51 @@ export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD
                                         >
                                             <FileCheck2 className="mr-1 h-3 w-3" /> Verify
                                         </Button>
+                                        {canMutate && <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => void run(`share-${record.id}`, async () => {
+                                                const result = await api.createWebRelease(projectId, record.id);
+                                                const absolute = new URL(result.url, window.location.origin).toString();
+                                                setShareUrls((current) => ({ ...current, [record.id]: absolute }));
+                                                await navigator.clipboard.writeText(absolute);
+                                            }, "Public release link copied. It is shown once; revoke it when no longer needed.")}
+                                        >
+                                            <Copy className="mr-1 h-3 w-3" /> Share
+                                        </Button>}
                                     </div>
                                 </div>
+                                {shareUrls[record.id] && <div className="rounded border bg-muted/40 px-3 py-2 font-mono text-xs break-all">{shareUrls[record.id]}</div>}
+                                {(shares[record.id] ?? []).length > 0 && (
+                                    <div className="space-y-1 rounded border bg-muted/20 px-3 py-2">
+                                        {(shares[record.id] ?? []).map((share) => (
+                                            <div key={share.id} className="flex flex-wrap items-center gap-2 text-xs">
+                                                <Badge variant={share.status === "active" ? "secondary" : "outline"}>
+                                                    {share.status}
+                                                </Badge>
+                                                <span className="text-muted-foreground">
+                                                    created by {share.created_by || "unknown"}
+                                                    {share.expires_at ? ` · expires ${new Date(share.expires_at).toLocaleString()}` : " · no expiry"}
+                                                </span>
+                                                {canMutate && share.status === "active" && (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="ml-auto h-7 text-destructive"
+                                                        disabled={Boolean(busy)}
+                                                        onClick={() => void run(
+                                                            `revoke-share-${share.id}`,
+                                                            () => api.revokeWebRelease(projectId, share.id),
+                                                            "Public release link revoked.",
+                                                        )}
+                                                    >
+                                                        <ShieldX className="mr-1 h-3 w-3" /> Revoke
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                                 {report && (
                                     <div
                                         className={cn(
@@ -436,6 +506,78 @@ export function ReleaseStudioPanel({ projectId, canMutate, defaultCommit = "HEAD
     );
 }
 
+function TypographyTemplateForm({
+    configuration,
+}: {
+    configuration: ReleaseConfiguration | null;
+}) {
+    const [preset, setPreset] = useState("kicad-newstroke");
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        setPreset(configuration?.typography || "kicad-newstroke");
+    }, [configuration?.config_key, configuration?.typography]);
+
+    const yaml = useMemo(
+        () => [
+            "schema: prism.release-studio.configuration/1",
+            `title: ${JSON.stringify(configuration?.title || "Manufacturing release")}`,
+            `board: ${configuration?.board_rel || "board.kicad_pcb"}`,
+            `schematic: ${configuration?.schematic_rel || "board.kicad_sch"}`,
+            `jobset: ${configuration?.jobset_rel || "Outputs.kicad_jobset"}`,
+            `typography: ${preset}`,
+        ].join("\n"),
+        [configuration, preset],
+    );
+
+    const copy = async () => {
+        await navigator.clipboard.writeText(yaml);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+    };
+
+    return (
+        <Card>
+            <CardHeader className="pb-3">
+                <CardTitle className="text-base">Documentation template</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+                <div className="space-y-2">
+                    <Label htmlFor="rs-typography">Display typography</Label>
+                    <select
+                        id="rs-typography"
+                        value={preset}
+                        onChange={(event) => setPreset(event.target.value)}
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                        {TYPOGRAPHY_PRESETS.map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                        ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                        Pixel headings are paired with Geist Mono for dense technical text.
+                        Commit the selected preset to the Git-authored configuration.
+                    </p>
+                </div>
+                <div className="min-w-0 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="rs-template-yaml">Configuration YAML</Label>
+                        <Button size="sm" variant="outline" onClick={() => void copy()}>
+                            <Copy className="mr-1 h-3 w-3" /> {copied ? "Copied" : "Copy YAML"}
+                        </Button>
+                    </div>
+                    <Textarea
+                        id="rs-template-yaml"
+                        value={yaml}
+                        readOnly
+                        className="min-h-36 font-mono text-xs"
+                    />
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
+
 type DetailProps = {
     projectId: string;
     detail: BuildDetail;
@@ -445,6 +587,86 @@ type DetailProps = {
     openBlockers: Finding[];
     onRun: (label: string, action: () => Promise<unknown>, success?: string) => Promise<void>;
 };
+
+function DocumentSheetPreview({
+    projectId,
+    buildId,
+    sheet,
+}: {
+    projectId: string;
+    buildId: string;
+    sheet: DocumentSheet;
+}) {
+    const [objectUrl, setObjectUrl] = useState("");
+    const [failure, setFailure] = useState("");
+
+    useEffect(() => {
+        let revoked = false;
+        let created = "";
+        setObjectUrl("");
+        setFailure("");
+        void api.sheetObjectUrl(projectId, buildId, sheet.key)
+            .then((url) => {
+                if (revoked) {
+                    URL.revokeObjectURL(url);
+                    return;
+                }
+                created = url;
+                setObjectUrl(url);
+            })
+            .catch((cause: unknown) => {
+                if (!revoked) setFailure(cause instanceof Error ? cause.message : String(cause));
+            });
+        return () => {
+            revoked = true;
+            if (created) URL.revokeObjectURL(created);
+        };
+    }, [projectId, buildId, sheet.key]);
+
+    return (
+        <div className="space-y-2 rounded-md border p-3">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium capitalize">{sheet.key.replace(/-/g, " ")}</span>
+                {sheet.svg && (
+                    <span className="font-mono text-xs text-muted-foreground">
+                        {shortDigest(sheet.svg.released_digest)}
+                    </span>
+                )}
+                {sheet.pdf && (
+                    <Button
+                        className="ml-auto"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void api.downloadFile(
+                            api.downloadUrl(
+                                projectId,
+                                `builds/${encodeURIComponent(buildId)}/members/`
+                                    + sheet.pdf!.path.split("/").map(encodeURIComponent).join("/")
+                                    + "?disposition=attachment",
+                            ),
+                            `${sheet.key}.pdf`,
+                        )}
+                    >
+                        <Download className="mr-1 h-3 w-3" /> PDF
+                    </Button>
+                )}
+            </div>
+            {failure && <p className="text-sm text-destructive">{failure}</p>}
+            {!failure && !objectUrl && (
+                <div className="flex min-h-48 items-center justify-center rounded border bg-muted/30">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Loading sheet" />
+                </div>
+            )}
+            {objectUrl && (
+                <img
+                    src={objectUrl}
+                    alt={`${sheet.key} documentation sheet`}
+                    className="max-h-[70vh] w-full rounded border bg-background object-contain"
+                />
+            )}
+        </div>
+    );
+}
 
 function BuildDetailView({
     projectId,
@@ -463,9 +685,34 @@ function BuildDetailView({
     // Track the member by path rather than by object so the viewer follows the
     // same file across a refresh that replaces the member rows.
     const [viewedMemberPath, setViewedMemberPath] = useState("");
+    const [sheets, setSheets] = useState<DocumentSheet[]>([]);
+    const [selectedSheetKey, setSelectedSheetKey] = useState("");
+    const [sheetFailure, setSheetFailure] = useState("");
     const build = detail.build;
     const evaluation = detail.evaluation;
     const viewedMember = detail.members.find((item) => item.path === viewedMemberPath) ?? null;
+    const selectedSheet = sheets.find((item) => item.key === selectedSheetKey) ?? sheets[0] ?? null;
+
+    useEffect(() => {
+        let cancelled = false;
+        setSheets([]);
+        setSelectedSheetKey("");
+        setSheetFailure("");
+        void api.listDocumentSheets(projectId, build.id)
+            .then((items) => {
+                if (cancelled) return;
+                setSheets(items);
+                setSelectedSheetKey(items[0]?.key ?? "");
+            })
+            .catch((cause: unknown) => {
+                if (!cancelled) {
+                    setSheetFailure(cause instanceof Error ? cause.message : String(cause));
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [projectId, build.id]);
 
     return (
         <Card>
@@ -511,6 +758,7 @@ function BuildDetailView({
                 <Tabs defaultValue="evaluation">
                     <TabsList>
                         <TabsTrigger value="evaluation">Evaluation</TabsTrigger>
+                        <TabsTrigger value="documents">Documents ({sheets.length})</TabsTrigger>
                         <TabsTrigger value="members">Members ({detail.members.length})</TabsTrigger>
                         <TabsTrigger value="evidence">Evidence</TabsTrigger>
                         <TabsTrigger value="approvals">Approvals</TabsTrigger>
@@ -548,6 +796,39 @@ function BuildDetailView({
                                 <Separator />
                                 <FindingList findings={evaluation.findings} />
                             </>
+                        )}
+                    </TabsContent>
+
+                    <TabsContent value="documents" className="space-y-3 pt-4">
+                        {sheetFailure && (
+                            <p className="text-sm text-destructive">{sheetFailure}</p>
+                        )}
+                        {!sheetFailure && sheets.length === 0 && (
+                            <p className="text-sm text-muted-foreground">
+                                This build has no composed documentation sheets.
+                            </p>
+                        )}
+                        {sheets.length > 0 && (
+                            <div className="flex flex-wrap gap-2" role="list" aria-label="Document sheets">
+                                {sheets.map((sheet) => (
+                                    <Button
+                                        key={sheet.key}
+                                        size="sm"
+                                        variant={sheet.key === selectedSheet?.key ? "secondary" : "outline"}
+                                        onClick={() => setSelectedSheetKey(sheet.key)}
+                                    >
+                                        <FileImage className="mr-1 h-3 w-3" />
+                                        {sheet.key}
+                                    </Button>
+                                ))}
+                            </div>
+                        )}
+                        {selectedSheet && (
+                            <DocumentSheetPreview
+                                projectId={projectId}
+                                buildId={build.id}
+                                sheet={selectedSheet}
+                            />
                         )}
                     </TabsContent>
 

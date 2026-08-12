@@ -136,7 +136,7 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         (self.closure / "hardware/board.kicad_pcb").write_text("(kicad_pcb)")
         (self.closure / "hardware/board.kicad_sch").write_text("(kicad_sch)")
 
-    def _build(self, stamp: str, plain: str, out_name: str):
+    def _build(self, stamp: str, plain: str, out_name: str, archive_mtime: int = 0):
         output_root = self.root / out_name
         output_root.mkdir()
         outputs = run_step_catalogue(
@@ -159,6 +159,7 @@ class ReleaseStudioDossierTests(unittest.TestCase):
             toolchain_digest="t" * 64,
             build_key="b" * 64,
             config_fragments={"board": "hardware/board.kicad_pcb"},
+            archive_mtime=archive_mtime,
         )
 
     # -- Stage 1 exit criterion 1 ------------------------------------------
@@ -204,6 +205,19 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         self.assertNotIn("manifest_digest", manifest)
         for member in built.members:
             self.assertIn(member.path, names)
+
+    def test_dossier_archive_uses_the_revision_timestamp_when_supplied(self) -> None:
+        stamp = 1_786_447_809
+        built = self._build(
+            "2026-08-11T07:00:00+00:00",
+            "2026-08-11 07:00:00",
+            "revision-time",
+            archive_mtime=stamp,
+        )
+        for payload in (built.dossier_bytes, built.evidence_bytes):
+            with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+                self.assertTrue(archive.getmembers())
+                self.assertTrue(all(info.mtime == stamp for info in archive.getmembers()))
 
     def test_manifest_excludes_every_governance_field(self) -> None:
         built = self._build("2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "a")
@@ -271,6 +285,56 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         self.assertEqual(
             fingerprint("bare_board", built.members), fingerprint("bare_board", mutated)
         )
+
+    def test_board_and_semantic_projection_fidelity_is_reported_honestly(self) -> None:
+        built = self._build("2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "a")
+        common = dict(
+            domain="bare_board",
+            members=built.members,
+            toolchain_digest="t" * 64,
+            normalized_argv={},
+            config_fragments={},
+        )
+        artifact = dossier_module.technical_scope_fingerprint(**common)
+        board = dossier_module.technical_scope_fingerprint(
+            **common, projections={"stackup": {"copper_layer_count": 2}}
+        )
+        semantic = dossier_module.technical_scope_fingerprint(
+            **common,
+            projections={
+                "stackup": {"copper_layer_count": 2},
+                "semantic": {"bare_board": {"nets": [{"name": "GND"}]}},
+            },
+        )
+        self.assertEqual(artifact["fidelity"], "artifact")
+        self.assertEqual(board["fidelity"], "board")
+        self.assertEqual(semantic["fidelity"], "semantic")
+        self.assertEqual(len({artifact["fingerprint"], board["fingerprint"], semantic["fingerprint"]}), 3)
+
+    def test_semantic_projection_excludes_cache_metadata_and_order(self) -> None:
+        from app.release_studio.semantic import semantic_scope_projections
+
+        first = semantic_scope_projections(
+            {
+                "schema": "prism.semantic_index_a0",
+                "generatedAt": "2026-08-11T00:00:00Z",
+                "generator": {"build": "one"},
+                "components": [{"reference": "R2"}, {"reference": "R1"}],
+                "nets": [{"name": "VCC"}, {"name": "GND"}],
+                "terminals": [],
+            }
+        )
+        second = semantic_scope_projections(
+            {
+                "schema": "prism.semantic_index_a0",
+                "generatedAt": "2026-08-12T00:00:00Z",
+                "generator": {"build": "two"},
+                "components": [{"reference": "R1"}, {"reference": "R2"}],
+                "nets": [{"name": "GND"}, {"name": "VCC"}],
+                "terminals": [],
+            }
+        )
+        self.assertEqual(first, second)
 
     def test_dossier_digest_is_order_independent(self) -> None:
         built = self._build("2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "a")

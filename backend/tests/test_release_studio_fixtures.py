@@ -256,7 +256,10 @@ class ReleaseStudioFixtureTests(unittest.TestCase):
         root_entries = {
             path.name for path in support.RELEASE_STUDIO_ROOT.iterdir() if path.is_dir()
         }
-        self.assertEqual(root_entries, {*FIXTURE_NAMES, "cli-recordings"})
+        self.assertEqual(
+            root_entries,
+            {*FIXTURE_NAMES, "cli-recordings", "kicad-conformance"},
+        )
         self.assertEqual(tuple(FIXTURE_NAMES), ("synthetic", "usb-pd", "cynthion"))
 
     def test_every_fixture_has_parseable_local_entrypoints(self) -> None:

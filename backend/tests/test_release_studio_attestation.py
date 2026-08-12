@@ -14,6 +14,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -134,6 +135,13 @@ class AttestationTests(unittest.TestCase):
         self.assertEqual(attestation["audit"]["sequence"], 412)
         self.assertEqual(attestation_digest_of(attestation), attestation["attestation_digest"])
 
+    def test_release_archive_uses_the_signed_release_timestamp(self) -> None:
+        archive, _key, attestation = _release()
+        expected = int(datetime.fromisoformat(attestation["released_at"]).timestamp())
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+            self.assertTrue(tar.getmembers())
+            self.assertTrue(all(info.mtime == expected for info in tar.getmembers()))
+
     def test_verifier_canonical_json_matches_the_production_encoder(self) -> None:
         """The bundled verifier carries its own encoder; it must not drift."""
 
@@ -149,7 +157,7 @@ class OfflineVerificationTests(unittest.TestCase):
     def test_a_genuine_release_verifies(self) -> None:
         archive, key, _ = _release()
         report = verify_module.verify_archive_bytes(
-            archive, trusted_key_ids=(key.key_id,)
+            archive, trusted_keys={key.key_id: key.public_pem}
         )
         self.assertTrue(report.ok, report.render())
         self.assertTrue(
@@ -157,9 +165,11 @@ class OfflineVerificationTests(unittest.TestCase):
         )
 
     def test_untrusted_key_id_is_rejected(self) -> None:
-        archive, _key, _ = _release()
+        archive, key, _ = _release()
         report = verify_module.verify_archive_bytes(
-            archive, trusted_key_ids=("some-other-key",)
+            archive,
+            trusted_keys={key.key_id: key.public_pem},
+            trusted_key_ids=("some-other-key",),
         )
         self.assertFalse(report.ok)
         self.assertTrue(any("is trusted" in message for ok, message in report.checks if not ok))
@@ -184,7 +194,9 @@ class OfflineVerificationTests(unittest.TestCase):
         # ...but cannot produce a matching signature without the private key.
         forged = write_deterministic_archive(entries)
 
-        report = verify_module.verify_archive_bytes(forged, trusted_key_ids=(key.key_id,))
+        report = verify_module.verify_archive_bytes(
+            forged, trusted_keys={key.key_id: key.public_pem}
+        )
         self.assertFalse(report.ok, "a forged approver must not verify")
         failures = [message for ok, message in report.checks if not ok]
         self.assertTrue(
@@ -209,7 +221,8 @@ class OfflineVerificationTests(unittest.TestCase):
         entries["dossier.tar.gz"] = write_deterministic_archive(dossier)
 
         report = verify_module.verify_archive_bytes(
-            write_deterministic_archive(entries), trusted_key_ids=(key.key_id,)
+            write_deterministic_archive(entries),
+            trusted_keys={key.key_id: key.public_pem},
         )
         self.assertFalse(report.ok)
         self.assertTrue(
@@ -219,10 +232,47 @@ class OfflineVerificationTests(unittest.TestCase):
     def test_key_rotation_keeps_old_releases_verifiable(self) -> None:
         old_archive, old_key, _ = _release(key_id="prism-2025-01")
         new_archive, new_key, _ = _release(key_id="prism-2026-08")
-        published = (old_key.key_id, new_key.key_id)
+        published = {
+            old_key.key_id: old_key.public_pem,
+            new_key.key_id: new_key.public_pem,
+        }
         for archive in (old_archive, new_archive):
-            report = verify_module.verify_archive_bytes(archive, trusted_key_ids=published)
+            report = verify_module.verify_archive_bytes(archive, trusted_keys=published)
             self.assertTrue(report.ok, report.render())
+
+    def test_archive_cannot_substitute_key_material_under_a_trusted_id(self) -> None:
+        """A copied key id cannot turn an attacker key into an org key."""
+
+        genuine_archive, genuine_key, _ = _release(key_id="prism-release-2026")
+        del genuine_archive
+        forged_archive, _attacker_key, _ = _release(
+            approver="Krishna",
+            key_id=genuine_key.key_id,
+        )
+
+        report = verify_module.verify_archive_bytes(
+            forged_archive,
+            trusted_keys={genuine_key.key_id: genuine_key.public_pem},
+        )
+
+        self.assertFalse(report.ok, report.render())
+        self.assertTrue(
+            any(
+                not ok and "matches independently trusted" in message
+                for ok, message in report.checks
+            ),
+            report.render(),
+        )
+
+    def test_key_id_without_key_material_is_rejected(self) -> None:
+        archive, key, _ = _release()
+        report = verify_module.verify_archive_bytes(
+            archive, trusted_key_ids=(key.key_id,)
+        )
+        self.assertFalse(report.ok, report.render())
+        self.assertTrue(
+            any("no trusted public key material" in message for _, message in report.checks)
+        )
 
     def test_verifier_runs_standalone_with_no_prism_on_the_path(self) -> None:
         """Extract verify.py from the archive and run it in a bare interpreter."""
@@ -231,13 +281,14 @@ class OfflineVerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "release.tar.gz").write_bytes(archive)
+            (root / "trusted.pem").write_text(key.public_pem, encoding="utf-8")
             with tarfile.open(fileobj=io.BytesIO(archive), mode="r:*") as tar:
                 (root / "verify.py").write_bytes(tar.extractfile("verify.py").read())
                 self.assertIn("VERIFY.md", tar.getnames())
 
             result = subprocess.run(
                 [sys.executable, "verify.py", "release.tar.gz",
-                 "--trusted-key-id", key.key_id, "--json"],
+                 "--trusted-key", f"{key.key_id}=trusted.pem", "--json"],
                 cwd=root,
                 capture_output=True,
                 text=True,

@@ -78,6 +78,8 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "hermetic",
         "non_hermetic_reasons",
         "authored_overrides",
+        "policy_snapshot_captured",
+        "policy_document",
         "created_by",
         "created_at",
         "updated_at",
@@ -287,6 +289,17 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "created_at_iso",
         "created_at",
     },
+    "ws_release_web_shares": {
+        "id",
+        "record_id",
+        "token_digest",
+        "status",
+        "expires_at",
+        "created_by",
+        "created_at",
+        "revoked_by",
+        "revoked_at",
+    },
     "ws_artifact_release_pins": {"artifact_id", "pin_kind", "pin_ref", "created_at"},
 }
 
@@ -310,6 +323,7 @@ EXPECTED_PRIMARY_KEYS = {
     "ws_release_signing_keys": ("key_id",),
     "ws_release_records": ("id",),
     "ws_release_audit_events": ("id",),
+    "ws_release_web_shares": ("id",),
     "ws_artifact_release_pins": ("artifact_id",),
 }
 
@@ -328,12 +342,20 @@ EXPECTED_UNIQUES = {
     ),
     ("ws_release_records", ("project_id", "config_key", "release_label")),
     ("ws_release_records", ("project_id", "config_key", "id")),
+    ("ws_release_web_shares", ("token_digest",)),
 }
 
 
 EXPECTED_FKS = {
     ("ws_release_configurations", ("project_id",), "ws_projects", ("id",), "CASCADE"),
     ("ws_release_candidates", ("project_id",), "ws_projects", ("id",), "CASCADE"),
+    (
+        "ws_release_web_shares",
+        ("record_id",),
+        "ws_release_records",
+        ("id",),
+        "RESTRICT",
+    ),
     (
         "ws_release_candidates",
         ("repository_id",),
@@ -1853,7 +1875,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                     self.conn.commit()
 
 class ReleaseStudioMigrationLadderTests(unittest.TestCase):
-    def test_migration_ladder_remains_ordered_through_migration_10(self) -> None:
+    def test_migration_ladder_remains_ordered_through_web_shares(self) -> None:
         self.assertEqual(
             [(version, name) for version, name, _ in MIGRATIONS],
             [
@@ -1868,6 +1890,7 @@ class ReleaseStudioMigrationLadderTests(unittest.TestCase):
                 (9, "release_studio_hardening"),
                 (10, "release_studio_rule_outcomes"),
                 (11, "release_studio_waiver_exceptions"),
+                (12, "release_studio_web_shares"),
             ],
         )
 

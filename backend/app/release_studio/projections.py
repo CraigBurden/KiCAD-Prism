@@ -1,25 +1,21 @@
-"""Read-only, deterministic projections of KiCad board facts.
+"""Read-only, deterministic projections of authoritative KiCad facts.
 
-R5 deliberately keeps this module at the data boundary.  KiCad owns the board
-statistics schema, while the existing Prism S-expression scanner is used for
-the board stackup and variant declarations.  No function in this module starts
-KiCad, opens a source file for writing, or updates a fixture/check-out.
+KiCad owns the board-statistics schema and ``kicad_monkey`` owns parsing KiCad
+source formats.  This module only normalizes those typed models into the stable
+Release Studio projection schema.  No function starts KiCad, opens a source
+file for writing, or updates a fixture/check-out.
 """
 
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from app.release_studio.canonical import canonicalize_board_stats_json
 from app.release_studio.canonical.json import canonical_json_bytes
-from app.services import semantic_index_service
-
-
 PathLike = str | Path
 JsonValue = Any
 
@@ -99,82 +95,6 @@ def project_board_stats_file(path: PathLike) -> dict[str, Any]:
     return project_board_stats(Path(path))
 
 
-def _iter_named_blocks(text: str, name: str):
-    """Yield balanced named S-expressions using the shared Prism scanner."""
-
-    pattern = re.compile(rf"\({re.escape(name)}(?=\s|\))")
-    for match in pattern.finditer(text):
-        end = semantic_index_service._balanced_s_expression_end(text, match.start())
-        if end is not None:
-            yield text[match.start() : end]
-
-
-def _unescape_quoted(value: str) -> str:
-    return value.replace("\\\"", '"').replace("\\\\", "\\")
-
-
-def _field_atom(block: str, field: str) -> str | None:
-    match = re.search(
-        rf'\({re.escape(field)}\s+(?:"((?:[^"\\]|\\.)*)"|([^\s()]+))\)',
-        block,
-    )
-    if match is None:
-        return None
-    quoted, atom = match.groups()
-    return _unescape_quoted(quoted) if quoted is not None else atom
-
-
-def _field_atoms(block: str, field: str) -> list[str]:
-    match = re.search(rf"\({re.escape(field)}\s+([^)]*)\)", block)
-    if match is None:
-        return []
-    return [
-        _unescape_quoted(quoted) if quoted is not None else atom
-        for quoted, atom in re.findall(
-            r'"((?:[^"\\]|\\.)*)"|([^\s()]+)', match.group(1)
-        )
-        if quoted or atom
-    ]
-
-
-def _property_value(block: str, name: str) -> str | None:
-    match = re.search(
-        rf'\(property\s+"{re.escape(name)}"\s+"((?:[^"\\]|\\.)*)"',
-        block,
-    )
-    return _unescape_quoted(match.group(1)) if match else None
-
-
-def _field_number(block: str, field: str) -> float | None:
-    atom = _field_atom(block, field)
-    if atom is None:
-        return None
-    try:
-        return float(Decimal(atom))
-    except (InvalidOperation, ValueError):
-        return None
-
-
-def _field_decimal(block: str, field: str) -> Decimal | None:
-    atom = _field_atom(block, field)
-    if atom is None:
-        return None
-    try:
-        return Decimal(atom)
-    except (InvalidOperation, ValueError):
-        return None
-
-
-def _boolean_atom(value: str | None) -> bool | None:
-    if value is None:
-        return None
-    if value.lower() in {"yes", "true"}:
-        return True
-    if value.lower() in {"no", "false"}:
-        return False
-    return None
-
-
 def _layer_kind(name: str, layer_type: str | None) -> str:
     type_text = (layer_type or "").casefold().replace("_", " ")
     name_text = name.casefold()
@@ -191,98 +111,30 @@ def _layer_kind(name: str, layer_type: str | None) -> str:
     return "other"
 
 
-def _board_layer_table(text: str) -> list[dict[str, Any]]:
-    layers_block = next(iter(_iter_named_blocks(text, "layers")), None)
-    if layers_block is None:
-        return []
+def _optional_number(value: Any) -> float | None:
+    """Normalize kicad_monkey's zero sentinel for an omitted dimension."""
 
-    layers: list[dict[str, Any]] = []
-    # Board layer-table entries are ``(numeric_id "name" type ["user name"])``.
-    entry_pattern = re.compile(
-        r'\(\s*(\d+)\s+"((?:[^"\\]|\\.)*)"\s+([^\s()]+)'
-        r'(?:\s+"((?:[^"\\]|\\.)*)")?\s*\)'
-    )
-    for match in entry_pattern.finditer(layers_block):
-        ordinal, name, layer_type, user_name = match.groups()
-        layers.append(
-            {
-                "order": len(layers),
-                "layer_id": int(ordinal),
-                "name": _unescape_quoted(name),
-                "type": layer_type,
-                "material": None,
-                "thickness": None,
-                "epsilon_r": None,
-                "loss_tangent": None,
-                "color": None,
-                "user_name": _unescape_quoted(user_name) if user_name else None,
-                "kind": _layer_kind(_unescape_quoted(name), layer_type),
-            }
-        )
-    return layers
+    number = float(value or 0.0)
+    return number if number != 0.0 else None
 
 
-def _stackup_layers(text: str) -> tuple[list[dict[str, Any]], str]:
-    stackup_block = next(iter(_iter_named_blocks(text, "stackup")), None)
-    if stackup_block is None:
-        return _board_layer_table(text), "board.layers"
-
-    layers: list[dict[str, Any]] = []
-    for layer_block in _iter_named_blocks(stackup_block, "layer"):
-        # The first argument of a stackup layer is its quoted name, not a
-        # ``(layer ...)`` field.  The regex below mirrors KiCad's writer while
-        # retaining escaped names.
-        name_match = re.match(r'\(layer\s+"((?:[^"\\]|\\.)*)"', layer_block)
-        if name_match is None:
-            continue
-        layer_name = _unescape_quoted(name_match.group(1))
-        layer_type = _field_atom(layer_block, "type")
-        layers.append(
-            {
-                "order": len(layers),
-                "layer_id": None,
-                "name": layer_name,
-                "type": layer_type,
-                "material": _field_atom(layer_block, "material"),
-                "thickness": _field_number(layer_block, "thickness"),
-                "epsilon_r": _field_number(layer_block, "epsilon_r"),
-                "loss_tangent": _field_number(layer_block, "loss_tangent"),
-                "color": _field_atom(layer_block, "color"),
-                "user_name": None,
-                "kind": _layer_kind(layer_name, layer_type),
-            }
-        )
-    return layers, "board.setup.stackup"
-
-
-def _general_thickness(text: str) -> float | None:
-    general = next(iter(_iter_named_blocks(text, "general")), None)
-    return _field_number(general, "thickness") if general else None
-
-
-def _via_type(block: str) -> str:
-    match = re.match(r"\(via(?:\s+(blind|buried|micro))?(?=\s|\))", block)
-    return match.group(1) if match and match.group(1) else "through"
-
-
-def _drill_span(block: str, field: str) -> dict[str, Any] | None:
-    drill_block = next(iter(_iter_named_blocks(block, field)), None)
-    if drill_block is None:
+def _drill_span(drill: Any) -> dict[str, Any] | None:
+    if not drill:
         return None
-    layers = _field_atoms(drill_block, "layers")
+    layers = getattr(drill, "layers", None)
     return {
-        "size": _field_number(drill_block, "size"),
-        "start_layer": layers[0] if len(layers) >= 1 else None,
-        "stop_layer": layers[1] if len(layers) >= 2 else None,
+        "size": getattr(drill, "size", None),
+        "start_layer": getattr(layers, "start", None) or None,
+        "stop_layer": getattr(layers, "end", None) or None,
     }
 
 
 def _via_span_record(
-    block: str,
+    via: Any,
     copper_layers: list[str],
 ) -> dict[str, Any]:
-    via_type = _via_type(block)
-    layers = _field_atoms(block, "layers")
+    via_type = getattr(via, "via_type", None) or "through"
+    layers = list(getattr(via, "layers", ()) or ())
     start_layer = layers[0] if len(layers) >= 1 else None
     stop_layer = layers[1] if len(layers) >= 2 else None
     if start_layer in copper_layers and stop_layer in copper_layers:
@@ -298,8 +150,8 @@ def _via_span_record(
         "stop_layer": stop_layer,
         "span_layers": span_layers,
         "span_layer_count": len(span_layers) if span_layers is not None else None,
-        "backdrill": _drill_span(block, "backdrill"),
-        "tertiary_drill": _drill_span(block, "tertiary_drill"),
+        "backdrill": _drill_span(getattr(via, "backdrill", None)),
+        "tertiary_drill": _drill_span(getattr(via, "tertiary_drill", None)),
     }
 
 
@@ -329,13 +181,13 @@ def _via_sort_key(record: dict[str, Any], copper_layers: list[str]) -> tuple[Any
 
 
 def _group_via_spans(
-    text: str,
+    vias: list[Any],
     copper_layers: list[str],
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
     counts = {via_type: 0 for via_type in _VIA_TYPES}
-    for via_block in _iter_named_blocks(text, "via"):
-        record = _via_span_record(via_block, copper_layers)
+    for via in vias:
+        record = _via_span_record(via, copper_layers)
         via_type = record["via_type"]
         if via_type in counts:
             counts[via_type] += 1
@@ -379,11 +231,65 @@ def _empty_stackup() -> dict[str, Any]:
         "settings": {
             "copper_finish": None,
             "dielectric_constraints": None,
+            "edge_connector": None,
+            "edge_plating": None,
         },
         "via_count": 0,
         "via_type_counts": {via_type: 0 for via_type in _VIA_TYPES},
         "via_spans": [],
     }
+
+
+def _load_pcb_projection_model(board_path: PathLike) -> tuple[Any, str | None]:
+    """Load only the typed board facts this projection owns.
+
+    Some released ``kicad_monkey`` versions reject KiCad 9/10 footprint text
+    positions containing the valid trailing ``unlocked`` token.  A stackup
+    projection must not depend on parsing unrelated footprint graphics, so the
+    fallback still uses kicad_monkey's parser and component models but builds
+    only ``Layer``, ``Stackup``, and ``Via`` objects from the authoritative
+    S-expression tree.
+    """
+
+    from kicad_monkey import (
+        KiCadPcb,
+        Layer,
+        Via,
+        find_all_elements,
+        find_element,
+        get_value,
+        parse_sexp,
+    )
+    from kicad_monkey.kicad_pcb_other import Stackup
+
+    try:
+        return KiCadPcb.from_file(board_path), None
+    except (IndexError, TypeError, ValueError) as exc:
+        root = parse_sexp(_read_text(board_path))
+        if not isinstance(root, list) or not root or root[0] != "kicad_pcb":
+            raise ValueError("expected a kicad_pcb S-expression")
+
+        layer_table = find_element(root, "layers")
+        layers = [
+            Layer.from_sexp(item)
+            for item in (layer_table[1:] if layer_table else ())
+            if isinstance(item, list)
+        ]
+        setup = find_element(root, "setup")
+        stackup_node = find_element(setup, "stackup") if setup else None
+        stackup = Stackup.from_sexp(stackup_node) if stackup_node else None
+        vias = [Via.from_sexp(item) for item in find_all_elements(root, "via")]
+        general = find_element(root, "general")
+        thickness = float(get_value(general, "thickness", 0.0) or 0.0)
+        return (
+            SimpleNamespace(
+                layers=layers,
+                stackup=stackup,
+                vias=vias,
+                thickness=thickness,
+            ),
+            f"{type(exc).__name__}: {exc}",
+        )
 
 
 def project_stackup(board_path: PathLike) -> dict[str, Any]:
@@ -395,8 +301,50 @@ def project_stackup(board_path: PathLike) -> dict[str, Any]:
     ``None`` rather than being inferred from a generic board thickness.
     """
 
-    text = _read_text(board_path)
-    layers, source = _stackup_layers(text)
+    pcb, fallback_reason = _load_pcb_projection_model(board_path)
+    stackup = getattr(pcb, "stackup", None)
+    model_source = "board.setup.stackup" if stackup is not None else "board.layers"
+    source = "kicad_monkey.fallback" if fallback_reason else model_source
+    if stackup is not None:
+        layers = [
+            {
+                "order": order,
+                "layer_id": None,
+                "name": str(getattr(layer, "name", "") or ""),
+                "type": str(getattr(layer, "type_name", "") or "") or None,
+                "material": getattr(layer, "material", None),
+                "thickness": _optional_number(getattr(layer, "thickness", None)),
+                "epsilon_r": getattr(layer, "epsilon_r", None),
+                "loss_tangent": getattr(layer, "loss_tangent", None),
+                "color": getattr(layer, "color", None),
+                "user_name": None,
+                "kind": _layer_kind(
+                    str(getattr(layer, "name", "") or ""),
+                    str(getattr(layer, "type_name", "") or ""),
+                ),
+            }
+            for order, layer in enumerate(getattr(stackup, "layers", ()) or ())
+        ]
+    else:
+        layers = [
+            {
+                "order": order,
+                "layer_id": int(layer.ordinal),
+                "name": str(layer.canonical_name),
+                "type": str(getattr(layer.layer_type, "value", layer.layer_type)),
+                "material": None,
+                "thickness": None,
+                "epsilon_r": None,
+                "loss_tangent": None,
+                "color": None,
+                "user_name": layer.user_name,
+                "kind": _layer_kind(
+                    str(layer.canonical_name),
+                    str(getattr(layer.layer_type, "value", layer.layer_type)),
+                ),
+            }
+            for order, layer in enumerate(getattr(pcb, "layers", ()) or ())
+        ]
     if not layers:
         return _empty_stackup()
 
@@ -405,7 +353,7 @@ def project_stackup(board_path: PathLike) -> dict[str, Any]:
         layer["name"] for layer in layers if layer["kind"] == "dielectric"
     ]
     thickness_values = [
-        Decimal(str(layer["thickness"]))
+        float(layer["thickness"])
         for layer in layers
         if layer["kind"] in {"copper", "dielectric", "mask"}
         and layer["thickness"] is not None
@@ -418,29 +366,45 @@ def project_stackup(board_path: PathLike) -> dict[str, Any]:
     thickness_complete = bool(physical_layers) and all(
         layer["thickness"] is not None for layer in physical_layers
     )
-    total_thickness = (
-        float(sum(thickness_values, Decimal("0"))) if thickness_complete else None
-    )
+    total_thickness = float(sum(thickness_values)) if thickness_complete else None
 
-    stackup_block = next(iter(_iter_named_blocks(text, "stackup")), None)
-    copper_finish = _field_atom(stackup_block, "copper_finish") if stackup_block else None
+    copper_finish = getattr(stackup, "copper_finish", None) if stackup else None
+    # KiCad writes the literal finish label "None" for an explicitly selected
+    # no-finish option.  Some kicad_monkey versions normalize that spelling to
+    # Python None; retain the stable Release Studio label for a present stackup.
+    if stackup is not None and copper_finish is None:
+        copper_finish = "None"
     dielectric_constraints = (
-        _boolean_atom(_field_atom(stackup_block, "dielectric_constraints"))
-        if stackup_block
+        bool(getattr(stackup, "dielectric_constraints", False))
+        if stackup is not None
         else None
     )
-    via_spans, via_type_counts = _group_via_spans(text, copper_layers)
+    raw_edge_connector = getattr(stackup, "edge_connector", None) if stackup else None
+    edge_connector_value = getattr(raw_edge_connector, "value", raw_edge_connector)
+    edge_connector = (
+        None if edge_connector_value in {None, "", "none"} else str(edge_connector_value)
+    )
+    edge_plating = (
+        bool(getattr(stackup, "edge_plating", False))
+        if stackup is not None
+        else None
+    )
+    via_spans, via_type_counts = _group_via_spans(
+        list(getattr(pcb, "vias", ()) or ()), copper_layers
+    )
     return {
         "schema": "prism.release_studio.stackup.a0",
-        "present": source == "board.setup.stackup",
+        "present": stackup is not None,
         "source": source,
+        "source_detail": model_source,
+        "fallback_reason": fallback_reason,
         "units": "mm",
         "layers": layers,
         "copper_layers": copper_layers,
         "dielectric_layers": dielectric_layers,
         "copper_layer_count": len(copper_layers),
         "dielectric_layer_count": len(dielectric_layers),
-        "board_thickness": _general_thickness(text),
+        "board_thickness": float(getattr(pcb, "thickness", 0.0) or 0.0) or None,
         "total_thickness": total_thickness,
         "total_thickness_status": (
             "available" if thickness_complete else "partial" if thickness_values else "unsupported"
@@ -451,6 +415,8 @@ def project_stackup(board_path: PathLike) -> dict[str, Any]:
         "settings": {
             "copper_finish": copper_finish,
             "dielectric_constraints": dielectric_constraints,
+            "edge_connector": edge_connector,
+            "edge_plating": edge_plating,
         },
         "via_count": sum(via_type_counts.values()),
         "via_type_counts": via_type_counts,
@@ -492,121 +458,78 @@ def _merge_declaration_names(
     return [by_name[name] for name in by_name]
 
 
-def _board_variant_declarations(text: str) -> list[dict[str, Any]]:
-    declarations: list[dict[str, Any]] = []
-    catalog = next(iter(_iter_named_blocks(text, "variants")), None)
-    if catalog is not None:
-        for variant_block in _iter_named_blocks(catalog, "variant"):
-            name = _field_atom(variant_block, "name")
-            if not name:
-                continue
-            declarations.append(
-                _variant_declaration(
-                    name,
-                    _field_atom(variant_block, "description"),
-                    _boolean_atom(
-                        _field_atom(variant_block, "is_default")
-                        or _field_atom(variant_block, "default")
-                    ),
-                )
-            )
-
+def _variant_assignments(overrides: Any) -> dict[str, dict[str, bool]]:
     assignments: dict[str, dict[str, bool]] = {}
-    for footprint_block in _iter_named_blocks(text, "footprint"):
-        reference = _property_value(footprint_block, "Reference")
-        if reference is None:
-            reference_match = re.search(
-                r'\(fp_text\s+reference\s+"((?:[^"\\]|\\.)*)"', footprint_block
-            )
-            reference = (
-                _unescape_quoted(reference_match.group(1))
-                if reference_match
-                else None
-            )
+    for override in overrides:
+        name = str(getattr(override, "variant_name", "") or "")
+        reference = str(getattr(override, "reference", "") or "")
+        dnp = getattr(override, "dnp", None)
+        if name and reference and dnp is not None:
+            assignments.setdefault(name, {})[reference] = bool(dnp)
+    return assignments
+
+
+def _footprint_reference(footprint: Any) -> str:
+    get_property = getattr(footprint, "get_property_value", None)
+    if callable(get_property):
+        reference = str(get_property("Reference") or "")
+        if reference:
+            return reference
+    for text in getattr(footprint, "fp_texts", ()) or ():
+        if getattr(text, "text_type", None) == "reference":
+            return str(getattr(text, "text", "") or "")
+    return ""
+
+
+def _board_variant_declarations(pcb: Any) -> list[dict[str, Any]]:
+    from kicad_monkey import VariantCatalog
+
+    catalog = VariantCatalog.from_pcb(pcb)
+    declarations = [
+        _variant_declaration(variant.name, variant.description, None)
+        for variant in catalog
+        if variant.name
+    ]
+    assignments: dict[str, dict[str, bool]] = {}
+    # ``collect_footprint_overrides`` in older supported kicad_monkey releases
+    # cannot recover references from legacy fp_text-only footprints.  Reading
+    # the typed footprint objects directly keeps the parser boundary in the
+    # library while preserving those designators.
+    for footprint in getattr(pcb, "footprints", ()) or ():
+        reference = _footprint_reference(footprint)
         if not reference:
             continue
-        for variant_block in _iter_named_blocks(footprint_block, "variant"):
-            name = _field_atom(variant_block, "name")
-            dnp = _boolean_atom(_field_atom(variant_block, "dnp"))
+        for override in getattr(footprint, "variants", ()) or ():
+            name = str(getattr(override, "name", "") or "")
+            dnp = getattr(override, "dnp", None)
             if name and dnp is not None:
-                assignments.setdefault(name, {})[reference] = dnp
+                assignments.setdefault(name, {})[reference] = bool(dnp)
     return _merge_declaration_names(declarations, assignments)
 
 
-def _project_variant_declarations(project_path: PathLike | None) -> list[dict[str, Any]]:
-    if project_path is None:
+def _project_variant_declarations(project: Any | None) -> list[dict[str, Any]]:
+    if project is None:
         return []
-    payload = _read_json_source(Path(project_path))
-    schematic = payload.get("schematic")
-    if not isinstance(schematic, Mapping):
-        return []
-    raw_variants = schematic.get("variants")
-    if raw_variants is None:
-        return []
-    if not isinstance(raw_variants, list):
-        raise ValueError("project schematic.variants must be a list")
+    from kicad_monkey import VariantCatalog
 
-    declarations: list[dict[str, Any]] = []
-    for index, raw_variant in enumerate(raw_variants):
-        if not isinstance(raw_variant, Mapping):
-            raise ValueError(f"project schematic.variants[{index}] must be an object")
-        name = raw_variant.get("name")
-        if not isinstance(name, str) or not name:
-            raise ValueError(f"project schematic.variants[{index}].name must be non-empty")
-        description = raw_variant.get("description")
-        if description is not None and not isinstance(description, str):
-            raise ValueError(
-                f"project schematic.variants[{index}].description must be a string"
-            )
-        explicit_default = raw_variant.get("is_default", raw_variant.get("default"))
-        if explicit_default is not None and not isinstance(explicit_default, bool):
-            raise ValueError(
-                f"project schematic.variants[{index}].default must be boolean"
-            )
-        declarations.append(
-            _variant_declaration(name, description, explicit_default)
-        )
-    return _dedupe_declarations(declarations)
-
-
-def _schematic_variant_declarations(schematic_path: PathLike | None) -> list[dict[str, Any]]:
-    if schematic_path is None:
-        return []
-    text = _read_text(schematic_path)
-    assignments: dict[str, dict[str, bool]] = {}
-    names: list[str] = []
-    for path_block in _iter_named_blocks(text, "path"):
-        reference = _field_atom(path_block, "reference")
-        for variant_block in _iter_named_blocks(path_block, "variant"):
-            name = _field_atom(variant_block, "name")
-            if not name:
-                continue
-            if name not in names:
-                names.append(name)
-            dnp = _boolean_atom(_field_atom(variant_block, "dnp"))
-            if reference and dnp is not None:
-                assignments.setdefault(name, {})[reference] = dnp
     return [
-        _variant_declaration(name, None, None, assignments.get(name)) for name in names
+        _variant_declaration(variant.name, variant.description, None)
+        for variant in VariantCatalog.from_project(project)
+        if variant.name
     ]
 
 
-def _dedupe_declarations(declarations: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_name: dict[str, dict[str, Any]] = {}
-    for declaration in declarations:
-        name = declaration["name"]
-        if name not in by_name:
-            by_name[name] = declaration
-            continue
-        current = by_name[name]
-        if current["description"] is None:
-            current["description"] = declaration["description"]
-        current["assignments"].update(declaration["assignments"])
-        current["assignments"] = {
-            reference: current["assignments"][reference]
-            for reference in sorted(current["assignments"])
-        }
-    return list(by_name.values())
+def _schematic_variant_declarations(schematic: Any | None) -> list[dict[str, Any]]:
+    if schematic is None:
+        return []
+    from kicad_monkey import VariantCatalog, collect_symbol_overrides
+
+    assignments = _variant_assignments(collect_symbol_overrides(schematic))
+    return [
+        _variant_declaration(variant.name, variant.description, None, assignments.get(variant.name))
+        for variant in VariantCatalog.from_overrides(schematic=schematic)
+        if variant.name
+    ]
 
 
 def _declaration_map(declarations: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -673,9 +596,18 @@ def project_variants(
     default markers, and shared board/schematic DNP assignments.
     """
 
-    board_declarations = _board_variant_declarations(_read_text(board_path))
-    project_declarations = _project_variant_declarations(project_path)
-    schematic_declarations = _schematic_variant_declarations(schematic_path)
+    from kicad_monkey import KiCadPcb, KiCadProject, KiCadSchematic
+
+    pcb = KiCadPcb.from_file(board_path)
+    project = KiCadProject.from_file(project_path) if project_path is not None else None
+    schematic = (
+        KiCadSchematic.from_file(schematic_path)
+        if schematic_path is not None
+        else None
+    )
+    board_declarations = _board_variant_declarations(pcb)
+    project_declarations = _project_variant_declarations(project)
+    schematic_declarations = _schematic_variant_declarations(schematic)
     declarations_by_source = {
         "board": board_declarations,
         "project": project_declarations,
