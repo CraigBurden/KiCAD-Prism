@@ -106,10 +106,10 @@ What that costs concretely, discovered while building the JTYU-OBC sheets:
   Prism now omits the 374 designators that fall below 1.0 mm and states the
   count; Draftsman would let a drafter place magnified detail views of the
   dense regions. This is the honest-but-inferior outcome.
-- **No dimensions or callouts.** Prism draws no dimension lines at all. A
-  fabrication drawing without dimensions relies entirely on the Gerber/Excellon
-  set being authoritative — which the note block says explicitly, but which is
-  weaker than a dimensioned drawing.
+- **No dimensions or callouts.** Closed for overall board dimensions: the
+  fabrication sheet now draws width/height from board statistics (renderer
+  `d10`). Authored callouts, detail views, and section views remain out of
+  scope — Prism is a document generator, not a draftsman editor.
 - **No user-placed views.** Sheet composition is by template only.
 
 ### 4. Lifecycle states and approval routing (feature depth)

@@ -76,7 +76,6 @@ def preferred_scale(view_width: float, view_height: float, window: "Rect") -> fl
     return min(window.width / view_width, window.height / view_height)
 
 Anchor = Literal["start", "middle", "end"]
-Baseline = Literal["alphabetic", "central"]
 Family = Literal["display", "sans", "mono"]
 
 
@@ -148,13 +147,9 @@ class Text:
     family: Family = "sans"
     bold: bool = False
     colour: str = "#000000"
-    #: Degrees clockwise about ``(x, y)``.  Assembly designators on tall parts
-    #: are set along the part, which is the only reason this is not always zero.
+    #: Degrees clockwise about ``(x, y)``.  A dimension reads along its own
+    #: line, which is the only reason this is not always zero.
     rotation: float = 0.0
-    #: ``"alphabetic"`` puts the baseline at ``y``; ``"central"`` centres the
-    #: cap height on it, which is what a designator sitting inside a component
-    #: footprint needs.
-    baseline: Baseline = "alphabetic"
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,23 +159,6 @@ class Polyline:
     colour: str = "#000000"
     fill: str = "none"
     close: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class Circle:
-    """A filled or stroked disc.
-
-    Drills are the reason this exists rather than being flattened into a
-    polygon: a hole is round, and a released drawing that shows a 64-gon where
-    the fabricator expects a circle invites the wrong question.
-    """
-
-    cx: float
-    cy: float
-    r: float
-    width: float = 0.0
-    colour: str = "#000000"
-    fill: str = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,7 +180,7 @@ class Artwork:
     label: str = ""
 
 
-Element = Line | Rectangle | Text | Polyline | Circle | Artwork
+Element = Line | Rectangle | Text | Polyline | Artwork
 
 
 @dataclass(frozen=True, slots=True)

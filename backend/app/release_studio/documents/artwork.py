@@ -267,8 +267,8 @@ def acquire_assembly_view(
     config_path: Path | None = None,
     runner=subprocess.run,
     timeout_seconds: int = 900,
-) -> str:
-    """Render one assembly view with ``kicad-cruncher pcb-svg``; return its SVG.
+) -> AcquiredArtwork:
+    """Render one assembly view with ``kicad-cruncher pcb-svg``.
 
     KiCad's ``F.Fab`` layer is authored per footprint, so plotting it faithfully
     reproduces whatever size and offset each library chose -- on a dense board
@@ -276,6 +276,12 @@ def acquire_assembly_view(
     density does not change with scale.  Cruncher instead fits exactly one
     designator into each component's own bounds over a hidden-line-removed
     outline, which is the drawing an assembler actually uses.
+
+    Cruncher's SVG is placed exactly as it was emitted, which is why this
+    returns the same :class:`AcquiredArtwork` a ``kicad-cli`` plot does: the
+    assembly view then travels the one placement path every other view uses.
+    The PDF is that same document rendered by cairo, so both serializations of
+    the sheet carry Cruncher's drawing rather than an interpretation of it.
 
     Loading a large board can take the better part of a minute, hence the
     generous timeout; it is bounded so a wedged render fails the sheet rather
@@ -315,7 +321,40 @@ def acquire_assembly_view(
     found = sorted((workdir / "views").glob(f"*__{view}.svg"))
     if not found:
         raise ArtworkError(f"kicad-cruncher produced no {view}")
-    return found[0].read_text(encoding="utf-8")
+
+    svg_text = found[0].read_text(encoding="utf-8")
+    x, y, width, height = extents(svg_text)
+    return AcquiredArtwork(
+        layers=(f"Assembly.{side.capitalize()}",),
+        svg_text=svg_text,
+        pdf_bytes=render_pdf_page(svg_text),
+        view_x=x,
+        view_y=y,
+        view_width=width,
+        view_height=height,
+        digest=hashlib.sha256(svg_text.encode("utf-8")).hexdigest(),
+        # The rendered page *is* the view: cairo sizes it from the SVG's own
+        # viewport, so the artwork's top-left is the page's top-left.
+        page_offset_x=0.0,
+        page_offset_y=0.0,
+    )
+
+
+def render_pdf_page(svg_text: str) -> bytes:
+    """Render *svg_text* to a one-page PDF whose page is the SVG's viewport.
+
+    Used where the producing tool emits SVG only.  cairo draws the document it
+    is given -- paths stay paths and text stays text -- so this is a change of
+    container, not of content, and the PDF sheet shows the same drawing the SVG
+    sheet does.
+    """
+
+    import cairosvg
+
+    try:
+        return cairosvg.svg2pdf(bytestring=svg_text.encode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - any cairo failure is one failure here
+        raise ArtworkError(f"the assembly view could not be rendered to PDF: {exc}") from exc
 
 
 def acquire_drill_map(

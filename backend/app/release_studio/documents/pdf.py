@@ -19,7 +19,6 @@ from fontTools.ttLib import TTFont
 
 from app.release_studio.documents.fonts import (
     FontAsset,
-    cap_height,
     is_newstroke,
     newstroke_polylines,
     newstroke_width,
@@ -28,7 +27,6 @@ from app.release_studio.documents.fonts import (
 )
 from app.release_studio.documents.layout import (
     Artwork,
-    Circle,
     Line,
     Polyline,
     Rectangle,
@@ -146,19 +144,6 @@ def _anchor_offset(anchor: str, width: float) -> float:
     return 0.0
 
 
-def _circle_ops(cx: float, cy: float, r: float) -> list[str]:
-    """A disc as four cubic Béziers -- the standard circle approximation."""
-
-    k = r * 0.5522847498307936
-    return [
-        f"{_pt(cx + r)} {_pt(cy)} m",
-        f"{_pt(cx + r)} {_pt(cy + k)} {_pt(cx + k)} {_pt(cy + r)} {_pt(cx)} {_pt(cy + r)} c",
-        f"{_pt(cx - k)} {_pt(cy + r)} {_pt(cx - r)} {_pt(cy + k)} {_pt(cx - r)} {_pt(cy)} c",
-        f"{_pt(cx - r)} {_pt(cy - k)} {_pt(cx - k)} {_pt(cy - r)} {_pt(cx)} {_pt(cy - r)} c",
-        f"{_pt(cx + k)} {_pt(cy - r)} {_pt(cx + r)} {_pt(cy - k)} {_pt(cx + r)} {_pt(cy)} c",
-    ]
-
-
 def _paint_operator(ops: list[str], colour: str, fill: str, *, close: bool) -> str:
     """Set the colours a shape paints with and return its painting operator."""
 
@@ -269,22 +254,8 @@ def render_pdf(sheet: Sheet) -> bytes:
                 for px, py in element.points[1:]:
                     ops.append(f"{_pt(x(px))} {_pt(y(py))} l")
                 ops.append(painter)
-        elif isinstance(element, Circle):
-            ops.append(f"{_pt(element.width * MM_TO_PT)} w")
-            painter = _paint_operator(ops, element.colour, element.fill, close=True)
-            ops.extend(
-                _circle_ops(x(element.cx), y(element.cy), element.r * MM_TO_PT)
-            )
-            ops.append(painter)
         elif isinstance(element, Text):
             baseline = element.y
-            if element.baseline == "central":
-                baseline += cap_height(
-                    element.size,
-                    role=element.family,
-                    bold=element.bold,
-                    typography=sheet.typography,
-                ) / 2.0
             # A rotated run is drawn by rotating the page about the run's anchor
             # and then drawing it as if it were level, so the vector and glyph
             # paths below need no rotation logic of their own.

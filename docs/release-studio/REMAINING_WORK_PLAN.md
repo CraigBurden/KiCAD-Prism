@@ -1,10 +1,9 @@
 # Release Studio — remaining work
 
-Branch `feature/release-studio` · reconciled 2026-08-12 after the P0/P1/P2 pass
+Branch `feature/release-studio` · reconciled 2026-08-12 after place-as-is + dimensions
 
 Everything from the previous revision of this plan has landed except where
-noted below. What follows is what is *left*, plus one finding discovered while
-implementing P0-1 that changes what the assembly sheets can currently show.
+noted below.
 
 ---
 
@@ -38,27 +37,20 @@ upstream in Cruncher. Either way the *fallback must stop being silent*: record
 the projection mix per view and raise a build warning when a view falls back to
 `pad_bounds`, the same way the kicad_monkey stackup fallback now does.
 
-### B. Fabrication sheets carry no dimensions
-
-Prism draws no dimension lines. The note block states that the Gerber/Excellon
-set is authoritative, which is honest, but a fabrication drawing without
-dimensions is weaker than one with them. See `ALTIUM_PARITY.md` — this is the
-single most visible gap against Draftsman and the most tractable to close.
-
-### C. Dense boards omit designators rather than zoning the drawing
+### B. Dense boards omit designators rather than zoning the drawing
 
 A 982-component 285 mm board cannot show every designator legibly at any ratio;
-density is scale-invariant. The sheet now drops designators below 1.0 mm and
-states the count (374 omitted on JTYU-OBC top). The real answer is
-template-driven detail views — grid the board, emit a magnified sheet per dense
-zone — which is drafting automation, not a canvas editor.
+density is scale-invariant. The real answer is template-driven detail views —
+grid the board, emit a magnified sheet per dense zone — which is drafting
+automation, not a canvas editor. Cruncher already fits designators; Prism
+places that view as-is and no longer re-filters them.
 
-### D. Stage 2 exit criteria not yet run
+### C. Stage 2 exit criteria not yet run
 
 The 50.000 mm scale oracle still skips without a live `kicad-cli`, and there is
 no reproducibility matrix over composed sheets across separate checkouts.
 
-### E. Smaller
+### D. Smaller
 
 - **`PublicReleaseView` never renders `expires_at`** though it types and
   fetches it, and a revoked share stays visible until reload.
@@ -76,42 +68,23 @@ no reproducibility matrix over composed sheets across separate checkouts.
 
 ## Landed in this pass
 
-**P0-1 — Cruncher assembly views.** `assembly-top`/`assembly-bottom` no longer
-plot KiCad's `F.Fab` layer. They come from `kicad-cruncher pcb-svg` through a
-checked-in Prism-owned `pcb-svg.config.json`, and are *ingested* into the
-layout model rather than inlined, so the SVG and PDF renderings cannot diverge
-and designators are set in the bundled, digest-checked face instead of the
-reader's `Consolas, monospace`. New `documents/vector.py` parses a deliberately
-closed SVG vocabulary and refuses anything outside it. Cruncher's config digest
-feeds `toolchain_digest` via `renderer_resource_digest()`.
+**P0-1 — Cruncher assembly views, place-as-is.** Assembly sheets place
+`kicad-cruncher pcb-svg` output as opaque artwork (SVG + cairo PDF). The ingest
+layer (`documents/vector.py`) is gone.
 
-**P0-2 — manifest bloat.** The manifest carried 10.5 MB of raw projections
-(99.9% of it). It now carries `projection_digests` only; the full text lives in
-build-evidence, and the facts a re-evaluation needs are recorded once per build
-in `ws_release_build_projections` rather than three times inside fingerprint
-inputs. `GENERATOR_BUILD` bumped to `r23` so the build key moves with it.
+**P0-2 — Lean manifests.** Manifest carries `projection_digests` only; full
+projection text lives in build-evidence / `ws_release_build_projections`.
 
-**P1 — five sheet defects.** Proportional cell gutter; table columns claim the
-width the placed artwork does not need; one scale for the whole set; the cover
-no longer claims to list bytes it omits; an empty VARIANTS table states the
-fact instead of drawing a header over nothing.
+**P0-3 — Fabrication dimensions.** Overall width (below) and height (left) are
+drawn from board statistics, using KiCad's own millimetre labels so they match
+the characteristics table. Renderer `d10`.
 
-**P2** — migration ladder collapsed to a single M8 (verified by diffing the
-`pg_dump` catalog of M1–M12 against M1–M8: the only differences are the two
-intentional additions); candidate policy-snapshot immutability trigger;
-kicad_monkey fallback now logs what it stepped over; public archive
-verification cached by `attestation_digest`; policy authoring writes its own
-hash-chained audit stream with a linkage verifier; embedded fonts subset to the
-glyphs each sheet sets (sheets went from ~400 KB to ~60–74 KB);
-`executor_image()` fails instead of returning `""`.
+**P0-4 — Bundle provenance.** `docs/release-studio/BUNDLE.md` documents the
+signed archive layout and where `released_by` / `released_at` live (attestation
+only; never inside technical digests).
 
-**Admin blocker override.** Documentation always builds regardless of
-evaluation. Releasing over open blockers is admin-only, refuses without a
-stated reason, refuses on a clean build, names every finding it steps over
-inside the *signed* attestation, and emits its own `release.blockers_overridden`
-audit event. The offline verifier surfaces it as a NOTE — the archive is
-genuinely signed, so failing it would be false; what a recipient needs is to be
-told.
-
-Renderer `d9`; goldens re-recorded and verified stable across two runs under
-the 2026.8.11 image.
+**Also earlier on this branch.** Admin blocker override; migration ladder
+collapse; candidate policy-snapshot immutability; kicad_monkey fallback
+logging; public archive verification cache; policy authoring audit stream;
+font subsetting; `executor_image()` fails closed; one scale for the whole set;
+table columns claim width the board does not need.

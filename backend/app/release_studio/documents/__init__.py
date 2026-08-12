@@ -48,8 +48,9 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
-#: d9 -- assembly views come from `kicad-cruncher pcb-svg` and are ingested
-#: into the layout model rather than plotted from `F.Fab`; one scale for the
+#: d10 -- fabrication sheets carry overall width/height dimensions from board
+#: statistics; assembly views are placed as Cruncher emitted them (no ingest).
+#: d9 -- assembly views come from `kicad-cruncher pcb-svg`; one scale for the
 #: whole set; table columns claim the width the board does not need; the cell
 #: gutter is proportional to the drawn font; the cover states what it lists.
 #: d8 -- Geist is the default face again; it reads better than a single-weight
@@ -58,7 +59,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d9"
+RENDERER_VERSION = "release-studio-documents/d10"
 
 __all__ = [
     "ARTWORK_LAYERS",

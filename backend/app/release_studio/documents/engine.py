@@ -32,11 +32,6 @@ from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_pr
 from app.release_studio.documents.layout import Rect, Sheet
 from app.release_studio.documents.pdf import render_pdf
 from app.release_studio.documents.svg import render_svg
-from app.release_studio.documents.vector import (
-    VectorDrawing,
-    VectorIngestError,
-    ingest_svg,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +106,7 @@ def compose(
     typography: str = DEFAULT_TYPOGRAPHY,
     acquirer: Callable[..., AcquiredArtwork] | None = None,
     drill_acquirer: Callable[..., AcquiredArtwork] | None = None,
-    assembly_acquirer: Callable[..., str] | None = None,
+    assembly_acquirer: Callable[..., AcquiredArtwork] | None = None,
 ) -> DocumentSet:
     """Compose the full document set.
 
@@ -126,7 +121,7 @@ def compose(
     typography_preset(typography)
     warnings: list[str] = []
     art: dict[str, AcquiredArtwork] = {}
-    assembly: dict[str, VectorDrawing] = {}
+    assembly: dict[str, AcquiredArtwork] = {}
 
     substitutions = note_templates.substitution_context(context, fields=fields, stats=stats)
     sheet_notes, note_warnings = note_templates.resolve_notes(
@@ -167,10 +162,10 @@ def compose(
         render = assembly_acquirer or acquire_assembly_view
         for side in ASSEMBLY_SIDES:
             try:
-                assembly[side] = ingest_svg(
-                    render(cruncher_path, board, side, workdir / f"assembly-{side}")
+                assembly[side] = render(
+                    cruncher_path, board, side, workdir / f"assembly-{side}"
                 )
-            except (ArtworkError, VectorIngestError, OSError) as exc:
+            except (ArtworkError, OSError) as exc:
                 # An assembly sheet without its view still carries the population
                 # table and states the absence; it never silently falls back to
                 # the F.Fab plot this replaced, because that plot is the defect.
@@ -222,11 +217,14 @@ def compose(
             context, side, assembly.get(side), placements, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
         )
-        # Ingested artwork is already part of the sheet's own element list, so
-        # there is nothing to composite into the PDF afterwards.
         _append_serialized(
-            outputs, sheet, key, used, None, None, warnings,
-            artwork_digest=(assembly[side].digest if side in assembly else ""),
+            outputs,
+            sheet,
+            key,
+            used,
+            assembly.get(side),
+            _artwork_window(sheet),
+            warnings,
         )
 
     drill, drill_scale = sheet_templates.drill_sheet(
@@ -268,7 +266,7 @@ def _mm_value(value: Any) -> float:
 def board_extent(
     stats: Mapping[str, Any],
     art: Mapping[str, AcquiredArtwork] | None = None,
-    assembly: Mapping[str, VectorDrawing] | None = None,
+    assembly: Mapping[str, AcquiredArtwork] | None = None,
 ) -> tuple[float, float]:
     """The largest extent any sheet has to accommodate, in millimetres.
 
@@ -298,7 +296,7 @@ def board_extent(
 def _select_size(
     stats: Mapping[str, Any],
     art: Mapping[str, AcquiredArtwork],
-    assembly: Mapping[str, VectorDrawing],
+    assembly: Mapping[str, AcquiredArtwork],
     title_height: float,
 ) -> str:
     """Pick one standard sheet size for the whole set, from the board alone."""

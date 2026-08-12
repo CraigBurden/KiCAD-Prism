@@ -13,6 +13,8 @@ psycopg-pool>=3.2,<4
 Pillow>=11,<13
 # Deterministic metrics and glyph mapping for the bundled Release Studio fonts.
 fonttools>=4.59,<5
+# Release Studio PDF overlays (KiCad) and Cruncher SVG→PDF for assembly views.
+cairosvg>=2.7,<3
 # Release Studio R4 PDF canonicalization and page/text semantic verification.
 pikepdf>=9,<11
 pypdf>=5,<7

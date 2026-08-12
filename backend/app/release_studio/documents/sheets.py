@@ -28,11 +28,6 @@ from app.release_studio.documents.layout import (
     fit_columns,
     preferred_scale,
 )
-from app.release_studio.documents.vector import (
-    VectorDrawing,
-    clip,
-    drop_illegible_text,
-)
 from app.release_studio.documents.worksheet import default_worksheet_elements
 
 #: Used only when nothing is known about the board -- a document set composed
@@ -177,15 +172,6 @@ def table_area(
     )
 
 
-#: Smallest a reference designator may be drawn on a released sheet.
-#:
-#: Below this it is not small lettering, it is a smudge -- and a smudge on a
-#: controlled drawing is worse than a blank, because it looks like data the
-#: reader failed to see.  Set lower than `layout.MIN_TABLE_FONT` because an
-#: assembly designator is read against the board in hand, often under
-#: magnification, while a table is read as prose.
-MIN_DESIGNATOR_HEIGHT = 1.0
-
 #: Most of the body a table column may claim.  Past this the sheet stops being
 #: a drawing with a schedule beside it and becomes a schedule with a thumbnail.
 _MAX_TABLE_SHARE = 0.55
@@ -309,7 +295,7 @@ def _shell(
     return builder, body
 
 
-def _drawn_width(art: AcquiredArtwork | VectorDrawing | None, scale: float | None) -> float:
+def _drawn_width(art: AcquiredArtwork | None, scale: float | None) -> float:
     """How wide the artwork will actually be drawn, in sheet millimetres.
 
     Zero when there is nothing to draw or no ratio yet, which leaves the table
@@ -319,36 +305,6 @@ def _drawn_width(art: AcquiredArtwork | VectorDrawing | None, scale: float | Non
     if art is None or scale is None:
         return 0.0
     return max(0.0, float(art.view_width) * scale)
-
-
-def _draw_vector(
-    builder: SheetBuilder,
-    window: Rect,
-    drawing: VectorDrawing | None,
-    *,
-    label: str,
-    scale: float | None,
-) -> tuple[float, int]:
-    """Place an ingested vector drawing; return its ratio and what it dropped.
-
-    Same contract as `_draw_artwork`, for artwork that arrives as primitives
-    rather than as an opaque block: the sheet is one model, so the SVG and PDF
-    renderings of this drawing cannot diverge.
-    """
-
-    if drawing is None or not drawing.elements:
-        return _draw_missing(builder, window, label), 0
-
-    if scale is None:
-        scale = preferred_scale(drawing.view_width, drawing.view_height, window)
-    placed, illegible = drop_illegible_text(
-        drawing.placed(window, scale), MIN_DESIGNATOR_HEIGHT
-    )
-    builder.extend(clip(placed, window))
-    builder.text(
-        window.x, window.bottom + 4.0, f"SCALE {scale_label(scale)}", size=2.8, bold=True
-    )
-    return scale, illegible
 
 
 def _draw_missing(builder: SheetBuilder, window: Rect, label: str) -> float:
@@ -392,6 +348,126 @@ def _draw_artwork(
         window.x, window.bottom + 4.0, f"SCALE {scale_label(used)}", size=2.8, bold=True
     )
     return used
+
+
+#: How far overall dimensions sit outside the board outline, in millimetres.
+_DIM_OFFSET = 5.0
+_DIM_TICK = 2.0
+_DIM_LINE = 0.18
+_DIM_TEXT = 2.5
+
+
+def _mm_figure(value: Any) -> float:
+    """Parse a KiCad ``MessageTextFromValue`` millimetre string into a float."""
+
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return float(text.split()[0])
+    except (TypeError, ValueError, IndexError):
+        return 0.0
+
+
+def _board_size(stats: Mapping[str, Any]) -> tuple[float, float, str, str]:
+    """Overall board width/height from the statistics projection.
+
+    Returns ``(width_mm, height_mm, width_label, height_label)``.  Labels are
+    KiCad's own formatting so the dimension text matches the characteristics
+    table on the same sheet.
+    """
+
+    board = stats.get("board") if isinstance(stats.get("board"), Mapping) else {}
+    width_raw = board.get("width")
+    height_raw = board.get("height")
+    width = _mm_figure(width_raw)
+    height = _mm_figure(height_raw)
+    width_label = str(width_raw) if width_raw not in (None, "") else ""
+    height_label = str(height_raw) if height_raw not in (None, "") else ""
+    return width, height, width_label, height_label
+
+
+def _dimension_rect(
+    art: AcquiredArtwork,
+    window: Rect,
+    scale: float,
+    board_width: float,
+    board_height: float,
+) -> Rect:
+    """Where the overall-dimension box sits on the sheet.
+
+    Centre it on the placed artwork so the lines hug the board rather than the
+    window.  Size it from the board statistics (at the stated scale), not from
+    the artwork extent -- copper that overhangs Edge.Cuts must not stretch the
+    claimed overall dimensions.
+    """
+
+    drawn_art_w = art.view_width * scale
+    drawn_art_h = art.view_height * scale
+    art_left = window.x + (window.width - drawn_art_w) / 2
+    art_top = window.y + (window.height - drawn_art_h) / 2
+    cx = art_left + drawn_art_w / 2
+    cy = art_top + drawn_art_h / 2
+    width = board_width * scale
+    height = board_height * scale
+    return Rect(cx - width / 2, cy - height / 2, width, height)
+
+
+def draw_overall_dimensions(
+    builder: SheetBuilder,
+    target: Rect,
+    *,
+    width_label: str,
+    height_label: str,
+) -> None:
+    """Draw overall width (below) and height (left) around *target*.
+
+    Deliberately plain: extension lines, a dimension line, end ticks, and the
+    same millimetre label the characteristics table already shows.  No arrows,
+    no callouts, no authored overrides -- those are drafting-editor features.
+    """
+
+    if target.width <= 0 or target.height <= 0:
+        return
+    if width_label:
+        y = target.bottom + _DIM_OFFSET
+        builder.line(target.x, target.bottom, target.x, y + _DIM_TICK / 2, width=_DIM_LINE)
+        builder.line(
+            target.right, target.bottom, target.right, y + _DIM_TICK / 2, width=_DIM_LINE
+        )
+        builder.line(target.x, y, target.right, y, width=_DIM_LINE)
+        builder.line(target.x, y - _DIM_TICK / 2, target.x, y + _DIM_TICK / 2, width=_DIM_LINE)
+        builder.line(
+            target.right, y - _DIM_TICK / 2, target.right, y + _DIM_TICK / 2, width=_DIM_LINE
+        )
+        builder.text(
+            target.x + target.width / 2,
+            y - 1.2,
+            width_label,
+            size=_DIM_TEXT,
+            anchor="middle",
+        )
+    if height_label:
+        x = target.x - _DIM_OFFSET
+        builder.line(target.x, target.y, x - _DIM_TICK / 2, target.y, width=_DIM_LINE)
+        builder.line(
+            target.x, target.bottom, x - _DIM_TICK / 2, target.bottom, width=_DIM_LINE
+        )
+        builder.line(x, target.y, x, target.bottom, width=_DIM_LINE)
+        builder.line(x - _DIM_TICK / 2, target.y, x + _DIM_TICK / 2, target.y, width=_DIM_LINE)
+        builder.line(
+            x - _DIM_TICK / 2, target.bottom, x + _DIM_TICK / 2, target.bottom, width=_DIM_LINE
+        )
+        builder.text(
+            x - 1.5,
+            target.y + target.height / 2,
+            height_label,
+            size=_DIM_TEXT,
+            anchor="middle",
+            rotation=-90.0,
+        )
 
 
 #: Vertical gap left between stacked tables, and the cover's bottom note block.
@@ -506,6 +582,14 @@ def fabrication_sheet(
         size, "fabrication", title_height, _drawn_width(art, scale)
     )
     used = _draw_artwork(builder, window, art, label="board artwork", scale=scale)
+    board_w, board_h, width_label, height_label = _board_size(stats)
+    if art is not None and used > 0 and board_w > 0 and board_h > 0:
+        draw_overall_dimensions(
+            builder,
+            _dimension_rect(art, window, used, board_w, board_h),
+            width_label=width_label,
+            height_label=height_label,
+        )
 
     column, _factor = fit_columns(
         [[
@@ -533,7 +617,7 @@ def fabrication_sheet(
 def assembly_sheet(
     context: Mapping[str, Any],
     side: str,
-    art: VectorDrawing | None,
+    art: AcquiredArtwork | None,
     placements: Sequence[Mapping[str, Any]],
     *,
     size: str = DEFAULT_SIZE,
@@ -544,10 +628,9 @@ def assembly_sheet(
 ) -> tuple[Sheet, float]:
     """One assembly view, with the population count for the released variant.
 
-    The artwork is a Cruncher assembly view ingested into the layout model, not
-    a plotted KiCad layer: one designator per component, fitted to that
-    component's own bounds.  See `documents.vector` for why it is ingested
-    rather than placed as an opaque block.
+    The artwork is a ``kicad-cruncher pcb-svg`` view rather than a plotted
+    KiCad layer -- one designator per component, fitted to that component's own
+    bounds -- and it is placed exactly as Cruncher emitted it.
     """
 
     label = "TOP" if side == "top" else "BOTTOM"
@@ -564,22 +647,14 @@ def assembly_sheet(
     table_width, window, area = sheet_columns(
         size, "assembly", title_height, _drawn_width(art, scale)
     )
-    used, illegible = _draw_vector(
-        builder, window, art, label="assembly artwork", scale=scale
-    )
+    used = _draw_artwork(builder, window, art, label="assembly artwork", scale=scale)
 
     fitted = [item for item in placements if str(item.get("side") or "").lower() == side]
-    summary = [
+    summary_rows = (
         ("Side", label),
         ("Placements", str(len(fitted))),
         ("Variant", str(context.get("variant") or "default")),
-    ]
-    if illegible:
-        # Stated, not hidden. A designator drawn at 0.16 mm is a smudge, and a
-        # smudge makes the drawing look as though it carries data the reader
-        # merely failed to see.
-        summary.append(("Designators omitted", str(illegible)))
-    summary_rows = tuple(summary)
+    )
     column, _factor = fit_columns(
         [[tables.key_value_table("POPULATION", summary_rows, width=table_width)]],
         Rect(area.x, area.y, area.width, area.height - _NOTES_RESERVE),
