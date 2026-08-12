@@ -57,3 +57,8 @@ deploy/certs/*
 *.key
 *.pem
 *.crt
+
+# KiCad writes per-project UI state (active layer, opacity, hidden nets) beside
+# any project a tool opens. Running the fixtures through kicad-cli or Cruncher
+# drops one into fixtures/, where it is neither an input nor an output.
+*.kicad_prl
