@@ -22,7 +22,20 @@ FontRole = Literal["display", "sans", "mono"]
 
 FONT_ROOT = Path(__file__).with_name("fonts") / "geist-1.7.0"
 NEWSTROKE_TYPOGRAPHY = "kicad-newstroke"
-DEFAULT_TYPOGRAPHY = NEWSTROKE_TYPOGRAPHY
+
+#: The typography a configuration gets when it declares none.
+#:
+#: Geist reads better than NewStroke at the sizes these sheets use, which is a
+#: legibility judgement rather than a technical one -- NewStroke is a single
+#: stroke weight designed for a plotter, and it thins out in a table.
+#:
+#: The trade is glyph coverage: NewStroke is KiCad's own font and sets the whole
+#: drawing vocabulary, while Geist Mono has no U+2300 DIAMETER SIGN and no
+#: U+2713 CHECK MARK.  A configured note using those degrades to the standard
+#: note with the codepoint named, rather than rendering -- so a project that
+#: writes "⌀ 0.3 mm" in its drill notes should select `kicad-newstroke`
+#: explicitly.
+DEFAULT_TYPOGRAPHY = "geist-pixel-square"
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,17 +10,16 @@ from .errors import ConfigSchemaError
 
 CONFIGURATION_SCHEMA = "prism.release-studio.configuration/1"
 POLICY_SCHEMA = "prism.release-studio.policy/1"
-DEFAULT_TYPOGRAPHY = "kicad-newstroke"
-TYPOGRAPHY_PRESETS = frozenset(
-    {
-        "kicad-newstroke",
-        "geist-pixel-square",
-        "geist-pixel-grid",
-        "geist-pixel-circle",
-        "geist-pixel-triangle",
-        "geist-pixel-line",
-    }
+# Re-exported from the renderer rather than restated here.  A second copy of
+# the default drifts silently: the schema would keep normalizing configurations
+# to a face the renderer no longer defaults to, and `technical_config_digest`
+# would record a typography nobody selected.
+from app.release_studio.documents.fonts import (  # noqa: E402
+    DEFAULT_TYPOGRAPHY,
+    TYPOGRAPHY_PRESETS as _RENDERER_PRESETS,
 )
+
+TYPOGRAPHY_PRESETS = frozenset(_RENDERER_PRESETS)
 
 CONFIGURATION_KEYS = frozenset(
     {

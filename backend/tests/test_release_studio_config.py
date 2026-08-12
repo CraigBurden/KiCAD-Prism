@@ -105,11 +105,15 @@ class ReleaseStudioConfigTests(unittest.TestCase):
                 source="bad.yaml",
             )
 
-    def test_kicad_newstroke_is_the_normalized_typography_default(self) -> None:
+    def test_a_configuration_without_typography_normalizes_to_the_default(self) -> None:
+        # The schema must not keep its own copy of the default: it re-exports
+        # the renderer's, so the digest records the face actually drawn.
+        from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+
         self.assertEqual(
-            parse_configuration_yaml(_MIN_CONFIG)["typography"],
-            "kicad-newstroke",
+            parse_configuration_yaml(_MIN_CONFIG)["typography"], DEFAULT_TYPOGRAPHY
         )
+        self.assertEqual(DEFAULT_TYPOGRAPHY, "geist-pixel-square")
 
     def test_typography_accepts_only_deterministic_presets(self) -> None:
         configured = parse_configuration_yaml(

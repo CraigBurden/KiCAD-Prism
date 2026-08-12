@@ -51,13 +51,15 @@ type Props = {
 };
 
 const DEFAULT_CONFIG = "default";
+const DEFAULT_TYPOGRAPHY = "geist-pixel-square";
+
 const TYPOGRAPHY_PRESETS = [
-    ["kicad-newstroke", "KiCad NewStroke"],
     ["geist-pixel-square", "Geist Pixel Square"],
     ["geist-pixel-grid", "Geist Pixel Grid"],
     ["geist-pixel-circle", "Geist Pixel Circle"],
     ["geist-pixel-triangle", "Geist Pixel Triangle"],
     ["geist-pixel-line", "Geist Pixel Line"],
+    ["kicad-newstroke", "KiCad NewStroke"],
 ] as const;
 
 function shortDigest(value: string | null | undefined): string {
@@ -511,11 +513,11 @@ function TypographyTemplateForm({
 }: {
     configuration: ReleaseConfiguration | null;
 }) {
-    const [preset, setPreset] = useState("kicad-newstroke");
+    const [preset, setPreset] = useState(DEFAULT_TYPOGRAPHY);
     const [copied, setCopied] = useState(false);
 
     useEffect(() => {
-        setPreset(configuration?.typography || "kicad-newstroke");
+        setPreset(configuration?.typography || DEFAULT_TYPOGRAPHY);
     }, [configuration?.config_key, configuration?.typography]);
 
     const yaml = useMemo(

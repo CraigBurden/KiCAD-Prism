@@ -163,8 +163,8 @@ describe("ReleaseStudioPanel", () => {
     it("uses KiCad NewStroke in the configuration template", async () => {
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
         const select = await screen.findByLabelText("Display typography");
-        expect((select as HTMLSelectElement).value).toBe("kicad-newstroke");
-        expect(screen.getByDisplayValue(/typography: kicad-newstroke/)).toBeTruthy();
+        expect((select as HTMLSelectElement).value).toBe("geist-pixel-square");
+        expect(screen.getByDisplayValue(/typography: geist-pixel-square/)).toBeTruthy();
     });
 
     it("lists composed documentation sheets as a dedicated preview surface", async () => {

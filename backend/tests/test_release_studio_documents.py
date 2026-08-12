@@ -165,10 +165,30 @@ class SerializerTests(unittest.TestCase):
         # A fixed /ID is what keeps the trailer from varying per render.
         self.assertIn(b"/ID [<00000000000000000000000000000000>", pdf)
 
-    def test_pdf_keeps_newstroke_text_searchable_without_a_host_font(self) -> None:
+    def test_the_default_pdf_is_searchable_from_its_embedded_face(self) -> None:
+        """Geist sets the visible glyphs, so the text layer is the real text."""
+
         from pypdf import PdfReader
 
         pdf = render_pdf(self._sheet())
+        text = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+        self.assertIn("Hello (world)", text)
+        self.assertIn(b"/Subtype /Type0", pdf)
+        self.assertIn(b"/FontFile2", pdf)
+        self.assertIn(b"/ToUnicode", pdf)
+
+    def test_a_newstroke_pdf_stays_searchable_behind_its_vectors(self) -> None:
+        """NewStroke draws paths, so search relies on a hidden Base-14 layer.
+
+        The shim exists because the pinned Monkey wheel ships stroke data but no
+        embeddable NewStroke face; it goes away once upstream packages one.
+        """
+
+        from pypdf import PdfReader
+
+        builder = SheetBuilder("t", "Test Sheet", "A4", typography="kicad-newstroke")
+        builder.text(20, 20, "Hello (world)")
+        pdf = render_pdf(builder.build())
         text = PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
         self.assertIn("Hello (world)", text)
         self.assertIn(b"/Subtype /Type1", pdf)
@@ -771,10 +791,23 @@ class DocumentSetTests(unittest.TestCase):
 
 
 class TypographyTests(unittest.TestCase):
-    def test_kicad_newstroke_is_the_default_visible_text_renderer(self) -> None:
+    def test_a_bundled_face_is_the_default_and_travels_with_the_sheet(self) -> None:
+        """The default sheet embeds its face rather than naming a host font."""
+
         svg = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
+        ).files()["documentation/cover.svg"].decode("utf-8")
+        self.assertIn('data-typography="geist-pixel-square"', svg)
+        # Embedded, so the SVG renders identically on a machine that has never
+        # heard of Geist.
+        self.assertIn("data:font/ttf;base64,", svg)
+
+    def test_newstroke_draws_vectors_instead_of_embedding_a_face(self) -> None:
+        svg = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            typography="kicad-newstroke",
         ).files()["documentation/cover.svg"].decode("utf-8")
         self.assertIn('data-typography="kicad-newstroke"', svg)
         self.assertIn('data-renderer="kicad-monkey.newstroke"', svg)
@@ -858,19 +891,19 @@ class ConfiguredNotesTests(unittest.TestCase):
             result.warnings,
         )
 
-    def test_the_drawing_symbols_a_technical_note_needs_actually_render(self) -> None:
-        """NewStroke is KiCad's own font, so the drawing vocabulary is covered.
+    def test_newstroke_sets_the_whole_drawing_vocabulary(self) -> None:
+        """`kicad-newstroke` is the face to select when a note needs symbols.
 
-        This is the reason the engine uses it rather than a general-purpose
-        text face: a drill note saying "⌀ 0.3 mm" is the ordinary way to write
-        the thing, and a font that cannot set the diameter sign forces every
-        such note into a workaround.
+        KiCad's own font covers the drawing vocabulary, which the default text
+        face does not.  This is the property that makes it worth keeping as a
+        selectable preset rather than deleting it.
         """
 
         note = "All holes ⌀ 0.3 mm ±0.05, 90° chamfer, Ω-pads ✓"
         result = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
+            typography="kicad-newstroke",
             notes={"drill": [note]},
         )
         self.assertEqual(len(result.files()), 10)
@@ -879,6 +912,27 @@ class ConfiguredNotesTests(unittest.TestCase):
             with self.subTest(symbol=symbol):
                 self.assertIn(symbol, drill)
         self.assertEqual([w for w in result.warnings if "notes" in w], [])
+
+    def test_the_default_face_names_the_symbols_it_cannot_set(self) -> None:
+        """Geist has no U+2300, and the sheet says so instead of guessing.
+
+        The failure is scoped and legible: the standard note is drawn, the set
+        is intact, and the warning names the codepoint so the author can either
+        reword the note or select `kicad-newstroke`.
+        """
+
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            notes={"drill": ["All holes ⌀ 0.3 mm minimum."]},
+        )
+        self.assertEqual(len(result.files()), 10)
+        drill = result.files()["documentation/drill.svg"].decode("utf-8")
+        self.assertNotIn("⌀", drill)
+        self.assertIn("finished diameters", drill)
+        self.assertTrue(
+            any("U+2300" in warning for warning in result.warnings), result.warnings
+        )
 
     def test_an_unsupported_note_glyph_falls_back_without_losing_documents(self) -> None:
         """A glyph the face genuinely lacks costs one note, never the set."""
@@ -949,35 +1003,35 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d7 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d8 under the pinned kicad-monkey /
     #: kicad-cruncher 2026.8.11 toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
         "documentation/assembly-bottom.pdf":
-            "6d6f70073d4ae020b18a7d8167ca5c4ad6474f8f99df774f6c88d79cb6d96d1f",
+            "95dd2677d14418aa3958a04cf66eb2d37655215e8acb834e84ca260f449a00cd",
         "documentation/assembly-bottom.svg":
-            "7e3ecdc95e1ea26107a65d938ea9b2c66f53de7c7d8af492e0f53a5ac1a073be",
+            "21de5173587a91809d0200779d7d0763a0dae5ab2d03ec0df44ba9e9fe601dac",
         "documentation/assembly-top.pdf":
-            "2b3bef12d7a4be4134600259f51542b666d09503afe8aeaa896f3277c908ce44",
+            "458ffa422b9e8436b6f218bbec86dfa162bffd80729bc7fb135ddac80c6a2304",
         "documentation/assembly-top.svg":
-            "f3feff78c90126a9a509f752db168e88d0b29d935fff0cbfe095afcfa54fc8fb",
+            "c3e60ab03cc45524c47b9e9cc533e718c8b74940759d5ec370da1c903899ec6d",
         "documentation/cover.pdf":
-            "b825ae468b5d8c7080cd757400b0fc8c47220b58cb0f93a78142dc31e51e058c",
+            "4e651209f81be56b5775a32ded8cebc5b1d073ad9255093480c1fd294250e3fe",
         "documentation/cover.svg":
-            "c3b24a0d84bc40ff16e1cc8d7ad7a070d6e6afa2e7b30f9f3243bd966d0581ba",
+            "c976d6c9b96aede7fb17e11168f84029344aed5c0d1127e3d1e80813335f3a58",
         "documentation/drill.pdf":
-            "9394029b80de9c09c372ff8dad35e64bddc83aa06486885085052efbb572fc17",
+            "3261bed01384cc4c9f5a7724ad89bbbe03d8680ede7d2e7cf380f28916a813d7",
         "documentation/drill.svg":
-            "3d34952b6ce6041e7487348514c82147d78401a5b4a16aa4f519a197e48e574e",
+            "f42e0ae1d3144152ac97daf1521804515326eeaf7bc7fc17a1245f545b2fcefd",
         "documentation/fabrication.pdf":
-            "ceec7a353963c96105d991a097cdf6f170430087b49d997da1c387b5aae7407c",
+            "2a1846ad820e6bb0d1d13ced8690bc7220e5556bc46cf0b7c34ed8c2bc3591e4",
         "documentation/fabrication.svg":
-            "2bc567b2dbf49433a011eb361654d85cba600c84f0cde3623a5c1855f759e665",
+            "788409b134700c7c27fbd2f2d55e1214835c53dfb3892b13e4c70decfa78fa15",
     }
 
     #: A placed sheet, so a change to sheet selection or to the scale ladder
     #: trips this too -- the set above carries no artwork and would not.
-    GOLDEN_PLACED = "832a62baa2455e58f79a464ae1aee6428975fe4ff69d22814c0af37a5e95de11"
+    GOLDEN_PLACED = "c74f990d8a1c6fc33e53006bbdf8a3520179d375fd80f12a41c29f8bc2d500e8"
 
     def test_a_placed_sheet_matches_its_recorded_digest(self) -> None:
         import hashlib
@@ -1000,7 +1054,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d7",
+            "release-studio-documents/d8",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 
