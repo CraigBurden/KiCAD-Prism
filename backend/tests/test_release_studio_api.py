@@ -189,6 +189,25 @@ class ReleaseStudioApiTests(unittest.TestCase):
         bypass.start()
         self.addCleanup(bypass.stop)
 
+        # Releasing signs with a process secret. Reading it from the ambient
+        # environment made these tests pass wherever Compose injects a key and
+        # fail on a bare CI runner, so the suite owns a throwaway key instead.
+        # create_release publishes the public half, which is what
+        # list_signing_keys then hands the offline verifier.
+        from app.release_studio.attestation import generate_signing_key
+
+        _key, signing_pem = generate_signing_key("test-release-key")
+        signing = patch.dict(
+            os.environ,
+            {
+                "PRISM_RELEASE_SIGNING_KEY_ID": "test-release-key",
+                "PRISM_RELEASE_SIGNING_KEY": signing_pem,
+                "PRISM_RELEASE_SIGNING_KEY_FILE": "",
+            },
+        )
+        signing.start()
+        self.addCleanup(signing.stop)
+
         self.user = _User("quality")
         self.project_id = "proj-1"
 
