@@ -263,7 +263,7 @@ class ArtworkPlacementTests(unittest.TestCase):
 
     def test_placed_artwork_keeps_the_source_geometry_verbatim(self) -> None:
         art = _svg_artwork(50.0, 40.0)
-        sheet, _scale = sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, art)
+        sheet, _scale, _over = sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, art)
         svg = render_svg(sheet)
         # The acquired markup is inlined, not re-projected.
         self.assertIn('<rect x="0" y="0" width="50.0" height="40.0"', svg)
@@ -331,22 +331,43 @@ class SheetSizingTests(unittest.TestCase):
         fitted, _factor = fit_columns([[table]], Rect(0.0, 0.0, 120.0, 60.0))
         self.assertGreaterEqual(fitted[0][0].font_size, MIN_TABLE_FONT - 1e-9)
         self.assertLessEqual(fitted[0][0].height(), 60.0)
-        self.assertIn("more", fitted[0][0].rows[-1][0])
 
-    def test_a_table_that_cannot_shrink_far_enough_states_what_it_dropped(self) -> None:
-        from app.release_studio.documents.layout import Table, fit_columns
+    def test_a_table_too_tall_to_shrink_carries_its_rows_forward(self) -> None:
+        from app.release_studio.documents.layout import Table, split_columns
 
         table = Table(
             columns=("A", "B"),
             rows=tuple((str(index), "y") for index in range(400)),
             widths=(60.0, 60.0),
         )
-        fitted, _factor = fit_columns([[table]], Rect(0.0, 0.0, 60.0, 40.0))
-        result = fitted[0][0]
-        self.assertLess(len(result.rows), len(table.rows))
-        self.assertLessEqual(result.height(), 40.0)
-        # Silently stopping would read as "that is all of them".
-        self.assertIn("more", result.rows[-1][0])
+        fitted, overflow, _factor = split_columns(
+            [[table]], Rect(0.0, 0.0, 60.0, 40.0)
+        )
+        drawn = fitted[0][0]
+        self.assertLessEqual(drawn.height(), 40.0)
+        # Nothing is dropped: what did not fit is handed on for a continuation
+        # sheet, so the released schedule is complete across the set.
+        carried = sum(len(item.rows) for item in overflow)
+        self.assertEqual(len(drawn.rows) + carried, len(table.rows))
+        self.assertTrue(overflow[0].continued)
+
+    def test_a_measured_overshoot_does_not_cost_rows(self) -> None:
+        """A column that misses by a millimetre shrinks; it does not truncate."""
+
+        from app.release_studio.documents.layout import Table, split_columns
+
+        table = Table(
+            columns=("A",),
+            rows=tuple((f"row {index}",) for index in range(30)),
+            widths=(40.0,),
+        )
+        # Just under the natural height, which is what used to trigger a drop.
+        area = Rect(0.0, 0.0, 40.0, table.height() * 0.97)
+        fitted, overflow, factor = split_columns([[table]], area)
+        self.assertEqual(overflow, [])
+        self.assertEqual(len(fitted[0][0].rows), 30)
+        self.assertLess(factor, 1.0)
+        self.assertLessEqual(fitted[0][0].height(), area.height)
 
     def test_the_ladder_is_monotonic_in_board_size(self) -> None:
         """A larger board never lands on a smaller sheet."""
@@ -374,7 +395,7 @@ class SheetSizingTests(unittest.TestCase):
         from app.release_studio.documents.layout import Artwork
 
         for size in sheet_templates.SHEET_LADDER:
-            sheet, _scale = sheet_templates.fabrication_sheet(
+            sheet, _scale, _over = sheet_templates.fabrication_sheet(
                 CONTEXT, STATS, STACKUP, _svg_artwork(20.0, 15.0), size=size
             )
             placed = next(e for e in sheet.elements if isinstance(e, Artwork))
@@ -397,7 +418,7 @@ class SheetSizingTests(unittest.TestCase):
 
     def test_a_placed_sheet_states_a_standard_ratio(self) -> None:
         art = _svg_artwork(38.0, 30.0)
-        sheet, used = sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, art, size="A3")
+        sheet, used, _over = sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, art, size="A3")
         self.assertEqual(used, 5.0)
         self.assertIn("SCALE 5:1", render_svg(sheet))
 
@@ -413,6 +434,40 @@ class SheetSizingTests(unittest.TestCase):
             if match:
                 widths.add(match.group(1))
         self.assertEqual(len(widths), 1, f"sheets disagree about their size: {widths}")
+
+    def test_package_size_ignores_page_sized_artwork_frames(self) -> None:
+        """A page-sized acquired SVG must not promote a small board to A2."""
+
+        from app.release_studio.documents.engine import board_extent, _select_size
+        from app.release_studio.documents.artwork import content_view
+
+        page = _svg_artwork(420.0, 297.0)  # A3 paper frame around a 50x40 board
+        width, height = board_extent(STATS)
+        self.assertEqual((width, height), (50.0, 40.0))
+        self.assertEqual(_select_size(STATS, sheet_templates.TITLE_BLOCK_HEIGHT), "A4")
+        placed = content_view(page, width, height)
+        self.assertLess(placed.view_width, 420.0)
+        self.assertLessEqual(placed.view_width, 50.0 + 5.0)
+
+    def test_table_slack_is_capped(self) -> None:
+        """Spare body width must not stretch schedules into ultra-wide columns."""
+
+        size = "A2"
+        title_height = sheet_templates.TITLE_BLOCK_HEIGHT
+        drawn = 132.0  # board mm at 1:1
+        width, _window, _area = sheet_templates.sheet_columns(
+            size, "fabrication", title_height, drawn
+        )
+        base = sheet_templates.TABLE_WIDTHS["fabrication"]
+        self.assertLessEqual(width, base + sheet_templates._MAX_TABLE_GROWTH + 0.01)
+
+    def test_wrap_cell_breaks_on_path_separators(self) -> None:
+        from app.release_studio.documents.layout import wrap_cell
+
+        lines = wrap_cell("fabrication/gerbers/F_Cu.gbr", 28.0, 2.4)
+        self.assertGreater(len(lines), 1)
+        self.assertLessEqual(len(lines), 4)
+        self.assertTrue(any(line.endswith("/") or "/" not in line for line in lines))
 
 
 def _plot_paths(origin_x: float, origin_y: float, width: float, height: float) -> str:
@@ -542,7 +597,7 @@ class ArtworkCompositeTests(unittest.TestCase):
     def test_the_composite_uses_the_stated_ratio_not_the_page_ratio(self) -> None:
         from app.release_studio.documents.pdf import MM_TO_PT
 
-        sheet, used = sheet_templates.fabrication_sheet(
+        sheet, used, _over = sheet_templates.fabrication_sheet(
             CONTEXT, STATS, STACKUP, self._art(), size="A3"
         )
         window = sheet_templates.artwork_window("A3", sheet_templates.TABLE_WIDTHS["fabrication"])
@@ -568,13 +623,13 @@ class ArtworkCompositeTests(unittest.TestCase):
             pdf_bytes=self._overlay(), view_x=0.0, view_y=0.0,
             view_width=38.0, view_height=30.0, digest="d" * 64,
         )
-        sheet, used = sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, art, size="A3")
+        sheet, used, _over = sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, art, size="A3")
         window = sheet_templates.artwork_window("A3", sheet_templates.TABLE_WIDTHS["fabrication"])
         with self.assertRaises(artwork_module.ArtworkError):
             artwork_module.composite_pdf(render_pdf(sheet), art, window, used)
 
     def test_compositing_is_byte_reproducible(self) -> None:
-        sheet, used = sheet_templates.fabrication_sheet(
+        sheet, used, _over = sheet_templates.fabrication_sheet(
             CONTEXT, STATS, STACKUP, self._art(), size="A3"
         )
         window = sheet_templates.artwork_window("A3", sheet_templates.TABLE_WIDTHS["fabrication"])
@@ -629,20 +684,45 @@ class ProjectionShapeTests(unittest.TestCase):
         pairs = dict(board_summary(STATS))
         self.assertEqual(pairs["Drilled holes"], "33")
         self.assertEqual(pairs["Components"], "37")
+        self.assertEqual(pairs["Front / back"], "37 / 0")
+        self.assertEqual(pairs["Pads (SMD / TH)"], "119 / 18")
         # The summary is a separate table precisely so the characteristics one
         # keeps its correspondence with KiCad's; a row that drifted into it
         # would break that without any test noticing.
         self.assertFalse(set(pairs) & set(KICAD_CHARACTERISTIC_LABELS))
 
+    def test_revision_history_omits_an_empty_table(self) -> None:
+        from app.release_studio.documents import tables
+
+        self.assertIsNone(tables.revision_history_table([]))
+        table = tables.revision_history_table(
+            [
+                {
+                    "tag": "v1.0.0",
+                    "date": "2026-01-02T12:00:00",
+                    "commit_hash": "abcdef1",
+                    "message": "Initial release\nmore detail",
+                }
+            ]
+        )
+        self.assertIsNotNone(table)
+        self.assertEqual(table.title, "REVISION HISTORY")
+        self.assertEqual(table.rows[0][0], "v1.0.0")
+        self.assertEqual(table.rows[0][1], "2026-01-02")
+        self.assertEqual(table.rows[0][3], "Initial release")
+
     def test_the_characteristics_table_reproduces_kicads_own_rows(self) -> None:
         """Stage 2's conformance criterion, against the recorded rendering."""
 
-        from tests.kicad_conformance import load_conformance
+        from tests.kicad_conformance import CONFORMANCE_DIR, load_conformance
         from app.release_studio.documents.tables import (
             KICAD_CHARACTERISTIC_LABELS,
             board_characteristics,
         )
 
+        fixture = CONFORMANCE_DIR / "board-characteristics.json"
+        if not fixture.is_file():
+            self.skipTest(f"conformance fixture not packaged: {fixture}")
         recorded = load_conformance("board-characteristics")["labels"]
         self.assertEqual(list(KICAD_CHARACTERISTIC_LABELS), recorded)
         # And the table actually emits them -- in order, with nothing added.
@@ -777,7 +857,7 @@ class DocumentSetTests(unittest.TestCase):
         from app.release_studio.documents.layout import Text
 
         sheets = [
-            sheet_templates.technical_cover(CONTEXT, STATS, STACKUP, VARIANTS, MEMBERS),
+            sheet_templates.technical_cover(CONTEXT, STATS, STACKUP, VARIANTS, MEMBERS)[0],
             sheet_templates.fabrication_sheet(CONTEXT, STATS, STACKUP, None)[0],
             sheet_templates.assembly_sheet(CONTEXT, "top", None, PLACEMENTS)[0],
             sheet_templates.drill_sheet(CONTEXT, STATS, STACKUP, None)[0],
@@ -1053,26 +1133,35 @@ def _cruncher_artwork(svg_text: str = CRUNCHER_VIEW) -> artwork_module.AcquiredA
 
 
 class AssemblyProjectionWarningTests(unittest.TestCase):
-    """Pad-bounds fallback and density must surface as build warnings."""
+    """Bounding-box fallback and density must surface as build warnings."""
 
-    def test_a_full_pad_bounds_view_is_called_out(self) -> None:
+    def test_the_mix_reads_what_was_drawn_not_what_was_asked_for(self) -> None:
+        """`data-projection` is the configured mode; it is the same on every
+        component whether or not a model resolved, so it cannot report the
+        fallback.  `data-bounds-kind` is the outcome."""
+
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg">'
-            '<g data-projection="pad_bounds"></g>'
-            '<g data-projection="pad_bounds"></g>'
+            '<g data-projection="outline" data-bounds-kind="pads"></g>'
+            '<g data-projection="outline" data-bounds-kind="pads"></g>'
             "</svg>"
         )
         mix = artwork_module.assembly_projection_mix(svg)
-        self.assertEqual(mix, {"pad_bounds": 2})
+        self.assertEqual(mix, {"pads": 2})
         warnings = artwork_module.assembly_projection_warnings("top", mix)
         self.assertEqual(len(warnings), 1)
-        self.assertIn("all 2 components used pad_bounds", warnings[0])
+        self.assertIn("no component resolved a 3D model", warnings[0])
 
-    def test_a_partial_pad_bounds_mix_warns_above_ten_percent(self) -> None:
-        mix = {"hlr": 9, "pad_bounds": 1}
+    def test_a_partial_fallback_warns_above_ten_percent(self) -> None:
+        mix = {"model": 9, "pads": 1}
         warnings = artwork_module.assembly_projection_warnings("bottom", mix)
         self.assertEqual(len(warnings), 1)
         self.assertIn("1/10", warnings[0])
+
+    def test_a_view_drawn_entirely_from_models_is_silent(self) -> None:
+        self.assertEqual(
+            artwork_module.assembly_projection_warnings("top", {"model": 40}), []
+        )
 
     def test_dense_placements_warn_once_the_threshold_is_crossed(self) -> None:
         self.assertEqual(artwork_module.assembly_density_warnings("top", 399), [])
@@ -1085,14 +1174,17 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
             '<?xml version="1.0"?>'
             '<svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="10mm" '
             'viewBox="0 0 20 10">'
-            + "".join('<g data-projection="pad_bounds"></g>' for _ in range(3))
+            + "".join(
+                '<g data-projection="outline" data-bounds-kind="pads"></g>'
+                for _ in range(3)
+            )
             + "</svg>"
         )
         art = _cruncher_artwork(svg)
         dense = [{"side": "top"}] * 400 + [{"side": "bottom"}]
 
-        def fake(cruncher_path, board, side, workdir):
-            return art
+        def fake(cruncher_path, board, sides, workdir):
+            return {side: art for side in sides}
 
         result = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
@@ -1103,8 +1195,60 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
             assembly_acquirer=fake,
         )
         joined = " | ".join(result.warnings)
-        self.assertIn("pad_bounds", joined)
+        self.assertIn("no component resolved a 3D model", joined)
         self.assertIn("400 placements", joined)
+
+    def test_acquire_assembly_view_binds_kiprjmod_to_the_board_directory(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        captured: dict[str, object] = {}
+
+        def runner(argv, capture_output=True, text=True, timeout=900, env=None):
+            captured["env"] = env
+            workdir = Path(argv[argv.index("--output") + 1])
+            views = workdir / "views"
+            views.mkdir(parents=True, exist_ok=True)
+            (views / "board__assembly_top_view.svg").write_text(CRUNCHER_VIEW, encoding="utf-8")
+
+            class Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return Result()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            board = root / "project" / "board.kicad_pcb"
+            board.parent.mkdir(parents=True)
+            board.write_text("(kicad_pcb)\n", encoding="utf-8")
+            artwork_module.acquire_assembly_view(
+                "kicad-cruncher",
+                board,
+                "top",
+                root / "out",
+                runner=runner,
+            )
+        self.assertIsInstance(captured.get("env"), dict)
+        self.assertEqual(captured["env"]["KIPRJMOD"], str(board.parent.resolve()))
+
+    def test_default_projection_asks_for_the_model_outline(self) -> None:
+        """Cruncher degrades per component, so asking for the outline is free."""
+
+        import json
+
+        config = json.loads(artwork_module.PCB_SVG_CONFIG.read_text(encoding="utf-8"))
+        self.assertEqual(config["assembly"]["default_projection"], "outline")
+        self.assertEqual(config["assembly"]["dnp_projection"], "outline")
+
+    def test_projection_mix_label_is_compact(self) -> None:
+        label = artwork_module.assembly_projection_label(
+            {"model": 10, "pads": 2, "holes": 1}
+        )
+        self.assertIn("3D model outline 10", label)
+        self.assertIn("hole bounds 1", label)
+        self.assertIn("pad bounds 2", label)
 
 
 class ComposeReproducibilityTests(unittest.TestCase):
@@ -1124,7 +1268,7 @@ class FabricationDimensionTests(unittest.TestCase):
     """Overall board dimensions are drawn, not just tabulated."""
 
     def test_the_fabrication_sheet_states_overall_width_and_height(self) -> None:
-        sheet, used = sheet_templates.fabrication_sheet(
+        sheet, used, _over = sheet_templates.fabrication_sheet(
             CONTEXT,
             STATS,
             STACKUP,
@@ -1140,7 +1284,7 @@ class FabricationDimensionTests(unittest.TestCase):
         self.assertIn('rotate(-90', rendered)
 
     def test_dimensions_match_the_characteristics_table_labels(self) -> None:
-        sheet, _used = sheet_templates.fabrication_sheet(
+        sheet, _used, _over = sheet_templates.fabrication_sheet(
             CONTEXT,
             STATS,
             STACKUP,
@@ -1188,9 +1332,9 @@ class AssemblySheetTests(unittest.TestCase):
     def test_the_engine_asks_cruncher_for_both_sides(self) -> None:
         asked: list[tuple[str, str]] = []
 
-        def fake(cruncher_path, board, side, workdir):
-            asked.append((cruncher_path, side))
-            return _cruncher_artwork()
+        def fake(cruncher_path, board, sides, workdir):
+            asked.append((cruncher_path, tuple(sides)))
+            return {side: _cruncher_artwork() for side in sides}
 
         result = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
@@ -1200,7 +1344,8 @@ class AssemblySheetTests(unittest.TestCase):
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
-        self.assertEqual([side for _path, side in asked], ["top", "bottom"])
+        # One invocation for both sides: the board load dominates the cost.
+        self.assertEqual(asked, [("kicad-cruncher", ("top", "bottom"))])
         digests = {
             output.key: output.artwork_digest
             for output in result.outputs
@@ -1210,7 +1355,7 @@ class AssemblySheetTests(unittest.TestCase):
         self.assertTrue(all(len(value) == 64 for value in digests.values()))
 
     def test_a_failed_view_degrades_one_sheet_and_says_so(self) -> None:
-        def fake(cruncher_path, board, side, workdir):
+        def fake(cruncher_path, board, sides, workdir):
             raise artwork_module.ArtworkError("geometer refused the board")
 
         result = compose(
@@ -1238,7 +1383,9 @@ class SheetSetConsistencyTests(unittest.TestCase):
             board=Path("/nonexistent/board.kicad_pcb"),
             cruncher_path="kicad-cruncher",
             workdir=Path("/tmp"),
-            assembly_acquirer=lambda *args, **kwargs: _cruncher_artwork(),
+            assembly_acquirer=lambda _path, _board, sides, _dir: {
+                side: _cruncher_artwork() for side in sides
+            },
         )
 
     def test_every_sheet_states_the_same_ratio(self) -> None:
@@ -1273,23 +1420,27 @@ class SheetSetConsistencyTests(unittest.TestCase):
         self.assertLess(thickness.x, material.x)
         self.assertGreaterEqual(material.x - thickness.x, 0.5)
 
-    def test_a_truncation_notice_is_never_itself_truncated(self) -> None:
+    def test_a_continued_table_says_so_in_its_heading(self) -> None:
         from app.release_studio.documents.layout import Text
 
         builder = SheetBuilder("t", "T", "A3")
         table = Table(
+            title="LAYER STACKUP",
             columns=("Layer",),
             rows=tuple((f"layer {index}",) for index in range(10)),
             widths=(12.0,),
             font_size=2.4,
-        ).truncated(2)
-        draw_table(builder, table, (0.0, 0.0))
+        )
+        _head, tail = table.split(table.header_height() + table.row_height * 2.5)
+        draw_table(builder, tail, (0.0, 0.0))
         drawn = {
             element.value
             for element in builder.build().elements
             if isinstance(element, Text)
         }
-        self.assertIn("and 8 more", drawn)
+        # A second block of rows under a bare "LAYER STACKUP" would read as a
+        # different stackup rather than the rest of this one.
+        self.assertIn("LAYER STACKUP (CONTINUED)", drawn)
 
     def test_an_embedded_face_carries_only_the_glyphs_the_sheet_sets(self) -> None:
         """Three whole faces per sheet is ~383 KiB of unread outlines."""
@@ -1328,41 +1479,41 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d10 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d12 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
         "documentation/assembly-bottom.pdf":
-            "f18253f3036c05d0aff5a9668b949ceb4f1db7180edee0cdc49c7a431a3abf5f",
+            "417e94a1e63e14ea2bc7ee1b2c227588edb40d2a81cd52f9f1a1bc1fbe62adbc",
         "documentation/assembly-bottom.svg":
-            "21de5173587a91809d0200779d7d0763a0dae5ab2d03ec0df44ba9e9fe601dac",
+            "ef5f507fa7cdf43e464e432aab3c44ba7005e3eaf469b0ac318fdb159eeebb22",
         "documentation/assembly-top.pdf":
-            "8d2a550c019aa85861de8c7c576693348ed4bad1c4f0985073732d9ed1e070b3",
+            "b293d6b185bf03b417d7e04e942950b5bb13c48f7a68917e78ded9eeed8ada18",
         "documentation/assembly-top.svg":
-            "c3e60ab03cc45524c47b9e9cc533e718c8b74940759d5ec370da1c903899ec6d",
+            "68ec4217c1f222fc768c3482efb63a2ce2e7d0310a762edd406586f05dc84a37",
         "documentation/cover.pdf":
-            "a55e0a8b6b62c7a14c2b984fca32836f7fb650bca2df081be4053a77ad8e92fc",
+            "2a5d3914db7fe41ebe060f60e603204c351e4306856f1914449a06c7370e9b0f",
         "documentation/cover.svg":
-            "1b33ac956f96538526e6ae9f44ca001a00901c4856e06b8bcbeaed053850dda7",
+            "7245f80cd3b63226fa1114ed59e7a97274916168e7f0646112c1d533b9ef2637",
         "documentation/drill.pdf":
-            "326f99e7235531a76987a5c5bc0269abf7decdb8293b79070903d8fe524194d0",
+            "e0fc0f989eca3ac081071eaf658eb5374ecefea273e08e2e29a0a37c728ba763",
         "documentation/drill.svg":
-            "c47dabd9493f2d7beda21fd45ba2b68a05b05278331ffeffc537a74c7b96b941",
+            "fba78cb1923d092a2c25ac05caae5a4ef2cc6d9bc7d5b04cb3dcbfcfc925f23c",
         "documentation/fabrication.pdf":
-            "36233b61d79e7db4f560cc154f544a36b92519564e76b5db32538d3cd55d0247",
+            "4156eadf95893486e6cd53c9c20b068857d93fbec10f66adc11d2465215c0a3b",
         "documentation/fabrication.svg":
-            "90c7d757e42d85f62d78aed5cc2411e8633b1013530933f0bf322bcf5faceea8",
+            "5dd6ec0eb5bede5de69490733a374254408cbc56030349c4eddd34ba94dca23f",
     }
 
     #: A placed sheet, so a change to sheet selection, the scale ladder, or
     #: fabrication dimensions trips this too -- the set above carries no
     #: artwork and would not.
-    GOLDEN_PLACED = "8f445449c60c09e20b734a6f9a48f52f5449cca8dfdc38f4a4c1a7b3b12eae36"
+    GOLDEN_PLACED = "b67d20fa171429c33d8c84e19dab46989e9e38054fe5fc18f206794c4d49f2b3"
 
     def test_a_placed_sheet_matches_its_recorded_digest(self) -> None:
         import hashlib
 
-        sheet, used = sheet_templates.fabrication_sheet(
+        sheet, used, _over = sheet_templates.fabrication_sheet(
             CONTEXT, STATS, STACKUP, _svg_artwork(38.0, 30.0, units_per_mm=10.0)
         )
         self.assertEqual(used, 5.0)
@@ -1380,7 +1531,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d10",
+            "release-studio-documents/d12",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

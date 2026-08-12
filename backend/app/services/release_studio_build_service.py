@@ -319,6 +319,7 @@ def prepare_candidate(
     candidate["_closure_root"] = str(closure_root)
     candidate["_config"] = config
     candidate["_advisory_reasons"] = advisory
+    candidate["project_relpath"] = project_relpath
     return candidate
 
 
@@ -447,6 +448,7 @@ def execute_build(
             cruncher_path=cruncher_path,
             staging=context.staging_dir,
             repo_root=repo_root,
+            project_relpath=str(candidate.get("project_relpath") or "") or None,
         )
 
         context.progress(stage="package", message="Canonicalizing and packaging", percent=75)
@@ -536,6 +538,7 @@ def _with_documents(
     staging: Path,
     cruncher_path: str | None = None,
     repo_root: Path | None = None,
+    project_relpath: str | None = None,
 ) -> tuple[list[StepOutput], list[str], dict[str, Any]]:
     """Compose the Stage 2 sheets and append them as a member-producing step.
 
@@ -555,6 +558,7 @@ def _with_documents(
     from app.release_studio.documents import compose
     from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
     from app.release_studio.projections import (
+        load_board_model,
         project_board_stats_file,
         project_stackup,
         project_variants,
@@ -586,7 +590,11 @@ def _with_documents(
         stackup: dict[str, Any] = {}
         variants: dict[str, Any] = {}
         if board is not None and board.is_file():
-            stackup = _project("stackup", lambda: project_stackup(board), {})
+            # One parse for both projections.  On a 35 MB board this is over two
+            # minutes of work, and doing it twice for the same file was the
+            # single largest avoidable cost in a build.
+            model = _project("board model", lambda: load_board_model(board), (None, None))
+            stackup = _project("stackup", lambda: project_stackup(board, model=model), {})
             if stackup.get("source") == "kicad_monkey.fallback":
                 warnings.append(
                     "documentation: stackup used the kicad_monkey targeted fallback "
@@ -595,10 +603,15 @@ def _with_documents(
             # Schematic variants live in the *project* file, not the schematic:
             # `schematic_settings.cpp:266` reads them from `.kicad_pro`.
             project_file = board.with_suffix(".kicad_pro")
+            # Only a *typed* model can answer the variant question; the targeted
+            # stackup fallback has no footprints, so that case re-parses.
+            parsed, fallback_reason = model
             variants = _project(
                 "variants",
                 lambda: project_variants(
-                    board, project_file if project_file.is_file() else None
+                    board,
+                    project_file if project_file.is_file() else None,
+                    pcb=None if fallback_reason else parsed,
                 ),
                 {},
             )
@@ -638,6 +651,12 @@ def _with_documents(
             for member in existing
         ]
 
+        revision_history = _revision_history(
+            repo_root,
+            commit_sha=str(candidate.get("commit_sha") or "") or None,
+            relative_path=project_relpath or str(candidate.get("project_relpath") or ""),
+        )
+
         document_set = compose(
             context={
                 "title": str(config.get("title") or config.get("document_number") or "RELEASE"),
@@ -661,6 +680,7 @@ def _with_documents(
             notes=config.get("notes") or {},
             fields=config.get("fields") or {},
             typography=str(config.get("typography") or DEFAULT_TYPOGRAPHY),
+            revision_history=revision_history,
         )
     except Exception as exc:  # noqa: BLE001
         # `exception` not `warning`: without the traceback a vanished document
@@ -724,11 +744,59 @@ def _commit_date(repo_root: Path, commit: str) -> str:
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "show", "-s", "--format=%as", commit],
-            capture_output=True, text=True, check=False,
+            check=False,
+            capture_output=True,
+            text=True,
         )
     except OSError:
         return ""
-    return result.stdout.strip() if result.returncode == 0 else ""
+    return (result.stdout or "").strip() if result.returncode == 0 else ""
+
+
+def _revision_history(
+    repo_root: Path | None,
+    *,
+    commit_sha: str | None = None,
+    relative_path: str | None = None,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Git tags for the cover revision-history table.
+
+    Uses the same tag listing the project Releases UI uses.  Failures degrade
+    to an empty list so a cover still composes without Git metadata.
+    """
+
+    if repo_root is None or not Path(repo_root).exists():
+        return []
+    try:
+        from app.services.git_service import get_releases, get_releases_filtered
+
+        rel = (relative_path or "").strip().strip("./")
+        if rel and rel not in {".", ""}:
+            page = get_releases_filtered(
+                str(repo_root),
+                rel,
+                commit_sha or None,
+                limit,
+                0,
+                False,
+            )
+        else:
+            page = get_releases(
+                str(repo_root),
+                commit_sha or None,
+                limit,
+                0,
+                False,
+            )
+    except Exception:  # noqa: BLE001 - cover degrades without history
+        logger.warning("Revision history unavailable for documentation cover", exc_info=True)
+        return []
+    if isinstance(page, dict):
+        releases = page.get("releases") or []
+    else:
+        releases = page or []
+    return [item for item in releases if isinstance(item, Mapping)]
 
 
 def _commit_timestamp(repo_root: Path, commit: str) -> int:

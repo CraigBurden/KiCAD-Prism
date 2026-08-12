@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -257,7 +258,14 @@ ASSEMBLY_VIEWS: dict[str, str] = {
     "bottom": "assembly_bottom_view",
 }
 
-_PROJECTION_ATTR = re.compile(r'\bdata-projection\s*=\s*"([^"]+)"', re.IGNORECASE)
+#: What Cruncher *actually* drew each component from.
+#:
+#: Deliberately not ``data-projection``, which records the mode the config
+#: asked for and is therefore the same string on every component whether or not
+#: a model resolved.  ``data-bounds-kind`` is the outcome -- ``model``,
+#: ``holes`` or ``pads`` -- which is the only one of the two that can tell a
+#: reader whether this is the HLR drawing the sheet claims to be.
+_BOUNDS_KIND_ATTR = re.compile(r'\bdata-bounds-kind\s*=\s*"([^"]+)"', re.IGNORECASE)
 
 #: Sides with at least this many placements get a density warning.  Density is
 #: scale-invariant: past this, one sheet cannot carry every designator legibly,
@@ -266,38 +274,45 @@ DENSE_PLACEMENT_WARN = 400
 
 
 def assembly_projection_mix(svg_text: str) -> dict[str, int]:
-    """Count Cruncher ``data-projection`` values in one assembly SVG.
+    """Count what each component in one assembly SVG was actually drawn from.
 
-    ``pad_bounds`` means Geometer did not produce an HLR outline for that
-    component.  A view that is entirely ``pad_bounds`` is still a drawing, but
-    it is not the HLR assembly drawing the sheet claims to be.
+    ``model`` is the 3D model's own silhouette -- the drawing this sheet is
+    meant to be.  ``holes`` and ``pads`` are the rectangular fallbacks Cruncher
+    substitutes, per component, when no model resolves for that footprint.
     """
 
     counts: dict[str, int] = {}
-    for match in _PROJECTION_ATTR.finditer(svg_text or ""):
+    for match in _BOUNDS_KIND_ATTR.finditer(svg_text or ""):
         key = match.group(1).strip() or "unknown"
         counts[key] = counts.get(key, 0) + 1
     return counts
 
 
 def assembly_projection_warnings(side: str, mix: Mapping[str, int]) -> list[str]:
-    """Warn when an assembly view fell back to pad bounds instead of HLR."""
+    """Warn when components fell back to a bounding box instead of the model.
+
+    The fallback is correct behaviour, not a failure -- a part with no 3D model
+    has no silhouette to draw.  It is still worth stating: a reader comparing
+    the sheet against the boards in front of them should know which outlines
+    are the part and which are a box around it.
+    """
 
     total = sum(mix.values())
     if total <= 0:
         return []
-    pad = int(mix.get("pad_bounds") or 0)
-    if pad <= 0:
+    boxed = int(mix.get("pads") or 0) + int(mix.get("holes") or 0)
+    if boxed <= 0:
         return []
-    if pad == total:
+    if boxed == total:
         return [
-            f"assembly {side}: all {total} components used pad_bounds "
-            "(no HLR STEP projections; check embedded vs ${KIPRJMOD} 3D models)"
+            f"assembly {side}: no component resolved a 3D model; all {total} are "
+            "drawn as bounding boxes (check that the models are embedded or that "
+            "${KIPRJMOD} resolves)"
         ]
-    if pad / total >= 0.10:
+    if boxed / total >= 0.10:
         return [
-            f"assembly {side}: {pad}/{total} components fell back to pad_bounds "
-            "(HLR STEP projections incomplete)"
+            f"assembly {side}: {boxed}/{total} components have no 3D model and are "
+            "drawn as bounding boxes"
         ]
     return []
 
@@ -312,6 +327,49 @@ def assembly_density_warnings(side: str, placement_count: int) -> list[str]:
         "incomplete at any scale; detail/zone sheets are not yet generated; "
         "positions.csv remains authoritative"
     ]
+
+
+def acquire_assembly_views(
+    cruncher_path: str,
+    board: Path,
+    sides: Sequence[str],
+    workdir: Path,
+    *,
+    config_path: Path | None = None,
+    runner=subprocess.run,
+    timeout_seconds: int = 900,
+) -> dict[str, AcquiredArtwork]:
+    """Render every requested assembly view in **one** Cruncher invocation.
+
+    Loading the board dominates: on a 35 MB ``.kicad_pcb`` it is ~70 s against
+    ~34 s to render a view.  Asking for the sides one at a time paid that load
+    once per side for no benefit, since Cruncher will write both views from a
+    single load when told to.
+    """
+
+    views = []
+    for side in sides:
+        view = ASSEMBLY_VIEWS.get(side)
+        if view is None:
+            raise ArtworkError(f"unknown assembly side: {side!r}")
+        views.append(view)
+    if not views:
+        return {}
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    _run_pcb_svg(
+        cruncher_path,
+        board,
+        views,
+        workdir,
+        config_path=config_path,
+        runner=runner,
+        timeout_seconds=timeout_seconds,
+    )
+    return {
+        side: _read_assembly_view(workdir, side, ASSEMBLY_VIEWS[side])
+        for side in sides
+    }
 
 
 def acquire_assembly_view(
@@ -347,22 +405,55 @@ def acquire_assembly_view(
     view = ASSEMBLY_VIEWS.get(side)
     if view is None:
         raise ArtworkError(f"unknown assembly side: {side!r}")
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    _run_pcb_svg(
+        cruncher_path,
+        board,
+        [view],
+        workdir,
+        config_path=config_path,
+        runner=runner,
+        timeout_seconds=timeout_seconds,
+    )
+    return _read_assembly_view(workdir, side, view)
+
+
+def _run_pcb_svg(
+    cruncher_path: str,
+    board: Path,
+    views: Sequence[str],
+    workdir: Path,
+    *,
+    config_path: Path | None,
+    runner,
+    timeout_seconds: int,
+) -> None:
+    """Invoke ``kicad-cruncher pcb-svg`` for *views* and check it succeeded."""
+
     config = config_path or PCB_SVG_CONFIG
     if not config.is_file():
         raise ArtworkError(f"the Prism pcb-svg configuration is missing: {config}")
 
-    workdir.mkdir(parents=True, exist_ok=True)
+    named = ",".join(views)
     argv = [
         cruncher_path, "pcb-svg", str(board),
         "--config", str(config),
-        "--views", view,
+        "--views", named,
         "--output", str(workdir),
     ]
+    # KiCad resolves ``${KIPRJMOD}/packages3D/...`` against the project
+    # directory that contains the board.  Without this binding Geometer cannot
+    # open STEPs that are already present in the closed tree.
+    env = os.environ.copy()
+    env["KIPRJMOD"] = str(Path(board).resolve().parent)
     try:
-        result = runner(argv, capture_output=True, text=True, timeout=timeout_seconds)
+        result = runner(
+            argv, capture_output=True, text=True, timeout=timeout_seconds, env=env
+        )
     except subprocess.TimeoutExpired as exc:
         raise ArtworkError(
-            f"kicad-cruncher pcb-svg timed out after {timeout_seconds}s for {view}"
+            f"kicad-cruncher pcb-svg timed out after {timeout_seconds}s for {named}"
         ) from exc
     if getattr(result, "returncode", 1) != 0:
         detail = " ".join(
@@ -372,7 +463,11 @@ def acquire_assembly_view(
             )
             if part and part.strip()
         )
-        raise ArtworkError(f"kicad-cruncher pcb-svg failed for {view}: {detail[:400]}")
+        raise ArtworkError(f"kicad-cruncher pcb-svg failed for {named}: {detail[:400]}")
+
+
+def _read_assembly_view(workdir: Path, side: str, view: str) -> AcquiredArtwork:
+    """Turn one written Cruncher view into placeable artwork."""
 
     found = sorted((workdir / "views").glob(f"*__{view}.svg"))
     if not found:
@@ -660,6 +755,126 @@ def extents(svg_text: str) -> tuple[float, float, float, float]:
 
     # Report extents in millimetres so callers reason in one unit only.
     return vx * width_mm / vw, vy * height_mm / vh, width_mm, height_mm
+
+
+#: How each bounds kind is described on a sheet, best first.  Cruncher's own
+#: vocabulary is terse enough to mislead -- "pads" on a drawing would read as a
+#: layer, not as "this outline is a box around the pads".
+BOUNDS_KIND_LABELS: dict[str, str] = {
+    "model": "3D model outline",
+    "holes": "hole bounds",
+    "pads": "pad bounds",
+}
+
+
+def assembly_projection_label(mix: Mapping[str, int]) -> str:
+    """Compact statement of what the components on a sheet were drawn from."""
+
+    ordered = ("model", "holes", "pads", "unknown")
+    parts: list[str] = []
+    seen: set[str] = set()
+    for key in ordered:
+        count = int(mix.get(key) or 0)
+        if count <= 0:
+            continue
+        parts.append(f"{BOUNDS_KIND_LABELS.get(key, key)} {count}")
+        seen.add(key)
+    for key, count in sorted(mix.items()):
+        if key in seen or int(count or 0) <= 0:
+            continue
+        parts.append(f"{key} {int(count)}")
+    return " · ".join(parts)
+
+
+#: ISO A-series sheet sizes in millimetres (portrait).  Landscape is the swap.
+_ISO_A_SHEETS: tuple[tuple[float, float], ...] = (
+    (1189.0, 841.0),
+    (841.0, 594.0),
+    (594.0, 420.0),
+    (420.0, 297.0),
+    (297.0, 210.0),
+    (210.0, 148.0),
+)
+
+
+def looks_like_drawing_sheet(width: float, height: float, *, tol: float = 2.0) -> bool:
+    """True when *width*×*height* matches an ISO A drawing sheet."""
+
+    for sheet_w, sheet_h in _ISO_A_SHEETS:
+        if (
+            abs(width - sheet_w) <= tol and abs(height - sheet_h) <= tol
+        ) or (
+            abs(width - sheet_h) <= tol and abs(height - sheet_w) <= tol
+        ):
+            return True
+    return False
+
+
+def content_view(
+    art: AcquiredArtwork,
+    board_width: float = 0.0,
+    board_height: float = 0.0,
+) -> AcquiredArtwork:
+    """Prefer content bounds when the declared SVG frame is a drawing sheet.
+
+    ``kicad-cli`` / Cruncher sometimes emit a page-sized viewport with the board
+    drawn inside it.  Placing that page at 1:1 leaves the board looking tiny in
+    an empty artwork window.  Ink bounds (or the board outline as a last resort)
+    keep placement honest without changing the SVG body.
+    """
+
+    page_like = looks_like_drawing_sheet(art.view_width, art.view_height)
+    oversized = (
+        board_width > 0
+        and board_height > 0
+        and (
+            art.view_width > board_width * 1.75
+            or art.view_height > board_height * 1.75
+        )
+        and (
+            art.view_width > board_width + 40.0
+            or art.view_height > board_height + 40.0
+        )
+    )
+    if not page_like and not oversized:
+        return art
+
+    ink = ink_extent(art.svg_text)
+    if ink is not None:
+        left, top, width, height = ink
+        if width > 0 and height > 0:
+            ink_still_page = looks_like_drawing_sheet(width, height) or (
+                board_width > 0
+                and board_height > 0
+                and (
+                    width > board_width * 1.75
+                    or height > board_height * 1.75
+                )
+                and (
+                    width > board_width + 40.0
+                    or height > board_height + 40.0
+                )
+            )
+            if not ink_still_page:
+                return replace(
+                    art,
+                    view_x=left,
+                    view_y=top,
+                    view_width=width,
+                    view_height=height,
+                )
+
+    if board_width > 0 and board_height > 0:
+        cx = art.view_x + art.view_width / 2.0
+        cy = art.view_y + art.view_height / 2.0
+        return replace(
+            art,
+            view_x=cx - board_width / 2.0,
+            view_y=cy - board_height / 2.0,
+            view_width=board_width,
+            view_height=board_height,
+        )
+    return art
 
 
 def user_units_per_mm(svg_text: str) -> float:

@@ -314,6 +314,101 @@ def fit_text(
     return (trimmed + ellipsis) if trimmed else ""
 
 
+#: Soft wrap points preferred for table cells (paths, digests, notes).
+_CELL_BREAK_CHARS = frozenset("/\\-_ .,:;")
+
+#: Hard ceiling on wrapped lines in one table cell.  Past this the last line
+#: is ellipsized -- a schedule that grows without bound is not a drawing.
+MAX_CELL_LINES = 4
+
+
+def wrap_cell(
+    value: str,
+    limit: float,
+    size: float,
+    *,
+    family: Family = "mono",
+    bold: bool = False,
+    typography: str = DEFAULT_TYPOGRAPHY,
+    max_lines: int = MAX_CELL_LINES,
+) -> list[str]:
+    """Wrap *value* into at most *max_lines* that each fit *limit* millimetres.
+
+    Prefers breaks at path separators and punctuation so
+    ``fabrication/gerbers/F_Cu.gbr`` wraps on ``/`` rather than mid-token.
+    Falls back to character splits when a single token is wider than *limit*.
+    """
+
+    text = str(value or "")
+    if not text:
+        return [""]
+    if text_width(text, size, family=family, bold=bold, typography=typography) <= limit:
+        return [text]
+
+    tokens = _cell_tokens(text)
+    lines: list[str] = []
+    current = ""
+    for token in tokens:
+        candidate = f"{current}{token}" if current else token
+        if text_width(candidate, size, family=family, bold=bold, typography=typography) <= limit:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+            if len(lines) >= max_lines:
+                break
+        if text_width(token, size, family=family, bold=bold, typography=typography) <= limit:
+            current = token
+            continue
+        # Token itself is wider than the column: hard-split by character.
+        chunk = ""
+        for char in token:
+            next_chunk = f"{chunk}{char}"
+            if chunk and text_width(
+                next_chunk, size, family=family, bold=bold, typography=typography
+            ) > limit:
+                lines.append(chunk)
+                chunk = char
+                if len(lines) >= max_lines:
+                    chunk = ""
+                    break
+            else:
+                chunk = next_chunk
+        current = chunk
+        if len(lines) >= max_lines:
+            break
+
+    if current and len(lines) < max_lines:
+        lines.append(current)
+    if not lines:
+        return [fit_text(text, limit, size, family=family, bold=bold, typography=typography)]
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+    # If content remains after the budget, ellipsize the last kept line.
+    consumed = "".join(lines)
+    if consumed != text and lines:
+        lines[-1] = fit_text(
+            lines[-1], limit, size, family=family, bold=bold, typography=typography
+        )
+    return lines
+
+
+def _cell_tokens(value: str) -> list[str]:
+    """Split *value* into tokens that prefer path/punctuation boundaries."""
+
+    tokens: list[str] = []
+    buf = ""
+    for char in value:
+        buf += char
+        if char in _CELL_BREAK_CHARS:
+            tokens.append(buf)
+            buf = ""
+    if buf:
+        tokens.append(buf)
+    return tokens or [value]
+
+
 # ---------------------------------------------------------------------------
 # Shared furniture
 # ---------------------------------------------------------------------------
@@ -419,13 +514,43 @@ class Table:
     font_size: float = 2.4
     row_height: float = 4.2
     title: str = ""
-    #: Text of the "and N more" row, when :meth:`truncated` added one.  Drawn
-    #: across the whole table rather than into the first column's width.
-    truncation_marker: str = ""
+    #: Set on the tail of a :meth:`split` table so a continuation sheet can say
+    #: it is one -- ``LAYER STACKUP (CONTINUED)`` rather than a second table
+    #: that looks like a different stackup.
+    continued: bool = False
 
-    def height(self) -> float:
-        header = self.row_height + (5.0 if self.title else 0.0)
-        return header + self.row_height * len(self.rows)
+    @property
+    def heading(self) -> str:
+        """The title as drawn, marked when this is the tail of a split."""
+
+        if not self.title:
+            return ""
+        return f"{self.title} (CONTINUED)" if self.continued else self.title
+
+    def header_height(self) -> float:
+        return self.row_height + (5.0 if self.title else 0.0)
+
+    def height(self, typography: str = DEFAULT_TYPOGRAPHY) -> float:
+        return self.header_height() + sum(
+            self.row_extent(row, typography) for row in self.rows
+        )
+
+    def row_extent(self, row: Sequence[str], typography: str = DEFAULT_TYPOGRAPHY) -> float:
+        """How tall one data row must be once its cells are wrapped."""
+
+        gutter = _cell_gutter(self.font_size)
+        lines = 1
+        for value, width in zip(row, self.widths):
+            wrapped = wrap_cell(
+                str(value),
+                max(width - gutter, 1.0),
+                self.font_size,
+                typography=typography,
+            )
+            lines = max(lines, len(wrapped))
+        if lines <= 1:
+            return self.row_height
+        return self.row_height + (lines - 1) * self.font_size * 1.35
 
     def width(self) -> float:
         return sum(self.widths)
@@ -448,38 +573,69 @@ class Table:
             font_size=self.font_size * factor,
             row_height=self.row_height * factor,
             title=self.title,
-            truncation_marker=self.truncation_marker,
+            continued=self.continued,
         )
 
-    def truncated(self, keep: int, note: str = "and {count} more") -> "Table":
-        """Keep *keep* rows and state how many were dropped.
-
-        A table that silently stops is worse than one that says it stopped: the
-        rows are all in the dossier as data, and the sheet has to admit that it
-        is showing a subset.
-        """
-
-        if keep >= len(self.rows) or keep < 0:
-            return self
-        dropped = len(self.rows) - keep
-        text = note.format(count=dropped)
-        marker = (text,) + ("",) * (len(self.columns) - 1)
+    def _with_rows(self, rows: Sequence[Sequence[str]], *, continued: bool) -> "Table":
         return Table(
             columns=self.columns,
-            rows=tuple(self.rows[:keep]) + (marker,),
+            rows=tuple(tuple(row) for row in rows),
             widths=self.widths,
             align=self.align,
             font_size=self.font_size,
             row_height=self.row_height,
             title=self.title,
-            truncation_marker=text,
+            continued=continued,
         )
+
+    def split(
+        self, budget: float, typography: str = DEFAULT_TYPOGRAPHY
+    ) -> tuple["Table | None", "Table | None"]:
+        """Divide this table so the head fits in *budget* millimetres.
+
+        Rows are carried onto a continuation sheet, never dropped.  A released
+        schedule that stops at "and 4 more" is not a schedule -- the reader
+        cannot build the board from it, and the rows exist in the dossier
+        regardless, so there is nothing to gain by hiding them.
+
+        Returns ``(None, self)`` when not even one row fits, so the caller
+        moves the whole table on rather than emitting a bare header.
+        """
+
+        cursor = self.header_height()
+        for index, row in enumerate(self.rows):
+            extent = self.row_extent(row, typography)
+            if cursor + extent > budget:
+                if index == 0:
+                    return None, self
+                return (
+                    self._with_rows(self.rows[:index], continued=self.continued),
+                    self._with_rows(self.rows[index:], continued=True),
+                )
+            cursor += extent
+        return self, None
 
 
 def _column_height(tables: Sequence[Table], gap: float) -> float:
     if not tables:
         return 0.0
     return sum(table.height() for table in tables) + gap * (len(tables) - 1)
+
+
+#: How finely the fit search narrows the scale factor.  Twelve halvings take
+#: the interval below a thousandth, which is far below one drawn millimetre.
+_FIT_STEPS = 12
+
+
+def _fits(columns: Sequence[Sequence[Table]], factor: float, area: "Rect", gap: float) -> bool:
+    """Would every column fit *area* at *factor*, measured rather than predicted?"""
+
+    for column in columns:
+        if not column:
+            continue
+        if _column_height([table.scaled(factor) for table in column], gap) > area.height:
+            return False
+    return True
 
 
 def fit_columns(
@@ -496,47 +652,90 @@ def fit_columns(
     the sheet the board earned.  Growing the paper because a stackup gained
     rows would hand a small board an A1 sheet that is nine-tenths white, so the
     tables shrink instead -- one factor for all of them, so the sheet still
-    reads as one document -- down to a legibility floor, and only past that by
-    dropping rows with the count stated.
+    reads as one document -- down to a legibility floor.
+
+    Rows are never dropped here.  What does not fit at the floor is returned by
+    :func:`split_columns` for a continuation sheet to carry.
+    """
+
+    fitted, _overflow, factor = split_columns(
+        columns, area, gap=gap, column_gap=column_gap, min_font=min_font
+    )
+    return fitted, factor
+
+
+def split_columns(
+    columns: Sequence[Sequence[Table]],
+    area: "Rect",
+    *,
+    gap: float = 6.0,
+    column_gap: float = 10.0,
+    min_font: float = MIN_TABLE_FONT,
+) -> tuple[list[list[Table]], list[Table], float]:
+    """Fit what *area* can hold and hand back the rest.
+
+    Returns ``(fitted, overflow, factor)``.  ``overflow`` is a flat list of
+    tables -- whole ones, and the tails of any that were divided mid-way -- in
+    the order they should continue on the next sheet.
+
+    The scale factor is found by **measuring** each candidate rather than
+    predicting from unscaled heights.  Scaling narrows the columns as well as
+    the type, so a cell that fitted on one line at full size can wrap onto two
+    when shrunk; a predicted height therefore understates the real one, and a
+    column that overshoots by a millimetre used to answer by deleting rows.
     """
 
     present = [list(column) for column in columns if column]
     if not present:
-        return [list(column) for column in columns], 1.0
+        return [list(column) for column in columns], [], 1.0
 
     widths = [max(table.width() for table in column) for column in present]
     needed_width = sum(widths) + column_gap * (len(present) - 1)
-    needed_height = max(_column_height(column, gap) for column in present)
-    if needed_width <= 0 or needed_height <= 0:
-        return [list(column) for column in columns], 1.0
+    if needed_width <= 0 or area.width <= 0 or area.height <= 0:
+        return [list(column) for column in columns], [], 1.0
 
-    # The two dimensions are not symmetric.  A column that is too *wide* has no
-    # remedy but to shrink -- there is nowhere for it to go.  A column that is
-    # too *tall* does: stop shrinking at the legibility floor and drop rows,
-    # saying how many, because unreadable rows are not better than stated ones.
+    # Width has no remedy but to shrink -- there is nowhere else for a column to
+    # go -- so it sets the ceiling. Height is then searched down to the
+    # legibility floor, below which shrinking stops buying anything a reader
+    # can use and the remainder continues on another sheet instead.
     smallest = min(table.font_size for column in present for table in column)
     floor = min(1.0, min_font / smallest)
-    width_factor = min(1.0, area.width / needed_width)
-    height_factor = min(1.0, area.height / needed_height)
-    factor = min(width_factor, max(height_factor, floor))
+    ceiling = min(1.0, area.width / needed_width)
+    low = min(floor, ceiling)
+
+    if _fits(columns, ceiling, area, gap):
+        factor = ceiling
+    else:
+        factor = low
+        lo, hi = low, ceiling
+        for _ in range(_FIT_STEPS):
+            middle = (lo + hi) / 2
+            if _fits(columns, middle, area, gap):
+                factor, lo = middle, middle
+            else:
+                hi = middle
 
     fitted: list[list[Table]] = []
+    overflow: list[Table] = []
     for column in columns:
         scaled = [table.scaled(factor) for table in column]
-        height = _column_height(scaled, gap)
-        if height > area.height and scaled:
-            # Still too tall at the legibility floor: give each table its share
-            # of the column and state what it dropped.
-            budget = area.height - gap * (len(scaled) - 1)
-            trimmed = []
-            for table in scaled:
-                share = budget * (table.height() / height)
-                header = table.row_height + (5.0 if table.title else 0.0)
-                keep = int((share - header) // table.row_height) - 1
-                trimmed.append(table.truncated(max(keep, 0)))
-            scaled = trimmed
-        fitted.append(scaled)
-    return fitted, factor
+        kept: list[Table] = []
+        cursor = 0.0
+        spilling = False
+        for table in scaled:
+            if spilling:
+                overflow.append(table)
+                continue
+            budget = area.height - cursor - (gap if kept else 0.0)
+            head, tail = table.split(budget)
+            if head is not None:
+                kept.append(head)
+                cursor += head.height() + (gap if len(kept) > 1 else 0.0)
+            if tail is not None:
+                overflow.append(tail)
+                spilling = True
+        fitted.append(kept)
+    return fitted, overflow, factor
 
 
 def fit_tables(
@@ -582,7 +781,7 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
 
     if table.title:
         builder.text(
-            x0, cursor + 3.2, table.title, size=3.0, family="display"
+            x0, cursor + 3.2, table.heading, size=3.0, family="display"
         )
         cursor += 5.0
 
@@ -611,38 +810,52 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
     builder.line(x0, cursor - 0.8, x0 + total_width, cursor - 0.8, width=0.3)
 
     for row in table.rows:
-        baseline = cursor + table.row_height - 1.4
         offset = x0
-        # A truncation marker is a statement about the table, not a value in
-        # it: it spans the row and is never itself abbreviated, because "and 2
-        # ..." tells a reader less than no notice at all would.
-        marker = table.truncation_marker and row and str(row[0]) == table.truncation_marker
-        if marker:
-            builder.text(
-                x0, baseline, table.truncation_marker,
-                size=table.font_size, family="mono", colour="#555555",
-            )
-            cursor += table.row_height
-            continue
+        row_height = table.row_extent(row, builder.typography)
+        line_pitch = table.font_size * 1.35
         for value, width, align in zip(row, table.widths, aligns):
-            builder.text(
-                _cell_anchor(offset, width, align, table.font_size),
-                baseline,
-                fit_text(
-                    str(value),
-                    width - gutter,
-                    table.font_size,
-                    family="mono",
-                    typography=builder.typography,
-                ),
-                size=table.font_size,
-                anchor=align,
+            lines = wrap_cell(
+                str(value),
+                max(width - gutter, 1.0),
+                table.font_size,
                 family="mono",
+                typography=builder.typography,
             )
+            for line_index, line in enumerate(lines):
+                builder.text(
+                    _cell_anchor(offset, width, align, table.font_size),
+                    cursor + table.font_size + line_index * line_pitch,
+                    line,
+                    size=table.font_size,
+                    anchor=align,
+                    family="mono",
+                )
             offset += width
-        cursor += table.row_height
+        cursor += row_height
 
     return cursor
+
+
+def notes_height(
+    notes: Sequence[str],
+    *,
+    width: float,
+    size: float = 2.4,
+    title: str = "NOTES",
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> float:
+    """How tall :func:`draw_notes` will be for this text at this width.
+
+    Reserved space has to be measured rather than assumed: a flat allowance is
+    either too small -- and the notes run into the title block -- or too large,
+    and it steals room from the schedule above for no reason.
+    """
+
+    height = 5.5 if title else 0.0
+    for note in notes:
+        lines = _wrap(note, width - 6.0, size, typography=typography)
+        height += len(lines) * size * 1.5 + size * 0.5
+    return height
 
 
 def draw_notes(

@@ -36,6 +36,12 @@ _SIBLING_ROOT = (
 )
 
 CONFORMANCE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "release-studio" / "kicad-conformance"
+if not CONFORMANCE_DIR.is_dir():
+    # Docker images keep tests under /app/tests while fixtures stay at the repo
+    # root; prefer a present directory so the recorded-oracle check can run.
+    alt = Path(__file__).resolve().parents[1] / "fixtures" / "release-studio" / "kicad-conformance"
+    if alt.is_dir():
+        CONFORMANCE_DIR = alt
 
 #: `addDataCell( _( "Copper layer count: " ) )` -- KiCad writes the label and its
 #: trailing colon-space into one translatable string, and the colon is

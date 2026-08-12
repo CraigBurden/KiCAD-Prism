@@ -118,7 +118,11 @@ def board_characteristics(
     )
 
 
-def board_summary(stats: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+def board_summary(
+    stats: Mapping[str, Any],
+    *,
+    placements: Sequence[Mapping[str, Any]] | None = None,
+) -> tuple[tuple[str, str], ...]:
     """Facts a release cover wants that KiCad's characteristics table omits.
 
     Kept apart from :func:`board_characteristics` on purpose.  That table has a
@@ -130,13 +134,71 @@ def board_summary(stats: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     board = stats.get("board") or {}
     holes = _drill_rows(stats)
     components = (stats.get("components") or {}).get("total") or {}
+    pads = stats.get("pads") if isinstance(stats.get("pads"), Mapping) else {}
     total_holes = sum(int(item.get("count") or 0) for item in holes)
 
-    return (
+    front = components.get("front")
+    back = components.get("back")
+    if placements:
+        front = sum(1 for item in placements if str(item.get("side") or "").lower() == "top")
+        back = sum(1 for item in placements if str(item.get("side") or "").lower() == "bottom")
+
+    smd = pads.get("smd")
+    through_hole = pads.get("through_hole")
+    pad_total = None
+    if isinstance(smd, (int, float)) or isinstance(through_hole, (int, float)):
+        pad_total = int(smd or 0) + int(through_hole or 0) + int(pads.get("npth") or 0)
+
+    rows: list[tuple[str, str]] = [
         ("Board area", _text(board.get("area"))),
         ("Components", _text(components.get("total"))),
-        ("Drilled holes", _text(total_holes or None)),
-        ("Distinct drills", _text(len(holes) or None)),
+        ("Front / back", f"{_text(front)} / {_text(back)}"),
+        ("Pads (SMD / TH)", f"{_text(smd)} / {_text(through_hole)}"),
+    ]
+    if pad_total is not None:
+        rows.append(("Pads total", _text(pad_total)))
+    rows.extend(
+        (
+            ("Drilled holes", _text(total_holes or None)),
+            ("Distinct drills", _text(len(holes) or None)),
+        )
+    )
+    return tuple(rows)
+
+
+def variant_table_is_empty(variants: Mapping[str, Any]) -> bool:
+    """True when there is nothing useful to show in the variants panel."""
+
+    names = list(variants.get("variants") or [])
+    return not names and not variants.get("diverged")
+
+
+def revision_history_table(
+    releases: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = 10,
+) -> Table | None:
+    """Git tag / release history for the cover, or ``None`` when empty."""
+
+    rows: list[tuple[str, ...]] = []
+    for entry in list(releases)[:limit]:
+        tag = _text(entry.get("tag") or entry.get("name"))
+        date = str(entry.get("date") or "")
+        if "T" in date:
+            date = date.split("T", 1)[0]
+        message = str(entry.get("message") or "").strip().splitlines()[0] if entry.get("message") else ""
+        if len(message) > 72:
+            message = message[:71].rstrip() + "…"
+        commit = str(entry.get("commit_hash") or entry.get("full_hash") or "")[:7]
+        rows.append((tag, date or "—", commit or "—", message or "—"))
+    if not rows:
+        return None
+    return Table(
+        title="REVISION HISTORY",
+        columns=("Tag", "Date", "Commit", "Message"),
+        rows=tuple(rows),
+        widths=(28.0, 22.0, 16.0, 64.0),
+        align=("start", "start", "start", "start"),
     )
 
 
@@ -251,16 +313,16 @@ def member_table(members: Sequence[Mapping[str, Any]]) -> Table:
         title="RELEASED MEMBERS",
         columns=("Path", "Canonicalizer", "Released digest"),
         rows=tuple(rows),
-        widths=(96.0, 28.0, 42.0),
+        widths=(78.0, 26.0, 36.0),
     )
 
 
-def key_value_table(title: str, pairs: Sequence[tuple[str, str]], *, width: float = 130.0) -> Table:
+def key_value_table(title: str, pairs: Sequence[tuple[str, str]], *, width: float = 110.0) -> Table:
     """Render key/value pairs as a two-column table."""
 
     return Table(
         title=title,
         columns=("Property", "Value"),
         rows=tuple((key, value) for key, value in pairs),
-        widths=(width * 0.45, width * 0.55),
+        widths=(width * 0.42, width * 0.58),
     )

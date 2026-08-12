@@ -26,7 +26,9 @@ from app.release_studio.documents.layout import (
     draw_notes,
     draw_table,
     fit_columns,
+    notes_height,
     preferred_scale,
+    split_columns,
 )
 from app.release_studio.documents.worksheet import default_worksheet_elements
 
@@ -174,7 +176,12 @@ def table_area(
 
 #: Most of the body a table column may claim.  Past this the sheet stops being
 #: a drawing with a schedule beside it and becomes a schedule with a thumbnail.
-_MAX_TABLE_SHARE = 0.55
+_MAX_TABLE_SHARE = 0.45
+
+#: Millimetres a table column may grow past its configured base when the board
+#: leaves spare width.  Dumping all leftover body width into the schedule made
+#: A3/A2 sheets carry ultra-wide empty columns while cell text still ellipsized.
+_MAX_TABLE_GROWTH = 24.0
 
 
 def set_scale(
@@ -222,7 +229,10 @@ def sheet_columns(
         table_width = base
     else:
         spare = body.width - (drawn_width + 2 * _WINDOW_INSET) - _WINDOW_INSET
-        table_width = max(base, min(spare, body.width * _MAX_TABLE_SHARE))
+        table_width = max(
+            base,
+            min(spare, base + _MAX_TABLE_GROWTH, body.width * _MAX_TABLE_SHARE),
+        )
     return (
         table_width,
         artwork_window(size, table_width, title_height),
@@ -473,10 +483,8 @@ def draw_overall_dimensions(
 #: Vertical gap left between stacked tables, and the cover's bottom note block.
 _TABLE_GAP = 6.0
 _COVER_NOTES_HEIGHT = 26.0
-_COVER_TABLE_WIDTH = 120.0
+_COVER_TABLE_WIDTH = 110.0
 _COVER_COLUMN_GAP = 10.0
-#: Space kept below a sheet's tables for its note block.
-_NOTES_RESERVE = 30.0
 
 
 def _draw_column(builder: SheetBuilder, column: Sequence, origin: tuple[float, float]) -> float:
@@ -501,8 +509,14 @@ def technical_cover(
     notes: Sequence[str] | None = None,
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
-) -> Sheet:
-    """The rich cover: what this release is, and exactly what is in it."""
+    revision_history: Sequence[Mapping[str, Any]] | None = None,
+    placements: Sequence[Mapping[str, Any]] | None = None,
+) -> tuple[Sheet, list]:
+    """The rich cover: what this release is, and exactly what is in it.
+
+    Returns the sheet and any table rows it could not hold, which
+    :func:`continuation_sheet` carries rather than the cover dropping them.
+    """
 
     builder, body = _shell(
         "cover",
@@ -513,45 +527,62 @@ def technical_cover(
         typography=typography,
     )
 
+    # The notes run the full width of the body, so their height is measured at
+    # that width and subtracted before the tables are fitted.  A flat reserve
+    # is what let a long note block push itself down into the title block.
+    sheet_notes = notes if notes is not None else DEFAULT_NOTES["cover"]
+    body_width = body.width - 2 * _WINDOW_INSET
+    reserve = notes_height(sheet_notes, width=body_width, typography=typography) + _TABLE_GAP
+
     area = Rect(
         body.x + _WINDOW_INSET,
         body.y + _WINDOW_TOP,
-        body.width - 2 * _WINDOW_INSET,
-        body.height - _WINDOW_TOP - _COVER_NOTES_HEIGHT,
-    )
-    columns, _factor = fit_columns(
-        [
-            [
-                tables.key_value_table(
-                    "BOARD CHARACTERISTICS",
-                    tables.board_characteristics(stats, stackup),
-                    width=_COVER_TABLE_WIDTH,
-                ),
-                tables.key_value_table(
-                    "RELEASE SUMMARY",
-                    tables.board_summary(stats),
-                    width=_COVER_TABLE_WIDTH,
-                ),
-                tables.variant_table(variants, str(context.get("variant") or "")),
-            ],
-            [tables.member_table(members)],
-        ],
-        area,
-        gap=_TABLE_GAP,
-        column_gap=_COVER_COLUMN_GAP,
+        body_width,
+        body.height - _WINDOW_TOP - reserve,
     )
 
-    _draw_column(builder, columns[0], (area.x, area.y))
-    left_width = max((table.width() for table in columns[0]), default=0.0)
-    _draw_column(builder, columns[1], (area.x + left_width + _COVER_COLUMN_GAP, area.y))
+    # Three columns: what is in the release, how it got here, and what it is.
+    # The member list is first because it is the longest and the reason a
+    # recipient opens this sheet at all.
+    facts = [
+        tables.key_value_table(
+            "BOARD CHARACTERISTICS",
+            tables.board_characteristics(stats, stackup),
+            width=_COVER_TABLE_WIDTH,
+        ),
+        tables.key_value_table(
+            "RELEASE SUMMARY",
+            tables.board_summary(stats, placements=placements),
+            width=_COVER_TABLE_WIDTH,
+        ),
+    ]
+    if not tables.variant_table_is_empty(variants):
+        facts.append(tables.variant_table(variants, str(context.get("variant") or "")))
+
+    middle: list = []
+    history = tables.revision_history_table(revision_history or ())
+    if history is not None:
+        middle.append(history)
+
+    lanes = [[tables.member_table(members)], middle, facts]
+    columns, overflow, _factor = split_columns(
+        lanes, area, gap=_TABLE_GAP, column_gap=_COVER_COLUMN_GAP
+    )
+
+    cursor_x = area.x
+    for lane in columns:
+        if not lane:
+            continue
+        _draw_column(builder, lane, (cursor_x, area.y))
+        cursor_x += max(table.width() for table in lane) + _COVER_COLUMN_GAP
 
     draw_notes(
         builder,
-        notes if notes is not None else DEFAULT_NOTES["cover"],
-        (area.x, body.bottom - _COVER_NOTES_HEIGHT),
-        width=body.width - 2 * _WINDOW_INSET,
+        sheet_notes,
+        (area.x, area.bottom + _TABLE_GAP),
+        width=body_width,
     )
-    return builder.build()
+    return builder.build(), overflow
 
 
 def fabrication_sheet(
@@ -565,8 +596,12 @@ def fabrication_sheet(
     notes: Sequence[str] | None = None,
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
-) -> tuple[Sheet, float]:
-    """Board outline and stackup: what the fabricator needs to make the bare board."""
+) -> tuple[Sheet, float, list]:
+    """Board outline and stackup: what the fabricator needs to make the bare board.
+
+    Returns the sheet, the ratio the artwork was placed at, and any schedule
+    rows the sheet could not hold, for :func:`schedule_sheet` to continue.
+    """
 
     builder, body = _shell(
         "fabrication",
@@ -591,7 +626,11 @@ def fabrication_sheet(
             height_label=height_label,
         )
 
-    column, _factor = fit_columns(
+    sheet_notes = notes if notes is not None else DEFAULT_NOTES["fabrication"]
+    reserve = notes_height(
+        sheet_notes, width=table_width, typography=typography
+    ) + _TABLE_GAP
+    column, overflow, _factor = split_columns(
         [[
             tables.stackup_table(stackup),
             tables.drill_table(stackup, stats),
@@ -601,17 +640,65 @@ def fabrication_sheet(
                 width=table_width,
             ),
         ]],
-        Rect(area.x, area.y, area.width, area.height - _NOTES_RESERVE),
+        Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
     )
     cursor = _draw_column(builder, column[0], (area.x, area.y))
-    draw_notes(
-        builder,
-        notes if notes is not None else DEFAULT_NOTES["fabrication"],
-        (area.x, cursor + _TABLE_GAP),
-        width=table_width,
+    draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
+    return builder.build(), used, overflow
+
+
+#: How many columns of tables a continuation sheet lays out across the body.
+_CONTINUATION_COLUMNS = 3
+
+
+def continuation_sheet(
+    context: Mapping[str, Any],
+    carried: Sequence,
+    *,
+    key: str,
+    title: str,
+    size: str = DEFAULT_SIZE,
+    fields: Sequence[TitleBlockField] = (),
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> tuple[Sheet, list]:
+    """Continue tables that did not fit on the sheet they belong to.
+
+    A drawing sheet gives its schedule one narrow column beside the artwork.
+    This sheet has no artwork, so the same tables get the whole body across
+    several columns -- which is why one continuation almost always suffices,
+    and why nothing has to be dropped when it does not.
+    """
+
+    builder, body = _shell(key, title, context, size, fields, typography=typography)
+    title_height = title_block_height(context, fields)
+    body = body_rect(size, title_height)
+    area = Rect(
+        body.x + _WINDOW_INSET,
+        body.y + _WINDOW_TOP,
+        body.width - 2 * _WINDOW_INSET,
+        body.height - _WINDOW_TOP - _WINDOW_INSET,
     )
-    return builder.build(), used
+
+    # Deal the carried tables across the columns in order, so a stackup that
+    # spans two columns still reads top-to-bottom, left-to-right.
+    lanes: list[list] = [[] for _ in range(_CONTINUATION_COLUMNS)]
+    for position, table in enumerate(carried):
+        lanes[position % _CONTINUATION_COLUMNS].append(table)
+
+    columns, overflow, _factor = split_columns(
+        lanes,
+        area,
+        gap=_TABLE_GAP,
+        column_gap=_COVER_COLUMN_GAP,
+    )
+    cursor_x = area.x
+    for lane in columns:
+        if not lane:
+            continue
+        _draw_column(builder, lane, (cursor_x, area.y))
+        cursor_x += max(table.width() for table in lane) + _COVER_COLUMN_GAP
+    return builder.build(), overflow
 
 
 def assembly_sheet(
@@ -625,6 +712,7 @@ def assembly_sheet(
     notes: Sequence[str] | None = None,
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
+    projection_mix: Mapping[str, int] | None = None,
 ) -> tuple[Sheet, float]:
     """One assembly view, with the population count for the released variant.
 
@@ -632,6 +720,8 @@ def assembly_sheet(
     KiCad layer -- one designator per component, fitted to that component's own
     bounds -- and it is placed exactly as Cruncher emitted it.
     """
+
+    from app.release_studio.documents.artwork import assembly_projection_label
 
     label = "TOP" if side == "top" else "BOTTOM"
     builder, body = _shell(
@@ -655,6 +745,14 @@ def assembly_sheet(
         ("Placements", str(len(fitted))),
         ("Variant", str(context.get("variant") or "default")),
     ]
+    mix = dict(projection_mix or {})
+    if not mix and art is not None:
+        from app.release_studio.documents.artwork import assembly_projection_mix
+
+        mix = assembly_projection_mix(art.svg_text)
+    mix_label = assembly_projection_label(mix)
+    if mix_label:
+        summary_rows.append(("Component outlines", mix_label))
     if len(fitted) >= 400:
         summary_rows.append(
             (
@@ -663,18 +761,17 @@ def assembly_sheet(
                 "detail views are not yet generated",
             )
         )
+    sheet_notes = notes if notes is not None else DEFAULT_NOTES[f"assembly-{side}"]
+    reserve = notes_height(
+        sheet_notes, width=table_width, typography=typography
+    ) + _TABLE_GAP
     column, _factor = fit_columns(
         [[tables.key_value_table("POPULATION", tuple(summary_rows), width=table_width)]],
-        Rect(area.x, area.y, area.width, area.height - _NOTES_RESERVE),
+        Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
     )
     cursor = _draw_column(builder, column[0], (area.x, area.y))
-    draw_notes(
-        builder,
-        notes if notes is not None else DEFAULT_NOTES[f"assembly-{side}"],
-        (area.x, cursor + _TABLE_GAP),
-        width=table_width,
-    )
+    draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
     return builder.build(), used
 
 
@@ -689,8 +786,12 @@ def drill_sheet(
     notes: Sequence[str] | None = None,
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
-) -> tuple[Sheet, float]:
-    """The drill drawing: hole map alongside the drill schedule."""
+) -> tuple[Sheet, float, list]:
+    """The drill drawing: hole map alongside the drill schedule.
+
+    Returns the sheet, the placement ratio, and any schedule rows that did not
+    fit, which continue on their own sheet rather than being dropped.
+    """
 
     builder, body = _shell(
         "drill", "DRILL DRAWING", context, size, fields, typography=typography
@@ -702,16 +803,15 @@ def drill_sheet(
     )
     used = _draw_artwork(builder, window, art, label="drill artwork", scale=scale)
 
-    column, _factor = fit_columns(
+    sheet_notes = notes if notes is not None else DEFAULT_NOTES["drill"]
+    reserve = notes_height(
+        sheet_notes, width=table_width, typography=typography
+    ) + _TABLE_GAP
+    column, overflow, _factor = split_columns(
         [[tables.drill_table(stackup, stats)]],
-        Rect(area.x, area.y, area.width, area.height - _NOTES_RESERVE),
+        Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
     )
     cursor = _draw_column(builder, column[0], (area.x, area.y))
-    draw_notes(
-        builder,
-        notes if notes is not None else DEFAULT_NOTES["drill"],
-        (area.x, cursor + _TABLE_GAP),
-        width=table_width,
-    )
-    return builder.build(), used
+    draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
+    return builder.build(), used, overflow

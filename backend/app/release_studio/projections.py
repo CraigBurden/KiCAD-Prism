@@ -244,6 +244,22 @@ def _empty_stackup() -> dict[str, Any]:
     }
 
 
+def load_board_model(board_path: PathLike) -> tuple[Any, str | None]:
+    """Parse *board_path* once for every projection that needs it.
+
+    Parsing a large ``.kicad_pcb`` is the most expensive thing the projections
+    do -- minutes on a board of tens of megabytes -- and the stackup and the
+    variant projections each used to do it separately for the same file.  The
+    result is passed between them instead.
+
+    Returns ``(model, fallback_reason)``; ``fallback_reason`` is non-``None``
+    when the typed parse was rejected and only the targeted stackup facts could
+    be recovered, in which case the model is **not** a full ``KiCadPcb``.
+    """
+
+    return _load_pcb_projection_model(board_path)
+
+
 def _load_pcb_projection_model(board_path: PathLike) -> tuple[Any, str | None]:
     """Load only the typed board facts this projection owns.
 
@@ -305,16 +321,25 @@ def _load_pcb_projection_model(board_path: PathLike) -> tuple[Any, str | None]:
         )
 
 
-def project_stackup(board_path: PathLike) -> dict[str, Any]:
+def project_stackup(
+    board_path: PathLike,
+    *,
+    model: tuple[Any, str | None] | None = None,
+) -> dict[str, Any]:
     """Project stackup ordering, materials, thickness, and via spans.
 
     KiCad stores physical layer facts in ``setup.stackup`` and the complete
     enabled-layer table in ``layers``.  A board without a stackup still gets a
     useful layer-table projection, but all unavailable stackup fields remain
     ``None`` rather than being inferred from a generic board thickness.
+
+    ``model`` is a parse from :func:`load_board_model` to reuse instead of
+    reading the file again.
     """
 
-    pcb, fallback_reason = _load_pcb_projection_model(board_path)
+    pcb, fallback_reason = model if model is not None else _load_pcb_projection_model(
+        board_path
+    )
     stackup = getattr(pcb, "stackup", None)
     model_source = "board.setup.stackup" if stackup is not None else "board.layers"
     source = "kicad_monkey.fallback" if fallback_reason else model_source
@@ -600,6 +625,8 @@ def project_variants(
     board_path: PathLike,
     project_path: PathLike | None = None,
     schematic_path: PathLike | None = None,
+    *,
+    pcb: Any = None,
 ) -> dict[str, Any]:
     """Union board, project, and schematic variant declarations.
 
@@ -607,11 +634,15 @@ def project_variants(
     uses board order first, then project-only names, then schematic-only names.
     Source comparison ignores ordering but includes names, descriptions,
     default markers, and shared board/schematic DNP assignments.
+
+    ``pcb`` is a typed board model from :func:`load_board_model` to reuse
+    instead of parsing the same file a second time.
     """
 
     from kicad_monkey import KiCadPcb, KiCadProject, KiCadSchematic
 
-    pcb = KiCadPcb.from_file(board_path)
+    if pcb is None:
+        pcb = KiCadPcb.from_file(board_path)
     project = KiCadProject.from_file(project_path) if project_path is not None else None
     schematic = (
         KiCadSchematic.from_file(schematic_path)

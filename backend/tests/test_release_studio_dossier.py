@@ -31,6 +31,7 @@ from app.release_studio.dossier import (  # noqa: E402
 )
 from app.release_studio.steps import (  # noqa: E402
     STEP_BY_ID,
+    STEP_CATALOGUE,
     evidence_counts,
     run_step_catalogue,
 )
@@ -126,6 +127,57 @@ def _fake_runner(stamp: str, plain: str):
         return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     return run
+
+
+class StepCatalogueOrderTests(unittest.TestCase):
+    """The catalogue runs concurrently but must report in catalogue order.
+
+    Member ordering feeds `dossier_digest`, so if results came back in
+    completion order the same build would digest differently depending on which
+    `kicad-cli` finished first.
+    """
+
+    def test_results_follow_the_catalogue_not_the_finishing_order(self) -> None:
+        import time
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        closure = root / "closure"
+        (closure / "hardware").mkdir(parents=True)
+        (closure / "hardware/board.kicad_pcb").write_text("(kicad_pcb)")
+        (closure / "hardware/board.kicad_sch").write_text("(kicad_sch)")
+
+        inner = _fake_runner("2026-01-01T00:00:00+00:00", "2026-01-01")
+        started: list[float] = []
+
+        def run(argv, cwd, timeout_seconds):
+            started.append(time.monotonic())
+            # Invert the finishing order relative to the catalogue: the first
+            # step waits longest, so a completion-ordered result would be
+            # visibly reversed.
+            time.sleep(0.05 if "drc" in argv else 0.0)
+            return inner(argv, cwd=cwd, timeout_seconds=timeout_seconds)
+
+        outputs = run_step_catalogue(
+            closure_root=closure,
+            board_rel="hardware/board.kicad_pcb",
+            schematic_rel="hardware/board.kicad_sch",
+            output_root=root / "out",
+            cli_path="/usr/bin/true",
+            runner=run,
+        )
+
+        produced = [output.step_id for output in outputs]
+        expected = [
+            spec.step_id
+            for spec in STEP_CATALOGUE
+            if spec.step_id in set(produced)
+        ]
+        self.assertEqual(produced, expected)
+        # And they really did overlap rather than queueing one behind another.
+        self.assertGreater(len(started), 1)
+        self.assertLess(max(started) - min(started), 0.05)
 
 
 class ReleaseStudioDossierTests(unittest.TestCase):

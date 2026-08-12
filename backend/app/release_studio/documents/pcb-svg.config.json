@@ -17,7 +17,12 @@
     "   and filed, and the sheet renderer carries no alpha channel, so a",
     "   translucent overlay here would be silently flattened.",
     " - DNP parts keep a distinct colour, because that distinction carries",
-    "   meaning a monochrome sheet would lose."
+    "   meaning a monochrome sheet would lose.",
+    " - assembly.default_projection is `outline`, the model-derived silhouette.",
+    "   Cruncher already degrades per component -- model bounds, then hole",
+    "   bounds, then pad bounds -- and records which it used in",
+    "   data-bounds-kind, so asking for the outline costs nothing on a part",
+    "   with no 3D model and gains the real shape on every part that has one."
   ],
   "global": {
     "canvas": {
@@ -87,8 +92,8 @@
     }
   },
   "assembly": {
-    "default_projection": "pad_bounds",
-    "dnp_projection": "bounding_box",
+    "default_projection": "outline",
+    "dnp_projection": "outline",
     "designator_color": "#000000",
     "dnp_designator_color": "#B00020"
   },

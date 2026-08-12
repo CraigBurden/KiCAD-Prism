@@ -48,6 +48,14 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d12 -- schedules never truncate: the fit is measured rather than predicted
+#: and what still does not fit continues on its own sheet; the cover is three
+#: columns with the note block measured off the bottom; assembly views ask
+#: Cruncher for the model outline and report what each component was actually
+#: drawn from.
+#: d11 -- package size from board stats only; table slack capped with wrapped
+#: cells; assembly HLR binds KIPRJMOD/packages3D and defaults to bounding_box;
+#: cover carries richer summary and Git tag revision history.
 #: d10 -- fabrication sheets carry overall width/height dimensions from board
 #: statistics; assembly views are placed as Cruncher emitted them (no ingest).
 #: d9 -- assembly views come from `kicad-cruncher pcb-svg`; one scale for the
@@ -59,7 +67,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d10"
+RENDERER_VERSION = "release-studio-documents/d12"
 
 __all__ = [
     "ARTWORK_LAYERS",

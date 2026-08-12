@@ -16,12 +16,22 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
 DEFAULT_CLI_TIMEOUT_SECONDS = 900
+
+#: Ceiling on concurrent `kicad-cli` processes.
+#:
+#: Each holds the whole board in memory, so this is bounded by RAM rather than
+#: by cores: eight copies of a 35 MB board's in-memory model is already a lot
+#: to ask of a worker container, and the catalogue is not much longer than this
+#: anyway.
+_MAX_PARALLEL_STEPS = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,30 +306,47 @@ def run_step_catalogue(
         schematic = None
 
     specs = selected_steps(board=board, schematic=schematic, only=only)
-    results: list[StepOutput] = []
-    for index, spec in enumerate(specs):
-        if progress is not None:
-            progress(
-                stage="generate",
-                message=f"Running {spec.step_id}",
-                percent=10 + int(60 * index / max(1, len(specs))),
-            )
-        results.append(
-            _run_one(
-                spec,
-                cli=cli,
-                closure_root=closure_root,
-                board=board,
-                schematic=schematic,
-                board_rel=board_rel,
-                schematic_rel=schematic_rel or "",
-                output_root=output_root,
-                variant=variant,
-                timeout_seconds=timeout_seconds,
-                execute=execute,
-            )
-        )
-    return tuple(results)
+    if not specs:
+        return ()
+
+    # Every step is an independent `kicad-cli` process reading the closure and
+    # writing its own output path, so they run together.  Serially the fixed
+    # per-invocation cost -- a couple of seconds of process start and board
+    # load each -- was paid nine times over, and DRC alone can take half a
+    # minute while eight other steps wait behind it.
+    run = partial(
+        _run_one,
+        cli=cli,
+        closure_root=closure_root,
+        board=board,
+        schematic=schematic,
+        board_rel=board_rel,
+        schematic_rel=schematic_rel or "",
+        output_root=output_root,
+        variant=variant,
+        timeout_seconds=timeout_seconds,
+        execute=execute,
+    )
+    results: dict[str, StepOutput] = {}
+    completed = 0
+    with ThreadPoolExecutor(max_workers=min(len(specs), _MAX_PARALLEL_STEPS)) as pool:
+        futures = {pool.submit(run, spec): spec for spec in specs}
+        for future in as_completed(futures):
+            spec = futures[future]
+            completed += 1
+            if progress is not None:
+                progress(
+                    stage="generate",
+                    message=f"Ran {spec.step_id}",
+                    percent=10 + int(60 * completed / len(specs)),
+                )
+            # A failing step still raises, exactly as it did serially; the
+            # pool's context manager lets the others finish first so a retry
+            # is not starting from nothing.
+            results[spec.step_id] = future.result()
+    # Catalogue order, not completion order: the dossier's member ordering and
+    # every digest built from it have to be independent of scheduling.
+    return tuple(results[spec.step_id] for spec in specs)
 
 
 def _run_one(

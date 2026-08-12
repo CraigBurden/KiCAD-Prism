@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -24,12 +26,13 @@ from app.release_studio.documents.artwork import (
     AcquiredArtwork,
     ArtworkError,
     acquire,
-    acquire_assembly_view,
+    acquire_assembly_views,
     acquire_drill_map,
     assembly_density_warnings,
     assembly_projection_mix,
     assembly_projection_warnings,
     composite_pdf,
+    content_view,
 )
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_preset
 from app.release_studio.documents.layout import Rect, Sheet
@@ -58,6 +61,36 @@ DRILL_ARTWORK_KEY = "drill"
 #: Assembly views come from `kicad-cruncher pcb-svg`, which fits one designator
 #: into each component's own bounds over a hidden-line-removed outline.
 ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
+
+#: Key the concurrent acquisition uses for the one job that returns both sides.
+_ASSEMBLY_JOB = "__assembly__"
+
+
+def _acquire_concurrently(
+    jobs: Mapping[str, Callable[[], Any]], warnings: list[str]
+) -> dict[str, Any]:
+    """Run every acquisition at once; a failure costs one view, not the set.
+
+    These are subprocess calls, so threads are the right tool: each spends
+    essentially all of its time waiting on a child process.
+    """
+
+    if not jobs:
+        return {}
+
+    results: dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futures = {pool.submit(job): key for key, job in jobs.items()}
+        for future in as_completed(futures):
+            key = futures[future]
+            label = "assembly views" if key == _ASSEMBLY_JOB else f"artwork for {key}"
+            try:
+                results[key] = future.result()
+            except (ArtworkError, OSError) as exc:
+                # A missing view degrades one sheet, never the document set.
+                warnings.append(f"{label} unavailable: {exc}")
+                logger.warning("Release Studio %s unavailable: %s", label, exc)
+    return results
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,9 +140,10 @@ def compose(
     notes: Mapping[str, Any] | None = None,
     fields: Mapping[str, Any] | None = None,
     typography: str = DEFAULT_TYPOGRAPHY,
+    revision_history: Sequence[Mapping[str, Any]] | None = None,
     acquirer: Callable[..., AcquiredArtwork] | None = None,
     drill_acquirer: Callable[..., AcquiredArtwork] | None = None,
-    assembly_acquirer: Callable[..., AcquiredArtwork] | None = None,
+    assembly_acquirer: Callable[..., Mapping[str, AcquiredArtwork]] | None = None,
 ) -> DocumentSet:
     """Compose the full document set.
 
@@ -139,64 +173,63 @@ def compose(
     warnings.extend(note_warnings)
     warnings.extend(field_warnings)
 
+    # Every acquisition below is an independent subprocess writing to its own
+    # directory, so they are started together rather than queued behind each
+    # other.  The Cruncher render is by far the longest, and running it beside
+    # the plots instead of after them is most of the saving.
+    jobs: dict[str, Callable[[], Any]] = {}
     if board is not None and cli_path and workdir is not None:
         fetch = acquirer or acquire
         for key, layers in ARTWORK_LAYERS.items():
-            try:
-                art[key] = fetch(
-                    cli_path, board, layers, workdir / key,
-                    variant=str(context.get("variant") or ""),
-                )
-            except (ArtworkError, OSError) as exc:
-                # A missing view degrades one sheet, never the document set.
-                warnings.append(f"artwork for {key} unavailable: {exc}")
-                logger.warning("Release Studio artwork for %s unavailable: %s", key, exc)
-        try:
-            art[DRILL_ARTWORK_KEY] = (drill_acquirer or acquire_drill_map)(
-                cli_path, board, workdir / DRILL_ARTWORK_KEY
+            jobs[key] = partial(
+                fetch,
+                cli_path,
+                board,
+                layers,
+                workdir / key,
+                variant=str(context.get("variant") or ""),
             )
-        except (ArtworkError, OSError) as exc:
-            warnings.append(f"artwork for {DRILL_ARTWORK_KEY} unavailable: {exc}")
-            logger.warning("Release Studio drill map unavailable: %s", exc)
+        jobs[DRILL_ARTWORK_KEY] = partial(
+            drill_acquirer or acquire_drill_map, cli_path, board, workdir / DRILL_ARTWORK_KEY
+        )
     else:
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
     if board is not None and cruncher_path and workdir is not None:
-        render = assembly_acquirer or acquire_assembly_view
-        for side in ASSEMBLY_SIDES:
-            try:
-                acquired = render(
-                    cruncher_path, board, side, workdir / f"assembly-{side}"
-                )
-                assembly[side] = acquired
-                side_count = sum(
-                    1
-                    for item in placements
-                    if str(item.get("side") or "").lower() == side
-                )
-                warnings.extend(assembly_density_warnings(side, side_count))
-                warnings.extend(
-                    assembly_projection_warnings(
-                        side, assembly_projection_mix(acquired.svg_text)
-                    )
-                )
-            except (ArtworkError, OSError) as exc:
-                # An assembly sheet without its view still carries the population
-                # table and states the absence; it never silently falls back to
-                # the F.Fab plot this replaced, because that plot is the defect.
-                warnings.append(f"assembly {side} view unavailable: {exc}")
-                logger.warning(
-                    "Release Studio assembly %s view unavailable: %s", side, exc
-                )
+        # One invocation for both sides: loading the board dominates the cost
+        # and Cruncher writes every requested view from a single load.
+        jobs[_ASSEMBLY_JOB] = partial(
+            assembly_acquirer or acquire_assembly_views,
+            cruncher_path,
+            board,
+            ASSEMBLY_SIDES,
+            workdir / "assembly",
+        )
     else:
         warnings.append(
             "kicad-cruncher unavailable: assembly sheets composed without artwork"
         )
 
+    acquired = _acquire_concurrently(jobs, warnings)
+    for key, value in acquired.items():
+        if key == _ASSEMBLY_JOB:
+            assembly.update(value)
+        else:
+            art[key] = value
+
+    for side, drawing in assembly.items():
+        side_count = sum(
+            1 for item in placements if str(item.get("side") or "").lower() == side
+        )
+        warnings.extend(assembly_density_warnings(side, side_count))
+        warnings.extend(
+            assembly_projection_warnings(side, assembly_projection_mix(drawing.svg_text))
+        )
+
     title_height = sheet_templates.title_block_height(context, title_fields)
-    extent_width, extent_height = board_extent(stats, art, assembly)
+    extent_width, extent_height = board_extent(stats)
     if sheet_size is None:
-        sheet_size = _select_size(stats, art, assembly, title_height)
+        sheet_size = _select_size(stats, title_height)
     # One ratio for the whole package. A reader who scales a dimension off the
     # fabrication sheet and applies it to the assembly sheet has to get the same
     # number, so the scale is a property of the set rather than of each sheet.
@@ -204,15 +237,44 @@ def compose(
         extent_width, extent_height, sheet_size, title_height
     )
 
+    # Placement uses content bounds when an acquired SVG reports a drawing-sheet
+    # frame (or otherwise dwarfs the board).  Package size already ignored those
+    # frames; placement must too or the board sits tiny inside an empty window.
+    art = {
+        key: content_view(drawing, extent_width, extent_height)
+        for key, drawing in art.items()
+    }
+    assembly = {
+        side: content_view(drawing, extent_width, extent_height)
+        for side, drawing in assembly.items()
+    }
+    assembly_mix = {
+        side: assembly_projection_mix(drawing.svg_text)
+        for side, drawing in assembly.items()
+    }
+
     outputs: list[DocumentOutput] = []
 
-    cover = sheet_templates.technical_cover(
+    cover, cover_overflow = sheet_templates.technical_cover(
         context, stats, stackup, variants, members, size=sheet_size,
         notes=sheet_notes["cover"], fields=title_fields, typography=typography,
+        revision_history=revision_history,
+        placements=placements,
     )
     _append_serialized(outputs, cover, "cover", 1.0, None, None, warnings)
+    _append_continuations(
+        outputs,
+        cover_overflow,
+        context=context,
+        prefix="cover",
+        title="RELEASE COVER — CONTINUED",
+        sheet_size=sheet_size,
+        fields=title_fields,
+        typography=typography,
+        warnings=warnings,
+    )
 
-    fabrication, fab_scale = sheet_templates.fabrication_sheet(
+    fabrication, fab_scale, fab_overflow = sheet_templates.fabrication_sheet(
         context, stats, stackup, art.get("fabrication"), size=sheet_size, scale=scale,
         notes=sheet_notes["fabrication"], fields=title_fields, typography=typography,
     )
@@ -225,12 +287,24 @@ def compose(
         _artwork_window(fabrication),
         warnings,
     )
+    _append_continuations(
+        outputs,
+        fab_overflow,
+        context=context,
+        prefix="schedules",
+        title="FABRICATION SCHEDULES",
+        sheet_size=sheet_size,
+        fields=title_fields,
+        typography=typography,
+        warnings=warnings,
+    )
 
     for side in ASSEMBLY_SIDES:
         key = f"assembly-{side}"
         sheet, used = sheet_templates.assembly_sheet(
             context, side, assembly.get(side), placements, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
+            projection_mix=assembly_mix.get(side),
         )
         _append_serialized(
             outputs,
@@ -242,7 +316,7 @@ def compose(
             warnings,
         )
 
-    drill, drill_scale = sheet_templates.drill_sheet(
+    drill, drill_scale, drill_overflow = sheet_templates.drill_sheet(
         context, stats, stackup, art.get("drill"), size=sheet_size, scale=scale,
         notes=sheet_notes["drill"], fields=title_fields, typography=typography,
     )
@@ -254,6 +328,17 @@ def compose(
         art.get("drill"),
         _artwork_window(drill),
         warnings,
+    )
+    _append_continuations(
+        outputs,
+        drill_overflow,
+        context=context,
+        prefix="drill",
+        title="DRILL SCHEDULE",
+        sheet_size=sheet_size,
+        fields=title_fields,
+        typography=typography,
+        warnings=warnings,
     )
 
     return DocumentSet(
@@ -278,45 +363,26 @@ def _mm_value(value: Any) -> float:
     return float(match.group(0)) if match else 0.0
 
 
-def board_extent(
-    stats: Mapping[str, Any],
-    art: Mapping[str, AcquiredArtwork] | None = None,
-    assembly: Mapping[str, AcquiredArtwork] | None = None,
-) -> tuple[float, float]:
-    """The largest extent any sheet has to accommodate, in millimetres.
+def board_extent(stats: Mapping[str, Any]) -> tuple[float, float]:
+    """The board outline from statistics, in millimetres.
 
-    Every source matters and none subsumes the others: the board statistics
-    give the outline even when no artwork could be plotted, a plotted view
-    includes silkscreen and fabrication content that overhangs the outline, and
-    an assembly view includes component bodies that overhang it too.
+    Package paper size follows the board alone.  Acquired SVG frames often
+    report the project's drawing-sheet paper (A3/A2/…) rather than the ink; if
+    those frames chose the package size, a 132 mm board would land on A2 at
+    1:1 with most of the artwork window empty.  Placement still prefers content
+    bounds via :func:`content_view` when a frame looks page-sized.
     """
 
     board = stats.get("board") if isinstance(stats, Mapping) else None
     width = _mm_value((board or {}).get("width"))
     height = _mm_value((board or {}).get("height"))
-    for key, acquired in (art or {}).items():
-        # The drill map is deliberately excluded: its extent includes the
-        # symbol key printed below the board, which is sheet furniture and not
-        # a reason to hand the board a larger page.
-        if key == DRILL_ARTWORK_KEY:
-            continue
-        width = max(width, acquired.view_width)
-        height = max(height, acquired.view_height)
-    for drawing in (assembly or {}).values():
-        width = max(width, drawing.view_width)
-        height = max(height, drawing.view_height)
     return width, height
 
 
-def _select_size(
-    stats: Mapping[str, Any],
-    art: Mapping[str, AcquiredArtwork],
-    assembly: Mapping[str, AcquiredArtwork],
-    title_height: float,
-) -> str:
+def _select_size(stats: Mapping[str, Any], title_height: float) -> str:
     """Pick one standard sheet size for the whole set, from the board alone."""
 
-    width, height = board_extent(stats, art, assembly)
+    width, height = board_extent(stats)
     if width <= 0 or height <= 0:
         # Nothing is known about the board -- no projections and no artwork.
         # Sizing from a guess would be worse than stating a conventional
@@ -367,6 +433,55 @@ def _serialize(
         scale=scale,
         artwork_digest=art.digest if art else artwork_digest,
     )
+
+
+#: Ceiling on continuation sheets per originating sheet.
+#:
+#: Each continuation lays its tables across the whole body in three columns, so
+#: one absorbs a very large schedule and two is already implausible.  The cap is
+#: a guard against a table that cannot shrink below one row per sheet turning
+#: into an unbounded document set, not a content decision.
+MAX_CONTINUATION_SHEETS = 4
+
+
+def _append_continuations(
+    outputs: list[DocumentOutput],
+    carried: Sequence,
+    *,
+    context: Mapping[str, Any],
+    prefix: str,
+    title: str,
+    sheet_size: str,
+    fields: Sequence,
+    typography: str,
+    warnings: list[str],
+) -> None:
+    """Emit continuation sheets until nothing is left to carry."""
+
+    remaining = list(carried)
+    index = 0
+    while remaining and index < MAX_CONTINUATION_SHEETS:
+        index += 1
+        key = f"{prefix}-{index}"
+        sheet, remaining = sheet_templates.continuation_sheet(
+            context,
+            remaining,
+            key=key,
+            title=f"{title} — SHEET {index}",
+            size=sheet_size,
+            fields=fields,
+            typography=typography,
+        )
+        _append_serialized(outputs, sheet, key, 1.0, None, None, warnings)
+    if remaining:
+        # Nothing here can carry it, and silence would be the old defect in a
+        # new place: the sheet set has to say the dossier holds more than it
+        # drew.
+        warnings.append(
+            f"{prefix}: {len(remaining)} table(s) did not fit in "
+            f"{MAX_CONTINUATION_SHEETS} continuation sheets; the released data "
+            "files remain complete"
+        )
 
 
 def _append_serialized(
