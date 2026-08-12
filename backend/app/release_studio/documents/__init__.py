@@ -13,6 +13,7 @@ from app.release_studio.documents.engine import (
     ASSEMBLY_SIDES,
     DOCUMENT_DOMAIN,
     DocumentOutput,
+    DocumentPage,
     DocumentSet,
     compose,
 )
@@ -48,6 +49,12 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d14 -- drawings that belong together are one PDF with pages: every plotted
+#: layer of the board in the fabrication document, both sides in the assembly
+#: and testpoint ones, and continuation schedules as pages rather than files.
+#: The cover carries a raytraced view of the board; assembly counts come from
+#: the board rather than the position file, so "do not populate" is a stated
+#: number instead of a note that was not true.
 #: d13 -- testpoint drawings: two further Cruncher views in the one checked-in
 #: configuration label only `TP*` and omit the component outlines, with a
 #: schedule of designator and position beside them; the cover spreads its three
@@ -72,7 +79,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d13"
+RENDERER_VERSION = "release-studio-documents/d14"
 
 __all__ = [
     "ARTWORK_LAYERS",
@@ -81,6 +88,7 @@ __all__ = [
     "PCB_SVG_CONFIG",
     "RENDERER_VERSION",
     "DocumentOutput",
+    "DocumentPage",
     "DocumentSet",
     "Sheet",
     "SheetBuilder",

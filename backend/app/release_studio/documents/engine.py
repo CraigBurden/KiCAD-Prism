@@ -26,6 +26,7 @@ from app.release_studio.documents.artwork import (
     AcquiredArtwork,
     ArtworkError,
     acquire,
+    acquire_board_render,
     acquire_board_views,
     acquire_drill_map,
     assembly_density_warnings,
@@ -36,7 +37,7 @@ from app.release_studio.documents.artwork import (
 )
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_preset
 from app.release_studio.documents.layout import Rect, Sheet
-from app.release_studio.documents.pdf import render_pdf
+from app.release_studio.documents.pdf import render_pdf_pages
 from app.release_studio.documents.svg import render_svg
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,53 @@ DOCUMENT_DOMAIN = "documentation"
 ARTWORK_LAYERS: dict[str, tuple[str, ...]] = {
     "fabrication": ("Edge.Cuts", "F.Cu"),
 }
+
+#: The board's raytraced isometric view, for the cover.
+#:
+#: The same `kicad-cli pcb render` the project thumbnail uses, so the picture on
+#: a release cover is the picture of the project.
+BOARD_RENDER_KEY = "board-render"
+
+#: Technical layers plotted after the copper ones, in the order a reader walks
+#: a board: what is on it, what covers it, what is cut out of it.
+_TECHNICAL_LAYERS: tuple[str, ...] = (
+    "F.Silkscreen",
+    "B.Silkscreen",
+    "F.Mask",
+    "B.Mask",
+    "F.Paste",
+    "B.Paste",
+    "Edge.Cuts",
+)
+
+
+def _layer_artwork_key(layer: str) -> str:
+    return f"layer:{layer}"
+
+
+def _layer_page_key(layer: str) -> str:
+    return f"fabrication-{layer.replace('.', '_')}"
+
+
+def fabrication_layers(stackup: Mapping[str, Any]) -> tuple[str, ...]:
+    """Every layer the fabrication document gives a page to, outside in.
+
+    Copper comes from the board's own stackup so a twelve-layer board gets
+    twelve copper pages in stack order rather than a guessed `F.Cu`/`B.Cu`
+    pair; the technical layers follow in a fixed order.
+    """
+
+    copper: list[str] = []
+    for layer in (stackup.get("layers") or []) if isinstance(stackup, Mapping) else []:
+        name = str(layer.get("name") or "").strip()
+        kind = str(layer.get("type") or layer.get("kind") or "").strip().lower()
+        if not name or not name.endswith(".Cu"):
+            continue
+        if kind and "copper" not in kind:
+            continue
+        if name not in copper:
+            copper.append(name)
+    return tuple(copper) + _TECHNICAL_LAYERS
 
 #: The drill sheet's artwork is not a layer plot: holes are not a layer, so the
 #: view comes from `pcb export drill --generate-map` instead.
@@ -100,17 +148,39 @@ def _acquire_concurrently(
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentOutput:
-    """One composed sheet, in both serializations."""
+class DocumentPage:
+    """One composed sheet: a page of a document, and its own SVG."""
 
     key: str
     title: str
     svg_path: str
-    pdf_path: str
     svg_bytes: bytes
-    pdf_bytes: bytes
     scale: float
     artwork_digest: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentOutput:
+    """One released document: a single PDF over one or more pages.
+
+    Drawings that belong together are one document -- every copper layer of a
+    board, or both sides of an assembly -- because that is how a reader files
+    and prints them.  SVG has no multi-page form, so each page keeps its own
+    SVG beside the shared PDF; the SVGs are the previewable rendering and the
+    PDF is the one a fabricator receives.
+    """
+
+    key: str
+    title: str
+    pdf_path: str
+    pdf_bytes: bytes
+    pages: tuple[DocumentPage, ...] = ()
+
+    @property
+    def scale(self) -> float:
+        """The ratio the first page was placed at."""
+
+        return self.pages[0].scale if self.pages else 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +195,8 @@ class DocumentSet:
 
         payload: dict[str, bytes] = {}
         for output in self.outputs:
-            payload[output.svg_path] = output.svg_bytes
+            for page in output.pages:
+                payload[page.svg_path] = page.svg_bytes
             payload[output.pdf_path] = output.pdf_bytes
         return payload
 
@@ -139,6 +210,7 @@ def compose(
     placements: Sequence[Mapping[str, Any]],
     members: Sequence[Mapping[str, Any]],
     testpoints: Mapping[str, Any] | None = None,
+    population: Mapping[str, Any] | None = None,
     board: Path | None = None,
     cli_path: str | None = None,
     cruncher_path: str | None = None,
@@ -151,6 +223,7 @@ def compose(
     acquirer: Callable[..., AcquiredArtwork] | None = None,
     drill_acquirer: Callable[..., AcquiredArtwork] | None = None,
     assembly_acquirer: Callable[..., Mapping[str, AcquiredArtwork]] | None = None,
+    board_render_acquirer: Callable[..., Any] | None = None,
 ) -> DocumentSet:
     """Compose the full document set.
 
@@ -185,9 +258,25 @@ def compose(
     # directory, so they are started together rather than queued behind each
     # other.  The Cruncher render is by far the longest, and running it beside
     # the plots instead of after them is most of the saving.
+    layer_pages = fabrication_layers(stackup)
     jobs: dict[str, Callable[[], Any]] = {}
     if board is not None and cli_path and workdir is not None:
         fetch = acquirer or acquire
+        for layer in layer_pages:
+            jobs[_layer_artwork_key(layer)] = partial(
+                fetch,
+                cli_path,
+                board,
+                # The outline travels with every layer: a copper plot with no
+                # board edge cannot be located on the board it came from.
+                ("Edge.Cuts", layer) if layer != "Edge.Cuts" else ("Edge.Cuts",),
+                workdir / f"layer-{layer.replace('.', '_')}",
+                variant=str(context.get("variant") or ""),
+            )
+        jobs[BOARD_RENDER_KEY] = partial(
+            board_render_acquirer or acquire_board_render, cli_path, board,
+            workdir / "render",
+        )
         for key, layers in ARTWORK_LAYERS.items():
             jobs[key] = partial(
                 fetch,
@@ -218,6 +307,7 @@ def compose(
         )
 
     acquired = _acquire_concurrently(jobs, warnings)
+    board_render = acquired.pop(BOARD_RENDER_KEY, None)
     for key, value in acquired.items():
         if key != _CRUNCHER_JOB:
             art[key] = value
@@ -276,112 +366,133 @@ def compose(
         notes=sheet_notes["cover"], fields=title_fields, typography=typography,
         revision_history=revision_history,
         placements=placements,
+        render=board_render,
     )
-    _append_serialized(outputs, cover, "cover", 1.0, None, None, warnings)
-    _append_continuations(
+    _append_document(
         outputs,
-        cover_overflow,
-        context=context,
-        prefix="cover",
-        title="RELEASE COVER — CONTINUED",
-        sheet_size=sheet_size,
-        fields=title_fields,
-        typography=typography,
-        warnings=warnings,
+        [(cover, "cover", 1.0, None, None)]
+        + _continuation_pages(
+            cover_overflow,
+            context=context,
+            prefix="cover",
+            title="RELEASE COVER — CONTINUED",
+            sheet_size=sheet_size,
+            fields=title_fields,
+            typography=typography,
+            warnings=warnings,
+        ),
+        "cover",
+        "RELEASE COVER",
+        warnings,
     )
 
     fabrication, fab_scale, fab_overflow = sheet_templates.fabrication_sheet(
         context, stats, stackup, art.get("fabrication"), size=sheet_size, scale=scale,
         notes=sheet_notes["fabrication"], fields=title_fields, typography=typography,
     )
-    _append_serialized(
-        outputs,
-        fabrication,
-        "fabrication",
-        fab_scale,
-        art.get("fabrication"),
-        _artwork_window(fabrication),
-        warnings,
+    fabrication_pages = [
+        (
+            fabrication,
+            "fabrication",
+            fab_scale,
+            art.get("fabrication"),
+            _artwork_window(fabrication),
+        )
+    ]
+    # One page per plotted layer, so the document is the whole board rather
+    # than its outline plus a schedule that names layers a reader cannot see.
+    for layer in layer_pages:
+        drawing = art.get(_layer_artwork_key(layer))
+        if drawing is None:
+            # Without a plot there is nothing this page could show that the
+            # first one does not already say.
+            continue
+        sheet, used, _overflow = sheet_templates.fabrication_sheet(
+            context, stats, stackup, drawing, size=sheet_size, scale=scale,
+            notes=sheet_notes["fabrication"], fields=title_fields,
+            typography=typography, layer=layer,
+        )
+        fabrication_pages.append(
+            (sheet, _layer_page_key(layer), used, drawing, _artwork_window(sheet))
+        )
+    fabrication_pages.extend(
+        _continuation_pages(
+            fab_overflow,
+            context=context,
+            prefix="schedules",
+            title="FABRICATION SCHEDULES",
+            sheet_size=sheet_size,
+            fields=title_fields,
+            typography=typography,
+            warnings=warnings,
+        )
     )
-    _append_continuations(
-        outputs,
-        fab_overflow,
-        context=context,
-        prefix="schedules",
-        title="FABRICATION SCHEDULES",
-        sheet_size=sheet_size,
-        fields=title_fields,
-        typography=typography,
-        warnings=warnings,
+    _append_document(
+        outputs, fabrication_pages, "fabrication", "FABRICATION DRAWING", warnings
     )
 
+    assembly_pages = []
     for side in ASSEMBLY_SIDES:
         key = f"assembly-{side}"
         sheet, used = sheet_templates.assembly_sheet(
             context, side, assembly.get(side), placements, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
             projection_mix=assembly_mix.get(side),
+            population=population or {},
         )
-        _append_serialized(
-            outputs,
-            sheet,
-            key,
-            used,
-            assembly.get(side),
-            _artwork_window(sheet),
-            warnings,
+        assembly_pages.append(
+            (sheet, key, used, assembly.get(side), _artwork_window(sheet))
         )
+    _append_document(
+        outputs, assembly_pages, "assembly", "ASSEMBLY DRAWING", warnings
+    )
 
+    testpoint_pages = []
     for side in TESTPOINT_SIDES:
         key = f"testpoint-{side}"
         sheet, used, overflow = sheet_templates.testpoint_sheet(
             context, side, testpoint.get(side), testpoints or {}, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
         )
-        _append_serialized(
-            outputs,
-            sheet,
-            key,
-            used,
-            testpoint.get(side),
-            _artwork_window(sheet),
-            warnings,
+        testpoint_pages.append(
+            (sheet, key, used, testpoint.get(side), _artwork_window(sheet))
         )
-        _append_continuations(
-            outputs,
-            overflow,
-            context=context,
-            prefix=key,
-            title=f"TESTPOINT SCHEDULE — {side.upper()}",
-            sheet_size=sheet_size,
-            fields=title_fields,
-            typography=typography,
-            warnings=warnings,
+        testpoint_pages.extend(
+            _continuation_pages(
+                overflow,
+                context=context,
+                prefix=key,
+                title=f"TESTPOINT SCHEDULE — {side.upper()}",
+                sheet_size=sheet_size,
+                fields=title_fields,
+                typography=typography,
+                warnings=warnings,
+            )
         )
+    _append_document(
+        outputs, testpoint_pages, "testpoint", "TESTPOINT DRAWING", warnings
+    )
 
     drill, drill_scale, drill_overflow = sheet_templates.drill_sheet(
         context, stats, stackup, art.get("drill"), size=sheet_size, scale=scale,
         notes=sheet_notes["drill"], fields=title_fields, typography=typography,
     )
-    _append_serialized(
+    _append_document(
         outputs,
-        drill,
+        [(drill, "drill", drill_scale, art.get("drill"), _artwork_window(drill))]
+        + _continuation_pages(
+            drill_overflow,
+            context=context,
+            prefix="drill",
+            title="DRILL SCHEDULE",
+            sheet_size=sheet_size,
+            fields=title_fields,
+            typography=typography,
+            warnings=warnings,
+        ),
         "drill",
-        drill_scale,
-        art.get("drill"),
-        _artwork_window(drill),
+        "DRILL DRAWING",
         warnings,
-    )
-    _append_continuations(
-        outputs,
-        drill_overflow,
-        context=context,
-        prefix="drill",
-        title="DRILL SCHEDULE",
-        sheet_size=sheet_size,
-        fields=title_fields,
-        typography=typography,
-        warnings=warnings,
     )
 
     return DocumentSet(
@@ -444,51 +555,74 @@ def _artwork_window(sheet: Sheet) -> Rect | None:
 
 
 def _serialize(
-    sheet: Sheet,
+    pages: Sequence[tuple[Sheet, str, float, AcquiredArtwork | None, Rect | None]],
     key: str,
-    scale: float,
-    art: AcquiredArtwork | None,
-    window: Rect | None,
+    title: str,
     warnings: list[str] | None = None,
-    artwork_digest: str = "",
 ) -> DocumentOutput:
-    svg_bytes = render_svg(sheet).encode("utf-8")
-    pdf_bytes = render_pdf(sheet)
+    """Render *pages* into one PDF and one SVG each."""
 
-    if art is not None and window is not None:
+    sheets = [sheet for sheet, _k, _s, _a, _w in pages]
+    pdf_bytes = render_pdf_pages(sheets)
+
+    for index, (_sheet, page_key, scale, art, window) in enumerate(pages):
+        if art is None or window is None:
+            continue
         try:
-            pdf_bytes = composite_pdf(pdf_bytes, art, window, scale)
+            pdf_bytes = composite_pdf(pdf_bytes, art, window, scale, page_index=index)
         except Exception as exc:  # noqa: BLE001 - the furniture-only PDF still stands
-            # The SVG sheet still carries the artwork, so this is a divergence
+            # The SVG page still carries the artwork, so this is a divergence
             # between two renderings of one sheet and has to be stated rather
             # than left to a log line nobody reads.
-            logger.warning("Artwork could not be composited into %s: %s", key, exc)
+            logger.warning("Artwork could not be composited into %s: %s", page_key, exc)
             if warnings is not None:
-                warnings.append(f"{key}.pdf carries no board artwork: {exc}")
+                warnings.append(f"{key}.pdf page {index + 1} carries no artwork: {exc}")
 
     return DocumentOutput(
         key=key,
-        title=sheet.title,
-        svg_path=f"documentation/{key}.svg",
+        title=title,
         pdf_path=f"documentation/{key}.pdf",
-        svg_bytes=svg_bytes,
         pdf_bytes=pdf_bytes,
-        scale=scale,
-        artwork_digest=art.digest if art else artwork_digest,
+        pages=tuple(
+            DocumentPage(
+                key=page_key,
+                title=sheet.title,
+                svg_path=f"documentation/{page_key}.svg",
+                svg_bytes=render_svg(sheet).encode("utf-8"),
+                scale=scale,
+                artwork_digest=art.digest if art else "",
+            )
+            for sheet, page_key, scale, art, _window in pages
+        ),
     )
 
 
-#: Ceiling on continuation sheets per originating sheet.
+def _append_document(
+    outputs: list[DocumentOutput],
+    pages: Sequence[tuple[Sheet, str, float, AcquiredArtwork | None, Rect | None]],
+    key: str,
+    title: str,
+    warnings: list[str],
+) -> None:
+    """Isolate a renderer failure to one document instead of the whole set."""
+
+    if not pages:
+        return
+    try:
+        outputs.append(_serialize(pages, key, title, warnings))
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        logger.warning("Release Studio document %s could not be composed: %s", key, exc)
+        warnings.append(f"{key} was not composed: {exc}")
+#: Ceiling on continuation pages per originating document.
 #:
-#: Each continuation lays its tables across the whole body in three columns, so
-#: one absorbs a very large schedule and two is already implausible.  The cap is
-#: a guard against a table that cannot shrink below one row per sheet turning
-#: into an unbounded document set, not a content decision.
+#: Each lays its tables across the whole body in three columns, so one absorbs
+#: a very large schedule and two is already implausible.  The cap guards
+#: against a table that cannot shrink below one row per page turning into an
+#: unbounded document; it is not a content decision.
 MAX_CONTINUATION_SHEETS = 4
 
 
-def _append_continuations(
-    outputs: list[DocumentOutput],
+def _continuation_pages(
     carried: Sequence,
     *,
     context: Mapping[str, Any],
@@ -498,9 +632,14 @@ def _append_continuations(
     fields: Sequence,
     typography: str,
     warnings: list[str],
-) -> None:
-    """Emit continuation sheets until nothing is left to carry."""
+) -> list[tuple[Sheet, str, float, None, None]]:
+    """Pages carrying tables the originating sheet could not hold.
 
+    They are pages of the same document rather than separate files: a schedule
+    continued on its own PDF is a schedule a reader can lose.
+    """
+
+    pages: list[tuple[Sheet, str, float, None, None]] = []
     remaining = list(carried)
     index = 0
     while remaining and index < MAX_CONTINUATION_SHEETS:
@@ -515,7 +654,7 @@ def _append_continuations(
             fields=fields,
             typography=typography,
         )
-        _append_serialized(outputs, sheet, key, 1.0, None, None, warnings)
+        pages.append((sheet, key, 1.0, None, None))
     if remaining:
         # Nothing here can carry it, and silence would be the old defect in a
         # new place: the sheet set has to say the dossier holds more than it
@@ -525,24 +664,4 @@ def _append_continuations(
             f"{MAX_CONTINUATION_SHEETS} continuation sheets; the released data "
             "files remain complete"
         )
-
-
-def _append_serialized(
-    outputs: list[DocumentOutput],
-    sheet: Sheet,
-    key: str,
-    scale: float,
-    art: AcquiredArtwork | None,
-    window: Rect | None,
-    warnings: list[str],
-    artwork_digest: str = "",
-) -> None:
-    """Isolate a renderer failure to one sheet instead of the document set."""
-
-    try:
-        output = _serialize(sheet, key, scale, art, window, warnings, artwork_digest)
-    except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-        logger.warning("Release Studio sheet %s could not be composed: %s", key, exc)
-        warnings.append(f"{key} sheet was not composed: {exc}")
-        return
-    outputs.append(output)
+    return pages

@@ -66,11 +66,13 @@ DEFAULT_NOTES: dict[str, tuple[str, ...]] = {
     ),
     "assembly-top": (
         "Reference designators follow the position file in this dossier.",
-        "Do-not-populate parts are excluded from the placement count above.",
+        "Do-not-populate parts are drawn and counted, and are listed separately "
+        "above. They are present in the position file; do not fit them.",
     ),
     "assembly-bottom": (
         "Reference designators follow the position file in this dossier.",
-        "Do-not-populate parts are excluded from the placement count above.",
+        "Do-not-populate parts are drawn and counted, and are listed separately "
+        "above. They are present in the position file; do not fit them.",
     ),
     "testpoint-top": (
         "Only testpoints are labelled. Every other component is omitted so the "
@@ -568,6 +570,7 @@ def technical_cover(
     typography: str = DEFAULT_TYPOGRAPHY,
     revision_history: Sequence[Mapping[str, Any]] | None = None,
     placements: Sequence[Mapping[str, Any]] | None = None,
+    render: Any = None,
 ) -> tuple[Sheet, list]:
     """The rich cover: what this release is, and exactly what is in it.
 
@@ -598,10 +601,11 @@ def technical_cover(
         body.height - _WINDOW_TOP - reserve,
     )
 
-    # Three columns: what is in the release, how it got here, and what it is.
-    # The member list is first because it is the longest and the reason a
-    # recipient opens this sheet at all.
-    facts = [
+    # Left: what the board is and where this release sits in its history.
+    # Middle: a picture of it. Right: exactly which files were released.
+    facts: list = [
+        tables.variant_table(variants, str(context.get("variant") or "")),
+        tables.revision_history_table(revision_history or ()),
         tables.key_value_table(
             "BOARD CHARACTERISTICS",
             tables.board_characteristics(stats, stackup),
@@ -613,19 +617,19 @@ def technical_cover(
             width=_COVER_TABLE_WIDTH,
         ),
     ]
-    if not tables.variant_table_is_empty(variants):
-        facts.append(tables.variant_table(variants, str(context.get("variant") or "")))
 
-    middle: list = [tables.revision_history_table(revision_history or ())]
-
-    lanes = [[tables.member_table(members)], middle, facts]
+    lanes = [facts, [], [tables.member_table(members)]]
     columns, overflow, _factor = split_columns(
         lanes, area, gap=_TABLE_GAP, column_gap=_COVER_COLUMN_GAP
     )
 
-    for lane, origin in zip(columns, _lane_origins(area, columns, _COVER_COLUMN_GAP)):
+    origins = _lane_origins(area, columns, _COVER_COLUMN_GAP)
+    for lane, origin in zip(columns, origins):
         if lane:
             _draw_column(builder, lane, (origin, area.y))
+
+    if render is not None and len(origins) >= 3:
+        _draw_board_render(builder, render, area, origins)
 
     draw_notes(
         builder,
@@ -634,6 +638,37 @@ def technical_cover(
         width=body_width,
     )
     return builder.build(), overflow
+
+
+def _draw_board_render(builder: SheetBuilder, render: Any, area: Rect, origins: Sequence[float]) -> None:
+    """Place the board picture in the gap the two table columns leave."""
+
+    from app.release_studio.documents.layout import Image
+
+    left = origins[0] + _COVER_TABLE_WIDTH + _COVER_COLUMN_GAP
+    right = origins[-1] - _COVER_COLUMN_GAP
+    width = right - left
+    if width <= 20.0:
+        return
+    window = Rect(left, area.y, width, area.height)
+    builder.add(
+        Image(
+            rect=window,
+            png_bytes=render.png_bytes,
+            width_px=render.width_px,
+            height_px=render.height_px,
+            source_digest=render.digest,
+            label="board render",
+        )
+    )
+    builder.text(
+        left + width / 2,
+        area.y + min(area.height, width / max(render.aspect, 0.01)) + 5.0,
+        "RAYTRACED VIEW — ILLUSTRATIVE, NOT A CONTROLLED DIMENSION",
+        size=2.2,
+        anchor="middle",
+        colour="#555555",
+    )
 
 
 def fabrication_sheet(
@@ -647,16 +682,21 @@ def fabrication_sheet(
     notes: Sequence[str] | None = None,
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
+    layer: str = "",
 ) -> tuple[Sheet, float, list]:
     """Board outline and stackup: what the fabricator needs to make the bare board.
+
+    ``layer`` names the layer this page plots, which the stackup table marks in
+    bold -- a fifteen-page document is only navigable if each page says where
+    in the stack it is.
 
     Returns the sheet, the ratio the artwork was placed at, and any schedule
     rows the sheet could not hold, for :func:`schedule_sheet` to continue.
     """
 
     builder, body = _shell(
-        "fabrication",
-        "FABRICATION DRAWING",
+        "fabrication" if not layer else f"fabrication-{layer.replace('.', '_')}",
+        "FABRICATION DRAWING" if not layer else f"FABRICATION DRAWING — {layer}",
         context,
         size,
         fields,
@@ -683,7 +723,7 @@ def fabrication_sheet(
     ) + _TABLE_GAP
     column, overflow, _factor = split_columns(
         [[
-            tables.stackup_table(stackup),
+            tables.stackup_table(stackup, highlight=layer),
             tables.drill_table(stackup, stats),
             tables.key_value_table(
                 "BOARD CHARACTERISTICS",
@@ -764,6 +804,7 @@ def assembly_sheet(
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
     projection_mix: Mapping[str, int] | None = None,
+    population: Mapping[str, Any] | None = None,
 ) -> tuple[Sheet, float]:
     """One assembly view, with the population count for the released variant.
 
@@ -790,12 +831,29 @@ def assembly_sheet(
     )
     used = _draw_artwork(builder, window, art, label="assembly artwork", scale=scale)
 
-    fitted = [item for item in placements if str(item.get("side") or "").lower() == side]
-    summary_rows = [
-        ("Side", label),
-        ("Placements", str(len(fitted))),
-        ("Variant", str(context.get("variant") or "default")),
+    # Counts come from the board, not from the position file: that file omits
+    # anything flagged "exclude from position files" -- every testpoint, on a
+    # typical board -- and includes do-not-populate parts, so neither its total
+    # nor its absence from it means what a reader would assume.
+    counts = ((population or {}).get("sides") or {}).get(side) or {}
+    in_position_file = [
+        item for item in placements if str(item.get("side") or "").lower() == side
     ]
+    summary_rows = [("Side", label)]
+    if counts:
+        summary_rows.extend(
+            [
+                ("Components", str(counts.get("components", 0))),
+                ("To fit", str(counts.get("fitted", 0))),
+                ("Do not populate", str(counts.get("dnp", 0))),
+            ]
+        )
+        absent = int(counts.get("absent_from_position_file") or 0)
+        if absent:
+            summary_rows.append(("Not in position file", str(absent)))
+    else:
+        summary_rows.append(("In position file", str(len(in_position_file))))
+    summary_rows.append(("Variant", str(context.get("variant") or "default")))
     mix = dict(projection_mix or {})
     if not mix and art is not None:
         from app.release_studio.documents.artwork import assembly_projection_mix
@@ -804,11 +862,12 @@ def assembly_sheet(
     mix_label = assembly_projection_label(mix)
     if mix_label:
         summary_rows.append(("Component outlines", mix_label))
-    if len(fitted) >= 400:
+    dense = int(counts.get("components") or 0) or len(in_position_file)
+    if dense >= 400:
         summary_rows.append(
             (
                 "Designator note",
-                f"{len(fitted)} parts on this side — positions.csv is authoritative; "
+                f"{dense} parts on this side — positions.csv is authoritative; "
                 "detail views are not yet generated",
             )
         )

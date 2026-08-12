@@ -341,6 +341,80 @@ def assembly_density_warnings(side: str, placement_count: int) -> list[str]:
     ]
 
 
+@dataclass(frozen=True, slots=True)
+class BoardRender:
+    """A raytraced isometric picture of the board, for the cover."""
+
+    png_bytes: bytes
+    width_px: int
+    height_px: int
+    digest: str
+
+    @property
+    def aspect(self) -> float:
+        return (self.width_px / self.height_px) if self.height_px else 1.0
+
+
+def acquire_board_render(
+    cli_path: str,
+    board: Path,
+    workdir: Path,
+    *,
+    width: int = 1200,
+    height: int = 900,
+    runner=subprocess.run,
+    timeout_seconds: int = 600,
+) -> BoardRender:
+    """Render the board the way the project thumbnail is rendered.
+
+    `kicad-cli pcb render` is KiCad's own raytracer, and this is deliberately
+    the same invocation `project_import_service.generate_thumbnail_for_project`
+    uses -- same quality, floor, perspective and rotation -- so the picture on
+    a release cover is recognisably the picture of the project.
+    """
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    out = workdir / "board.png"
+    argv = [
+        cli_path, "pcb", "render",
+        "--quality", "high",
+        "--floor",
+        "--perspective",
+        "--rotate", "-45,0,45",
+        "--width", str(width),
+        "--height", str(height),
+        "-o", str(out),
+        str(board),
+    ]
+    try:
+        result = runner(argv, capture_output=True, text=True, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        raise ArtworkError(
+            f"kicad-cli pcb render timed out after {timeout_seconds}s"
+        ) from exc
+    if getattr(result, "returncode", 1) != 0 or not out.is_file():
+        detail = " ".join(
+            part.strip()
+            for part in (
+                getattr(result, "stderr", "") or "", getattr(result, "stdout", "") or ""
+            )
+            if part and part.strip()
+        )
+        raise ArtworkError(f"kicad-cli pcb render failed: {detail[:400]}")
+
+    payload = out.read_bytes()
+    from PIL import Image as PILImage
+
+    with PILImage.open(io.BytesIO(payload)) as image:
+        size = image.size
+    return BoardRender(
+        png_bytes=payload,
+        width_px=int(size[0]),
+        height_px=int(size[1]),
+        digest=hashlib.sha256(payload).hexdigest(),
+    )
+
+
 def acquire_board_views(
     cruncher_path: str,
     board: Path,
@@ -979,7 +1053,14 @@ def scale_label(scale: float) -> str:
     return f"1:{trim(1 / scale)}"
 
 
-def composite_pdf(sheet_pdf: bytes, art: AcquiredArtwork, window: Rect, scale: float) -> bytes:
+def composite_pdf(
+    sheet_pdf: bytes,
+    art: AcquiredArtwork,
+    window: Rect,
+    scale: float,
+    *,
+    page_index: int = 0,
+) -> bytes:
     """Stamp KiCad's own artwork PDF onto a composed sheet page.
 
     Keeping the artwork as a composited PDF page rather than re-drawing it
@@ -1011,7 +1092,12 @@ def composite_pdf(sheet_pdf: bytes, art: AcquiredArtwork, window: Rect, scale: f
     ) as overlay:
         if len(overlay.pages) == 0:
             raise ArtworkError("artwork PDF has no pages")
-        page = base.pages[0]
+        if page_index >= len(base.pages):
+            raise ArtworkError(
+                f"page {page_index + 1} does not exist in a "
+                f"{len(base.pages)}-page document"
+            )
+        page = base.pages[page_index]
         source = overlay.pages[0]
 
         drawn_width = art.view_width * scale
@@ -1046,7 +1132,7 @@ def composite_pdf(sheet_pdf: bytes, art: AcquiredArtwork, window: Rect, scale: f
         # though the drawing is identical. Placing the form explicitly under a
         # fixed name is the same operation with a name we control.
         form = source.as_form_xobject()
-        name = pikepdf.Name("/PrismArtwork")
+        name = pikepdf.Name(f"/PrismArtwork{page_index}")
         page.add_resource(form, pikepdf.Name("/XObject"), name=name)
 
         def number(value: float) -> str:
@@ -1065,7 +1151,7 @@ def composite_pdf(sheet_pdf: bytes, art: AcquiredArtwork, window: Rect, scale: f
             (
                 f"q\n{clip}\n"
                 f"{number(scale)} 0 0 {number(scale)} {number(tx)} {number(ty)} cm\n"
-                "/PrismArtwork Do\nQ\n"
+                f"/PrismArtwork{page_index} Do\nQ\n"
             ).encode("ascii")
         )
 

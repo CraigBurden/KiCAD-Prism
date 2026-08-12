@@ -560,6 +560,7 @@ def _with_documents(
     from app.release_studio.projections import (
         load_board_model,
         project_board_stats_file,
+        project_population,
         project_testpoints,
         project_stackup,
         project_variants,
@@ -591,6 +592,7 @@ def _with_documents(
         stackup: dict[str, Any] = {}
         variants: dict[str, Any] = {}
         testpoints: dict[str, Any] = {}
+        population: dict[str, Any] = {}
         if board is not None and board.is_file():
             # One parse for both projections.  On a 35 MB board this is over two
             # minutes of work, and doing it twice for the same file was the
@@ -620,6 +622,9 @@ def _with_documents(
             testpoints = _project(
                 "testpoints", lambda: project_testpoints(board, model=model), {}
             )
+            population = _project(
+                "population", lambda: project_population(board, model=model), {}
+            )
 
         placements = _placements(output_root / "assembly/positions.csv")
         projections = {
@@ -628,6 +633,7 @@ def _with_documents(
             "variants": variants,
             "placements": placements,
             "testpoints": testpoints,
+            "population": population,
         }
 
         project_file = board.with_suffix(".kicad_pro") if board is not None else None
@@ -680,6 +686,7 @@ def _with_documents(
             placements=placements,
             members=member_rows,
             testpoints=testpoints,
+            population=population,
             board=board if board and board.is_file() else None,
             cli_path=cli_path,
             cruncher_path=cruncher_path,

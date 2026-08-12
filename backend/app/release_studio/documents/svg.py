@@ -18,6 +18,7 @@ from app.release_studio.documents.fonts import (
 )
 from app.release_studio.documents.layout import (
     Artwork,
+    Image,
     Line,
     Polyline,
     Rectangle,
@@ -39,6 +40,7 @@ def render_svg(sheet: Sheet) -> str:
     font_css = svg_font_css(sheet.typography)
     parts: list[str] = [
         '<svg xmlns="http://www.w3.org/2000/svg" '
+        'xmlns:xlink="http://www.w3.org/1999/xlink" '
         f'width="{fmt(sheet.width)}mm" height="{fmt(sheet.height)}mm" '
         f'viewBox="0 0 {fmt(sheet.width)} {fmt(sheet.height)}" '
         f'data-typography="{escape(sheet.typography)}">',
@@ -93,6 +95,8 @@ def _render_element(element, typography: str) -> str:
             f'<{tag} points="{points}" fill="{element.fill}" '
             f'stroke="{element.colour}" stroke-width="{fmt(element.width)}"/>'
         )
+    if isinstance(element, Image):
+        return _render_image(element)
     if isinstance(element, Artwork):
         return _render_artwork(element)
     raise TypeError(f"unrenderable sheet element: {type(element).__name__}")
@@ -132,6 +136,22 @@ def _render_newstroke_text(element: Text, typography: str) -> str:
             )
     parts.append("</g>")
     return "\n".join(parts)
+
+
+def _render_image(image: Image) -> str:
+    """Embed the picture as a data URI so the sheet stays one self-contained file."""
+
+    import base64
+
+    encoded = base64.b64encode(image.png_bytes).decode("ascii")
+    rect = image.fitted()
+    return (
+        f'<image x="{fmt(rect.x)}" y="{fmt(rect.y)}" '
+        f'width="{fmt(rect.width)}" height="{fmt(rect.height)}" '
+        f'preserveAspectRatio="xMidYMid meet" '
+        f'xlink:href="data:image/png;base64,{encoded}" '
+        f'href="data:image/png;base64,{encoded}"/>'
+    )
 
 
 def _render_artwork(artwork: Artwork) -> str:

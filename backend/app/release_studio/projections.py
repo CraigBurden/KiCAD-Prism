@@ -515,6 +515,49 @@ def _variant_assignments(overrides: Any) -> dict[str, dict[str, bool]]:
 TESTPOINT_PREFIX = "TP"
 
 
+def project_population(
+    board_path: PathLike,
+    *,
+    model: tuple[Any, str | None] | None = None,
+) -> dict[str, Any]:
+    """Per-side component counts, and what the position file leaves out.
+
+    The assembly sheet used to count rows in ``positions.csv`` and print a note
+    saying do-not-populate parts were excluded from that count.  They are not:
+    ``pcb export pos`` includes them unless ``--exclude-dnp`` is passed, which
+    Prism deliberately does not pass -- a CM needs to know a part is placed and
+    not fitted.  On JTYU-OBC that made the note wrong about 107 components.
+
+    So the counts are read from the board, where "fitted", "do not populate"
+    and "not in the position file" are three separate facts and can be stated
+    as three separate numbers.
+    """
+
+    parsed, fallback_reason = model if model is not None else _load_pcb_projection_model(
+        board_path
+    )
+    if fallback_reason:
+        return {"source": "kicad_monkey.fallback", "sides": {}}
+
+    sides: dict[str, dict[str, int]] = {
+        "top": {"components": 0, "dnp": 0, "fitted": 0, "absent_from_position_file": 0},
+        "bottom": {"components": 0, "dnp": 0, "fitted": 0, "absent_from_position_file": 0},
+    }
+    for footprint in getattr(parsed, "footprints", ()) or ():
+        if not _footprint_reference(footprint):
+            continue
+        layer = str(getattr(footprint, "layer", "") or "")
+        counts = sides["bottom" if layer.startswith("B.") else "top"]
+        counts["components"] += 1
+        if getattr(footprint, "is_dnp", False):
+            counts["dnp"] += 1
+        else:
+            counts["fitted"] += 1
+        if getattr(footprint, "is_excluded_from_pos_files", False):
+            counts["absent_from_position_file"] += 1
+    return {"source": "board.footprints", "sides": sides}
+
+
 def project_testpoints(
     board_path: PathLike,
     *,

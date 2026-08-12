@@ -209,15 +209,24 @@ def revision_history_table(
     )
 
 
-def stackup_table(stackup: Mapping[str, Any]) -> Table:
-    """The layer stack, outside in, exactly as the board file declares it."""
+def stackup_table(stackup: Mapping[str, Any], *, highlight: str = "") -> Table:
+    """The layer stack, outside in, exactly as the board file declares it.
 
+    ``highlight`` marks the layer the current page plots, so a reader working
+    through a multi-page fabrication document always knows where they are.  The
+    mark is a leading arrow rather than a bold weight because the table is set
+    in one weight and a second one would not survive the scale ladder.
+    """
+
+    marker = highlight.strip().lower()
     rows: list[tuple[str, ...]] = []
     for layer in stackup.get("layers") or []:
         thickness = layer.get("thickness")
+        name = str(layer.get("user_name") or layer.get("name") or "")
+        shown = f"> {name}" if marker and name.strip().lower() == marker else name
         rows.append(
             (
-                _text(layer.get("user_name") or layer.get("name")),
+                _text(shown),
                 _text(layer.get("kind") or layer.get("type")),
                 _mm(thickness, 4) if thickness is not None else "—",
                 _text(layer.get("material")),
@@ -318,9 +327,11 @@ def member_table(members: Sequence[Mapping[str, Any]]) -> Table:
         )
     return Table(
         title="RELEASED MEMBERS",
-        columns=("Path", "Canonicalizer", "Released digest"),
+        # "Canonicalizer" named Prism's internal machinery at a reader who only
+        # needs to know what kind of file this is and how it was normalised.
+        columns=("Path", "Type", "SHA-256 (first 16)"),
         rows=tuple(rows),
-        widths=(78.0, 26.0, 36.0),
+        widths=(68.0, 18.0, 30.0),
     )
 
 

@@ -589,7 +589,7 @@ class ArtworkCompositeTests(unittest.TestCase):
             streams = content if isinstance(content, pikepdf.Array) else [content]
             text = b"".join(bytes(stream.read_bytes()) for stream in streams).decode("latin-1")
         match = re.findall(
-            r"([-0-9.]+) 0 0 ([-0-9.]+) ([-0-9.]+) ([-0-9.]+) cm\n/PrismArtwork Do", text
+            r"([-0-9.]+) 0 0 ([-0-9.]+) ([-0-9.]+) ([-0-9.]+) cm\n/PrismArtwork0 Do", text
         )
         self.assertEqual(len(match), 1, "expected exactly one artwork placement")
         return tuple(float(value) for value in match[0])
@@ -839,20 +839,12 @@ class DocumentSetTests(unittest.TestCase):
         keys = [output.key for output in result.outputs]
         self.assertEqual(
             keys,
-            [
-                "cover",
-                "fabrication",
-                "assembly-top",
-                "assembly-bottom",
-                "testpoint-top",
-                "testpoint-bottom",
-                "drill",
-            ],
+            ["cover", "fabrication", "assembly", "testpoint", "drill"],
         )
         paths = sorted(result.files())
         self.assertIn("documentation/fabrication.svg", paths)
         self.assertIn("documentation/fabrication.pdf", paths)
-        self.assertEqual(len(paths), 14)
+        self.assertEqual(len(paths), 12)
 
     def test_the_document_set_is_byte_reproducible(self) -> None:
         first = self._compose().files()
@@ -1049,7 +1041,7 @@ class ConfiguredNotesTests(unittest.TestCase):
             typography="kicad-newstroke",
             notes={"drill": [note]},
         )
-        self.assertEqual(len(result.files()), 14)
+        self.assertEqual(len(result.files()), 12)
         drill = result.files()["documentation/drill.svg"].decode("utf-8")
         for symbol in ("⌀", "±", "°", "Ω", "✓"):
             with self.subTest(symbol=symbol):
@@ -1069,7 +1061,7 @@ class ConfiguredNotesTests(unittest.TestCase):
             placements=PLACEMENTS, members=MEMBERS,
             notes={"drill": ["All holes ⌀ 0.3 mm minimum."]},
         )
-        self.assertEqual(len(result.files()), 14)
+        self.assertEqual(len(result.files()), 12)
         drill = result.files()["documentation/drill.svg"].decode("utf-8")
         self.assertNotIn("⌀", drill)
         self.assertIn("finished diameters", drill)
@@ -1086,7 +1078,7 @@ class ConfiguredNotesTests(unittest.TestCase):
             notes={"drill": ["表面処理 immersion gold"]},
         )
         # All ten files still present: the degradation is scoped to the note.
-        self.assertEqual(len(result.files()), 14)
+        self.assertEqual(len(result.files()), 12)
         drill = result.files()["documentation/drill.svg"].decode("utf-8")
         self.assertNotIn("表面処理", drill)
         self.assertIn("finished diameters", drill)
@@ -1413,13 +1405,13 @@ class AssemblySheetTests(unittest.TestCase):
         )
         # One invocation for every view: the board load dominates the cost.
         self.assertEqual(asked, ["kicad-cruncher"])
-        digests = {
-            output.key: output.artwork_digest
-            for output in result.outputs
-            if output.key.startswith("assembly-")
-        }
-        self.assertEqual(len(digests), 2)
-        self.assertTrue(all(len(value) == 64 for value in digests.values()))
+        # Both sides are pages of one assembly document, each carrying the
+        # digest of the exact Cruncher bytes placed on it.
+        assembly = next(o for o in result.outputs if o.key == "assembly")
+        self.assertEqual(
+            [page.key for page in assembly.pages], ["assembly-top", "assembly-bottom"]
+        )
+        self.assertTrue(all(len(page.artwork_digest) == 64 for page in assembly.pages))
 
     def test_a_failed_view_degrades_one_sheet_and_says_so(self) -> None:
         def fake(cruncher_path, board, workdir, **kwargs):
@@ -1433,7 +1425,7 @@ class AssemblySheetTests(unittest.TestCase):
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
-        self.assertEqual(len(result.outputs), 7)
+        self.assertEqual(len(result.outputs), 5)
         self.assertTrue(
             any("geometer refused the board" in warning for warning in result.warnings),
             result.warnings,
@@ -1548,44 +1540,40 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d13 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d14 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
-        "documentation/assembly-bottom.pdf":
-            "417e94a1e63e14ea2bc7ee1b2c227588edb40d2a81cd52f9f1a1bc1fbe62adbc",
         "documentation/assembly-bottom.svg":
-            "ef5f507fa7cdf43e464e432aab3c44ba7005e3eaf469b0ac318fdb159eeebb22",
-        "documentation/assembly-top.pdf":
-            "b293d6b185bf03b417d7e04e942950b5bb13c48f7a68917e78ded9eeed8ada18",
+            "91deebc9d59eef79840ed016f6ea244f1772115a342c775805f2733cf561a932",
         "documentation/assembly-top.svg":
-            "68ec4217c1f222fc768c3482efb63a2ce2e7d0310a762edd406586f05dc84a37",
+            "d9d92e8ef4c7cd0f35415eded3ef245037beb0f648bfc226af74785fcd847614",
+        "documentation/assembly.pdf":
+            "aeb46d242fc8bd1b7281a513ec4ed893250a7fb542393096bb149de602614c25",
         "documentation/cover.pdf":
-            "44fb0b909b515e0b8c7d88986dd06d0179aa2d2805ea59095fe5ecfddc567a2c",
+            "05eb93cbfdcf68f7dd20652ff37b23405e1321fd4f700fbed5741e3d915d08e3",
         "documentation/cover.svg":
-            "7a0f99e4e747885b7271707a321cb1ef9d7918594fa6eb554e49629a3be2a0b9",
+            "675e22aa02e63a785e103716d194e2381e784f498f8e8a6b2ceb85fc393bc796",
         "documentation/drill.pdf":
             "e0fc0f989eca3ac081071eaf658eb5374ecefea273e08e2e29a0a37c728ba763",
         "documentation/drill.svg":
-            "fba78cb1923d092a2c25ac05caae5a4ef2cc6d9bc7d5b04cb3dcbfcfc925f23c",
+            "7df49001af1408ba3c186fcba07b2f07ca764889a2d64509ac9106cfbb3b96e3",
         "documentation/fabrication.pdf":
             "4156eadf95893486e6cd53c9c20b068857d93fbec10f66adc11d2465215c0a3b",
         "documentation/fabrication.svg":
-            "5dd6ec0eb5bede5de69490733a374254408cbc56030349c4eddd34ba94dca23f",
-        "documentation/testpoint-bottom.pdf":
-            "adfe779c8c549c11f6f1aa7ece4c20ba9db212a79bb0674bce3115437e45f973",
+            "f73ab9c2b7e50a1691ee1b35a2b2d9c4f9d8a632d97dd8e1b02ff8bd05cbaeb0",
         "documentation/testpoint-bottom.svg":
-            "2c67897b56cae8526740ddb7c78b33a71b1b8a4a8bc3604da872e8c5bb08d7e2",
-        "documentation/testpoint-top.pdf":
-            "d77a98b425b2c2884aa7fc70381e5ab24fca7c079dd2f486004f100bcd308edb",
+            "a7b0b5954b5ab5fd8599c9033c4869eb2481d52671c600846998d6f80a1a0f94",
         "documentation/testpoint-top.svg":
-            "277642a4d4c2430a76b3e327fc3f637ac4c9d9b71a4ab8ea23000dafc049da6d",
+            "b2ef237d4690280b4d5462c54faa6b5a6c66bb9b240c62bf79a6bf6cb60fa3c5",
+        "documentation/testpoint.pdf":
+            "41491187676d4ecdd07ff98f378d860ed55a08c18e55334df37577d479fcedca",
     }
 
     #: A placed sheet, so a change to sheet selection, the scale ladder, or
     #: fabrication dimensions trips this too -- the set above carries no
     #: artwork and would not.
-    GOLDEN_PLACED = "b67d20fa171429c33d8c84e19dab46989e9e38054fe5fc18f206794c4d49f2b3"
+    GOLDEN_PLACED = "b39c21c06d0ce672b85e7c14aa216cf4b1a1f606a861f0cb860e3e665896d240"
 
     def test_a_placed_sheet_matches_its_recorded_digest(self) -> None:
         import hashlib
@@ -1608,7 +1596,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d13",
+            "release-studio-documents/d14",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

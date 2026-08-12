@@ -13,7 +13,7 @@ import io
 import math
 import re
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from fontTools.ttLib import TTFont
 
@@ -27,6 +27,7 @@ from app.release_studio.documents.fonts import (
 )
 from app.release_studio.documents.layout import (
     Artwork,
+    Image,
     Line,
     Polyline,
     Rectangle,
@@ -201,12 +202,88 @@ def _glyph_hex(value: str, asset: FontAsset) -> tuple[str, dict[int, int]]:
 def render_pdf(sheet: Sheet) -> bytes:
     """Serialize *sheet* to a standalone one-page PDF."""
 
+    return render_pdf_pages([sheet])
+
+
+def render_pdf_pages(sheets: Sequence[Sheet]) -> bytes:
+    """Serialize *sheets* into one PDF, a page each.
+
+    A drawing set that belongs together -- every copper layer of one board, or
+    both sides of one assembly -- is one document with pages, not a directory
+    of files a reader has to keep in order themselves.
+
+    Fonts are shared: the glyph set is the union across the pages, so a
+    fifteen-page fabrication document embeds one subset rather than fifteen.
+    Every page must be the same typography for that to hold, which is checked
+    rather than assumed.
+    """
+
+    if not sheets:
+        raise ValueError("a PDF needs at least one page")
+    typography = sheets[0].typography
+    for sheet in sheets[1:]:
+        if sheet.typography != typography:
+            raise ValueError(
+                "every page of one document must share a typography preset; "
+                f"got {typography!r} and {sheet.typography!r}"
+            )
+
+    plans = _font_plans(typography)
+    used_glyphs: dict[str, dict[int, int]] = {plan.resource: {} for plan in plans}
+    pages: list[tuple[bytes, float, float, list[Image]]] = []
+    use_search_font = False
+    for sheet in sheets:
+        page_images: list[Image] = []
+        content, page_search_font = _page_content(sheet, plans, used_glyphs, page_images)
+        use_search_font = use_search_font or page_search_font
+        pages.append(
+            (content, sheet.width * MM_TO_PT, sheet.height * MM_TO_PT, page_images)
+        )
+
+    return _assemble(pages, plans, used_glyphs, use_search_font=use_search_font)
+
+
+def _image_object(image: Image) -> bytes:
+    """One PDF image XObject: the PNG decoded to Flate-compressed RGB.
+
+    PDF has no PNG filter, so the picture is decoded once here and re-deflated.
+    The bytes are a pure function of the source PNG, which keeps the sheet's
+    digest stable across renders.
+    """
+
+    import zlib
+
+    from PIL import Image as PILImage
+
+    with PILImage.open(io.BytesIO(image.png_bytes)) as source:
+        rgb = source.convert("RGB")
+        width, height = rgb.size
+        payload = zlib.compress(rgb.tobytes(), 9)
+    return _stream(
+        payload,
+        extra=(
+            f"/Type /XObject /Subtype /Image /Width {width} /Height {height} "
+            "/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode"
+        ).encode("ascii"),
+    )
+
+
+def _page_content(
+    sheet: Sheet,
+    plans: tuple["_FontPlan", ...],
+    used_glyphs: dict[str, dict[int, int]],
+    images: list[Image] | None = None,
+) -> tuple[bytes, bool]:
+    """Build one page's content stream, recording the glyphs it sets.
+
+    Any :class:`Image` on the page is appended to *images*; the caller turns
+    those into XObjects and names them ``/PrismImage<n>`` in page order.
+    """
+
     height_pt = sheet.height * MM_TO_PT
     width_pt = sheet.width * MM_TO_PT
-    plans = _font_plans(sheet.typography)
     vector_text = is_newstroke(sheet.typography)
     plan_by_resource = {plan.resource: plan for plan in plans}
-    used_glyphs: dict[str, dict[int, int]] = {plan.resource: {} for plan in plans}
     use_search_font = False
 
     def y(value: float) -> float:
@@ -346,6 +423,23 @@ def render_pdf(sheet: Sheet) -> bytes:
             )
             if element.rotation:
                 ops.append("Q")
+        elif isinstance(element, Image):
+            if images is None:
+                continue
+            rect = element.fitted()
+            name = f"PrismImage{len(images)}"
+            images.append(element)
+            # An image XObject draws into the unit square, so the matrix is the
+            # placement: width and height in points, origin at the bottom-left.
+            ops.extend(
+                [
+                    "q",
+                    f"{_pt(rect.width * MM_TO_PT)} 0 0 {_pt(rect.height * MM_TO_PT)} "
+                    f"{_pt(x(rect.x))} {_pt(y(rect.bottom))} cm",
+                    f"/{name} Do",
+                    "Q",
+                ]
+            )
         elif isinstance(element, Artwork):
             ops.append("0.6 0.6 0.6 RG")
             ops.append(f"{_pt(0.2 * MM_TO_PT)} w")
@@ -357,15 +451,7 @@ def render_pdf(sheet: Sheet) -> bytes:
         else:  # pragma: no cover - guarded by the layout element union
             raise TypeError(f"unrenderable sheet element: {type(element).__name__}")
 
-    content = "\n".join(ops).encode("ascii")
-    return _assemble(
-        content,
-        width_pt,
-        height_pt,
-        plans,
-        used_glyphs,
-        use_search_font=use_search_font,
-    )
+    return "\n".join(ops).encode("ascii"), use_search_font
 
 
 def _pdf_name(value: str) -> str:
@@ -444,15 +530,16 @@ def _stream(payload: bytes, *, extra: bytes = b"") -> bytes:
 
 
 def _assemble(
-    content: bytes,
-    width_pt: float,
-    height_pt: float,
+    pages: Sequence[tuple[bytes, float, float, Sequence[Image]]],
     plans: tuple[_FontPlan, ...],
     used_glyphs: dict[str, dict[int, int]],
     *,
     use_search_font: bool = False,
 ) -> bytes:
-    """Build the PDF object graph with fixed ordering and no volatile metadata."""
+    """Build the PDF object graph with fixed ordering and no volatile metadata.
+
+    *pages* is ``(content, width pt, height pt, images)`` each.
+    """
 
     objects: list[bytes] = []
 
@@ -505,21 +592,47 @@ def _assemble(
             b"/Encoding /WinAnsiEncoding >>"
         )
 
-    content_id = add(_stream(content))
     resources = b"<< /Font << " + b" ".join(
         b"/" + resource.encode("ascii") + b" " + str(font_ids[resource]).encode("ascii") + b" 0 R"
         for resource in sorted(font_ids)
     ) + b" >> >>"
 
-    pages_id = len(objects) + 2
-    page_id = add(
-        b"<< /Type /Page /Parent " + str(pages_id).encode("ascii") + b" 0 R"
-        b" /MediaBox [0 0 " + _pt(width_pt).encode("ascii") + b" "
-        + _pt(height_pt).encode("ascii") + b"]"
-        b" /Resources " + resources
-        + b" /Contents " + str(content_id).encode("ascii") + b" 0 R >>"
+    content_ids = [add(_stream(content)) for content, _w, _h, _images in pages]
+    image_ids: list[list[int]] = [
+        [add(_image_object(image)) for image in page_images]
+        for _content, _w, _h, page_images in pages
+    ]
+    # The page tree object is written after its children, so its id is known in
+    # advance rather than back-patched.
+    pages_id = len(objects) + len(pages) + 1
+    page_ids: list[int] = []
+    for index, ((_content, width_pt, height_pt, _images), content_id) in enumerate(
+        zip(pages, content_ids)
+    ):
+        page_resources = resources
+        if image_ids[index]:
+            xobjects = b" ".join(
+                b"/PrismImage" + str(slot).encode("ascii") + b" "
+                + str(object_id).encode("ascii") + b" 0 R"
+                for slot, object_id in enumerate(image_ids[index])
+            )
+            page_resources = (
+                resources[: -len(b" >>")] + b" /XObject << " + xobjects + b" >> >>"
+            )
+        page_ids.append(
+            add(
+                b"<< /Type /Page /Parent " + str(pages_id).encode("ascii") + b" 0 R"
+                b" /MediaBox [0 0 " + _pt(width_pt).encode("ascii") + b" "
+                + _pt(height_pt).encode("ascii") + b"]"
+                b" /Resources " + page_resources
+                + b" /Contents " + str(content_id).encode("ascii") + b" 0 R >>"
+            )
+        )
+    kids = b" ".join(str(page_id).encode("ascii") + b" 0 R" for page_id in page_ids)
+    add(
+        b"<< /Type /Pages /Kids [" + kids + b"] /Count "
+        + str(len(page_ids)).encode("ascii") + b" >>"
     )
-    add(b"<< /Type /Pages /Kids [" + str(page_id).encode("ascii") + b" 0 R] /Count 1 >>")
     catalog_id = add(b"<< /Type /Catalog /Pages " + str(pages_id).encode("ascii") + b" 0 R >>")
 
     out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")

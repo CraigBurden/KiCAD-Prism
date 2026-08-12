@@ -162,6 +162,42 @@ class Polyline:
 
 
 @dataclass(frozen=True, slots=True)
+class Image:
+    """A raster picture placed in a rect, preserving its aspect ratio.
+
+    The only raster on a released sheet.  Everything else is vector because a
+    drawing is measured against; this is a photograph of the board, which is
+    not, and a reader recognises a board faster from a picture of it than from
+    any table on the cover.
+    """
+
+    rect: Rect
+    png_bytes: bytes
+    width_px: int
+    height_px: int
+    #: Identifies the exact bytes placed, the way `Artwork.source_digest` does.
+    source_digest: str = ""
+    label: str = ""
+
+    def fitted(self) -> Rect:
+        """The picture's own rect inside :attr:`rect`, centred, aspect kept."""
+
+        if self.width_px <= 0 or self.height_px <= 0:
+            return self.rect
+        scale = min(
+            self.rect.width / self.width_px, self.rect.height / self.height_px
+        )
+        width = self.width_px * scale
+        height = self.height_px * scale
+        return Rect(
+            self.rect.x + (self.rect.width - width) / 2,
+            self.rect.y + (self.rect.height - height) / 2,
+            width,
+            height,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class Artwork:
     """A placed block of externally produced vector artwork.
 
@@ -180,7 +216,7 @@ class Artwork:
     label: str = ""
 
 
-Element = Line | Rectangle | Text | Polyline | Artwork
+Element = Line | Rectangle | Text | Polyline | Image | Artwork
 
 
 @dataclass(frozen=True, slots=True)
