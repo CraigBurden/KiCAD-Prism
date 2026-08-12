@@ -28,7 +28,12 @@ from pathlib import Path
 #: Where the pinned KiCad source tree may be found.  The environment variable
 #: wins; the sibling checkout is the layout a Prism developer machine has.
 KICAD_SOURCE_ENV = "PRISM_KICAD_SOURCE_ROOT"
-_SIBLING_ROOT = Path(__file__).resolve().parents[3] / "kicad-docker" / ".kicad-native-arm64"
+_parents = Path(__file__).resolve().parents
+_SIBLING_ROOT = (
+    _parents[3] / "kicad-docker" / ".kicad-native-arm64"
+    if len(_parents) > 3
+    else Path("/nonexistent-kicad-source")
+)
 
 CONFORMANCE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "release-studio" / "kicad-conformance"
 

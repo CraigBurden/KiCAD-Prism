@@ -198,13 +198,20 @@ def create_policy(*, policy_key: str, title: str, actor: str) -> dict[str, Any]:
         raise PolicyError("policy_key must use lowercase letters, numbers, '.', '_' or '-'")
     with store.connect() as conn:
         policy_id = store._new_id("policy")
-        conn.execute(
-            """
-            INSERT INTO ws_release_policies(id, policy_key, title, created_by)
-            VALUES (%s,%s,%s,%s)
-            """,
-            (policy_id, key, title.strip(), actor),
-        )
+        try:
+            conn.execute(
+                """
+                INSERT INTO ws_release_policies(id, policy_key, title, created_by)
+                VALUES (%s,%s,%s,%s)
+                """,
+                (policy_id, key, title.strip(), actor),
+            )
+        except Exception as exc:  # noqa: BLE001 - map the unique constraint specifically
+            from psycopg.errors import UniqueViolation
+
+            if isinstance(exc, UniqueViolation) or "ws_release_policies_policy_key" in str(exc):
+                raise PolicyError(f"policy_key {key!r} already exists") from exc
+            raise
         append_policy_audit_event(
             conn, policy_key=key, event_type="policy.created", actor=actor,
             subject_kind="policy", subject_id=policy_id,

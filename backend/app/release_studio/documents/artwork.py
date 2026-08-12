@@ -20,7 +20,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from app.release_studio.documents.layout import Artwork, Rect
 
@@ -256,6 +256,62 @@ ASSEMBLY_VIEWS: dict[str, str] = {
     "top": "assembly_top_view",
     "bottom": "assembly_bottom_view",
 }
+
+_PROJECTION_ATTR = re.compile(r'\bdata-projection\s*=\s*"([^"]+)"', re.IGNORECASE)
+
+#: Sides with at least this many placements get a density warning.  Density is
+#: scale-invariant: past this, one sheet cannot carry every designator legibly,
+#: and detail/zone sheets are the real answer (not yet generated).
+DENSE_PLACEMENT_WARN = 400
+
+
+def assembly_projection_mix(svg_text: str) -> dict[str, int]:
+    """Count Cruncher ``data-projection`` values in one assembly SVG.
+
+    ``pad_bounds`` means Geometer did not produce an HLR outline for that
+    component.  A view that is entirely ``pad_bounds`` is still a drawing, but
+    it is not the HLR assembly drawing the sheet claims to be.
+    """
+
+    counts: dict[str, int] = {}
+    for match in _PROJECTION_ATTR.finditer(svg_text or ""):
+        key = match.group(1).strip() or "unknown"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def assembly_projection_warnings(side: str, mix: Mapping[str, int]) -> list[str]:
+    """Warn when an assembly view fell back to pad bounds instead of HLR."""
+
+    total = sum(mix.values())
+    if total <= 0:
+        return []
+    pad = int(mix.get("pad_bounds") or 0)
+    if pad <= 0:
+        return []
+    if pad == total:
+        return [
+            f"assembly {side}: all {total} components used pad_bounds "
+            "(no HLR STEP projections; check embedded vs ${KIPRJMOD} 3D models)"
+        ]
+    if pad / total >= 0.10:
+        return [
+            f"assembly {side}: {pad}/{total} components fell back to pad_bounds "
+            "(HLR STEP projections incomplete)"
+        ]
+    return []
+
+
+def assembly_density_warnings(side: str, placement_count: int) -> list[str]:
+    """Warn when one sheet cannot honestly carry every designator."""
+
+    if placement_count < DENSE_PLACEMENT_WARN:
+        return []
+    return [
+        f"assembly {side}: {placement_count} placements — designators may be "
+        "incomplete at any scale; detail/zone sheets are not yet generated; "
+        "positions.csv remains authoritative"
+    ]
 
 
 def acquire_assembly_view(

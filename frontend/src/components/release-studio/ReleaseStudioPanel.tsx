@@ -762,6 +762,18 @@ function BuildDetailView({
                 </CardTitle>
             </CardHeader>
             <CardContent>
+                {Array.isArray(build.warnings) && build.warnings.length > 0 && (
+                    <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+                        <p className="font-medium text-amber-900 dark:text-amber-200">
+                            Build warnings ({build.warnings.length})
+                        </p>
+                        <ul className="mt-1 list-disc space-y-1 pl-5 text-amber-950/90 dark:text-amber-100/90">
+                            {build.warnings.map((warning) => (
+                                <li key={warning}>{warning}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
                 <Tabs defaultValue="evaluation">
                     <TabsList>
                         <TabsTrigger value="evaluation">Evaluation</TabsTrigger>

@@ -9,6 +9,7 @@ session that survives logout or revocation.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import sys
 import time
@@ -75,11 +76,20 @@ class AuthConfigurationFailClosedTests(unittest.TestCase):
         self.assertTrue(any("OAUTH_EXTERNAL_JWT_AUDIENCE" in error for error in errors))
 
     def test_cookie_secure_follows_public_base_url(self) -> None:
-        self.assertTrue(self._settings(PUBLIC_BASE_URL="https://prism.example.com").SESSION_COOKIE_SECURE)
-        self.assertFalse(self._settings(PUBLIC_BASE_URL="http://127.0.0.1:8080").SESSION_COOKIE_SECURE)
-        self.assertTrue(
-            self._settings(PUBLIC_BASE_URL="http://127.0.0.1:8080", SESSION_COOKIE_SECURE=True).SESSION_COOKIE_SECURE
-        )
+        # docker-compose may inject SESSION_COOKIE_SECURE into the process env;
+        # this assertion is about derivation when the field is unset.
+        with patch.dict(os.environ, {"SESSION_COOKIE_SECURE": ""}, clear=False):
+            self.assertTrue(
+                self._settings(PUBLIC_BASE_URL="https://prism.example.com").SESSION_COOKIE_SECURE
+            )
+            self.assertFalse(
+                self._settings(PUBLIC_BASE_URL="http://127.0.0.1:8080").SESSION_COOKIE_SECURE
+            )
+            self.assertTrue(
+                self._settings(
+                    PUBLIC_BASE_URL="http://127.0.0.1:8080", SESSION_COOKIE_SECURE=True
+                ).SESSION_COOKIE_SECURE
+            )
 
     def test_blank_cookie_secure_falls_back_to_public_base_url(self) -> None:
         # docker-compose.yml sends SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-},

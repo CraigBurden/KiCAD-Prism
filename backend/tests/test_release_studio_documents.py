@@ -1051,6 +1051,75 @@ def _cruncher_artwork(svg_text: str = CRUNCHER_VIEW) -> artwork_module.AcquiredA
     )
 
 
+
+class AssemblyProjectionWarningTests(unittest.TestCase):
+    """Pad-bounds fallback and density must surface as build warnings."""
+
+    def test_a_full_pad_bounds_view_is_called_out(self) -> None:
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            '<g data-projection="pad_bounds"></g>'
+            '<g data-projection="pad_bounds"></g>'
+            "</svg>"
+        )
+        mix = artwork_module.assembly_projection_mix(svg)
+        self.assertEqual(mix, {"pad_bounds": 2})
+        warnings = artwork_module.assembly_projection_warnings("top", mix)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("all 2 components used pad_bounds", warnings[0])
+
+    def test_a_partial_pad_bounds_mix_warns_above_ten_percent(self) -> None:
+        mix = {"hlr": 9, "pad_bounds": 1}
+        warnings = artwork_module.assembly_projection_warnings("bottom", mix)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("1/10", warnings[0])
+
+    def test_dense_placements_warn_once_the_threshold_is_crossed(self) -> None:
+        self.assertEqual(artwork_module.assembly_density_warnings("top", 399), [])
+        warnings = artwork_module.assembly_density_warnings("top", 400)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("400 placements", warnings[0])
+
+    def test_the_engine_records_projection_and_density_warnings(self) -> None:
+        svg = (
+            '<?xml version="1.0"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="10mm" '
+            'viewBox="0 0 20 10">'
+            + "".join('<g data-projection="pad_bounds"></g>' for _ in range(3))
+            + "</svg>"
+        )
+        art = _cruncher_artwork(svg)
+        dense = [{"side": "top"}] * 400 + [{"side": "bottom"}]
+
+        def fake(cruncher_path, board, side, workdir):
+            return art
+
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=dense, members=MEMBERS,
+            board=Path("/nonexistent/board.kicad_pcb"),
+            cruncher_path="kicad-cruncher",
+            workdir=Path("/tmp"),
+            assembly_acquirer=fake,
+        )
+        joined = " | ".join(result.warnings)
+        self.assertIn("pad_bounds", joined)
+        self.assertIn("400 placements", joined)
+
+
+class ComposeReproducibilityTests(unittest.TestCase):
+    """Composed documentation must be byte-identical across two runs."""
+
+    def test_compose_is_byte_identical_for_unchanged_inputs(self) -> None:
+        kwargs = dict(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+        )
+        first = compose(**kwargs).files()
+        second = compose(**kwargs).files()
+        self.assertEqual(first, second)
+
+
 class FabricationDimensionTests(unittest.TestCase):
     """Overall board dimensions are drawn, not just tabulated."""
 

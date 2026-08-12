@@ -54,6 +54,7 @@ export type ReleaseBuild = {
     evidence_artifact_id: string | null;
     error_code: string;
     error_message: string;
+    warnings?: string[];
     started_at: string | null;
     completed_at: string | null;
 };

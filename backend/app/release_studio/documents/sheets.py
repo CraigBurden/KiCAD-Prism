@@ -650,13 +650,21 @@ def assembly_sheet(
     used = _draw_artwork(builder, window, art, label="assembly artwork", scale=scale)
 
     fitted = [item for item in placements if str(item.get("side") or "").lower() == side]
-    summary_rows = (
+    summary_rows = [
         ("Side", label),
         ("Placements", str(len(fitted))),
         ("Variant", str(context.get("variant") or "default")),
-    )
+    ]
+    if len(fitted) >= 400:
+        summary_rows.append(
+            (
+                "Designator note",
+                f"{len(fitted)} parts on this side — positions.csv is authoritative; "
+                "detail views are not yet generated",
+            )
+        )
     column, _factor = fit_columns(
-        [[tables.key_value_table("POPULATION", summary_rows, width=table_width)]],
+        [[tables.key_value_table("POPULATION", tuple(summary_rows), width=table_width)]],
         Rect(area.x, area.y, area.width, area.height - _NOTES_RESERVE),
         gap=_TABLE_GAP,
     )

@@ -26,6 +26,9 @@ from app.release_studio.documents.artwork import (
     acquire,
     acquire_assembly_view,
     acquire_drill_map,
+    assembly_density_warnings,
+    assembly_projection_mix,
+    assembly_projection_warnings,
     composite_pdf,
 )
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_preset
@@ -162,8 +165,20 @@ def compose(
         render = assembly_acquirer or acquire_assembly_view
         for side in ASSEMBLY_SIDES:
             try:
-                assembly[side] = render(
+                acquired = render(
                     cruncher_path, board, side, workdir / f"assembly-{side}"
+                )
+                assembly[side] = acquired
+                side_count = sum(
+                    1
+                    for item in placements
+                    if str(item.get("side") or "").lower() == side
+                )
+                warnings.extend(assembly_density_warnings(side, side_count))
+                warnings.extend(
+                    assembly_projection_warnings(
+                        side, assembly_projection_mix(acquired.svg_text)
+                    )
                 )
             except (ArtworkError, OSError) as exc:
                 # An assembly sheet without its view still carries the population
