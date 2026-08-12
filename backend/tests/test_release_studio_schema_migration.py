@@ -1707,13 +1707,13 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
             (first_id,),
         )
 
-    def test_release_studio_is_a_single_collapsed_migration(self) -> None:
-        """R23: one Release Studio ladder entry, and nothing above it.
+    def test_release_studio_ladder_includes_the_projections_follow_up(self) -> None:
+        """M8 is the collapsed Release Studio schema; M13 upgrades older DBs.
 
-        The corrective migrations M9-M12 were reasoning about a compatibility
-        surface that never existed -- no database outside this branch had seen
-        M8.  They are folded back into it here.  After the merge into `dev`
-        this inverts and the ladder becomes append-only.
+        Long-lived branch databases already recorded M9-M12 from the pre-collapse
+        ladder, so the lean-manifest projections table cannot reuse those
+        version numbers.  Fresh installs create the table inside M8; M13 is
+        ``IF NOT EXISTS`` and a no-op there.
         """
 
         self.assertEqual(
@@ -1727,6 +1727,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (6, "thumbnail_source"),
                 (7, "generated_thumbnail_default"),
                 (8, "release_studio"),
+                (13, "release_studio_build_projections"),
             ],
         )
 

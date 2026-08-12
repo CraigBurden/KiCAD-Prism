@@ -1285,6 +1285,31 @@ def _release_studio(conn: Any) -> None:
     )
 
 
+def _release_studio_build_projections(conn: Any) -> None:
+    """Persist per-build projection payloads for re-evaluation.
+
+    Added after migration 8 had already landed on long-lived databases.  The
+    CREATE lives in `_release_studio` for fresh installs; this follow-up is what
+    upgrades a database whose migration 8 predated the lean-manifest change.
+    Versions 9-12 remain reserved on those databases by the pre-collapse ladder,
+    so this step is numbered 13.
+    """
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ws_release_build_projections (
+            build_id   TEXT NOT NULL
+                       REFERENCES ws_release_builds(id) ON DELETE CASCADE,
+            name       TEXT NOT NULL,
+            digest     TEXT NOT NULL,
+            payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT pk_ws_release_build_projections PRIMARY KEY (build_id, name)
+        )
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -1294,6 +1319,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (6, "thumbnail_source", _thumbnail_source),
     (7, "generated_thumbnail_default", _generated_thumbnail_default),
     (8, "release_studio", _release_studio),
+    (13, "release_studio_build_projections", _release_studio_build_projections),
 )
 
 
