@@ -7,7 +7,10 @@ does not touch the digest graph, the policy engine, or the approval model.
 
 import hashlib
 
-from app.release_studio.documents.artwork import PCB_SVG_CONFIG
+from app.release_studio.documents.artwork import (
+    PCB_SVG_CONFIG,
+    PCB_SVG_TESTPOINT_CONFIG,
+)
 from app.release_studio.documents.engine import (
     ARTWORK_LAYERS,
     ASSEMBLY_SIDES,
@@ -37,6 +40,7 @@ def renderer_resource_digest() -> str:
             [
                 resource_bundle_digest(),
                 hashlib.sha256(PCB_SVG_CONFIG.read_bytes()).hexdigest(),
+                hashlib.sha256(PCB_SVG_TESTPOINT_CONFIG.read_bytes()).hexdigest(),
             ]
         ).encode("utf-8")
     ).hexdigest()

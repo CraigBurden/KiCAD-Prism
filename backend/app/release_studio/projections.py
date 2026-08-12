@@ -515,6 +515,31 @@ def _variant_assignments(overrides: Any) -> dict[str, dict[str, bool]]:
 TESTPOINT_PREFIX = "TP"
 
 
+def board_designators(
+    board_path: PathLike,
+    *,
+    model: tuple[Any, str | None] | None = None,
+) -> tuple[str, ...]:
+    """Every reference designator on the board, sorted.
+
+    A build input rather than a released projection: the testpoint view needs
+    it to say which component outlines to leave out, and it belongs in no
+    manifest.
+    """
+
+    parsed, fallback_reason = model if model is not None else _load_pcb_projection_model(
+        board_path
+    )
+    if fallback_reason:
+        return ()
+    found = {
+        reference
+        for footprint in getattr(parsed, "footprints", ()) or ()
+        if (reference := _footprint_reference(footprint).strip())
+    }
+    return tuple(sorted(found))
+
+
 def project_population(
     board_path: PathLike,
     *,

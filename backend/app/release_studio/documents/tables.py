@@ -178,6 +178,7 @@ def revision_history_table(
     releases: Sequence[Mapping[str, Any]],
     *,
     limit: int = 10,
+    width: float = 110.0,
 ) -> Table:
     """Git tag / release history for the cover.
 
@@ -200,11 +201,14 @@ def revision_history_table(
         rows.append((tag, date or "—", commit or "—", message or "—"))
     if not rows:
         rows.append(("no tagged revisions", "—", "—", "this is the first release of record"))
+    # Proportioned to the column it sits in rather than fixed: a table wider
+    # than its neighbours puts its header rule through whatever is beside it.
+    share = width / 130.0
     return Table(
         title="REVISION HISTORY",
         columns=("Tag", "Date", "Commit", "Message"),
         rows=tuple(rows),
-        widths=(28.0, 22.0, 16.0, 64.0),
+        widths=(28.0 * share, 22.0 * share, 16.0 * share, 64.0 * share),
         align=("start", "start", "start", "start"),
     )
 

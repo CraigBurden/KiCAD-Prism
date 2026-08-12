@@ -1,28 +1,19 @@
 {
   "schema": "kicad_cruncher.pcb_svg.config.a0",
   "_prism": [
-    "Prism's assembly view configuration. It is checked in, digest-checked, and",
-    "hashed into resource_bundle_digest -> toolchain_digest, so a change to what",
-    "the assembly sheets draw moves the build key. Cruncher must never write a",
-    "template beside the board at build time: the closure would then depend on a",
-    "file the build created.",
-    "Differences from Cruncher's own default, and why:",
-    " - include_metadata is off. The default embeds a full component index in",
-    "   every view; on a 982-component board that is megabytes of Prism-internal",
-    "   data inside a released drawing.",
-    " - copper layers are not drawn. An assembly drawing states where parts go;",
-    "   traces under them are noise a fitter reads past, and the copper is",
-    "   released as Gerbers regardless.",
-    " - everything is black on white and fully opaque. These sheets are printed",
-    "   and filed, and the sheet renderer carries no alpha channel, so a",
-    "   translucent overlay here would be silently flattened.",
-    " - DNP parts keep a distinct colour, because that distinction carries",
-    "   meaning a monochrome sheet would lose.",
-    " - assembly.default_projection is `outline`, the model-derived silhouette.",
-    "   Cruncher already degrades per component -- model bounds, then hole",
-    "   bounds, then pad bounds -- and records which it used in",
-    "   data-bounds-kind, so asking for the outline costs nothing on a part",
-    "   with no 3D model and gains the real shape on every part that has one."
+    "Prism's testpoint view configuration: the board with only its testpoints.",
+    "Checked in and hashed into resource_bundle_digest -> toolchain_digest,",
+    "like the assembly configuration beside it.",
+    "This is a second file, and a second Cruncher invocation, for one reason:",
+    "designator styles accept `TP*` selectors but component HLR styles do not,",
+    "and `components` is keyed by exact designator and applies to every view in",
+    "a configuration. Drawing testpoint outlines and nothing else therefore",
+    "needs a components map naming every part to suppress -- which would",
+    "suppress them on the assembly views too if it lived in the same file.",
+    "The map is generated per board at build time from the board's own",
+    "designators, written into the build's staging directory, and never placed",
+    "beside the board: a config the build created inside the closure would make",
+    "the closure digest depend on the build."
   ],
   "global": {
     "canvas": {
@@ -117,44 +108,62 @@
   },
   "views": [
     {
-      "name": "assembly_top_view",
+      "name": "testpoint_top_view",
       "enabled": true,
-      "group_id": "prism-assembly-top",
-      "output_svg": "views/{board}__assembly_top_view.svg",
+      "group_id": "prism-testpoint-top",
+      "output_svg": "views/{board}__testpoint_top_view.svg",
       "layers": [
         "BOARD_OUTLINE",
         "BOARD_CUTOUTS",
         "DRILLS",
         "SLOTS",
-        "PIN1_TOP",
-        "ASSEMBLY_HLR_TOP",
-        "ASSEMBLY_DESIGNATORS_TOP"
+        "ASSEMBLY_DESIGNATORS_TOP",
+        "ASSEMBLY_HLR_TOP"
       ],
       "assembly_hlr_mode": "outline",
       "styles": {
         "assembly_designators": {
-          "font_weight": "700"
+          "font_weight": "700",
+          "min_font_size_mm": 1.0,
+          "max_font_size_mm": 3.5,
+          "selector_overrides": {
+            "*": {
+              "enabled": false
+            },
+            "TP*": {
+              "enabled": true
+            }
+          }
         }
       }
     },
     {
-      "name": "assembly_bottom_view",
+      "name": "testpoint_bottom_view",
       "enabled": true,
-      "group_id": "prism-assembly-bottom",
-      "output_svg": "views/{board}__assembly_bottom_view.svg",
+      "group_id": "prism-testpoint-bottom",
+      "output_svg": "views/{board}__testpoint_bottom_view.svg",
       "layers": [
         "BOARD_OUTLINE",
         "BOARD_CUTOUTS",
         "DRILLS",
         "SLOTS",
-        "PIN1_BOTTOM",
-        "ASSEMBLY_HLR_BOTTOM",
-        "ASSEMBLY_DESIGNATORS_BOTTOM"
+        "ASSEMBLY_DESIGNATORS_BOTTOM",
+        "ASSEMBLY_HLR_BOTTOM"
       ],
       "assembly_hlr_mode": "outline",
       "styles": {
         "assembly_designators": {
-          "font_weight": "700"
+          "font_weight": "700",
+          "min_font_size_mm": 1.0,
+          "max_font_size_mm": 3.5,
+          "selector_overrides": {
+            "*": {
+              "enabled": false
+            },
+            "TP*": {
+              "enabled": true
+            }
+          }
         }
       }
     }

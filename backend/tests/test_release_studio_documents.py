@@ -1551,9 +1551,9 @@ class RendererVersionTests(unittest.TestCase):
         "documentation/assembly.pdf":
             "aeb46d242fc8bd1b7281a513ec4ed893250a7fb542393096bb149de602614c25",
         "documentation/cover.pdf":
-            "05eb93cbfdcf68f7dd20652ff37b23405e1321fd4f700fbed5741e3d915d08e3",
+            "0dc27a4f3fab9ef84171a2ab385745b09ad14d62b7ef112c669bc1266888a7ef",
         "documentation/cover.svg":
-            "675e22aa02e63a785e103716d194e2381e784f498f8e8a6b2ceb85fc393bc796",
+            "5f532616b986a230997896ba28268bd629a6b19cc294b1ddcd80b9793255c639",
         "documentation/drill.pdf":
             "e0fc0f989eca3ac081071eaf658eb5374ecefea273e08e2e29a0a37c728ba763",
         "documentation/drill.svg":

@@ -605,7 +605,7 @@ def technical_cover(
     # Middle: a picture of it. Right: exactly which files were released.
     facts: list = [
         tables.variant_table(variants, str(context.get("variant") or "")),
-        tables.revision_history_table(revision_history or ()),
+        tables.revision_history_table(revision_history or (), width=_COVER_TABLE_WIDTH),
         tables.key_value_table(
             "BOARD CHARACTERISTICS",
             tables.board_characteristics(stats, stackup),
@@ -629,7 +629,10 @@ def technical_cover(
             _draw_column(builder, lane, (origin, area.y))
 
     if render is not None and len(origins) >= 3:
-        _draw_board_render(builder, render, area, origins)
+        # Measured, not assumed: the gap starts after the widest table actually
+        # drawn in the left column, so nothing can overhang into the picture.
+        left_width = max((table.width() for table in columns[0]), default=0.0)
+        _draw_board_render(builder, render, area, origins, left_width)
 
     draw_notes(
         builder,
@@ -640,12 +643,18 @@ def technical_cover(
     return builder.build(), overflow
 
 
-def _draw_board_render(builder: SheetBuilder, render: Any, area: Rect, origins: Sequence[float]) -> None:
+def _draw_board_render(
+    builder: SheetBuilder,
+    render: Any,
+    area: Rect,
+    origins: Sequence[float],
+    left_width: float,
+) -> None:
     """Place the board picture in the gap the two table columns leave."""
 
     from app.release_studio.documents.layout import Image
 
-    left = origins[0] + _COVER_TABLE_WIDTH + _COVER_COLUMN_GAP
+    left = origins[0] + left_width + _COVER_COLUMN_GAP
     right = origins[-1] - _COVER_COLUMN_GAP
     width = right - left
     if width <= 20.0:

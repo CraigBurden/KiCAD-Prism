@@ -252,6 +252,10 @@ def _coordinate_pairs(svg_text: str, limit: int = 64) -> list[tuple[float, float
 #: input closure, and the closure digest would then depend on the build.
 PCB_SVG_CONFIG = Path(__file__).with_name("pcb-svg.config.json")
 
+#: The testpoint views, which need a per-board component map (see its own
+#: ``_prism`` note for why it cannot share the assembly configuration).
+PCB_SVG_TESTPOINT_CONFIG = Path(__file__).with_name("pcb-svg.testpoints.config.json")
+
 #: Cruncher view name per assembly side.
 ASSEMBLY_VIEWS: dict[str, str] = {
     "top": "assembly_top_view",
@@ -415,12 +419,83 @@ def acquire_board_render(
     )
 
 
+def testpoint_config(
+    designators: Sequence[str],
+    workdir: Path,
+    *,
+    prefix: str = "TP",
+    base: Path | None = None,
+) -> Path:
+    """Write the testpoint configuration for one board, and return its path.
+
+    Cruncher draws a component's outline unless that component says otherwise,
+    and it has no wildcard for saying so -- ``components`` is keyed by exact
+    designator.  So "only the testpoints" is written as every other designator
+    switched off.  The map is a pure function of the board's sorted designator
+    list, which keeps two builds of one board byte-identical here.
+    """
+
+    import json
+
+    source = base or PCB_SVG_TESTPOINT_CONFIG
+    if not source.is_file():
+        raise ArtworkError(f"the Prism testpoint configuration is missing: {source}")
+    config = json.loads(source.read_text(encoding="utf-8"))
+    marker = prefix.strip().upper()
+    config["components"] = {
+        designator: {"assembly_hlr": {"enabled": False}}
+        for designator in sorted({str(d).strip() for d in designators if str(d).strip()})
+        if not designator.strip().upper().startswith(marker)
+    }
+    workdir.mkdir(parents=True, exist_ok=True)
+    written = workdir / "pcb-svg.testpoints.generated.json"
+    written.write_text(
+        json.dumps(config, indent=2, sort_keys=False) + "\n", encoding="utf-8"
+    )
+    return written
+
+
+def acquire_testpoint_views(
+    cruncher_path: str,
+    board: Path,
+    workdir: Path,
+    *,
+    designators: Sequence[str] = (),
+    sides: Sequence[str] = ("top", "bottom"),
+    runner=subprocess.run,
+    timeout_seconds: int = 900,
+) -> dict[str, AcquiredArtwork]:
+    """Render the testpoint views, keyed ``"testpoint-<side>"``."""
+
+    views = []
+    for side in sides:
+        view = TESTPOINT_VIEWS.get(side)
+        if view is None:
+            raise ArtworkError(f"unknown testpoint side: {side!r}")
+        views.append(view)
+    if not views:
+        return {}
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    config = testpoint_config(designators, workdir)
+    _run_pcb_svg(
+        cruncher_path, board, views, workdir,
+        config_path=config, runner=runner, timeout_seconds=timeout_seconds,
+    )
+    return {
+        f"testpoint-{side}": _read_assembly_view(
+            workdir, f"testpoint-{side}", TESTPOINT_VIEWS[side]
+        )
+        for side in sides
+    }
+
+
 def acquire_board_views(
     cruncher_path: str,
     board: Path,
     workdir: Path,
     *,
-    kinds: Sequence[str] = ("assembly", "testpoint"),
+    kinds: Sequence[str] = ("assembly",),
     sides: Sequence[str] = ("top", "bottom"),
     config_path: Path | None = None,
     runner=subprocess.run,

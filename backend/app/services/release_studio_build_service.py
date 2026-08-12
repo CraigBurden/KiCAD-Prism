@@ -558,6 +558,7 @@ def _with_documents(
     from app.release_studio.documents import compose
     from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
     from app.release_studio.projections import (
+        board_designators,
         load_board_model,
         project_board_stats_file,
         project_population,
@@ -593,6 +594,7 @@ def _with_documents(
         variants: dict[str, Any] = {}
         testpoints: dict[str, Any] = {}
         population: dict[str, Any] = {}
+        designators: tuple[str, ...] = ()
         if board is not None and board.is_file():
             # One parse for both projections.  On a 35 MB board this is over two
             # minutes of work, and doing it twice for the same file was the
@@ -624,6 +626,9 @@ def _with_documents(
             )
             population = _project(
                 "population", lambda: project_population(board, model=model), {}
+            )
+            designators = _project(
+                "designators", lambda: board_designators(board, model=model), ()
             )
 
         placements = _placements(output_root / "assembly/positions.csv")
@@ -687,6 +692,7 @@ def _with_documents(
             members=member_rows,
             testpoints=testpoints,
             population=population,
+            designators=designators,
             board=board if board and board.is_file() else None,
             cli_path=cli_path,
             cruncher_path=cruncher_path,

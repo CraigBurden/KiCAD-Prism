@@ -28,6 +28,7 @@ from app.release_studio.documents.artwork import (
     acquire,
     acquire_board_render,
     acquire_board_views,
+    acquire_testpoint_views,
     acquire_drill_map,
     assembly_density_warnings,
     assembly_projection_mix,
@@ -118,6 +119,7 @@ TESTPOINT_SIDES: tuple[str, ...] = ("top", "bottom")
 #: Key the concurrent acquisition uses for the one job that returns every
 #: Cruncher view.
 _CRUNCHER_JOB = "__cruncher__"
+_TESTPOINT_JOB = "__testpoints__"
 
 #: Ceiling on concurrent acquisitions.
 #:
@@ -147,7 +149,10 @@ def _acquire_concurrently(
         futures = {pool.submit(job): key for key, job in jobs.items()}
         for future in as_completed(futures):
             key = futures[future]
-            label = "board views" if key == _CRUNCHER_JOB else f"artwork for {key}"
+            label = {
+                _CRUNCHER_JOB: "assembly views",
+                _TESTPOINT_JOB: "testpoint views",
+            }.get(key, f"artwork for {key}")
             try:
                 results[key] = future.result()
             except (ArtworkError, OSError) as exc:
@@ -221,6 +226,9 @@ def compose(
     members: Sequence[Mapping[str, Any]],
     testpoints: Mapping[str, Any] | None = None,
     population: Mapping[str, Any] | None = None,
+    #: Every reference designator on the board, for the testpoint view's
+    #: component map.  A build input, not a released projection.
+    designators: Sequence[str] = (),
     board: Path | None = None,
     cli_path: str | None = None,
     cruncher_path: str | None = None,
@@ -234,6 +242,7 @@ def compose(
     drill_acquirer: Callable[..., AcquiredArtwork] | None = None,
     assembly_acquirer: Callable[..., Mapping[str, AcquiredArtwork]] | None = None,
     board_render_acquirer: Callable[..., Any] | None = None,
+    testpoint_acquirer: Callable[..., Mapping[str, AcquiredArtwork]] | None = None,
 ) -> DocumentSet:
     """Compose the full document set.
 
@@ -311,6 +320,18 @@ def compose(
             board,
             workdir / "cruncher",
         )
+        # A second invocation, and a second board load, because only a
+        # per-board component map can leave every non-testpoint outline out --
+        # and that map would suppress them on the assembly views too if the
+        # two shared a configuration.  It runs beside the first rather than
+        # after it, so the cost is memory rather than wall clock.
+        jobs[_TESTPOINT_JOB] = partial(
+            testpoint_acquirer or acquire_testpoint_views,
+            cruncher_path,
+            board,
+            workdir / "testpoints",
+            designators=tuple(designators or ()),
+        )
     else:
         warnings.append(
             "kicad-cruncher unavailable: assembly sheets composed without artwork"
@@ -319,7 +340,7 @@ def compose(
     acquired = _acquire_concurrently(jobs, warnings)
     board_render = acquired.pop(BOARD_RENDER_KEY, None)
     for key, value in acquired.items():
-        if key != _CRUNCHER_JOB:
+        if key not in (_CRUNCHER_JOB, _TESTPOINT_JOB):
             art[key] = value
             continue
         for view_key, drawing in value.items():
