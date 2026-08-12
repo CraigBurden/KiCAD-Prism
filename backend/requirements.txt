@@ -7,6 +7,13 @@ python-dotenv
 requests
 PyJWT[crypto]
 kiutils
+# Release Studio parses KiCad sources through kicad-monkey (closure scanning,
+# board projections, NewStroke lettering, drawing sheets). The image happened
+# to satisfy this through the viewer's requirements-runtime.txt, which installs
+# into the same venv; the CI backend job installs only this file, so leaving it
+# undeclared broke the gate. Keep the pin equal to that file's --
+# tests/test_release_studio_toolchain_pins.py fails when the two drift.
+kicad-monkey==2026.8.11
 python-multipart
 psycopg[binary]>=3.2,<4
 psycopg-pool>=3.2,<4
