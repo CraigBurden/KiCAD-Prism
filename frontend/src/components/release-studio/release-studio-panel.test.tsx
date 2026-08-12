@@ -138,8 +138,6 @@ const blockedDetail: BuildDetail = {
                 domain: "evidence",
                 subject: "drc/error",
                 message: "DRC reported 3 error(s); at most 0 allowed",
-                observed: {},
-                expected: {},
                 finding_key: "f".repeat(64),
                 waiver_id: null,
             },
