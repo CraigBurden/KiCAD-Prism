@@ -119,6 +119,15 @@ TESTPOINT_SIDES: tuple[str, ...] = ("top", "bottom")
 #: Cruncher view.
 _CRUNCHER_JOB = "__cruncher__"
 
+#: Ceiling on concurrent acquisitions.
+#:
+#: Bounded by memory, not cores: every one of these loads the whole board, and
+#: a twelve-layer board asks for twenty-odd plots.  Running them all at once
+#: exhausted the worker on a 35 MB `.kicad_pcb` -- the processes were killed
+#: with no output at all, which looked like a silent failure rather than the
+#: resource limit it was.
+_MAX_PARALLEL_ACQUISITIONS = 4
+
 
 def _acquire_concurrently(
     jobs: Mapping[str, Callable[[], Any]], warnings: list[str]
@@ -133,7 +142,8 @@ def _acquire_concurrently(
         return {}
 
     results: dict[str, Any] = {}
-    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+    workers = min(len(jobs), _MAX_PARALLEL_ACQUISITIONS)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(job): key for key, job in jobs.items()}
         for future in as_completed(futures):
             key = futures[future]
