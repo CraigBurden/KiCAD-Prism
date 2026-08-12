@@ -639,6 +639,56 @@ class ArtworkCompositeTests(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+class TestpointSheetTests(unittest.TestCase):
+    """The testpoint drawing and its schedule must describe the same parts."""
+
+    #: A board whose testpoints are excluded from the position file, which is
+    #: the normal case: a testpoint is not placed by a pick-and-place machine.
+    #: JTYU-OBC has 81 testpoints and none of them appear in `positions.csv`.
+    PROJECTION = {
+        "source": "board.footprints",
+        "prefix": "TP",
+        "testpoints": [
+            {"ref": "TP10", "side": "top", "x": 12.5, "y": 30.25,
+             "excluded_from_position_file": True},
+            {"ref": "TP2", "side": "top", "x": 4.0, "y": 8.0,
+             "excluded_from_position_file": True},
+            {"ref": "TP3", "side": "bottom", "x": 6.0, "y": 9.0,
+             "excluded_from_position_file": True},
+        ],
+    }
+
+    def test_the_schedule_does_not_come_from_the_position_file(self) -> None:
+        from app.release_studio.documents import tables
+
+        # An empty position file must not empty the schedule.
+        table = tables.testpoint_table(self.PROJECTION, "top")
+        self.assertEqual([row[0] for row in table.rows], ["TP2", "TP10"])
+
+    def test_designators_sort_numerically(self) -> None:
+        from app.release_studio.documents import tables
+
+        table = tables.testpoint_table(self.PROJECTION, "top")
+        # TP2 before TP10: a lexical sort would put TP10 first and a reader
+        # walking the board would skip rows.
+        self.assertEqual(table.rows[0][0], "TP2")
+
+    def test_a_side_without_testpoints_says_so(self) -> None:
+        from app.release_studio.documents import tables
+
+        table = tables.testpoint_table({"testpoints": []}, "bottom")
+        self.assertIn("no testpoints", table.rows[0][0])
+
+    def test_the_sheet_counts_only_its_own_side(self) -> None:
+        sheet, _used, _overflow = sheet_templates.testpoint_sheet(
+            CONTEXT, "top", None, self.PROJECTION, size="A3"
+        )
+        text = render_svg(sheet)
+        self.assertIn("TESTPOINT DRAWING — TOP", text)
+        self.assertIn("TP10", text)
+        self.assertNotIn(">TP3<", text)
+
+
 class ProjectionShapeTests(unittest.TestCase):
     """The tables consume R5's real output, not a shape invented for them."""
 
@@ -691,10 +741,14 @@ class ProjectionShapeTests(unittest.TestCase):
         # would break that without any test noticing.
         self.assertFalse(set(pairs) & set(KICAD_CHARACTERISTIC_LABELS))
 
-    def test_revision_history_omits_an_empty_table(self) -> None:
+    def test_revision_history_states_an_untagged_project(self) -> None:
+        """A column that vanishes reads as history the sheet failed to load."""
+
         from app.release_studio.documents import tables
 
-        self.assertIsNone(tables.revision_history_table([]))
+        empty = tables.revision_history_table([])
+        self.assertEqual(len(empty.rows), 1)
+        self.assertIn("no tagged revisions", empty.rows[0][0])
         table = tables.revision_history_table(
             [
                 {
@@ -784,12 +838,21 @@ class DocumentSetTests(unittest.TestCase):
         result = self._compose()
         keys = [output.key for output in result.outputs]
         self.assertEqual(
-            keys, ["cover", "fabrication", "assembly-top", "assembly-bottom", "drill"]
+            keys,
+            [
+                "cover",
+                "fabrication",
+                "assembly-top",
+                "assembly-bottom",
+                "testpoint-top",
+                "testpoint-bottom",
+                "drill",
+            ],
         )
         paths = sorted(result.files())
         self.assertIn("documentation/fabrication.svg", paths)
         self.assertIn("documentation/fabrication.pdf", paths)
-        self.assertEqual(len(paths), 10)
+        self.assertEqual(len(paths), 14)
 
     def test_the_document_set_is_byte_reproducible(self) -> None:
         first = self._compose().files()
@@ -986,7 +1049,7 @@ class ConfiguredNotesTests(unittest.TestCase):
             typography="kicad-newstroke",
             notes={"drill": [note]},
         )
-        self.assertEqual(len(result.files()), 10)
+        self.assertEqual(len(result.files()), 14)
         drill = result.files()["documentation/drill.svg"].decode("utf-8")
         for symbol in ("⌀", "±", "°", "Ω", "✓"):
             with self.subTest(symbol=symbol):
@@ -1006,7 +1069,7 @@ class ConfiguredNotesTests(unittest.TestCase):
             placements=PLACEMENTS, members=MEMBERS,
             notes={"drill": ["All holes ⌀ 0.3 mm minimum."]},
         )
-        self.assertEqual(len(result.files()), 10)
+        self.assertEqual(len(result.files()), 14)
         drill = result.files()["documentation/drill.svg"].decode("utf-8")
         self.assertNotIn("⌀", drill)
         self.assertIn("finished diameters", drill)
@@ -1023,7 +1086,7 @@ class ConfiguredNotesTests(unittest.TestCase):
             notes={"drill": ["表面処理 immersion gold"]},
         )
         # All ten files still present: the degradation is scoped to the note.
-        self.assertEqual(len(result.files()), 10)
+        self.assertEqual(len(result.files()), 14)
         drill = result.files()["documentation/drill.svg"].decode("utf-8")
         self.assertNotIn("表面処理", drill)
         self.assertIn("finished diameters", drill)
@@ -1183,8 +1246,10 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
         art = _cruncher_artwork(svg)
         dense = [{"side": "top"}] * 400 + [{"side": "bottom"}]
 
-        def fake(cruncher_path, board, sides, workdir):
-            return {side: art for side in sides}
+        def fake(cruncher_path, board, workdir, **kwargs):
+            return {f"{kind}-{side}": art
+                    for kind in ("assembly", "testpoint")
+                    for side in ("top", "bottom")}
 
         result = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
@@ -1332,9 +1397,11 @@ class AssemblySheetTests(unittest.TestCase):
     def test_the_engine_asks_cruncher_for_both_sides(self) -> None:
         asked: list[tuple[str, str]] = []
 
-        def fake(cruncher_path, board, sides, workdir):
-            asked.append((cruncher_path, tuple(sides)))
-            return {side: _cruncher_artwork() for side in sides}
+        def fake(cruncher_path, board, workdir, **kwargs):
+            asked.append(cruncher_path)
+            return {f"{kind}-{side}": _cruncher_artwork()
+                    for kind in ("assembly", "testpoint")
+                    for side in ("top", "bottom")}
 
         result = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
@@ -1344,8 +1411,8 @@ class AssemblySheetTests(unittest.TestCase):
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
-        # One invocation for both sides: the board load dominates the cost.
-        self.assertEqual(asked, [("kicad-cruncher", ("top", "bottom"))])
+        # One invocation for every view: the board load dominates the cost.
+        self.assertEqual(asked, ["kicad-cruncher"])
         digests = {
             output.key: output.artwork_digest
             for output in result.outputs
@@ -1355,7 +1422,7 @@ class AssemblySheetTests(unittest.TestCase):
         self.assertTrue(all(len(value) == 64 for value in digests.values()))
 
     def test_a_failed_view_degrades_one_sheet_and_says_so(self) -> None:
-        def fake(cruncher_path, board, sides, workdir):
+        def fake(cruncher_path, board, workdir, **kwargs):
             raise artwork_module.ArtworkError("geometer refused the board")
 
         result = compose(
@@ -1366,7 +1433,7 @@ class AssemblySheetTests(unittest.TestCase):
             workdir=Path("/tmp"),
             assembly_acquirer=fake,
         )
-        self.assertEqual(len(result.outputs), 5)
+        self.assertEqual(len(result.outputs), 7)
         self.assertTrue(
             any("geometer refused the board" in warning for warning in result.warnings),
             result.warnings,
@@ -1383,8 +1450,10 @@ class SheetSetConsistencyTests(unittest.TestCase):
             board=Path("/nonexistent/board.kicad_pcb"),
             cruncher_path="kicad-cruncher",
             workdir=Path("/tmp"),
-            assembly_acquirer=lambda _path, _board, sides, _dir: {
-                side: _cruncher_artwork() for side in sides
+            assembly_acquirer=lambda _path, _board, _dir, **_kw: {
+                f"{kind}-{side}": _cruncher_artwork()
+                for kind in ("assembly", "testpoint")
+                for side in ("top", "bottom")
             },
         )
 
@@ -1479,7 +1548,7 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d12 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d13 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
@@ -1492,9 +1561,9 @@ class RendererVersionTests(unittest.TestCase):
         "documentation/assembly-top.svg":
             "68ec4217c1f222fc768c3482efb63a2ce2e7d0310a762edd406586f05dc84a37",
         "documentation/cover.pdf":
-            "2a5d3914db7fe41ebe060f60e603204c351e4306856f1914449a06c7370e9b0f",
+            "44fb0b909b515e0b8c7d88986dd06d0179aa2d2805ea59095fe5ecfddc567a2c",
         "documentation/cover.svg":
-            "7245f80cd3b63226fa1114ed59e7a97274916168e7f0646112c1d533b9ef2637",
+            "7a0f99e4e747885b7271707a321cb1ef9d7918594fa6eb554e49629a3be2a0b9",
         "documentation/drill.pdf":
             "e0fc0f989eca3ac081071eaf658eb5374ecefea273e08e2e29a0a37c728ba763",
         "documentation/drill.svg":
@@ -1503,6 +1572,14 @@ class RendererVersionTests(unittest.TestCase):
             "4156eadf95893486e6cd53c9c20b068857d93fbec10f66adc11d2465215c0a3b",
         "documentation/fabrication.svg":
             "5dd6ec0eb5bede5de69490733a374254408cbc56030349c4eddd34ba94dca23f",
+        "documentation/testpoint-bottom.pdf":
+            "adfe779c8c549c11f6f1aa7ece4c20ba9db212a79bb0674bce3115437e45f973",
+        "documentation/testpoint-bottom.svg":
+            "2c67897b56cae8526740ddb7c78b33a71b1b8a4a8bc3604da872e8c5bb08d7e2",
+        "documentation/testpoint-top.pdf":
+            "d77a98b425b2c2884aa7fc70381e5ab24fca7c079dd2f486004f100bcd308edb",
+        "documentation/testpoint-top.svg":
+            "277642a4d4c2430a76b3e327fc3f637ac4c9d9b71a4ab8ea23000dafc049da6d",
     }
 
     #: A placed sheet, so a change to sheet selection, the scale ladder, or
@@ -1531,7 +1608,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d12",
+            "release-studio-documents/d13",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

@@ -22,7 +22,14 @@
     "   Cruncher already degrades per component -- model bounds, then hole",
     "   bounds, then pad bounds -- and records which it used in",
     "   data-bounds-kind, so asking for the outline costs nothing on a part",
-    "   with no 3D model and gains the real shape on every part that has one."
+    "   with no 3D model and gains the real shape on every part that has one.",
+    " - two further views carry only the testpoints. Cruncher matches designator",
+    "   style selectors (TP*), so the testpoint views are the same render with",
+    "   every other designator switched off and the component-outline layer",
+    "   omitted -- no second invocation and no per-board generated config.",
+    "   The layer-level `enabled` flag cannot express this: setting it false",
+    "   drops the whole designator layer before per-component selectors are",
+    "   consulted, so the selection is written the other way round."
   ],
   "global": {
     "canvas": {
@@ -105,7 +112,10 @@
     "hatch_line_width_mm": 0.08
   },
   "pin1": {
-    "exclude_designators": ["R", "C"],
+    "exclude_designators": [
+      "R",
+      "C"
+    ],
     "exclude_single_pin": true
   },
   "components": {},
@@ -135,6 +145,35 @@
       }
     },
     {
+      "name": "testpoint_top_view",
+      "enabled": true,
+      "group_id": "prism-testpoint-top",
+      "output_svg": "views/{board}__testpoint_top_view.svg",
+      "layers": [
+        "BOARD_OUTLINE",
+        "BOARD_CUTOUTS",
+        "DRILLS",
+        "SLOTS",
+        "ASSEMBLY_DESIGNATORS_TOP"
+      ],
+      "assembly_hlr_mode": "outline",
+      "styles": {
+        "assembly_designators": {
+          "font_weight": "700",
+          "min_font_size_mm": 1.0,
+          "max_font_size_mm": 3.5,
+          "selector_overrides": {
+            "*": {
+              "enabled": false
+            },
+            "TP*": {
+              "enabled": true
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "assembly_bottom_view",
       "enabled": true,
       "group_id": "prism-assembly-bottom",
@@ -152,6 +191,35 @@
       "styles": {
         "assembly_designators": {
           "font_weight": "700"
+        }
+      }
+    },
+    {
+      "name": "testpoint_bottom_view",
+      "enabled": true,
+      "group_id": "prism-testpoint-bottom",
+      "output_svg": "views/{board}__testpoint_bottom_view.svg",
+      "layers": [
+        "BOARD_OUTLINE",
+        "BOARD_CUTOUTS",
+        "DRILLS",
+        "SLOTS",
+        "ASSEMBLY_DESIGNATORS_BOTTOM"
+      ],
+      "assembly_hlr_mode": "outline",
+      "styles": {
+        "assembly_designators": {
+          "font_weight": "700",
+          "min_font_size_mm": 1.0,
+          "max_font_size_mm": 3.5,
+          "selector_overrides": {
+            "*": {
+              "enabled": false
+            },
+            "TP*": {
+              "enabled": true
+            }
+          }
         }
       }
     }

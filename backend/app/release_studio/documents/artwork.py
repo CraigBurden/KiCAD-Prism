@@ -258,6 +258,18 @@ ASSEMBLY_VIEWS: dict[str, str] = {
     "bottom": "assembly_bottom_view",
 }
 
+#: The same board with only the testpoints labelled.
+TESTPOINT_VIEWS: dict[str, str] = {
+    "top": "testpoint_top_view",
+    "bottom": "testpoint_bottom_view",
+}
+
+#: Every view kind Prism's checked-in Cruncher configuration declares.
+VIEW_KINDS: dict[str, dict[str, str]] = {
+    "assembly": ASSEMBLY_VIEWS,
+    "testpoint": TESTPOINT_VIEWS,
+}
+
 #: What Cruncher *actually* drew each component from.
 #:
 #: Deliberately not ``data-projection``, which records the mode the config
@@ -329,46 +341,53 @@ def assembly_density_warnings(side: str, placement_count: int) -> list[str]:
     ]
 
 
-def acquire_assembly_views(
+def acquire_board_views(
     cruncher_path: str,
     board: Path,
-    sides: Sequence[str],
     workdir: Path,
     *,
+    kinds: Sequence[str] = ("assembly", "testpoint"),
+    sides: Sequence[str] = ("top", "bottom"),
     config_path: Path | None = None,
     runner=subprocess.run,
     timeout_seconds: int = 900,
 ) -> dict[str, AcquiredArtwork]:
-    """Render every requested assembly view in **one** Cruncher invocation.
+    """Render every requested view in **one** Cruncher invocation.
+
+    Keyed ``"<kind>-<side>"``.
 
     Loading the board dominates: on a 35 MB ``.kicad_pcb`` it is ~70 s against
-    ~34 s to render a view.  Asking for the sides one at a time paid that load
-    once per side for no benefit, since Cruncher will write both views from a
-    single load when told to.
+    a couple of seconds to render one more view off the same load.  So every
+    view Prism wants is declared in the one checked-in configuration and asked
+    for together -- the testpoint views cost the render, not another load.
     """
 
-    views = []
-    for side in sides:
-        view = ASSEMBLY_VIEWS.get(side)
-        if view is None:
-            raise ArtworkError(f"unknown assembly side: {side!r}")
-        views.append(view)
-    if not views:
+    wanted: dict[str, str] = {}
+    for kind in kinds:
+        views = VIEW_KINDS.get(kind)
+        if views is None:
+            raise ArtworkError(f"unknown view kind: {kind!r}")
+        for side in sides:
+            view = views.get(side)
+            if view is None:
+                raise ArtworkError(f"unknown {kind} side: {side!r}")
+            wanted[f"{kind}-{side}"] = view
+    if not wanted:
         return {}
 
     workdir.mkdir(parents=True, exist_ok=True)
     _run_pcb_svg(
         cruncher_path,
         board,
-        views,
+        list(wanted.values()),
         workdir,
         config_path=config_path,
         runner=runner,
         timeout_seconds=timeout_seconds,
     )
     return {
-        side: _read_assembly_view(workdir, side, ASSEMBLY_VIEWS[side])
-        for side in sides
+        key: _read_assembly_view(workdir, key, view)
+        for key, view in wanted.items()
     }
 
 
@@ -466,8 +485,12 @@ def _run_pcb_svg(
         raise ArtworkError(f"kicad-cruncher pcb-svg failed for {named}: {detail[:400]}")
 
 
-def _read_assembly_view(workdir: Path, side: str, view: str) -> AcquiredArtwork:
-    """Turn one written Cruncher view into placeable artwork."""
+def _read_assembly_view(workdir: Path, label: str, view: str) -> AcquiredArtwork:
+    """Turn one written Cruncher view into placeable artwork.
+
+    ``label`` names the view on the sheet (``assembly-top``, ``testpoint-top``,
+    or a bare side for the single-view path).
+    """
 
     found = sorted((workdir / "views").glob(f"*__{view}.svg"))
     if not found:
@@ -476,7 +499,7 @@ def _read_assembly_view(workdir: Path, side: str, view: str) -> AcquiredArtwork:
     svg_text = found[0].read_text(encoding="utf-8")
     x, y, width, height = extents(svg_text)
     return AcquiredArtwork(
-        layers=(f"Assembly.{side.capitalize()}",),
+        layers=(f"Cruncher.{label}",),
         svg_text=svg_text,
         pdf_bytes=render_pdf_page(svg_text),
         view_x=x,

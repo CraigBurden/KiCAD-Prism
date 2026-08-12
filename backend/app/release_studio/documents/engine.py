@@ -26,7 +26,7 @@ from app.release_studio.documents.artwork import (
     AcquiredArtwork,
     ArtworkError,
     acquire,
-    acquire_assembly_views,
+    acquire_board_views,
     acquire_drill_map,
     assembly_density_warnings,
     assembly_projection_mix,
@@ -62,8 +62,14 @@ DRILL_ARTWORK_KEY = "drill"
 #: into each component's own bounds over a hidden-line-removed outline.
 ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
 
-#: Key the concurrent acquisition uses for the one job that returns both sides.
-_ASSEMBLY_JOB = "__assembly__"
+#: The testpoint views are the same render with only `TP*` labelled.  They are
+#: extra *views* in the one Cruncher configuration rather than a second
+#: invocation, because loading the board is what costs and the render is cheap.
+TESTPOINT_SIDES: tuple[str, ...] = ("top", "bottom")
+
+#: Key the concurrent acquisition uses for the one job that returns every
+#: Cruncher view.
+_CRUNCHER_JOB = "__cruncher__"
 
 
 def _acquire_concurrently(
@@ -83,7 +89,7 @@ def _acquire_concurrently(
         futures = {pool.submit(job): key for key, job in jobs.items()}
         for future in as_completed(futures):
             key = futures[future]
-            label = "assembly views" if key == _ASSEMBLY_JOB else f"artwork for {key}"
+            label = "board views" if key == _CRUNCHER_JOB else f"artwork for {key}"
             try:
                 results[key] = future.result()
             except (ArtworkError, OSError) as exc:
@@ -132,6 +138,7 @@ def compose(
     variants: Mapping[str, Any],
     placements: Sequence[Mapping[str, Any]],
     members: Sequence[Mapping[str, Any]],
+    testpoints: Mapping[str, Any] | None = None,
     board: Path | None = None,
     cli_path: str | None = None,
     cruncher_path: str | None = None,
@@ -159,6 +166,7 @@ def compose(
     warnings: list[str] = []
     art: dict[str, AcquiredArtwork] = {}
     assembly: dict[str, AcquiredArtwork] = {}
+    testpoint: dict[str, AcquiredArtwork] = {}
 
     substitutions = note_templates.substitution_context(context, fields=fields, stats=stats)
     sheet_notes, note_warnings = note_templates.resolve_notes(
@@ -196,14 +204,13 @@ def compose(
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
     if board is not None and cruncher_path and workdir is not None:
-        # One invocation for both sides: loading the board dominates the cost
-        # and Cruncher writes every requested view from a single load.
-        jobs[_ASSEMBLY_JOB] = partial(
-            assembly_acquirer or acquire_assembly_views,
+        # One invocation for every view: loading the board dominates the cost
+        # and Cruncher writes them all from a single load.
+        jobs[_CRUNCHER_JOB] = partial(
+            assembly_acquirer or acquire_board_views,
             cruncher_path,
             board,
-            ASSEMBLY_SIDES,
-            workdir / "assembly",
+            workdir / "cruncher",
         )
     else:
         warnings.append(
@@ -212,10 +219,15 @@ def compose(
 
     acquired = _acquire_concurrently(jobs, warnings)
     for key, value in acquired.items():
-        if key == _ASSEMBLY_JOB:
-            assembly.update(value)
-        else:
+        if key != _CRUNCHER_JOB:
             art[key] = value
+            continue
+        for view_key, drawing in value.items():
+            kind, _, side = view_key.partition("-")
+            if kind == "testpoint":
+                testpoint[side] = drawing
+            else:
+                assembly[side] = drawing
 
     for side, drawing in assembly.items():
         side_count = sum(
@@ -247,6 +259,10 @@ def compose(
     assembly = {
         side: content_view(drawing, extent_width, extent_height)
         for side, drawing in assembly.items()
+    }
+    testpoint = {
+        side: content_view(drawing, extent_width, extent_height)
+        for side, drawing in testpoint.items()
     }
     assembly_mix = {
         side: assembly_projection_mix(drawing.svg_text)
@@ -314,6 +330,33 @@ def compose(
             assembly.get(side),
             _artwork_window(sheet),
             warnings,
+        )
+
+    for side in TESTPOINT_SIDES:
+        key = f"testpoint-{side}"
+        sheet, used, overflow = sheet_templates.testpoint_sheet(
+            context, side, testpoint.get(side), testpoints or {}, size=sheet_size, scale=scale,
+            notes=sheet_notes[key], fields=title_fields, typography=typography,
+        )
+        _append_serialized(
+            outputs,
+            sheet,
+            key,
+            used,
+            testpoint.get(side),
+            _artwork_window(sheet),
+            warnings,
+        )
+        _append_continuations(
+            outputs,
+            overflow,
+            context=context,
+            prefix=key,
+            title=f"TESTPOINT SCHEDULE — {side.upper()}",
+            sheet_size=sheet_size,
+            fields=title_fields,
+            typography=typography,
+            warnings=warnings,
         )
 
     drill, drill_scale, drill_overflow = sheet_templates.drill_sheet(

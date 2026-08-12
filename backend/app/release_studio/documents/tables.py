@@ -8,6 +8,7 @@ drawing that disagrees with the board it documents is worse than no drawing.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping, Sequence
 
 from app.release_studio.documents.layout import Table
@@ -177,8 +178,14 @@ def revision_history_table(
     releases: Sequence[Mapping[str, Any]],
     *,
     limit: int = 10,
-) -> Table | None:
-    """Git tag / release history for the cover, or ``None`` when empty."""
+) -> Table:
+    """Git tag / release history for the cover.
+
+    An untagged project gets a stated fact rather than a missing column.  A
+    table that vanishes reads as history the sheet failed to load, which is a
+    different and more alarming thing than a design that has never been tagged
+    -- the same reason `variant_table` does not disappear either.
+    """
 
     rows: list[tuple[str, ...]] = []
     for entry in list(releases)[:limit]:
@@ -192,7 +199,7 @@ def revision_history_table(
         commit = str(entry.get("commit_hash") or entry.get("full_hash") or "")[:7]
         rows.append((tag, date or "—", commit or "—", message or "—"))
     if not rows:
-        return None
+        rows.append(("no tagged revisions", "—", "—", "this is the first release of record"))
     return Table(
         title="REVISION HISTORY",
         columns=("Tag", "Date", "Commit", "Message"),
@@ -314,6 +321,68 @@ def member_table(members: Sequence[Mapping[str, Any]]) -> Table:
         columns=("Path", "Canonicalizer", "Released digest"),
         rows=tuple(rows),
         widths=(78.0, 26.0, 36.0),
+    )
+
+
+def testpoints_for_side(
+    testpoints: Mapping[str, Any] | Sequence[Mapping[str, Any]], side: str
+) -> list[Mapping[str, Any]]:
+    """The testpoints on one side, from the R5 testpoint projection."""
+
+    rows = (
+        testpoints.get("testpoints") or ()
+        if isinstance(testpoints, Mapping)
+        else testpoints or ()
+    )
+    return [
+        item
+        for item in rows
+        if str(item.get("side") or "").lower() == side.lower()
+    ]
+
+
+def _designator_sort_key(reference: str) -> tuple[str, int, str]:
+    """Sort ``TP2`` before ``TP10`` while leaving odd names in a stable place."""
+
+    match = re.match(r"^([A-Za-z_]+)(\d+)$", reference.strip())
+    if match:
+        return (match.group(1).upper(), int(match.group(2)), "")
+    return (reference.strip().upper(), 0, reference)
+
+
+def testpoint_table(
+    testpoints: Mapping[str, Any] | Sequence[Mapping[str, Any]],
+    side: str,
+    *,
+    width: float = 92.0,
+) -> Table:
+    """Where to put a probe: designator and position, for one side.
+
+    A testpoint drawing without coordinates only says a testpoint exists
+    somewhere.  These are the footprint's own board coordinates, which is what
+    a probe fixture is dimensioned against.
+    """
+
+    rows = [
+        (
+            str(item.get("ref") or ""),
+            _mm(item.get("x"), 3),
+            _mm(item.get("y"), 3),
+        )
+        for item in sorted(
+            testpoints_for_side(testpoints, side),
+            key=lambda item: _designator_sort_key(str(item.get("ref") or "")),
+        )
+    ]
+    if not rows:
+        rows = [("no testpoints on this side", "—", "—")]
+    share = width / 3.0
+    return Table(
+        title=f"TESTPOINTS — {side.upper()}",
+        columns=("Designator", "X mm", "Y mm"),
+        rows=tuple(rows),
+        widths=(share * 1.2, share * 0.9, share * 0.9),
+        align=("start", "end", "end"),
     )
 
 

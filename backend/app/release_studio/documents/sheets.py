@@ -72,6 +72,22 @@ DEFAULT_NOTES: dict[str, tuple[str, ...]] = {
         "Reference designators follow the position file in this dossier.",
         "Do-not-populate parts are excluded from the placement count above.",
     ),
+    "testpoint-top": (
+        "Only testpoints are labelled. Every other component is omitted so the "
+        "probe targets stand alone; the assembly drawings in this dossier show "
+        "the full population.",
+        "Schedule coordinates are each testpoint footprint's own placement in "
+        "board coordinates, read from the board. Testpoints are commonly "
+        "excluded from the position file, so that file may not list them.",
+    ),
+    "testpoint-bottom": (
+        "Only testpoints are labelled. Every other component is omitted so the "
+        "probe targets stand alone; the assembly drawings in this dossier show "
+        "the full population.",
+        "Schedule coordinates are each testpoint footprint's own placement in "
+        "board coordinates, read from the board. Testpoints are commonly "
+        "excluded from the position file, so that file may not list them.",
+    ),
     "drill": (
         "Hole sizes are finished diameters unless a tolerance is stated.",
         "The Excellon file in this dossier is authoritative; this sheet is a view of it.",
@@ -89,6 +105,7 @@ TITLE_BLOCK_WIDTH = 110.0
 TABLE_WIDTHS: dict[str, float] = {
     "fabrication": 136.0,
     "assembly": 92.0,
+    "testpoint": 92.0,
     "drill": 110.0,
 }
 
@@ -498,6 +515,46 @@ def _draw_column(builder: SheetBuilder, column: Sequence, origin: tuple[float, f
     return cursor
 
 
+def _lane_origins(area: Rect, lanes: Sequence[Sequence], gap: float) -> list[float]:
+    """Left edge of each lane, spread across *area* rather than packed left.
+
+    The last lane is pinned to the area's right edge and the rest are spaced
+    between.  Packing them left instead left the sheet with one wide empty
+    band down the right-hand side, which is the space the reader's eye goes to
+    first and the reason the cover looked half-finished.
+
+    An empty lane keeps its slot: a cover whose columns move depending on
+    whether the project has tags is harder to read across a set of releases
+    than one whose columns are always in the same place.
+    """
+
+    widths = [
+        max((table.width() for table in lane), default=0.0) for lane in lanes
+    ]
+    if not widths:
+        return []
+    origins = [area.x] * len(widths)
+    if len(widths) == 1:
+        return origins
+
+    origins[-1] = max(area.x, area.right - widths[-1])
+    if len(widths) == 2:
+        return origins
+
+    # Distribute the middle lanes evenly through the space the outer two leave.
+    span_start = area.x + widths[0]
+    span_end = origins[-1]
+    middle = widths[1:-1]
+    free = span_end - span_start - sum(middle)
+    step = free / (len(middle) + 1)
+    cursor = span_start
+    for index, width in enumerate(middle, start=1):
+        cursor += max(step, gap)
+        origins[index] = cursor
+        cursor += width
+    return origins
+
+
 def technical_cover(
     context: Mapping[str, Any],
     stats: Mapping[str, Any],
@@ -559,22 +616,16 @@ def technical_cover(
     if not tables.variant_table_is_empty(variants):
         facts.append(tables.variant_table(variants, str(context.get("variant") or "")))
 
-    middle: list = []
-    history = tables.revision_history_table(revision_history or ())
-    if history is not None:
-        middle.append(history)
+    middle: list = [tables.revision_history_table(revision_history or ())]
 
     lanes = [[tables.member_table(members)], middle, facts]
     columns, overflow, _factor = split_columns(
         lanes, area, gap=_TABLE_GAP, column_gap=_COVER_COLUMN_GAP
     )
 
-    cursor_x = area.x
-    for lane in columns:
-        if not lane:
-            continue
-        _draw_column(builder, lane, (cursor_x, area.y))
-        cursor_x += max(table.width() for table in lane) + _COVER_COLUMN_GAP
+    for lane, origin in zip(columns, _lane_origins(area, columns, _COVER_COLUMN_GAP)):
+        if lane:
+            _draw_column(builder, lane, (origin, area.y))
 
     draw_notes(
         builder,
@@ -773,6 +824,70 @@ def assembly_sheet(
     cursor = _draw_column(builder, column[0], (area.x, area.y))
     draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
     return builder.build(), used
+
+
+def testpoint_sheet(
+    context: Mapping[str, Any],
+    side: str,
+    art: AcquiredArtwork | None,
+    testpoints: Mapping[str, Any],
+    *,
+    size: str = DEFAULT_SIZE,
+    scale: float | None = None,
+    notes: Sequence[str] | None = None,
+    fields: Sequence[TitleBlockField] = (),
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> tuple[Sheet, float, list]:
+    """One side of the board with only its testpoints labelled.
+
+    The same Cruncher render as the assembly view with every non-``TP``
+    designator switched off and the component outlines omitted, so a probe
+    target is not competing with 900 other labels for the reader's attention.
+    The schedule beside it gives each testpoint's position from the position
+    file, which is what makes the sheet usable at a bench rather than only
+    pretty.
+    """
+
+    label = "TOP" if side == "top" else "BOTTOM"
+    builder, body = _shell(
+        f"testpoint-{side}",
+        f"TESTPOINT DRAWING — {label}",
+        context,
+        size,
+        fields,
+        typography=typography,
+    )
+    title_height = title_block_height(context, fields)
+
+    table_width, window, area = sheet_columns(
+        size, "testpoint", title_height, _drawn_width(art, scale)
+    )
+    used = _draw_artwork(builder, window, art, label="testpoint artwork", scale=scale)
+
+    found = tables.testpoints_for_side(testpoints, side)
+    summary = tables.key_value_table(
+        "TESTPOINTS",
+        (
+            ("Side", label),
+            ("Testpoints", str(len(found))),
+            ("Variant", str(context.get("variant") or "default")),
+        ),
+        width=table_width,
+    )
+    schedule = tables.testpoint_table(testpoints, side, width=table_width)
+
+    sheet_notes = notes if notes is not None else DEFAULT_NOTES[f"testpoint-{side}"]
+    reserve = notes_height(
+        sheet_notes, width=table_width, typography=typography
+    ) + _TABLE_GAP
+    column, overflow, _factor = split_columns(
+        [[summary, schedule]],
+        Rect(area.x, area.y, area.width, area.height - reserve),
+        gap=_TABLE_GAP,
+    )
+    cursor = _draw_column(builder, column[0], (area.x, area.y))
+    draw_notes(builder, sheet_notes, (area.x, cursor + _TABLE_GAP), width=table_width)
+    return builder.build(), used, overflow
 
 
 def drill_sheet(

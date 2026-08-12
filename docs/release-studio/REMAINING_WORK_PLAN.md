@@ -39,6 +39,24 @@ a manual / nightly gate.
 
 ## Closed in this pass
 
+- **Testpoint drawings.** `testpoint-top` and `testpoint-bottom`: the board
+  with only `TP*` labelled and the component outlines omitted, beside a
+  schedule of designator and board coordinates. They are two more *views* in
+  the one checked-in Cruncher configuration rather than a second invocation,
+  so they cost the render and not another 70 s board load. Cruncher matches
+  designator style selectors, so the selection is `"*": off, "TP*": on` — the
+  layer-level `enabled` flag cannot express it, because setting it false drops
+  the whole designator layer before per-component selectors are consulted.
+  **The schedule reads the board, not `positions.csv`**: testpoint footprints
+  are routinely marked "exclude from position files", and JTYU-OBC is exactly
+  that board — 81 testpoints on the PCB, none in the position file. A schedule
+  built from that file would have said "no testpoints" beside a drawing
+  labelling 81 of them.
+- **Cover columns spread across the body** instead of packing left, with the
+  last pinned to the right edge, and an empty column keeps its slot so the
+  layout does not move between releases. An untagged project now gets a stated
+  revision history rather than a vanished column.
+
 - **Schedules no longer truncate.** The stackup, drill schedule and board
   characteristics list every row. Two defects, one symptom: the scale factor
   was computed from *unscaled* heights and never re-measured, so shrinking —

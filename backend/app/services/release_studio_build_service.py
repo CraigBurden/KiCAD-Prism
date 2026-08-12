@@ -560,6 +560,7 @@ def _with_documents(
     from app.release_studio.projections import (
         load_board_model,
         project_board_stats_file,
+        project_testpoints,
         project_stackup,
         project_variants,
     )
@@ -589,6 +590,7 @@ def _with_documents(
 
         stackup: dict[str, Any] = {}
         variants: dict[str, Any] = {}
+        testpoints: dict[str, Any] = {}
         if board is not None and board.is_file():
             # One parse for both projections.  On a 35 MB board this is over two
             # minutes of work, and doing it twice for the same file was the
@@ -615,6 +617,9 @@ def _with_documents(
                 ),
                 {},
             )
+            testpoints = _project(
+                "testpoints", lambda: project_testpoints(board, model=model), {}
+            )
 
         placements = _placements(output_root / "assembly/positions.csv")
         projections = {
@@ -622,6 +627,7 @@ def _with_documents(
             "stackup": stackup,
             "variants": variants,
             "placements": placements,
+            "testpoints": testpoints,
         }
 
         project_file = board.with_suffix(".kicad_pro") if board is not None else None
@@ -673,6 +679,7 @@ def _with_documents(
             variants=variants,
             placements=placements,
             members=member_rows,
+            testpoints=testpoints,
             board=board if board and board.is_file() else None,
             cli_path=cli_path,
             cruncher_path=cruncher_path,
@@ -730,7 +737,17 @@ def _placements(positions_csv: Path) -> list[dict[str, Any]]:
         text = positions_csv.read_text(encoding="utf-8", errors="replace")
         for row in csv.DictReader(text.splitlines()):
             side = (row.get("Side") or row.get("side") or "").strip().lower()
-            rows.append({"side": side, "ref": (row.get("Ref") or row.get("ref") or "").strip()})
+            rows.append(
+                {
+                    "side": side,
+                    "ref": (row.get("Ref") or row.get("ref") or "").strip(),
+                    # Carried for the testpoint schedule, which is a table of
+                    # where to put a probe and is useless without coordinates.
+                    "x": (row.get("PosX") or row.get("posx") or "").strip(),
+                    "y": (row.get("PosY") or row.get("posy") or "").strip(),
+                    "rotation": (row.get("Rot") or row.get("rot") or "").strip(),
+                }
+            )
     except Exception:  # noqa: BLE001 - the sheet degrades to a zero count
         return []
     return rows

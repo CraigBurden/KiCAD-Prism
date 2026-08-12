@@ -507,6 +507,67 @@ def _variant_assignments(overrides: Any) -> dict[str, dict[str, bool]]:
     return assignments
 
 
+#: Reference-designator prefix that marks a testpoint.
+#:
+#: KiCad has no testpoint *type*, so the designator is the convention -- and it
+#: is the same string the Cruncher view configuration selects on, which is what
+#: keeps the drawing and its schedule talking about the same set of parts.
+TESTPOINT_PREFIX = "TP"
+
+
+def project_testpoints(
+    board_path: PathLike,
+    *,
+    model: tuple[Any, str | None] | None = None,
+    prefix: str = TESTPOINT_PREFIX,
+) -> dict[str, Any]:
+    """Testpoint designators and positions, read from the board itself.
+
+    **Not** from the position file.  Testpoint footprints are routinely marked
+    "exclude from position files" -- they are not placed by a pick-and-place
+    machine -- so a schedule built from ``positions.csv`` reports none while the
+    drawing beside it labels eighty-one.  JTYU-OBC is exactly that board.
+
+    Positions are the footprint's own placement in board coordinates, which is
+    what a probe fixture is dimensioned against.
+    """
+
+    parsed, fallback_reason = model if model is not None else _load_pcb_projection_model(
+        board_path
+    )
+    if fallback_reason:
+        # The targeted stackup fallback has no footprints to read.
+        return {"source": "kicad_monkey.fallback", "prefix": prefix, "testpoints": []}
+
+    marker = prefix.strip().upper()
+    found: list[dict[str, Any]] = []
+    for footprint in getattr(parsed, "footprints", ()) or ():
+        reference = _footprint_reference(footprint)
+        if not reference.strip().upper().startswith(marker):
+            continue
+        layer = str(getattr(footprint, "layer", "") or "")
+        found.append(
+            {
+                "ref": reference,
+                "side": "bottom" if layer.startswith("B.") else "top",
+                "x": _optional_number(getattr(footprint, "at_x", None)),
+                "y": _optional_number(getattr(footprint, "at_y", None)),
+                "rotation": _optional_number(getattr(footprint, "at_angle", None)),
+                # Recorded because it is the reason this projection exists at
+                # all, and because a reader comparing the schedule against
+                # positions.csv deserves to know why they differ.
+                "excluded_from_position_file": bool(
+                    getattr(footprint, "is_excluded_from_pos_files", False)
+                ),
+            }
+        )
+    return {
+        "source": "board.footprints",
+        "prefix": prefix,
+        "testpoints": found,
+    }
+
+
 def _footprint_reference(footprint: Any) -> str:
     get_property = getattr(footprint, "get_property_value", None)
     if callable(get_property):

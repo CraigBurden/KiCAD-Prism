@@ -48,6 +48,11 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d13 -- testpoint drawings: two further Cruncher views in the one checked-in
+#: configuration label only `TP*` and omit the component outlines, with a
+#: schedule of designator and position beside them; the cover spreads its three
+#: columns across the body instead of packing them left, and an untagged
+#: project gets a stated revision history rather than a missing column.
 #: d12 -- schedules never truncate: the fit is measured rather than predicted
 #: and what still does not fit continues on its own sheet; the cover is three
 #: columns with the note block measured off the bottom; assembly views ask
@@ -67,7 +72,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d12"
+RENDERER_VERSION = "release-studio-documents/d13"
 
 __all__ = [
     "ARTWORK_LAYERS",
