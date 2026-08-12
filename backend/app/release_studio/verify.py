@@ -73,10 +73,20 @@ class VerificationError(RuntimeError):
 class Report:
     def __init__(self) -> None:
         self.checks: list[tuple[bool, str]] = []
+        #: Things a recipient must be told that are not verification failures.
+        #:
+        #: An administratively overridden release is genuinely signed by the
+        #: issuing organization -- it verifies, and saying otherwise would be
+        #: false.  What a recipient needs to know is that it went out over open
+        #: blockers, which is a separate statement from "these bytes are ours".
+        self.notices: list[str] = []
 
     def record(self, ok: bool, message: str) -> bool:
         self.checks.append((bool(ok), message))
         return bool(ok)
+
+    def note(self, message: str) -> None:
+        self.notices.append(message)
 
     @property
     def ok(self) -> bool:
@@ -86,10 +96,13 @@ class Report:
         return {
             "ok": self.ok,
             "checks": [{"ok": ok, "message": message} for ok, message in self.checks],
+            "notices": list(self.notices),
         }
 
     def render(self) -> str:
         lines = [("PASS" if ok else "FAIL") + f"  {message}" for ok, message in self.checks]
+        for notice in self.notices:
+            lines.append(f"NOTE  {notice}")
         lines.append("")
         lines.append("RESULT: " + ("VERIFIED" if self.ok else "REJECTED"))
         return "\n".join(lines)
@@ -185,6 +198,25 @@ def verify_archive_bytes(
         attestation.get("dossier_digest") == manifest.get("dossier_digest"),
         "attestation.dossier_digest == manifest.dossier_digest",
     )
+
+    # The attestation is signed, so anything it says about how the release was
+    # authorized is as trustworthy as the signature -- which is exactly why an
+    # administrative override is recorded there and surfaced here.
+    override = (attestation.get("policy") or {}).get("override")
+    if isinstance(override, dict):
+        findings = override.get("findings") or []
+        unsupported = override.get("unsupported_rules") or []
+        report.note(
+            f"released over {len(findings)} open blocking finding(s) and "
+            f"{len(unsupported)} unevaluated rule(s) by administrative override"
+        )
+        report.note(f"override actor: {override.get('actor') or 'unrecorded'}")
+        report.note(f"override reason: {override.get('reason') or 'unrecorded'}")
+        for finding in findings[:10]:
+            report.note(
+                f"  overridden: {finding.get('rule_id')} [{finding.get('severity')}] "
+                f"{finding.get('subject')} -- {finding.get('message')}"
+            )
 
     # 6-8: the bundled key must equal independently trusted material, then the
     # signature must verify under that trusted key.  A key id is metadata, not

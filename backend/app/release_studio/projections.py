@@ -9,6 +9,7 @@ file for writing, or updates a fixture/check-out.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +17,9 @@ from typing import Any
 
 from app.release_studio.canonical import canonicalize_board_stats_json
 from app.release_studio.canonical.json import canonical_json_bytes
+
+logger = logging.getLogger(__name__)
+
 PathLike = str | Path
 JsonValue = Any
 
@@ -265,6 +269,15 @@ def _load_pcb_projection_model(board_path: PathLike) -> tuple[Any, str | None]:
     try:
         return KiCadPcb.from_file(board_path), None
     except (IndexError, TypeError, ValueError) as exc:
+        # This cannot tell "this Monkey release rejects a token KiCad emits"
+        # from "this board is corrupt", so it says which exception it stepped
+        # over rather than leaving the caller to infer it from a `source` field
+        # nobody reads. The reason travels with the projection as well.
+        logger.warning(
+            "kicad_monkey rejected %s (%s: %s); falling back to a targeted "
+            "stackup parse of the same S-expression tree",
+            board_path, type(exc).__name__, exc,
+        )
         root = parse_sexp(_read_text(board_path))
         if not isinstance(root, list) or not root or root[0] != "kicad_pcb":
             raise ValueError("expected a kicad_pcb S-expression")

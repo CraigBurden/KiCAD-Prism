@@ -24,6 +24,7 @@ from app.release_studio.documents.artwork import (
     AcquiredArtwork,
     ArtworkError,
     acquire,
+    acquire_assembly_view,
     acquire_drill_map,
     composite_pdf,
 )
@@ -31,6 +32,11 @@ from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_pr
 from app.release_studio.documents.layout import Rect, Sheet
 from app.release_studio.documents.pdf import render_pdf
 from app.release_studio.documents.svg import render_svg
+from app.release_studio.documents.vector import (
+    VectorDrawing,
+    VectorIngestError,
+    ingest_svg,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +44,22 @@ DOCUMENT_DOMAIN = "documentation"
 
 # Which layers each sheet plots. Kept here rather than in the templates so the
 # sheet code stays about layout and this stays about what KiCad is asked for.
+#
+# The assembly sheets are deliberately absent. Plotting `F.Fab` reproduces text
+# authored per footprint at whatever size and offset each library chose, which
+# on a dense board overlaps into an unreadable mass at every scale -- density
+# does not change with scale. Those views come from Cruncher instead, below.
 ARTWORK_LAYERS: dict[str, tuple[str, ...]] = {
     "fabrication": ("Edge.Cuts", "F.Cu"),
-    "assembly-top": ("F.Fab", "F.Silkscreen", "Edge.Cuts"),
-    "assembly-bottom": ("B.Fab", "B.Silkscreen", "Edge.Cuts"),
 }
 
 #: The drill sheet's artwork is not a layer plot: holes are not a layer, so the
 #: view comes from `pcb export drill --generate-map` instead.
 DRILL_ARTWORK_KEY = "drill"
+
+#: Assembly views come from `kicad-cruncher pcb-svg`, which fits one designator
+#: into each component's own bounds over a hidden-line-removed outline.
+ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +103,7 @@ def compose(
     members: Sequence[Mapping[str, Any]],
     board: Path | None = None,
     cli_path: str | None = None,
+    cruncher_path: str | None = None,
     workdir: Path | None = None,
     sheet_size: str | None = None,
     notes: Mapping[str, Any] | None = None,
@@ -97,6 +111,7 @@ def compose(
     typography: str = DEFAULT_TYPOGRAPHY,
     acquirer: Callable[..., AcquiredArtwork] | None = None,
     drill_acquirer: Callable[..., AcquiredArtwork] | None = None,
+    assembly_acquirer: Callable[..., str] | None = None,
 ) -> DocumentSet:
     """Compose the full document set.
 
@@ -111,6 +126,7 @@ def compose(
     typography_preset(typography)
     warnings: list[str] = []
     art: dict[str, AcquiredArtwork] = {}
+    assembly: dict[str, VectorDrawing] = {}
 
     substitutions = note_templates.substitution_context(context, fields=fields, stats=stats)
     sheet_notes, note_warnings = note_templates.resolve_notes(
@@ -147,9 +163,36 @@ def compose(
     else:
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
+    if board is not None and cruncher_path and workdir is not None:
+        render = assembly_acquirer or acquire_assembly_view
+        for side in ASSEMBLY_SIDES:
+            try:
+                assembly[side] = ingest_svg(
+                    render(cruncher_path, board, side, workdir / f"assembly-{side}")
+                )
+            except (ArtworkError, VectorIngestError, OSError) as exc:
+                # An assembly sheet without its view still carries the population
+                # table and states the absence; it never silently falls back to
+                # the F.Fab plot this replaced, because that plot is the defect.
+                warnings.append(f"assembly {side} view unavailable: {exc}")
+                logger.warning(
+                    "Release Studio assembly %s view unavailable: %s", side, exc
+                )
+    else:
+        warnings.append(
+            "kicad-cruncher unavailable: assembly sheets composed without artwork"
+        )
+
     title_height = sheet_templates.title_block_height(context, title_fields)
+    extent_width, extent_height = board_extent(stats, art, assembly)
     if sheet_size is None:
-        sheet_size = _select_size(stats, art, title_height)
+        sheet_size = _select_size(stats, art, assembly, title_height)
+    # One ratio for the whole package. A reader who scales a dimension off the
+    # fabrication sheet and applies it to the assembly sheet has to get the same
+    # number, so the scale is a property of the set rather than of each sheet.
+    scale = sheet_templates.set_scale(
+        extent_width, extent_height, sheet_size, title_height
+    )
 
     outputs: list[DocumentOutput] = []
 
@@ -160,7 +203,7 @@ def compose(
     _append_serialized(outputs, cover, "cover", 1.0, None, None, warnings)
 
     fabrication, fab_scale = sheet_templates.fabrication_sheet(
-        context, stats, stackup, art.get("fabrication"), size=sheet_size,
+        context, stats, stackup, art.get("fabrication"), size=sheet_size, scale=scale,
         notes=sheet_notes["fabrication"], fields=title_fields, typography=typography,
     )
     _append_serialized(
@@ -173,18 +216,21 @@ def compose(
         warnings,
     )
 
-    for side in ("top", "bottom"):
+    for side in ASSEMBLY_SIDES:
         key = f"assembly-{side}"
-        sheet, scale = sheet_templates.assembly_sheet(
-            context, side, art.get(key), placements, size=sheet_size,
+        sheet, used = sheet_templates.assembly_sheet(
+            context, side, assembly.get(side), placements, size=sheet_size, scale=scale,
             notes=sheet_notes[key], fields=title_fields, typography=typography,
         )
+        # Ingested artwork is already part of the sheet's own element list, so
+        # there is nothing to composite into the PDF afterwards.
         _append_serialized(
-            outputs, sheet, key, scale, art.get(key), _artwork_window(sheet), warnings
+            outputs, sheet, key, used, None, None, warnings,
+            artwork_digest=(assembly[side].digest if side in assembly else ""),
         )
 
     drill, drill_scale = sheet_templates.drill_sheet(
-        context, stats, stackup, art.get("drill"), size=sheet_size,
+        context, stats, stackup, art.get("drill"), size=sheet_size, scale=scale,
         notes=sheet_notes["drill"], fields=title_fields, typography=typography,
     )
     _append_serialized(
@@ -220,13 +266,16 @@ def _mm_value(value: Any) -> float:
 
 
 def board_extent(
-    stats: Mapping[str, Any], art: Mapping[str, AcquiredArtwork] | None = None
+    stats: Mapping[str, Any],
+    art: Mapping[str, AcquiredArtwork] | None = None,
+    assembly: Mapping[str, VectorDrawing] | None = None,
 ) -> tuple[float, float]:
     """The largest extent any sheet has to accommodate, in millimetres.
 
-    Both sources matter and neither subsumes the other: the board statistics
-    give the outline even when no artwork could be plotted, while a plotted view
-    includes silkscreen and fabrication content that overhangs the outline.
+    Every source matters and none subsumes the others: the board statistics
+    give the outline even when no artwork could be plotted, a plotted view
+    includes silkscreen and fabrication content that overhangs the outline, and
+    an assembly view includes component bodies that overhang it too.
     """
 
     board = stats.get("board") if isinstance(stats, Mapping) else None
@@ -240,17 +289,21 @@ def board_extent(
             continue
         width = max(width, acquired.view_width)
         height = max(height, acquired.view_height)
+    for drawing in (assembly or {}).values():
+        width = max(width, drawing.view_width)
+        height = max(height, drawing.view_height)
     return width, height
 
 
 def _select_size(
     stats: Mapping[str, Any],
     art: Mapping[str, AcquiredArtwork],
+    assembly: Mapping[str, VectorDrawing],
     title_height: float,
 ) -> str:
     """Pick one standard sheet size for the whole set, from the board alone."""
 
-    width, height = board_extent(stats, art)
+    width, height = board_extent(stats, art, assembly)
     if width <= 0 or height <= 0:
         # Nothing is known about the board -- no projections and no artwork.
         # Sizing from a guess would be worse than stating a conventional
@@ -275,6 +328,7 @@ def _serialize(
     art: AcquiredArtwork | None,
     window: Rect | None,
     warnings: list[str] | None = None,
+    artwork_digest: str = "",
 ) -> DocumentOutput:
     svg_bytes = render_svg(sheet).encode("utf-8")
     pdf_bytes = render_pdf(sheet)
@@ -298,7 +352,7 @@ def _serialize(
         svg_bytes=svg_bytes,
         pdf_bytes=pdf_bytes,
         scale=scale,
-        artwork_digest=art.digest if art else "",
+        artwork_digest=art.digest if art else artwork_digest,
     )
 
 
@@ -310,11 +364,12 @@ def _append_serialized(
     art: AcquiredArtwork | None,
     window: Rect | None,
     warnings: list[str],
+    artwork_digest: str = "",
 ) -> None:
     """Isolate a renderer failure to one sheet instead of the document set."""
 
     try:
-        output = _serialize(sheet, key, scale, art, window, warnings)
+        output = _serialize(sheet, key, scale, art, window, warnings, artwork_digest)
     except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
         logger.warning("Release Studio sheet %s could not be composed: %s", key, exc)
         warnings.append(f"{key} sheet was not composed: {exc}")

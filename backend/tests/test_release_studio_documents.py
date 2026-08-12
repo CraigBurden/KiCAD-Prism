@@ -993,6 +993,340 @@ class ConfiguredNotesTests(unittest.TestCase):
             grown - plain,
         )
 
+#: A stand-in for one `kicad-cruncher pcb-svg` assembly view.
+#:
+#: Every construct the real renderer emits is present: a styled group, a
+#: nested group carrying a transform, a filled polygon, a drill circle, an
+#: arc-bearing outline path, and a rotated designator with a central baseline.
+CRUNCHER_VIEW = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="10mm" '
+    'viewBox="0 0 20 10" data-source="board.kicad_pcb">'
+    '<metadata id="pcb-enrichment-a0"></metadata>'
+    '<path d="M 0 0 L 20 0 L 20 10 L 0 10 Z" fill="none" stroke="#000000" '
+    'stroke-width="0.15" data-feature="board-outline" />'
+    '<g style="fill:none; stroke:#000000; stroke-width:0.12">'
+    '<line x1="2" y1="2" x2="6" y2="2"/>'
+    "</g>"
+    '<g transform="translate(10 5) rotate(90)">'
+    '<circle cx="0" cy="0" r="0.3" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="0"/>'
+    "</g>"
+    '<polygon points="1,1 3,1 3,2 1,2" fill="#000000" stroke="none" stroke-width="0"/>'
+    '<path d="M 4 4 A 1 1 0 0 1 6 4" fill="none" stroke="#000000" stroke-width="0.1"/>'
+    '<text x="5" y="5" font-size="1.6" text-anchor="middle" '
+    'dominant-baseline="central" fill="#000000" '
+    "font-family=\"Consolas, 'Liberation Mono', monospace\" font-weight=\"700\" "
+    'transform="rotate(-90 5 5)" data-component="R1">R1</text>'
+    "</svg>"
+)
+
+
+class VectorIngestTests(unittest.TestCase):
+    """Cruncher's assembly view becomes ordinary sheet primitives."""
+
+    def setUp(self) -> None:
+        from app.release_studio.documents import vector
+
+        self.vector = vector
+        self.drawing = vector.ingest_svg(CRUNCHER_VIEW)
+
+    def test_the_drawing_reports_its_own_extent_in_millimetres(self) -> None:
+        self.assertEqual(
+            (
+                self.drawing.view_x, self.drawing.view_y,
+                self.drawing.view_width, self.drawing.view_height,
+            ),
+            (0.0, 0.0, 20.0, 10.0),
+        )
+
+    def test_every_construct_becomes_a_layout_primitive(self) -> None:
+        from app.release_studio.documents.layout import Circle, Line, Polyline, Text
+
+        kinds = {type(element).__name__ for element in self.drawing.elements}
+        self.assertEqual(kinds, {"Line", "Circle", "Polyline", "Text"})
+        # Nothing is dropped: an ingester that skipped an unknown element would
+        # produce a drawing missing a drill and still looking plausible.
+        self.assertEqual(
+            len([e for e in self.drawing.elements if isinstance(e, Circle)]), 1
+        )
+        self.assertEqual(len([e for e in self.drawing.elements if isinstance(e, Line)]), 1)
+        self.assertGreaterEqual(
+            len([e for e in self.drawing.elements if isinstance(e, Polyline)]), 3
+        )
+        self.assertEqual(len([e for e in self.drawing.elements if isinstance(e, Text)]), 1)
+
+    def test_a_group_transform_moves_the_geometry_it_wraps(self) -> None:
+        from app.release_studio.documents.layout import Circle
+
+        drill = next(e for e in self.drawing.elements if isinstance(e, Circle))
+        self.assertAlmostEqual(drill.cx, 10.0)
+        self.assertAlmostEqual(drill.cy, 5.0)
+
+    def test_a_designator_keeps_its_rotation_and_loses_its_host_font(self) -> None:
+        from app.release_studio.documents.layout import Text
+
+        label = next(e for e in self.drawing.elements if isinstance(e, Text))
+        self.assertEqual(label.value, "R1")
+        self.assertEqual(label.rotation, -90.0)
+        self.assertEqual(label.baseline, "central")
+        self.assertTrue(label.bold)
+        # `family` is one of the sheet's own roles, never the source's
+        # `Consolas, 'Liberation Mono', monospace`.
+        self.assertEqual(label.family, "mono")
+
+    def test_an_arc_is_flattened_into_measurable_chords(self) -> None:
+        from app.release_studio.documents.layout import Polyline
+
+        arc = next(
+            element
+            for element in self.drawing.elements
+            if isinstance(element, Polyline)
+            and any(abs(point[0] - 4.0) < 1e-6 and abs(point[1] - 4.0) < 1e-6
+                    for point in element.points)
+        )
+        # A semicircle of radius 1 bulges 1 mm above its chord; endpoints alone
+        # would place the outline a millimetre off.
+        self.assertLess(min(point[1] for point in arc.points), 3.2)
+        self.assertGreater(len(arc.points), 8)
+
+    def test_placement_maps_the_drawing_onto_a_window_at_a_stated_ratio(self) -> None:
+        window = Rect(100.0, 50.0, 40.0, 20.0)
+        placed = self.drawing.placed(window, 2.0)
+        from app.release_studio.documents.layout import Circle
+
+        drill = next(e for e in placed if isinstance(e, Circle))
+        # The 10 mm x 5 mm point sits 20 mm x 10 mm into a window whose
+        # 40 x 20 mm exactly holds the 20 x 10 mm drawing at 2:1.
+        self.assertAlmostEqual(drill.cx, 120.0)
+        self.assertAlmostEqual(drill.cy, 60.0)
+        self.assertAlmostEqual(drill.r, 0.6)
+
+    def test_an_unsupported_element_is_refused_rather_than_skipped(self) -> None:
+        with self.assertRaises(self.vector.VectorIngestError):
+            self.vector.ingest_svg(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" '
+                'viewBox="0 0 10 10"><image href="x.png"/></svg>'
+            )
+
+    def test_a_translucent_primitive_is_refused(self) -> None:
+        with self.assertRaises(self.vector.VectorIngestError):
+            self.vector.ingest_svg(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" '
+                'viewBox="0 0 10 10"><circle cx="1" cy="1" r="1" fill="#000000" '
+                'opacity="0.5"/></svg>'
+            )
+
+    def test_a_non_uniform_transform_is_refused(self) -> None:
+        with self.assertRaises(self.vector.VectorIngestError):
+            self.vector.ingest_svg(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" '
+                'viewBox="0 0 10 10"><g transform="scale(2 3)">'
+                '<circle cx="1" cy="1" r="1" fill="#000000"/></g></svg>'
+            )
+
+    def test_a_paint_server_is_refused_rather_than_painted_black(self) -> None:
+        with self.assertRaises(self.vector.VectorIngestError):
+            self.vector.ingest_svg(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" '
+                'viewBox="0 0 10 10"><circle cx="1" cy="1" r="1" '
+                'fill="url(#grad)"/></svg>'
+            )
+
+
+class AssemblySheetTests(unittest.TestCase):
+    """The assembly sheets draw Cruncher's view, not KiCad's F.Fab layer."""
+
+    def setUp(self) -> None:
+        from app.release_studio.documents import vector
+
+        self.drawing = vector.ingest_svg(CRUNCHER_VIEW)
+
+    def test_the_sheet_carries_the_ingested_designator(self) -> None:
+        sheet, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", self.drawing, PLACEMENTS, size="A3", scale=1.0
+        )
+        rendered = render_svg(sheet)
+        self.assertIn(">R1<", rendered)
+        # The released sheet never names a host font: every face it uses is
+        # bundled, digest-checked, and embedded.
+        self.assertNotIn("Consolas", rendered)
+        self.assertNotIn("monospace", rendered)
+
+    def test_both_backends_draw_the_same_view(self) -> None:
+        sheet, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", self.drawing, PLACEMENTS, size="A3", scale=1.0
+        )
+        # One model, two backends: neither may fail on a primitive the other
+        # accepts, which is the whole reason the view is ingested.
+        self.assertIn("R1", render_svg(sheet))
+        self.assertGreater(len(render_pdf(sheet)), 1000)
+
+    def test_a_designator_too_small_to_read_is_dropped_and_counted(self) -> None:
+        """A 0.16 mm designator is a smudge, not small lettering.
+
+        Real boards produce them: an 0402 pad pair is 1.0 x 0.5 mm, and a
+        designator fitted inside it cannot be read at any ratio, because density
+        does not change with scale.  Leaving them in makes the drawing look as
+        though it carries data the reader merely failed to see.
+        """
+
+        from app.release_studio.documents import vector
+        from app.release_studio.documents.layout import Text
+
+        tiny = vector.ingest_svg(CRUNCHER_VIEW.replace('font-size="1.6"', 'font-size="0.2"'))
+        sheet, _used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", tiny, PLACEMENTS, size="A3", scale=1.0
+        )
+        drawn = [
+            element for element in sheet.elements
+            if isinstance(element, Text) and element.value == "R1"
+        ]
+        self.assertEqual(drawn, [])
+        # ...and the sheet says how many it left out, rather than quietly
+        # producing a drawing with no designators on it.
+        self.assertIn("Designators omitted", render_svg(sheet))
+
+    def test_a_missing_view_states_its_absence(self) -> None:
+        sheet, used = sheet_templates.assembly_sheet(
+            CONTEXT, "top", None, PLACEMENTS, size="A3"
+        )
+        self.assertEqual(used, 1.0)
+        self.assertIn("assembly artwork unavailable", render_svg(sheet))
+
+    def test_the_engine_asks_cruncher_for_both_sides(self) -> None:
+        asked: list[tuple[str, str]] = []
+
+        def fake(cruncher_path, board, side, workdir):
+            asked.append((cruncher_path, side))
+            return CRUNCHER_VIEW
+
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            board=Path("/nonexistent/board.kicad_pcb"),
+            cruncher_path="kicad-cruncher",
+            workdir=Path("/tmp"),
+            assembly_acquirer=fake,
+        )
+        self.assertEqual([side for _path, side in asked], ["top", "bottom"])
+        digests = {
+            output.key: output.artwork_digest
+            for output in result.outputs
+            if output.key.startswith("assembly-")
+        }
+        # Provenance: the sheet names the exact drawing it was composed from.
+        self.assertEqual(len(digests), 2)
+        self.assertTrue(all(len(value) == 64 for value in digests.values()))
+
+    def test_a_failed_view_degrades_one_sheet_and_says_so(self) -> None:
+        def fake(cruncher_path, board, side, workdir):
+            raise artwork_module.ArtworkError("geometer refused the board")
+
+        result = compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            board=Path("/nonexistent/board.kicad_pcb"),
+            cruncher_path="kicad-cruncher",
+            workdir=Path("/tmp"),
+            assembly_acquirer=fake,
+        )
+        self.assertEqual(len(result.outputs), 5)
+        self.assertTrue(
+            any("geometer refused the board" in warning for warning in result.warnings),
+            result.warnings,
+        )
+
+
+class SheetSetConsistencyTests(unittest.TestCase):
+    """Properties that hold across the whole package, not one sheet."""
+
+    def _composed(self):
+        return compose(
+            context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+            placements=PLACEMENTS, members=MEMBERS,
+            board=Path("/nonexistent/board.kicad_pcb"),
+            cruncher_path="kicad-cruncher",
+            workdir=Path("/tmp"),
+            assembly_acquirer=lambda *args, **kwargs: CRUNCHER_VIEW,
+        )
+
+    def test_every_sheet_states_the_same_ratio(self) -> None:
+        result = self._composed()
+        stated = set()
+        for payload in result.files().values():
+            stated.update(re.findall(rb"SCALE (\d+:\d+)", payload))
+            # NewStroke and Geist both emit the ratio as text; the vector path
+            # writes it as glyphs, so the accessible copy is read instead.
+            stated.update(re.findall(rb'data-text="SCALE ([^"]+)"', payload))
+        self.assertLessEqual(
+            len(stated), 1, f"the set states more than one scale: {stated}"
+        )
+
+    def test_a_table_column_leaves_a_gutter_at_its_trailing_edge(self) -> None:
+        from app.release_studio.documents.layout import Text
+
+        builder = SheetBuilder("t", "T", "A3")
+        table = Table(
+            columns=("Thickness", "Material"),
+            rows=(("0.0895", "I-TERA MT40"),),
+            widths=(20.0, 40.0),
+            align=("end", "start"),
+            font_size=1.8,
+        )
+        draw_table(builder, table, (0.0, 0.0))
+        sheet = builder.build()
+        values = [element for element in sheet.elements if isinstance(element, Text)]
+        thickness = next(element for element in values if element.value == "0.0895")
+        material = next(element for element in values if element.value == "I-TERA MT40")
+        # The right-aligned number ends before the left-aligned text starts.
+        self.assertLess(thickness.x, material.x)
+        self.assertGreaterEqual(material.x - thickness.x, 0.5)
+
+    def test_a_truncation_notice_is_never_itself_truncated(self) -> None:
+        from app.release_studio.documents.layout import Text
+
+        builder = SheetBuilder("t", "T", "A3")
+        table = Table(
+            columns=("Layer",),
+            rows=tuple((f"layer {index}",) for index in range(10)),
+            widths=(12.0,),
+            font_size=2.4,
+        ).truncated(2)
+        draw_table(builder, table, (0.0, 0.0))
+        drawn = {
+            element.value
+            for element in builder.build().elements
+            if isinstance(element, Text)
+        }
+        self.assertIn("and 8 more", drawn)
+
+    def test_an_embedded_face_carries_only_the_glyphs_the_sheet_sets(self) -> None:
+        """Three whole faces per sheet is ~383 KiB of unread outlines."""
+
+        result = self._composed()
+        sizes = {
+            output.key: len(output.pdf_bytes)
+            for output in result.outputs
+        }
+        for key, size in sizes.items():
+            # Whole-face embedding put every sheet above 380 KiB; a subset
+            # sheet is a small fraction of that, and a regression here means
+            # the subsetter silently fell back to the full face.
+            self.assertLess(size, 200_000, f"{key} embeds more font than it sets")
+
+    def test_a_project_without_variants_says_so(self) -> None:
+        from app.release_studio.documents import tables
+
+        table = tables.variant_table({"variants": []}, "")
+        self.assertEqual(len(table.rows), 1)
+        self.assertIn("no variants declared", table.rows[0][0])
+
+    def test_the_cover_does_not_claim_to_list_every_released_byte(self) -> None:
+        note = sheet_templates.DEFAULT_NOTES["cover"][0]
+        self.assertIn("manifest.json", note)
+        self.assertNotIn("The files listed above are the released bytes", note)
+
+
 class RendererVersionTests(unittest.TestCase):
     """A rendering change must be a deliberate, versioned change.
 
@@ -1008,30 +1342,30 @@ class RendererVersionTests(unittest.TestCase):
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
         "documentation/assembly-bottom.pdf":
-            "95dd2677d14418aa3958a04cf66eb2d37655215e8acb834e84ca260f449a00cd",
+            "f18253f3036c05d0aff5a9668b949ceb4f1db7180edee0cdc49c7a431a3abf5f",
         "documentation/assembly-bottom.svg":
             "21de5173587a91809d0200779d7d0763a0dae5ab2d03ec0df44ba9e9fe601dac",
         "documentation/assembly-top.pdf":
-            "458ffa422b9e8436b6f218bbec86dfa162bffd80729bc7fb135ddac80c6a2304",
+            "8d2a550c019aa85861de8c7c576693348ed4bad1c4f0985073732d9ed1e070b3",
         "documentation/assembly-top.svg":
             "c3e60ab03cc45524c47b9e9cc533e718c8b74940759d5ec370da1c903899ec6d",
         "documentation/cover.pdf":
-            "4e651209f81be56b5775a32ded8cebc5b1d073ad9255093480c1fd294250e3fe",
+            "a55e0a8b6b62c7a14c2b984fca32836f7fb650bca2df081be4053a77ad8e92fc",
         "documentation/cover.svg":
-            "c976d6c9b96aede7fb17e11168f84029344aed5c0d1127e3d1e80813335f3a58",
+            "1b33ac956f96538526e6ae9f44ca001a00901c4856e06b8bcbeaed053850dda7",
         "documentation/drill.pdf":
-            "3261bed01384cc4c9f5a7724ad89bbbe03d8680ede7d2e7cf380f28916a813d7",
+            "326f99e7235531a76987a5c5bc0269abf7decdb8293b79070903d8fe524194d0",
         "documentation/drill.svg":
-            "f42e0ae1d3144152ac97daf1521804515326eeaf7bc7fc17a1245f545b2fcefd",
+            "c47dabd9493f2d7beda21fd45ba2b68a05b05278331ffeffc537a74c7b96b941",
         "documentation/fabrication.pdf":
-            "2a1846ad820e6bb0d1d13ced8690bc7220e5556bc46cf0b7c34ed8c2bc3591e4",
+            "36233b61d79e7db4f560cc154f544a36b92519564e76b5db32538d3cd55d0247",
         "documentation/fabrication.svg":
-            "788409b134700c7c27fbd2f2d55e1214835c53dfb3892b13e4c70decfa78fa15",
+            "90c7d757e42d85f62d78aed5cc2411e8633b1013530933f0bf322bcf5faceea8",
     }
 
     #: A placed sheet, so a change to sheet selection or to the scale ladder
     #: trips this too -- the set above carries no artwork and would not.
-    GOLDEN_PLACED = "c74f990d8a1c6fc33e53006bbdf8a3520179d375fd80f12a41c29f8bc2d500e8"
+    GOLDEN_PLACED = "dceaaf66e70ae76edba805d22286c875b2651656ab1d2ceb9a446cb4fc2b2210"
 
     def test_a_placed_sheet_matches_its_recorded_digest(self) -> None:
         import hashlib
@@ -1054,7 +1388,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d8",
+            "release-studio-documents/d9",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

@@ -229,6 +229,25 @@ def resolve_cli_path(explicit: str | None = None) -> str:
     raise StepExecutionError("kicad-cli is not available on PATH")
 
 
+def resolve_cruncher_path(explicit: str | None = None) -> str:
+    """Return the kicad-cruncher executable that renders the assembly views.
+
+    Resolved the same way as ``kicad-cli`` and pinned by the same image, so the
+    tool that draws the assembly sheets is identified by ``toolchain_digest``
+    like every other part of the toolchain.
+    """
+
+    if explicit:
+        return explicit
+    configured = os.environ.get("KICAD_CRUNCHER_PATH", "").strip()
+    if configured:
+        return configured
+    found = shutil.which("kicad-cruncher")
+    if found:
+        return found
+    raise StepExecutionError("kicad-cruncher is not available on PATH")
+
+
 def selected_steps(
     *,
     board: Path | None,

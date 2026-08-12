@@ -241,6 +241,51 @@ def advance_width(
     return total / units * size
 
 
+#: Cap height of the KiCad NewStroke uppercase alphabet, as a fraction of the
+#: nominal size.  Monkey draws NewStroke from a baseline with capitals reaching
+#: this far above it; it is a property of the glyph data, not a tunable.
+_NEWSTROKE_CAP_RATIO = 0.667
+
+
+def cap_height(
+    size: float,
+    *,
+    role: FontRole = "sans",
+    bold: bool = False,
+    typography: str = DEFAULT_TYPOGRAPHY,
+) -> float:
+    """Height of a capital letter above the baseline, in millimetres.
+
+    Vertically centring text means centring the *ink*, and the ink of a run of
+    capitals is its cap height.  Using the em box instead leaves designators
+    sitting visibly low inside their components, because the em box reserves
+    descender space no reference designator uses.
+    """
+
+    if is_newstroke(typography):
+        return size * _NEWSTROKE_CAP_RATIO
+
+    font = ttfont(typography_preset(typography).asset(role, bold))
+    units = float(font["head"].unitsPerEm)
+    os2 = font.get("OS/2")
+    height = float(getattr(os2, "sCapHeight", 0) or 0)
+    if height <= 0:
+        # `sCapHeight` is optional before OS/2 version 2.  Measuring `H` is the
+        # same quantity read off the outline instead of the table.
+        glyphs = font.getGlyphSet()
+        name = (font.getBestCmap() or {}).get(ord("H"))
+        if name and name in glyphs:
+            from fontTools.pens.boundsPen import BoundsPen
+
+            pen = BoundsPen(glyphs)
+            glyphs[name].draw(pen)
+            if pen.bounds:
+                height = float(pen.bounds[3])
+    if height <= 0:
+        height = units * 0.7
+    return height / units * size
+
+
 def unsupported_codepoints(
     value: str,
     *,
@@ -342,6 +387,7 @@ __all__ = [
     "TYPOGRAPHY_PRESETS",
     "TypographyPreset",
     "advance_width",
+    "cap_height",
     "is_newstroke",
     "newstroke_polylines",
     "newstroke_width",

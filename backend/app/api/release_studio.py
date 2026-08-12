@@ -16,6 +16,7 @@ import io
 import json
 import os
 import tarfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.api._helpers import get_project_for_role_or_404
+from app.core.roles import role_meets_minimum
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.release_studio.attestation import (
     build_attestation,
@@ -34,6 +36,7 @@ from app.release_studio.policy import (
     RuleContext,
     catalogue_payload,
     evaluate,
+    override_record,
     release_is_permitted,
     resolve_policy,
 )
@@ -96,6 +99,11 @@ class ReleaseRequest(BaseModel):
     release_label: str = Field(..., min_length=1, max_length=200)
     document_number: str = Field("", max_length=200)
     revision: str = Field("", max_length=64)
+    #: Administrative break-glass. Releasing over open blockers is an admin
+    #: action, is refused without a reason, and is written into the signed
+    #: attestation -- so a recipient sees it without having to ask.
+    override_blockers: bool = False
+    override_reason: str = Field("", max_length=2000)
 
 
 class WebReleaseRequest(BaseModel):
@@ -413,39 +421,15 @@ def _evaluate(project_id: str, config_key: str, build, candidate, *, actor: str)
 
 
 def _evaluation_projections(build_id: str) -> dict[str, Any]:
-    """Reconstruct immutable rule inputs from persisted fingerprint records.
+    """The immutable rule inputs this build captured.
 
-    Board and semantic projections are captured once during the build and
-    stored inside the technical fingerprint input document. Re-evaluation must
-    read those exact facts; recomputing from a checkout would make governance
+    Board and semantic projections are recorded once per build. Re-evaluation
+    reads those exact facts; recomputing from a checkout would make governance
     depend on mutable files, while dropping them makes projection-backed rules
     incorrectly report ``unsupported``.
     """
 
-    projections: dict[str, Any] = {}
-    semantic: dict[str, Any] = {}
-    for domain, row in sorted(store.build_fingerprints(build_id).items()):
-        inputs = row.get("inputs") or {}
-        if not isinstance(inputs, dict):
-            continue
-        captured = inputs.get("projections") or {}
-        if isinstance(captured, dict):
-            for key, value in sorted(captured.items()):
-                if key in projections and projections[key] != value:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            f"Build {build_id} contains conflicting persisted "
-                            f"{key!r} projections"
-                        ),
-                    )
-                projections[key] = value
-        domain_semantic = inputs.get("semantic")
-        if domain_semantic:
-            semantic[domain] = domain_semantic
-    if semantic:
-        projections["semantic"] = semantic
-    return projections
+    return store.build_projections(build_id)
 
 
 class _MemberView:
@@ -605,7 +589,34 @@ async def create_release(
         raise HTTPException(status_code=400, detail="Build has not been evaluated")
 
     result = _evaluate(project_id, config_key, build, candidate, actor=user.email)
-    permitted, reason = release_is_permitted(result)
+
+    override: dict[str, Any] | None = None
+    if request.override_blockers:
+        # Break-glass is an administrative act, not a designer's. The role is
+        # checked here rather than on the route because every other release is
+        # an ordinary designer action.
+        if not role_meets_minimum(user.role, "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Releasing over open blockers requires the admin role",
+            )
+        if not request.override_reason.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="An override reason is required to release over open blockers",
+            )
+        override = override_record(
+            result, actor=user.email, reason=request.override_reason.strip()
+        )
+        if not override["findings"] and not override["unsupported_rules"]:
+            # Recording an override on a clean build would put a break-glass
+            # marker into a signed attestation that stepped over nothing.
+            raise HTTPException(
+                status_code=400,
+                detail="This build has no open blockers; no override is needed",
+            )
+
+    permitted, reason = release_is_permitted(result, overridden=override is not None)
     if not permitted:
         raise HTTPException(status_code=409, detail=f"Release refused: {reason}")
 
@@ -649,6 +660,10 @@ async def create_release(
             "waivers": [
                 finding.waiver_id for finding in result.findings if finding.waiver_id
             ],
+            # Inside the signed attestation, so an offline recipient learns that
+            # a release went out over open blockers -- and which ones -- from
+            # the archive itself rather than by asking the issuer.
+            **({"override": override} if override else {}),
         },
         approval_snapshot=[
             {
@@ -928,10 +943,31 @@ def _public_share(
     return share, record, build
 
 
+#: Verified public archives, keyed by ``attestation_digest``.
+#:
+#: A release record is immutable and its archive is deterministic, so its
+#: verification result is a pure function of that digest.  Without this cache
+#: every unauthenticated request -- including each member fetch on a page that
+#: lists fifty members -- reassembled the archive and ran a full gzip plus
+#: SHA-256 sweep over it, which is an amplification primitive offered to
+#: anyone holding a share link.
+_PUBLIC_ARCHIVE_CACHE: "OrderedDict[str, tuple[bytes, dict[str, Any]]]" = OrderedDict()
+
+#: Bounded so a workspace with many shared releases cannot pin every dossier in
+#: memory; the archives are megabytes each.
+_PUBLIC_ARCHIVE_CACHE_LIMIT = 8
+
+
 def _verified_public_archive(
     record: dict[str, Any],
 ) -> tuple[bytes, dict[str, Any]]:
     """Fail closed before an unauthenticated route exposes release bytes."""
+
+    cache_key = str(record.get("attestation_digest") or "")
+    cached = _PUBLIC_ARCHIVE_CACHE.get(cache_key) if cache_key else None
+    if cached is not None:
+        _PUBLIC_ARCHIVE_CACHE.move_to_end(cache_key)
+        return cached
 
     trusted = {
         key["key_id"]: key["public_key"]
@@ -944,10 +980,16 @@ def _verified_public_archive(
         trusted_keys=trusted,
     ).to_dict()
     if not verification["ok"]:
+        # Deliberately not cached: a failure may be a key that has just been
+        # revoked, and re-checking a rejected share costs nothing worth saving.
         raise HTTPException(
             status_code=409,
             detail="The shared release failed authenticity verification",
         )
+    if cache_key:
+        _PUBLIC_ARCHIVE_CACHE[cache_key] = (archive, verification)
+        while len(_PUBLIC_ARCHIVE_CACHE) > _PUBLIC_ARCHIVE_CACHE_LIMIT:
+            _PUBLIC_ARCHIVE_CACHE.popitem(last=False)
     return archive, verification
 
 

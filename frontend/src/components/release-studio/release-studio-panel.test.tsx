@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApprovalList, ReleaseStudioPanel, RuleOutcomeList } from "./ReleaseStudioPanel";
@@ -23,6 +23,7 @@ vi.mock("./api", () => ({
     verifyAudit: vi.fn(async () => ({ ok: true, events: 3, problems: [] })),
     getBuild: vi.fn(),
     listDocumentSheets: vi.fn(async () => []),
+    createRelease: vi.fn(async () => ({ id: "rel-1" })),
     sheetObjectUrl: vi.fn(),
     downloadUrl: vi.fn(() => "/x"),
     downloadFile: vi.fn(),
@@ -122,6 +123,38 @@ const detail: BuildDetail = {
     approvals: [invalidatedApproval],
 };
 
+const blockedDetail: BuildDetail = {
+    ...detail,
+    evaluation: {
+        ...detail.evaluation!,
+        outcome: "blocker",
+        findings: [
+            {
+                id: "find-1",
+                rule_id: "drc.clean",
+                rule_version: "1",
+                severity: "blocker",
+                status: "open",
+                domain: "evidence",
+                subject: "drc/error",
+                message: "DRC reported 3 error(s); at most 0 allowed",
+                observed: {},
+                expected: {},
+                finding_key: "f".repeat(64),
+                waiver_id: null,
+            },
+        ],
+    },
+};
+
+/** Radix activates a tab on mousedown, not on a synthesized click alone. */
+async function openReleaseTab() {
+    const trigger = await screen.findByRole("tab", { name: "Release" });
+    fireEvent.mouseDown(trigger);
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByLabelText(/Release label/i)).toBeTruthy());
+}
+
 describe("ReleaseStudioPanel", () => {
     beforeEach(() => {
         vi.mocked(api.listCandidates).mockResolvedValue([candidate]);
@@ -213,6 +246,54 @@ describe("ReleaseStudioPanel", () => {
         const unsupported = screen.getByText("unsupported");
         expect(pass.className).not.toEqual(unsupported.className);
         expect(screen.getByText(/the stackup projection is not available/)).toBeTruthy();
+    });
+
+    it("offers no blocker override to a designer", async () => {
+        // Break-glass is an administrative act. A designer who can see the
+        // control but not use it learns the wrong thing about their authority.
+        vi.mocked(api.getBuild).mockResolvedValue(blockedDetail);
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+
+        await openReleaseTab();
+        expect(screen.queryByLabelText(/Release over open blockers/i)).toBeNull();
+        // ...and the refusal is still stated, so the absence reads as policy
+        // rather than as a missing control.
+        expect(screen.getByText(/unwaived blocking finding/)).toBeTruthy();
+    });
+
+    it("requires an admin to state a reason before overriding blockers", async () => {
+        vi.mocked(api.getBuild).mockResolvedValue(blockedDetail);
+        render(<ReleaseStudioPanel projectId="p1" canMutate isAdmin />);
+
+        await openReleaseTab();
+        const label = await screen.findByRole("textbox", { name: /Release label/i });
+        fireEvent.change(label, { target: { value: "REL-1" } });
+
+        const release = screen.getByRole("button", { name: /Sign and release/i });
+        expect((release as HTMLButtonElement).disabled).toBe(false);
+
+        fireEvent.click(screen.getByLabelText(/Release over open blockers/i));
+        const overriding = screen.getByRole("button", { name: /Override and release/i });
+        expect((overriding as HTMLButtonElement).disabled).toBe(true);
+
+        fireEvent.change(screen.getByLabelText(/Override reason/i), {
+            target: { value: "customer accepted the deviation" },
+        });
+        expect(
+            (screen.getByRole("button", { name: /Override and release/i }) as HTMLButtonElement)
+                .disabled,
+        ).toBe(false);
+
+        fireEvent.click(screen.getByRole("button", { name: /Override and release/i }));
+        await waitFor(() =>
+            expect(vi.mocked(api.createRelease)).toHaveBeenCalledWith("p1", "build-1", {
+                release_label: "REL-1",
+                document_number: "",
+                revision: "A",
+                override_blockers: true,
+                override_reason: "customer accepted the deviation",
+            }),
+        );
     });
 
     it("surfaces a broken audit chain rather than failing quietly", async () => {

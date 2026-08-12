@@ -11,6 +11,7 @@ from __future__ import annotations
 from xml.sax.saxutils import escape
 
 from app.release_studio.documents.fonts import (
+    cap_height,
     is_newstroke,
     newstroke_polylines,
     newstroke_width,
@@ -18,6 +19,7 @@ from app.release_studio.documents.fonts import (
 )
 from app.release_studio.documents.layout import (
     Artwork,
+    Circle,
     Line,
     Polyline,
     Rectangle,
@@ -72,14 +74,24 @@ def _render_element(element, typography: str) -> str:
         )
     if isinstance(element, Text):
         if is_newstroke(typography):
-            return _render_newstroke_text(element)
+            return _render_newstroke_text(element, typography)
         weight_value = 400 if element.family == "display" else (600 if element.bold else 400)
         weight = f' font-weight="{weight_value}"'
+        baseline_y = _baseline_y(element, typography)
+        # `dominant-baseline` is honoured inconsistently across renderers, and a
+        # released drawing cannot depend on which viewer opens it -- so the
+        # centring is resolved here, from the face's own cap height, and the
+        # emitted text always sits on an ordinary alphabetic baseline.
+        transform = (
+            f' transform="rotate({fmt(element.rotation)} {fmt(element.x)} {fmt(baseline_y)})"'
+            if element.rotation
+            else ""
+        )
         return (
-            f'<text x="{fmt(element.x)}" y="{fmt(element.y)}" '
+            f'<text x="{fmt(element.x)}" y="{fmt(baseline_y)}" '
             f'font-family="{_FONT_FAMILY[element.family]}" '
             f'font-size="{fmt(element.size)}" text-anchor="{element.anchor}" '
-            f'fill="{element.colour}"{weight}>{escape(element.value)}</text>'
+            f'fill="{element.colour}"{weight}{transform}>{escape(element.value)}</text>'
         )
     if isinstance(element, Polyline):
         points = " ".join(f"{fmt(x)},{fmt(y)}" for x, y in element.points)
@@ -88,19 +100,44 @@ def _render_element(element, typography: str) -> str:
             f'<{tag} points="{points}" fill="{element.fill}" '
             f'stroke="{element.colour}" stroke-width="{fmt(element.width)}"/>'
         )
+    if isinstance(element, Circle):
+        return (
+            f'<circle cx="{fmt(element.cx)}" cy="{fmt(element.cy)}" r="{fmt(element.r)}" '
+            f'fill="{element.fill}" stroke="{element.colour}" '
+            f'stroke-width="{fmt(element.width)}"/>'
+        )
     if isinstance(element, Artwork):
         return _render_artwork(element)
     raise TypeError(f"unrenderable sheet element: {type(element).__name__}")
 
 
-def _render_newstroke_text(element: Text) -> str:
+def _baseline_y(element: Text, typography: str) -> float:
+    """Where this run's baseline sits, resolving ``central`` from real metrics."""
+
+    if element.baseline != "central":
+        return element.y
+    return element.y + cap_height(
+        element.size,
+        role=element.family,
+        bold=element.bold,
+        typography=typography,
+    ) / 2.0
+
+
+def _render_newstroke_text(element: Text, typography: str) -> str:
     """Emit visible KiCad NewStroke geometry with accessible source text."""
 
     escaped = escape(element.value, {'"': "&quot;"})
     rows = element.value.splitlines() or [""]
+    baseline_y = _baseline_y(element, typography)
+    transform = (
+        f' transform="rotate({fmt(element.rotation)} {fmt(element.x)} {fmt(baseline_y)})"'
+        if element.rotation
+        else ""
+    )
     parts = [
         f'<g data-renderer="kicad-monkey.newstroke" data-text="{escaped}" '
-        f'aria-label="{escaped}">',
+        f'aria-label="{escaped}"{transform}>',
         f"<title>{escape(element.value)}</title>",
     ]
     width = newstroke_width(element.size, bold=element.bold)
@@ -108,7 +145,7 @@ def _render_newstroke_text(element: Text) -> str:
         polylines = newstroke_polylines(
             row,
             x=element.x,
-            y=element.y + row_index * element.size * 1.2,
+            y=baseline_y + row_index * element.size * 1.2,
             size=element.size,
             anchor=element.anchor,
         )

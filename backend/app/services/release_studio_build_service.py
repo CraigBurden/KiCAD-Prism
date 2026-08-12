@@ -44,6 +44,7 @@ from app.release_studio.steps import (
     StepExecutionError,
     StepOutput,
     resolve_cli_path,
+    resolve_cruncher_path,
     run_step_catalogue,
 )
 from app.services import release_studio_service as store
@@ -52,7 +53,14 @@ from app.services.job_runtime import JobContext, JobResult
 
 logger = logging.getLogger(__name__)
 
-GENERATOR_BUILD = "release-studio/r11"
+#: Identity of the code that assembles a dossier from a build's outputs.
+#:
+#: It feeds `toolchain_digest` and therefore `build_key`, so any change to what
+#: the manifest contains or how a fingerprint is composed has to move it.  Two
+#: builds sharing a `build_key` while producing different manifests is exactly
+#: the reproducibility claim the key exists to make.
+#: r23 -- the manifest carries projection digests rather than projection text.
+GENERATOR_BUILD = "release-studio/r23"
 EXECUTOR_IDENTITY_FILE = Path("/etc/prism/kicad-base-image")
 
 
@@ -66,24 +74,41 @@ def executor_image() -> str:
     A version string is not an identity: two 10.0.4 installs can differ in
     build commit, OpenCascade, FreeType, fontconfig, and the bundled KiCad
     libraries, and can produce different STEP/PDF/SVG output.
+
+    An unreadable identity file is a hard failure rather than an empty string.
+    Degrading silently would make ``toolchain_digest`` a constant on an
+    unpinned host, so two builds from genuinely different KiCad installs would
+    share a ``build_key`` -- which is the exact claim the key exists to make,
+    quietly turned into a lie.
     """
 
     try:
-        return EXECUTOR_IDENTITY_FILE.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
+        image = EXECUTOR_IDENTITY_FILE.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise BuildError(
+            f"the pinned executor image identity is unreadable at "
+            f"{EXECUTOR_IDENTITY_FILE}: {exc}. Release Studio cannot identify "
+            "its toolchain, and a build key computed without it would be wrong."
+        ) from exc
+    if not image:
+        raise BuildError(
+            f"{EXECUTOR_IDENTITY_FILE} is empty; the runtime is not pinned to a "
+            "KiCad image and its builds cannot be identified."
+        )
+    return image
 
 
 def toolchain_identity(cli_version: str = "") -> tuple[dict[str, Any], str]:
     """Return the human-readable toolchain record and its hashed identity."""
 
-    from app.release_studio.documents import RENDERER_VERSION
-    from app.release_studio.documents.fonts import resource_bundle_digest
+    from app.release_studio.documents import RENDERER_VERSION, renderer_resource_digest
 
     image = executor_image()
     monkey_version = _distribution_version("kicad-monkey", "kicad_monkey")
     cruncher_version = _distribution_version("kicad-cruncher", "kicad_cruncher")
-    resources = resource_bundle_digest()
+    # Fonts and the Cruncher view configuration together: both are bundled
+    # resources that decide what a composed sheet contains.
+    resources = renderer_resource_digest()
     record = {
         "kicad_version": cli_version or "10.0.4",
         "executor_image": image,
@@ -103,9 +128,8 @@ def toolchain_identity(cli_version: str = "") -> tuple[dict[str, Any], str]:
             # alters composed sheets for unchanged input must move the build key.
             "renderer_version": RENDERER_VERSION,
             "kicad_monkey_version": monkey_version,
-            # Cruncher owns workflow-level derived artifacts. It is included
-            # even before every document view migrates so adopting another
-            # Cruncher workflow can never silently preserve an old build key.
+            # Cruncher renders the assembly views, so its version decides
+            # what those released sheets look like.
             "kicad_cruncher_version": cruncher_version,
             "resource_bundle_digest": resources,
         }
@@ -386,6 +410,7 @@ def execute_build(
     config: Mapping[str, Any],
     artifacts: JobArtifactService | None = None,
     cli_path: str | None = None,
+    cruncher_path: str | None = None,
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
     """Run the catalogue, assemble the dossier, and publish it under the fence.
@@ -419,6 +444,7 @@ def execute_build(
             candidate=candidate,
             output_root=output_root,
             cli_path=cli_path,
+            cruncher_path=cruncher_path,
             staging=context.staging_dir,
             repo_root=repo_root,
         )
@@ -477,6 +503,7 @@ def execute_build(
             evidence_artifact_id=artifact_ids[1],
             fence=context.fence,
             actor=str(context.payload.get("author") or ""),
+            projections=projections,
             warnings=[
                 *(
                     f"closure: {reason}"
@@ -507,6 +534,7 @@ def _with_documents(
     output_root: Path,
     cli_path: str | None,
     staging: Path,
+    cruncher_path: str | None = None,
     repo_root: Path | None = None,
 ) -> tuple[list[StepOutput], list[str], dict[str, Any]]:
     """Compose the Stage 2 sheets and append them as a member-producing step.
@@ -628,6 +656,7 @@ def _with_documents(
             members=member_rows,
             board=board if board and board.is_file() else None,
             cli_path=cli_path,
+            cruncher_path=cruncher_path,
             workdir=staging / "artwork",
             notes=config.get("notes") or {},
             fields=config.get("fields") or {},
@@ -788,6 +817,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         closure_root=Path(candidate["_closure_root"]),
         config=candidate["_config"],
         cli_path=_cli_path_or_none(),
+        cruncher_path=_cruncher_path_or_none(),
         repo_root=repo_root,
     )
     build = result["build"]
@@ -809,6 +839,15 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
 def _cli_path_or_none() -> str | None:
     try:
         return resolve_cli_path()
+    except StepExecutionError:
+        return None
+
+
+def _cruncher_path_or_none() -> str | None:
+    """A missing Cruncher costs the assembly views, not the build."""
+
+    try:
+        return resolve_cruncher_path()
     except StepExecutionError:
         return None
 

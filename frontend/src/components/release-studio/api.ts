@@ -168,7 +168,13 @@ export async function createApproval(
 export async function createRelease(
     projectId: string,
     buildId: string,
-    body: { release_label: string; document_number: string; revision: string },
+    body: {
+        release_label: string;
+        document_number: string;
+        revision: string;
+        override_blockers?: boolean;
+        override_reason?: string;
+    },
 ): Promise<ReleaseRecord> {
     return fetchJson(
         `${base(projectId)}/builds/${encodeURIComponent(buildId)}/release`,

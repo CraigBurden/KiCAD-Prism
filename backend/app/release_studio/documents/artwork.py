@@ -244,6 +244,80 @@ def _coordinate_pairs(svg_text: str, limit: int = 64) -> list[tuple[float, float
     return pairs
 
 
+#: Prism's own Cruncher view configuration, checked in beside this module.
+#:
+#: It is passed with ``--config`` so Cruncher never writes a template next to
+#: the board: a config the build created would put a build output inside the
+#: input closure, and the closure digest would then depend on the build.
+PCB_SVG_CONFIG = Path(__file__).with_name("pcb-svg.config.json")
+
+#: Cruncher view name per assembly side.
+ASSEMBLY_VIEWS: dict[str, str] = {
+    "top": "assembly_top_view",
+    "bottom": "assembly_bottom_view",
+}
+
+
+def acquire_assembly_view(
+    cruncher_path: str,
+    board: Path,
+    side: str,
+    workdir: Path,
+    *,
+    config_path: Path | None = None,
+    runner=subprocess.run,
+    timeout_seconds: int = 900,
+) -> str:
+    """Render one assembly view with ``kicad-cruncher pcb-svg``; return its SVG.
+
+    KiCad's ``F.Fab`` layer is authored per footprint, so plotting it faithfully
+    reproduces whatever size and offset each library chose -- on a dense board
+    that is an illegible mass of overlapping text at every scale, because
+    density does not change with scale.  Cruncher instead fits exactly one
+    designator into each component's own bounds over a hidden-line-removed
+    outline, which is the drawing an assembler actually uses.
+
+    Loading a large board can take the better part of a minute, hence the
+    generous timeout; it is bounded so a wedged render fails the sheet rather
+    than the job's whole time budget.
+    """
+
+    view = ASSEMBLY_VIEWS.get(side)
+    if view is None:
+        raise ArtworkError(f"unknown assembly side: {side!r}")
+    config = config_path or PCB_SVG_CONFIG
+    if not config.is_file():
+        raise ArtworkError(f"the Prism pcb-svg configuration is missing: {config}")
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    argv = [
+        cruncher_path, "pcb-svg", str(board),
+        "--config", str(config),
+        "--views", view,
+        "--output", str(workdir),
+    ]
+    try:
+        result = runner(argv, capture_output=True, text=True, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        raise ArtworkError(
+            f"kicad-cruncher pcb-svg timed out after {timeout_seconds}s for {view}"
+        ) from exc
+    if getattr(result, "returncode", 1) != 0:
+        detail = " ".join(
+            part.strip()
+            for part in (
+                getattr(result, "stderr", "") or "", getattr(result, "stdout", "") or ""
+            )
+            if part and part.strip()
+        )
+        raise ArtworkError(f"kicad-cruncher pcb-svg failed for {view}: {detail[:400]}")
+
+    found = sorted((workdir / "views").glob(f"*__{view}.svg"))
+    if not found:
+        raise ArtworkError(f"kicad-cruncher produced no {view}")
+    return found[0].read_text(encoding="utf-8")
+
+
 def acquire_drill_map(
     cli_path: str,
     board: Path,

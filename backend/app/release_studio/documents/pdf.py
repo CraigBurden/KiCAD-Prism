@@ -9,11 +9,17 @@ Board artwork is composited separately; KiCad remains the renderer of copper.
 
 from __future__ import annotations
 
+import io
+import math
 import re
 from dataclasses import dataclass
+from typing import Mapping
+
+from fontTools.ttLib import TTFont
 
 from app.release_studio.documents.fonts import (
     FontAsset,
+    cap_height,
     is_newstroke,
     newstroke_polylines,
     newstroke_width,
@@ -22,6 +28,7 @@ from app.release_studio.documents.fonts import (
 )
 from app.release_studio.documents.layout import (
     Artwork,
+    Circle,
     Line,
     Polyline,
     Rectangle,
@@ -64,6 +71,111 @@ def _pt(value: float) -> str:
         rounded = 0.0
     text = f"{rounded:.3f}".rstrip("0").rstrip(".")
     return text or "0"
+
+
+def _subset(asset: FontAsset, used: Mapping[int, int]) -> bytes:
+    """Embed only the glyphs this sheet actually sets.
+
+    Three whole faces is 383 KiB per sheet, roughly 1.9 MiB duplicated across a
+    five-sheet set -- for a drawing whose lettering is digits, capitals, and a
+    handful of punctuation.  Subsetting keeps the same glyph *ids*, because the
+    content stream addresses glyphs by id through Identity-H.
+
+    Determinism is the constraint that shapes this: `fontTools` is asked to
+    retain glyph ids, and the subsetter is fed a sorted id list, so the same
+    sheet always produces the same font bytes.  A subsetter failure falls back
+    to the verified whole face rather than to a sheet that cannot be read.
+    """
+
+    if not used:
+        return asset.bytes()
+    try:
+        from fontTools import subset as fontsubset
+    except ImportError:  # pragma: no cover - fontTools is a hard dependency
+        return asset.bytes()
+
+    try:
+        options = fontsubset.Options()
+        options.retain_gids = True
+        options.notdef_outline = True
+        options.recalc_bounds = False
+        options.recalc_timestamp = False
+        # `meta` and `DSIG` describe the original file, not the subset, and
+        # fontTools warns loudly rather than silently keeping them.
+        options.drop_tables += ["DSIG", "meta"]
+        font = TTFont(
+            io.BytesIO(asset.bytes()), lazy=False, recalcBBoxes=False, recalcTimestamp=False
+        )
+        subsetter = fontsubset.Subsetter(options=options)
+        subsetter.populate(gids=sorted(used))
+        subsetter.subset(font)
+        out = io.BytesIO()
+        font.save(out, reorderTables=False)
+        return out.getvalue()
+    except Exception:  # noqa: BLE001 - a legible sheet beats a smaller one
+        return asset.bytes()
+
+
+def _text_matrix(
+    anchor_x_pt: float, baseline_y_pt: float, rotation_deg: float, offset_pt: float
+) -> str:
+    """A ``Tm`` placing a run rotated about its anchor point.
+
+    The layout model states rotation the way SVG does -- degrees clockwise on a
+    y-down sheet -- while PDF text space is y-up, so the sign of the shear terms
+    flips on the way through.  Deriving it here once keeps the two renderings of
+    a rotated designator on top of each other.
+    """
+
+    radians = math.radians(rotation_deg)
+    cos, sin = math.cos(radians), math.sin(radians)
+    # The run starts `offset_pt` back along its own baseline from the anchor.
+    start_x = anchor_x_pt - cos * offset_pt
+    start_y = baseline_y_pt + sin * offset_pt
+    return (
+        f"{_pt(cos)} {_pt(-sin)} {_pt(sin)} {_pt(cos)} "
+        f"{_pt(start_x)} {_pt(start_y)} Tm"
+    )
+
+
+def _anchor_offset(anchor: str, width: float) -> float:
+    if anchor == "middle":
+        return width / 2
+    if anchor == "end":
+        return width
+    return 0.0
+
+
+def _circle_ops(cx: float, cy: float, r: float) -> list[str]:
+    """A disc as four cubic Béziers -- the standard circle approximation."""
+
+    k = r * 0.5522847498307936
+    return [
+        f"{_pt(cx + r)} {_pt(cy)} m",
+        f"{_pt(cx + r)} {_pt(cy + k)} {_pt(cx + k)} {_pt(cy + r)} {_pt(cx)} {_pt(cy + r)} c",
+        f"{_pt(cx - k)} {_pt(cy + r)} {_pt(cx - r)} {_pt(cy + k)} {_pt(cx - r)} {_pt(cy)} c",
+        f"{_pt(cx - r)} {_pt(cy - k)} {_pt(cx - k)} {_pt(cy - r)} {_pt(cx)} {_pt(cy - r)} c",
+        f"{_pt(cx + k)} {_pt(cy - r)} {_pt(cx + r)} {_pt(cy - k)} {_pt(cx + r)} {_pt(cy)} c",
+    ]
+
+
+def _paint_operator(ops: list[str], colour: str, fill: str, *, close: bool) -> str:
+    """Set the colours a shape paints with and return its painting operator."""
+
+    painted = ""
+    if fill and fill != "none":
+        fr, fg, fb = _rgb(fill)
+        ops.append(f"{_pt(fr)} {_pt(fg)} {_pt(fb)} rg")
+        painted = "f"
+    if colour and colour != "none":
+        r, g, b = _rgb(colour)
+        ops.append(f"{_pt(r)} {_pt(g)} {_pt(b)} RG")
+        painted = "B" if painted else "S"
+    if not painted:
+        return "n"
+    if close and painted in ("S", "B"):
+        return "s" if painted == "S" else "b"
+    return painted
 
 
 def _rgb(colour: str) -> tuple[float, float, float]:
@@ -147,16 +259,45 @@ def render_pdf(sheet: Sheet) -> bytes:
                 f"{_pt(rect.width * MM_TO_PT)} {_pt(rect.height * MM_TO_PT)} re {painted or 'n'}"
             )
         elif isinstance(element, Polyline):
-            r, g, b = _rgb(element.colour)
-            ops.append(f"{_pt(r)} {_pt(g)} {_pt(b)} RG")
-            ops.append(f"{_pt(element.width * MM_TO_PT)} w")
             if element.points:
+                ops.append(f"{_pt(element.width * MM_TO_PT)} w")
+                painter = _paint_operator(
+                    ops, element.colour, element.fill, close=element.close
+                )
                 first = element.points[0]
                 ops.append(f"{_pt(x(first[0]))} {_pt(y(first[1]))} m")
                 for px, py in element.points[1:]:
                     ops.append(f"{_pt(x(px))} {_pt(y(py))} l")
-                ops.append("h S" if element.close else "S")
+                ops.append(painter)
+        elif isinstance(element, Circle):
+            ops.append(f"{_pt(element.width * MM_TO_PT)} w")
+            painter = _paint_operator(ops, element.colour, element.fill, close=True)
+            ops.extend(
+                _circle_ops(x(element.cx), y(element.cy), element.r * MM_TO_PT)
+            )
+            ops.append(painter)
         elif isinstance(element, Text):
+            baseline = element.y
+            if element.baseline == "central":
+                baseline += cap_height(
+                    element.size,
+                    role=element.family,
+                    bold=element.bold,
+                    typography=sheet.typography,
+                ) / 2.0
+            # A rotated run is drawn by rotating the page about the run's anchor
+            # and then drawing it as if it were level, so the vector and glyph
+            # paths below need no rotation logic of their own.
+            if element.rotation:
+                radians = math.radians(element.rotation)
+                cos, sin = math.cos(radians), math.sin(radians)
+                pivot_x, pivot_y = x(element.x), y(baseline)
+                ops.append("q")
+                ops.append(
+                    f"{_pt(cos)} {_pt(-sin)} {_pt(sin)} {_pt(cos)} "
+                    f"{_pt(pivot_x - cos * pivot_x - sin * pivot_y)} "
+                    f"{_pt(pivot_y + sin * pivot_x - cos * pivot_y)} cm"
+                )
             if vector_text:
                 r, g, b = _rgb(element.colour)
                 ops.append(f"{_pt(r)} {_pt(g)} {_pt(b)} RG")
@@ -165,7 +306,7 @@ def render_pdf(sheet: Sheet) -> bytes:
                 )
                 rows = element.value.splitlines() or [""]
                 for row_index, row in enumerate(rows):
-                    row_y = element.y + row_index * element.size * 1.2
+                    row_y = baseline + row_index * element.size * 1.2
                     for line in newstroke_polylines(
                         row,
                         x=element.x,
@@ -192,11 +333,7 @@ def render_pdf(sheet: Sheet) -> bytes:
                         bold=element.bold,
                         typography=sheet.typography,
                     )
-                    start = element.x
-                    if element.anchor == "middle":
-                        start -= width / 2
-                    elif element.anchor == "end":
-                        start -= width
+                    start = element.x - _anchor_offset(element.anchor, width)
                     ops.extend(
                         [
                             "BT",
@@ -209,6 +346,8 @@ def render_pdf(sheet: Sheet) -> bytes:
                         ]
                     )
                     use_search_font = True
+                if element.rotation:
+                    ops.append("Q")
                 continue
 
             resource = _resource_for(element)
@@ -222,22 +361,20 @@ def render_pdf(sheet: Sheet) -> bytes:
                 bold=element.bold,
                 typography=sheet.typography,
             )
-            start = element.x
-            if element.anchor == "middle":
-                start -= width / 2
-            elif element.anchor == "end":
-                start -= width
+            start = element.x - _anchor_offset(element.anchor, width)
             r, g, b = _rgb(element.colour)
             ops.extend(
                 [
                     "BT",
                     f"{_pt(r)} {_pt(g)} {_pt(b)} rg",
                     f"/{resource} {_pt(element.size * MM_TO_PT)} Tf",
-                    f"1 0 0 1 {_pt(x(start))} {_pt(y(element.y))} Tm",
+                    f"1 0 0 1 {_pt(x(start))} {_pt(y(baseline))} Tm",
                     f"<{glyph_hex}> Tj",
                     "ET",
                 ]
             )
+            if element.rotation:
+                ops.append("Q")
         elif isinstance(element, Artwork):
             ops.append("0.6 0.6 0.6 RG")
             ops.append(f"{_pt(0.2 * MM_TO_PT)} w")
@@ -355,7 +492,7 @@ def _assemble(
     font_ids: dict[str, int] = {}
     for plan in plans:
         metrics = _font_metrics(plan.asset)
-        font_bytes = plan.asset.bytes()
+        font_bytes = _subset(plan.asset, used_glyphs[plan.resource])
         font_file_id = add(
             _stream(font_bytes, extra=b"/Length1 " + str(len(font_bytes)).encode("ascii"))
         )

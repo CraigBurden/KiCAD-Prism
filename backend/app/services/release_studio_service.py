@@ -530,6 +530,7 @@ def complete_build(
     fence: int | None = None,
     actor: str = "",
     warnings: Sequence[str] = (),
+    projections: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Finalize one build in a single transaction, re-validating the fence.
 
@@ -602,6 +603,20 @@ def complete_build(
                     _new_id("ev"), build_id, record["kind"],
                     record["report_digest"], json.dumps(record["counts"]),
                 ),
+            )
+
+        conn.execute(
+            "DELETE FROM ws_release_build_projections WHERE build_id = %s", (build_id,)
+        )
+        for name, payload in sorted(dict(projections or {}).items()):
+            if not payload:
+                continue
+            conn.execute(
+                """
+                INSERT INTO ws_release_build_projections(build_id, name, digest, payload)
+                VALUES (%s,%s,%s,%s)
+                """,
+                (build_id, name, sha256_canonical(payload), json.dumps(payload)),
             )
 
         conn.execute("DELETE FROM ws_release_scope_fingerprints WHERE build_id = %s", (build_id,))
@@ -753,6 +768,24 @@ def build_fingerprints(build_id: str) -> dict[str, dict[str, Any]]:
             "SELECT * FROM ws_release_scope_fingerprints WHERE build_id = %s", (build_id,)
         ).fetchall()
     return {row["domain"]: dict(row) for row in rows}
+
+
+def build_projections(build_id: str) -> dict[str, Any]:
+    """The exact board facts this build observed, for re-evaluation.
+
+    Re-evaluation must read the facts the *build* saw.  Recomputing them from a
+    checkout would make governance depend on files that have moved since, and
+    dropping them would make every projection-backed rule report ``unsupported``
+    on the second evaluation of a build that passed on the first.
+    """
+
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT name, payload FROM ws_release_build_projections "
+            "WHERE build_id = %s ORDER BY name",
+            (build_id,),
+        ).fetchall()
+    return {row["name"]: row["payload"] for row in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -1398,6 +1431,18 @@ def create_release_record(
             "UPDATE ws_release_candidates SET status='frozen', updated_at=NOW() WHERE id=%s",
             (build["candidate_id"],),
         )
+        override = dict(policy_snapshot).get("override")
+        if override:
+            # Its own event, before the release event, so a reviewer scanning
+            # the chain for exceptional acts finds it without having to read
+            # inside every release event's details.
+            append_audit_event(
+                conn, project_id=candidate["project_id"],
+                config_key=candidate["config_key"],
+                event_type="release.blockers_overridden", actor=released_by,
+                subject_kind="build", subject_id=build_id,
+                details=dict(override),
+            )
         append_audit_event(
             conn, project_id=candidate["project_id"], config_key=candidate["config_key"],
             event_type="release.created", actor=released_by,
@@ -1406,6 +1451,7 @@ def create_release_record(
                 "release_label": release_label,
                 "manifest_digest": build["manifest_digest"],
                 "signing_key_id": signing_key_id,
+                "blockers_overridden": bool(override),
             },
         )
         conn.commit()

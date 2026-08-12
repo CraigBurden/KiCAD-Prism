@@ -220,6 +220,30 @@ DOMAIN_PROJECTIONS: Mapping[str, tuple[str, ...]] = {
 }
 
 
+def projection_digests(projections: Mapping[str, Any] | None) -> dict[str, str]:
+    """``name -> H(canonical(projection))`` for every non-empty projection.
+
+    Projections are Prism's internal view of the board -- the semantic index of
+    a 982-component board runs to megabytes -- and embedding them verbatim made
+    the manifest 10.5 MB, of which 99.9% was projection text nobody receiving a
+    release needs.  A digest binds the fingerprint to the projection just as
+    tightly: it still moves when the projection moves, which is the whole
+    reason the projection was hashed in.
+
+    The full text stays in the build-evidence artifact, where forensics can
+    reach it and where nobody pays for it on every download.
+    """
+
+    digests: dict[str, str] = {}
+    for name, value in sorted((projections or {}).items()):
+        # An empty projection means "we could not read this", not "it is
+        # empty", and is deliberately absent rather than hashed as `{}`.
+        if not value:
+            continue
+        digests[name] = sha256_canonical(value)
+    return digests
+
+
 def technical_scope_fingerprint(
     domain: str,
     members: Sequence[Member],
@@ -236,6 +260,11 @@ def technical_scope_fingerprint(
     whether any of them were actually available: a domain fingerprinted without
     board facts is honestly ``artifact``, and claiming ``board`` for it would
     make the ladder in §5 of the plan unreadable.
+
+    Projections enter as **digests**, not as text.  The fingerprint's job is to
+    change when the facts change, which a digest does exactly as well as the
+    facts themselves -- and ``inputs`` is persisted per build, so embedding the
+    text cost ~10.5 MB of database per build for no added discrimination.
     """
 
     domain_members = [member for member in members if domain in member.domains]
@@ -264,8 +293,8 @@ def technical_scope_fingerprint(
         ],
         "normalized_argv": [list(normalized_argv.get(step, ())) for step in steps],
         "config_fragments": dict(config_fragments),
-        "projections": relevant,
-        "semantic": semantic or {},
+        "projection_digests": projection_digests(relevant),
+        "semantic_digest": sha256_canonical(semantic) if semantic else "",
         "toolchain_digest": toolchain_digest,
     }
     return {
@@ -330,7 +359,10 @@ def build_manifest(
         "scope_fingerprints": {
             domain: record["fingerprint"] for domain, record in sorted(fingerprints.items())
         },
-        "projections": dict(projections or {}),
+        # Identities, not contents.  A recipient checking that the release they
+        # hold was built from the facts Prism recorded needs the digest; the
+        # facts themselves are in build-evidence.tar.gz.
+        "projection_digests": projection_digests(projections),
     }
     assert_no_governance_leak(manifest)
     return manifest
@@ -418,6 +450,11 @@ def assemble(
                 }
                 for output in outputs
             },
+            # The manifest carries only projection digests; this is where the
+            # facts behind them live, so a digest in a released manifest is
+            # still checkable against the text it was taken from.
+            "projections": dict(projections or {}),
+            "projection_digests": projection_digests(projections),
         }
     )
     evidence_bytes = write_deterministic_archive(evidence_members, mtime=archive_mtime)
@@ -520,5 +557,6 @@ __all__ = [
     "build_members",
     "canonicalizer_for",
     "compute_dossier_digest",
+    "projection_digests",
     "technical_scope_fingerprint",
 ]

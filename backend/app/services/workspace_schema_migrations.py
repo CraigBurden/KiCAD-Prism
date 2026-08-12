@@ -369,6 +369,8 @@ def _release_studio(conn: Any) -> None:
             hermetic               BOOLEAN NOT NULL DEFAULT TRUE,
             non_hermetic_reasons  JSONB NOT NULL DEFAULT '[]'::jsonb,
             authored_overrides    JSONB NOT NULL DEFAULT '{}'::jsonb,
+            policy_snapshot_captured BOOLEAN NOT NULL DEFAULT FALSE,
+            policy_document        JSONB,
             created_by             TEXT NOT NULL DEFAULT '',
             created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -498,6 +500,28 @@ def _release_studio(conn: Any) -> None:
         """
     )
 
+    # The board facts a build observed, stored once per build.
+    #
+    # They used to live inside every fingerprint's `inputs`, which meant three
+    # copies per build and a 10.5 MB manifest that was 99.9% projection text.
+    # The fingerprints now hash them and the manifest carries only digests, but
+    # re-evaluation still has to read the *exact* facts the build saw --
+    # recomputing from a checkout would make governance depend on mutable
+    # files -- so they are kept here, out of the released bytes.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ws_release_build_projections (
+            build_id   TEXT NOT NULL
+                       REFERENCES ws_release_builds(id) ON DELETE CASCADE,
+            name       TEXT NOT NULL,
+            digest     TEXT NOT NULL,
+            payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT pk_ws_release_build_projections PRIMARY KEY (build_id, name)
+        )
+        """
+    )
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS ws_release_policies (
@@ -519,8 +543,10 @@ def _release_studio(conn: Any) -> None:
             version     INTEGER NOT NULL CHECK (version > 0),
             status      TEXT NOT NULL DEFAULT 'draft'
                         CHECK (status IN ('draft', 'published', 'retired')),
-            rules       JSONB NOT NULL DEFAULT '{}'::jsonb,
+            rules       JSONB NOT NULL DEFAULT '[]'::jsonb,
             content_digest TEXT NOT NULL,
+            published_at TIMESTAMPTZ,
+            published_by TEXT,
             retired_at  TIMESTAMPTZ,
             retired_by  TEXT,
             created_by  TEXT NOT NULL DEFAULT '',
@@ -540,6 +566,22 @@ def _release_studio(conn: Any) -> None:
                         AND retired_at IS NULL
                         AND retired_by IS NULL
                     )
+                ),
+            -- Who published a version, and when, is part of what makes it
+            -- citable. A draft has neither; a published or retired one has both.
+            CONSTRAINT ck_ws_release_policy_versions_publication_provenance
+                CHECK (
+                    (
+                        status = 'draft'
+                        AND published_at IS NULL
+                        AND published_by IS NULL
+                    )
+                    OR (
+                        status IN ('published', 'retired')
+                        AND published_at IS NOT NULL
+                        AND published_by IS NOT NULL
+                        AND btrim(published_by) <> ''
+                    )
                 )
         )
         """
@@ -552,16 +594,16 @@ def _release_studio(conn: Any) -> None:
                                   REFERENCES ws_release_builds(id) ON DELETE CASCADE,
             policy_binding        JSONB NOT NULL DEFAULT '{}'::jsonb,
             policy_binding_digest TEXT NOT NULL,
-            outcome               TEXT NOT NULL
-                                  CHECK (outcome IN (
-                                      'pass', 'warn', 'block', 'waived',
-                                      'unsupported', 'error'
-                                  )),
+            outcome               TEXT NOT NULL,
             counts                JSONB NOT NULL DEFAULT '{}'::jsonb,
             evaluator_build       TEXT NOT NULL DEFAULT '',
             created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT uq_ws_release_evaluations_identity
-                UNIQUE (build_id, policy_binding_digest, evaluator_build)
+                UNIQUE (build_id, policy_binding_digest, evaluator_build),
+            CONSTRAINT ck_ws_release_evaluations_outcome_vocabulary
+                CHECK (outcome IN (
+                    'pass', 'warning', 'failure', 'blocker', 'unsupported', 'waived'
+                ))
         )
         """
     )
@@ -569,8 +611,7 @@ def _release_studio(conn: Any) -> None:
         """
         CREATE TABLE IF NOT EXISTS ws_release_waivers (
             id              TEXT PRIMARY KEY,
-            project_id      TEXT NOT NULL
-                            REFERENCES ws_projects(id) ON DELETE CASCADE,
+            project_id      TEXT NOT NULL,
             config_key      TEXT NOT NULL,
             rule_id         TEXT NOT NULL,
             domain          TEXT NOT NULL
@@ -586,12 +627,27 @@ def _release_studio(conn: Any) -> None:
                             CHECK (status IN (
                                 'proposed', 'approved', 'rejected', 'revoked', 'expired'
                             )),
-            evidence        JSONB NOT NULL DEFAULT '{}'::jsonb,
+            evidence        JSONB NOT NULL DEFAULT '[]'::jsonb,
             expires_at      TIMESTAMPTZ,
             approved_at     TIMESTAMPTZ,
             revoked_at      TIMESTAMPTZ,
             revoked_reason  TEXT,
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            exception_kind  TEXT,
+            exception_reason TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            -- Waivers are never deleted, so they hold their project open: a
+            -- project cannot be removed while an audited exception refers to it.
+            CONSTRAINT fk_ws_release_waivers_project_restrict
+                FOREIGN KEY (project_id) REFERENCES ws_projects(id) ON DELETE RESTRICT,
+            CONSTRAINT ck_ws_release_waivers_exception
+                CHECK (
+                    (exception_kind IS NULL AND exception_reason IS NULL)
+                    OR (
+                        exception_kind = 'self_approval'
+                        AND exception_reason IS NOT NULL
+                        AND length(btrim(exception_reason)) > 0
+                    )
+                )
         )
         """
     )
@@ -603,8 +659,12 @@ def _release_studio(conn: Any) -> None:
                           REFERENCES ws_release_evaluations(id) ON DELETE CASCADE,
             rule_id       TEXT NOT NULL,
             rule_version  TEXT NOT NULL,
-            severity      TEXT NOT NULL,
-            status        TEXT NOT NULL,
+            severity      TEXT NOT NULL
+                          CONSTRAINT ck_ws_release_findings_severity_vocabulary
+                          CHECK (severity IN ('warning', 'failure', 'blocker')),
+            status        TEXT NOT NULL
+                          CONSTRAINT ck_ws_release_findings_status_vocabulary
+                          CHECK (status IN ('open', 'waived')),
             domain        TEXT NOT NULL
                           CHECK (domain IN (
                               'bare_board', 'assembly', 'documentation', 'evidence'
@@ -614,9 +674,14 @@ def _release_studio(conn: Any) -> None:
             observed      JSONB NOT NULL DEFAULT '{}'::jsonb,
             expected      JSONB NOT NULL DEFAULT '{}'::jsonb,
             finding_key   TEXT NOT NULL,
-            waiver_id     TEXT
-                          REFERENCES ws_release_waivers(id) ON DELETE SET NULL,
-            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            waiver_id     TEXT,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            -- RESTRICT, not SET NULL: a waiver is the audited reason a finding
+            -- stopped blocking, and deleting it must not quietly turn a waived
+            -- finding back into an unexplained open one.
+            CONSTRAINT fk_ws_release_findings_waiver_restrict
+                FOREIGN KEY (waiver_id)
+                REFERENCES ws_release_waivers(id) ON DELETE RESTRICT
         )
         """
     )
@@ -624,13 +689,10 @@ def _release_studio(conn: Any) -> None:
         """
         CREATE TABLE IF NOT EXISTS ws_release_approvals (
             id                             TEXT PRIMARY KEY,
-            project_id                     TEXT NOT NULL
-                                           REFERENCES ws_projects(id) ON DELETE CASCADE,
+            project_id                     TEXT NOT NULL,
             config_key                     TEXT NOT NULL,
-            candidate_id                   TEXT NOT NULL
-                                           REFERENCES ws_release_candidates(id) ON DELETE CASCADE,
-            build_id                       TEXT NOT NULL
-                                           REFERENCES ws_release_builds(id) ON DELETE CASCADE,
+            candidate_id                   TEXT NOT NULL,
+            build_id                       TEXT NOT NULL,
             role                           TEXT NOT NULL,
             domains                        TEXT[] NOT NULL DEFAULT '{}'::text[],
             decision                       TEXT NOT NULL,
@@ -648,7 +710,34 @@ def _release_studio(conn: Any) -> None:
             evaluation_id                 TEXT
                                            REFERENCES ws_release_evaluations(id)
                                            ON DELETE SET NULL,
-            created_at                     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            created_at                     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            -- Approvals are immutable and never deleted, so they keep the rows
+            -- they refer to alive rather than cascading away with them.
+            CONSTRAINT fk_ws_release_approvals_project_restrict
+                FOREIGN KEY (project_id) REFERENCES ws_projects(id) ON DELETE RESTRICT,
+            CONSTRAINT fk_ws_release_approvals_candidate_restrict
+                FOREIGN KEY (candidate_id)
+                REFERENCES ws_release_candidates(id) ON DELETE RESTRICT,
+            CONSTRAINT fk_ws_release_approvals_build_restrict
+                FOREIGN KEY (build_id)
+                REFERENCES ws_release_builds(id) ON DELETE RESTRICT,
+            CONSTRAINT ck_ws_release_approvals_decision_vocabulary
+                CHECK (decision IN ('approved', 'rejected', 'changes_requested')),
+            -- Two distinct exceptions, either of which may apply: the author
+            -- approved their own revision, and/or the two-person path was
+            -- unavailable. Each demands a stated reason.
+            CONSTRAINT ck_ws_release_approvals_exception_pair
+                CHECK (
+                    (exception_kind IS NULL AND exception_reason IS NULL)
+                    OR (
+                        exception_kind IS NOT NULL
+                        AND exception_kind IN (
+                            'self_approval', 'emergency', 'self_approval_and_emergency'
+                        )
+                        AND exception_reason IS NOT NULL
+                        AND btrim(exception_reason) <> ''
+                    )
+                )
         )
         """
     )
@@ -714,13 +803,29 @@ def _release_studio(conn: Any) -> None:
             released_by          TEXT NOT NULL DEFAULT '',
             policy_snapshot      JSONB NOT NULL DEFAULT '{}'::jsonb,
             approval_snapshot    JSONB NOT NULL DEFAULT '{}'::jsonb,
-            superseded_by        TEXT
-                                 REFERENCES ws_release_records(id) ON DELETE RESTRICT,
+            attestation_body     JSONB NOT NULL DEFAULT '{}'::jsonb,
+            superseded_by        TEXT,
             created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT uq_ws_release_records_label
                 UNIQUE (project_id, config_key, release_label),
+            -- The minimal target key the structural supersession FK below
+            -- needs; the label constraint above is the business identity.
+            CONSTRAINT uq_ws_release_records_project_config_id
+                UNIQUE (project_id, config_key, id),
             CONSTRAINT ck_ws_release_records_not_self_superseded
-                CHECK (superseded_by IS NULL OR superseded_by <> id)
+                CHECK (superseded_by IS NULL OR superseded_by <> id),
+            -- A supersession target belongs to the same project and
+            -- configuration stream; superseding across configurations would
+            -- make the history of a release read as someone else's.
+            CONSTRAINT fk_ws_release_records_superseded_by_same_config
+                FOREIGN KEY (project_id, config_key, superseded_by)
+                REFERENCES ws_release_records(project_id, config_key, id)
+                ON DELETE RESTRICT,
+            CONSTRAINT ck_ws_release_records_signature_key_pair
+                CHECK (
+                    (signature IS NULL AND signing_key_id IS NULL)
+                    OR (signature IS NOT NULL AND signing_key_id IS NOT NULL)
+                )
         )
         """
     )
@@ -742,7 +847,24 @@ def _release_studio(conn: Any) -> None:
             created_at_iso TEXT NOT NULL,
             created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT uq_ws_release_audit_events_sequence
-                UNIQUE (project_id, config_key, sequence)
+                UNIQUE (project_id, config_key, sequence),
+            CONSTRAINT ck_ws_release_audit_events_sequence_positive
+                CHECK (sequence > 0),
+            -- Shape only. Contiguity and `previous_hash[n] == event_hash[n-1]`
+            -- are chain properties that `GET /audit/verify` checks; a CHECK
+            -- constraint cannot see the neighbouring row.
+            CONSTRAINT ck_ws_release_audit_events_genesis_previous_hash
+                CHECK (
+                    (
+                        sequence = 1
+                        AND previous_hash IS NULL
+                    )
+                    OR (
+                        sequence > 1
+                        AND previous_hash IS NOT NULL
+                        AND btrim(previous_hash) <> ''
+                    )
+                )
         )
         """
     )
@@ -768,10 +890,6 @@ def _release_studio(conn: Any) -> None:
         ON ws_release_candidates(repository_id, commit_sha)
         """,
         """
-        CREATE INDEX IF NOT EXISTS idx_ws_release_closure_inputs_candidate
-        ON ws_release_closure_inputs(candidate_id, kind, path)
-        """,
-        """
         CREATE INDEX IF NOT EXISTS idx_ws_release_builds_candidate
         ON ws_release_builds(candidate_id, created_at DESC)
         """,
@@ -781,20 +899,12 @@ def _release_studio(conn: Any) -> None:
         WHERE manifest_digest IS NOT NULL AND manifest_digest <> ''
         """,
         """
-        CREATE INDEX IF NOT EXISTS idx_ws_release_members_build
-        ON ws_release_members(build_id, path)
-        """,
-        """
         CREATE INDEX IF NOT EXISTS idx_ws_release_member_domains_build
         ON ws_release_member_domains(build_id, domain)
         """,
         """
         CREATE INDEX IF NOT EXISTS idx_ws_release_evidence_build
         ON ws_release_evidence(build_id, kind)
-        """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_ws_release_scope_fingerprints_build
-        ON ws_release_scope_fingerprints(build_id, domain)
         """,
         """
         CREATE INDEX IF NOT EXISTS idx_ws_release_policy_versions_policy
@@ -824,10 +934,7 @@ def _release_studio(conn: Any) -> None:
         CREATE INDEX IF NOT EXISTS idx_ws_release_records_project
         ON ws_release_records(project_id, config_key, created_at DESC)
         """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_ws_release_audit_events_project
-        ON ws_release_audit_events(project_id, config_key, sequence)
-        """,
+
         """
         CREATE INDEX IF NOT EXISTS idx_ws_artifact_release_pins_ref
         ON ws_artifact_release_pins(pin_kind, pin_ref)
@@ -868,6 +975,8 @@ def _release_studio(conn: Any) -> None:
                    AND NEW.version = OLD.version
                    AND NEW.rules IS NOT DISTINCT FROM OLD.rules
                    AND NEW.content_digest = OLD.content_digest
+                   AND NEW.published_at = OLD.published_at
+                   AND NEW.published_by = OLD.published_by
                    AND NEW.created_by = OLD.created_by
                    AND NEW.created_at = OLD.created_at
                    AND NEW.retired_at IS NOT NULL
@@ -883,6 +992,8 @@ def _release_studio(conn: Any) -> None:
                    AND NEW.status = OLD.status
                    AND NEW.rules IS NOT DISTINCT FROM OLD.rules
                    AND NEW.content_digest = OLD.content_digest
+                   AND NEW.published_at = OLD.published_at
+                   AND NEW.published_by = OLD.published_by
                    AND NEW.retired_at IS NOT DISTINCT FROM OLD.retired_at
                    AND NEW.retired_by IS NOT DISTINCT FROM OLD.retired_by
                    AND NEW.created_by = OLD.created_by
@@ -892,7 +1003,7 @@ def _release_studio(conn: Any) -> None:
                 END IF;
 
                 RAISE EXCEPTION
-                    'published policy version content is immutable; only published to retired is legal'
+                    'published policy version content and provenance are immutable; only published to retired is legal'
                     USING ERRCODE = '55000';
             END IF;
 
@@ -903,6 +1014,8 @@ def _release_studio(conn: Any) -> None:
                    AND NEW.status = OLD.status
                    AND NEW.rules IS NOT DISTINCT FROM OLD.rules
                    AND NEW.content_digest = OLD.content_digest
+                   AND NEW.published_at = OLD.published_at
+                   AND NEW.published_by = OLD.published_by
                    AND NEW.retired_at = OLD.retired_at
                    AND NEW.retired_by = OLD.retired_by
                    AND NEW.created_by = OLD.created_by
@@ -1002,524 +1115,28 @@ def _release_studio(conn: Any) -> None:
         EXECUTE FUNCTION ws_release_policy_version_guard()
         """
     )
-    conn.execute("DROP TRIGGER IF EXISTS trg_ws_release_records_guard ON ws_release_records")
-    conn.execute(
-        """
-        CREATE TRIGGER trg_ws_release_records_guard
-        BEFORE UPDATE OR DELETE ON ws_release_records
-        FOR EACH ROW
-        EXECUTE FUNCTION ws_release_record_guard()
-        """
-    )
-
-
-def _check_release_studio_audit_shape_precondition(conn: Any) -> None:
-    """Reject M8 audit rows that M9 cannot shape-check without rewriting them.
-
-    Sequence and previous-hash values are part of the audit chain.  Rebuilding
-    either value during a schema migration would fabricate a different chain,
-    so M9 fails before changing any data when an existing stream violates the
-    shape of its new CHECK constraints. This intentionally checks only positive
-    sequence values, a NULL genesis previous hash, and a nonblank non-genesis
-    previous hash; it does not verify contiguity, exactly one genesis event, or
-    previous-hash linkage.
-    """
-
-    row = conn.execute(
-        """
-        SELECT project_id,
-               config_key,
-               sequence,
-               CASE
-                   WHEN sequence IS NULL OR sequence <= 0
-                       THEN 'sequence_must_be_positive'
-                   WHEN sequence = 1 AND previous_hash IS NOT NULL
-                       THEN 'genesis_previous_hash_must_be_null'
-                   ELSE 'non_genesis_previous_hash_must_be_nonblank'
-               END AS violation
-        FROM ws_release_audit_events
-        WHERE sequence IS NULL
-           OR sequence <= 0
-           OR (sequence = 1 AND previous_hash IS NOT NULL)
-           OR (
-               sequence > 1
-               AND (previous_hash IS NULL OR btrim(previous_hash) = '')
-           )
-        ORDER BY project_id, config_key, sequence, id
-        LIMIT 1
-        """
-    ).fetchone()
-    if row is None:
-        return
-
-    raise RuntimeError(
-        "Migration 9 audit-shape precondition failed: "
-        "ws_release_audit_events contains "
-        "an invalid existing audit row "
-        f"(project_id={row['project_id']!r}, "
-        f"config_key={row['config_key']!r}, sequence={row['sequence']!r}, "
-        f"violation={row['violation']}). Migration 9 does not backfill audit "
-        "sequence or hash fields; repair or archive the M8 audit history with "
-        "an approved data-migration procedure before retrying."
-    )
-
-
-def _release_studio_hardening(conn: Any) -> None:
-    """Apply the reviewed pre-release hardening to the Migration 8 schema.
-
-    Migration 9 remains a separate ledger entry only until the pre-dev R23
-    collapse folds this implementation into Migration 8 before the feature
-    branch merges to dev.
-    """
-
-    # Audit sequence and hash fields are chain material, not ordinary
-    # backfillable data.  Fail before any M9 repair or constraint validation so
-    # a bad M8 stream cannot be silently rewritten or partially migrated.
-    _check_release_studio_audit_shape_precondition(conn)
-
-    # Drop the Migration 8 outcome CHECK before rewriting legacy values; the
-    # old vocabulary rejects the canonical replacements.
-    conn.execute(
-        "ALTER TABLE ws_release_evaluations "
-        "DROP CONSTRAINT IF EXISTS ws_release_evaluations_outcome_check"
-    )
-    conn.execute(
-        "ALTER TABLE ws_release_evaluations "
-        "DROP CONSTRAINT IF EXISTS ck_ws_release_evaluations_outcome_vocabulary"
-    )
-
-    # Normalize the development vocabulary before installing the new CHECK.
-    conn.execute(
-        """
-        UPDATE ws_release_evaluations
-        SET outcome = CASE outcome
-            WHEN 'warn' THEN 'warning'
-            WHEN 'block' THEN 'blocker'
-            WHEN 'error' THEN 'failure'
-            ELSE outcome
-        END
-        WHERE outcome IN ('warn', 'block', 'error')
-        """
-    )
-
-    # Empty JSON objects were the Migration 8 defaults.  Only exact empty
-    # objects are list-shape mistakes; preserve every non-empty value.
-    # Disable the M8 immutability guard while backfilling published rows;
-    # the replacement guard is installed later in this migration.
-    conn.execute(
-        "ALTER TABLE ws_release_policy_versions "
-        "DISABLE TRIGGER trg_ws_release_policy_versions_guard"
-    )
-    try:
-        conn.execute(
-            """
-            UPDATE ws_release_policy_versions
-            SET rules = '[]'::jsonb
-            WHERE rules = '{}'::jsonb
-            """
-        )
-        conn.execute(
-            """
-            ALTER TABLE ws_release_policy_versions
-                ALTER COLUMN rules SET DEFAULT '[]'::jsonb
-            """
-        )
-        conn.execute(
-            """
-            ALTER TABLE ws_release_policy_versions
-                ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ,
-                ADD COLUMN IF NOT EXISTS published_by TEXT
-            """
-        )
-        # Existing published/retired development rows did not record
-        # publication provenance. Prefer the row's original timestamp and
-        # creator; the documented fallback is stable when the creator was blank.
-        conn.execute(
-            """
-            UPDATE ws_release_policy_versions
-            SET published_at = COALESCE(published_at, created_at, NOW()),
-                published_by = COALESCE(
-                    NULLIF(btrim(published_by), ''),
-                    NULLIF(btrim(created_by), ''),
-                    'release-studio-migration-9'
-                )
-            WHERE status IN ('published', 'retired')
-            """
-        )
-        conn.execute(
-            """
-            UPDATE ws_release_policy_versions
-            SET published_at = NULL,
-                published_by = NULL
-            WHERE status = 'draft'
-              AND (published_at IS NOT NULL OR published_by IS NOT NULL)
-            """
-        )
-    finally:
-        conn.execute(
-            "ALTER TABLE ws_release_policy_versions "
-            "ENABLE TRIGGER trg_ws_release_policy_versions_guard"
-        )
-
-    conn.execute(
-        """
-        UPDATE ws_release_waivers
-        SET evidence = '[]'::jsonb
-        WHERE evidence = '{}'::jsonb
-        """
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_waivers
-            ALTER COLUMN evidence SET DEFAULT '[]'::jsonb
-        """
-    )
-
-    conn.execute(
-        """
-        ALTER TABLE ws_release_evaluations
-            ADD CONSTRAINT ck_ws_release_evaluations_outcome_vocabulary
-            CHECK (outcome IN (
-                'pass', 'warning', 'failure', 'blocker', 'unsupported', 'waived'
-            ))
-        """
-    )
-
-    for table, constraint in (
-        ("ws_release_findings", "ck_ws_release_findings_severity_vocabulary"),
-        ("ws_release_findings", "ck_ws_release_findings_status_vocabulary"),
-        ("ws_release_approvals", "ck_ws_release_approvals_decision_vocabulary"),
-        ("ws_release_approvals", "ck_ws_release_approvals_exception_pair"),
-    ):
-        conn.execute(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {constraint}")
-    conn.execute(
-        """
-        ALTER TABLE ws_release_findings
-            ADD CONSTRAINT ck_ws_release_findings_severity_vocabulary
-            CHECK (severity IN ('warning', 'failure', 'blocker'))
-        """
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_findings
-            ADD CONSTRAINT ck_ws_release_findings_status_vocabulary
-            CHECK (status IN ('open', 'waived'))
-        """
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_approvals
-            ADD CONSTRAINT ck_ws_release_approvals_decision_vocabulary
-            CHECK (decision IN ('approved', 'rejected', 'changes_requested'))
-        """
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_approvals
-            ADD CONSTRAINT ck_ws_release_approvals_exception_pair
-            CHECK (
-                (exception_kind IS NULL AND exception_reason IS NULL)
-                OR (
-                    exception_kind IS NOT NULL
-                    AND exception_kind IN (
-                        'self_approval', 'emergency', 'self_approval_and_emergency'
-                    )
-                    AND exception_reason IS NOT NULL
-                    AND btrim(exception_reason) <> ''
-                )
-            )
-        """
-    )
-    conn.execute(
-        "ALTER TABLE ws_release_policy_versions "
-        "DROP CONSTRAINT IF EXISTS ck_ws_release_policy_versions_publication_provenance"
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_policy_versions
-            ADD CONSTRAINT ck_ws_release_policy_versions_publication_provenance
-            CHECK (
-                (
-                    status = 'draft'
-                    AND published_at IS NULL
-                    AND published_by IS NULL
-                )
-                OR (
-                    status IN ('published', 'retired')
-                    AND published_at IS NOT NULL
-                    AND published_by IS NOT NULL
-                    AND btrim(published_by) <> ''
-                )
-            )
-        """
-    )
-    conn.execute(
-        "ALTER TABLE ws_release_records "
-        "DROP CONSTRAINT IF EXISTS ck_ws_release_records_signature_key_pair"
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_records
-            ADD CONSTRAINT ck_ws_release_records_signature_key_pair
-            CHECK (
-                (signature IS NULL AND signing_key_id IS NULL)
-                OR (signature IS NOT NULL AND signing_key_id IS NOT NULL)
-            )
-        """
-    )
-    for constraint in (
-        "ck_ws_release_audit_events_sequence_positive",
-        "ck_ws_release_audit_events_genesis_previous_hash",
-    ):
-        conn.execute(
-            "ALTER TABLE ws_release_audit_events "
-            f"DROP CONSTRAINT IF EXISTS {constraint}"
-        )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_audit_events
-            ADD CONSTRAINT ck_ws_release_audit_events_sequence_positive
-            CHECK (sequence > 0)
-        """
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_audit_events
-            ADD CONSTRAINT ck_ws_release_audit_events_genesis_previous_hash
-            CHECK (
-                (
-                    sequence = 1
-                    AND previous_hash IS NULL
-                )
-                OR (
-                    sequence > 1
-                    AND previous_hash IS NOT NULL
-                    AND btrim(previous_hash) <> ''
-                )
-            )
-        """
-    )
-
-    # Explicit names make the repaired delete policy stable and make it clear
-    # that immutable approval/waiver history must block parent deletion.
-    for table, old_constraint, new_constraint in (
-        (
-            "ws_release_approvals",
-            "ws_release_approvals_project_id_fkey",
-            "fk_ws_release_approvals_project_restrict",
-        ),
-        (
-            "ws_release_approvals",
-            "ws_release_approvals_candidate_id_fkey",
-            "fk_ws_release_approvals_candidate_restrict",
-        ),
-        (
-            "ws_release_approvals",
-            "ws_release_approvals_build_id_fkey",
-            "fk_ws_release_approvals_build_restrict",
-        ),
-        (
-            "ws_release_waivers",
-            "ws_release_waivers_project_id_fkey",
-            "fk_ws_release_waivers_project_restrict",
-        ),
-        (
-            "ws_release_findings",
-            "ws_release_findings_waiver_id_fkey",
-            "fk_ws_release_findings_waiver_restrict",
-        ),
-    ):
-        conn.execute(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {old_constraint}")
-        conn.execute(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {new_constraint}")
-
-    conn.execute(
-        """
-        ALTER TABLE ws_release_approvals
-            ADD CONSTRAINT fk_ws_release_approvals_project_restrict
-            FOREIGN KEY (project_id) REFERENCES ws_projects(id) ON DELETE RESTRICT,
-            ADD CONSTRAINT fk_ws_release_approvals_candidate_restrict
-            FOREIGN KEY (candidate_id) REFERENCES ws_release_candidates(id) ON DELETE RESTRICT,
-            ADD CONSTRAINT fk_ws_release_approvals_build_restrict
-            FOREIGN KEY (build_id) REFERENCES ws_release_builds(id) ON DELETE RESTRICT
-        """
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_waivers
-            ADD CONSTRAINT fk_ws_release_waivers_project_restrict
-            FOREIGN KEY (project_id) REFERENCES ws_projects(id) ON DELETE RESTRICT
-        """
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_findings
-            ADD CONSTRAINT fk_ws_release_findings_waiver_restrict
-            FOREIGN KEY (waiver_id) REFERENCES ws_release_waivers(id) ON DELETE RESTRICT
-        """
-    )
-
-    # A supersession target is part of the same project/configuration stream.
-    # The composite unique constraint is the minimal target key PostgreSQL
-    # requires for the structural foreign key.
-    conn.execute(
-        "ALTER TABLE ws_release_records "
-        "DROP CONSTRAINT IF EXISTS ws_release_records_superseded_by_fkey"
-    )
-    conn.execute(
-        "ALTER TABLE ws_release_records "
-        "DROP CONSTRAINT IF EXISTS fk_ws_release_records_superseded_by_same_config"
-    )
-    conn.execute(
-        "ALTER TABLE ws_release_records "
-        "DROP CONSTRAINT IF EXISTS uq_ws_release_records_project_config_id"
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_records
-            ADD CONSTRAINT uq_ws_release_records_project_config_id
-            UNIQUE (project_id, config_key, id)
-        """
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_records
-            ADD CONSTRAINT fk_ws_release_records_superseded_by_same_config
-            FOREIGN KEY (project_id, config_key, superseded_by)
-            REFERENCES ws_release_records(project_id, config_key, id)
-            ON DELETE RESTRICT
-        """
-    )
-
-    for index in (
-        "idx_ws_release_closure_inputs_candidate",
-        "idx_ws_release_members_build",
-        "idx_ws_release_scope_fingerprints_build",
-        "idx_ws_release_audit_events_project",
-    ):
-        conn.execute(f"DROP INDEX IF EXISTS {index}")
-
-    # Keep publication provenance immutable for every published/retired row;
-    # only the content-preserving published -> retired transition is allowed.
-    conn.execute(
-        """
-        CREATE OR REPLACE FUNCTION ws_release_policy_version_guard()
-        RETURNS TRIGGER AS $$
-        BEGIN
-            IF TG_OP = 'DELETE' THEN
-                IF OLD.status IN ('published', 'retired') THEN
-                    RAISE EXCEPTION
-                        'published or retired policy versions cannot be deleted'
-                        USING ERRCODE = '55000';
-                END IF;
-                RETURN OLD;
-            END IF;
-
-            IF OLD.status = 'published' THEN
-                IF NEW.status = 'retired'
-                   AND NEW.id = OLD.id
-                   AND NEW.policy_id = OLD.policy_id
-                   AND NEW.version = OLD.version
-                   AND NEW.rules IS NOT DISTINCT FROM OLD.rules
-                   AND NEW.content_digest = OLD.content_digest
-                   AND NEW.published_at = OLD.published_at
-                   AND NEW.published_by = OLD.published_by
-                   AND NEW.created_by = OLD.created_by
-                   AND NEW.created_at = OLD.created_at
-                   AND NEW.retired_at IS NOT NULL
-                   AND NEW.retired_by IS NOT NULL
-                   AND btrim(NEW.retired_by) <> ''
-                THEN
-                    RETURN NEW;
-                END IF;
-
-                IF NEW.id = OLD.id
-                   AND NEW.policy_id = OLD.policy_id
-                   AND NEW.version = OLD.version
-                   AND NEW.status = OLD.status
-                   AND NEW.rules IS NOT DISTINCT FROM OLD.rules
-                   AND NEW.content_digest = OLD.content_digest
-                   AND NEW.published_at = OLD.published_at
-                   AND NEW.published_by = OLD.published_by
-                   AND NEW.retired_at IS NOT DISTINCT FROM OLD.retired_at
-                   AND NEW.retired_by IS NOT DISTINCT FROM OLD.retired_by
-                   AND NEW.created_by = OLD.created_by
-                   AND NEW.created_at = OLD.created_at
-                THEN
-                    RETURN NEW;
-                END IF;
-
-                RAISE EXCEPTION
-                    'published policy version content and provenance are immutable; only published to retired is legal'
-                    USING ERRCODE = '55000';
-            END IF;
-
-            IF OLD.status = 'retired' THEN
-                IF NEW.id = OLD.id
-                   AND NEW.policy_id = OLD.policy_id
-                   AND NEW.version = OLD.version
-                   AND NEW.status = OLD.status
-                   AND NEW.rules IS NOT DISTINCT FROM OLD.rules
-                   AND NEW.content_digest = OLD.content_digest
-                   AND NEW.published_at = OLD.published_at
-                   AND NEW.published_by = OLD.published_by
-                   AND NEW.retired_at = OLD.retired_at
-                   AND NEW.retired_by = OLD.retired_by
-                   AND NEW.created_by = OLD.created_by
-                   AND NEW.created_at = OLD.created_at
-                THEN
-                    RETURN NEW;
-                END IF;
-
-                RAISE EXCEPTION
-                    'retired policy versions are immutable'
-                    USING ERRCODE = '55000';
-            END IF;
-
-            RETURN NEW;
-        END;
-        $$ LANGUAGE plpgsql
-        """
-    )
-
-
-def _release_studio_rule_outcomes(conn: Any) -> None:
-    """Add the per-rule outcome table R3b reserved for R13.
-
-    ``ws_release_findings`` is deliberately a *problem* table: its severities
-    are `warning|failure|blocker` and its statuses are `open|waived`.  An
-    evaluation state such as `pass`, `info`, or `unsupported` is not a problem
-    and must not be storable as one, otherwise "the projection this rule needs
-    is missing" becomes indistinguishable from "this rule passed".  This is
-    additive and lands with R13's evaluator, which is its first writer.
-    """
-
+    # One row per *evaluated rule*, independent of findings.  This is what
+    # makes "the projection this rule needs is missing" representable as
+    # `unsupported` rather than being silently indistinguishable from `pass`.
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS ws_release_rule_outcomes (
-            id                 TEXT PRIMARY KEY,
-            evaluation_id      TEXT NOT NULL
-                               REFERENCES ws_release_evaluations(id) ON DELETE CASCADE,
-            rule_id            TEXT NOT NULL,
-            rule_version       TEXT NOT NULL DEFAULT '',
-            outcome            TEXT NOT NULL,
-            finding_count      INTEGER NOT NULL DEFAULT 0,
-            unsupported_reason TEXT NOT NULL DEFAULT '',
-            created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            UNIQUE (evaluation_id, rule_id)
+            id                  TEXT PRIMARY KEY,
+            evaluation_id       TEXT NOT NULL
+                                REFERENCES ws_release_evaluations(id) ON DELETE CASCADE,
+            rule_id             TEXT NOT NULL,
+            rule_version        TEXT NOT NULL DEFAULT '',
+            outcome             TEXT NOT NULL,
+            finding_count       INTEGER NOT NULL DEFAULT 0,
+            unsupported_reason  TEXT NOT NULL DEFAULT '',
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT uq_ws_release_rule_outcomes_identity
+                UNIQUE (evaluation_id, rule_id),
+            CONSTRAINT ck_ws_release_rule_outcomes_outcome
+                CHECK (outcome IN (
+                    'pass', 'info', 'warning', 'failure', 'blocker', 'unsupported'
+                ))
         )
-        """
-    )
-    conn.execute(
-        "ALTER TABLE ws_release_rule_outcomes "
-        "DROP CONSTRAINT IF EXISTS ck_ws_release_rule_outcomes_outcome"
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_rule_outcomes
-            ADD CONSTRAINT ck_ws_release_rule_outcomes_outcome
-            CHECK (outcome IN (
-                'pass', 'info', 'warning', 'failure', 'blocker', 'unsupported'
-            ))
         """
     )
     conn.execute(
@@ -1527,91 +1144,24 @@ def _release_studio_rule_outcomes(conn: Any) -> None:
         "ON ws_release_rule_outcomes(evaluation_id)"
     )
 
-    # The signed attestation body is what the offline verifier hashes.  Storing
-    # only its digest would make the release archive unreproducible after the
-    # fact: the exact bytes that were signed cannot be re-derived from the
-    # snapshots, because canonical JSON is order-normalized but not invertible.
-    conn.execute(
-        "ALTER TABLE ws_release_records "
-        "ADD COLUMN IF NOT EXISTS attestation_body JSONB NOT NULL DEFAULT '{}'::jsonb"
-    )
-
-
-def _release_studio_waiver_exceptions(conn: Any) -> None:
-    """Give waivers the audited self-approval exception approvals already have.
-
-    ``ws_release_approvals`` carries ``(exception_kind, exception_reason)`` so
-    that an author approving their own revision is *recorded as an exception*
-    rather than either silently permitted or flatly impossible.  Waivers had
-    only the flat prohibition, which makes the release path unreachable for a
-    single-operator deployment: the sole identity owns every waiver it raises,
-    so no waiver can ever be approved and no blocker can ever be cleared.
-
-    The prohibition itself is unchanged.  What this adds is the same escape
-    hatch on the same terms: an explicit kind, a written reason, and an audit
-    event -- never a quiet bypass.
-
-    R23 must fold this into the collapsed ``_release_studio`` migration along
-    with M9 and M10; it is a separate rung only because amending M8 in place
-    would require recreating databases that already hold real projects.
-    """
-
-    conn.execute(
-        "ALTER TABLE ws_release_waivers "
-        "ADD COLUMN IF NOT EXISTS exception_kind TEXT"
-    )
-    conn.execute(
-        "ALTER TABLE ws_release_waivers "
-        "ADD COLUMN IF NOT EXISTS exception_reason TEXT"
-    )
-    conn.execute(
-        "ALTER TABLE ws_release_waivers "
-        "DROP CONSTRAINT IF EXISTS ck_ws_release_waivers_exception"
-    )
-    conn.execute(
-        """
-        ALTER TABLE ws_release_waivers
-            ADD CONSTRAINT ck_ws_release_waivers_exception
-            CHECK (
-                (exception_kind IS NULL AND exception_reason IS NULL)
-                OR (
-                    exception_kind = 'self_approval'
-                    AND exception_reason IS NOT NULL
-                    AND length(btrim(exception_reason)) > 0
-                )
-            )
-        """
-    )
-
-
-def _release_studio_web_shares(conn: Any) -> None:
-    """Revocable web shares and immutable candidate policy snapshots."""
-
-    # Evaluation must use the Git-owned policy read at the candidate's exact
-    # commit, not a later mutable checkout.
-    conn.execute(
-        """
-        ALTER TABLE ws_release_candidates
-            ADD COLUMN IF NOT EXISTS policy_snapshot_captured BOOLEAN
-                NOT NULL DEFAULT FALSE,
-            ADD COLUMN IF NOT EXISTS policy_document JSONB
-        """
-    )
-
+    # Unauthenticated share links. The token is never stored, only its digest,
+    # so a database read cannot reconstruct a live link.
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS ws_release_web_shares (
-            id            TEXT PRIMARY KEY,
-            record_id     TEXT NOT NULL
-                          REFERENCES ws_release_records(id) ON DELETE RESTRICT,
-            token_digest  TEXT NOT NULL UNIQUE,
-            status        TEXT NOT NULL DEFAULT 'active'
-                          CHECK (status IN ('active', 'revoked')),
-            expires_at    TIMESTAMPTZ,
-            created_by    TEXT NOT NULL DEFAULT '',
-            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            revoked_by    TEXT,
-            revoked_at    TIMESTAMPTZ,
+            id             TEXT PRIMARY KEY,
+            record_id      TEXT NOT NULL
+                           REFERENCES ws_release_records(id) ON DELETE RESTRICT,
+            token_digest   TEXT NOT NULL UNIQUE,
+            status         TEXT NOT NULL DEFAULT 'active'
+                           CHECK (status IN ('active', 'revoked')),
+            expires_at     TIMESTAMPTZ,
+            created_by     TEXT NOT NULL DEFAULT '',
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            revoked_by     TEXT,
+            revoked_at     TIMESTAMPTZ,
+            -- Revocation is a fact about who and when, not a status flag: an
+            -- unattributed revocation is indistinguishable from a bug.
             CONSTRAINT ck_ws_release_web_shares_revocation
                 CHECK (
                     (status = 'active' AND revoked_by IS NULL AND revoked_at IS NULL)
@@ -1626,6 +1176,114 @@ def _release_studio_web_shares(conn: Any) -> None:
         "ON ws_release_web_shares(record_id, created_at DESC)"
     )
 
+    # Org policy authoring gets its own chain rather than a nullable
+    # `project_id` on the project chain.
+    #
+    # Publishing a version invalidates approvals across every project that binds
+    # it, so it has to be audited -- but it is not an event *in* any one
+    # project's history, and widening `ws_release_audit_events` would weaken the
+    # sequence and genesis constraints that make that chain checkable.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ws_release_policy_audit_events (
+            id             TEXT PRIMARY KEY,
+            policy_key     TEXT NOT NULL,
+            sequence       BIGINT NOT NULL,
+            event_type     TEXT NOT NULL,
+            actor          TEXT NOT NULL,
+            subject_kind   TEXT NOT NULL,
+            subject_id     TEXT NOT NULL,
+            details        JSONB NOT NULL DEFAULT '{}'::jsonb,
+            previous_hash  TEXT,
+            event_hash     TEXT NOT NULL,
+            created_at_iso TEXT NOT NULL,
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT uq_ws_release_policy_audit_events_sequence
+                UNIQUE (policy_key, sequence),
+            CONSTRAINT ck_ws_release_policy_audit_events_sequence_positive
+                CHECK (sequence > 0),
+            CONSTRAINT ck_ws_release_policy_audit_events_genesis_previous_hash
+                CHECK (
+                    (sequence = 1 AND previous_hash IS NULL)
+                    OR (
+                        sequence > 1
+                        AND previous_hash IS NOT NULL
+                        AND btrim(previous_hash) <> ''
+                    )
+                )
+        )
+        """
+    )
+    conn.execute(
+        "DROP TRIGGER IF EXISTS trg_ws_release_policy_audit_events_immutable "
+        "ON ws_release_policy_audit_events"
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER trg_ws_release_policy_audit_events_immutable
+        BEFORE UPDATE OR DELETE ON ws_release_policy_audit_events
+        FOR EACH ROW
+        EXECUTE FUNCTION ws_release_immutable_history_guard()
+        """
+    )
+
+    # A candidate's policy snapshot is what the evaluation is *about*: it is
+    # captured once, at freeze, and everything downstream reasons against it.
+    # In-code writes only touch `status`, so today this holds by convention --
+    # and a convention is not what an approval binding should rest on.
+    conn.execute(
+        """
+        CREATE OR REPLACE FUNCTION ws_release_candidate_snapshot_guard()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            IF OLD.policy_snapshot_captured
+               AND (
+                   NEW.policy_document IS DISTINCT FROM OLD.policy_document
+                   OR NEW.policy_snapshot_captured IS DISTINCT FROM OLD.policy_snapshot_captured
+               )
+            THEN
+                RAISE EXCEPTION
+                    'a captured candidate policy snapshot is immutable'
+                    USING ERRCODE = '55000';
+            END IF;
+            IF NEW.commit_sha IS DISTINCT FROM OLD.commit_sha
+               OR NEW.build_key IS DISTINCT FROM OLD.build_key
+               OR NEW.technical_config_digest IS DISTINCT FROM OLD.technical_config_digest
+               OR NEW.input_closure_digest IS DISTINCT FROM OLD.input_closure_digest
+               OR NEW.variant IS DISTINCT FROM OLD.variant
+            THEN
+                RAISE EXCEPTION
+                    'a candidate identity is immutable once created'
+                    USING ERRCODE = '55000';
+            END IF;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+        """
+    )
+    conn.execute(
+        "DROP TRIGGER IF EXISTS trg_ws_release_candidates_snapshot_guard "
+        "ON ws_release_candidates"
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER trg_ws_release_candidates_snapshot_guard
+        BEFORE UPDATE ON ws_release_candidates
+        FOR EACH ROW
+        EXECUTE FUNCTION ws_release_candidate_snapshot_guard()
+        """
+    )
+
+    conn.execute("DROP TRIGGER IF EXISTS trg_ws_release_records_guard ON ws_release_records")
+    conn.execute(
+        """
+        CREATE TRIGGER trg_ws_release_records_guard
+        BEFORE UPDATE OR DELETE ON ws_release_records
+        FOR EACH ROW
+        EXECUTE FUNCTION ws_release_record_guard()
+        """
+    )
+
 
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
@@ -1636,10 +1294,6 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (6, "thumbnail_source", _thumbnail_source),
     (7, "generated_thumbnail_default", _generated_thumbnail_default),
     (8, "release_studio", _release_studio),
-    (9, "release_studio_hardening", _release_studio_hardening),
-    (10, "release_studio_rule_outcomes", _release_studio_rule_outcomes),
-    (11, "release_studio_waiver_exceptions", _release_studio_waiver_exceptions),
-    (12, "release_studio_web_shares", _release_studio_web_shares),
 )
 
 

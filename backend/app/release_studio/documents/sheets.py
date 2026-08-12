@@ -28,6 +28,11 @@ from app.release_studio.documents.layout import (
     fit_columns,
     preferred_scale,
 )
+from app.release_studio.documents.vector import (
+    VectorDrawing,
+    clip,
+    drop_illegible_text,
+)
 from app.release_studio.documents.worksheet import default_worksheet_elements
 
 #: Used only when nothing is known about the board -- a document set composed
@@ -44,12 +49,17 @@ DEFAULT_SIZE = "A3"
 #: `documents.notes.resolve_notes` replaces any of these from configuration.
 DEFAULT_NOTES: dict[str, tuple[str, ...]] = {
     "cover": (
-        "The files listed above are the released bytes. Their SHA-256 digests "
-        "are recorded in the dossier manifest and are reproducible from the "
-        "commit named in the title block.",
-        "This sheet is generated from the board and schematic at that commit. "
-        "It carries no build time and no approver, so re-rendering it cannot "
-        "change its digest.",
+        # Deliberately not "the files listed above are the released bytes":
+        # this sheet is itself a released member, and it is composed before the
+        # other documentation members exist, so it can never list all of them.
+        # A recipient reconciling the list against the dossier would find
+        # extras and reasonably conclude the release had been tampered with.
+        "The files listed above are released members produced before this "
+        "sheet. manifest.json in this dossier lists the complete set, "
+        "including the documentation sheets, with the SHA-256 digest of each.",
+        "This sheet is generated from the board and schematic at the commit "
+        "named in the title block. It carries no build time and no approver, "
+        "so re-rendering it cannot change its digest.",
     ),
     "fabrication": (
         "The Gerber and Excellon files in this dossier are authoritative; this "
@@ -167,6 +177,73 @@ def table_area(
     )
 
 
+#: Smallest a reference designator may be drawn on a released sheet.
+#:
+#: Below this it is not small lettering, it is a smudge -- and a smudge on a
+#: controlled drawing is worse than a blank, because it looks like data the
+#: reader failed to see.  Set lower than `layout.MIN_TABLE_FONT` because an
+#: assembly designator is read against the board in hand, often under
+#: magnification, while a table is read as prose.
+MIN_DESIGNATOR_HEIGHT = 1.0
+
+#: Most of the body a table column may claim.  Past this the sheet stops being
+#: a drawing with a schedule beside it and becomes a schedule with a thumbnail.
+_MAX_TABLE_SHARE = 0.55
+
+
+def set_scale(
+    board_width: float,
+    board_height: float,
+    size: str,
+    title_height: float = TITLE_BLOCK_HEIGHT,
+) -> float:
+    """The one placement ratio every sheet in the set is drawn at.
+
+    A controlled drawing package where the same board measures 1:1 on the
+    fabrication sheet and 2:1 on the assembly sheet is a defect: a reader who
+    scales off one sheet and applies it to another gets the wrong number.  The
+    ratio is chosen once, against the *narrowest* window any sheet has, so the
+    sheet with the widest table can still hold the board at it.
+    """
+
+    if board_width <= 0 or board_height <= 0:
+        return 1.0
+    window = artwork_window(size, max(TABLE_WIDTHS.values()), title_height)
+    return preferred_scale(board_width, board_height, window)
+
+
+def sheet_columns(
+    size: str,
+    key: str,
+    title_height: float,
+    drawn_width: float,
+) -> tuple[float, Rect, Rect]:
+    """Split one sheet's body into an artwork window and a table column.
+
+    The sheet size is chosen for the board and the scale is chosen for the set,
+    so by the time this runs the artwork's drawn width is known -- and any body
+    width beyond it is space the drawing has no use for.  Handing that space to
+    the table column is what stops a 132 mm board from truncating a 12-layer
+    stackup to "and 4 more" while two thirds of the sheet is blank.
+    """
+
+    body = body_rect(size, title_height)
+    base = TABLE_WIDTHS[key]
+    if drawn_width <= 0:
+        # No artwork, or no ratio chosen yet: there is no known slack, and a
+        # table that claimed the sheet on that basis would shrink the window
+        # the ratio is about to be chosen against.
+        table_width = base
+    else:
+        spare = body.width - (drawn_width + 2 * _WINDOW_INSET) - _WINDOW_INSET
+        table_width = max(base, min(spare, body.width * _MAX_TABLE_SHARE))
+    return (
+        table_width,
+        artwork_window(size, table_width, title_height),
+        table_area(size, table_width, title_height),
+    )
+
+
 #: Height one title-block row occupies once the block's own caption is removed.
 #: The block grows rather than compressing when a configuration adds fields,
 #: because squeezing eight rows into thirty millimetres puts the text below the
@@ -232,6 +309,63 @@ def _shell(
     return builder, body
 
 
+def _drawn_width(art: AcquiredArtwork | VectorDrawing | None, scale: float | None) -> float:
+    """How wide the artwork will actually be drawn, in sheet millimetres.
+
+    Zero when there is nothing to draw or no ratio yet, which leaves the table
+    column at its configured width rather than letting it claim the sheet.
+    """
+
+    if art is None or scale is None:
+        return 0.0
+    return max(0.0, float(art.view_width) * scale)
+
+
+def _draw_vector(
+    builder: SheetBuilder,
+    window: Rect,
+    drawing: VectorDrawing | None,
+    *,
+    label: str,
+    scale: float | None,
+) -> tuple[float, int]:
+    """Place an ingested vector drawing; return its ratio and what it dropped.
+
+    Same contract as `_draw_artwork`, for artwork that arrives as primitives
+    rather than as an opaque block: the sheet is one model, so the SVG and PDF
+    renderings of this drawing cannot diverge.
+    """
+
+    if drawing is None or not drawing.elements:
+        return _draw_missing(builder, window, label), 0
+
+    if scale is None:
+        scale = preferred_scale(drawing.view_width, drawing.view_height, window)
+    placed, illegible = drop_illegible_text(
+        drawing.placed(window, scale), MIN_DESIGNATOR_HEIGHT
+    )
+    builder.extend(clip(placed, window))
+    builder.text(
+        window.x, window.bottom + 4.0, f"SCALE {scale_label(scale)}", size=2.8, bold=True
+    )
+    return scale, illegible
+
+
+def _draw_missing(builder: SheetBuilder, window: Rect, label: str) -> float:
+    """State the absence where artwork would be, rather than leaving a gap."""
+
+    builder.rect(window, width=0.2, colour="#999999")
+    builder.text(
+        window.x + window.width / 2,
+        window.y + window.height / 2,
+        f"{label} unavailable",
+        size=3.0,
+        anchor="middle",
+        colour="#999999",
+    )
+    return 1.0
+
+
 def _draw_artwork(
     builder: SheetBuilder,
     window: Rect,
@@ -248,16 +382,7 @@ def _draw_artwork(
     """
 
     if art is None:
-        builder.rect(window, width=0.2, colour="#999999")
-        builder.text(
-            window.x + window.width / 2,
-            window.y + window.height / 2,
-            f"{label} unavailable",
-            size=3.0,
-            anchor="middle",
-            colour="#999999",
-        )
-        return 1.0
+        return _draw_missing(builder, window, label)
 
     if scale is None:
         scale = preferred_scale(art.view_width, art.view_height, window)
@@ -377,11 +502,11 @@ def fabrication_sheet(
     )
     title_height = title_block_height(context, fields)
 
-    table_width = TABLE_WIDTHS["fabrication"]
-    window = artwork_window(size, table_width, title_height)
+    table_width, window, area = sheet_columns(
+        size, "fabrication", title_height, _drawn_width(art, scale)
+    )
     used = _draw_artwork(builder, window, art, label="board artwork", scale=scale)
 
-    area = table_area(size, table_width, title_height)
     column, _factor = fit_columns(
         [[
             tables.stackup_table(stackup),
@@ -408,7 +533,7 @@ def fabrication_sheet(
 def assembly_sheet(
     context: Mapping[str, Any],
     side: str,
-    art: AcquiredArtwork | None,
+    art: VectorDrawing | None,
     placements: Sequence[Mapping[str, Any]],
     *,
     size: str = DEFAULT_SIZE,
@@ -417,7 +542,13 @@ def assembly_sheet(
     fields: Sequence[TitleBlockField] = (),
     typography: str = DEFAULT_TYPOGRAPHY,
 ) -> tuple[Sheet, float]:
-    """One assembly view, with the population count for the released variant."""
+    """One assembly view, with the population count for the released variant.
+
+    The artwork is a Cruncher assembly view ingested into the layout model, not
+    a plotted KiCad layer: one designator per component, fitted to that
+    component's own bounds.  See `documents.vector` for why it is ingested
+    rather than placed as an opaque block.
+    """
 
     label = "TOP" if side == "top" else "BOTTOM"
     builder, body = _shell(
@@ -430,19 +561,27 @@ def assembly_sheet(
     )
     title_height = title_block_height(context, fields)
 
-    table_width = TABLE_WIDTHS["assembly"]
-    window = artwork_window(size, table_width, title_height)
-    used = _draw_artwork(builder, window, art, label="assembly artwork", scale=scale)
+    table_width, window, area = sheet_columns(
+        size, "assembly", title_height, _drawn_width(art, scale)
+    )
+    used, illegible = _draw_vector(
+        builder, window, art, label="assembly artwork", scale=scale
+    )
 
     fitted = [item for item in placements if str(item.get("side") or "").lower() == side]
-    summary = (
+    summary = [
         ("Side", label),
         ("Placements", str(len(fitted))),
         ("Variant", str(context.get("variant") or "default")),
-    )
-    area = table_area(size, table_width, title_height)
+    ]
+    if illegible:
+        # Stated, not hidden. A designator drawn at 0.16 mm is a smudge, and a
+        # smudge makes the drawing look as though it carries data the reader
+        # merely failed to see.
+        summary.append(("Designators omitted", str(illegible)))
+    summary_rows = tuple(summary)
     column, _factor = fit_columns(
-        [[tables.key_value_table("POPULATION", summary, width=table_width)]],
+        [[tables.key_value_table("POPULATION", summary_rows, width=table_width)]],
         Rect(area.x, area.y, area.width, area.height - _NOTES_RESERVE),
         gap=_TABLE_GAP,
     )
@@ -475,11 +614,11 @@ def drill_sheet(
     )
     title_height = title_block_height(context, fields)
 
-    table_width = TABLE_WIDTHS["drill"]
-    window = artwork_window(size, table_width, title_height)
+    table_width, window, area = sheet_columns(
+        size, "drill", title_height, _drawn_width(art, scale)
+    )
     used = _draw_artwork(builder, window, art, label="drill artwork", scale=scale)
 
-    area = table_area(size, table_width, title_height)
     column, _factor = fit_columns(
         [[tables.drill_table(stackup, stats)]],
         Rect(area.x, area.y, area.width, area.height - _NOTES_RESERVE),

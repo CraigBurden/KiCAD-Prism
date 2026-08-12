@@ -21,6 +21,8 @@ if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.release_studio import dossier as dossier_module  # noqa: E402
+from app.release_studio.canonical import sha256_canonical  # noqa: E402
+from app.release_studio.canonical.json import canonical_json_bytes  # noqa: E402
 from app.release_studio.dossier import (  # noqa: E402
     DossierError,
     assemble,
@@ -136,7 +138,14 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         (self.closure / "hardware/board.kicad_pcb").write_text("(kicad_pcb)")
         (self.closure / "hardware/board.kicad_sch").write_text("(kicad_sch)")
 
-    def _build(self, stamp: str, plain: str, out_name: str, archive_mtime: int = 0):
+    def _build(
+        self,
+        stamp: str,
+        plain: str,
+        out_name: str,
+        archive_mtime: int = 0,
+        projections: dict | None = None,
+    ):
         output_root = self.root / out_name
         output_root.mkdir()
         outputs = run_step_catalogue(
@@ -159,6 +168,7 @@ class ReleaseStudioDossierTests(unittest.TestCase):
             toolchain_digest="t" * 64,
             build_key="b" * 64,
             config_fragments={"board": "hardware/board.kicad_pcb"},
+            projections=projections,
             archive_mtime=archive_mtime,
         )
 
@@ -310,6 +320,69 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         self.assertEqual(board["fidelity"], "board")
         self.assertEqual(semantic["fidelity"], "semantic")
         self.assertEqual(len({artifact["fingerprint"], board["fingerprint"], semantic["fingerprint"]}), 3)
+
+    def test_the_manifest_carries_projection_digests_not_projection_text(self) -> None:
+        """The released manifest is a description, not a data dump.
+
+        Embedding projections verbatim made a real manifest 10.5 MB, of which
+        99.9% was projection text -- downloaded by every recipient, and pinned
+        into `manifest_digest`.
+        """
+
+        stackup = {"layers": [{"name": f"layer-{index}"} for index in range(400)]}
+        built = self._build(
+            "2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "a",
+            projections={"stackup": stackup},
+        )
+        manifest = built.manifest
+        self.assertNotIn("projections", manifest)
+        self.assertEqual(
+            manifest["projection_digests"]["stackup"], sha256_canonical(stackup)
+        )
+        # A manifest is metadata; a size close to the projection's own would
+        # mean the text is still in there under another name.
+        self.assertLess(len(canonical_json_bytes(manifest)), 100_000)
+
+    def test_a_changed_projection_still_moves_the_fingerprint(self) -> None:
+        """Hashing must not weaken what the fingerprint discriminates."""
+
+        built = self._build("2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "a")
+        common = dict(
+            domain="bare_board",
+            members=built.members,
+            toolchain_digest="t" * 64,
+            normalized_argv={},
+            config_fragments={},
+        )
+        two = dossier_module.technical_scope_fingerprint(
+            **common, projections={"stackup": {"copper_layer_count": 2}}
+        )
+        four = dossier_module.technical_scope_fingerprint(
+            **common, projections={"stackup": {"copper_layer_count": 4}}
+        )
+        self.assertNotEqual(two["fingerprint"], four["fingerprint"])
+        # And the inputs stay small, which is the point: they are persisted
+        # per (build, domain).
+        self.assertLess(len(canonical_json_bytes(two["inputs"])), 10_000)
+
+    def test_build_evidence_still_carries_the_projection_text(self) -> None:
+        """Forensics must be able to reach what the digests were taken from."""
+
+        import tarfile as _tarfile
+
+        stackup = {"layers": [{"name": "F.Cu"}]}
+        built = self._build(
+            "2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "a",
+            projections={"stackup": stackup},
+        )
+        with _tarfile.open(fileobj=io.BytesIO(built.evidence_bytes), mode="r:*") as archive:
+            payload = json.loads(
+                archive.extractfile("build-evidence.json").read().decode("utf-8")
+            )
+        self.assertEqual(payload["projections"]["stackup"], stackup)
+        self.assertEqual(
+            payload["projection_digests"]["stackup"], sha256_canonical(stackup)
+        )
 
     def test_semantic_projection_excludes_cache_metadata_and_order(self) -> None:
         from app.release_studio.semantic import semantic_scope_projections

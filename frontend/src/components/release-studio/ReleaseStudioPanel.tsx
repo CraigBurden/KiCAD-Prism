@@ -350,6 +350,7 @@ export function ReleaseStudioPanel({ projectId, canMutate, isAdmin = false, defa
                     projectId={projectId}
                     detail={detail}
                     canMutate={canMutate}
+                    isAdmin={isAdmin}
                     waivers={waivers}
                     busy={busy}
                     openBlockers={openBlockers}
@@ -584,6 +585,7 @@ type DetailProps = {
     projectId: string;
     detail: BuildDetail;
     canMutate: boolean;
+    isAdmin: boolean;
     waivers: Waiver[];
     busy: string;
     openBlockers: Finding[];
@@ -674,6 +676,7 @@ function BuildDetailView({
     projectId,
     detail,
     canMutate,
+    isAdmin,
     waivers,
     busy,
     openBlockers,
@@ -684,6 +687,8 @@ function BuildDetailView({
     const [exceptionReason, setExceptionReason] = useState("");
     const [label, setLabel] = useState("");
     const [revision, setRevision] = useState("A");
+    const [overrideBlockers, setOverrideBlockers] = useState(false);
+    const [overrideReason, setOverrideReason] = useState("");
     // Track the member by path rather than by object so the viewer follows the
     // same file across a refresh that replaces the member rows.
     const [viewedMemberPath, setViewedMemberPath] = useState("");
@@ -1020,6 +1025,41 @@ function BuildDetailView({
                                 until each is resolved or waived.
                             </div>
                         )}
+                        {/*
+                          Break-glass, and deliberately not a convenience. It is
+                          admin-only, demands a reason, and is written into the
+                          signed attestation, so a recipient can see that a
+                          release went out over open blockers.
+                        */}
+                        {canMutate && isAdmin && openBlockers.length > 0 && (
+                            <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                                <label className="flex items-center gap-2 text-sm font-medium">
+                                    <input
+                                        type="checkbox"
+                                        checked={overrideBlockers}
+                                        onChange={(event) => setOverrideBlockers(event.target.checked)}
+                                        aria-label="Release over open blockers"
+                                    />
+                                    Release over open blockers (administrative override)
+                                </label>
+                                {overrideBlockers && (
+                                    <div className="space-y-1">
+                                        <Label htmlFor="rs-override-reason">Override reason</Label>
+                                        <Input
+                                            id="rs-override-reason"
+                                            value={overrideReason}
+                                            onChange={(event) => setOverrideReason(event.target.value)}
+                                            placeholder="Why this release proceeds over open blockers"
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            This is recorded in the audit chain and inside the signed
+                                            attestation, naming every finding it steps over. Prefer a
+                                            waiver, which names an owner, an approver, and an expiry.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div className="flex flex-wrap items-end gap-3">
                             <div className="space-y-1">
                                 <Label htmlFor="rs-label">Release label</Label>
@@ -1042,7 +1082,11 @@ function BuildDetailView({
                             </div>
                             {canMutate && (
                                 <Button
-                                    disabled={Boolean(busy) || !label.trim()}
+                                    disabled={
+                                        Boolean(busy) ||
+                                        !label.trim() ||
+                                        (overrideBlockers && !overrideReason.trim())
+                                    }
                                     onClick={() =>
                                         void onRun(
                                             "release",
@@ -1051,12 +1095,17 @@ function BuildDetailView({
                                                     release_label: label.trim(),
                                                     document_number: "",
                                                     revision: revision.trim(),
+                                                    override_blockers: overrideBlockers,
+                                                    override_reason: overrideReason.trim(),
                                                 }),
-                                            "Release created and signed.",
+                                            overrideBlockers
+                                                ? "Release created and signed over open blockers."
+                                                : "Release created and signed.",
                                         )
                                     }
                                 >
-                                    <ShieldCheck className="mr-2 h-4 w-4" /> Sign and release
+                                    <ShieldCheck className="mr-2 h-4 w-4" />{" "}
+                                    {overrideBlockers ? "Override and release" : "Sign and release"}
                                 </Button>
                             )}
                         </div>

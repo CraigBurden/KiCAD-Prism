@@ -76,6 +76,7 @@ def preferred_scale(view_width: float, view_height: float, window: "Rect") -> fl
     return min(window.width / view_width, window.height / view_height)
 
 Anchor = Literal["start", "middle", "end"]
+Baseline = Literal["alphabetic", "central"]
 Family = Literal["display", "sans", "mono"]
 
 
@@ -147,6 +148,13 @@ class Text:
     family: Family = "sans"
     bold: bool = False
     colour: str = "#000000"
+    #: Degrees clockwise about ``(x, y)``.  Assembly designators on tall parts
+    #: are set along the part, which is the only reason this is not always zero.
+    rotation: float = 0.0
+    #: ``"alphabetic"`` puts the baseline at ``y``; ``"central"`` centres the
+    #: cap height on it, which is what a designator sitting inside a component
+    #: footprint needs.
+    baseline: Baseline = "alphabetic"
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +164,23 @@ class Polyline:
     colour: str = "#000000"
     fill: str = "none"
     close: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class Circle:
+    """A filled or stroked disc.
+
+    Drills are the reason this exists rather than being flattened into a
+    polygon: a hole is round, and a released drawing that shows a 64-gon where
+    the fabricator expects a circle invites the wrong question.
+    """
+
+    cx: float
+    cy: float
+    r: float
+    width: float = 0.0
+    colour: str = "#000000"
+    fill: str = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +202,7 @@ class Artwork:
     label: str = ""
 
 
-Element = Line | Rectangle | Text | Polyline | Artwork
+Element = Line | Rectangle | Text | Polyline | Circle | Artwork
 
 
 @dataclass(frozen=True, slots=True)
@@ -416,6 +441,9 @@ class Table:
     font_size: float = 2.4
     row_height: float = 4.2
     title: str = ""
+    #: Text of the "and N more" row, when :meth:`truncated` added one.  Drawn
+    #: across the whole table rather than into the first column's width.
+    truncation_marker: str = ""
 
     def height(self) -> float:
         header = self.row_height + (5.0 if self.title else 0.0)
@@ -442,6 +470,7 @@ class Table:
             font_size=self.font_size * factor,
             row_height=self.row_height * factor,
             title=self.title,
+            truncation_marker=self.truncation_marker,
         )
 
     def truncated(self, keep: int, note: str = "and {count} more") -> "Table":
@@ -455,7 +484,8 @@ class Table:
         if keep >= len(self.rows) or keep < 0:
             return self
         dropped = len(self.rows) - keep
-        marker = (note.format(count=dropped),) + ("",) * (len(self.columns) - 1)
+        text = note.format(count=dropped)
+        marker = (text,) + ("",) * (len(self.columns) - 1)
         return Table(
             columns=self.columns,
             rows=tuple(self.rows[:keep]) + (marker,),
@@ -464,6 +494,7 @@ class Table:
             font_size=self.font_size,
             row_height=self.row_height,
             title=self.title,
+            truncation_marker=text,
         )
 
 
@@ -543,14 +574,23 @@ def fit_tables(
     return fitted[0], factor
 
 
-#: Gutter kept clear at a cell's trailing edge, so a right-aligned value cannot
-#: sit flush against the next column's left-aligned one and read as one word.
-_CELL_GUTTER = 1.0
+#: Gutter kept clear at a cell's trailing edge, as a fraction of the drawn font
+#: size, so a right-aligned value cannot sit flush against the next column's
+#: left-aligned one and read as one word -- `0.0895I-TERA MT40`.
+#:
+#: Proportional rather than a fixed millimetre value because the tables scale:
+#: a gutter that is comfortable at 2.4 mm text is invisible at 1.8 mm, which is
+#: exactly the size a crowded stackup table gets shrunk to.
+_CELL_GUTTER_RATIO = 0.5
 
 
-def _cell_anchor(offset: float, width: float, align: Anchor) -> float:
+def _cell_gutter(font_size: float) -> float:
+    return font_size * _CELL_GUTTER_RATIO
+
+
+def _cell_anchor(offset: float, width: float, align: Anchor, font_size: float) -> float:
     if align == "end":
-        return offset + width - _CELL_GUTTER
+        return offset + width - _cell_gutter(font_size)
     if align == "middle":
         return offset + width / 2
     return offset
@@ -569,16 +609,16 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
         cursor += 5.0
 
     aligns = table.align or tuple("start" for _ in table.columns)
+    gutter = _cell_gutter(table.font_size)
     header_baseline = cursor + table.row_height - 1.4
     offset = x0
     for column, width, align in zip(table.columns, table.widths, aligns):
-        anchor_x = _cell_anchor(offset, width, align)
         builder.text(
-            anchor_x,
+            _cell_anchor(offset, width, align, table.font_size),
             header_baseline,
             fit_text(
                 column,
-                width - 1.0,
+                width - gutter,
                 table.font_size,
                 bold=True,
                 typography=builder.typography,
@@ -595,16 +635,24 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
     for row in table.rows:
         baseline = cursor + table.row_height - 1.4
         offset = x0
-        for value, width, align in zip(row, table.widths, aligns):
-            anchor_x = offset if align == "start" else (
-                offset + width if align == "end" else offset + width / 2
-            )
+        # A truncation marker is a statement about the table, not a value in
+        # it: it spans the row and is never itself abbreviated, because "and 2
+        # ..." tells a reader less than no notice at all would.
+        marker = table.truncation_marker and row and str(row[0]) == table.truncation_marker
+        if marker:
             builder.text(
-                anchor_x,
+                x0, baseline, table.truncation_marker,
+                size=table.font_size, family="mono", colour="#555555",
+            )
+            cursor += table.row_height
+            continue
+        for value, width, align in zip(row, table.widths, aligns):
+            builder.text(
+                _cell_anchor(offset, width, align, table.font_size),
                 baseline,
                 fit_text(
                     str(value),
-                    width - 1.0,
+                    width - gutter,
                     table.font_size,
                     family="mono",
                     typography=builder.typography,

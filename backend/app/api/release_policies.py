@@ -77,12 +77,14 @@ async def update_version(
     policy_key: str,
     version: int,
     request: PolicyVersionRequest,
+    user: AuthenticatedUser = Depends(require_admin),
 ) -> dict[str, Any]:
     return _call(
         policies.update_draft,
         policy_key,
         version,
         document=request.document,
+        actor=user.email,
     )
 
 
@@ -102,6 +104,16 @@ async def retire_version(
     user: AuthenticatedUser = Depends(require_admin),
 ) -> dict[str, Any]:
     return _call(policies.retire, policy_key, version, actor=user.email)
+
+
+@router.get("/{policy_key}/audit")
+async def policy_audit(policy_key: str) -> dict[str, Any]:
+    """Who changed this policy, and whether the record has been tampered with."""
+
+    return {
+        "events": policies.list_policy_audit_events(policy_key),
+        "verification": policies.verify_policy_audit_chain(policy_key),
+    }
 
 
 @router.get("/{policy_key}/diff")

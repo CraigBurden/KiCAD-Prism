@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
 from app.services.workspace_schema_migrations import (  # noqa: E402
     MIGRATIONS,
     _release_studio,
-    _release_studio_hardening,
+    _release_studio,
     apply_workspace_migrations,
 )
 
@@ -875,8 +875,10 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
         self.assertIn("<> ''", str(index["definition"]))
 
     def test_trigger_definitions_are_present_and_recreated_safely(self) -> None:
-        _release_studio_hardening(self.conn)
-        _release_studio_hardening(self.conn)
+        # Applied twice: the migration is idempotent, and a re-run must not
+        # leave a table without the guard it dropped a moment earlier.
+        _release_studio(self.conn)
+        _release_studio(self.conn)
         self.conn.commit()
 
         rows = self.conn.execute(
@@ -909,6 +911,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
             self.assertIn("BEFORE DELETE OR UPDATE", definitions[trigger])
         self.assertIn("trg_ws_release_policy_versions_guard", definitions)
         self.assertIn("trg_ws_release_records_guard", definitions)
+        self.assertIn("trg_ws_release_candidates_snapshot_guard", definitions)
 
     def _seed_release_graph(self) -> dict[str, str]:
         suffix = uuid.uuid4().hex
@@ -1220,6 +1223,48 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
         self._assert_rejected(
             "DELETE FROM ws_release_audit_events WHERE id = %s",
             (ids["audit"],),
+        )
+
+    def test_a_captured_candidate_policy_snapshot_cannot_be_rewritten(self) -> None:
+        """The snapshot is what every evaluation of this candidate is about.
+
+        In-code writes only touch `status`, so before this trigger the
+        immutability of the thing approvals bind to held by convention.
+        """
+
+        ids = self._seed_release_graph()
+        candidate_id = ids["candidate"]
+        self.conn.execute(
+            """
+            UPDATE ws_release_candidates
+            SET policy_snapshot_captured = TRUE,
+                policy_document = %s::jsonb
+            WHERE id = %s
+            """,
+            ('{"rules": []}', candidate_id),
+        )
+
+        # A status transition is ordinary work and must still be allowed.
+        self.conn.execute(
+            "UPDATE ws_release_candidates SET status = 'built' WHERE id = %s",
+            (candidate_id,),
+        )
+
+        self._assert_rejected(
+            "UPDATE ws_release_candidates SET policy_document = %s::jsonb WHERE id = %s",
+            ('{"rules": [{"id": "drc.clean"}]}', candidate_id),
+        )
+        self._assert_rejected(
+            "UPDATE ws_release_candidates SET policy_snapshot_captured = FALSE WHERE id = %s",
+            (candidate_id,),
+        )
+        self._assert_rejected(
+            "UPDATE ws_release_candidates SET commit_sha = %s WHERE id = %s",
+            ("f" * 40, candidate_id),
+        )
+        self._assert_rejected(
+            "UPDATE ws_release_candidates SET build_key = %s WHERE id = %s",
+            ("f" * 64, candidate_id),
         )
 
     def test_parent_deletions_are_blocked_by_restrict_history_fks(self) -> None:
@@ -1662,220 +1707,15 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
             (first_id,),
         )
 
-    def test_v8_rows_upgrade_old_defaults_and_vocabulary(self) -> None:
-        legacy_schema = f"release_r3_v8_{uuid.uuid4().hex}"
-        self.conn.execute(f'CREATE SCHEMA "{legacy_schema}"')
-        try:
-            self.conn.execute(f'SET search_path TO "{legacy_schema}", public')
-            self._create_base_workspace_tables()
-            for version, _, migration in MIGRATIONS:
-                if version <= 8:
-                    migration(self.conn)
+    def test_release_studio_is_a_single_collapsed_migration(self) -> None:
+        """R23: one Release Studio ladder entry, and nothing above it.
 
-            suffix = uuid.uuid4().hex
-            repository_id = f"legacy-repository-{suffix}"
-            project_id = f"legacy-project-{suffix}"
-            candidate_id = f"legacy-candidate-{suffix}"
-            build_id = f"legacy-build-{suffix}"
-            evaluation_id = f"legacy-evaluation-{suffix}"
-            waiver_id = f"legacy-waiver-{suffix}"
-            policy_id = f"legacy-policy-{suffix}"
-            published_version_id = f"legacy-published-version-{suffix}"
-            preserved_version_id = f"legacy-preserved-version-{suffix}"
-            created_at = "2026-01-03 00:00:00+00"
+        The corrective migrations M9-M12 were reasoning about a compatibility
+        surface that never existed -- no database outside this branch had seen
+        M8.  They are folded back into it here.  After the merge into `dev`
+        this inverts and the ladder becomes append-only.
+        """
 
-            self.conn.execute(
-                "INSERT INTO ws_repositories(id) VALUES (%s)",
-                (repository_id,),
-            )
-            self.conn.execute(
-                "INSERT INTO ws_projects(id, repo_id) VALUES (%s, %s)",
-                (project_id, repository_id),
-            )
-            self.conn.execute(
-                """
-                INSERT INTO ws_release_candidates(
-                    id, project_id, repository_id, config_key, commit_sha,
-                    technical_config_digest, input_closure_digest, toolchain_digest,
-                    generator_build, build_key, status
-                )
-                VALUES (%s, %s, %s, 'default', 'legacy-commit', 'technical',
-                        'closure', 'toolchain', 'generator', %s, 'built')
-                """,
-                (candidate_id, project_id, repository_id, f"legacy-build-key-{suffix}"),
-            )
-            self.conn.execute(
-                "INSERT INTO ws_release_builds(id, candidate_id, status) VALUES (%s, %s, 'succeeded')",
-                (build_id, candidate_id),
-            )
-            self.conn.execute(
-                """
-                INSERT INTO ws_release_evaluations(
-                    id, build_id, policy_binding_digest, outcome
-                )
-                VALUES (%s, %s, 'legacy-policy-binding', 'warn')
-                """,
-                (evaluation_id, build_id),
-            )
-            self.conn.execute(
-                """
-                INSERT INTO ws_release_waivers(
-                    id, project_id, config_key, rule_id, domain, subject_pattern,
-                    finding_key, reason, owner
-                )
-                VALUES (%s, %s, 'default', 'legacy-rule', 'bare_board', '*',
-                        'legacy-finding', 'legacy waiver', 'legacy-owner')
-                """,
-                (waiver_id, project_id),
-            )
-            self.conn.execute(
-                """
-                INSERT INTO ws_release_policies(id, policy_key, title)
-                VALUES (%s, %s, 'Legacy policy')
-                """,
-                (policy_id, f"legacy-policy-key-{suffix}"),
-            )
-            self.conn.execute(
-                """
-                INSERT INTO ws_release_policy_versions(
-                    id, policy_id, version, status, content_digest,
-                    created_by, created_at
-                )
-                VALUES (%s, %s, 1, 'published', 'legacy-content', '', %s)
-                """,
-                (published_version_id, policy_id, created_at),
-            )
-            self.conn.execute(
-                """
-                INSERT INTO ws_release_policy_versions(
-                    id, policy_id, version, rules, content_digest, created_by
-                )
-                VALUES (%s, %s, 2, '{"keep":["object"]}', 'preserved-content', 'legacy-owner')
-                """,
-                (preserved_version_id, policy_id),
-            )
-
-            _release_studio_hardening(self.conn)
-            _release_studio_hardening(self.conn)
-
-            evaluation = self.conn.execute(
-                "SELECT outcome FROM ws_release_evaluations WHERE id = %s",
-                (evaluation_id,),
-            ).fetchone()
-            self.assertEqual(evaluation["outcome"], "warning")
-            waiver = self.conn.execute(
-                "SELECT evidence FROM ws_release_waivers WHERE id = %s",
-                (waiver_id,),
-            ).fetchone()
-            self.assertEqual(waiver["evidence"], [])
-            versions = self.conn.execute(
-                """
-                SELECT id, rules, published_at, published_by
-                FROM ws_release_policy_versions
-                WHERE id IN (%s, %s)
-                ORDER BY id
-                """,
-                (published_version_id, preserved_version_id),
-            ).fetchall()
-            by_id = {row["id"]: row for row in versions}
-            self.assertEqual(by_id[preserved_version_id]["rules"], {"keep": ["object"]})
-            self.assertEqual(by_id[published_version_id]["published_by"], "release-studio-migration-9")
-            self.assertEqual(
-                by_id[published_version_id]["published_at"].isoformat(),
-                "2026-01-03T00:00:00+00:00",
-            )
-        finally:
-            self.conn.rollback()
-            self.conn.execute(f'SET search_path TO "{self.schema}", public')
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{legacy_schema}" CASCADE')
-            self.conn.commit()
-
-    def test_m9_audit_shape_precondition_rejects_all_m8_shapes_without_rewriting_chain_data(
-        self,
-    ) -> None:
-        # Four M8-shaped rows cover the three precondition classes:
-        # nonpositive sequence, non-NULL genesis hash, and NULL/blank
-        # non-genesis hash.
-        cases = (
-            ("nonpositive_sequence", 0, None, "sequence_must_be_positive"),
-            ("non_null_genesis", 1, "not-genesis", "genesis_previous_hash_must_be_null"),
-            ("null_non_genesis", 2, None, "non_genesis_previous_hash_must_be_nonblank"),
-            ("blank_non_genesis", 2, "   ", "non_genesis_previous_hash_must_be_nonblank"),
-        )
-        for label, sequence, previous_hash, expected_violation in cases:
-            with self.subTest(violation=label):
-                legacy_schema = f"release_r3_invalid_audit_{label}_{uuid.uuid4().hex}"
-                self.conn.execute(f'CREATE SCHEMA "{legacy_schema}"')
-                try:
-                    self.conn.execute(f'SET search_path TO "{legacy_schema}", public')
-                    self._create_base_workspace_tables()
-                    for version, _, migration in MIGRATIONS:
-                        if version <= 8:
-                            migration(self.conn)
-
-                    self.conn.execute("INSERT INTO ws_repositories(id) VALUES ('audit-repository')")
-                    self.conn.execute(
-                        "INSERT INTO ws_projects(id, repo_id) VALUES ('audit-project', 'audit-repository')"
-                    )
-                    self.conn.execute(
-                        """
-                        INSERT INTO ws_release_audit_events(
-                            id, project_id, config_key, sequence, event_type, actor,
-                            subject_kind, subject_id, previous_hash, event_hash, created_at_iso
-                        )
-                        VALUES (
-                            'audit-invalid', 'audit-project', 'default', %s,
-                            'release.created', 'migration-test', 'release',
-                            'release-1', %s, 'event-hash-original',
-                            '2026-01-01T00:00:00Z'
-                        )
-                        """,
-                        (sequence, previous_hash),
-                    )
-
-                    with self.assertRaisesRegex(
-                        RuntimeError,
-                        rf"Migration 9 audit-shape precondition failed: .*"
-                        rf"sequence={sequence}.*{expected_violation}",
-                    ):
-                        _release_studio_hardening(self.conn)
-
-                    row = self.conn.execute(
-                        """
-                        SELECT sequence, previous_hash, event_hash
-                        FROM ws_release_audit_events
-                        WHERE id = 'audit-invalid'
-                        """
-                    ).fetchone()
-                    self.assertEqual(row["sequence"], sequence)
-                    self.assertEqual(row["previous_hash"], previous_hash)
-                    self.assertEqual(row["event_hash"], "event-hash-original")
-                    constraints = self.conn.execute(
-                        """
-                        SELECT constraint_row.conname
-                        FROM pg_constraint AS constraint_row
-                        JOIN pg_class AS table_row
-                          ON table_row.oid = constraint_row.conrelid
-                        JOIN pg_namespace AS namespace_row
-                          ON namespace_row.oid = table_row.relnamespace
-                        WHERE namespace_row.nspname = %s
-                          AND table_row.relname = 'ws_release_audit_events'
-                          AND constraint_row.conname IN (
-                              'ck_ws_release_audit_events_sequence_positive',
-                              'ck_ws_release_audit_events_genesis_previous_hash'
-                          )
-                        """,
-                        (legacy_schema,),
-                    ).fetchall()
-                    self.assertEqual(constraints, [])
-                finally:
-                    self.conn.rollback()
-                    self.conn.execute(f'SET search_path TO "{self.schema}", public')
-                    self.conn.execute(f'DROP SCHEMA IF EXISTS "{legacy_schema}" CASCADE')
-                    self.conn.commit()
-
-class ReleaseStudioMigrationLadderTests(unittest.TestCase):
-    def test_migration_ladder_remains_ordered_through_web_shares(self) -> None:
         self.assertEqual(
             [(version, name) for version, name, _ in MIGRATIONS],
             [
@@ -1887,10 +1727,6 @@ class ReleaseStudioMigrationLadderTests(unittest.TestCase):
                 (6, "thumbnail_source"),
                 (7, "generated_thumbnail_default"),
                 (8, "release_studio"),
-                (9, "release_studio_hardening"),
-                (10, "release_studio_rule_outcomes"),
-                (11, "release_studio_waiver_exceptions"),
-                (12, "release_studio_web_shares"),
             ],
         )
 

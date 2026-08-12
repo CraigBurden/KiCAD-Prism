@@ -627,22 +627,80 @@ def _aggregate(findings: Sequence[Finding], outcomes: Sequence[RuleOutcome]) -> 
     return "pass"
 
 
-def release_is_permitted(evaluation: Evaluation) -> tuple[bool, str]:
-    """Gate used by R18. Waived blockers pass; open ones never do."""
+def blocking_findings(evaluation: Evaluation) -> list[Finding]:
+    """Findings that stand between this build and a release."""
 
-    blocking = [
+    return [
         finding
         for finding in evaluation.findings
         if finding.status != "waived" and finding.severity in BLOCKING_SEVERITIES
     ]
+
+
+def unsupported_rules(evaluation: Evaluation) -> list[RuleOutcome]:
+    """Rules that could not be evaluated, which is not the same as passing."""
+
+    return [item for item in evaluation.rule_outcomes if item.outcome == "unsupported"]
+
+
+def release_is_permitted(
+    evaluation: Evaluation, *, overridden: bool = False
+) -> tuple[bool, str]:
+    """Gate used by R18. Waived blockers pass; open ones never do.
+
+    ``overridden`` is the administrative break-glass path.  It is not a way of
+    deciding that a blocker was unimportant -- that is what a waiver is for,
+    and a waiver names an owner, an approver, and an expiry.  It exists because
+    a two-person governance path can be unavailable when a release still has to
+    go out, and because the alternative to an audited override is an
+    unaudited one performed with `psql`.
+
+    The caller is responsible for establishing that the actor may do this; the
+    override is recorded in the signed attestation either way, so a recipient
+    can see that a release went out over open blockers without asking anyone.
+    """
+
+    blocking = blocking_findings(evaluation)
+    unsupported = unsupported_rules(evaluation)
+    if overridden:
+        return True, ""
     if blocking:
         subjects = ", ".join(sorted({item.subject for item in blocking})[:5])
         return False, f"{len(blocking)} unwaived blocking finding(s): {subjects}"
-    unsupported = [item for item in evaluation.rule_outcomes if item.outcome == "unsupported"]
     if unsupported:
         names = ", ".join(sorted(item.rule_id for item in unsupported)[:5])
         return False, f"{len(unsupported)} rule(s) could not be evaluated: {names}"
     return True, ""
+
+
+def override_record(evaluation: Evaluation, *, actor: str, reason: str) -> dict[str, Any]:
+    """What an administrative override has to state, for the attestation.
+
+    Every finding and unevaluated rule it steps over is named.  An override
+    recorded as a bare flag would let a recipient see *that* the gate was
+    bypassed without ever learning *what* it was bypassing.
+    """
+
+    return {
+        "actor": actor,
+        "reason": reason,
+        "findings": [
+            {
+                "rule_id": finding.rule_id,
+                "severity": finding.severity,
+                "domain": finding.domain,
+                "subject": finding.subject,
+                "message": finding.message,
+                "finding_key": finding.finding_key,
+            }
+            for finding in sorted(
+                blocking_findings(evaluation), key=lambda item: item.finding_key
+            )
+        ],
+        "unsupported_rules": sorted(
+            item.rule_id for item in unsupported_rules(evaluation)
+        ),
+    }
 
 
 __all__ = [
@@ -657,6 +715,9 @@ __all__ = [
     "ResolvedPolicy",
     "RuleContext",
     "RuleOutcome",
+    "blocking_findings",
+    "override_record",
+    "unsupported_rules",
     "RuleSpec",
     "catalogue_payload",
     "content_digest",

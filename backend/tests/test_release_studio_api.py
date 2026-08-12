@@ -234,17 +234,16 @@ class ReleaseStudioApiTests(unittest.TestCase):
             fingerprints = {
                 domain: {
                     **record,
-                    "inputs": {
-                        **record.get("inputs", {}),
-                        "projections": projections if domain == "bare_board" else {},
-                    },
                     "fidelity": "board" if domain == "bare_board" else record["fidelity"],
                 }
                 for domain, record in dossier.fingerprints.items()
             }
             object.__setattr__(dossier, "fingerprints", fingerprints)
+        # Projections are recorded once per build rather than inside every
+        # fingerprint's inputs; re-evaluation reads them from there.
         completed = self.service.complete_build(
-            build_id=build["id"], dossier=dossier, toolchain={}, fence=1
+            build_id=build["id"], dossier=dossier, toolchain={}, fence=1,
+            projections=projections or {},
         )
         return candidate, completed
 
@@ -326,6 +325,121 @@ class ReleaseStudioApiTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.status_code, 409)
         self.assertIn("blocking finding", caught.exception.detail)
+
+    def test_a_designer_cannot_override_open_blockers(self) -> None:
+        """Break-glass is an administrative act, not a designer's."""
+
+        _candidate, build = self._built(drc_errors=3)
+        _run(
+            self.api.evaluate_build(
+                self.project_id, build["id"],
+                self.api.EvaluateRequest(config_key="default"), user=self.user,
+            )
+        )
+        with self.assertRaises(HTTPException) as caught:
+            _run(
+                self.api.create_release(
+                    self.project_id, build["id"],
+                    self.api.ReleaseRequest(
+                        release_label="REL-1", document_number="", revision="A",
+                        override_blockers=True, override_reason="ship it",
+                    ),
+                    user=self.user,
+                )
+            )
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertIn("admin role", caught.exception.detail)
+
+    def test_an_override_without_a_reason_is_refused(self) -> None:
+        _candidate, build = self._built(drc_errors=3)
+        _run(
+            self.api.evaluate_build(
+                self.project_id, build["id"],
+                self.api.EvaluateRequest(config_key="default"), user=self.user,
+            )
+        )
+        with self.assertRaises(HTTPException) as caught:
+            _run(
+                self.api.create_release(
+                    self.project_id, build["id"],
+                    self.api.ReleaseRequest(
+                        release_label="REL-1", document_number="", revision="A",
+                        override_blockers=True, override_reason="   ",
+                    ),
+                    user=_User("admin", role="admin"),
+                )
+            )
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("reason", caught.exception.detail)
+
+    def test_an_override_on_a_clean_build_is_refused(self) -> None:
+        """A break-glass marker that stepped over nothing is a lie in a signature."""
+
+        _candidate, build = self._built()
+        policy = {"rules": [], "required_approvals": []}
+        with patch.object(self.api, "_policy_document", return_value=policy):
+            _run(
+                self.api.evaluate_build(
+                    self.project_id, build["id"],
+                    self.api.EvaluateRequest(config_key="default"), user=self.user,
+                )
+            )
+            with self.assertRaises(HTTPException) as caught:
+                _run(
+                    self.api.create_release(
+                        self.project_id, build["id"],
+                        self.api.ReleaseRequest(
+                            release_label="REL-CLEAN", document_number="", revision="A",
+                            override_blockers=True, override_reason="not needed",
+                        ),
+                        user=_User("admin", role="admin"),
+                    )
+                )
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("no open blockers", caught.exception.detail)
+
+    def test_an_admin_override_releases_and_records_what_it_stepped_over(self) -> None:
+        _candidate, build = self._built(drc_errors=3)
+        policy = {
+            "rules": [
+                {"id": "drc.clean", "severity": "blocker", "params": {"max_errors": 0}}
+            ],
+            "required_approvals": [],
+        }
+        admin = _User("admin", role="admin")
+        with patch.object(self.api, "_policy_document", return_value=policy):
+            _run(
+                self.api.evaluate_build(
+                    self.project_id, build["id"],
+                    self.api.EvaluateRequest(config_key="default"), user=self.user,
+                )
+            )
+            record = _run(
+                self.api.create_release(
+                    self.project_id, build["id"],
+                    self.api.ReleaseRequest(
+                        release_label="REL-OVERRIDE", document_number="", revision="A",
+                        override_blockers=True,
+                        override_reason="customer accepted the clearance deviation",
+                    ),
+                    user=admin,
+                )
+            )
+
+        override = record["policy_snapshot"]["override"]
+        self.assertEqual(override["actor"], "admin")
+        self.assertIn("clearance deviation", override["reason"])
+        # Every finding it stepped over is named, so a recipient learns what was
+        # bypassed and not merely that something was.
+        self.assertTrue(override["findings"])
+        self.assertTrue(all(item["rule_id"] == "drc.clean" for item in override["findings"]))
+
+        # ...and the override is its own audit event, findable without reading
+        # inside every release event's details.
+        events = self.service.list_audit_events(self.project_id, "default")
+        kinds = [event["event_type"] for event in events]
+        self.assertIn("release.blockers_overridden", kinds)
+        self.assertIn("release.created", kinds)
 
     def test_release_is_refused_when_a_required_approval_is_missing(self) -> None:
         _candidate, build = self._built()

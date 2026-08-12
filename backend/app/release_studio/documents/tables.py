@@ -197,7 +197,12 @@ def drill_table(stackup: Mapping[str, Any], stats: Mapping[str, Any]) -> Table:
 
 
 def variant_table(variants: Mapping[str, Any], selected: str) -> Table:
-    """Declared variants, marking the one this release was built for."""
+    """Declared variants, marking the one this release was built for.
+
+    A project with no variants gets a stated fact rather than a header row over
+    nothing: an empty table reads as data that failed to load, which is a
+    different and more alarming thing than a board that has one build.
+    """
 
     rows: list[tuple[str, ...]] = []
     for name in variants.get("variants") or []:
@@ -206,6 +211,13 @@ def variant_table(variants: Mapping[str, Any], selected: str) -> Table:
         # A board and schematic that disagree about the variant set is a real
         # defect, and the sheet says so rather than silently picking one.
         rows.append(("variant sets disagree", "review"))
+    if not rows:
+        return Table(
+            title="VARIANTS",
+            columns=("Variant", "Status"),
+            rows=(("no variants declared", "—"),),
+            widths=(52.0, 24.0),
+        )
     return Table(
         title="VARIANTS",
         columns=("Variant", "Status"),

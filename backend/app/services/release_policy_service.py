@@ -1,9 +1,14 @@
 """Administrative authoring for immutable organization release policies.
 
 Drafts are editable. Publishing freezes the exact normalized document and its
-content digest through the database guard installed by migration 9. Project
+content digest through the database guard installed with the schema. Project
 overlays remain Git-owned and can only bind a published version by
 ``org:<policy_key>@<version>``.
+
+Every authoring act is appended to a per-policy hash chain. Publishing a
+version invalidates approvals across every project that binds it, so "who
+changed this policy, and when" has to be answerable without trusting the row
+that changed.
 """
 
 from __future__ import annotations
@@ -81,6 +86,112 @@ def get_policy(policy_key: str) -> dict[str, Any] | None:
     return result
 
 
+def append_policy_audit_event(
+    conn: Any,
+    *,
+    policy_key: str,
+    event_type: str,
+    actor: str,
+    subject_kind: str,
+    subject_id: str,
+    details: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Append one policy-authoring event under the caller's transaction.
+
+    Its own chain rather than a nullable ``project_id`` on the project chain:
+    an org policy is not an event in any one project's history, and widening
+    that table would weaken the sequence and genesis constraints that make it
+    checkable.
+    """
+
+    row = conn.execute(
+        """
+        SELECT sequence, event_hash FROM ws_release_policy_audit_events
+        WHERE policy_key = %s ORDER BY sequence DESC LIMIT 1
+        """,
+        (policy_key,),
+    ).fetchone()
+    sequence = (int(row["sequence"]) + 1) if row else 1
+    previous_hash = str(row["event_hash"]) if row else None
+
+    created_at_iso = store._now_iso()
+    fields = {
+        "policy_key": policy_key,
+        "sequence": sequence,
+        "event_type": event_type,
+        "actor": actor,
+        "subject_kind": subject_kind,
+        "subject_id": subject_id,
+        "details": dict(details or {}),
+    }
+    event_hash = store._event_hash(previous_hash, fields, created_at_iso)
+    event_id = store._new_id("policyaudit")
+    conn.execute(
+        """
+        INSERT INTO ws_release_policy_audit_events(
+            id, policy_key, sequence, event_type, actor, subject_kind,
+            subject_id, details, previous_hash, event_hash, created_at_iso
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """,
+        (
+            event_id, policy_key, sequence, event_type, actor, subject_kind,
+            subject_id, json.dumps(fields["details"]), previous_hash, event_hash,
+            created_at_iso,
+        ),
+    )
+    return {**fields, "id": event_id, "event_hash": event_hash}
+
+
+def list_policy_audit_events(policy_key: str, limit: int = 500) -> list[dict[str, Any]]:
+    with store.connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM ws_release_policy_audit_events WHERE policy_key = %s "
+            "ORDER BY sequence DESC LIMIT %s",
+            (policy_key, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def verify_policy_audit_chain(policy_key: str) -> dict[str, Any]:
+    """Check linkage, not merely row shape.
+
+    A stream that satisfies the table's constraints is well-formed, not valid:
+    validity is `previous_hash[n] == event_hash[n-1]` over a contiguous
+    sequence from a single genesis, which only a full read can establish.
+    """
+
+    with store.connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM ws_release_policy_audit_events WHERE policy_key = %s "
+            "ORDER BY sequence",
+            (policy_key,),
+        ).fetchall()
+
+    problems: list[str] = []
+    previous_hash: str | None = None
+    for index, row in enumerate(rows, start=1):
+        if int(row["sequence"]) != index:
+            problems.append(
+                f"sequence {row['sequence']} is out of order at position {index}"
+            )
+        if (row["previous_hash"] or None) != previous_hash:
+            problems.append(f"broken link at sequence {row['sequence']}")
+        fields = {
+            "policy_key": row["policy_key"],
+            "sequence": int(row["sequence"]),
+            "event_type": row["event_type"],
+            "actor": row["actor"],
+            "subject_kind": row["subject_kind"],
+            "subject_id": row["subject_id"],
+            "details": row["details"] or {},
+        }
+        expected = store._event_hash(previous_hash, fields, row["created_at_iso"])
+        if expected != row["event_hash"]:
+            problems.append(f"event hash mismatch at sequence {row['sequence']}")
+        previous_hash = str(row["event_hash"])
+    return {"ok": not problems, "events": len(rows), "problems": problems}
+
+
 def create_policy(*, policy_key: str, title: str, actor: str) -> dict[str, Any]:
     key = policy_key.strip()
     if not key or any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789._-" for ch in key):
@@ -93,6 +204,11 @@ def create_policy(*, policy_key: str, title: str, actor: str) -> dict[str, Any]:
             VALUES (%s,%s,%s,%s)
             """,
             (policy_id, key, title.strip(), actor),
+        )
+        append_policy_audit_event(
+            conn, policy_key=key, event_type="policy.created", actor=actor,
+            subject_kind="policy", subject_id=policy_id,
+            details={"title": title.strip()},
         )
         conn.commit()
     return get_policy(key) or {}
@@ -127,6 +243,11 @@ def create_version(
             """,
             (version_id, policy["id"], version, json.dumps(normalized), digest, actor),
         )
+        append_policy_audit_event(
+            conn, policy_key=policy_key, event_type="policy.version_created",
+            actor=actor, subject_kind="policy_version", subject_id=version_id,
+            details={"version": version, "content_digest": digest},
+        )
         conn.commit()
         row = conn.execute(
             "SELECT * FROM ws_release_policy_versions WHERE id = %s", (version_id,)
@@ -139,6 +260,7 @@ def update_draft(
     version: int,
     *,
     document: Mapping[str, Any],
+    actor: str = "",
 ) -> dict[str, Any]:
     normalized = _normalize_document(document)
     digest = content_digest(normalized)
@@ -149,6 +271,15 @@ def update_draft(
         conn.execute(
             "UPDATE ws_release_policy_versions SET rules=%s, content_digest=%s WHERE id=%s",
             (json.dumps(normalized), digest, row["id"]),
+        )
+        append_policy_audit_event(
+            conn, policy_key=policy_key, event_type="policy.draft_updated",
+            actor=actor, subject_kind="policy_version", subject_id=row["id"],
+            details={
+                "version": version,
+                "content_digest": digest,
+                "previous_content_digest": row["content_digest"],
+            },
         )
         conn.commit()
         updated = conn.execute(
@@ -175,6 +306,13 @@ def publish(policy_key: str, version: int, *, actor: str) -> dict[str, Any]:
             """,
             (actor, row["id"]),
         )
+        # The event a reviewer is actually looking for: publishing a version
+        # invalidates approvals in every project that binds this policy.
+        append_policy_audit_event(
+            conn, policy_key=policy_key, event_type="policy.published",
+            actor=actor, subject_kind="policy_version", subject_id=row["id"],
+            details={"version": version, "content_digest": row["content_digest"]},
+        )
         conn.commit()
         published = conn.execute(
             "SELECT * FROM ws_release_policy_versions WHERE id=%s", (row["id"],)
@@ -193,6 +331,11 @@ def retire(policy_key: str, version: int, *, actor: str) -> dict[str, Any]:
             SET status='retired', retired_at=NOW(), retired_by=%s WHERE id=%s
             """,
             (actor, row["id"]),
+        )
+        append_policy_audit_event(
+            conn, policy_key=policy_key, event_type="policy.retired",
+            actor=actor, subject_kind="policy_version", subject_id=row["id"],
+            details={"version": version},
         )
         conn.commit()
         retired = conn.execute(
