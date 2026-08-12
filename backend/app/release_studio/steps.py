@@ -16,8 +16,9 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -70,6 +71,8 @@ class StepOutput:
     stdout: str = ""
     stderr: str = ""
     skipped_reason: str = ""
+    #: Wall clock of this invocation. Evidence only — never a fingerprint input.
+    elapsed_ms: int = 0
 
     @property
     def ran(self) -> bool:
@@ -130,7 +133,6 @@ STEP_CATALOGUE: tuple[StepSpec, ...] = (
         argv=(
             "pcb", "export", "drill",
             "--format", "excellon", "--excellon-units", "mm",
-            "--generate-map", "--map-format", "gerberx2",
             "--output", "{out}", "{board}",
         ),
         source="board",
@@ -169,19 +171,6 @@ STEP_CATALOGUE: tuple[StepSpec, ...] = (
         variant_flag=True,
     ),
     StepSpec(
-        step_id="board_pdf",
-        step_type="pcb_export_pdf",
-        argv=("pcb", "export", "pdf", "--output", "{out}", "{board}"),
-        source="board",
-        output_kind="file",
-        output_name="documentation/board.pdf",
-        member_kind="board_pdf",
-        canonicalizer="pdf",
-        domains=("documentation",),
-        optional=True,
-        variant_flag=True,
-    ),
-    StepSpec(
         step_id="schematic_pdf",
         step_type="sch_export_plot_pdf",
         argv=("sch", "export", "pdf", "--output", "{out}", "{schematic}"),
@@ -198,12 +187,20 @@ STEP_CATALOGUE: tuple[StepSpec, ...] = (
 
 STEP_BY_ID: Mapping[str, StepSpec] = {spec.step_id: spec for spec in STEP_CATALOGUE}
 
+#: Cheap validation and BOM/PnP first, overlapping the Cruncher assembly load.
+CATALOGUE_WAVE_A: tuple[str, ...] = ("drc", "erc", "board_stats", "positions", "bom")
+#: Artwork the document engine does not itself plot.
+CATALOGUE_WAVE_B: tuple[str, ...] = ("gerbers", "drill", "schematic_pdf")
+
 # The Documentation Engine's sheets, deliberately *outside* `STEP_CATALOGUE`:
 # they are composed in-process rather than by a `kicad-cli` invocation, so they
 # have no step type in KiCad's job registry and `run_step_catalogue` must not
 # try to execute them. The spec exists so composed sheets travel through the
 # same member pipeline as everything else, with the canonicalizer resolved per
 # file by suffix.
+#
+# `optional=False`: a compose failure is a failed documents step, not a
+# silently missing document set. Manufacturing members still assemble.
 DOCUMENT_STEP_SPEC = StepSpec(
     step_id="documents",
     step_type="prism_compose_documents",
@@ -214,7 +211,7 @@ DOCUMENT_STEP_SPEC = StepSpec(
     member_kind="document_sheet",
     canonicalizer="",
     domains=("documentation",),
-    optional=True,
+    optional=False,
 )
 
 # Which steps produce release evidence rather than shipped artwork.
@@ -390,7 +387,9 @@ def _run_one(
         argv.extend(("--variant", variant))
         normalized.extend(("--variant", variant))
 
+    started = time.perf_counter()
     result = execute(argv, closure_root, timeout_seconds)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
     files = _collect_outputs(destination, spec)
     if result.returncode != 0 and not files:
         message = (result.stderr or result.stdout or "").strip()
@@ -406,6 +405,7 @@ def _run_one(
                 stdout=result.stdout,
                 stderr=result.stderr,
                 skipped_reason=f"optional step failed: {message[:400]}",
+                elapsed_ms=elapsed_ms,
             )
         raise StepExecutionError(
             f"step {spec.step_id} ({spec.step_type}) failed with exit code "
@@ -421,6 +421,7 @@ def _run_one(
         spec=spec,
         stdout=result.stdout,
         stderr=result.stderr,
+        elapsed_ms=elapsed_ms,
     )
 
 

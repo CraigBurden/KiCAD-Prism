@@ -228,14 +228,7 @@ async def list_document_sheets(
         if not path.startswith("documentation/"):
             continue
         filename = path.removeprefix("documentation/")
-        if filename.endswith(".svg"):
-            key = filename.removesuffix(".svg")
-            by_key.setdefault(key, {"key": key})["svg"] = {
-                "path": path,
-                "released_digest": member["released_digest"],
-                "media_type": member.get("media_type") or "image/svg+xml",
-            }
-        elif filename.endswith(".pdf"):
+        if filename.endswith(".pdf"):
             key = filename.removesuffix(".pdf")
             by_key.setdefault(key, {"key": key})["pdf"] = {
                 "path": path,
@@ -245,21 +238,21 @@ async def list_document_sheets(
     return {"sheets": [by_key[key] for key in sorted(by_key)]}
 
 
-@router.get("/{project_id}/release-studio/builds/{build_id}/sheets/{sheet_key}.svg")
+@router.get("/{project_id}/release-studio/builds/{build_id}/sheets/{sheet_key}.pdf")
 async def preview_document_sheet(
     project_id: str,
     build_id: str,
     sheet_key: str,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    """Serve the immutable SVG preview for one composed documentation sheet."""
+    """Serve the immutable PDF preview for one composed documentation document."""
 
     if not sheet_key or any(ch not in "abcdefghijklmnopqrstuvwxyz0123456789-" for ch in sheet_key):
         raise HTTPException(status_code=404, detail="Sheet not found")
     return await download_member(
         project_id,
         build_id,
-        f"documentation/{sheet_key}.svg",
+        f"documentation/{sheet_key}.pdf",
         disposition="inline",
         user=user,
     )

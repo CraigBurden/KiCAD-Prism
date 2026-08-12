@@ -264,5 +264,47 @@ class ReleaseStudioJobsetTests(unittest.TestCase):
                 step_closure_for_output(model, "missing")
 
 
+class CatalogueHermeticityTests(unittest.TestCase):
+    def test_unused_jobset_destinations_do_not_taint_the_catalogue(self) -> None:
+        from app.services.release_studio_build_service import _hermeticity
+
+        payload = {
+            "jobs": [
+                {"id": "safe-job", "type": "pcb_export_gerbers", "settings": {}},
+                {
+                    "id": "unsafe-job",
+                    "type": "special_execute",
+                    "settings": {"command": "echo hi"},
+                },
+            ],
+            "outputs": [
+                {
+                    "id": "with-special",
+                    "type": "folder",
+                    "only": ["safe-job", "unsafe-job"],
+                    "settings": {},
+                },
+            ],
+            "meta": {"version": 1},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "sample.kicad_jobset"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            hermetic, reasons = _hermeticity(root, {"jobset": "sample.kicad_jobset"})
+        self.assertTrue(hermetic, reasons)
+        self.assertEqual(reasons, [])
+
+    def test_a_missing_named_jobset_still_fails_closed(self) -> None:
+        from app.services.release_studio_build_service import _hermeticity
+
+        with tempfile.TemporaryDirectory() as temporary:
+            hermetic, reasons = _hermeticity(
+                Path(temporary), {"jobset": "missing.kicad_jobset"}
+            )
+        self.assertFalse(hermetic)
+        self.assertTrue(any("not present" in reason for reason in reasons))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -40,12 +40,14 @@ FORBIDDEN_MANIFEST_KEYS: frozenset[str] = frozenset(
         "created_at",
         "evaluation_id",
         "job_id",
+        "policy",
         "policy_binding",
         "policy_binding_digest",
         "release_id",
         "released_at",
         "signature",
         "signing_key_id",
+        "timestamp",
     }
 )
 
@@ -382,6 +384,7 @@ def assemble(
     config_fragments: Mapping[str, Any] | None = None,
     projections: Mapping[str, Any] | None = None,
     archive_mtime: int = 0,
+    timings: Sequence[Mapping[str, Any]] | None = None,
 ) -> Dossier:
     """Canonicalize, fingerprint, and package one build's outputs."""
 
@@ -447,9 +450,13 @@ def assemble(
                     "normalized_argv": list(output.normalized_argv),
                     "returncode": output.returncode,
                     "skipped_reason": output.skipped_reason,
+                    "elapsed_ms": output.elapsed_ms,
                 }
                 for output in outputs
             },
+            # Wall clock of pipeline phases. Evidence only — never hashed into
+            # a fingerprint or the manifest.
+            "timings": [dict(item) for item in (timings or ())],
             # The manifest carries only projection digests; this is where the
             # facts behind them live, so a digest in a released manifest is
             # still checkable against the text it was taken from.

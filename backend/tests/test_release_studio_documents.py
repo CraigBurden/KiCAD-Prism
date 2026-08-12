@@ -30,6 +30,12 @@ from app.release_studio.documents.layout import (  # noqa: E402
     text_width,
 )
 
+
+def _page(result, key: str) -> str:
+    """Decode the in-memory SVG for one composed page."""
+
+    return result.page_svg(key).decode("utf-8")
+
 try:  # pragma: no cover - exercised by whichever branch the environment takes
     import pikepdf  # noqa: F401
 
@@ -429,7 +435,7 @@ class SheetSizingTests(unittest.TestCase):
         )
         self.assertEqual(result.sheet_size, "A4")
         widths = set()
-        for payload in result.files().values():
+        for payload in result.page_svgs().values():
             match = re.search(rb'width="([0-9.]+)mm"', payload)
             if match:
                 widths.add(match.group(1))
@@ -834,7 +840,7 @@ class DocumentSetTests(unittest.TestCase):
         payload.update(overrides)
         return compose(**payload)
 
-    def test_the_full_sheet_set_is_produced_in_both_formats(self) -> None:
+    def test_the_full_sheet_set_is_produced_as_pdfs(self) -> None:
         result = self._compose()
         keys = [output.key for output in result.outputs]
         self.assertEqual(
@@ -842,9 +848,19 @@ class DocumentSetTests(unittest.TestCase):
             ["cover", "fabrication", "assembly", "testpoint", "drill"],
         )
         paths = sorted(result.files())
-        self.assertIn("documentation/fabrication.svg", paths)
-        self.assertIn("documentation/fabrication.pdf", paths)
-        self.assertEqual(len(paths), 12)
+        self.assertEqual(
+            paths,
+            [
+                "documentation/assembly.pdf",
+                "documentation/cover.pdf",
+                "documentation/drill.pdf",
+                "documentation/fabrication.pdf",
+                "documentation/testpoint.pdf",
+            ],
+        )
+        self.assertTrue(all(path.endswith(".pdf") for path in paths))
+        self.assertIn("cover", result.page_svgs())
+        self.assertIn("fabrication", result.page_svgs())
 
     def test_the_document_set_is_byte_reproducible(self) -> None:
         first = self._compose().files()
@@ -854,24 +870,24 @@ class DocumentSetTests(unittest.TestCase):
     def test_missing_artwork_degrades_one_sheet_and_is_stated(self) -> None:
         result = self._compose()
         self.assertTrue(any("kicad-cli unavailable" in w for w in result.warnings))
-        svg = result.files()["documentation/fabrication.svg"].decode("utf-8")
+        svg = _page(result, "fabrication")
         self.assertIn("board artwork unavailable", svg)
 
 
     def test_the_cover_states_the_commit_date_not_a_render_date(self) -> None:
-        svg = self._compose().files()["documentation/cover.svg"].decode("utf-8")
+        svg = _page(self._compose(), "cover")
         self.assertIn("2026-08-11", svg)
         self.assertIn(CONTEXT["commit_sha"][:12], svg)
 
     def test_the_cover_lists_released_members_with_digests(self) -> None:
-        svg = self._compose().files()["documentation/cover.svg"].decode("utf-8")
+        svg = _page(self._compose(), "cover")
         self.assertIn("RELEASED MEMBERS", svg)
         self.assertIn("a" * 16, svg)
 
     def test_the_assembly_sheets_count_only_their_own_side(self) -> None:
-        files = self._compose().files()
-        top = files["documentation/assembly-top.svg"].decode("utf-8")
-        bottom = files["documentation/assembly-bottom.svg"].decode("utf-8")
+        result = self._compose()
+        top = _page(result, "assembly-top")
+        bottom = _page(result, "assembly-bottom")
         self.assertIn("ASSEMBLY DRAWING — TOP", top)
         self.assertIn("ASSEMBLY DRAWING — BOTTOM", bottom)
         # Three top placements, one bottom.
@@ -880,7 +896,7 @@ class DocumentSetTests(unittest.TestCase):
 
     def test_a_variant_disagreement_is_reported_rather_than_resolved(self) -> None:
         result = self._compose(variants={"variants": ["default"], "diverged": True})
-        svg = result.files()["documentation/cover.svg"].decode("utf-8")
+        svg = _page(result, "cover")
         self.assertIn("disagree", svg)
 
 
@@ -895,6 +911,11 @@ class DocumentSetTests(unittest.TestCase):
             "wall-clock time": re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"),
         }
         result = self._compose()
+        for key, payload in result.page_svgs().items():
+            text = payload.decode("utf-8", errors="replace")
+            for label, pattern in leaks.items():
+                found = pattern.search(text)
+                self.assertIsNone(found, f"{label} leaked into {key}: {found}")
         for path, payload in result.files().items():
             text = payload.decode("utf-8", errors="replace")
             for label, pattern in leaks.items():
@@ -932,7 +953,7 @@ class TypographyTests(unittest.TestCase):
         svg = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
-        ).files()["documentation/cover.svg"].decode("utf-8")
+        ).page_svg("cover").decode("utf-8")
         self.assertIn('data-typography="geist-pixel-square"', svg)
         # Embedded, so the SVG renders identically on a machine that has never
         # heard of Geist.
@@ -943,7 +964,7 @@ class TypographyTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
             typography="kicad-newstroke",
-        ).files()["documentation/cover.svg"].decode("utf-8")
+        ).page_svg("cover").decode("utf-8")
         self.assertIn('data-typography="kicad-newstroke"', svg)
         self.assertIn('data-renderer="kicad-monkey.newstroke"', svg)
         self.assertNotIn("data:font/ttf;base64,", svg)
@@ -953,13 +974,11 @@ class TypographyTests(unittest.TestCase):
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
         )
-        square = compose(**common, typography="kicad-newstroke").files()
-        grid = compose(**common, typography="geist-pixel-grid").files()
+        square = compose(**common, typography="kicad-newstroke")
+        grid = compose(**common, typography="geist-pixel-grid")
+        self.assertNotEqual(square.page_svg("cover"), grid.page_svg("cover"))
         self.assertNotEqual(
-            square["documentation/cover.svg"], grid["documentation/cover.svg"]
-        )
-        self.assertNotEqual(
-            square["documentation/cover.pdf"], grid["documentation/cover.pdf"]
+            square.files()["documentation/cover.pdf"], grid.files()["documentation/cover.pdf"]
         )
 
     def test_an_unknown_preset_fails_before_document_generation(self) -> None:
@@ -980,7 +999,7 @@ class ConfiguredNotesTests(unittest.TestCase):
             placements=PLACEMENTS, members=MEMBERS,
         )
         payload.update(overrides)
-        return compose(**payload).files()[f"documentation/{key}.svg"].decode("utf-8")
+        return compose(**payload).page_svg(key).decode("utf-8")
 
     def test_configured_notes_replace_the_default_ones(self) -> None:
         svg = self._svg("drill", notes={"drill": ["All holes plated unless noted."]})
@@ -1017,7 +1036,7 @@ class ConfiguredNotesTests(unittest.TestCase):
             placements=PLACEMENTS, members=MEMBERS,
             notes={"drill": ["Class {{fields.missing}}"]},
         )
-        svg = result.files()["documentation/drill.svg"].decode("utf-8")
+        svg = _page(result, "drill")
         # Never the raw token: a released drawing must not carry braces.
         self.assertNotIn("{{", svg)
         self.assertIn("finished diameters", svg)
@@ -1041,8 +1060,8 @@ class ConfiguredNotesTests(unittest.TestCase):
             typography="kicad-newstroke",
             notes={"drill": [note]},
         )
-        self.assertEqual(len(result.files()), 12)
-        drill = result.files()["documentation/drill.svg"].decode("utf-8")
+        self.assertEqual(len(result.files()), 5)
+        drill = _page(result, "drill")
         for symbol in ("⌀", "±", "°", "Ω", "✓"):
             with self.subTest(symbol=symbol):
                 self.assertIn(symbol, drill)
@@ -1061,8 +1080,8 @@ class ConfiguredNotesTests(unittest.TestCase):
             placements=PLACEMENTS, members=MEMBERS,
             notes={"drill": ["All holes ⌀ 0.3 mm minimum."]},
         )
-        self.assertEqual(len(result.files()), 12)
-        drill = result.files()["documentation/drill.svg"].decode("utf-8")
+        self.assertEqual(len(result.files()), 5)
+        drill = _page(result, "drill")
         self.assertNotIn("⌀", drill)
         self.assertIn("finished diameters", drill)
         self.assertTrue(
@@ -1077,9 +1096,9 @@ class ConfiguredNotesTests(unittest.TestCase):
             placements=PLACEMENTS, members=MEMBERS,
             notes={"drill": ["表面処理 immersion gold"]},
         )
-        # All ten files still present: the degradation is scoped to the note.
-        self.assertEqual(len(result.files()), 12)
-        drill = result.files()["documentation/drill.svg"].decode("utf-8")
+        # All five PDFs still present: the degradation is scoped to the note.
+        self.assertEqual(len(result.files()), 5)
+        drill = _page(result, "drill")
         self.assertNotIn("表面処理", drill)
         self.assertIn("finished diameters", drill)
         self.assertTrue(
@@ -1106,7 +1125,7 @@ class ConfiguredNotesTests(unittest.TestCase):
             placements=PLACEMENTS, members=MEMBERS,
             fields={"stamp": "{{release.built_at}}"},
         )
-        svg = result.files()["documentation/cover.svg"].decode("utf-8")
+        svg = _page(result, "cover")
         self.assertNotIn("2026-08-12T09:00:00", svg)
         self.assertTrue(
             any("title-block field 'stamp' was not drawn" in w for w in result.warnings),
@@ -1452,7 +1471,7 @@ class SheetSetConsistencyTests(unittest.TestCase):
     def test_every_sheet_states_the_same_ratio(self) -> None:
         result = self._composed()
         stated = set()
-        for payload in result.files().values():
+        for payload in result.page_svgs().values():
             stated.update(re.findall(rb"SCALE (\d+:\d+)", payload))
             # NewStroke and Geist both emit the ratio as text; the vector path
             # writes it as glyphs, so the accessible copy is read instead.
@@ -1540,34 +1559,36 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d14 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d15 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
-        "documentation/assembly-bottom.svg":
-            "91deebc9d59eef79840ed016f6ea244f1772115a342c775805f2733cf561a932",
-        "documentation/assembly-top.svg":
-            "d9d92e8ef4c7cd0f35415eded3ef245037beb0f648bfc226af74785fcd847614",
         "documentation/assembly.pdf":
             "aeb46d242fc8bd1b7281a513ec4ed893250a7fb542393096bb149de602614c25",
         "documentation/cover.pdf":
             "0dc27a4f3fab9ef84171a2ab385745b09ad14d62b7ef112c669bc1266888a7ef",
-        "documentation/cover.svg":
-            "5f532616b986a230997896ba28268bd629a6b19cc294b1ddcd80b9793255c639",
         "documentation/drill.pdf":
             "e0fc0f989eca3ac081071eaf658eb5374ecefea273e08e2e29a0a37c728ba763",
-        "documentation/drill.svg":
-            "7df49001af1408ba3c186fcba07b2f07ca764889a2d64509ac9106cfbb3b96e3",
         "documentation/fabrication.pdf":
             "4156eadf95893486e6cd53c9c20b068857d93fbec10f66adc11d2465215c0a3b",
-        "documentation/fabrication.svg":
-            "f73ab9c2b7e50a1691ee1b35a2b2d9c4f9d8a632d97dd8e1b02ff8bd05cbaeb0",
-        "documentation/testpoint-bottom.svg":
-            "a7b0b5954b5ab5fd8599c9033c4869eb2481d52671c600846998d6f80a1a0f94",
-        "documentation/testpoint-top.svg":
-            "b2ef237d4690280b4d5462c54faa6b5a6c66bb9b240c62bf79a6bf6cb60fa3c5",
         "documentation/testpoint.pdf":
             "41491187676d4ecdd07ff98f378d860ed55a08c18e55334df37577d479fcedca",
+    }
+    GOLDEN_PAGES = {
+        "assembly-bottom":
+            "91deebc9d59eef79840ed016f6ea244f1772115a342c775805f2733cf561a932",
+        "assembly-top":
+            "d9d92e8ef4c7cd0f35415eded3ef245037beb0f648bfc226af74785fcd847614",
+        "cover":
+            "5f532616b986a230997896ba28268bd629a6b19cc294b1ddcd80b9793255c639",
+        "drill":
+            "7df49001af1408ba3c186fcba07b2f07ca764889a2d64509ac9106cfbb3b96e3",
+        "fabrication":
+            "f73ab9c2b7e50a1691ee1b35a2b2d9c4f9d8a632d97dd8e1b02ff8bd05cbaeb0",
+        "testpoint-bottom":
+            "a7b0b5954b5ab5fd8599c9033c4869eb2481d52671c600846998d6f80a1a0f94",
+        "testpoint-top":
+            "b2ef237d4690280b4d5462c54faa6b5a6c66bb9b240c62bf79a6bf6cb60fa3c5",
     }
 
     #: A placed sheet, so a change to sheet selection, the scale ladder, or
@@ -1596,19 +1617,31 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d14",
+            "release-studio-documents/d15",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 
-        files = compose(
+        composed = compose(
             context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
             placements=PLACEMENTS, members=MEMBERS,
-        ).files()
-        actual = {path: hashlib.sha256(payload).hexdigest() for path, payload in files.items()}
+        )
+        actual = {
+            path: hashlib.sha256(payload).hexdigest()
+            for path, payload in composed.files().items()
+        }
         self.assertEqual(
             actual,
             self.GOLDEN,
             "composed output moved: bump RENDERER_VERSION and re-record GOLDEN together",
+        )
+        pages = {
+            key: hashlib.sha256(payload).hexdigest()
+            for key, payload in composed.page_svgs().items()
+        }
+        self.assertEqual(
+            pages,
+            self.GOLDEN_PAGES,
+            "in-memory page SVG moved: bump RENDERER_VERSION and re-record GOLDEN_PAGES together",
         )
 
 

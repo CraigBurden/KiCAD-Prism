@@ -558,8 +558,9 @@ function TypographyTemplateForm({
                         ))}
                     </select>
                     <p className="text-xs text-muted-foreground">
-                        Pixel headings are paired with Geist Mono for dense technical text.
-                        Commit the selected preset to the Git-authored configuration.
+                        This selector only fills the YAML template. Compose reads
+                        {" "}<code>typography</code> from the committed configuration;
+                        if that key is absent, the default is Geist Pixel Square.
                     </p>
                 </div>
                 <div className="min-w-0 space-y-2">
@@ -631,9 +632,9 @@ function DocumentSheetPreview({
         <div className="space-y-2 rounded-md border p-3">
             <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium capitalize">{sheet.key.replace(/-/g, " ")}</span>
-                {sheet.svg && (
+                {sheet.pdf && (
                     <span className="font-mono text-xs text-muted-foreground">
-                        {shortDigest(sheet.svg.released_digest)}
+                        {shortDigest(sheet.pdf.released_digest)}
                     </span>
                 )}
                 {sheet.pdf && (
@@ -662,10 +663,10 @@ function DocumentSheetPreview({
                 </div>
             )}
             {objectUrl && (
-                <img
+                <iframe
                     src={objectUrl}
-                    alt={`${sheet.key} documentation sheet`}
-                    className="max-h-[70vh] w-full rounded border bg-background object-contain"
+                    title={`${sheet.key} documentation`}
+                    className="h-[70vh] w-full rounded border bg-background"
                 />
             )}
         </div>

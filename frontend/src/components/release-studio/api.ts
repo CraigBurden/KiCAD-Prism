@@ -49,7 +49,7 @@ export async function sheetObjectUrl(
 ): Promise<string> {
     const response = await fetchApi(
         `${base(projectId)}/builds/${encodeURIComponent(buildId)}`
-            + `/sheets/${encodeURIComponent(sheetKey)}.svg`,
+            + `/sheets/${encodeURIComponent(sheetKey)}.pdf`,
     );
     if (!response.ok) throw new Error(`Could not load ${sheetKey} (${response.status})`);
     return URL.createObjectURL(await response.blob());

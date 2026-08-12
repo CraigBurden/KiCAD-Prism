@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
 from importlib import metadata
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -35,12 +37,14 @@ from app.release_studio.config import (
     technical_config_payload,
 )
 from app.release_studio.jobset import (
-    StepTypeStatus,
-    classify_output_hermetic,
+    HERMETIC_STEP_TYPES,
     load_jobset,
 )
 from app.release_studio.steps import (
+    CATALOGUE_WAVE_A,
+    CATALOGUE_WAVE_B,
     DOCUMENT_STEP_SPEC,
+    STEP_CATALOGUE,
     StepExecutionError,
     StepOutput,
     resolve_cli_path,
@@ -59,8 +63,8 @@ logger = logging.getLogger(__name__)
 #: the manifest contains or how a fingerprint is composed has to move it.  Two
 #: builds sharing a `build_key` while producing different manifests is exactly
 #: the reproducibility claim the key exists to make.
-#: r23 -- the manifest carries projection digests rather than projection text.
-GENERATOR_BUILD = "release-studio/r23"
+#: r24 -- dossier documentation members are PDFs only; timings live in evidence.
+GENERATOR_BUILD = "release-studio/r24"
 EXECUTOR_IDENTITY_FILE = Path("/etc/prism/kicad-base-image")
 
 
@@ -324,41 +328,39 @@ def prepare_candidate(
 
 
 def _hermeticity(closure_root: Path, config: Mapping[str, Any]) -> tuple[bool, list[str]]:
-    """Classify the selected jobset output, when the configuration names one.
+    """Classify the *catalogue that actually runs*, not unused jobset destinations.
 
     Without a jobset the build runs the fixed step catalogue, whose types are
     all hermetic by construction; the closure itself has already refused any
     input that resolves outside it.
+
+    A project may still ship a ``.kicad_jobset``. That file is required to be
+    present and parseable when named, but destinations the catalogue does not
+    execute — including an unreferenced ``special_execute`` — must not taint
+    the build. Hermeticity is a property of the steps Prism runs.
     """
 
-    jobset_rel = str(config.get("jobset") or "").strip()
-    if not jobset_rel:
-        return True, []
-    jobset_path = closure_root / jobset_rel
-    if not jobset_path.is_file():
-        return False, [f"jobset not present in the closure: {jobset_rel}"]
-    try:
-        model = load_jobset(jobset_path)
-    except Exception as exc:  # noqa: BLE001 - an unparseable jobset fails closed
-        return False, [f"jobset could not be parsed: {exc}"]
-
-    # Hermeticity is judged over each output's *selected* closure, never over
-    # jobset presence: the reference jobset carries a `special_execute` job that
-    # none of its outputs reference, and that must not taint the build.
     reasons: list[str] = []
-    hermetic = True
-    for output in model.outputs:
-        try:
-            closure = classify_output_hermetic(model, output.id)
-        except Exception as exc:  # noqa: BLE001
-            hermetic = False
-            reasons.append(f"output {output.id} could not be classified: {exc}")
+    for spec in STEP_CATALOGUE:
+        if spec.optional:
             continue
-        if closure.status is not StepTypeStatus.HERMETIC:
-            hermetic = False
-        reasons.extend(str(reason) for reason in closure.non_hermetic_reasons)
-        reasons.extend(str(reason) for reason in closure.unsupported_reasons)
-    return hermetic, reasons
+        if spec.step_type not in HERMETIC_STEP_TYPES:
+            reasons.append(
+                f"catalogue step {spec.step_id} ({spec.step_type}) is not a "
+                "hermetic KiCad type"
+            )
+
+    jobset_rel = str(config.get("jobset") or "").strip()
+    if jobset_rel:
+        jobset_path = closure_root / jobset_rel
+        if not jobset_path.is_file():
+            return False, [f"jobset not present in the closure: {jobset_rel}"]
+        try:
+            load_jobset(jobset_path)
+        except Exception as exc:  # noqa: BLE001 - an unparseable jobset fails closed
+            return False, [f"jobset could not be parsed: {exc}"]
+
+    return not reasons, reasons
 
 
 def _closure_rows(closure) -> list[dict[str, Any]]:
@@ -428,14 +430,88 @@ def execute_build(
     try:
         output_root = context.staging_dir / "outputs"
         output_root.mkdir(parents=True, exist_ok=True)
-        outputs = run_step_catalogue(
-            closure_root=closure_root,
-            board_rel=str(config.get("board") or ""),
-            schematic_rel=str(config.get("schematic") or "") or None,
-            output_root=output_root,
-            variant=str(candidate.get("variant") or ""),
-            cli_path=cli_path,
-            progress=lambda **kwargs: context.progress(**kwargs),
+        timings: list[dict[str, Any]] = []
+
+        def _timed(name: str, fn):
+            started = time.perf_counter()
+            try:
+                return fn()
+            finally:
+                timings.append(
+                    {
+                        "name": name,
+                        "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
+                    }
+                )
+
+        board_rel = str(config.get("board") or "")
+        board_path = closure_root / board_rel if board_rel else None
+        assembly_views: dict[str, Any] | None = None
+        assembly_error: BaseException | None = None
+        cruncher_pool: ThreadPoolExecutor | None = None
+        try:
+            if cruncher_path and board_path is not None and board_path.is_file():
+                from app.release_studio.documents.artwork import acquire_board_views
+
+                cruncher_pool = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="rs-cruncher"
+                )
+                cruncher_future = cruncher_pool.submit(
+                    lambda: _timed(
+                        "cruncher-assembly",
+                        lambda: acquire_board_views(
+                            cruncher_path,
+                            board_path,
+                            context.staging_dir / "artwork" / "cruncher",
+                        ),
+                    )
+                )
+            else:
+                cruncher_future = None
+
+            outputs_a = _timed(
+                "catalogue-wave-a",
+                lambda: run_step_catalogue(
+                    closure_root=closure_root,
+                    board_rel=board_rel,
+                    schematic_rel=str(config.get("schematic") or "") or None,
+                    output_root=output_root,
+                    variant=str(candidate.get("variant") or ""),
+                    cli_path=cli_path,
+                    only=CATALOGUE_WAVE_A,
+                    progress=lambda **kwargs: context.progress(**kwargs),
+                ),
+            )
+            if cruncher_future is not None:
+                try:
+                    assembly_views = cruncher_future.result()
+                except Exception as exc:  # noqa: BLE001 - compose records the miss
+                    assembly_error = exc
+                    logger.warning(
+                        "Release Studio assembly views unavailable: %s", exc
+                    )
+            outputs_b = _timed(
+                "catalogue-wave-b",
+                lambda: run_step_catalogue(
+                    closure_root=closure_root,
+                    board_rel=board_rel,
+                    schematic_rel=str(config.get("schematic") or "") or None,
+                    output_root=output_root,
+                    variant=str(candidate.get("variant") or ""),
+                    cli_path=cli_path,
+                    only=CATALOGUE_WAVE_B,
+                    progress=lambda **kwargs: context.progress(**kwargs),
+                ),
+            )
+        finally:
+            if cruncher_pool is not None:
+                cruncher_pool.shutdown(wait=True)
+
+        combined = {output.step_id: output for output in (*outputs_a, *outputs_b)}
+        outputs = tuple(
+            combined[spec.step_id]
+            for spec in STEP_CATALOGUE
+            if spec.step_id in combined
         )
         context.progress(stage="documents", message="Composing documentation", percent=70)
         outputs, document_warnings, projections = _with_documents(
@@ -449,6 +525,9 @@ def execute_build(
             staging=context.staging_dir,
             repo_root=repo_root,
             project_relpath=str(candidate.get("project_relpath") or "") or None,
+            assembly_views=assembly_views,
+            assembly_error=assembly_error,
+            timings=timings,
         )
 
         context.progress(stage="package", message="Canonicalizing and packaging", percent=75)
@@ -469,6 +548,7 @@ def execute_build(
             archive_mtime=_commit_timestamp(
                 repo_root, str(candidate.get("commit_sha") or "")
             ),
+            timings=timings,
         )
 
         dossier_artifact = _publish(
@@ -539,13 +619,16 @@ def _with_documents(
     cruncher_path: str | None = None,
     repo_root: Path | None = None,
     project_relpath: str | None = None,
+    assembly_views: Mapping[str, Any] | None = None,
+    assembly_error: BaseException | None = None,
+    timings: list[dict[str, Any]] | None = None,
 ) -> tuple[list[StepOutput], list[str], dict[str, Any]]:
     """Compose the Stage 2 sheets and append them as a member-producing step.
 
     The Documentation Engine is a member producer: it adds files under the
-    ``documentation`` domain and changes nothing else.  A failure here degrades
-    the document set rather than the build -- the manufacturing outputs are
-    already produced and are what the release is fundamentally about.
+    ``documentation`` domain and changes nothing else.  A compose failure is a
+    failed documents step (returncode 1, no sheet members). Manufacturing
+    outputs already produced still assemble.
 
     Every degradation is returned so it can be recorded on the build row.  A
     log line is not enough: this runs in a job subprocess, so a document set
@@ -595,6 +678,8 @@ def _with_documents(
         testpoints: dict[str, Any] = {}
         population: dict[str, Any] = {}
         designators: tuple[str, ...] = ()
+        parsed_pcb = None
+        fallback_reason = None
         if board is not None and board.is_file():
             # One parse for both projections.  On a 35 MB board this is over two
             # minutes of work, and doing it twice for the same file was the
@@ -611,13 +696,13 @@ def _with_documents(
             project_file = board.with_suffix(".kicad_pro")
             # Only a *typed* model can answer the variant question; the targeted
             # stackup fallback has no footprints, so that case re-parses.
-            parsed, fallback_reason = model
+            parsed_pcb, fallback_reason = model
             variants = _project(
                 "variants",
                 lambda: project_variants(
                     board,
                     project_file if project_file.is_file() else None,
-                    pcb=None if fallback_reason else parsed,
+                    pcb=None if fallback_reason else parsed_pcb,
                 ),
                 {},
             )
@@ -651,6 +736,7 @@ def _with_documents(
                         semantic_index_service.source_revision_key_for_project_file(project_file)
                     ),
                     commit=str(candidate.get("commit_sha") or "") or None,
+                    pcb=None if fallback_reason else parsed_pcb,
                 ),
                 {},
             )
@@ -674,7 +760,15 @@ def _with_documents(
             relative_path=project_relpath or str(candidate.get("project_relpath") or ""),
         )
 
-        document_set = compose(
+        typography = str(config.get("typography") or DEFAULT_TYPOGRAPHY)
+        logger.info(
+            "Release Studio using typography %s from Git configuration %s "
+            "(a UI template selection is not a build override)",
+            typography,
+            candidate.get("config_key"),
+        )
+
+        compose_kwargs: dict[str, Any] = dict(
             context={
                 "title": str(config.get("title") or config.get("document_number") or "RELEASE"),
                 "document_number": str(config.get("document_number") or ""),
@@ -699,15 +793,53 @@ def _with_documents(
             workdir=staging / "artwork",
             notes=config.get("notes") or {},
             fields=config.get("fields") or {},
-            typography=str(config.get("typography") or DEFAULT_TYPOGRAPHY),
+            typography=typography,
             revision_history=revision_history,
         )
+        if assembly_error is not None:
+            from app.release_studio.documents.artwork import ArtworkError
+
+            def _failed_assembly(*_args, **_kwargs):
+                raise ArtworkError(str(assembly_error)) from assembly_error
+
+            compose_kwargs["assembly_acquirer"] = _failed_assembly
+        elif assembly_views is not None:
+            compose_kwargs["assembly_acquirer"] = (
+                lambda *_args, **_kwargs: assembly_views
+            )
     except Exception as exc:  # noqa: BLE001
-        # `exception` not `warning`: without the traceback a vanished document
-        # set looks identical to one that was never configured.
+        logger.exception("Release Studio projections failed before compose")
+        warnings.append(f"documentation: no sheets were composed ({exc})")
+        return [
+            *outputs,
+            _documents_step(output_root, returncode=1, skipped_reason=f"compose failed: {exc}"),
+        ], warnings, projections
+
+    compose_started = time.perf_counter()
+    try:
+        document_set = compose(**compose_kwargs)
+    except Exception as exc:  # noqa: BLE001
         logger.exception("Documentation Engine produced no sheets")
         warnings.append(f"documentation: no sheets were composed ({exc})")
-        return list(outputs), warnings, projections
+        elapsed_ms = int((time.perf_counter() - compose_started) * 1000)
+        if timings is not None:
+            timings.append({"name": "compose", "elapsed_ms": elapsed_ms})
+        return [
+            *outputs,
+            _documents_step(
+                output_root,
+                returncode=1,
+                skipped_reason=f"compose failed: {exc}",
+                elapsed_ms=elapsed_ms,
+            ),
+        ], warnings, projections
+    if timings is not None:
+        timings.append(
+            {
+                "name": "compose",
+                "elapsed_ms": round((time.perf_counter() - compose_started) * 1000, 1),
+            }
+        )
 
     for warning in document_set.warnings:
         logger.warning("Documentation Engine: %s", warning)
@@ -722,20 +854,40 @@ def _with_documents(
 
     if not written:
         warnings.append("documentation: the engine composed no sheets")
-        return list(outputs), warnings, projections
+        return [
+            *outputs,
+            _documents_step(
+                output_root,
+                returncode=1,
+                skipped_reason="the engine composed no sheets",
+            ),
+        ], warnings, projections
 
     return [
         *outputs,
-        StepOutput(
-            step_id=DOCUMENT_STEP_SPEC.step_id,
-            step_type=DOCUMENT_STEP_SPEC.step_type,
-            normalized_argv=("prism", "compose", "documents"),
-            returncode=0,
-            files=tuple(written),
-            root=output_root,
-            spec=DOCUMENT_STEP_SPEC,
-        ),
+        _documents_step(output_root, files=written),
     ], warnings, projections
+
+
+def _documents_step(
+    output_root: Path,
+    *,
+    files: Sequence[Path] = (),
+    returncode: int = 0,
+    skipped_reason: str = "",
+    elapsed_ms: int = 0,
+) -> StepOutput:
+    return StepOutput(
+        step_id=DOCUMENT_STEP_SPEC.step_id,
+        step_type=DOCUMENT_STEP_SPEC.step_type,
+        normalized_argv=("prism", "compose", "documents"),
+        returncode=returncode,
+        files=tuple(files),
+        root=output_root,
+        spec=DOCUMENT_STEP_SPEC,
+        skipped_reason=skipped_reason,
+        elapsed_ms=elapsed_ms,
+    )
 
 
 def _placements(positions_csv: Path) -> list[dict[str, Any]]:

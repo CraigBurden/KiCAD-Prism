@@ -19,6 +19,7 @@ import io
 import os
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -154,13 +155,16 @@ def acquire(
 
     # Three plots of one view.  The cropped SVG is the artwork; the PDF is what
     # gets composited; the full-page SVG exists only to locate the artwork
-    # inside the PDF's page, because `pcb export pdf` cannot crop.
+    # inside the PDF's page, because `pcb export pdf` cannot crop.  They share
+    # no output path, so they run together rather than queueing three board
+    # loads behind each other.
     plots = (
         ("svg", svg_path, ("--exclude-drawing-sheet", "--page-size-mode", "2")),
         ("svg", page_svg_path, ("--exclude-drawing-sheet",)),
         ("pdf", pdf_path, ()),
     )
-    for fmt, out, extra in plots:
+
+    def _plot(fmt: str, out: Path, extra: tuple[str, ...]) -> None:
         argv = [
             cli_path, "pcb", "export", fmt,
             "--layers", ",".join(layers),
@@ -198,6 +202,11 @@ def acquire(
             )
         if not out.is_file():
             raise ArtworkError(f"kicad-cli produced no {fmt} for layers {','.join(layers)}")
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(_plot, fmt, out, extra) for fmt, out, extra in plots]
+        for future in futures:
+            future.result()
 
     svg_text = sanitize_artwork(svg_path.read_text(encoding="utf-8"))
     pdf_bytes = sanitize_artwork_pdf(pdf_path.read_bytes())

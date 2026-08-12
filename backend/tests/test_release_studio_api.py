@@ -59,42 +59,36 @@ class ReleaseStudioDocumentSheetApiTests(unittest.TestCase):
 
         self.api = api
         self.user = _User("viewer", role="viewer")
-        self.svg = b'<svg xmlns="http://www.w3.org/2000/svg"><title>Fabrication</title></svg>'
-        self.digest = hashlib.sha256(self.svg).hexdigest()
-        member = {
-            "id": "member-svg",
-            "path": "documentation/fabrication.svg",
-            "released_digest": self.digest,
-            "media_type": "image/svg+xml",
-        }
+        self.pdf = b"%PDF-1.4 test fabrication"
+        self.digest = hashlib.sha256(self.pdf).hexdigest()
         pdf_member = {
             "id": "member-pdf",
             "path": "documentation/fabrication.pdf",
-            "released_digest": "p" * 64,
+            "released_digest": self.digest,
             "media_type": "application/pdf",
         }
         payload = io.BytesIO()
         with tarfile.open(fileobj=payload, mode="w:gz") as archive:
-            info = tarfile.TarInfo(member["path"])
-            info.size = len(self.svg)
-            archive.addfile(info, io.BytesIO(self.svg))
+            info = tarfile.TarInfo(pdf_member["path"])
+            info.size = len(self.pdf)
+            archive.addfile(info, io.BytesIO(self.pdf))
 
         patches = (
             patch.object(api, "get_project_for_role_or_404", lambda *_args: None),
             patch.object(api, "_build_or_404", lambda *_args: {"dossier_artifact_id": "a1"}),
-            patch.object(api.store, "build_members", lambda _build: [member, pdf_member]),
+            patch.object(api.store, "build_members", lambda _build: [pdf_member]),
             patch.object(api, "_artifact_bytes", lambda _artifact: payload.getvalue()),
         )
         for patcher in patches:
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_sheet_listing_pairs_svg_and_pdf_by_key(self) -> None:
+    def test_sheet_listing_is_pdf_only(self) -> None:
         result = _run(
             self.api.list_document_sheets("proj", "build", user=self.user)
         )
         self.assertEqual([item["key"] for item in result["sheets"]], ["fabrication"])
-        self.assertEqual(result["sheets"][0]["svg"]["released_digest"], self.digest)
+        self.assertNotIn("svg", result["sheets"][0])
         self.assertEqual(
             result["sheets"][0]["pdf"]["path"], "documentation/fabrication.pdf"
         )
@@ -105,7 +99,7 @@ class ReleaseStudioDocumentSheetApiTests(unittest.TestCase):
                 "proj", "build", "fabrication", user=self.user
             )
         )
-        self.assertEqual(response.body, self.svg)
+        self.assertEqual(response.body, self.pdf)
         self.assertEqual(response.headers["etag"], f'"{self.digest}"')
         self.assertIn("immutable", response.headers["cache-control"])
 

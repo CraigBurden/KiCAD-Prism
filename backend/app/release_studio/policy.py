@@ -20,9 +20,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
 from app.release_studio.canonical import sha256_canonical
+from app.release_studio.config.schema import POLICY_SCHEMA
 from app.release_studio.dossier import GOVERNED_DOMAINS
-
-POLICY_SCHEMA = "prism.release-studio.policy/1"
 
 SEVERITIES: tuple[str, ...] = ("warning", "failure", "blocker")
 OUTCOMES: tuple[str, ...] = ("pass", "info", "warning", "failure", "blocker", "unsupported")

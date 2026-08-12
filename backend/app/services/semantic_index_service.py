@@ -762,6 +762,7 @@ def build_semantic_index(
     timing_callback: Callable[[dict[str, Any]], None] | None = None,
     include_pcb: bool = True,
     include_components: bool = True,
+    pcb: Any = None,
 ) -> dict[str, Any]:
     def timed(phase: str, action: Callable[[], Any], **metadata: Any) -> Any:
         started_ns = time.perf_counter_ns()
@@ -789,6 +790,10 @@ def build_semantic_index(
         ) from exc
 
     design = timed("load-project", lambda: KiCadDesign.from_project_file(project_file))
+    if pcb is not None:
+        # The Release Studio projections already parsed this board. Re-parsing
+        # it here is the single largest avoidable cost on a large `.kicad_pcb`.
+        design._pcb = pcb
     compile_netlist = getattr(design, "to_netlist", None)
     netlist = timed("compile-netlist", compile_netlist) if callable(compile_netlist) else None
     # kicad_design_to_json materializes PnP data and therefore accesses the

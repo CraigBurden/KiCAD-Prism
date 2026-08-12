@@ -202,7 +202,6 @@ describe("ReleaseStudioPanel", () => {
         vi.mocked(api.listDocumentSheets).mockResolvedValue([
             {
                 key: "fabrication",
-                svg: { path: "documentation/fabrication.svg", released_digest: "a".repeat(64), media_type: "image/svg+xml" },
                 pdf: { path: "documentation/fabrication.pdf", released_digest: "b".repeat(64), media_type: "application/pdf" },
             },
         ]);

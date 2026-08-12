@@ -70,16 +70,18 @@ exports at different times canonicalize identically.
 Criteria 1-9 run in CI. Criterion 10 is the manual pass, and the reproducibility
 matrix across all three fixtures under live `kicad-cli` runs in `kicad-live`.
 
-## Known Stage 1 limits
+## Known limits
 
-- Fingerprints are at `artifact` fidelity. Stage 2 (D9) upgrades them to board
-  level and Stage 3 (S1) to semantic level; `ws_release_scope_fingerprints`
-  already carries the `fidelity` column, so neither needs a migration.
 - The step catalogue is a fixed set rather than a jobset-driven plan. A project
-  that ships a `.kicad_jobset` has it classified for hermeticity, but the
-  release still builds from the catalogue.
-- Project policy overlays in Git are parsed and validated (R6); the default
-  policy in `api/release_studio.py::_policy_document` is what runs until an
-  overlay is present. Org policies in Postgres arrive with Stage 3.
-- The Documentation Engine (Stage 2) is not present: the dossier carries
-  `kicad-cli` PDFs, not composed fabrication drawings.
+  that ships a `.kicad_jobset` must have that file in the closure, but the
+  release still builds from the catalogue. Hermeticity is classified on those
+  catalogue types, not on unused jobset destinations.
+- There is no persistent Pcbnew / IPC-API session; every tool is a cold
+  subprocess. See `docs/release-studio/PIPELINE.md`.
+- Project policy overlays in Git are parsed and validated (R6). Org policies in
+  Postgres remain future work.
+- The Documentation Engine is present: the dossier carries composed PDFs (cover,
+  fabrication, assembly, testpoint, drill), not a raw `kicad-cli pcb export pdf`.
+  Typography comes from the committed configuration, not from the UI template.
+- Board STEP export, Cruncher BOM/PnP, live Stage-2 matrix, and detail/zone
+  sheets are deferred. The Release Studio panel rewrite is separate work.

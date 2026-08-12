@@ -180,6 +180,15 @@ class StepCatalogueOrderTests(unittest.TestCase):
         self.assertLess(max(started) - min(started), 0.05)
 
 
+class CatalogueWaveCoverageTests(unittest.TestCase):
+    def test_every_catalogue_step_is_in_exactly_one_wave(self) -> None:
+        from app.release_studio.steps import CATALOGUE_WAVE_A, CATALOGUE_WAVE_B
+
+        wave = CATALOGUE_WAVE_A + CATALOGUE_WAVE_B
+        self.assertEqual(len(wave), len(set(wave)))
+        self.assertEqual(set(wave), {spec.step_id for spec in STEP_CATALOGUE})
+
+
 class ReleaseStudioDossierTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -197,6 +206,7 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         out_name: str,
         archive_mtime: int = 0,
         projections: dict | None = None,
+        timings: list | None = None,
     ):
         output_root = self.root / out_name
         output_root.mkdir()
@@ -222,6 +232,7 @@ class ReleaseStudioDossierTests(unittest.TestCase):
             config_fragments={"board": "hardware/board.kicad_pcb"},
             projections=projections,
             archive_mtime=archive_mtime,
+            timings=timings,
         )
 
     # -- Stage 1 exit criterion 1 ------------------------------------------
@@ -291,6 +302,10 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         nested = {"members": {"a.gbr": {"approver": "someone"}}}
         with self.assertRaisesRegex(DossierError, "approver"):
             assert_no_governance_leak(nested)
+        with self.assertRaisesRegex(DossierError, "policy"):
+            assert_no_governance_leak({"members": {"a.gbr": {"policy": "org:default@1"}}})
+        with self.assertRaisesRegex(DossierError, "timestamp"):
+            assert_no_governance_leak({"toolchain": {"timestamp": "now"}})
 
     def test_raw_bytes_are_retained_outside_the_dossier(self) -> None:
         built = self._build("2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "a")
@@ -435,6 +450,27 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         self.assertEqual(
             payload["projection_digests"]["stackup"], sha256_canonical(stackup)
         )
+
+    def test_build_evidence_records_timings_outside_the_manifest(self) -> None:
+        """Wall clock is forensic, never a fingerprint input."""
+
+        import tarfile as _tarfile
+
+        timings = [{"name": "catalogue-wave-a", "elapsed_ms": 12.5}]
+        plain = self._build("2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "a")
+        timed = self._build(
+            "2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "timed",
+            timings=timings,
+        )
+        self.assertEqual(plain.dossier_digest, timed.dossier_digest)
+        self.assertEqual(plain.manifest_digest, timed.manifest_digest)
+        self.assertNotIn("timings", timed.manifest)
+        with _tarfile.open(fileobj=io.BytesIO(timed.evidence_bytes), mode="r:*") as archive:
+            payload = json.loads(
+                archive.extractfile("build-evidence.json").read().decode("utf-8")
+            )
+        self.assertEqual(payload["timings"], timings)
+        self.assertIn("elapsed_ms", next(iter(payload["steps"].values())))
 
     def test_semantic_projection_excludes_cache_metadata_and_order(self) -> None:
         from app.release_studio.semantic import semantic_scope_projections

@@ -12,7 +12,6 @@ from app.release_studio.documents.artwork import (
     PCB_SVG_TESTPOINT_CONFIG,
 )
 from app.release_studio.documents.engine import (
-    ARTWORK_LAYERS,
     ASSEMBLY_SIDES,
     DOCUMENT_DOMAIN,
     DocumentOutput,
@@ -53,6 +52,9 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d15 -- released members are PDFs only (page SVGs stay in memory for tests);
+#: the fabrication opening page is the first copper layer rather than a second
+#: Edge.Cuts+F.Cu plot of the same geometry.
 #: d14 -- drawings that belong together are one PDF with pages: every plotted
 #: layer of the board in the fabrication document, both sides in the assembly
 #: and testpoint ones, and continuation schedules as pages rather than files.
@@ -83,10 +85,9 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d14"
+RENDERER_VERSION = "release-studio-documents/d15"
 
 __all__ = [
-    "ARTWORK_LAYERS",
     "ASSEMBLY_SIDES",
     "DOCUMENT_DOMAIN",
     "PCB_SVG_CONFIG",

@@ -52,9 +52,11 @@ DOCUMENT_DOMAIN = "documentation"
 # authored per footprint at whatever size and offset each library chose, which
 # on a dense board overlaps into an unreadable mass at every scale -- density
 # does not change with scale. Those views come from Cruncher instead, below.
-ARTWORK_LAYERS: dict[str, tuple[str, ...]] = {
-    "fabrication": ("Edge.Cuts", "F.Cu"),
-}
+#
+# Fabrication no longer plots a separate Edge.Cuts+F.Cu "overview": the first
+# copper layer page *is* that view (every copper plot already carries the
+# outline). A second plot of the same geometry was a full board load for a
+# duplicate page.
 
 #: The board's raytraced isometric view, for the cover.
 #:
@@ -117,9 +119,9 @@ ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
 TESTPOINT_SIDES: tuple[str, ...] = ("top", "bottom")
 
 #: Key the concurrent acquisition uses for the one job that returns every
-#: Cruncher view.
+#: Cruncher assembly view. Testpoint views are a second board load and run
+#: outside this pool so they cannot steal a plot slot.
 _CRUNCHER_JOB = "__cruncher__"
-_TESTPOINT_JOB = "__testpoints__"
 
 #: Ceiling on concurrent acquisitions.
 #:
@@ -151,7 +153,6 @@ def _acquire_concurrently(
             key = futures[future]
             label = {
                 _CRUNCHER_JOB: "assembly views",
-                _TESTPOINT_JOB: "testpoint views",
             }.get(key, f"artwork for {key}")
             try:
                 results[key] = future.result()
@@ -164,7 +165,11 @@ def _acquire_concurrently(
 
 @dataclass(frozen=True, slots=True)
 class DocumentPage:
-    """One composed sheet: a page of a document, and its own SVG."""
+    """One composed sheet: a page of a document, and its in-memory SVG.
+
+    The SVG is the same layout model as the PDF page. It is kept for tests and
+    for anyone inspecting ``DocumentSet.outputs``; it is not a released member.
+    """
 
     key: str
     title: str
@@ -180,9 +185,8 @@ class DocumentOutput:
 
     Drawings that belong together are one document -- every copper layer of a
     board, or both sides of an assembly -- because that is how a reader files
-    and prints them.  SVG has no multi-page form, so each page keeps its own
-    SVG beside the shared PDF; the SVGs are the previewable rendering and the
-    PDF is the one a fabricator receives.
+    and prints them.  Each page still has an in-memory SVG of the same layout
+    for tests; the PDF is the released drawing.
     """
 
     key: str
@@ -206,14 +210,31 @@ class DocumentSet:
     sheet_size: str = ""
 
     def files(self) -> dict[str, bytes]:
-        """Released path -> bytes, ready to become dossier members."""
+        """Released path -> bytes, ready to become dossier members.
 
-        payload: dict[str, bytes] = {}
+        Only PDFs are released. Page SVGs carry the same layout model and are
+        available via :meth:`page_svg` for tests; they are not dossier members.
+        """
+
+        return {output.pdf_path: output.pdf_bytes for output in self.outputs}
+
+    def page_svg(self, key: str) -> bytes:
+        """In-memory SVG for one page, or ``KeyError`` if that page was not composed."""
+
         for output in self.outputs:
             for page in output.pages:
-                payload[page.svg_path] = page.svg_bytes
-            payload[output.pdf_path] = output.pdf_bytes
-        return payload
+                if page.key == key:
+                    return page.svg_bytes
+        raise KeyError(key)
+
+    def page_svgs(self) -> dict[str, bytes]:
+        """Every in-memory page SVG, keyed by page key."""
+
+        return {
+            page.key: page.svg_bytes
+            for output in self.outputs
+            for page in output.pages
+        }
 
 
 def compose(
@@ -255,6 +276,7 @@ def compose(
     # Validate before acquiring artwork so an invalid technical configuration
     # cannot perform work and then degrade into a default-looking document.
     typography_preset(typography)
+    logger.info("Release Studio composing documents with typography %s", typography)
     warnings: list[str] = []
     art: dict[str, AcquiredArtwork] = {}
     assembly: dict[str, AcquiredArtwork] = {}
@@ -296,15 +318,6 @@ def compose(
             board_render_acquirer or acquire_board_render, cli_path, board,
             workdir / "render",
         )
-        for key, layers in ARTWORK_LAYERS.items():
-            jobs[key] = partial(
-                fetch,
-                cli_path,
-                board,
-                layers,
-                workdir / key,
-                variant=str(context.get("variant") or ""),
-            )
         jobs[DRILL_ARTWORK_KEY] = partial(
             drill_acquirer or acquire_drill_map, cli_path, board, workdir / DRILL_ARTWORK_KEY
         )
@@ -312,25 +325,13 @@ def compose(
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
     if board is not None and cruncher_path and workdir is not None:
-        # One invocation for every view: loading the board dominates the cost
-        # and Cruncher writes them all from a single load.
+        # One invocation for every assembly view: loading the board dominates
+        # the cost and Cruncher writes them all from a single load.
         jobs[_CRUNCHER_JOB] = partial(
             assembly_acquirer or acquire_board_views,
             cruncher_path,
             board,
             workdir / "cruncher",
-        )
-        # A second invocation, and a second board load, because only a
-        # per-board component map can leave every non-testpoint outline out --
-        # and that map would suppress them on the assembly views too if the
-        # two shared a configuration.  It runs beside the first rather than
-        # after it, so the cost is memory rather than wall clock.
-        jobs[_TESTPOINT_JOB] = partial(
-            testpoint_acquirer or acquire_testpoint_views,
-            cruncher_path,
-            board,
-            workdir / "testpoints",
-            designators=tuple(designators or ()),
         )
     else:
         warnings.append(
@@ -340,7 +341,7 @@ def compose(
     acquired = _acquire_concurrently(jobs, warnings)
     board_render = acquired.pop(BOARD_RENDER_KEY, None)
     for key, value in acquired.items():
-        if key not in (_CRUNCHER_JOB, _TESTPOINT_JOB):
+        if key != _CRUNCHER_JOB:
             art[key] = value
             continue
         for view_key, drawing in value.items():
@@ -349,6 +350,29 @@ def compose(
                 testpoint[side] = drawing
             else:
                 assembly[side] = drawing
+
+    # Testpoints are a second full board load: a per-board component map that
+    # hid every non-TP outline would poison the assembly views if the two
+    # shared a configuration.  They run *after* the plot pool (and after the
+    # assembly Cruncher, when that was overlapped with catalogue wave A) so
+    # they cannot steal an acquisition slot from a layer plot.
+    if board is not None and cruncher_path and workdir is not None and not testpoint:
+        try:
+            testpoint_views = (testpoint_acquirer or acquire_testpoint_views)(
+                cruncher_path,
+                board,
+                workdir / "testpoints",
+                designators=tuple(designators or ()),
+            )
+            for view_key, drawing in testpoint_views.items():
+                kind, _, side = view_key.partition("-")
+                if kind == "testpoint":
+                    testpoint[side] = drawing
+                else:
+                    assembly.setdefault(side, drawing)
+        except (ArtworkError, OSError, TypeError) as exc:
+            warnings.append(f"testpoint views unavailable: {exc}")
+            logger.warning("Release Studio testpoint views unavailable: %s", exc)
 
     for side, drawing in assembly.items():
         side_count = sum(
@@ -417,8 +441,11 @@ def compose(
         warnings,
     )
 
+    copper_layers = [layer for layer in layer_pages if layer.endswith(".Cu")]
+    overview_layer = copper_layers[0] if copper_layers else None
+    overview = art.get(_layer_artwork_key(overview_layer)) if overview_layer else None
     fabrication, fab_scale, fab_overflow = sheet_templates.fabrication_sheet(
-        context, stats, stackup, art.get("fabrication"), size=sheet_size, scale=scale,
+        context, stats, stackup, overview, size=sheet_size, scale=scale,
         notes=sheet_notes["fabrication"], fields=title_fields, typography=typography,
     )
     fabrication_pages = [
@@ -426,13 +453,16 @@ def compose(
             fabrication,
             "fabrication",
             fab_scale,
-            art.get("fabrication"),
+            overview,
             _artwork_window(fabrication),
         )
     ]
     # One page per plotted layer, so the document is the whole board rather
     # than its outline plus a schedule that names layers a reader cannot see.
+    # The first copper layer already occupies the opening page.
     for layer in layer_pages:
+        if layer == overview_layer:
+            continue
         drawing = art.get(_layer_artwork_key(layer))
         if drawing is None:
             # Without a plot there is nothing this page could show that the
@@ -591,7 +621,7 @@ def _serialize(
     title: str,
     warnings: list[str] | None = None,
 ) -> DocumentOutput:
-    """Render *pages* into one PDF and one SVG each."""
+    """Render *pages* into one PDF. Page SVGs stay in memory for tests."""
 
     sheets = [sheet for sheet, _k, _s, _a, _w in pages]
     pdf_bytes = render_pdf_pages(sheets)

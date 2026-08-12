@@ -9,7 +9,7 @@ release.tar.gz
 │   ├── manifest.json       # member digests + projection digests + digests graph
 │   ├── bare_board/         # Gerbers, drill/Excellon, board stats, stackup evidence
 │   ├── assembly/           # positions.csv, bom.csv, …
-│   ├── documentation/      # composed cover / fab / assembly / drill SVG+PDF
+│   ├── documentation/      # composed cover / fab / assembly / testpoint / drill PDFs
 │   └── evidence/           # DRC/ERC reports, build-evidence.json, …
 ├── attestation.json        # who / when / policy / approvals (references dossier)
 ├── attestation.sig         # Ed25519 over attestation_digest
