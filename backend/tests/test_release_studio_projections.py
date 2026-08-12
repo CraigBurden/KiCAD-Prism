@@ -20,7 +20,6 @@ from app.release_studio.projections import (
 from tests.release_studio_support import (
     fixture_entrypoint,
     fixture_root,
-    fixtures_present,
     requires_kicad_cli,
     run_kicad_cli,
 )
@@ -302,10 +301,6 @@ class ReleaseStudioProjectionTests(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(
-    fixtures_present(),
-    "Release Studio fixtures are local-only and are not in this checkout",
-)
 class ReleaseStudioProjectionLiveTests(unittest.TestCase):
     @requires_kicad_cli()
     def test_kicad_10_0_4_board_stats_feed_projection_without_date(self) -> None:

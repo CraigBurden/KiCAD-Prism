@@ -44,7 +44,6 @@ from app.services.job_runtime import JobContext
 from tests.release_studio_support import (
     fixture_entrypoint,
     fixture_root,
-    fixtures_present,
     requires_kicad_cli,
     run_kicad_cli,
 )
@@ -566,10 +565,6 @@ class ReleaseStudioCanonicalJsonTests(unittest.TestCase):
         self.assertNotEqual(first, write_deterministic_archive({"member.txt": b"same"}))
 
 
-@unittest.skipUnless(
-    fixtures_present(),
-    "Release Studio fixtures are local-only and are not in this checkout",
-)
 class ReleaseStudioGeneratedSemanticTests(unittest.TestCase):
     _samples: dict[str, Path] | None = None
     _temporary: tempfile.TemporaryDirectory[str] | None = None
