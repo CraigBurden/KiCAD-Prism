@@ -1,3 +1,0 @@
-(fp_lib_table
-  (lib (name cynthion)(type KiCad)(uri ${KIPRJMOD}/libraries/cynthion.pretty)(options "")(descr ""))
-)

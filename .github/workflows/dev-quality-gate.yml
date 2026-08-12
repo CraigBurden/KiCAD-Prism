@@ -270,7 +270,18 @@ jobs:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Detect local-only Release Studio fixtures
+        id: fixtures
+        run: |
+          if [ -f fixtures/release-studio/synthetic/fixture.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Release Studio fixtures are local-only; skipping live KiCad."
+          fi
+
       - name: Build backend image from Dockerfile KiCad default
+        if: steps.fixtures.outputs.present == 'true'
         run: >-
           docker build
           --platform linux/amd64
@@ -280,6 +291,7 @@ jobs:
           .
 
       - name: Run Release Studio live KiCad tests
+        if: steps.fixtures.outputs.present == 'true'
         run: |
           set -euo pipefail
           BAKED_IMAGE="$(docker run --rm --entrypoint /bin/cat release-studio-live-kicad:ci /etc/prism/kicad-base-image | tr -d '\r\n')"

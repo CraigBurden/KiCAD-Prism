@@ -62,3 +62,6 @@ deploy/certs/*
 # any project a tool opens. Running the fixtures through kicad-cli or Cruncher
 # drops one into fixtures/, where it is neither an input nor an output.
 *.kicad_prl
+
+# Local-only KiCad boards for Release Studio live testing. Not shipped.
+fixtures/release-studio/

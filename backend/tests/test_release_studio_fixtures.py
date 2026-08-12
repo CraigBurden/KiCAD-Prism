@@ -251,6 +251,10 @@ def _synthetic_schematic_variants() -> dict[str, dict[str, bool]]:
     return assignments
 
 
+@unittest.skipUnless(
+    support.fixtures_present(),
+    "Release Studio fixtures are local-only and are not in this checkout",
+)
 class ReleaseStudioFixtureTests(unittest.TestCase):
     def test_fixture_roots_are_stable_and_complete(self) -> None:
         root_entries = {

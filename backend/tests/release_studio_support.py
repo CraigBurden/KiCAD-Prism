@@ -25,6 +25,16 @@ FIXTURE_NAMES = ("synthetic", "usb-pd", "cynthion")
 RECORDING_ROOT = RELEASE_STUDIO_ROOT / "cli-recordings"
 
 
+def fixtures_present() -> bool:
+    """True when the local-only Release Studio boards are on disk.
+
+    The tree is gitignored and is not pushed. Host-safe tests skip when it is
+    absent; live KiCad tests need it checked out beside the repo.
+    """
+
+    return (RELEASE_STUDIO_ROOT / "synthetic" / "fixture.json").is_file()
+
+
 def read_baked_kicad_base_image(
     path: Path = BAKED_KICAD_BASE_IMAGE_PATH,
 ) -> str:
