@@ -541,10 +541,12 @@ class ReleaseStudioApiTests(unittest.TestCase):
             sorted(payload),
             [
                 "approvals", "build", "candidate", "configuration", "evaluation",
+                "evaluation_fresh",
                 "evidence", "fingerprints", "members",
                 # What the policy demands before release, so the first mention
                 # of a required role is not the refusal that names it.
                 "required_approvals",
+                "required_approvals_available",
                 "vendor_readiness", "waivers",
             ],
         )
@@ -790,6 +792,13 @@ class ReleaseStudioApiTests(unittest.TestCase):
                 build_id=build["id"],
             )
             self.service.transition_waiver(waiver["id"], status="approved", actor="quality")
+
+        _run(
+            self.api.evaluate_build(
+                self.project_id, build["id"],
+                self.api.EvaluateRequest(config_key="default"), user=self.user,
+            )
+        )
 
         with self.assertRaises(HTTPException) as caught:
             _run(

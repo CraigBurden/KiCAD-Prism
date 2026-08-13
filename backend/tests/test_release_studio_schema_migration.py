@@ -1748,6 +1748,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (14, "release_studio_waiver_build_scope"),
                 (15, "release_studio_configuration_snapshot"),
                 (16, "release_studio_append_only_evaluations"),
+                (17, "release_studio_terminal_and_identity_guards"),
             ],
         )
 

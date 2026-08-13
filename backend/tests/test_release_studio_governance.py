@@ -237,9 +237,17 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
             non_hermetic_reasons=[],
             manifest={},
         )
-        result = evaluate(resolved, context, waivers=waivers)
+        result = evaluate(resolved, context, waivers=waivers, build_id=build_id)
         self.service.record_evaluation(
-            build_id=build_id, evaluation=result, evaluator_build="r13"
+            build_id=build_id,
+            evaluation=result,
+            evaluator_build="r13",
+            waiver_binding_digest=self.service.waiver_binding_digest(
+                self.project_id,
+                self.config_key,
+                build_id,
+                waivers=list(waivers),
+            ),
         )
         return result
 
@@ -666,12 +674,15 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
             project_id=self.project_id, config_key=self.config_key,
             rule_id="drc.clean", domain="evidence", reason="CM accepted deviation",
             owner="designer", subject_pattern="drc/*",
+            build_id=built["id"],
         )
         self.service.transition_waiver(waiver["id"], status="approved", actor="quality")
         cleared = self._evaluate(
             built["id"],
             evidence=[{"kind": "drc", "counts": {"error": 2, "total": 2}}],
-            waivers=self.service.active_waivers(self.project_id, self.config_key),
+            waivers=self.service.active_waivers(
+                self.project_id, self.config_key, built["id"]
+            ),
         )
         permitted, reason = release_is_permitted(cleared)
         self.assertTrue(permitted, reason)
@@ -752,7 +763,9 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
             approval_snapshot=[{"approver": approval["approver"]}],
             expected_evaluation_id=self.service.latest_evaluation(built["id"])["id"],
             expected_policy_binding_digest=cleared.policy_binding_digest,
-            expected_waiver_binding_digest="",
+            expected_waiver_binding_digest=self.service.latest_evaluation(
+                built["id"]
+            )["waiver_binding_digest"],
             expected_required_approvals=[
                 {"role": "pcb_design", "domains": ["bare_board"]}
             ],
@@ -804,7 +817,9 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
             approval_snapshot=[],
             expected_evaluation_id=self.service.latest_evaluation(built["id"])["id"],
             expected_policy_binding_digest=self.service.latest_evaluation(built["id"])["policy_binding_digest"],
-            expected_waiver_binding_digest="",
+            expected_waiver_binding_digest=self.service.latest_evaluation(
+                built["id"]
+            )["waiver_binding_digest"],
             expected_required_approvals=[],
             expected_approval_ids=[],
             expected_audit_head=self.service.current_audit_head(

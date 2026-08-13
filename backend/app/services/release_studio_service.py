@@ -1003,6 +1003,13 @@ def record_evaluation(
         candidate = conn.execute(
             "SELECT * FROM ws_release_candidates WHERE id = %s", (build["candidate_id"],)
         ).fetchone()
+        if not waiver_binding_digest:
+            waiver_binding_digest = _waiver_binding_digest_for_connection(
+                conn,
+                project_id=str(candidate["project_id"]),
+                config_key=str(candidate["config_key"]),
+                build_id=build_id,
+            )
 
         # Evaluations are append-only. Updating an existing row after a waiver
         # change would retroactively change the evidence an approval referred
