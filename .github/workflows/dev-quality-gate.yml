@@ -11,6 +11,9 @@ on:
       - dev
       - main
       - feature/release-studio
+  schedule:
+    # Live KiCad is not on every feature commit; keep a daily executor check.
+    - cron: "17 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -263,6 +266,14 @@ jobs:
 
   kicad-live:
     name: Release Studio live KiCad
+    # Rebuilds the Prism backend image (FROM pinned kicad/kicad). That proves
+    # kicad-cli and the baked executor identity. It is not compiling KiCad, and
+    # it is not a per-commit concern — run it where a merge or nightly matters.
+    if: >-
+      github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev'))
+      || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -323,4 +334,10 @@ jobs:
           test "$BACKEND_RESULT" = "success"
           test "$VIEWER_RESULT" = "success"
           test "$DEPLOYMENT_RESULT" = "success"
-          test "$KICAD_LIVE_RESULT" = "success"
+          case "$KICAD_LIVE_RESULT" in
+            success|skipped) ;;
+            *)
+              echo "Release Studio live KiCad: $KICAD_LIVE_RESULT" >&2
+              exit 1
+              ;;
+          esac

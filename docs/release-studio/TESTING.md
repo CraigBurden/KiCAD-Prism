@@ -29,7 +29,9 @@ python -m unittest tests.test_release_studio_schema_migration tests.test_release
 
 The live executor suite additionally proves the baked executor identity, KiCad
 `10.0.4`, release fixtures, and generated canonicalization semantics. It is
-strict: zero tests, a skip, failure, or error fails the run.
+strict: zero tests, a skip, failure, or error fails the run. CI runs that
+image rebuild on PRs and pushes to `dev`/`main`, on a nightly schedule, and
+on `workflow_dispatch` — not on every `feature/release-studio` commit.
 
 ```sh
 cd backend
