@@ -1,16 +1,13 @@
 /** The stages of one run, in the order they happen.
  *
- * They are a progress rail, not a wizard: every stage is reachable at any time
- * because the underlying object is re-entrant -- a build can be re-evaluated
- * under a new policy without rebuilding, and approvals arrive from different
- * people over days.
+ * They are a progress rail, not a wizard: Source and Outputs stay reachable
+ * after the build finishes so a designer can inspect PDFs, then publish.
  */
 export const RUN_STAGES = [
     { id: "source", label: "Source" },
     { id: "build", label: "Build" },
     { id: "outputs", label: "Outputs" },
-    { id: "signoff", label: "Sign-off" },
-    { id: "released", label: "Released" },
+    { id: "publish", label: "Publish" },
 ] as const;
 
 export const DOCUMENT_ORDER = [

@@ -1,12 +1,8 @@
-"""Release Studio API (R19).
+"""Release Studio API.
 
 Mounted at ``/api/projects``; every path lives under
 ``/{project_id}/release-studio`` because ``/{project_id}/releases`` already
 serves Git tags and must keep doing so.
-
-The signing-keys endpoint is deliberately unauthenticated: public keys exist to
-be distributed, and an offline recipient verifying a release has no Prism
-credentials.
 """
 
 from __future__ import annotations
@@ -14,9 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import os
 import tarfile
-from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -25,37 +19,14 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.api._helpers import get_project_for_role_or_404
-from app.core.roles import role_meets_minimum
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
-from app.release_studio.attestation import (
-    build_attestation,
-    build_release_archive,
-    load_signing_key,
-)
-from app.release_studio.policy import (
-    Evaluation,
-    Finding,
-    RuleContext,
-    RuleOutcome,
-    catalogue_payload,
-    evaluate,
-    override_record,
-    release_is_permitted,
-    resolve_policy,
-)
-from app.release_studio.verify import verify_archive_bytes
+from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
-from app.services import release_policy_service as policy_store
 from app.services import release_studio_service as store
 from app.services.job_service import jobs
 from app.services.workspace_service import workspace
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
-
-# Org-level router: no project scope, and no authentication on the key set.
-public_router = APIRouter()
-
-EVALUATOR_BUILD = "release-studio/r13"
 
 
 # ---------------------------------------------------------------------------
@@ -77,65 +48,14 @@ class ConfigurationWriteRequest(BaseModel):
     commit: bool = True
 
 
-class EvaluateRequest(BaseModel):
-    # Compatibility-only. Evaluation authority is the candidate's committed
-    # configuration, not a value supplied by the caller.
-    config_key: str = Field("default", max_length=200)
-
-
-class WaiverRequest(BaseModel):
-    config_key: str = Field("default", max_length=200)
-    rule_id: str = Field(..., max_length=200)
-    domain: str = Field(..., max_length=64)
-    reason: str = Field(..., min_length=3, max_length=4000)
-    subject_pattern: str = Field("", max_length=400)
-    finding_key: str = Field("", max_length=128)
-    #: The build this exception was raised against. A waiver accepts a finding
-    #: on a specific set of outputs, so it does not travel to the next release.
-    build_id: str = Field("", max_length=64)
-    expires_at: str | None = None
-
-
-class WaiverTransitionRequest(BaseModel):
-    reason: str = Field("", max_length=4000)
-    exception_kind: str | None = None
-    exception_reason: str = Field("", max_length=4000)
-
-
-class ApprovalRequest(BaseModel):
-    # The UI must name the evaluation it displayed. This closes the interval
-    # where a waiver/policy re-evaluation lands between render and approval.
-    evaluation_id: str = Field(..., min_length=1, max_length=64)
-    role: str = Field(..., max_length=120)
-    domains: list[str] = Field(default_factory=list)
-    decision: str = Field("approved", max_length=40)
-    note: str = Field("", max_length=4000)
-    exception_kind: str | None = None
-    exception_reason: str | None = None
-    reauth_password: str = Field("", max_length=400)
-
-
-class RescindRequest(BaseModel):
-    reason: str = Field(..., min_length=3, max_length=2000)
-
-
-class ReleaseRequest(BaseModel):
-    release_label: str = Field(..., min_length=1, max_length=200)
-    document_number: str = Field("", max_length=200)
-    revision: str = Field("", max_length=64)
-    #: Administrative break-glass. Releasing over open blockers is an admin
-    #: action, is refused without a reason, and is written into the signed
-    #: attestation -- so a recipient sees it without having to ask.
-    override_blockers: bool = False
-    override_reason: str = Field("", max_length=2000)
-
-
-class WebReleaseRequest(BaseModel):
-    expires_at: str | None = None
+class PublishRequest(BaseModel):
+    tag: str = Field(..., min_length=1, max_length=100)
+    title: str = Field("", max_length=200)
+    notes: str = Field("", max_length=8000)
 
 
 # ---------------------------------------------------------------------------
-# Configurations and catalogue
+# Configurations
 # ---------------------------------------------------------------------------
 
 
@@ -222,12 +142,6 @@ async def list_vendor_profiles(
     return {"profiles": public_profile_payload()}
 
 
-@router.get("/{project_id}/release-studio/rule-catalogue")
-async def rule_catalogue(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    get_project_for_role_or_404(project_id, user.role)
-    return {"rules": catalogue_payload()}
-
-
 # ---------------------------------------------------------------------------
 # Candidates and builds
 # ---------------------------------------------------------------------------
@@ -296,14 +210,18 @@ async def get_build(
     build = _build_or_404(project_id, build_id)
     candidate = store.get_candidate(str(build["candidate_id"])) or {}
     configuration = _candidate_configuration(project_id, candidate)
-    approval_coverage = _required_approval_coverage(project_id, build, user)
-    evaluation = store.latest_evaluation(build_id)
-    evaluation_fresh = bool(
-        evaluation is not None
-        and _evaluation_has_current_waivers(
-            project_id, str(candidate.get("config_key") or ""), build_id, evaluation
-        )
-    )
+    project = workspace.get_project_by_id(project_id) or {}
+    try:
+        forge = forge_publish.describe_forge(str(project.get("repo_url") or "")).to_dict()
+    except forge_publish.ForgePublishError as exc:
+        forge = {
+            "kind": "unsupported",
+            "name": "",
+            "host": "",
+            "owner_repo": "",
+            "token_configured": False,
+            "token_hint": str(exc),
+        }
     return {
         "build": build,
         "candidate": candidate,
@@ -311,77 +229,8 @@ async def get_build(
         "members": store.build_members(build_id),
         "evidence": store.build_evidence(build_id),
         "fingerprints": store.build_fingerprints(build_id),
-        "evaluation": evaluation,
-        "evaluation_fresh": evaluation_fresh,
-        **(
-            {"evaluation_fresh_error": "Evaluation is stale after a waiver change; evaluate again."}
-            if evaluation is not None and not evaluation_fresh
-            else {}
-        ),
-        "approvals": store.list_approvals(build_id),
-        "waivers": store.list_waivers(
-            project_id, str(candidate.get("config_key") or ""), build_id
-        ),
         "vendor_readiness": _vendor_readiness(build, configuration),
-        # What the policy demands before this build can be released, and which
-        # of those are already covered. Resolving it only at release time meant
-        # the first a user heard of a required role was a refusal naming it.
-        "required_approvals": approval_coverage["required_approvals"],
-        "required_approvals_available": approval_coverage["available"],
-        **(
-            {"required_approvals_error": approval_coverage["error"]}
-            if not approval_coverage["available"]
-            else {}
-        ),
-    }
-
-
-def _required_approval_coverage(
-    project_id: str, build: dict[str, Any], user: AuthenticatedUser | None = None
-) -> dict[str, Any]:
-    """Each (role, domain) the policy requires, marked satisfied or not.
-
-    The result explicitly distinguishes a resolved policy with no required
-    approvals from an unavailable policy. The latter must never look releasable
-    to a client.
-    """
-
-    candidate = store.get_candidate(str(build.get("candidate_id") or ""))
-    if candidate is None:
-        return {
-            "available": False,
-            "required_approvals": None,
-            "error": "candidate not found",
-        }
-    try:
-        required = resolve_policy(
-            _policy_document(project_id, candidate),
-            org_policy_loader=policy_store.load_bound_version,
-        ).required_approvals
-    except Exception as exc:  # noqa: BLE001 - render, but make stale policy explicit
-        return {"available": False, "required_approvals": None, "error": str(exc)}
-    covered = {
-        (approval["role"], domain)
-        for approval in store.effective_approvals(str(build["id"]))
-        for domain in (approval["domains"] or [])
-    }
-    return {
-        "available": True,
-        "required_approvals": [
-            {
-                "role": entry["role"],
-                "domain": domain,
-                "satisfied": (entry["role"], domain) in covered,
-                # Product roles do not confer engineering authority. This is a
-                # conservative mapping until per-project approval grants exist.
-                "eligible_app_roles": ["admin"],
-                "can_current_user_approve": bool(
-                    user is not None and role_meets_minimum(user.role, "admin")
-                ),
-            }
-            for entry in required
-            for domain in entry["domains"]
-        ],
+        "forge": forge,
     }
 
 
@@ -625,684 +474,51 @@ async def download_build_evidence(
 
 
 # ---------------------------------------------------------------------------
-# Evaluation
+# Publish to GitHub / GitLab
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{project_id}/release-studio/builds/{build_id}/evaluate")
-async def evaluate_build(
+@router.post("/{project_id}/release-studio/builds/{build_id}/publish")
+async def publish_build(
     project_id: str,
     build_id: str,
-    request: EvaluateRequest,
+    request: PublishRequest,
     user: AuthenticatedUser = Depends(require_designer),
 ):
-    """Re-evaluate an existing build. Runs zero KiCad steps by construction."""
+    """Zip the dossier and create a GitHub or GitLab Release on the imported remote."""
 
     get_project_for_role_or_404(project_id, user.role)
     build = _build_or_404(project_id, build_id)
-    candidate = store.get_candidate(build["candidate_id"]) or {}
-    result = _evaluate(project_id, build, candidate, actor=user.email)
-    return {"evaluation": store.latest_evaluation(build_id), "outcome": result.outcome}
-
-
-def _evaluate(project_id: str, build, candidate, *, actor: str):
-    if build.get("status") != "succeeded":
-        raise HTTPException(status_code=409, detail="Only a successful immutable build can be evaluated")
-    policy_document = _policy_document(project_id, candidate)
-    resolved = resolve_policy(
-        policy_document,
-        org_policy_loader=policy_store.load_bound_version,
-    )
-    members = [_MemberView(row) for row in store.build_members(build["id"])]
-    context = RuleContext(
-        members=members,
-        evidence=store.build_evidence(build["id"]),
-        projections=_evaluation_projections(build["id"]),
-        hermetic=bool(candidate.get("hermetic", True)),
-        non_hermetic_reasons=list(candidate.get("non_hermetic_reasons") or []),
-        manifest={},
-    )
-    active_waivers = store.active_waivers(
-        project_id, str(candidate.get("config_key") or ""), str(build["id"])
-    )
-    result = evaluate(
-        resolved,
-        context,
-        waivers=active_waivers,
-        build_id=str(build["id"]),
-    )
-    store.record_evaluation(
-        build_id=build["id"], evaluation=result, evaluator_build=EVALUATOR_BUILD,
-        waiver_binding_digest=store.waiver_binding_digest(
-            project_id, str(candidate.get("config_key") or ""), str(build["id"]),
-            waivers=active_waivers,
-        ),
-        actor=actor,
-    )
-    return result
-
-
-def _evaluation_projections(build_id: str) -> dict[str, Any]:
-    """The immutable rule inputs this build captured.
-
-    Board and semantic projections are recorded once per build. Re-evaluation
-    reads those exact facts; recomputing from a checkout would make governance
-    depend on mutable files, while dropping them makes projection-backed rules
-    incorrectly report ``unsupported``.
-    """
-
-    return store.build_projections(build_id)
-
-
-class _MemberView:
-    """Adapt a persisted member row to the shape rules expect."""
-
-    def __init__(self, row: dict[str, Any]) -> None:
-        self.path = row["path"]
-        self.member_kind = row["member_kind"]
-        self.domains = tuple(row.get("domains") or ())
-        self.released_digest = row["released_digest"]
-
-
-def _policy_document(
-    project_id: str,
-    candidate: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Load the candidate's Git overlay, or the safe built-in baseline.
-
-    Deliberately small: DRC/ERC clean, hermetic inputs, and the members a
-    fabricator needs. A project overlay in Git replaces this wholesale.
-    """
-
-    if candidate:
-        configured = build_service.policy_document_for_candidate(project_id, candidate)
-        if configured is not None:
-            return configured
-    return {
-        "rules": [
-            {"id": "drc.clean", "severity": "blocker", "params": {"max_errors": 0}},
-            {"id": "erc.clean", "severity": "blocker", "params": {"max_errors": 0}},
-            {"id": "build.hermetic", "severity": "blocker"},
-            {"id": "assembly.positions_present", "severity": "failure"},
-            {
-                "id": "dossier.required_members",
-                "severity": "failure",
-                "params": {"patterns": ["fabrication/gerbers/*", "fabrication/drill/*"]},
-            },
-        ],
-        "required_approvals": [
-            {"role": "pcb_design", "domains": ["bare_board"]},
-            {"role": "manufacturing", "domains": ["assembly"]},
-        ],
-    }
-
-
-# ---------------------------------------------------------------------------
-# Waivers
-# ---------------------------------------------------------------------------
-
-
-@router.get("/{project_id}/release-studio/waivers")
-async def list_waivers(
-    project_id: str,
-    config_key: str = Query("default"),
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    return {"waivers": store.list_waivers(project_id, config_key)}
-
-
-@router.post("/{project_id}/release-studio/builds/{build_id}/waivers")
-async def create_build_waiver(
-    project_id: str,
-    build_id: str,
-    request: WaiverRequest,
-    user: AuthenticatedUser = Depends(require_designer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    build = _build_or_404(project_id, build_id)
+    if str(build.get("status") or "") != "succeeded":
+        raise HTTPException(status_code=409, detail="Only a successful build can be published")
     candidate = store.get_candidate(str(build["candidate_id"])) or {}
+    commit_sha = str(candidate.get("commit_sha") or "")
+    if not _is_full_git_sha(commit_sha):
+        raise HTTPException(status_code=409, detail="The build is not bound to a full Git commit")
+    project = workspace.get_project_by_id(project_id) or {}
     try:
-        return store.create_waiver(
-            project_id=project_id,
-            config_key=str(candidate.get("config_key") or ""),
-            rule_id=request.rule_id,
-            domain=request.domain,
-            reason=request.reason,
-            owner=user.email,
-            subject_pattern=request.subject_pattern,
-            finding_key=request.finding_key,
-            build_id=str(build["id"]),
-            expires_at=request.expires_at,
+        zip_bytes = forge_publish.dossier_tar_to_zip(_artifact_bytes(build.get("dossier_artifact_id")))
+        filename = forge_publish.release_zip_filename(
+            str(project.get("name") or project.get("parent_repo") or "release"),
+            request.tag,
         )
-    except store.ReleaseStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.post("/{project_id}/release-studio/waivers")
-async def create_waiver(
-    project_id: str, request: WaiverRequest, user: AuthenticatedUser = Depends(require_designer)
-):
-    get_project_for_role_or_404(project_id, user.role)
-    if not request.build_id:
-        raise HTTPException(status_code=400, detail="A waiver must name an immutable build")
-    build = _build_or_404(project_id, request.build_id)
-    candidate = store.get_candidate(str(build["candidate_id"])) or {}
-    try:
-        return store.create_waiver(
-            project_id=project_id,
-            config_key=str(candidate.get("config_key") or ""),
-            rule_id=request.rule_id,
-            domain=request.domain,
-            reason=request.reason,
-            owner=user.email,
-            subject_pattern=request.subject_pattern,
-            finding_key=request.finding_key,
-            build_id=str(build["id"]),
-            expires_at=request.expires_at,
+        published = forge_publish.publish_release(
+            repo_url=str(project.get("repo_url") or ""),
+            commit_sha=commit_sha,
+            tag=request.tag,
+            title=request.title,
+            notes=request.notes,
+            zip_bytes=zip_bytes,
+            filename=filename,
         )
-    except store.ReleaseStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.post("/{project_id}/release-studio/waivers/{waiver_id}/{action}")
-async def transition_waiver(
-    project_id: str,
-    waiver_id: str,
-    action: str,
-    request: WaiverTransitionRequest,
-    user: AuthenticatedUser = Depends(require_designer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    status = {"approve": "approved", "reject": "rejected", "revoke": "revoked"}.get(action)
-    if status is None:
-        raise HTTPException(status_code=400, detail=f"Unknown waiver action: {action}")
-    try:
-        return store.transition_waiver(
-            waiver_id,
-            status=status,
-            actor=user.email,
-            reason=request.reason,
-            exception_kind=request.exception_kind,
-            exception_reason=request.exception_reason,
-            project_id=project_id,
-        )
-    except store.ReleaseStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-# ---------------------------------------------------------------------------
-# Approvals
-# ---------------------------------------------------------------------------
-
-
-@router.post("/{project_id}/release-studio/builds/{build_id}/approvals")
-async def create_approval(
-    project_id: str,
-    build_id: str,
-    request: ApprovalRequest,
-    user: AuthenticatedUser = Depends(require_designer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    _build_or_404(project_id, build_id)
-    if not role_meets_minimum(user.role, "admin"):
-        raise HTTPException(status_code=403, detail="Configured release approvals require the admin role")
-    candidate = store.get_candidate(_build_or_404(project_id, build_id)["candidate_id"]) or {}
-    resolved_policy = resolve_policy(
-        _policy_document(project_id, candidate),
-        org_policy_loader=policy_store.load_bound_version,
-    )
-    current_evaluation = store.latest_evaluation(build_id)
-    if current_evaluation is None or current_evaluation["policy_binding_digest"] != resolved_policy.binding_digest:
-        raise HTTPException(
-            status_code=409,
-            detail="Build evaluation is stale; evaluate it again before approval",
-        )
-    required_pairs = {
-        (entry["role"], domain)
-        for entry in resolved_policy.required_approvals
-        for domain in entry["domains"]
-    }
-    if len(request.domains) != 1 or (request.role, request.domains[0]) not in required_pairs:
-        raise HTTPException(status_code=400, detail="Approval must select one required policy role/domain pair")
-    try:
-        return store.create_approval(
-            build_id=build_id,
-            role=request.role,
-            domains=request.domains,
-            decision=request.decision,
-            approver=user.email,
-            note=request.note,
-            exception_kind=request.exception_kind,
-            exception_reason=request.exception_reason,
-            reauth_context={"method": "session", "email": user.email},
-            expected_policy_binding_digest=resolved_policy.binding_digest,
-            expected_evaluation_id=request.evaluation_id,
-        )
-    except store.ReleaseStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-# ---------------------------------------------------------------------------
-# Release
-# ---------------------------------------------------------------------------
-
-
-@router.post(
-    "/{project_id}/release-studio/builds/{build_id}/approvals/{approval_id}/rescind"
-)
-async def rescind_approval(
-    project_id: str,
-    build_id: str,
-    approval_id: str,
-    request: RescindRequest,
-    user: AuthenticatedUser = Depends(require_designer),
-):
-    """Withdraw an approval.
-
-    Approval rows are immutable -- a database trigger raises on UPDATE and
-    DELETE -- so this appends to ``ws_release_approval_invalidations`` the same
-    way a stale binding does. The record of who approved, and that it was later
-    withdrawn and why, both survive.
-    """
-
-    get_project_for_role_or_404(project_id, user.role)
-    build = _build_or_404(project_id, build_id)
-    try:
-        return store.rescind_approval(
-            approval_id=approval_id,
-            build_id=str(build["id"]),
-            reason=request.reason,
-            actor=user.email,
-            is_admin=role_meets_minimum(user.role, "admin"),
-        )
-    except store.ReleaseStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.post("/{project_id}/release-studio/builds/{build_id}/release")
-async def create_release(
-    project_id: str,
-    build_id: str,
-    request: ReleaseRequest,
-    user: AuthenticatedUser = Depends(require_designer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    build = _build_or_404(project_id, build_id)
-    if build.get("status") != "succeeded":
-        raise HTTPException(status_code=409, detail="Only a successful immutable build can be released")
-    candidate = store.get_candidate(build["candidate_id"]) or {}
-    config_key = str(candidate.get("config_key") or "default")
-    configuration = _candidate_configuration(project_id, candidate)
-
-    evaluation = store.latest_evaluation(build_id)
-    if evaluation is None:
-        raise HTTPException(status_code=400, detail="Build has not been evaluated")
-
-    # Approval rows bind to one concrete evaluation.  Re-evaluating during
-    # release would create an unreviewed result after the approval was given,
-    # so release consumes the current stored evaluation instead.
-    result = _stored_evaluation(evaluation)
-    resolved = resolve_policy(
-        _policy_document(project_id, candidate),
-        org_policy_loader=policy_store.load_bound_version,
-    )
-    if evaluation.get("policy_binding_digest") != resolved.binding_digest:
-        raise HTTPException(status_code=409, detail="Build evaluation is stale; evaluate it again before release")
-    if not _evaluation_has_current_waivers(project_id, config_key, build_id, evaluation):
-        raise HTTPException(
-            status_code=409,
-            detail="Build evaluation is stale after a waiver change; evaluate it again before release",
-        )
-
-    override: dict[str, Any] | None = None
-    if request.override_blockers:
-        # Break-glass is an administrative act, not a designer's. The role is
-        # checked here rather than on the route because every other release is
-        # an ordinary designer action.
-        if not role_meets_minimum(user.role, "admin"):
-            raise HTTPException(
-                status_code=403,
-                detail="Releasing over open blockers requires the admin role",
-            )
-        if not request.override_reason.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="An override reason is required to release over open blockers",
-            )
-        override = override_record(
-            result, actor=user.email, reason=request.override_reason.strip()
-        )
-        if not override["findings"] and not override["unsupported_rules"]:
-            # Recording an override on a clean build would put a break-glass
-            # marker into a signed attestation that stepped over nothing.
-            raise HTTPException(
-                status_code=400,
-                detail="This build has no open blockers; no override is needed",
-            )
-
-    permitted, reason = release_is_permitted(result, overridden=override is not None)
-    if not permitted:
-        raise HTTPException(status_code=409, detail=f"Release refused: {reason}")
-
-    approvals = store.effective_approvals(build_id)
-    required = resolved.required_approvals
-    covered = {
-        (approval["role"], domain)
-        for approval in approvals
-        for domain in (approval["domains"] or [])
-    }
-    missing = [
-        f"{entry['role']} for {domain}"
-        for entry in required
-        for domain in entry["domains"]
-        if (entry["role"], domain) not in covered
-    ]
-    if missing:
-        raise HTTPException(
-            status_code=409, detail=f"Release refused: missing approval(s) {missing}"
-        )
-
-    key = _signing_key()
-    head = store.current_audit_head(project_id, config_key)
-    attestation = build_attestation(
-        manifest_digest=build["manifest_digest"],
-        dossier_digest=build["dossier_digest"],
-        commit_sha=str(candidate.get("commit_sha") or ""),
-        variant=str(candidate.get("variant") or ""),
-        config_key=config_key,
-        project_id=project_id,
-        release_label=request.release_label,
-        document_number=str(configuration.get("document_number") or ""),
-        revision=str(configuration.get("revision") or ""),
-        released_by=user.email,
-        released_at_iso=_now_iso(),
-        policy_snapshot={
-            "policy_binding_digest": result.policy_binding_digest,
-            "waivers": [
-                finding.waiver_id for finding in result.findings if finding.waiver_id
-            ],
-            # Inside the signed attestation, so an offline recipient learns that
-            # a release went out over open blockers -- and which ones -- from
-            # the archive itself rather than by asking the issuer.
-            **({"override": override} if override else {}),
-        },
-        approval_snapshot=[
-            {
-                "role": approval["role"],
-                "approver": approval["approver"],
-                "decision": approval["decision"],
-                "domains": list(approval["domains"] or []),
-            }
-            for approval in approvals
-        ],
-        audit_head=head,
-        signing_key_id=key.key_id,
-        issuer=os.environ.get("PRISM_RELEASE_ISSUER", ""),
-    )
-    signature = key.sign_hex(attestation["attestation_digest"])
-    store.upsert_signing_key(
-        key_id=key.key_id, algorithm="ed25519", public_key=key.public_pem,
-        created_by=user.email,
-    )
-    try:
-        record = store.create_release_record(
-            build_id=build_id,
-            release_label=request.release_label,
-            document_number=str(configuration.get("document_number") or ""),
-            revision=str(configuration.get("revision") or ""),
-            released_by=user.email,
-            attestation=attestation,
-            signature=signature,
-            signing_key_id=key.key_id,
-            policy_snapshot=attestation["policy"],
-            approval_snapshot=attestation["approvals"],
-            expected_evaluation_id=str(evaluation["id"]),
-            expected_policy_binding_digest=str(resolved.binding_digest),
-            expected_waiver_binding_digest=str(evaluation.get("waiver_binding_digest") or ""),
-            expected_required_approvals=required,
-            expected_approval_ids=[str(approval["id"]) for approval in approvals],
-            expected_audit_head=str(head.get("event_hash") or ""),
-        )
-    except Exception as exc:  # noqa: BLE001 - unique label collisions land here
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return record
-
-
-@router.get("/{project_id}/release-studio/records")
-async def list_records(
-    project_id: str,
-    config_key: str | None = Query(None),
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    return {"records": store.list_release_records(project_id, config_key)}
-
-
-@router.post("/{project_id}/release-studio/records/{record_id}/web-release")
-async def create_web_release(
-    project_id: str,
-    record_id: str,
-    request: WebReleaseRequest,
-    user: AuthenticatedUser = Depends(require_designer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    record = store.get_release_record(record_id)
-    if record is None or record["project_id"] != project_id:
-        raise HTTPException(status_code=404, detail="Release record not found")
-    try:
-        share = store.create_web_share(
-            record_id, actor=user.email, expires_at=request.expires_at
-        )
-    except (store.ReleaseStudioError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    token = share.pop("token")
-    return {
-        "share": share,
-        "token": token,
-        "url": f"/release-view/{token}",
-    }
-
-
-@router.get("/{project_id}/release-studio/records/{record_id}/web-releases")
-async def list_web_releases(
-    project_id: str,
-    record_id: str,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    record = store.get_release_record(record_id)
-    if record is None or record["project_id"] != project_id:
-        raise HTTPException(status_code=404, detail="Release record not found")
-    return {"shares": store.list_web_shares(record_id)}
-
-
-@router.post("/{project_id}/release-studio/web-releases/{share_id}/revoke")
-async def revoke_web_release(
-    project_id: str,
-    share_id: str,
-    user: AuthenticatedUser = Depends(require_designer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    try:
-        share = store.revoke_web_share(
-            share_id, project_id=project_id, actor=user.email
-        )
-    except store.ReleaseStudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return share
-
-
-@router.get("/{project_id}/release-studio/records/{record_id}/release-archive")
-async def download_release_archive(
-    project_id: str, record_id: str, user: AuthenticatedUser = Depends(require_viewer)
-):
-    get_project_for_role_or_404(project_id, user.role)
-    record, archive = _release_archive(project_id, record_id)
-    return Response(
-        content=archive,
-        media_type="application/gzip",
-        headers={
-            "Content-Disposition":
-                f'attachment; filename="{record["release_label"]}-release.tar.gz"'
-        },
-    )
-
-
-@router.get("/{project_id}/release-studio/records/{record_id}/vendor-packs/{vendor_id}")
-async def download_record_vendor_pack(
-    project_id: str,
-    record_id: str,
-    vendor_id: str,
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    record = store.get_release_record(record_id)
-    if record is None or record["project_id"] != project_id:
-        raise HTTPException(status_code=404, detail="Release not found")
-    build = _build_or_404(project_id, str(record["build_id"]))
-    return _vendor_pack_response(
-        build,
-        vendor_id,
-        filename_stem=str(record.get("release_label") or "release"),
-    )
-
-
-@router.post("/{project_id}/release-studio/records/{record_id}/verify")
-async def verify_record(
-    project_id: str, record_id: str, user: AuthenticatedUser = Depends(require_viewer)
-):
-    """Run the same standalone verifier the recipient runs."""
-
-    get_project_for_role_or_404(project_id, user.role)
-    record, archive = _release_archive(project_id, record_id)
-    trusted = {
-        key["key_id"]: key["public_key"]
-        for key in store.list_signing_keys()
-        if key["status"] != "revoked"
-    }
-    report = verify_archive_bytes(archive, trusted_keys=trusted)
-    return {"record_id": record_id, **report.to_dict()}
-
-
-# ---------------------------------------------------------------------------
-# Audit
-# ---------------------------------------------------------------------------
-
-
-@router.get("/{project_id}/release-studio/audit")
-async def list_audit(
-    project_id: str,
-    config_key: str = Query("default"),
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    return {"events": store.list_audit_events(project_id, config_key)}
-
-
-@router.get("/{project_id}/release-studio/audit/verify")
-async def verify_audit(
-    project_id: str,
-    config_key: str = Query("default"),
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    return store.verify_audit_chain(project_id, config_key)
-
-
-# ---------------------------------------------------------------------------
-# Org-level signing keys (unauthenticated by design)
-# ---------------------------------------------------------------------------
-
-
-@public_router.get("/api/release-studio/signing-keys")
-async def signing_keys():
-    """Public key material only. Superseded keys stay listed so old releases verify."""
-
-    return {
-        "keys": [
-            {
-                "key_id": key["key_id"],
-                "algorithm": key["algorithm"],
-                "public_key": key["public_key"],
-                "status": key["status"],
-                "valid_from": key["valid_from"],
-                "valid_to": key["valid_to"],
-            }
-            for key in store.list_signing_keys()
-        ]
-    }
-
-
-@public_router.get("/api/release-view/{token}")
-async def public_release_view(token: str):
-    share, record, build = _public_share(token)
-    _, verification = _verified_public_archive(record)
-    members = [
-        {
-            "path": member["path"],
-            "member_kind": member["member_kind"],
-            "media_type": member["media_type"],
-            "size_bytes": member["size_bytes"],
-            "released_digest": member["released_digest"],
-            "domains": list(member.get("domains") or ()),
-        }
-        for member in store.build_members(build["id"])
-    ]
-    return Response(
-        content=json.dumps(
-            {
-                "release": {
-                    key: record[key]
-                    for key in (
-                        "id", "release_label", "document_number", "revision",
-                        "dossier_digest", "manifest_digest", "attestation_digest",
-                        "signing_key_id", "commit_sha", "variant", "created_at",
-                    )
-                },
-                "members": members,
-                "verification": verification,
-                "expires_at": share.get("expires_at"),
-            },
-            default=str,
-        ),
-        media_type="application/json",
-        headers=_public_response_headers(),
-    )
-
-
-@public_router.get("/api/release-view/{token}/members/{member_path:path}")
-async def public_release_member(token: str, member_path: str):
-    _, record, build = _public_share(token)
-    _verified_public_archive(record)
-    return _released_member_response(
-        build, member_path, disposition="inline", public_share=True
-    )
-
-
-@public_router.get("/api/release-view/{token}/archive")
-async def public_release_archive(token: str):
-    _, record, _ = _public_share(token)
-    archive, _ = _verified_public_archive(record)
-    return Response(
-        content=archive,
-        media_type="application/gzip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{record["release_label"]}-release.tar.gz"',
-            **_public_response_headers(),
-        },
-    )
+    except forge_publish.ForgePublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {"release": published, "filename": filename}
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _now_iso() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _build_or_404(project_id: str, build_id: str) -> dict[str, Any]:
@@ -1319,61 +535,7 @@ def _candidate_configuration(project_id: str, candidate: dict[str, Any]) -> dict
     try:
         return build_service.configuration_for_candidate(project_id, candidate)
     except build_service.BuildError as exc:
-        # A release identity that cannot be proved from its immutable source is
-        # not safe to display as authoritative or to sign.
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-def _evaluation_has_current_waivers(
-    project_id: str,
-    config_key: str,
-    build_id: str,
-    evaluation: dict[str, Any],
-) -> bool:
-    """Whether the stored evaluation saw the active waiver state at release."""
-
-    return str(evaluation.get("waiver_binding_digest") or "") == store.waiver_binding_digest(
-        project_id, config_key, build_id
-    )
-
-
-def _stored_evaluation(row: dict[str, Any]) -> Evaluation:
-    """Rehydrate persisted evaluation state without re-running policy at release."""
-
-    findings = tuple(
-        Finding(
-            rule_id=str(item["rule_id"]),
-            rule_version=str(item["rule_version"]),
-            severity=str(item["severity"]),
-            domain=str(item["domain"]),
-            subject=str(item["subject"]),
-            message=str(item["message"]),
-            observed=dict(item.get("observed") or {}),
-            expected=dict(item.get("expected") or {}),
-            status=str(item.get("status") or "open"),
-            waiver_id=str(item.get("waiver_id") or ""),
-        )
-        for item in row.get("findings") or []
-    )
-    outcomes = tuple(
-        RuleOutcome(
-            rule_id=str(item["rule_id"]),
-            rule_version=str(item["rule_version"]),
-            outcome=str(item["outcome"]),
-            finding_count=int(item.get("finding_count") or 0),
-            unsupported_reason=str(item.get("unsupported_reason") or ""),
-        )
-        for item in row.get("rule_outcomes") or []
-    )
-    return Evaluation(
-        outcome=str(row["outcome"]),
-        findings=findings,
-        rule_outcomes=outcomes,
-        counts=dict(row.get("counts") or {}),
-        policy_binding=dict(row.get("policy_binding") or {}),
-        policy_binding_digest=str(row["policy_binding_digest"]),
-    )
-
 
 def _vendor_readiness(build: dict[str, Any], configuration: dict[str, Any]) -> list[dict[str, Any]]:
     """Expose exact pack readiness; archive downloads use the same predicate."""
@@ -1386,81 +548,6 @@ def _vendor_readiness(build: dict[str, Any], configuration: dict[str, Any]) -> l
         vendor_pack_readiness(vendor_id, dossier_bytes=dossier, evidence_bytes=evidence)
         for vendor_id in configuration.get("vendors") or []
     ]
-
-
-def _public_share(
-    token: str,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    if len(token) < 32 or len(token) > 200:
-        raise HTTPException(status_code=404, detail="Shared release not found")
-    share = store.resolve_web_share(token)
-    if share is None:
-        raise HTTPException(status_code=404, detail="Shared release not found or expired")
-    record = store.get_release_record(share["record_id"])
-    build = store.get_build(share["build_id"])
-    if record is None or build is None:
-        raise HTTPException(status_code=404, detail="Shared release is unavailable")
-    return share, record, build
-
-
-#: Verified public archives, keyed by ``attestation_digest``.
-#:
-#: A release record is immutable and its archive is deterministic, so its
-#: verification result is a pure function of that digest.  Without this cache
-#: every unauthenticated request -- including each member fetch on a page that
-#: lists fifty members -- reassembled the archive and ran a full gzip plus
-#: SHA-256 sweep over it, which is an amplification primitive offered to
-#: anyone holding a share link.
-_PUBLIC_ARCHIVE_CACHE: "OrderedDict[str, tuple[bytes, dict[str, Any]]]" = OrderedDict()
-
-#: Bounded so a workspace with many shared releases cannot pin every dossier in
-#: memory; the archives are megabytes each.
-_PUBLIC_ARCHIVE_CACHE_LIMIT = 8
-
-
-def _verified_public_archive(
-    record: dict[str, Any],
-) -> tuple[bytes, dict[str, Any]]:
-    """Fail closed before an unauthenticated route exposes release bytes."""
-
-    cache_key = str(record.get("attestation_digest") or "")
-    cached = _PUBLIC_ARCHIVE_CACHE.get(cache_key) if cache_key else None
-    if cached is not None:
-        _PUBLIC_ARCHIVE_CACHE.move_to_end(cache_key)
-        return cached
-
-    trusted = {
-        key["key_id"]: key["public_key"]
-        for key in store.list_signing_keys()
-        if key["status"] != "revoked"
-    }
-    _, archive = _release_archive(record["project_id"], record["id"])
-    verification = verify_archive_bytes(
-        archive,
-        trusted_keys=trusted,
-    ).to_dict()
-    if not verification["ok"]:
-        # Deliberately not cached: a failure may be a key that has just been
-        # revoked, and re-checking a rejected share costs nothing worth saving.
-        raise HTTPException(
-            status_code=409,
-            detail="The shared release failed authenticity verification",
-        )
-    if cache_key:
-        _PUBLIC_ARCHIVE_CACHE[cache_key] = (archive, verification)
-        while len(_PUBLIC_ARCHIVE_CACHE) > _PUBLIC_ARCHIVE_CACHE_LIMIT:
-            _PUBLIC_ARCHIVE_CACHE.popitem(last=False)
-    return archive, verification
-
-
-def _public_response_headers() -> dict[str, str]:
-    return {
-        "Cache-Control": "private, no-store",
-        "Referrer-Policy": "no-referrer",
-        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
-        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-        "X-Content-Type-Options": "nosniff",
-    }
 
 
 def _vendor_pack_response(
@@ -1560,101 +647,3 @@ def _artifact_bytes(artifact_id: str | None) -> bytes:
         )
     return payload
 
-
-def publish_configured_signing_key() -> str:
-    """Publish the configured key's public half into the org key set.
-
-    Called once at startup rather than lazily from the key-set route: a
-    recipient must be able to pin the key before anything has been signed with
-    it, and an operator needs to see that the deployment is configured to sign
-    at all -- but a GET must not carry a write whose outcome depends on the
-    process environment.
-
-    Returns the published ``key_id``, or "" when signing is not configured,
-    which is a legitimate state and never an error.
-    """
-
-    try:
-        key = _signing_key()
-    except HTTPException:
-        return ""
-    store.upsert_signing_key(
-        key_id=key.key_id, algorithm="ed25519", public_key=key.public_pem, created_by=""
-    )
-    return key.key_id
-
-
-def _signing_key():
-    """Load the org release key from the process secret.
-
-    The private key never reaches the database or the worker; when it is absent
-    the API refuses to release rather than issuing something unverifiable.
-    """
-
-    key_id = os.environ.get("PRISM_RELEASE_SIGNING_KEY_ID", "").strip()
-    pem = os.environ.get("PRISM_RELEASE_SIGNING_KEY", "").strip()
-    pem_file = os.environ.get("PRISM_RELEASE_SIGNING_KEY_FILE", "").strip()
-    if not pem and pem_file:
-        try:
-            pem = Path(pem_file).read_text(encoding="utf-8")
-        except OSError as exc:
-            raise HTTPException(
-                status_code=503, detail=f"Release signing key file is unreadable: {exc}"
-            ) from exc
-    if not key_id or not pem:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Release signing is not configured. Set PRISM_RELEASE_SIGNING_KEY_ID and "
-                "PRISM_RELEASE_SIGNING_KEY (or PRISM_RELEASE_SIGNING_KEY_FILE)."
-            ),
-        )
-    try:
-        return load_signing_key(key_id, pem)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-def _release_archive(project_id: str, record_id: str) -> tuple[dict[str, Any], bytes]:
-    record = store.get_release_record(record_id)
-    if record is None or record["project_id"] != project_id:
-        raise HTTPException(status_code=404, detail="Release record not found")
-    build = store.get_build(record["build_id"])
-    if build is None:
-        raise HTTPException(status_code=404, detail="Release build is missing")
-
-    keys = {key["key_id"]: key for key in store.list_signing_keys()}
-    key = keys.get(record["signing_key_id"])
-    if key is None:
-        raise HTTPException(
-            status_code=409, detail="The signing key for this release is not published"
-        )
-    attestation = _stored_attestation(record, build)
-    archive = build_release_archive(
-        dossier_bytes=_artifact_bytes(build["dossier_artifact_id"]),
-        attestation=attestation,
-        signature_hex=record["signature"],
-        signing_key_id=record["signing_key_id"],
-        public_pem=key["public_key"],
-        valid_from=str(key["valid_from"] or ""),
-        valid_to=str(key["valid_to"] or ""),
-    )
-    return record, archive
-
-
-def _stored_attestation(record: dict[str, Any], build: dict[str, Any]) -> dict[str, Any]:
-    """Reconstruct the signed attestation from the immutable release record."""
-
-    attestation = record.get("attestation_body")
-    if isinstance(attestation, dict) and attestation:
-        return attestation
-    raise HTTPException(
-        status_code=409,
-        detail=(
-            "This release record predates attestation persistence; re-release the build "
-            "to produce a downloadable archive."
-        ),
-    )
-
-
-__all__ = ["public_router", "router"]

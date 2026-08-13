@@ -284,6 +284,15 @@ export type VendorReadiness = {
     missing_requirements?: string[];
 };
 
+export type ForgeTarget = {
+    kind: "github" | "gitlab" | "unsupported";
+    name: string;
+    host: string;
+    owner_repo: string;
+    token_configured: boolean;
+    token_hint: string;
+};
+
 export type BuildDetail = {
     build: ReleaseBuild;
     /** Immutable source identity captured with this build. */
@@ -293,21 +302,9 @@ export type BuildDetail = {
     members: ReleaseMember[];
     evidence: ReleaseEvidence[];
     fingerprints: Record<string, { fingerprint: string; fidelity: string }>;
-    evaluation: Evaluation | null;
-    /** False means build-scoped waivers changed after the stored evaluation. */
-    evaluation_fresh?: boolean;
-    evaluation_fresh_error?: string;
-    approvals: Approval[];
-    /** What the policy demands before release, and what is already covered.
-     *  Absent on older responses. */
-    /** Explicit backend coverage contract. `null` is unavailable, not an empty policy. */
-    required_approvals?: RequiredApproval[] | null;
-    required_approvals_available?: boolean;
-    required_approvals_error?: string;
     /** Manufacturer readiness is build-scoped, never inferred from file names. */
     vendor_readiness?: VendorReadiness[];
-    /** Build-scoped exceptions returned with the evidence they affect. */
-    waivers?: Waiver[];
+    forge?: ForgeTarget;
 };
 
 export type ProjectCommit = {
@@ -349,8 +346,8 @@ export type PipelineState = {
     jobs: PipelineJob[];
 };
 
-export type RunStage = "source" | "build" | "outputs" | "signoff" | "released";
-export type StudioView = "settings" | "current" | "history" | "library";
+export type RunStage = "source" | "build" | "outputs" | "publish";
+export type StudioView = "settings" | "current" | "history";
 
 /** What a stage rail shows next to each stage. */
 export type StageState = "done" | "active" | "pending" | "failed" | "cancelled" | "locked";

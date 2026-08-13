@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 
 import * as api from "../api";
-import { outcomeTone, shortDigest } from "../flow";
+import { shortDigest } from "../flow";
 import {
     DocumentSheetPreview,
     MemberViewer,
@@ -51,7 +51,6 @@ export function InspectOutputsStep({
 
     const selectedSheet = sheets.find((sheet) => sheet.key === sheetKey) ?? sheets[0];
     const membersByDomain = useMemo(() => groupMembers(detail.members), [detail.members]);
-    const evaluation = detail.evaluation;
     const selectedProfile = profiles.find((profile) => profile.id === vendorId) ?? profiles[0];
     const selectedReadiness = detail.vendor_readiness?.find(
         (item) => (item.vendor_id || item.profile_id) === selectedProfile?.id,
@@ -63,9 +62,6 @@ export function InspectOutputsStep({
                 <div>
                     <h3 className="text-lg font-semibold">Outputs</h3>
                 </div>
-                {evaluation && (
-                    <Badge className={outcomeTone(evaluation.outcome)}>{evaluation.outcome}</Badge>
-                )}
                 <div className="ml-auto flex flex-wrap gap-2">
                     <Button
                         size="sm"
@@ -188,7 +184,7 @@ export function InspectOutputsStep({
                 onVendorChange={setVendorId}
             />
 
-            <Button onClick={onContinue}>Continue to sign-off</Button>
+            <Button onClick={onContinue}>Continue to publish</Button>
         </div>
     );
 }

@@ -32,15 +32,15 @@ fields:
   assembly_ipc_class: IPC-A-610 Class 2
   solder_mask_colour: Green
   via_treatment: Tented
-policy:
-  path: .prism/release-studio/policies/production.yaml
 ```
 
 Optional configuration keys are `default_variant`, `variants`, `fields`,
 `notes`, `document_number`, `revision`, `template`, `sheets`, `typography`,
-`vendors`, and `policy`. `typography` selects a committed rendering input;
-the panel's display/template controls do not override a build. Omitted vendors
-currently default to `jlcpcb`; an explicit empty list selects none.
+and `vendors`. `policy` is still accepted in YAML for compatibility with
+archived governance work; the running product does not evaluate it.
+`typography` selects a committed rendering input; the panel's display/template
+controls do not override a build. Omitted vendors currently default to
+`jlcpcb`; an explicit empty list selects none.
 
 ## Settings authoring
 
@@ -59,7 +59,7 @@ machine identity permission to publish this governed configuration path.
 
 Git tracking remains required: a build must be reproducible from one immutable
 revision, including the configuration that selected its source files,
-documentation metadata, policy and manufacturer outputs. The user does not
+documentation metadata, and manufacturer outputs. The user does not
 need to create, edit, commit, or separately push the YAML.
 
 The four manufacturing fields above have controlled document placement:
@@ -82,8 +82,7 @@ The four manufacturing fields above have controlled document placement:
   at the chosen commit. The resulting normalized mapping is snapshotted and
   digest-bound to the build.
 - **Variant:** the requested named variant is part of the technical build
-  identity. It changes population-dependent artifacts such as BOM/CPL and can
-  change approvals' technical scope.
+  identity. It changes population-dependent artifacts such as BOM/CPL.
 - **Documents:** document metadata, templates, sheets, notes, fields, and
   typography are build inputs when configured. Composed PDFs are released
   members, not editable UI output.
@@ -91,18 +90,11 @@ The four manufacturing fields above have controlled document placement:
   vendor-ready only when its complete profile artifacts are present. JLCPCB
   readiness requires Gerbers, drill, `bom.csv`, `cpl.csv`, `bom.xlsx`, and
   `cpl.xlsx`.
-- **Policy:** policy is governance input, not technical input. A project
-  overlay may point directly to
-  `.prism/release-studio/policies/<key>.yaml`, use `{path: ...}`, or extend a
-  pinned organization policy such as `org:manufacturing@3`. An unpinned
-  `org:manufacturing` reference is rejected.
 
 ## Digests and snapshots
 
 `technical_config_digest` is the SHA-256 of canonical JSON for the normalized
-technical configuration. It excludes the policy binding; a policy-only change
-can require a new evaluation/approval without changing released technical
-bytes. The complete input closure separately records repository files,
+technical configuration. The complete input closure separately records repository files,
 submodules, LFS materialization, verified toolchain resources, environment
 bindings, and library resolution. Its digest and the pinned executor identity
 are part of build identity.

@@ -12,7 +12,6 @@ from pathlib import Path
 from app.release_studio.canonical import sha256_canonical
 from app.release_studio.closure import (
     ClosureError,
-    ExternalPathError,
     LfsMaterializationError,
     PinnedToolchainResource,
     materialize_input_closure,
@@ -216,7 +215,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         with self.assertRaisesRegex(LfsMaterializationError, r"(size|sha256) mismatch"):
             materialize_input_closure(self.repo, self.commit, self.root / "mismatch")
 
-    def test_monorepo_external_host_library_path_is_rejected(self) -> None:
+    def test_host_library_table_paths_are_recorded_not_fatal(self) -> None:
         self.repo.joinpath("hardware/board/model.step").write_bytes(b"small hydrated STEP payload\n")
         self.repo.joinpath("hardware/board/fp-lib-table").write_text(
             '(fp_lib_table (version 7) '
@@ -225,13 +224,36 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             encoding="utf-8",
         )
         hostile_commit = self._commit(self.repo, "host path")
-        with self.assertRaisesRegex(ExternalPathError, "escapes"):
-            materialize_input_closure(
-                self.repo,
-                hostile_commit,
-                self.root / "host-rejected",
-                relative_path="hardware/board",
-            )
+        closure = materialize_input_closure(
+            self.repo,
+            hostile_commit,
+            self.root / "host-recorded",
+            relative_path="hardware/board",
+        )
+        self.assertEqual(closure.non_hermetic_reasons(), [])
+        self.assertTrue(any("/tmp/host-only-footprints" in reason for reason in closure.advisory_reasons()))
+
+    def test_a_missing_library_table_entry_is_advisory(self) -> None:
+        self.repo.joinpath("hardware/board/model.step").write_bytes(
+            b"small hydrated STEP payload\n"
+        )
+        self.repo.joinpath("hardware/board/fp-lib-table").write_text(
+            '(fp_lib_table (version 7) '
+            '(lib (name "Gone") (type "KiCad") '
+            '(uri "${KIPRJMOD}/libraries/absent.pretty") (options "") (descr "")))\n',
+            encoding="utf-8",
+        )
+        commit = self._commit(self.repo, "missing footprint library")
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "missing-lib",
+            relative_path="hardware/board",
+        )
+        self.assertEqual(closure.non_hermetic_reasons(), [])
+        self.assertTrue(
+            any("absent.pretty" in reason for reason in closure.advisory_reasons())
+        )
 
     def test_a_stock_3d_model_reference_is_advisory_not_a_blocker(self) -> None:
         # Every real KiCad board carries `(model "${KICAD9_3DMODEL_DIR}/...")`
@@ -404,28 +426,6 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         # The design's own hierarchy was.
         self.assertIn("hardware/board/Subsheets/regulator.kicad_sch", sources)
         self.assertIn("hardware/board/Subsheets/detached.kicad_sch", sources)
-
-    def test_a_missing_library_table_entry_is_still_a_hard_failure(self) -> None:
-        # A library table names a library the tools will certainly load, so it
-        # must not be downgraded to a hermeticity finding alongside 3D models.
-        self.repo.joinpath("hardware/board/model.step").write_bytes(
-            b"small hydrated STEP payload\n"
-        )
-        self.repo.joinpath("hardware/board/fp-lib-table").write_text(
-            '(fp_lib_table (version 7) '
-            '(lib (name "Gone") (type "KiCad") '
-            '(uri "${KIPRJMOD}/libraries/absent.pretty") (options "") (descr "")))\n',
-            encoding="utf-8",
-        )
-        commit = self._commit(self.repo, "missing footprint library")
-
-        with self.assertRaisesRegex(ClosureError, "does not exist"):
-            materialize_input_closure(
-                self.repo,
-                commit,
-                self.root / "missing-lib",
-                relative_path="hardware/board",
-            )
 
     def test_symlink_and_regular_file_are_distinct_closure_inputs(self) -> None:
         repository = self.root / "link-repo"

@@ -441,6 +441,10 @@ variants: null
             parse_configuration_yaml(without_optional_defaults),
             parse_configuration_yaml(with_null_optional_defaults),
         )
+        self.assertEqual(
+            parse_configuration_yaml(without_optional_defaults),
+            parse_configuration_yaml(without_optional_defaults + "default_variant: \"\"\n"),
+        )
 
     def test_checkout_rejects_symlinked_references_outside_checkout(self) -> None:
         workspace = Path(__file__).resolve().parents[2]

@@ -1,19 +1,24 @@
 # Release Studio testing
 
 Run tests from `KiCAD-Prism/backend` unless a command says otherwise. Focused
-tests exercise the configuration, canonicalization, policy, dossier,
-documents, API, vendor, and UI contracts; the aggregate project test command
-remains the appropriate CI gate.
+tests exercise the configuration, canonicalization, dossier, documents, API,
+vendor, closure, forge publish, and UI contracts.
 
 ```sh
 cd backend
 python -m unittest tests.test_release_studio_config -v
 python -m unittest tests.test_release_studio_canonicalization -v
-python -m unittest tests.test_release_studio_policy -v
+python -m unittest tests.test_release_studio_closure -v
 python -m unittest tests.test_release_studio_dossier -v
 python -m unittest tests.test_release_studio_documents -v
 python -m unittest tests.test_release_studio_api -v
 python -m unittest tests.test_release_studio_vendors -v
+python -m unittest tests.test_forge_publish_service -v
+```
+
+```sh
+cd frontend
+npm test -- --run src/components/release-studio/
 ```
 
 Schema, retention, and persistence tests require a disposable PostgreSQL
@@ -57,13 +62,9 @@ authority for each fixture's project, board, schematic, and jobset paths.
 
 | Area | Acceptance check |
 | --- | --- |
-| Revision and configure | Select a commit from the list; confirm the backend configuration/build APIs receive only its full immutable 40-character SHA. Confirm `HEAD` and an exactly matching listed short SHA immediately normalize to that SHA before lookup/build, while arbitrary branches and refs are rejected; choose a committed configuration/variant; confirm an exact normalized document is labeled/copyable only when available and otherwise the UI clearly labels its values as a summary/template. |
-| Build and history | Start a build, observe live steps, reopen archived logs, fail one build and cancel another safely, and confirm both distinct terminal attempts retain diagnostics/logs, remain selectable, and cannot progress to evaluation, approval, or release. Confirm cancelled diagnostics/logs explicitly retain `cancelled` status. |
+| Revision and configure | Select a commit from the list; confirm the backend APIs receive only its full immutable SHA. Confirm `HEAD` and a matching listed short SHA normalize before lookup/build. |
+| Build and history | Start a build, observe live steps, fail one build and cancel another, and confirm both retained attempts cannot be published. |
 | Inspect | Preview document PDFs, inspect members/evidence/digests, and download dossier/evidence/member material. |
-| Governance | Evaluate a build, show an unsupported outcome as blocking, create a build-bound waiver, test two-person/self-exception evidence, and confirm only original approver/admin can rescind. |
-| Authority | Confirm only an admin can create or satisfy a required policy role under the current global-role model; a policy label is not an identity supplied by the UI. |
-| Release | Confirm normal release rejects blockers, unsupported outcomes, and missing role/domain approval; confirm a reasoned admin override is attested. |
-| Artifacts and vendor | Verify JLC readiness requires Gerbers, drill, `bom.csv`, `cpl.csv`, `bom.xlsx`, and `cpl.xlsx`; distinguish the derived upload ZIP from signed dossier members. |
-| Verify/share | Download a release archive, verify with an independently trusted public key, create a web share, and revoke it. |
-| Signing-key rotation | Confirm recorded key material cannot be changed for an existing key ID and a rotation uses a new key ID. |
-| Audit/recovery | Verify the audit chain, restore a test backup with artifacts, and offline-verify a retained release after restore. |
+| Closure warnings | A host-absolute `fp-lib-table` URI warns and still completes the build. |
+| Artifacts and vendor | Verify JLC readiness requires Gerbers, drill, `bom.csv`, `cpl.csv`, `bom.xlsx`, and `cpl.xlsx`. |
+| Publish | With `GITHUB_TOKEN`/`GITLAB_TOKEN`, create a Release on the imported remote and confirm the zip is attached. A clone-only token shows a write-scope error. |

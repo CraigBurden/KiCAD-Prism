@@ -111,7 +111,9 @@ def validate_configuration_mapping(
     )
 
     raw_default_variant = data.get("default_variant")
-    if raw_default_variant is None:
+    if raw_default_variant is None or (
+        isinstance(raw_default_variant, str) and not raw_default_variant.strip()
+    ):
         default_variant = ""
     else:
         default_variant = _require_nonblank_string(

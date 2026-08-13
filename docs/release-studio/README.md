@@ -1,46 +1,31 @@
 # Release Studio
 
-Release Studio turns a committed KiCad design revision into an inspectable,
-governed, signed manufacturing release. It keeps the technical package
-separate from the decision to release it: a build is immutable technical
-evidence; a release record is the signed library entry that refers to it.
+Release Studio turns a committed KiCad revision into inspectable manufacturing
+documents and a zip attached to a GitHub or GitLab Release.
 
 ## Start here
 
-- [User guide](USER_GUIDE.md) — the completed user flow.
-- [Configuration](CONFIGURATION.md) — committed release YAML, normalized documents, and summaries.
-- [Governance](GOVERNANCE.md) — policies, waivers, approvals, and overrides.
-- [Artifacts](ARTIFACTS.md) — dossiers, vendor packs, attestations, and verification.
-- [Operations](OPERATIONS.md) — executor, signing, retention, recovery, and diagnosis.
-- [Architecture](ARCHITECTURE.md) — immutable boundaries and trust model.
-- [Testing](TESTING.md) — automated checks and manual acceptance coverage.
+- [User guide](USER_GUIDE.md) — configure, build, inspect PDFs, publish.
+- [Configuration](CONFIGURATION.md) — committed release YAML and document fields.
+- [Artifacts](ARTIFACTS.md) — dossiers, vendor packs, and canonicalization.
+- [Operations](OPERATIONS.md) — executor, tokens, retention, and diagnosis.
+- [Architecture](ARCHITECTURE.md) — immutable build identity and publish sink.
+- [Testing](TESTING.md) — automated checks and live KiCad coverage.
+
+Signed policy evaluation, waivers, approvals, and offline attestation are
+frozen on `feature/release-studio-governance`. They are not part of the running
+product. See [GOVERNANCE.md](GOVERNANCE.md).
 
 ## Canonical flow
 
-1. **Settings** — author the release configuration, manufacturing metadata and
-   variant in Prism. **Save & publish** validates it, publishes a leased,
-   configuration-only commit to the tracked branch, fast-forwards the mirror,
-   and selects the exact remote-backed SHA.
-2. **Current** — start one build, follow its persistent live log and cancel it
-   safely if required. Completion selects outputs by the job's stored identity.
-3. **History / Library** — choose a retained attempt or a signed release. These
-   lists are separate and do not preselect stale evidence.
-4. **Inspect** — view released document PDFs, dossier members, evidence, logs,
-   digests, and available vendor-pack downloads.
-5. **Approve** — evaluate the immutable build under policy, address findings,
-   apply build-bound waivers where justified, and record valid approvals.
-6. **Release** — create a separately named release record. Prism signs its
-   attestation over the exact dossier, policy decision, approvals, and audit
-   head.
-7. **Verify, download, share** — download the dossier or signed archive,
-   verify it offline against an independently trusted public key, and create or
-   revoke a web share when distribution is appropriate.
+1. **Release Studio** — author the release configuration, manufacturing
+   metadata, and variant. **Save & publish** validates it, publishes a
+   configuration-only commit to the tracked branch, and selects that SHA.
+2. **Start build** — materialize the commit, run the KiCad pipeline, and store
+   documents, members, evidence, and a dossier.
+3. **Outputs** — inspect composed PDFs, dossier members, logs, and vendor packs.
+4. **Publish** — zip the dossier and create a GitHub or GitLab Release on the
+   imported remote, using `GITHUB_TOKEN` or `GITLAB_TOKEN`.
 
-Git remains the immutable source of release identity, but manual YAML authoring,
-committing, and pushing are not separate user steps. A configuration is usable
-only after remote publication succeeds, so ordinary Sync remains a clean
-fast-forward operation. The progress rail is
-navigational, not a one-way wizard. Builds can be
-re-evaluated without rerunning KiCad, approvals can arrive over time, and old
-attempts remain selectable. A release record is never just a changed build
-status; it is a distinct, immutable project-library object.
+Host-absolute library table URIs and missing `.pretty` entries are recorded as
+warnings. They do not block the build or the forge publish.

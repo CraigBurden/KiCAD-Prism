@@ -1029,24 +1029,16 @@ def _resolve_project_paths(
         try:
             resolved.append(resolver.resolve(source, reference, kind))
         except ClosureError as exc:
-            # A library table names a library the tools will certainly load, so
-            # an unresolvable or missing entry there stays a hard failure.  A
-            # `${VAR}` path embedded in board or project content need not be a
-            # build input at all, so per the hermeticity definition it is
-            # *recorded* with the offending path rather than refusing a closure
-            # the manufacturing outputs do not depend on.
-            if kind != "project_path":
-                raise
-            # Classify into a fixed vocabulary rather than carrying the
-            # exception text: the message embeds the worker's staging path, and
-            # `input_closure_digest` must not vary by host.
+            # Footprints and symbols are already copied into the board/schematic.
+            # A host-absolute fp-lib-table URI or a missing .pretty must not
+            # refuse a documentation build. Record the path so it is visible.
             resolved.append(
                 ResolvedLibraryPath(
                     source_path=source,
                     reference=reference,
                     resolved_path="",
                     location="external" if isinstance(exc, ExternalPathError) else "missing",
-                    advisory=_is_advisory_reference(reference),
+                    advisory=True,
                 )
             )
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)

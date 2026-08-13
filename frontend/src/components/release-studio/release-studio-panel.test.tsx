@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApprovalList, ReleaseStudioPanel, RuleOutcomeList } from "./ReleaseStudioPanel";
-import type { Approval, BuildDetail, ReleaseCandidate, ReleaseRecord } from "./types";
+import { ReleaseStudioPanel } from "./ReleaseStudioPanel";
+import type { BuildDetail, ReleaseCandidate } from "./types";
 
 vi.mock("./api", () => ({
     listConfigurations: vi.fn(async () => [
@@ -19,17 +19,9 @@ vi.mock("./api", () => ({
     ]),
     saveConfiguration: vi.fn(),
     listCandidates: vi.fn(),
-    listRecords: vi.fn(async () => []),
-    listWebReleases: vi.fn(async () => []),
-    createWebRelease: vi.fn(async () => ({ id: "share-1", url: "/public/release" })),
-    revokeWebRelease: vi.fn(async () => ({ id: "share-1", status: "revoked" })),
-    verifyRecord: vi.fn(async () => ({ ok: true, checks: [] })),
-    listWaivers: vi.fn(async () => []),
-    listAudit: vi.fn(async () => []),
-    verifyAudit: vi.fn(async () => ({ ok: true, events: 3, problems: [] })),
     getBuild: vi.fn(),
     listDocumentSheets: vi.fn(async () => []),
-    createRelease: vi.fn(async () => ({ id: "rel-1" })),
+    publishBuild: vi.fn(async () => ({ release: { url: "https://github.com/org/repo/releases/tag/v1", tag: "v1", forge: "github" }, filename: "board-v1.zip" })),
     startBuild: vi.fn(async () => ({ job: { job_id: "job-1" } })),
     sheetObjectUrl: vi.fn(async () => "blob:sheet"),
     downloadUrl: vi.fn(() => "/x"),
@@ -56,11 +48,6 @@ vi.mock("./api", () => ({
         },
     ]),
     vendorPackUrl: vi.fn(() => "/pack"),
-    recordVendorPackUrl: vi.fn(() => "/pack"),
-    evaluateBuild: vi.fn(async () => ({ outcome: "pass" })),
-    createApproval: vi.fn(async () => ({ id: "appr-x" })),
-    rescindApproval: vi.fn(async () => ({ id: "inval-1" })),
-    createWaiver: vi.fn(async () => ({ id: "wv-1" })),
     listBuildLogs: vi.fn(async () => ({ timings: [], steps: [] })),
     fetchBuildLog: vi.fn(async () => ""),
 }));
@@ -106,31 +93,6 @@ const candidate: ReleaseCandidate = {
     builds: [],
 };
 
-const invalidatedApproval: Approval = {
-    id: "appr-1",
-    role: "pcb_design",
-    domains: ["bare_board"],
-    decision: "approved",
-    approver: "quality",
-    note: "",
-    exception_kind: null,
-    exception_reason: null,
-    policy_binding_digest: "pb",
-    evaluation_id: "eval-1",
-    technical_scope_fingerprints: { bare_board: "fp" },
-    carried_from_approval_id: null,
-    created_at: "2026-08-11T00:00:00Z",
-    invalidations: [
-        {
-            id: "inv-1",
-            reason: "policy binding changed",
-            stale_component: "policy",
-            changed_domains: [],
-            created_at: "2026-08-11T01:00:00Z",
-        },
-    ],
-};
-
 const detail: BuildDetail = {
     build: candidate.latest_build!,
     candidate,
@@ -140,54 +102,14 @@ const detail: BuildDetail = {
     members: [],
     evidence: [],
     fingerprints: {},
-    evaluation: {
-        id: "eval-1",
-        outcome: "unsupported",
-        policy_binding_digest: "pb",
-        counts: {},
-        findings: [],
-        rule_outcomes: [
-            {
-                rule_id: "drc.clean",
-                rule_version: "1",
-                outcome: "pass",
-                finding_count: 0,
-                unsupported_reason: "",
-            },
-            {
-                rule_id: "stackup.min_copper_layers",
-                rule_version: "1",
-                outcome: "unsupported",
-                finding_count: 0,
-                unsupported_reason: "the stackup projection is not available",
-            },
-        ],
-        created_at: "2026-08-11T00:00:00Z",
-    },
-    approvals: [invalidatedApproval],
-    waivers: [],
     vendor_readiness: [{ vendor_id: "jlcpcb", ready: false, missing_requirements: ["Gerber", "drill"] }],
-};
-
-const blockedDetail: BuildDetail = {
-    ...detail,
-    evaluation: {
-        ...detail.evaluation!,
-        outcome: "blocker",
-        findings: [
-            {
-                id: "find-1",
-                rule_id: "drc.clean",
-                rule_version: "1",
-                severity: "blocker",
-                status: "open",
-                domain: "evidence",
-                subject: "drc/error",
-                message: "DRC reported 3 error(s); at most 0 allowed",
-                finding_key: "f".repeat(64),
-                waiver_id: null,
-            },
-        ],
+    forge: {
+        kind: "github",
+        name: "GitHub",
+        host: "github.com",
+        owner_repo: "org/repo",
+        token_configured: true,
+        token_hint: "",
     },
 };
 
@@ -201,26 +123,9 @@ async function selectHistoryRun() {
     fireEvent.click(await screen.findByRole("button", { name: /abcdef12/i }));
 }
 
-/** Open a run's Sign-off stage from the stage rail. */
-async function openReview() {
-    await selectHistoryRun();
-    const outputs = await screen.findByRole("button", { name: /Outputs/i });
-    await waitFor(() => expect(outputs).not.toBeDisabled());
-    fireEvent.click(outputs);
-    fireEvent.click(await screen.findByRole("button", { name: /Continue to sign-off/i }));
-}
-
-/** Sign-off gates are collapsible; the release controls live in gate 4. */
-async function openReleaseTab() {
-    await openReview();
-    const gate = await screen.findByRole("button", { name: /Issue signed release/i });
-    if (gate.getAttribute("aria-expanded") !== "true") fireEvent.click(gate);
-    await waitFor(() => expect(screen.getByLabelText(/Release label/i)).toBeTruthy());
-}
-
-/** The settings view owns the Git-authored configuration template. */
+/** The Release Studio tab owns the Git-authored configuration template. */
 async function openSettings() {
-    fireEvent.click(await screen.findByRole("button", { name: /^settings$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^release studio$/i }));
 }
 
 /** Open a run's Outputs stage from the stage rail. */
@@ -251,7 +156,6 @@ describe("ReleaseStudioPanel", () => {
         ]);
         vi.mocked(api.listCandidates).mockResolvedValue([candidate]);
         vi.mocked(api.getBuild).mockResolvedValue(detail);
-        vi.mocked(api.verifyAudit).mockResolvedValue({ ok: true, events: 3, problems: [] });
         vi.mocked(api.listDocumentSheets).mockResolvedValue([]);
     });
 
@@ -264,23 +168,6 @@ describe("ReleaseStudioPanel", () => {
         await openSettings();
         const build = await screen.findByRole("button", { name: /start build/i });
         expect((build as HTMLButtonElement).disabled).toBe(true);
-    });
-
-    it("renders unsupported distinctly from pass", async () => {
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReview();
-        // Gates arrive collapsed once their work is done; the policy detail is
-        // one click away rather than a wall on entry.
-        fireEvent.click(await screen.findByRole("button", { name: /Check against policy/i }));
-        await waitFor(() => expect(screen.getByText("stackup.min_copper_layers")).toBeTruthy());
-
-        const passBadge = screen.getByText("pass");
-        const unsupportedBadges = screen.getAllByText("unsupported");
-        expect(unsupportedBadges.length).toBeGreaterThan(0);
-        for (const badge of unsupportedBadges) {
-            expect(badge.className).not.toEqual(passBadge.className);
-        }
-        expect(screen.getByText(/the stackup projection is not available/)).toBeTruthy();
     });
 
     it("renders the committed configuration as an editable Settings form", async () => {
@@ -335,83 +222,6 @@ describe("ReleaseStudioPanel", () => {
         );
     });
 
-    it("names which half of the approval binding went stale", () => {
-        render(<ApprovalList approvals={[invalidatedApproval]} />);
-
-        expect(screen.getByText("invalidated")).toBeTruthy();
-        const stale = screen.getByText(/Stale/);
-        expect(stale.textContent).toContain("policy");
-        expect(stale.textContent).toContain("policy binding changed");
-    });
-
-    it("labels a carried-forward approval and shows its exception reason", () => {
-        render(
-            <ApprovalList
-                approvals={[
-                    {
-                        ...invalidatedApproval,
-                        id: "appr-2",
-                        invalidations: [],
-                        carried_from_approval_id: "appr-1",
-                        exception_kind: "self_approval",
-                        exception_reason: "sole engineer on site",
-                    },
-                ]}
-            />,
-        );
-        expect(screen.getByText("carried forward")).toBeTruthy();
-        expect(screen.getByText(/sole engineer on site/)).toBeTruthy();
-    });
-
-    it("keeps an unsupported rule outcome visually apart from a pass", () => {
-        render(<RuleOutcomeList outcomes={detail.evaluation!.rule_outcomes} />);
-        const pass = screen.getByText("pass");
-        const unsupported = screen.getByText("unsupported");
-        expect(pass.className).not.toEqual(unsupported.className);
-        expect(screen.getByText(/the stackup projection is not available/)).toBeTruthy();
-    });
-
-    it("offers no blocker override to a designer", async () => {
-        vi.mocked(api.getBuild).mockResolvedValue(blockedDetail);
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-
-        await openReleaseTab();
-        expect(screen.queryByLabelText(/Release over open blockers/i)).toBeNull();
-        expect(screen.getByText(/Unsupported policy evidence blocks release/)).toBeTruthy();
-    });
-
-    it("requires an admin to state a reason before overriding blockers", async () => {
-        vi.mocked(api.getBuild).mockResolvedValue(blockedDetail);
-        render(<ReleaseStudioPanel projectId="p1" canMutate isAdmin />);
-
-        await openReleaseTab();
-        const label = await screen.findByRole("textbox", { name: /Release label/i });
-        fireEvent.change(label, { target: { value: "REL-1" } });
-
-        const release = screen.getByRole("button", { name: /Sign and release/i });
-        expect((release as HTMLButtonElement).disabled).toBe(true);
-
-        fireEvent.click(screen.getByLabelText(/Release over open blockers/i));
-        const overriding = screen.getByRole("button", { name: /Override and release/i });
-        expect((overriding as HTMLButtonElement).disabled).toBe(true);
-
-        fireEvent.change(screen.getByLabelText(/Override reason/i), {
-            target: { value: "customer accepted the deviation" },
-        });
-        expect((screen.getByRole("button", { name: /Override and release/i }) as HTMLButtonElement).disabled).toBe(true);
-    });
-
-    it("surfaces a broken audit chain rather than failing quietly", async () => {
-        vi.mocked(api.verifyAudit).mockResolvedValue({
-            ok: false,
-            events: 4,
-            problems: ["broken link at sequence 3"],
-        });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await selectHistoryRun();
-        await waitFor(() => expect(screen.getByText(/Audit chain BROKEN/)).toBeTruthy());
-    });
-
     it("renders the GitHub Actions-style jobs rail from pipeline metadata", async () => {
         const { watchPrismJob } = await import("@/lib/jobs");
         vi.mocked(watchPrismJob).mockImplementation(async (_id, options) => {
@@ -447,61 +257,9 @@ describe("ReleaseStudioPanel", () => {
         expect(screen.getByText("DRC")).toBeTruthy();
     });
 
-    it("lets an admin back out of an override once the blockers are gone", async () => {
-        // The override control only renders while blockers exist. Setting the
-        // flag and then clearing the blockers used to strand the user: the
-        // backend refuses an override with nothing to override, and the
-        // checkbox that set it was no longer on screen.
-        render(<ReleaseStudioPanel projectId="p1" canMutate isAdmin />);
-        await openReleaseTab();
-        expect(screen.getByLabelText(/Release over open blockers/i)).toBeTruthy();
-        const action = await screen.findByRole("button", { name: /Sign and release/i });
-        expect(action.textContent).not.toContain("Override");
-    });
-
-    it("names the finding in the waiver picker, not just its rule", async () => {
-        vi.mocked(api.getBuild).mockResolvedValue(blockedDetail);
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReview();
-        const pickers = await screen.findAllByRole("combobox");
-        const picker = pickers.find((item) => item.textContent?.includes("drc.clean"));
-        expect(picker).toBeTruthy();
-        // Rule plus subject reads as a category; several distinct findings
-        // looked like the same entry until the message was included.
-        expect(picker!.textContent).toContain("drc.clean");
-        expect(picker!.textContent).toContain("·");
-    });
-
-    it("approves against the policy's own role and domain, not typed text", async () => {
-        // The free-text form let an approval be recorded as "manufacturing for
-        // bare_board", which satisfied no requirement and could not be undone.
-        // Each required pair now has its own card that supplies both values.
-        vi.mocked(api.getBuild).mockResolvedValue({
-            ...detail,
-            approvals: [],
-            required_approvals: [
-                { role: "pcb_design", domain: "bare_board", satisfied: false },
-                { role: "manufacturing", domain: "assembly", satisfied: false },
-            ],
-        });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReview();
-        const gate = await screen.findByRole("button", { name: /Collect sign-off/i });
-        if (gate.getAttribute("aria-expanded") !== "true") fireEvent.click(gate);
-        fireEvent.click(await screen.findByRole("button", { name: /Approve as manufacturing/i }));
-        await waitFor(() =>
-            expect(vi.mocked(api.createApproval)).toHaveBeenCalledWith("p1", "build-1", {
-                role: "manufacturing",
-                domains: ["assembly"],
-                note: "",
-                evaluation_id: "eval-1",
-            }),
-        );
-    });
-
     it("starts a new run with no stage already ticked", async () => {
         // The previous build stayed selected while the new one ran, so its
-        // finished detail drove the rail: Source, Outputs, Sign-off and
+        // finished detail drove the rail: Source, Outputs, Publish and
         // Released all showed done over a build that had only just queued.
         const { watchPrismJob } = await import("@/lib/jobs");
         vi.mocked(watchPrismJob).mockImplementation(async (_id, options) => {
@@ -523,7 +281,7 @@ describe("ReleaseStudioPanel", () => {
 
         const rail = await screen.findByRole("navigation", { name: /run stages/i });
         await waitFor(() => expect(rail.textContent).toContain("running"));
-        // Outputs and Sign-off belong to the run being replaced, not this one.
+        // Outputs and Publish belong to the run being replaced, not this one.
         expect(rail.textContent).not.toContain("members");
         expect(rail.textContent).not.toContain("approval(s)");
         expect(rail.textContent).not.toContain("release(s)");
@@ -532,25 +290,7 @@ describe("ReleaseStudioPanel", () => {
         const states = Array.from(rail.querySelectorAll("[data-state]")).map((node) =>
             node.getAttribute("data-state"),
         );
-        expect(states).toEqual(["done", "active", "locked", "locked", "locked"]);
-    });
-
-    it("binds a waiver to the build it was raised against", async () => {
-        // finding_key is stable across rebuilds, so a config-scoped waiver
-        // silently carried an accepted exception into the next release.
-        vi.mocked(api.getBuild).mockResolvedValue(blockedDetail);
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReview();
-        const reason = await screen.findByPlaceholderText(/Why this finding is accepted/i);
-        fireEvent.change(reason, { target: { value: "accepted for the prototype run" } });
-        fireEvent.click(await screen.findByRole("button", { name: /Propose waiver/i }));
-        await waitFor(() =>
-            expect(vi.mocked(api.createWaiver)).toHaveBeenCalledWith(
-                "p1",
-                "build-1",
-                expect.any(Object),
-            ),
-        );
+        expect(states).toEqual(["done", "active", "locked", "locked"]);
     });
 
     it("keeps Settings first and starts only from the explicit build action", async () => {
@@ -608,18 +348,6 @@ describe("ReleaseStudioPanel", () => {
         expect(await screen.findByText("evidence download denied")).toBeTruthy();
     });
 
-    it("keeps sign-off document identity read-only and build-bound", async () => {
-        vi.mocked(api.getBuild).mockResolvedValue({
-            ...detail,
-            configuration: { ...detail.configuration!, document_number: "USB-PD-TRIG", revision: "A" },
-        });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReleaseTab();
-        expect(screen.getByLabelText("Document number").textContent).toBe("USB-PD-TRIG");
-        expect(screen.getByLabelText("Revision").textContent).toBe("A");
-        expect(screen.queryByRole("textbox", { name: /Document number|Revision/i })).toBeNull();
-    });
-
     it("clears old detail immediately when switching to a failed attempt", async () => {
         const failed = {
             ...candidate.latest_build!,
@@ -642,8 +370,8 @@ describe("ReleaseStudioPanel", () => {
 
         const rail = screen.getByRole("navigation", { name: /run stages/i });
         expect(within(rail).getByRole("button", { name: /Outputs/i })).toBeDisabled();
-        expect(within(rail).getByRole("button", { name: /Sign-off/i })).toBeDisabled();
-        expect(screen.queryByRole("button", { name: /Continue to sign-off/i })).toBeNull();
+        expect(within(rail).getByRole("button", { name: /Publish/i })).toBeDisabled();
+        expect(screen.queryByRole("button", { name: /Continue to publish/i })).toBeNull();
         expect(screen.queryByRole("button", { name: /Sign and release/i })).toBeNull();
         expect(screen.getByText("loading")).toBeTruthy();
     });
@@ -670,123 +398,6 @@ describe("ReleaseStudioPanel", () => {
         expect(screen.getByText("gerber").parentElement?.textContent).toContain("unavailable");
         expect(screen.getByText("bom.csv").parentElement?.textContent).toContain("unavailable");
         expect(screen.getByRole("button", { name: /Download jlcpcb-upload.zip/i })).toBeDisabled();
-    });
-
-    it("allows a valid policy with zero required approvals to unlock release", async () => {
-        vi.mocked(api.getBuild).mockResolvedValue({
-            ...detail,
-            approvals: [],
-            required_approvals: [],
-            evaluation: {
-                ...detail.evaluation!,
-                outcome: "pass",
-                rule_outcomes: [{ ...detail.evaluation!.rule_outcomes[0], outcome: "pass" }],
-            },
-        });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReleaseTab();
-        expect(screen.getByText("no approvals required")).toBeTruthy();
-        fireEvent.change(screen.getByRole("textbox", { name: /Release label/i }), { target: { value: "REL-EMPTY" } });
-        expect(screen.getByRole("button", { name: /Sign and release/i })).not.toBeDisabled();
-    });
-
-    it("mounts signed release library actions but keeps an unknown vendor pack locked", async () => {
-        const record: ReleaseRecord = {
-            id: "record-1", build_id: "build-1", config_key: "default", release_label: "REL-1", document_number: "DOC-1", revision: "A", dossier_digest: "d", manifest_digest: "m", attestation_digest: "a", signing_key_id: "key", commit_sha: candidate.commit_sha, variant: "default", released_by: "designer", created_at: "2026-08-12T00:00:00Z", superseded_by: null,
-        };
-        vi.mocked(api.listRecords).mockResolvedValue([record]);
-        vi.mocked(api.listWebReleases).mockResolvedValue([{ id: "share-1", record_id: "record-1", status: "active", expires_at: null, created_by: "designer", created_at: "2026-08-12T00:00:00Z" }]);
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        fireEvent.click(await screen.findByRole("button", { name: /^library$/i }));
-        fireEvent.click(await screen.findByRole("button", { name: /REL-1/i }));
-        await waitFor(() => expect(screen.getByRole("button", { name: /Archive/i })).toBeTruthy());
-        expect(screen.getByRole("button", { name: /Verify/i })).toBeTruthy();
-        expect(screen.getByRole("button", { name: /Share/i })).toBeTruthy();
-        expect(screen.getByRole("button", { name: /Revoke/i })).toBeTruthy();
-        expect(screen.getByRole("button", { name: /Download jlcpcb-upload.zip/i })).toBeDisabled();
-    });
-
-    it("reloads the selected build detail after an approval mutation", async () => {
-        const required = { role: "pcb_design", domain: "bare_board", satisfied: false };
-        const effectiveApproval: Approval = { ...invalidatedApproval, id: "appr-current", invalidations: [], evaluation_id: "eval-1" };
-        vi.mocked(api.getBuild)
-            .mockResolvedValueOnce({ ...detail, approvals: [], required_approvals: [required], required_approvals_available: true })
-            .mockResolvedValueOnce({ ...detail, approvals: [], required_approvals: [required], required_approvals_available: true })
-            .mockResolvedValueOnce({ ...detail, approvals: [effectiveApproval], required_approvals: [{ ...required, satisfied: true }], required_approvals_available: true });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReview();
-        const gate = await screen.findByRole("button", { name: /Collect sign-off/i });
-        if (gate.getAttribute("aria-expanded") !== "true") fireEvent.click(gate);
-        fireEvent.click(await screen.findByRole("button", { name: /Approve as pcb_design/i }));
-        await waitFor(() => expect(vi.mocked(api.createApproval)).toHaveBeenCalled());
-        await waitFor(() => expect(screen.getByText(/approved by quality/i)).toBeTruthy());
-    });
-
-    it("rescinds only the effective approval for the current evaluation and policy", async () => {
-        const historical: Approval = { ...invalidatedApproval, id: "appr-old", invalidations: [], evaluation_id: "eval-1", policy_binding_digest: "policy-old" };
-        const effective: Approval = { ...invalidatedApproval, id: "appr-current", invalidations: [], evaluation_id: "eval-1" };
-        vi.mocked(api.getBuild).mockResolvedValue({
-            ...detail,
-            approvals: [historical, effective],
-            required_approvals: [{ role: "pcb_design", domain: "bare_board", satisfied: true }],
-            required_approvals_available: true,
-        });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReview();
-        const gate = await screen.findByRole("button", { name: /Collect sign-off/i });
-        if (gate.getAttribute("aria-expanded") !== "true") fireEvent.click(gate);
-        fireEvent.change(await screen.findByLabelText(/Reason to rescind/i), { target: { value: "scope changed" } });
-        fireEvent.click(screen.getByRole("button", { name: /Rescind/i }));
-        await waitFor(() => expect(vi.mocked(api.rescindApproval)).toHaveBeenCalledWith("p1", "build-1", "appr-current", "scope changed"));
-    });
-
-    it("blocks an explicitly unavailable approval coverage response", async () => {
-        vi.mocked(api.getBuild).mockResolvedValue({
-            ...detail,
-            required_approvals: null,
-            required_approvals_available: false,
-            required_approvals_error: "policy source unavailable",
-        });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReleaseTab();
-        const coverage = await screen.findByRole("button", { name: /Collect sign-off/i });
-        if (coverage.getAttribute("aria-expanded") !== "true") fireEvent.click(coverage);
-        expect(screen.getByText(/Required approval policy is unavailable/i)).toBeTruthy();
-        expect(screen.queryByText("no approvals required")).toBeNull();
-    });
-
-    it("blocks approval and release when backend marks the evaluation stale", async () => {
-        vi.mocked(api.getBuild).mockResolvedValue({
-            ...detail,
-            approvals: [],
-            required_approvals: [{ role: "pcb_design", domain: "bare_board", satisfied: false }],
-            required_approvals_available: true,
-            evaluation_fresh: false,
-            evaluation_fresh_error: "waiver state changed",
-            evaluation: { ...detail.evaluation!, outcome: "pass", rule_outcomes: [] },
-        });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReleaseTab();
-        expect(screen.getByText(/Evaluation is stale; re-evaluate before approvals or release/i)).toBeTruthy();
-        const approvals = await screen.findByRole("button", { name: /Collect sign-off/i });
-        if (approvals.getAttribute("aria-expanded") !== "true") fireEvent.click(approvals);
-        expect(screen.queryByRole("button", { name: /Approve as pcb_design/i })).toBeNull();
-        fireEvent.change(screen.getByRole("textbox", { name: /Release label/i }), { target: { value: "REL-STALE" } });
-        expect(screen.getByRole("button", { name: /Sign and release/i })).toBeDisabled();
-    });
-
-    it("preflights the evaluation and never posts a newly stale approval", async () => {
-        const required = { role: "manufacturing", domain: "assembly", satisfied: false };
-        vi.mocked(api.getBuild)
-            .mockResolvedValueOnce({ ...detail, approvals: [], required_approvals: [required], required_approvals_available: true, evaluation_fresh: true })
-            .mockResolvedValueOnce({ ...detail, approvals: [], required_approvals: [required], required_approvals_available: true, evaluation_fresh: false });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openReview();
-        const gate = await screen.findByRole("button", { name: /Collect sign-off/i });
-        if (gate.getAttribute("aria-expanded") !== "true") fireEvent.click(gate);
-        fireEvent.click(await screen.findByRole("button", { name: /Approve as manufacturing/i }));
-        expect(await screen.findByText(/Evaluation changed. Re-evaluate before approving/i)).toBeTruthy();
-        expect(api.createApproval).not.toHaveBeenCalled();
     });
 
     it("builds only from the full immutable SHA selected in Settings", async () => {
@@ -829,8 +440,7 @@ describe("ReleaseStudioPanel", () => {
         const rail = await screen.findByRole("navigation", { name: /run stages/i });
         await waitFor(() => expect(within(rail).getByRole("button", { name: /Build/i })).toHaveAttribute("data-state", "cancelled"));
         expect(within(rail).getByRole("button", { name: /Outputs/i })).toBeDisabled();
-        expect(within(rail).getByRole("button", { name: /Sign-off/i })).toBeDisabled();
-        expect(within(rail).getByRole("button", { name: /Released/i })).toBeDisabled();
+        expect(within(rail).getByRole("button", { name: /Publish/i })).toBeDisabled();
         expect(screen.getByRole("button", { name: /cancelled.*attempt 2/i })).toHaveAttribute("aria-current", "true");
         await waitFor(() => expect(vi.mocked(api.listBuildLogs)).toHaveBeenCalledWith("p1", "build-cancelled"));
         expect(screen.getByLabelText("cancelled")).toBeTruthy();
@@ -902,5 +512,19 @@ describe("ReleaseStudioPanel", () => {
         await startRun();
         await waitFor(() => expect(api.getBuild).toHaveBeenCalledWith("p1", "build-2"));
         expect(window.location.search).toContain("build=build-2");
+    });
+
+    it("publishes a successful build as a GitHub Release", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await openOutputs();
+        fireEvent.click(screen.getByRole("button", { name: /Continue to publish/i }));
+        fireEvent.change(await screen.findByLabelText("Tag"), { target: { value: "v1.0.0" } });
+        fireEvent.click(screen.getByRole("button", { name: /Publish to GitHub/i }));
+        await waitFor(() => expect(vi.mocked(api.publishBuild)).toHaveBeenCalledWith(
+            "p1",
+            "build-1",
+            { tag: "v1.0.0", title: "", notes: "" },
+        ));
+        expect(await screen.findByRole("link", { name: /github.com\/org\/repo\/releases\/tag\/v1/i })).toBeTruthy();
     });
 });

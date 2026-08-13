@@ -26,9 +26,6 @@ const Workspace = lazy(() =>
 const ProjectDetailPage = lazy(() =>
     import('./pages/ProjectDetailPage').then((module) => ({ default: module.ProjectDetailPage }))
 );
-const PublicReleaseView = lazy(() =>
-    import('./pages/PublicReleaseView').then((module) => ({ default: module.PublicReleaseView }))
-);
 
 function RouteFallback() {
     return (
@@ -54,8 +51,6 @@ function App() {
     const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState("");
     const deferredWorkspaceSearchQuery = useDeferredValue(workspaceSearchQuery);
     const isAuthCallbackRoute = typeof window !== "undefined" && isAuthCallbackPath();
-    const isPublicReleaseRoute = typeof window !== "undefined"
-        && window.location.pathname.startsWith("/release-view/");
     const [paletteOpen, setPaletteOpen] = useState(false);
     const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
@@ -158,17 +153,6 @@ function App() {
         setUser(currentUser);
         setAuthError(null);
     };
-
-    if (isPublicReleaseRoute) {
-        return (
-            <BrowserRouter>
-                <Routes>
-                    <Route path="/release-view/:token" element={<Suspense fallback={<RouteFallback />}><PublicReleaseView /></Suspense>} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-            </BrowserRouter>
-        );
-    }
 
     // Show loading state while fetching auth config
     if (loading) {

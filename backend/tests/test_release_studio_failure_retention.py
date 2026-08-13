@@ -160,15 +160,10 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             patch.object(api, "get_project_for_role_or_404"),
             patch.object(api, "_build_or_404", return_value=build),
             patch.object(api.store, "get_candidate", return_value=candidate),
-            patch.object(api, "_required_approval_coverage", return_value={
-                "required_approvals": [], "available": True, "error": "",
-            }),
-            patch.object(api.store, "latest_evaluation", return_value=None),
+            patch.object(api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
             patch.object(api.store, "build_members", return_value=[]),
             patch.object(api.store, "build_evidence", return_value=[]),
             patch.object(api.store, "build_fingerprints", return_value={}),
-            patch.object(api.store, "list_approvals", return_value=[]),
-            patch.object(api.store, "list_waivers", return_value=[]),
             patch.object(api, "_vendor_readiness", return_value=[]),
         ):
             detail = asyncio.run(api.get_build("project-1", build["id"], user))

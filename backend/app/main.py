@@ -5,9 +5,7 @@ from app.api.projects import router as projects_router
 from app.api.comments import router as comments_router
 from app.api.diff import router as diff_router
 from app.api.design_compare import router as design_compare_router
-from app.api.release_studio import public_router as release_studio_public_router
 from app.api.release_studio import router as release_studio_router
-from app.api.release_policies import router as release_policies_router
 from app.api.folders import router as folders_router
 from app.api.settings import router as settings_router
 from app.api.workspace import router as workspace_router
@@ -159,20 +157,6 @@ def announce_configuration_warnings() -> None:
 verify_auth_configuration_or_exit()
 
 
-def _publish_release_signing_key() -> None:
-    """Make the release key's public half distributable before the first release."""
-
-    from app.api.release_studio import publish_configured_signing_key
-
-    try:
-        key_id = publish_configured_signing_key()
-    except Exception as error:  # never block startup on the key set
-        logger.warning("Release signing key could not be published: %s", error)
-        return
-    if key_id:
-        logger.info("Release Studio signing key %s published to the org key set.", key_id)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -184,7 +168,6 @@ async def lifespan(app: FastAPI):
     catalog_service.initialize()
     workspace.initialize()
     jobs.initialize()
-    _publish_release_signing_key()
     if settings.AUTH_ENABLED:
         session_store_service.initialize_session_store()
         session_store_service.prune_expired_sessions()
@@ -217,14 +200,6 @@ app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
 app.include_router(diff_router, prefix="/api/projects", tags=["diff"])
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
 app.include_router(release_studio_router, prefix="/api/projects", tags=["release-studio"])
-# Public keys are meant to be distributed: an offline recipient verifying a
-# release has no Prism credentials, so this router carries no auth dependency.
-app.include_router(release_studio_public_router, tags=["release-studio"])
-app.include_router(
-    release_policies_router,
-    prefix="/api/release-policies",
-    tags=["release-policies"],
-)
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 app.include_router(folders_router, prefix="/api/folders", tags=["folders"])
 app.include_router(workspace_router, prefix="/api/workspace", tags=["workspace"])

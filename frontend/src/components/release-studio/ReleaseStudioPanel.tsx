@@ -1,46 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Archive, History, ListRestart, Settings2, ShieldCheck } from "lucide-react";
+import { History, ListRestart, Settings2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cancelPrismJob, jobPipeline, throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 
 import * as api from "./api";
 import { RunList } from "./RunList";
-import { ApprovalList, ReleaseRecordsList, RuleOutcomeList } from "./shared";
 import { StageRail } from "./StageRail";
 import { DefineConfigStep } from "./steps/DefineConfigStep";
 import { InspectOutputsStep } from "./steps/InspectOutputsStep";
 import { emptyPipeline, ObserveBuildStep } from "./steps/ObserveBuildStep";
-import { SignOffStep } from "./steps/SignOffStep";
+import { PublishStep } from "./steps/PublishStep";
 import { SelectRevisionStep } from "./steps/SelectRevisionStep";
 import type {
-    AuditEvent,
     BuildDetail,
     EditableReleaseConfiguration,
     PipelineState,
     ProjectCommit,
     ReleaseCandidate,
     ReleaseConfiguration,
-    ReleaseRecord,
     RunStage,
     StageState,
     StudioView,
     VendorProfile,
-    VerificationReport,
-    WebReleaseShare,
 } from "./types";
 
 type Props = {
     projectId: string;
     canMutate: boolean;
-    isAdmin?: boolean;
     defaultCommit?: string;
 };
-
-export { ApprovalList, RuleOutcomeList };
 
 const FULL_SHA = /^[a-f0-9]{40}$/i;
 
@@ -53,7 +44,6 @@ function resolveCommitSelection(value: string, commits: ProjectCommit[]): string
 export function ReleaseStudioPanel({
     projectId,
     canMutate,
-    isAdmin = false,
     defaultCommit = "HEAD",
 }: Props) {
     const [view, setView] = useState<StudioView>(() => {
@@ -91,12 +81,6 @@ export function ReleaseStudioPanel({
     selectedBuildIdRef.current = selectedBuildId;
     const detailRequestRef = useRef(0);
     const [detail, setDetail] = useState<BuildDetail | null>(null);
-    const [records, setRecords] = useState<ReleaseRecord[]>([]);
-    const [shares, setShares] = useState<Record<string, WebReleaseShare[]>>({});
-    const [shareUrls, setShareUrls] = useState<Record<string, string>>({});
-    const [verification, setVerification] = useState<Record<string, VerificationReport>>({});
-    const [audit, setAudit] = useState<AuditEvent[]>([]);
-    const [auditOk, setAuditOk] = useState<boolean | null>(null);
     const [busy, setBusy] = useState("");
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
@@ -134,16 +118,12 @@ export function ReleaseStudioPanel({
 
     const refresh = useCallback(async (preferredJobId?: string) => {
         try {
-            const [nextCandidates, nextRecords, nextProfiles] = await Promise.all([
+            const [nextCandidates, nextProfiles] = await Promise.all([
                 api.listCandidates(projectId),
-                api.listRecords(projectId),
                 api.listVendorProfiles(projectId).catch(() => []),
             ]);
             setCandidates(nextCandidates);
-            setRecords(nextRecords);
             setProfiles(nextProfiles);
-            const listedShares = await Promise.all(nextRecords.map(async (record) => [record.id, await api.listWebReleases(projectId, record.id).catch(() => [])] as const));
-            setShares(Object.fromEntries(listedShares));
             setError("");
             // Follow the newest run unless the user opened a specific one.
             // The old rule was `current ?? newest`, which set the selection
@@ -234,7 +214,7 @@ export function ReleaseStudioPanel({
     }, [refreshDetail, selectedBuildId]);
 
     useEffect(() => {
-        if (stage !== "signoff" || !selectedBuildId) return;
+        if (stage !== "publish" || !selectedBuildId) return;
         const timer = window.setInterval(() => {
             void refreshDetail(selectedBuildId).catch(() => undefined);
         }, 3000);
@@ -266,21 +246,6 @@ export function ReleaseStudioPanel({
         });
         return () => controller.abort();
     }, [refresh, refreshDetail, selectedDetail?.build.id, selectedDetail?.build.job_id, selectedDetail?.build.status]);
-
-    useEffect(() => {
-        const auditConfigKey = selectedDetail?.candidate?.config_key || selectedDetail?.configuration?.config_key || "";
-        if (!auditConfigKey) return;
-        let cancelled = false;
-        void Promise.all([
-            api.listAudit(projectId, auditConfigKey).catch(() => []),
-            api.verifyAudit(projectId, auditConfigKey).catch(() => null),
-        ]).then(([events, chain]) => {
-            if (cancelled) return;
-            setAudit(events.filter((event) => !selectedBuildId || event.subject_id === selectedBuildId));
-            setAuditOk(chain?.ok ?? null);
-        });
-        return () => { cancelled = true; };
-    }, [projectId, selectedBuildId, selectedDetail]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -347,8 +312,8 @@ export function ReleaseStudioPanel({
             setLiveLogs([]);
             // A new run starts with nothing done. Leaving the previous build
             // selected left its finished detail driving the rail, so a build
-            // that had only just been queued showed Source, Outputs, Sign-off
-            // and Released already ticked -- the last run's state wearing the
+            // that had only just been queued showed Source, Outputs, and
+            // Publish already ticked -- the last run's state wearing the
             // new run's progress bar. Release the pin too, so refresh() lands
             // on the run being created.
             pinnedRef.current = false;
@@ -426,17 +391,6 @@ export function ReleaseStudioPanel({
         }
     };
 
-    const evaluation = selectedDetail?.evaluation ?? null;
-    const openBlockers = useMemo(
-        () =>
-            (evaluation?.findings ?? []).filter(
-                (finding) =>
-                    finding.status !== "waived"
-                    && (finding.severity === "blocker" || finding.severity === "failure"),
-            ),
-        [evaluation],
-    );
-
     const selectedCandidate = useMemo(
         () => candidates.find((item) => (item.builds?.length ? item.builds : item.latest_build ? [item.latest_build] : []).some((build) => build.id === selectedBuildId)) ?? selectedDetail?.candidate ?? null,
         [candidates, selectedBuildId, selectedDetail?.candidate],
@@ -446,31 +400,26 @@ export function ReleaseStudioPanel({
     const behind = Boolean(
         selectedBuildId && newestBuildId && selectedBuildId !== newestBuildId,
     );
-    const releasedHere = records.filter((record) => record.build_id === selectedBuildId);
 
     const building = Boolean(activeJobId) || selectedDetail?.build.status === "running" || busy === "build";
     const stageStates = useMemo<Record<RunStage, StageState>>(() => {
+        const locked = { source: "locked", build: "locked", outputs: "locked", publish: "locked" } as const;
         if (drafting) {
-            return {
-                source: "active", build: "locked", outputs: "locked", signoff: "locked", released: "locked",
-            };
+            return { ...locked, source: "active" };
         }
-        if (building) return { source: "done", build: "active", outputs: "locked", signoff: "locked", released: "locked" };
+        if (building) return { source: "done", build: "active", outputs: "locked", publish: "locked" };
         const status = selectedDetail?.build.status;
         const built = status === "succeeded";
-        if (status === "failed") return { source: "done", build: "failed", outputs: "locked", signoff: "locked", released: "locked" };
-        if (status === "cancelled") return { source: "done", build: "cancelled", outputs: "locked", signoff: "locked", released: "locked" };
-        if (!built) return { source: selectedCandidate ? "done" : "active", build: "active", outputs: "locked", signoff: "locked", released: "locked" };
+        if (status === "failed") return { source: "done", build: "failed", outputs: "locked", publish: "locked" };
+        if (status === "cancelled") return { source: "done", build: "cancelled", outputs: "locked", publish: "locked" };
+        if (!built) return { source: selectedCandidate ? "done" : "active", build: "active", outputs: "locked", publish: "locked" };
         return {
             source: selectedCandidate ? "done" : "pending",
             build: "done",
-            outputs: stage === "signoff" || stage === "released" ? "done" : "active",
-            signoff: releasedHere.length > 0 ? "done" : stage === "signoff" ? "active" : "locked",
-            // The library is project-wide, while its record actions remain
-            // record/build-bound. Keep it reachable from an older run.
-            released: releasedHere.length > 0 ? "done" : records.length > 0 ? "active" : "locked",
+            outputs: stage === "publish" ? "done" : "active",
+            publish: stage === "publish" ? "active" : "pending",
         };
-    }, [building, drafting, selectedDetail?.build.status, selectedCandidate, records.length, releasedHere.length, stage]);
+    }, [building, drafting, selectedDetail?.build.status, selectedCandidate, stage]);
 
     const stageSummaries = useMemo<Partial<Record<RunStage, string>>>(
         () => (building ? { build: "running" } : drafting ? { source: "choose a revision" } : {
@@ -479,27 +428,19 @@ export function ReleaseStudioPanel({
                 : undefined,
             build: selectedDetail ? selectedDetail.build.status : undefined,
             outputs: selectedDetail ? `${selectedDetail.members.length} members` : undefined,
-            signoff: selectedDetail
-                ? openBlockers.length > 0
-                    ? `${openBlockers.length} blocker(s)`
-                    : `${selectedDetail.approvals.length} approval(s)`
-                : undefined,
-            released: releasedHere.length ? `${releasedHere.length} release(s)` : records.length ? `${records.length} in library` : undefined,
+            publish: selectedDetail?.forge?.name,
         }),
-        [building, drafting, selectedCandidate, selectedDetail, openBlockers.length, records.length, releasedHere.length],
+        [building, drafting, selectedCandidate, selectedDetail],
     );
-
 
     return (
         <div className="flex h-full min-h-0 flex-col">
             <header className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
-                <h2 className="text-sm font-semibold">Release Studio</h2>
                 <div className="flex items-center gap-1">
                     {([
-                        { id: "settings", label: "Settings", icon: Settings2 },
+                        { id: "settings", label: "Release Studio", icon: Settings2 },
                         { id: "current", label: "Current", icon: ListRestart },
                         { id: "history", label: "History", icon: History },
-                        { id: "library", label: "Library", icon: Archive },
                     ] as const).map(({ id, label, icon: Icon }) => (
                         <button
                             key={id}
@@ -510,11 +451,11 @@ export function ReleaseStudioPanel({
                                 if (id === "current") {
                                     setSelectedBuildId(currentBuildId);
                                     setStage(activeJobId ? "build" : "outputs");
-                                } else if (id === "history" || id === "library") {
+                                } else if (id === "history") {
                                     pinnedRef.current = false;
                                     setSelectedBuildId(null);
                                     setDetail(null);
-                                    setStage(id === "library" ? "released" : "build");
+                                    setStage("build");
                                 }
                             }}
                             aria-current={view === id ? "page" : undefined}
@@ -528,23 +469,6 @@ export function ReleaseStudioPanel({
                         </button>
                     ))}
                 </div>
-                {auditOk !== null && (
-                    <Sheet>
-                        <SheetTrigger asChild>
-                            <Button variant={auditOk ? "secondary" : "destructive"} size="sm" className="ml-auto gap-1">
-                                {auditOk ? <ShieldCheck className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                                Audit chain {auditOk ? "verified" : "BROKEN"}
-                            </Button>
-                        </SheetTrigger>
-                        <SheetContent className="flex w-full flex-col sm:max-w-lg">
-                            <SheetHeader><SheetTitle>Audit chain</SheetTitle></SheetHeader>
-                            <div className="mt-4 min-h-0 space-y-2 overflow-y-auto font-mono text-xs">
-                                {audit.length === 0 && <p className="font-sans text-sm text-muted-foreground">No events for this build.</p>}
-                                {audit.map((event) => <div key={event.id} className="border p-2"><span className="text-muted-foreground">{event.sequence}</span> {event.event_type} <span className="text-muted-foreground">{event.actor}</span></div>)}
-                            </div>
-                        </SheetContent>
-                    </Sheet>
-                )}
             </header>
 
             {error && (
@@ -579,19 +503,13 @@ export function ReleaseStudioPanel({
                 </div>
             ) : (
                 <div className="flex min-h-0 flex-1">
-                    {(view === "history" || view === "library") && (
+                    {view === "history" && (
                         <RunList
-                            mode={view}
                             candidates={candidates}
-                            records={records}
                             selectedBuildId={selectedBuildId}
                             onSelect={(buildId) => {
                                 setDrafting(false);
                                 openRun(buildId);
-                            }}
-                            onSelectRecord={(record) => {
-                                setDrafting(false);
-                                openRun(record.build_id, "released");
                             }}
                         />
                     )}
@@ -692,44 +610,22 @@ export function ReleaseStudioPanel({
                                             detail={selectedDetail}
                                             profiles={profiles}
                                             busy={busy}
-                                            onContinue={() => setStage("signoff")}
+                                            onContinue={() => setStage("publish")}
                                             onRun={run}
                                         />
                                     )}
                                     {stage === "outputs" && !selectedDetail && <LockedStage />}
-                                    {stage === "signoff" && selectedDetail && (
-                                        <SignOffStep
+                                    {stage === "publish" && selectedDetail && (
+                                        <PublishStep
                                             projectId={projectId}
                                             detail={selectedDetail}
-                                            configuration={selectedDetail.configuration}
                                             canMutate={canMutate}
-                                            isAdmin={isAdmin}
                                             busy={busy}
-                                            openBlockers={openBlockers}
                                             onRun={run}
                                         />
                                     )}
-                                    {stage === "signoff" && !selectedDetail && <LockedStage />}
-                                    {stage === "released" && (
-                                        <div className="space-y-3">
-                                            <h3 className="text-lg font-semibold">Released</h3>
-                                            <ReleaseRecordsList
-                                                projectId={projectId}
-                                                records={records}
-                                                shares={shares}
-                                                shareUrls={shareUrls}
-                                                verification={verification}
-                                                canMutate={canMutate}
-                                                busy={busy}
-                                                profiles={profiles}
-                                                vendorReadinessByBuild={selectedDetail ? { [selectedDetail.build.id]: selectedDetail.vendor_readiness } : {}}
-                                                onRun={run}
-                                                onVerified={(recordId, report) => setVerification((current) => ({ ...current, [recordId]: report }))}
-                                                onShared={(recordId, url) => setShareUrls((current) => ({ ...current, [recordId]: url }))}
-                                            />
-                                        </div>
-                                    )}
-                                    {stage !== "source" && stage !== "build" && stage !== "outputs" && stage !== "signoff" && stage !== "released" && <LockedStage />}
+                                    {stage === "publish" && !selectedDetail && <LockedStage />}
+                                    {stage !== "source" && stage !== "build" && stage !== "outputs" && stage !== "publish" && <LockedStage />}
                                 </div>
                             </div>
                         </div>

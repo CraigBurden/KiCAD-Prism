@@ -28,16 +28,18 @@ const emptyDocument = (): EditableReleaseConfiguration => ({
 
 function editable(configuration: ReleaseConfiguration | null, defaultVendors: string[] = []): EditableReleaseConfiguration {
     if (!configuration) return emptyDocument();
+    const variants = [...(configuration.variants ?? [])];
+    const defaultVariant = String(configuration.default_variant || "").trim() || variants[0] || "";
     return {
         schema: "prism.release-studio.configuration/1",
         title: configuration.title,
         board: configuration.board_rel,
         schematic: configuration.schematic_rel,
         jobset: configuration.jobset_rel,
-        default_variant: configuration.default_variant,
+        default_variant: defaultVariant,
         fields: { ...(configuration.fields ?? {}) },
         notes: { ...(configuration.notes ?? {}) },
-        variants: [...(configuration.variants ?? [])],
+        variants,
         vendors: [...(configuration.vendors ?? defaultVendors)],
         ...(configuration.policy !== undefined ? { policy: configuration.policy } : {}),
         ...(configuration.template ? { template: configuration.template } : {}),
@@ -86,9 +88,13 @@ export function DefineConfigStep({
     const [dirty, setDirty] = useState(false);
 
     useEffect(() => {
-        setDocument(editable(selected, vendorIds));
+        const next = editable(selected, vendorIds);
+        setDocument(next);
         setDraftKey(selected?.config_key ?? configKey);
         setDirty(false);
+        if (next.default_variant && next.default_variant !== variant) {
+            onVariant(next.default_variant);
+        }
     }, [selected, configKey, commitSha, vendorIds]);
 
     const update = <K extends keyof EditableReleaseConfiguration>(
@@ -98,6 +104,30 @@ export function DefineConfigStep({
         setDocument((current) => ({ ...current, [key]: value }));
         setDirty(true);
     };
+    const setVariants = (variants: string[]) => {
+        const defaultVariant = variants.includes(document.default_variant)
+            ? document.default_variant
+            : (variants[0] ?? "");
+        setDocument((current) => ({ ...current, variants, default_variant: defaultVariant }));
+        setDirty(true);
+        if (defaultVariant !== variant) onVariant(defaultVariant);
+    };
+    const setDefaultVariant = (value: string) => {
+        update("default_variant", value);
+        onVariant(value);
+    };
+    const variantOptions = useMemo(() => {
+        const seen = new Set<string>();
+        const items: string[] = [];
+        for (const item of [...document.variants, document.default_variant]) {
+            const trimmed = item.trim();
+            if (trimmed && !seen.has(trimmed)) {
+                seen.add(trimmed);
+                items.push(trimmed);
+            }
+        }
+        return items;
+    }, [document.variants, document.default_variant]);
     const updateField = (key: string, value: string) => {
         setDocument((current) => ({
             ...current,
@@ -143,7 +173,7 @@ export function DefineConfigStep({
                         <TextField label="Jobset" value={document.jobset} onChange={(value) => update("jobset", value)} mono />
                         <TextField label="Document number" value={document.document_number ?? ""} onChange={(value) => update("document_number", value || undefined)} />
                         <TextField label="Revision" value={document.revision ?? ""} onChange={(value) => update("revision", value || undefined)} />
-                        <TextField label="Variants" value={document.variants.join(", ")} onChange={(value) => update("variants", splitList(value))} />
+                        <TextField label="Variants" value={document.variants.join(", ")} onChange={(value) => setVariants(splitList(value))} />
                     </div>
                 </section>
 
@@ -189,9 +219,15 @@ export function DefineConfigStep({
                 </div>
                 <div className="min-w-36 space-y-1">
                     <Label htmlFor="rs-config-variant">Variant</Label>
-                    <select id="rs-config-variant" value={variant} onChange={(event) => onVariant(event.target.value)} className="flex h-9 w-full border border-input bg-background px-3 text-sm">
-                        <option value="">{document.default_variant || "default"}</option>
-                        {document.variants.map((item) => <option key={item} value={item}>{item}</option>)}
+                    <select
+                        id="rs-config-variant"
+                        value={document.default_variant}
+                        disabled={!variantOptions.length || Boolean(busy)}
+                        onChange={(event) => setDefaultVariant(event.target.value)}
+                        className="flex h-9 w-full border border-input bg-background px-3 text-sm"
+                    >
+                        {variantOptions.length === 0 && <option value="">No variants</option>}
+                        {variantOptions.map((item) => <option key={item} value={item}>{item}</option>)}
                     </select>
                 </div>
                 {canMutate && (
