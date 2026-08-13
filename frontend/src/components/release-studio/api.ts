@@ -7,10 +7,13 @@ import type {
     DocumentSheet,
     ReleaseCandidate,
     ReleaseConfiguration,
+    ManufacturingChoices,
     VendorProfile,
     ProjectCommit,
     EditableReleaseConfiguration,
     SavedReleaseConfiguration,
+    ReleaseSource,
+    ForgeTarget,
 } from "./types";
 
 const base = (projectId: string) =>
@@ -93,17 +96,72 @@ export async function listCandidates(
 
 export async function startBuild(
     projectId: string,
-    body: { config_key: string; commit_sha: string; variant: string },
+    body: {
+        commit_sha: string;
+        variant?: string;
+        board?: string;
+        schematic?: string;
+        bom_preset?: string;
+        identity?: { tag: string; document_name: string; date: string; notes: string };
+        manufacturing?: Record<string, unknown>;
+        impedance_csv?: string;
+        stackup_pdf_b64?: string;
+        config_key?: string;
+    },
 ): Promise<{ job: { job_id: string } }> {
     return fetchJson(
         `${base(projectId)}/candidates`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify({ config_key: "release", ...body }),
         },
         "Could not start the build",
     );
+}
+
+export async function getSource(
+    projectId: string,
+    commitSha: string,
+): Promise<{ source: ReleaseSource; ipc: ManufacturingChoices; forge: ForgeTarget }> {
+    return fetchJson(
+        `${base(projectId)}/source?commit_sha=${encodeURIComponent(commitSha)}`,
+        undefined,
+        "Could not discover KiCad files for this revision",
+    );
+}
+
+export async function saveSourceDefaults(
+    projectId: string,
+    defaults: {
+        board: string;
+        schematic: string;
+        variant: string;
+        bom_preset: string;
+    },
+): Promise<{ defaults: { board: string; schematic: string; variant: string; bom_preset: string } }> {
+    return fetchJson(
+        `${base(projectId)}/source/defaults`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(defaults),
+        },
+        "Could not remember source picks for this project",
+    );
+}
+
+export async function tagExists(projectId: string, tag: string): Promise<boolean> {
+    const data = await fetchJson<{ exists: boolean }>(
+        `${base(projectId)}/tags/${encodeURIComponent(tag)}`,
+        undefined,
+        "Could not check whether the tag already exists",
+    );
+    return Boolean(data.exists);
+}
+
+export function impedanceTemplateUrl(projectId: string): string {
+    return `${base(projectId)}/impedance-template.csv`;
 }
 
 export async function getBuild(projectId: string, buildId: string): Promise<BuildDetail> {

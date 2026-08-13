@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchJson } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 
-import { saveConfiguration } from "./api";
+import { saveConfiguration, startBuild } from "./api";
 import type { EditableReleaseConfiguration } from "./types";
 
 vi.mock("@/lib/api", () => ({
@@ -21,7 +21,6 @@ const configuration: EditableReleaseConfiguration = {
     title: "Production",
     board: "board.kicad_pcb",
     schematic: "board.kicad_sch",
-    jobset: "Outputs.kicad_jobset",
     default_variant: "",
     fields: {},
     notes: {},
@@ -53,7 +52,6 @@ describe("Release Studio configuration publication", () => {
                     title: "Production",
                     board_rel: "board.kicad_pcb",
                     schematic_rel: "board.kicad_sch",
-                    jobset_rel: "Outputs.kicad_jobset",
                     default_variant: "",
                 },
                 commit_sha: published,
@@ -78,5 +76,24 @@ describe("Release Studio configuration publication", () => {
         expect(watchPrismJob).toHaveBeenCalledWith("job-publish");
         expect(throwIfJobFailed).toHaveBeenCalled();
         expect(result.commit_sha).toBe(published);
+    });
+
+    it("posts identity and manufacturing with the build request", async () => {
+        vi.mocked(fetchJson).mockResolvedValue({ job: { job_id: "job-build" } });
+        await startBuild("project", {
+            commit_sha: "a".repeat(40),
+            board: "board.kicad_pcb",
+            schematic: "board.kicad_sch",
+            identity: { tag: "v1.0.0", document_name: "USBPD-100", date: "2026-08-14", notes: "" },
+            manufacturing: { manufacturing_ipc_class: "IPC-6012 Class 2" },
+        });
+        expect(fetchJson).toHaveBeenCalledWith(
+            "/api/projects/project/release-studio/candidates",
+            expect.objectContaining({
+                method: "POST",
+                body: expect.stringContaining("USBPD-100"),
+            }),
+            "Could not start the build",
+        );
     });
 });

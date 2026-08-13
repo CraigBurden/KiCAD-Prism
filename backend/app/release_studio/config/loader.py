@@ -318,8 +318,10 @@ def _validate_referenced_commit_paths(
 
 
 def _referenced_file_paths(config: Mapping[str, Any]) -> Iterator[tuple[str, Any]]:
-    for field in ("board", "schematic", "jobset"):
+    for field in ("board", "schematic"):
         yield field, config[field]
+    if config.get("jobset"):
+        yield "jobset", config["jobset"]
     if config.get("template") is not None:
         yield "template", config["template"]
     for index, path in enumerate(config.get("sheets", []) or []):

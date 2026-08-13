@@ -655,3 +655,18 @@ def _assemble(
         b"startxref\n" + str(xref_at).encode("ascii") + b"\n%%EOF\n"
     )
     return bytes(out)
+
+
+def append_pdf_pages(base: bytes, extra: bytes) -> bytes:
+    """Append *extra* pages onto *base* and canonicalize the result."""
+
+    from pypdf import PdfReader, PdfWriter
+
+    from app.release_studio.canonical import canonicalize_pdf
+
+    writer = PdfWriter()
+    writer.append(PdfReader(io.BytesIO(base)))
+    writer.append(PdfReader(io.BytesIO(extra)))
+    merged = io.BytesIO()
+    writer.write(merged)
+    return canonicalize_pdf(merged.getvalue())

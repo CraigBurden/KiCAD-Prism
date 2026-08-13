@@ -18,7 +18,6 @@ const emptyDocument = (): EditableReleaseConfiguration => ({
     title: "",
     board: "",
     schematic: "",
-    jobset: "",
     default_variant: "",
     fields: {},
     notes: {},
@@ -35,7 +34,6 @@ function editable(configuration: ReleaseConfiguration | null, defaultVendors: st
         title: configuration.title,
         board: configuration.board_rel,
         schematic: configuration.schematic_rel,
-        jobset: configuration.jobset_rel,
         default_variant: defaultVariant,
         fields: { ...(configuration.fields ?? {}) },
         notes: { ...(configuration.notes ?? {}) },
@@ -139,7 +137,6 @@ export function DefineConfigStep({
         document.title.trim()
         && document.board.trim()
         && document.schematic.trim()
-        && document.jobset.trim()
         && draftKey.trim(),
     );
     const selectedCommit = commits.find((commit) => commit.full_hash === commitSha);
@@ -170,7 +167,6 @@ export function DefineConfigStep({
                         <TextField label="Release title" value={document.title} onChange={(value) => update("title", value)} />
                         <TextField label="Board" value={document.board} onChange={(value) => update("board", value)} mono />
                         <TextField label="Schematic" value={document.schematic} onChange={(value) => update("schematic", value)} mono />
-                        <TextField label="Jobset" value={document.jobset} onChange={(value) => update("jobset", value)} mono />
                         <TextField label="Document number" value={document.document_number ?? ""} onChange={(value) => update("document_number", value || undefined)} />
                         <TextField label="Revision" value={document.revision ?? ""} onChange={(value) => update("revision", value || undefined)} />
                         <TextField label="Variants" value={document.variants.join(", ")} onChange={(value) => setVariants(splitList(value))} />

@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Ban, Check, Circle, Loader2, Square, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import * as api from "../api";
 import type {
-    BuildLogIndex,
     PipelineJob,
     PipelineState,
     PipelineStep,
@@ -46,6 +44,14 @@ export function ObserveBuildStep({
     const [openStep, setOpenStep] = useState<string | null>(
         selected?.steps.find((step) => step.status === "failure" || step.status === "in_progress")?.id ?? null,
     );
+    const logRef = useRef<HTMLPreElement>(null);
+    const live = jobStatus === "queued" || jobStatus === "running" || jobStatus === "cancel_requested";
+
+    useEffect(() => {
+        if (logRef.current) {
+            logRef.current.scrollTop = logRef.current.scrollHeight;
+        }
+    }, [liveLogs]);
 
     useEffect(() => {
         const focus = jobs.find((job) => job.status === "failure")
@@ -56,25 +62,42 @@ export function ObserveBuildStep({
         if (step && !jobs.flatMap((job) => job.steps).some((item) => item.id === openStep)) setOpenStep(step.id);
     }, [jobs, openStep, selectedId]);
 
-    // A live pipeline only exists while the worker is running. Reopening a
-    // finished run reads the archived copy instead, which is the point of
-    // keeping logs in build-evidence rather than on the job row. Placed after
-    // the hooks: an early return above them changes hook order between
-    // renders the moment a build finishes.
+    // Live logs are only the worker stdout for this attempt. Reopening a
+    // finished run does not replay them; they were never stored for the UI.
     if (jobs.length === 0 && projectId && buildId) {
-        return <ArchivedBuildLogs projectId={projectId} buildId={buildId} />;
+        return (
+            <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Build</h3>
+                <p className="text-sm text-muted-foreground">
+                    Live logs are shown while a run is in progress. This attempt has finished; step status is kept on the pipeline rail.
+                </p>
+            </div>
+        );
     }
 
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap items-start gap-3">
-                <div>
+                <div className="min-w-0 flex-1 space-y-2">
                     <h3 className="text-lg font-semibold">Build</h3>
                     <p className="text-sm text-muted-foreground">
                         {jobStatus ? `Run ${jobStatus}` : "Waiting for the worker."}
                         {message ? ` — ${message}` : ""}
-                        {percent ? ` (${Math.round(percent)}%)` : ""}
                     </p>
+                    <div
+                        className="h-1.5 overflow-hidden bg-muted"
+                        role="progressbar"
+                        aria-label="Release build progress"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(percent || 0)}
+                    >
+                        <div
+                            className="h-full bg-primary transition-[width] duration-300"
+                            style={{ width: `${Math.max(0, Math.min(100, percent || 0))}%` }}
+                        />
+                    </div>
+                    <p className="text-xs tabular-nums text-muted-foreground">{Math.round(percent || 0)}%</p>
                 </div>
                 {canCancel && onCancel && (
                     <Button className="ml-auto" size="sm" variant="destructive" disabled={cancelling} onClick={onCancel}>
@@ -138,116 +161,24 @@ export function ObserveBuildStep({
                     )}
                 </div>
             </div>
-            {(liveLogs.length > 0 || jobStatus === "queued" || jobStatus === "running" || jobStatus === "cancel_requested") && (
-                <div className="overflow-hidden rounded-md border bg-zinc-950 text-zinc-100">
-                    <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2 text-xs text-zinc-400">
-                        {(jobStatus === "queued" || jobStatus === "running" || jobStatus === "cancel_requested") && <Loader2 className="h-3 w-3 animate-spin" />}
+            {(liveLogs.length > 0 || live) && (
+                <div className="overflow-hidden rounded-md border bg-muted/30">
+                    <div className="flex items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
+                        {live && <Loader2 className="h-3 w-3 animate-spin" />}
                         <span className="font-mono">live.log</span>
+                        <span className="ml-auto tabular-nums">{Math.round(percent || 0)}%</span>
                     </div>
-                    <pre aria-label="Live build log" className="h-72 overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-5">
+                    <pre
+                        ref={logRef}
+                        aria-label="Live build log"
+                        className="h-72 overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-5"
+                    >
                         {liveLogs.join("\n") || "Waiting for worker output…"}
                     </pre>
                 </div>
             )}
         </div>
     );
-}
-
-/** Phase timings and per-step logs for a run that has already finished. */
-function ArchivedBuildLogs({ projectId, buildId }: { projectId: string; buildId: string }) {
-    const [index, setIndex] = useState<BuildLogIndex | null>(null);
-    const [openStep, setOpenStep] = useState<string | null>(null);
-    const [log, setLog] = useState("");
-    const [error, setError] = useState("");
-
-    useEffect(() => {
-        let cancelled = false;
-        setIndex(null);
-        setOpenStep(null);
-        api.listBuildLogs(projectId, buildId)
-            .then((value) => !cancelled && setIndex(value))
-            .catch((cause: unknown) =>
-                !cancelled && setError(cause instanceof Error ? cause.message : String(cause)),
-            );
-        return () => {
-            cancelled = true;
-        };
-    }, [projectId, buildId]);
-
-    const open = (stepId: string) => {
-        if (openStep === stepId) {
-            setOpenStep(null);
-            return;
-        }
-        setOpenStep(stepId);
-        setLog("");
-        void api
-            .fetchBuildLog(projectId, buildId, stepId)
-            .then(setLog)
-            .catch(() => setLog(""));
-    };
-
-    return (
-        <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Build</h3>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            {index && index.timings.length > 0 && (
-                <div className="border">
-                    <div className="border-b px-3 py-2 text-sm font-medium">Where the time went</div>
-                    <ul className="divide-y">
-                        {index.timings.map((phase) => (
-                            <li
-                                key={phase.name}
-                                className="flex items-center gap-3 px-3 py-1.5 text-sm"
-                            >
-                                <span className="flex-1">{phase.name}</span>
-                                <span className="font-mono text-xs text-muted-foreground">
-                                    {(phase.elapsed_ms / 1000).toFixed(1)}s
-                                </span>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
-            <ol className="space-y-1">
-                {(index?.steps ?? []).map((step) => (
-                    <li key={step.step_id} className="border">
-                        <button
-                            type="button"
-                            onClick={() => open(step.step_id)}
-                            aria-expanded={openStep === step.step_id}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm"
-                        >
-                            <StatusIcon status={archivedStepStatus(step)} />
-                            <span className="flex-1">{step.step_id}</span>
-                            {step.elapsed_ms > 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                    {(step.elapsed_ms / 1000).toFixed(1)}s
-                                </span>
-                            )}
-                        </button>
-                        {openStep === step.step_id && (
-                            <pre className="max-h-80 overflow-auto border-t bg-muted/30 p-2 text-xs">
-                                {log || "No log was archived for this step."}
-                            </pre>
-                        )}
-                    </li>
-                ))}
-            </ol>
-            {index && index.steps.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                    This run predates log archiving.
-                </p>
-            )}
-        </div>
-    );
-}
-
-function archivedStepStatus(step: BuildLogIndex["steps"][number]): PipelineStepStatus {
-    const explicit = step.status?.trim();
-    if (explicit === "queued" || explicit === "in_progress" || explicit === "success" || explicit === "failure" || explicit === "cancelled" || explicit === "skipped") return explicit;
-    if (step.skipped_reason) return "skipped";
-    return step.returncode === 0 ? "success" : "failure";
 }
 
 function StatusIcon({ status }: { status: PipelineStepStatus }) {
@@ -289,7 +220,17 @@ export function emptyPipeline(): PipelineState {
                 ["cruncher-assembly", "Assembly views"],
             ]),
             queued("artwork", "Artwork", [["gerbers", "Gerbers"], ["drill", "Drill"], ["schematic_pdf", "Schematic PDF"]]),
-            queued("documents", "Documents", [["documents", "Compose documentation"]]),
+            queued("documents", "Documents", [
+                ["documents-cover", "Cover page"],
+                ["documents-fabrication", "Fabrication drawings"],
+                ["documents-impedance", "Controlled impedance table"],
+                ["documents-stackup", "Append manufacturer stackup"],
+                ["documents-assembly", "Assembly drawings"],
+                ["documents-testpoint", "Testpoint drawings"],
+                ["documents-drill", "Drill drawing"],
+                ["documents-bom", "Bill of materials PDF"],
+                ["documents", "Finish documentation"],
+            ]),
             queued("package", "Package", [["package", "Canonicalize, fingerprint, record"]]),
         ],
     };

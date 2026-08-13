@@ -172,21 +172,22 @@ def release_board_characteristics(
     stackup: Mapping[str, Any],
     fields: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[str, str], ...]:
-    """Cover characteristics, extending KiCad's table with release specs."""
+    """Cover characteristics. Release specs live in :func:`manufacturing_spec`."""
 
-    configured = fields or {}
-    return (
-        *board_characteristics(stats, stackup),
-        ("Solder mask colour", _text(configured.get("solder_mask_colour"))),
-        ("Via treatment", _text(configured.get("via_treatment"))),
-    )
+    _ = fields
+    return board_characteristics(stats, stackup)
 
 
 def manufacturing_spec(fields: Mapping[str, Any] | None = None) -> tuple[tuple[str, str], ...]:
+    """IPC class and board-finish callouts for the cover manufacturing table."""
+
     configured = fields or {}
     return (
-        ("Manufacturing", _text(configured.get("manufacturing_ipc_class"))),
-        ("Assembly", _text(configured.get("assembly_ipc_class"))),
+        ("Manufacturing IPC class", _text(configured.get("manufacturing_ipc_class"))),
+        ("Assembly IPC class", _text(configured.get("assembly_ipc_class"))),
+        ("Solder mask colour", _text(configured.get("solder_mask_colour"))),
+        ("Silkscreen colour", _text(configured.get("silkscreen_colour"))),
+        ("Via treatment", _text(configured.get("via_treatment"))),
     )
 
 
@@ -233,6 +234,82 @@ def revision_history_table(
         rows=tuple(rows),
         widths=(28.0 * share, 22.0 * share, 16.0 * share, 64.0 * share),
         align=("start", "start", "start", "start"),
+    )
+
+
+def impedance_spec_table(rows: Sequence[Mapping[str, Any]]) -> Table:
+    """Controlled-impedance callouts typeset from the imported CSV."""
+
+    body = []
+    for row in rows:
+        body.append(
+            (
+                _text(row.get("Type")),
+                _text(row.get("Name")),
+                _text(row.get("Layer pair")),
+                _text(row.get("Target Z (Ω)") or row.get("Target Z")),
+                _text(row.get("Tolerance (Ω)") or row.get("Tolerance")),
+                _text(row.get("Width (mm)") or row.get("Width")),
+                _text(row.get("Spacing (mm)") or row.get("Spacing")),
+                _text(row.get("Notes")),
+            )
+        )
+    return Table(
+        title="CONTROLLED IMPEDANCE",
+        columns=("Type", "Name", "Pair", "Z", "Tol", "W", "S", "Notes"),
+        rows=tuple(body),
+        widths=(14.0, 22.0, 28.0, 14.0, 14.0, 14.0, 14.0, 40.0),
+        align=("start", "start", "start", "start", "start", "start", "start", "start"),
+    )
+
+
+_BOM_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Reference", ("Reference", "Refs", "Ref")),
+    ("Qty", ("Qty", "Quantity", "QUANTITY", "${QUANTITY}")),
+    ("Value", ("Value",)),
+    ("Manufacturer", ("Manufacturer", "Mfr", "MFR")),
+    ("MPN", ("Manufacturer Part Number", "MPN", "Mfr Part Number", "Mfr Part")),
+    ("Footprint", ("Footprint",)),
+    ("Datasheet", ("Datasheet",)),
+    ("DNP", ("DNP", "${DNP}")),
+)
+_BOM_WIDTHS = (28.0, 12.0, 22.0, 28.0, 32.0, 42.0, 48.0, 12.0)
+
+
+def _bom_header_index(headers: Sequence[str], aliases: Sequence[str]) -> int | None:
+    lookup = {str(name).strip().casefold(): index for index, name in enumerate(headers)}
+    for alias in aliases:
+        index = lookup.get(alias.casefold())
+        if index is not None:
+            return index
+    return None
+
+
+def bom_schedule_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> Table:
+    """BOM as a bordered schedule: Qty second, manufacturer columns, tight wrap."""
+
+    mapped: list[tuple[str, ...]] = []
+    for row in rows:
+        cells: list[str] = []
+        for _label, aliases in _BOM_COLUMNS:
+            index = _bom_header_index(headers, aliases)
+            value = str(row[index]).strip() if index is not None and index < len(row) else ""
+            cells.append(value or "—")
+        mapped.append(tuple(cells))
+    if not mapped:
+        mapped.append(tuple("—" for _ in _BOM_COLUMNS))
+    columns = tuple(label for label, _aliases in _BOM_COLUMNS)
+    return Table(
+        title="BILL OF MATERIALS",
+        columns=columns,
+        rows=tuple(mapped),
+        widths=_BOM_WIDTHS,
+        align=tuple("start" for _ in columns),
+        bordered=True,
+        max_cell_lines=2,
+        cell_family="sans",
+        font_size=2.2,
+        row_height=4.0,
     )
 
 

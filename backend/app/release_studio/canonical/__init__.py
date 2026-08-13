@@ -15,6 +15,7 @@ import json as _json
 import re
 import tarfile
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -371,6 +372,27 @@ def canonicalize_archive(data: bytes) -> bytes:
     return write_deterministic_archive(members, gzip_compress=gzip_compress)
 
 
+def _zip_date_time(mtime: int) -> tuple[int, int, int, int, int, int]:
+    """Convert a unix timestamp to the ZIP DOS datetime field.
+
+    Local headers cannot represent times before 1980-01-01. Callers still pass
+    explicit revision/release metadata (never a filesystem read); epoch zero
+    therefore stays the ZIP epoch so generic canonicalization remains stable.
+    """
+
+    stamp = int(mtime)
+    if stamp <= 0:
+        return (1980, 1, 1, 0, 0, 0)
+    try:
+        moment = datetime.fromtimestamp(stamp, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return (1980, 1, 1, 0, 0, 0)
+    if moment.year < 1980:
+        return (1980, 1, 1, 0, 0, 0)
+    year = min(moment.year, 2107)
+    return (year, moment.month, moment.day, moment.hour, moment.minute, moment.second)
+
+
 def write_deterministic_zip(
     members: dict[str, bytes],
     *,
@@ -380,12 +402,15 @@ def write_deterministic_zip(
 
     Fab houses want zip, not tar.gz. This helper is for derived convenience
     packs only — it is not a member canonicalizer and does not feed a
-    fingerprint. ``mtime`` is accepted for symmetry with the tar writer and
-    ignored: zip local headers use a fixed DOS datetime so two packs with the
-    same members are byte-identical.
+    fingerprint. ``mtime`` is explicit revision or release metadata, same as
+    the tar writer: two packs with the same members and stamp are
+    byte-identical, and extracted files show that stamp instead of 1980-01-01.
     """
 
-    del mtime  # zip DOS time is fixed; callers pass archive_mtime for symmetry
+    mtime = int(mtime)
+    if not 0 <= mtime <= 0xFFFFFFFF:
+        raise ValueError("archive mtime must fit the gzip unsigned 32-bit field")
+    date_time = _zip_date_time(mtime)
     output = io.BytesIO()
     with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name in sorted(members):
@@ -393,7 +418,7 @@ def write_deterministic_zip(
             payload = members[name]
             if not isinstance(payload, bytes):
                 raise TypeError(f"zip member {name!r} must be bytes")
-            info = zipfile.ZipInfo(filename=name, date_time=(1980, 1, 1, 0, 0, 0))
+            info = zipfile.ZipInfo(filename=name, date_time=date_time)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
             archive.writestr(info, payload)

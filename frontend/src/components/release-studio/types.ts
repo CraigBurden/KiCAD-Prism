@@ -10,7 +10,6 @@ export type ReleaseConfiguration = {
     title: string;
     board_rel: string;
     schematic_rel: string;
-    jobset_rel: string;
     default_variant: string;
     typography?: string;
     document_number?: string;
@@ -30,7 +29,6 @@ export type EditableReleaseConfiguration = {
     title: string;
     board: string;
     schematic: string;
-    jobset: string;
     default_variant: string;
     policy?: string | Record<string, unknown>;
     fields: Record<string, string>;
@@ -284,6 +282,44 @@ export type VendorReadiness = {
     missing_requirements?: string[];
 };
 
+export type IpcOption = { value: string; label: string };
+
+export type ManufacturingChoices = {
+    manufacturing: IpcOption[];
+    assembly: IpcOption[];
+    solder_mask_colour?: IpcOption[];
+    silkscreen_colour?: IpcOption[];
+    via_treatment?: IpcOption[];
+};
+
+export type ReleaseSource = {
+    boards: string[];
+    schematics: string[];
+    board: string;
+    schematic: string;
+    project: string;
+    variants: string[];
+    bom_presets: string[];
+    default_bom_preset: string;
+    variant?: string;
+};
+
+export type ReleaseIdentity = {
+    tag: string;
+    document_name: string;
+    date: string;
+    notes: string;
+};
+
+export type ReleaseManufacturing = {
+    manufacturing_ipc_class: string;
+    assembly_ipc_class: string;
+    solder_mask_colour: string;
+    silkscreen_colour: string;
+    via_treatment: string;
+    vendors: string[];
+};
+
 export type ForgeTarget = {
     kind: "github" | "gitlab" | "unsupported";
     name: string;
@@ -346,7 +382,7 @@ export type PipelineState = {
     jobs: PipelineJob[];
 };
 
-export type RunStage = "source" | "build" | "outputs" | "publish";
+export type RunStage = "source" | "identity" | "manufacturing" | "build" | "outputs" | "publish";
 export type StudioView = "settings" | "current" | "history";
 
 /** What a stage rail shows next to each stage. */

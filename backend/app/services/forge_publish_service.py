@@ -70,6 +70,7 @@ def dossier_tar_to_zip(dossier_bytes: bytes) -> bytes:
     """Repack dossier members as a zip. Same files, forge-friendly container."""
 
     members: dict[str, bytes] = {}
+    archive_mtime = 0
     try:
         with tarfile.open(fileobj=io.BytesIO(dossier_bytes), mode="r:*") as archive:
             for info in archive.getmembers():
@@ -79,11 +80,85 @@ def dossier_tar_to_zip(dossier_bytes: bytes) -> bytes:
                 if extracted is None:
                     continue
                 members[info.name] = extracted.read()
+                archive_mtime = max(archive_mtime, int(info.mtime or 0))
     except tarfile.TarError as exc:
         raise ForgePublishError(f"The stored dossier could not be read: {exc}") from exc
     if not members:
         raise ForgePublishError("The stored dossier is empty.")
-    return write_deterministic_zip(members)
+    return write_deterministic_zip(members, mtime=archive_mtime)
+
+
+def list_releases(repo_url: str | None, *, limit: int = 10) -> list[dict[str, str]]:
+    """Prior GitHub/GitLab Releases for the cover history table.
+
+    Failures degrade to an empty list so a cover can still compose. The current
+    unpublished release is prepended by the document engine, not here.
+    """
+
+    try:
+        target = describe_forge(repo_url)
+    except ForgePublishError:
+        return []
+    if target.kind == "unsupported" or not target.token_configured:
+        return []
+    try:
+        if target.kind == "github":
+            payload = _request(
+                "GET",
+                f"{target.api_root}/repos/{target.owner_repo}/releases",
+                headers=_github_headers(),
+                forge="GitHub",
+                params={"per_page": max(1, min(limit, 30))},
+            )
+            rows = payload if isinstance(payload, list) else []
+            return [_github_release_row(item) for item in rows if isinstance(item, dict)][:limit]
+        project = quote(target.owner_repo, safe="")
+        payload = _request(
+            "GET",
+            f"{target.api_root}/projects/{project}/releases",
+            headers=_gitlab_headers(),
+            forge="GitLab",
+            params={"per_page": max(1, min(limit, 30))},
+        )
+        rows = payload if isinstance(payload, list) else []
+        return [_gitlab_release_row(item) for item in rows if isinstance(item, dict)][:limit]
+    except ForgePublishError:
+        return []
+
+
+def tag_exists(repo_url: str | None, tag: str) -> bool:
+    """True when the forge already has this tag. API failures are treated as absent."""
+
+    candidate = (tag or "").strip()
+    if not candidate:
+        return False
+    try:
+        target = describe_forge(repo_url)
+    except ForgePublishError:
+        return False
+    if target.kind == "unsupported" or not target.token_configured:
+        return False
+    try:
+        if target.kind == "github":
+            _request(
+                "GET",
+                f"{target.api_root}/repos/{target.owner_repo}/releases/tags/{quote(candidate)}",
+                headers=_github_headers(),
+                forge="GitHub",
+            )
+            return True
+        project = quote(target.owner_repo, safe="")
+        _request(
+            "GET",
+            f"{target.api_root}/projects/{project}/releases/{quote(candidate, safe='')}",
+            headers=_gitlab_headers(),
+            forge="GitLab",
+        )
+        return True
+    except ForgePublishError as exc:
+        if exc.status_code == 404:
+            return False
+        return False
 
 
 def publish_release(
@@ -175,6 +250,43 @@ def _require_tag(tag: str) -> str:
     return candidate
 
 
+def _github_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {settings.GITHUB_TOKEN.strip()}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def _gitlab_headers() -> dict[str, str]:
+    return {"PRIVATE-TOKEN": settings.GITLAB_TOKEN.strip()}
+
+
+def _github_release_row(item: dict[str, Any]) -> dict[str, str]:
+    commit = str(item.get("target_commitish") or "")
+    if len(commit) != 40:
+        commit = ""
+    body = str(item.get("body") or item.get("name") or "")
+    return {
+        "tag": str(item.get("tag_name") or ""),
+        "date": str(item.get("published_at") or item.get("created_at") or ""),
+        "commit_hash": commit,
+        "message": body.strip().splitlines()[0] if body.strip() else "",
+    }
+
+
+def _gitlab_release_row(item: dict[str, Any]) -> dict[str, str]:
+    commit_info = item.get("commit") if isinstance(item.get("commit"), dict) else {}
+    commit = str(commit_info.get("id") or "")
+    body = str(item.get("description") or item.get("name") or "")
+    return {
+        "tag": str(item.get("tag_name") or ""),
+        "date": str(item.get("released_at") or item.get("created_at") or ""),
+        "commit_hash": commit,
+        "message": body.strip().splitlines()[0] if body.strip() else "",
+    }
+
+
 def _publish_github(
     target: ForgeTarget,
     commit_sha: str,
@@ -184,12 +296,7 @@ def _publish_github(
     zip_bytes: bytes,
     filename: str,
 ) -> dict[str, str]:
-    token = settings.GITHUB_TOKEN.strip()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+    headers = _github_headers()
     created = _request(
         "POST",
         f"{target.api_root}/repos/{target.owner_repo}/releases",
@@ -229,8 +336,7 @@ def _publish_gitlab(
     zip_bytes: bytes,
     filename: str,
 ) -> dict[str, str]:
-    token = settings.GITLAB_TOKEN.strip()
-    headers = {"PRIVATE-TOKEN": token}
+    headers = _gitlab_headers()
     project = quote(target.owner_repo, safe="")
     package_url = (
         f"{target.api_root}/projects/{project}/packages/generic/"
@@ -276,7 +382,8 @@ def _request(
     forge: str,
     json_body: dict[str, Any] | None = None,
     data: bytes | None = None,
-) -> dict[str, Any]:
+    params: dict[str, Any] | None = None,
+) -> Any:
     try:
         response = requests.request(
             method,
@@ -284,10 +391,13 @@ def _request(
             headers=headers,
             json=json_body,
             data=data,
+            params=params,
             timeout=60,
         )
     except requests.RequestException as exc:
         raise ForgePublishError(f"{forge} could not be reached: {exc}") from exc
+    if response.status_code == 404:
+        raise ForgePublishError(f"{forge} has no such release.", status_code=404)
     if response.status_code in {401, 403}:
         raise ForgePublishError(
             f"{forge} refused the token. Publishing needs write access "
@@ -306,7 +416,7 @@ def _request(
         parsed = response.json()
     except ValueError:
         return {}
-    return parsed if isinstance(parsed, dict) else {}
+    return parsed
 
 
 def _error_detail(response: requests.Response) -> str:

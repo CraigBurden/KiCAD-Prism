@@ -1,91 +1,166 @@
-# Release Studio configuration
+# Release Studio inputs
 
-Release configurations are committed YAML files at:
+Release Studio no longer requires a committed Prism YAML to start a build.
+Per-release inputs are entered in the UI and synthesized into the configuration
+mapping the document engine and closure already consume.
+
+## What the UI collects
+
+### Source (discovered + selected)
+
+At the chosen commit, Prism discovers KiCad files from the imported project
+(`GET .../source?commit_sha=`):
+
+- board (`.kicad_pcb`)
+- schematic (`.kicad_sch`)
+- variants
+- BOM presets from the schematic (`kicad-cli sch export bom --preset`)
+
+The user confirms board, schematic, variant, and BOM preset. These paths
+and the commit SHA are sent with the build request. The Source picks are
+also stored on `ws_projects.release_studio_defaults` so a later release of the
+same project can pre-fill them. A saved path is applied only when it still
+exists at the selected commit (`GET .../source` after `PUT .../source/defaults`).
+Identity, manufacturing, and the commit SHA are not stored there.
+
+### Identity
+
+- **tag** — forge Release name and drawing REVISION
+- **document_name** — cover DOCUMENT field (formerly document number)
+- **date** — user-entered cover DATE
+- **notes** — release notes
+
+There is no separate revision name and no PCB field editing.
+
+### Manufacturing
+
+Per-release manufacturing fields (not committed to Git):
+
+| Field | Purpose |
+| --- | --- |
+| `manufacturing_ipc_class` | Cover **Manufacturing & Assembly Spec** |
+| `assembly_ipc_class` | Cover **Manufacturing & Assembly Spec** |
+| `solder_mask_colour` | Cover **Board Characteristics** |
+| `silkscreen_colour` | Cover **Board Characteristics** |
+| `via_treatment` | Cover **Board Characteristics** |
+| `vendors` | Manufacturer pack profile IDs |
+| `impedance_csv` | Optional controlled-impedance table on fabrication |
+| `stackup_pdf_b64` | Optional vendor stackup PDF appended to fabrication |
+
+Via type, count, and span statistics are projected from the board and appear on
+the Drill page. They are not manually declared counts.
+
+## IPC and board-characteristic dropdowns
+
+Options are returned with the source payload. The stored value is the printed
+string (for example `IPC-6012 Class 2` or `Green`) or the free-text value when
+**Other** is selected.
+
+**Manufacturing IPC**
+
+- IPC-6012 Class 1 / 2 / 3
+- IPC-6013 Class 1 / 2 / 3
+- Other (free text)
+
+**Assembly IPC**
+
+- IPC-A-610 Class 1 / 2 / 3
+- J-STD-001 Class 1 / 2 / 3
+- Other (free text)
+
+**Solder mask colour**
+
+- Green, Matte Green, Black, Matte Black, White, Red, Blue, Purple, Yellow
+- Other (free text)
+
+**Silkscreen colour**
+
+- White, Black, Yellow
+- Other (free text)
+
+**Via treatment**
+
+- Tented, Untented, Plugged, Filled, Filled and capped
+- Other (free text)
+
+## Impedance CSV template
+
+Download: `GET .../impedance-template.csv`
+
+Columns:
+
+| Column | Meaning |
+| --- | --- |
+| Type | SE or DIFF |
+| Name | Net or pair name |
+| Layer pair | For example `F.Cu-In1.Cu` |
+| Target Z (Ω) | Target impedance |
+| Tolerance (Ω) | Allowed deviation |
+| Width (mm) | Trace width |
+| Spacing (mm) | Pair spacing (DIFF) |
+| Notes | Free text |
+
+When uploaded, Prism typesets impedance table pages onto the fabrication PDF
+after the layer plots.
+
+## Synthesized configuration
+
+At build time, `synthesize_configuration` assembles a normalized mapping from
+identity, manufacturing, and the selected KiCad paths. That mapping is
+validated, snapshotted, and digest-bound to the build. It includes document
+metadata, IPC fields, variant, vendors, and `bom_preset`.
+
+## Cover and title block
+
+| Field | Source |
+| --- | --- |
+| DOCUMENT | Document Name |
+| REVISION | tag |
+| DATE | user-entered date |
+| COMMIT | short SHA |
+| VARIANT | selected variant |
+
+**Revision history** on the cover lists this release first, then prior
+GitHub/GitLab Releases fetched via the forge API. Columns: Tag, Date, Commit,
+Message. The forge title is the tag. If the API fails, only the current row is
+shown.
+
+Board characteristics include solder mask, silkscreen, and via treatment.
+Manufacturing and assembly spec lines come from the IPC fields.
+
+## Committed YAML fallback
+
+Committed YAML under:
 
 ```text
 .prism/release-studio/configurations/<key>.yaml
 ```
 
-The required schema is `prism.release-studio.configuration/1`. Prism accepts
-only known keys and requires `title`, `board`, `schematic`, and **`jobset`**.
-All file references are POSIX, repository-root-relative paths that resolve to
-regular files inside the selected commit. Absolute paths, `..`, Windows path
-forms, and escaping symlinks are rejected.
+still exists for compatibility and for tooling that publishes configurations
+directly. It is **not** the normal Release Studio authoring path.
 
-```yaml
-schema: prism.release-studio.configuration/1
-title: USB-PD production release
-board: hardware/usb-pd.kicad_pcb
-schematic: hardware/usb-pd.kicad_sch
-jobset: hardware/Outputs.kicad_jobset
-default_variant: default
-variants:
-  - default
-  - assembly-reduced
-document_number: USBPD-100
-revision: A
-typography: geist-pixel-square
-vendors:
-  - jlcpcb
-fields:
-  manufacturing_ipc_class: IPC-6012 Class 2
-  assembly_ipc_class: IPC-A-610 Class 2
-  solder_mask_colour: Green
-  via_treatment: Tented
-```
+When board and schematic are omitted from the job payload, the build
+loads the committed configuration at the chosen commit instead of synthesizing
+one. When both paths are present, synthesis replaces that lookup.
 
-Optional configuration keys are `default_variant`, `variants`, `fields`,
-`notes`, `document_number`, `revision`, `template`, `sheets`, `typography`,
-and `vendors`. `policy` is still accepted in YAML for compatibility with
-archived governance work; the running product does not evaluate it.
-`typography` selects a committed rendering input; the panel's display/template
-controls do not override a build. Omitted vendors currently default to
-`jlcpcb`; an explicit empty list selects none.
+A project's `.kicad_jobset` is not a Release Studio input. Exports come from
+the pinned catalogue, not `kicad-cli jobset run`. A jobset key in committed
+YAML is optional leftover and is ignored by the pipeline.
 
-## Settings authoring
-
-Settings is the normal configuration authoring surface. **Save & publish** runs
-under the repository write lock shared with Sync. Prism fetches the tracked
-branch, validates the complete mapping in an isolated checkout, creates a
-configuration-only commit, and pushes it with a lease against that fetched
-upstream revision. Only after the push succeeds does Prism fast-forward its
-local mirror and select the published full commit SHA.
-
-A rejected push, protected branch, missing write credential, concurrent remote
-update, dirty tracked mirror, or unrelated local commit fails closed. Prism
-does not leave a local-only configuration commit and does not implicitly push
-unrelated changes. Use the repository's normal access policy to grant the Prism
-machine identity permission to publish this governed configuration path.
-
-Git tracking remains required: a build must be reproducible from one immutable
-revision, including the configuration that selected its source files,
-documentation metadata, and manufacturer outputs. The user does not
-need to create, edit, commit, or separately push the YAML.
-
-The four manufacturing fields above have controlled document placement:
-
-- manufacturing and assembly IPC classes appear in the cover's
-  **Manufacturing & Assembly Spec** table;
-- solder-mask colour and via treatment appear in the cover's
-  **Board Characteristics** table;
-- via type/count/span statistics are projected from the board and appear on
-  the Drill page. They are not manually declared counts.
+The required schema remains `prism.release-studio.configuration/1`. File
+references are POSIX, repository-root-relative paths that resolve to regular
+files inside the selected commit.
 
 ## Semantics
 
-- **Revision API boundary:** release configuration and build APIs accept only a
-  full immutable 40-character commit SHA. The UI may accept `HEAD` or a short
-  SHA only as a convenience when it exactly matches a listed commit; it
+- **Revision API boundary:** release and build APIs accept only a full
+  immutable 40-character commit SHA. The UI may accept `HEAD` or a short SHA
+  only as a convenience when it exactly matches a listed commit; it
   immediately resolves that input to the listed full SHA before calling either
   API. Arbitrary branches and other refs are rejected.
-- **Configuration and revision:** Prism loads and normalizes the configuration
-  at the chosen commit. The resulting normalized mapping is snapshotted and
-  digest-bound to the build.
 - **Variant:** the requested named variant is part of the technical build
   identity. It changes population-dependent artifacts such as BOM/CPL.
-- **Documents:** document metadata, templates, sheets, notes, fields, and
-  typography are build inputs when configured. Composed PDFs are released
-  members, not editable UI output.
+- **Documents:** composed PDFs are released members, not editable UI output.
 - **Vendors:** selected profile IDs are technical inputs. A selected profile is
   vendor-ready only when its complete profile artifacts are present. JLCPCB
   readiness requires Gerbers, drill, `bom.csv`, `cpl.csv`, `bom.xlsx`, and
@@ -94,11 +169,11 @@ The four manufacturing fields above have controlled document placement:
 ## Digests and snapshots
 
 `technical_config_digest` is the SHA-256 of canonical JSON for the normalized
-technical configuration. The complete input closure separately records repository files,
-submodules, LFS materialization, verified toolchain resources, environment
-bindings, and library resolution. Its digest and the pinned executor identity
-are part of build identity.
+technical configuration. The complete input closure separately records
+repository files, submodules, LFS materialization, verified toolchain resources,
+environment bindings, and library resolution. Its digest and the pinned executor
+identity are part of build identity.
 
 Substitutions use only `{{namespace.key}}`-style tokens. Missing values,
-malformed braces, and recursive replacement are errors rather than silent
-empty text.
+malformed braces, and recursive replacement are errors rather than silent empty
+text.

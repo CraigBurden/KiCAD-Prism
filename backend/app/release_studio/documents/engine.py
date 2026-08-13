@@ -15,13 +15,14 @@ from __future__ import annotations
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from app.release_studio.documents import notes as note_templates
 from app.release_studio.documents import sheets as sheet_templates
+from app.release_studio.documents import tables as table_templates
 from app.release_studio.documents.artwork import (
     AcquiredArtwork,
     ArtworkError,
@@ -38,7 +39,7 @@ from app.release_studio.documents.artwork import (
 )
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY, typography_preset
 from app.release_studio.documents.layout import Rect, Sheet
-from app.release_studio.documents.pdf import render_pdf_pages
+from app.release_studio.documents.pdf import append_pdf_pages, render_pdf_pages
 from app.release_studio.documents.svg import render_svg
 
 logger = logging.getLogger(__name__)
@@ -265,6 +266,11 @@ def compose(
     fields: Mapping[str, Any] | None = None,
     typography: str = DEFAULT_TYPOGRAPHY,
     revision_history: Sequence[Mapping[str, Any]] | None = None,
+    impedance_rows: Sequence[Mapping[str, Any]] | None = None,
+    stackup_pdf: bytes | None = None,
+    bom_headers: Sequence[str] | None = None,
+    bom_rows: Sequence[Sequence[str]] | None = None,
+    on_progress: Callable[[str, str, float], None] | None = None,
     acquirer: Callable[..., AcquiredArtwork] | None = None,
     drill_acquirer: Callable[..., AcquiredArtwork] | None = None,
     assembly_acquirer: Callable[..., Mapping[str, AcquiredArtwork]] | None = None,
@@ -283,6 +289,11 @@ def compose(
     # cannot perform work and then degrade into a default-looking document.
     typography_preset(typography)
     logger.info("Release Studio composing documents with typography %s", typography)
+
+    def report(step: str, message: str, percent: float) -> None:
+        if on_progress is not None:
+            on_progress(step, message, percent)
+
     warnings: list[str] = []
     art: dict[str, AcquiredArtwork] = {}
     assembly: dict[str, AcquiredArtwork] = {}
@@ -436,6 +447,7 @@ def compose(
 
     outputs: list[DocumentOutput] = []
 
+    report("documents-cover", "Composing the cover page", 70.0)
     cover, cover_overflow = sheet_templates.technical_cover(
         context, stats, stackup, variants, members, size=sheet_size,
         notes=sheet_notes["cover"], fields=title_fields, typography=typography,
@@ -462,6 +474,7 @@ def compose(
         warnings,
     )
 
+    report("documents-fabrication", "Composing fabrication drawings", 72.0)
     copper_layers = [layer for layer in layer_pages if layer.endswith(".Cu")]
     overview_layer = copper_layers[0] if copper_layers else None
     overview = art.get(_layer_artwork_key(overview_layer)) if overview_layer else None
@@ -509,10 +522,48 @@ def compose(
             warnings=warnings,
         )
     )
+    if impedance_rows:
+        report("documents-impedance", "Typesetting the controlled impedance table", 73.0)
+        impedance_sheet, impedance_overflow = sheet_templates.continuation_sheet(
+            context,
+            [table_templates.impedance_spec_table(impedance_rows)],
+            key="impedance",
+            title="CONTROLLED IMPEDANCE",
+            size=sheet_size,
+            fields=title_fields,
+            typography=typography,
+        )
+        fabrication_pages.append((impedance_sheet, "impedance", 1.0, None, None))
+        fabrication_pages.extend(
+            _continuation_pages(
+                impedance_overflow,
+                context=context,
+                prefix="impedance",
+                title="CONTROLLED IMPEDANCE — CONTINUED",
+                sheet_size=sheet_size,
+                fields=title_fields,
+                typography=typography,
+                warnings=warnings,
+            )
+        )
     _append_document(
         outputs, fabrication_pages, "fabrication", "FABRICATION DRAWING", warnings
     )
+    if stackup_pdf:
+        report("documents-stackup", "Appending the manufacturer stackup PDF", 74.0)
+        for index, output in enumerate(outputs):
+            if output.key != "fabrication":
+                continue
+            try:
+                outputs[index] = replace(
+                    output,
+                    pdf_bytes=append_pdf_pages(output.pdf_bytes, stackup_pdf),
+                )
+            except Exception as exc:  # noqa: BLE001 - keep Prism pages if the vendor PDF is unreadable
+                warnings.append(f"manufacturer stackup PDF could not be appended: {exc}")
+            break
 
+    report("documents-assembly", "Composing assembly drawings", 75.0)
     assembly_pages = []
     for side in ASSEMBLY_SIDES:
         key = f"assembly-{side}"
@@ -529,6 +580,7 @@ def compose(
         outputs, assembly_pages, "assembly", "ASSEMBLY DRAWING", warnings
     )
 
+    report("documents-testpoint", "Composing testpoint drawings", 76.0)
     testpoint_pages = []
     for side in TESTPOINT_SIDES:
         key = f"testpoint-{side}"
@@ -560,6 +612,7 @@ def compose(
     # carries a hole legend alongside the board, so forcing the board's ratio
     # onto it overruns the window and the sheet then states a ratio its own
     # artwork does not honour. It fits itself and reports what it used.
+    report("documents-drill", "Composing the drill drawing", 77.0)
     drill, drill_scale, drill_overflow = sheet_templates.drill_sheet(
         context, stats, stackup, art.get("drill"), size=sheet_size, scale=None,
         notes=sheet_notes["drill"], fields=title_fields, typography=typography,
@@ -582,6 +635,36 @@ def compose(
         warnings,
     )
 
+    if bom_headers and bom_rows:
+        report("documents-bom", "Typesetting the bill of materials", 78.0)
+        bom_sheet, bom_overflow = sheet_templates.continuation_sheet(
+            context,
+            [table_templates.bom_schedule_table(bom_headers, bom_rows)],
+            key="bom",
+            title="BILL OF MATERIALS",
+            size=sheet_size,
+            fields=title_fields,
+            typography=typography,
+        )
+        _append_document(
+            outputs,
+            [(bom_sheet, "bom", 1.0, None, None)]
+            + _continuation_pages(
+                bom_overflow,
+                context=context,
+                prefix="bom",
+                title="BILL OF MATERIALS — CONTINUED",
+                sheet_size=sheet_size,
+                fields=title_fields,
+                typography=typography,
+                warnings=warnings,
+            ),
+            "bom",
+            "BILL OF MATERIALS",
+            warnings,
+        )
+
+    report("documents", "Documentation set complete", 79.0)
     return DocumentSet(
         outputs=tuple(outputs), warnings=tuple(warnings), sheet_size=sheet_size
     )

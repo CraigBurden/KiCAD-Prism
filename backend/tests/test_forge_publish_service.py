@@ -16,13 +16,14 @@ if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
 from app.services import forge_publish_service as forge  # noqa: E402
 
 
-def _dossier_tar(*names: str) -> bytes:
+def _dossier_tar(*names: str, mtime: int = 0) -> bytes:
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode="w:gz") as archive:
         for name in names:
             data = f"{name}\n".encode()
             info = tarfile.TarInfo(name)
             info.size = len(data)
+            info.mtime = mtime
             archive.addfile(info, io.BytesIO(data))
     return payload.getvalue()
 
@@ -69,6 +70,15 @@ class ForgeZipTests(unittest.TestCase):
 
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
             self.assertEqual(set(archive.namelist()), {"manifest.json", "docs/cover.pdf"})
+
+    def test_dossier_zip_carries_the_tar_mtime(self) -> None:
+        from datetime import datetime, timezone
+        import zipfile
+
+        stamp = int(datetime(2026, 8, 14, 3, 39, tzinfo=timezone.utc).timestamp())
+        zip_bytes = forge.dossier_tar_to_zip(_dossier_tar("manifest.json", mtime=stamp))
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+            self.assertEqual(archive.getinfo("manifest.json").date_time, (2026, 8, 14, 3, 39, 0))
 
     def test_filename_is_safe(self) -> None:
         self.assertEqual(forge.release_zip_filename("USB PD", "v1.0.0"), "USB-PD-v1.0.0.zip")
@@ -189,6 +199,57 @@ class ForgePublishTests(unittest.TestCase):
                     filename="board.zip",
                 )
         request.assert_not_called()
+
+
+class ForgeListTests(unittest.TestCase):
+    def test_github_releases_are_normalized(self) -> None:
+        def request(method, url, **kwargs):  # noqa: ANN001
+            self.assertEqual(method, "GET")
+            return _Response(
+                200,
+                [
+                    {
+                        "tag_name": "v1.0.0",
+                        "published_at": "2026-01-02T00:00:00Z",
+                        "target_commitish": "a" * 40,
+                        "body": "First line\nSecond",
+                    }
+                ],
+            )
+
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            rows = forge.list_releases("https://github.com/org/board.git")
+        self.assertEqual(rows[0]["tag"], "v1.0.0")
+        self.assertEqual(rows[0]["commit_hash"], "a" * 40)
+        self.assertEqual(rows[0]["message"], "First line")
+
+    def test_list_releases_degrades_when_the_token_is_missing(self) -> None:
+        with patch.object(forge.settings, "GITHUB_TOKEN", ""):
+            self.assertEqual(forge.list_releases("https://github.com/org/board.git"), [])
+
+    def test_tag_exists_on_github(self) -> None:
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", return_value=_Response(200, {"tag_name": "v1.0.0"})),
+        ):
+            self.assertTrue(forge.tag_exists("https://github.com/org/board.git", "v1.0.0"))
+
+    def test_missing_tag_is_not_an_error(self) -> None:
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", return_value=_Response(404, {"message": "Not Found"})),
+        ):
+            self.assertFalse(forge.tag_exists("https://github.com/org/board.git", "v9.9.9"))
+
+    def test_list_releases_is_empty_when_the_forge_fails(self) -> None:
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", return_value=_Response(502, {"message": "bad gateway"})),
+        ):
+            self.assertEqual(forge.list_releases("https://github.com/org/board.git"), [])
 
 
 if __name__ == "__main__":

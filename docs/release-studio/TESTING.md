@@ -1,11 +1,13 @@
 # Release Studio testing
 
 Run tests from `KiCAD-Prism/backend` unless a command says otherwise. Focused
-tests exercise the configuration, canonicalization, dossier, documents, API,
-vendor, closure, forge publish, and UI contracts.
+tests exercise source discovery, IPC payloads, configuration synthesis,
+canonicalization, dossier, documents, API, vendor, closure, forge publish, and
+UI contracts.
 
 ```sh
 cd backend
+python -m unittest tests.test_release_studio_inputs -v
 python -m unittest tests.test_release_studio_config -v
 python -m unittest tests.test_release_studio_canonicalization -v
 python -m unittest tests.test_release_studio_closure -v
@@ -16,10 +18,24 @@ python -m unittest tests.test_release_studio_vendors -v
 python -m unittest tests.test_forge_publish_service -v
 ```
 
+Unit tests cover:
+
+- **source discovery** — KiCad file, variant, and BOM preset discovery at a
+  commit;
+- **IPC payload** — manufacturing and assembly option lists returned with source;
+- **synthesize_configuration** — mapping assembly from identity, manufacturing,
+  and discovered paths;
+- **forge helpers** — `list_releases` and `tag_exists`, including degradation
+  when the token is missing or the API fails.
+
 ```sh
 cd frontend
 npm test -- --run src/components/release-studio/
 ```
+
+Frontend tests cover the six-stage rail (Source, Identity, Manufacturing,
+Build, Outputs, Publish), stage state transitions, and the source → identity →
+manufacturing → build flow.
 
 Schema, retention, and persistence tests require a disposable PostgreSQL
 database. Set `TEST_POSTGRES_URL` to that isolated database and leave
@@ -62,9 +78,11 @@ authority for each fixture's project, board, schematic, and jobset paths.
 
 | Area | Acceptance check |
 | --- | --- |
-| Revision and configure | Select a commit from the list; confirm the backend APIs receive only its full immutable SHA. Confirm `HEAD` and a matching listed short SHA normalize before lookup/build. |
-| Build and history | Start a build, observe live steps, fail one build and cancel another, and confirm both retained attempts cannot be published. |
-| Inspect | Preview document PDFs, inspect members/evidence/digests, and download dossier/evidence/member material. |
+| Source | Default revision is branch tip; older commits selectable. Confirm discovery returns board, schematic, variants, and BOM presets. APIs receive only the full immutable SHA. |
+| Identity | Enter tag, Document Name, date, and notes. Confirm an existing forge tag blocks here. Confirm API outage allows progress. |
+| Manufacturing | Set IPC classes, colours, via treatment, vendor packs. Upload optional stackup PDF and impedance CSV. **Continue** enqueues only when prior stages are complete. |
+| Build and history | Observe live job logs during the run; confirm they do not replay on a finished attempt. Fail one build and cancel another; confirm both retained attempts cannot be published. |
+| Inspect | Preview document PDFs (including BOM PDF and fabrication with impedance/stackup when supplied), inspect members/evidence/digests, and download dossier/evidence/member material. |
 | Closure warnings | A host-absolute `fp-lib-table` URI warns and still completes the build. |
 | Artifacts and vendor | Verify JLC readiness requires Gerbers, drill, `bom.csv`, `cpl.csv`, `bom.xlsx`, and `cpl.xlsx`. |
-| Publish | With `GITHUB_TOKEN`/`GITLAB_TOKEN`, create a Release on the imported remote and confirm the zip is attached. A clone-only token shows a write-scope error. |
+| Publish | Confirm-only screen; Release name equals tag. With `GITHUB_TOKEN`/`GITLAB_TOKEN`, create a Release on the imported remote and confirm the zip is attached. A clone-only token shows a write-scope error. |

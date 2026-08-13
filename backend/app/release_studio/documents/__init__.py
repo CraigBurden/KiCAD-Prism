@@ -57,6 +57,15 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d20 -- bordered schedule cells inset from the grid on both sides so
+#: wrapping text cannot sit on the rule.
+#: d19 -- manufacturing/IPC/finish callouts are cover tables, not title-block
+#: comment 4; BOM schedule is a bordered table with Qty second plus
+#: Manufacturer/MPN, wrapping capped at two lines.
+#: d18 -- Document Name / tag / user date on the title block; cover history
+#: prepends this forge Release; manufacturing view adds silkscreen; optional
+#: impedance table and manufacturer stackup PDF append onto fabrication; BOM PDF
+#: is typeset from the KiCad-preset CSV.
 #: d17 -- release configuration carries manufacturing/assembly IPC classes,
 #: solder-mask colour and via treatment onto the cover; the drill drawing adds
 #: projected via type, span, layer-count and quantity statistics.
@@ -93,7 +102,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d17"
+RENDERER_VERSION = "release-studio-documents/d20"
 
 __all__ = [
     "ASSEMBLY_SIDES",

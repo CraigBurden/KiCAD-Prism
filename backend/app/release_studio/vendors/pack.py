@@ -34,13 +34,13 @@ def build_vendor_pack(
     except KeyError as exc:
         raise VendorPackError(f"unknown vendor profile: {vendor_id}") from exc
 
-    members = _pack_members(vendor_id, dossier_bytes, evidence_bytes)
+    members, archive_mtime = _pack_members(vendor_id, dossier_bytes, evidence_bytes)
 
     readiness = _readiness(profile, members)
     if not readiness["ready"]:
         missing = ", ".join(readiness["missing_requirements"])
         raise VendorPackError(f"{profile.title} pack is incomplete: missing {missing}")
-    return write_deterministic_zip(members)
+    return write_deterministic_zip(members, mtime=archive_mtime)
 
 
 def vendor_pack_readiness(
@@ -55,16 +55,16 @@ def vendor_pack_readiness(
         profile = profile_by_id(vendor_id)
     except KeyError as exc:
         raise VendorPackError(f"unknown vendor profile: {vendor_id}") from exc
-    members = _pack_members(vendor_id, dossier_bytes, evidence_bytes)
+    members, _mtime = _pack_members(vendor_id, dossier_bytes, evidence_bytes)
     return {"vendor_id": vendor_id, "title": profile.title, **_readiness(profile, members)}
 
 
 def _pack_members(
     vendor_id: str, dossier_bytes: bytes, evidence_bytes: bytes | None
-) -> dict[str, bytes]:
+) -> tuple[dict[str, bytes], int]:
     members: dict[str, bytes] = {}
-    dossier = _tar_members(dossier_bytes)
-    evidence = _tar_members(evidence_bytes or b"")
+    dossier, dossier_mtime = _tar_members(dossier_bytes)
+    evidence, evidence_mtime = _tar_members(evidence_bytes or b"")
 
     for path, payload in dossier.items():
         if path.startswith("fabrication/gerbers/") and _is_file(path):
@@ -77,7 +77,7 @@ def _pack_members(
     for path, payload in evidence.items():
         if path.startswith(prefix) and _is_file(path):
             members[PurePosixPath(path).name] = payload
-    return members
+    return members, max(dossier_mtime, evidence_mtime)
 
 
 def _readiness(profile, members: Mapping[str, bytes]) -> dict[str, object]:
@@ -95,10 +95,11 @@ def _readiness(profile, members: Mapping[str, bytes]) -> dict[str, object]:
     }
 
 
-def _tar_members(payload: bytes) -> dict[str, bytes]:
+def _tar_members(payload: bytes) -> tuple[dict[str, bytes], int]:
     if not payload:
-        return {}
+        return {}, 0
     members: dict[str, bytes] = {}
+    mtime = 0
     try:
         with tarfile.open(fileobj=io.BytesIO(payload), mode="r:*") as archive:
             for info in archive.getmembers():
@@ -108,9 +109,10 @@ def _tar_members(payload: bytes) -> dict[str, bytes]:
                 if extracted is None:
                     continue
                 members[info.name] = extracted.read()
+                mtime = max(mtime, int(info.mtime or 0))
     except tarfile.TarError as exc:
         raise VendorPackError(f"stored archive could not be read: {exc}") from exc
-    return members
+    return members, mtime
 
 
 def _is_file(path: str) -> bool:

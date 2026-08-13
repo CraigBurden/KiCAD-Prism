@@ -33,6 +33,19 @@ from app.release_studio.documents.fonts import (
     unsupported_codepoints,
 )
 
+#: These are drawn as cover tables, not jammed into the KiCad title-block
+#: comment row.  Passing them through :func:`resolve_fields` made comment 4 a
+#: single overflowing line of IPC class and finish callouts.
+_SHEET_TABLE_FIELD_KEYS = frozenset(
+    {
+        "manufacturing_ipc_class",
+        "assembly_ipc_class",
+        "solder_mask_colour",
+        "silkscreen_colour",
+        "via_treatment",
+    }
+)
+
 
 class NoteError(Exception):
     """A configured note or field could not be resolved."""
@@ -56,12 +69,12 @@ def substitution_context(
     return {
         "release": {
             "title": str(context.get("title") or ""),
-            "document_number": str(context.get("document_number") or ""),
+            "document_number": str(context.get("document_name") or context.get("document_number") or ""),
             "revision": str(context.get("revision") or ""),
             "commit": str(context.get("commit_sha") or "")[:12],
             "commit_sha": str(context.get("commit_sha") or ""),
             "variant": str(context.get("variant") or "default"),
-            "date": str(context.get("commit_date") or ""),
+            "date": str(context.get("release_date") or context.get("commit_date") or ""),
         },
         "fields": dict(fields or {}),
         "board": dict(board) if isinstance(board, Mapping) else {},
@@ -131,6 +144,8 @@ def resolve_fields(
     fields: list[TitleBlockField] = []
     warnings: list[str] = []
     for key, value in sorted((configured or {}).items()):
+        if str(key).strip() in _SHEET_TABLE_FIELD_KEYS:
+            continue
         try:
             text = substitute_string(str(value), context, source=f"fields.{key}")
             missing = unsupported_codepoints(text, role="sans", typography=typography)

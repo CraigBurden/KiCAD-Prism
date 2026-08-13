@@ -2,27 +2,32 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReleaseStudioPanel } from "./ReleaseStudioPanel";
-import type { BuildDetail, ReleaseCandidate } from "./types";
+import type { BuildDetail, ReleaseCandidate, ReleaseSource } from "./types";
+
+const source: ReleaseSource = {
+    boards: ["board.kicad_pcb"],
+    schematics: ["board.kicad_sch"],
+    board: "board.kicad_pcb",
+    schematic: "board.kicad_sch",
+    project: "board.kicad_pro",
+    variants: ["default"],
+    bom_presets: ["Current project settings", "Grouped By Value"],
+    default_bom_preset: "Current project settings",
+    variant: "default",
+};
 
 vi.mock("./api", () => ({
-    listConfigurations: vi.fn(async () => [
-        {
-            config_key: "default",
-            title: "Default",
-            board_rel: "board.kicad_pcb",
-            schematic_rel: "board.kicad_sch",
-            jobset_rel: "Outputs.kicad_jobset",
-            default_variant: "",
-            typography: "geist-pixel-square",
-            vendors: ["jlcpcb"],
-        },
-    ]),
+    listConfigurations: vi.fn(async () => []),
     saveConfiguration: vi.fn(),
     listCandidates: vi.fn(),
     getBuild: vi.fn(),
     listDocumentSheets: vi.fn(async () => []),
-    publishBuild: vi.fn(async () => ({ release: { url: "https://github.com/org/repo/releases/tag/v1", tag: "v1", forge: "github" }, filename: "board-v1.zip" })),
+    publishBuild: vi.fn(async () => ({ release: { url: "https://github.com/org/repo/releases/tag/v1.0.0", tag: "v1.0.0", forge: "github" }, filename: "board-v1.zip" })),
     startBuild: vi.fn(async () => ({ job: { job_id: "job-1" } })),
+    getSource: vi.fn(),
+    saveSourceDefaults: vi.fn(async () => ({ defaults: {} })),
+    tagExists: vi.fn(async () => false),
+    impedanceTemplateUrl: vi.fn((projectId: string) => `/api/projects/${projectId}/release-studio/impedance-template.csv`),
     sheetObjectUrl: vi.fn(async () => "blob:sheet"),
     downloadUrl: vi.fn(() => "/x"),
     dossierDownloadUrl: vi.fn((projectId: string, buildId: string) => `/api/projects/${projectId}/release-studio/builds/${buildId}/dossier`),
@@ -64,7 +69,7 @@ import * as api from "./api";
 const candidate: ReleaseCandidate = {
     id: "cand-1",
     project_id: "p1",
-    config_key: "default",
+    config_key: "release",
     commit_sha: "abcdef12abcdef12abcdef12abcdef12abcdef12",
     variant: "default",
     build_key: "bk",
@@ -97,7 +102,7 @@ const detail: BuildDetail = {
     build: candidate.latest_build!,
     candidate,
     configuration: {
-        config_key: "default", title: "Default", board_rel: "board.kicad_pcb", schematic_rel: "board.kicad_sch", jobset_rel: "Outputs.kicad_jobset", default_variant: "", document_number: "DOC-1", revision: "A",
+        config_key: "release", title: "USBPD-100", board_rel: "board.kicad_pcb", schematic_rel: "board.kicad_sch", default_variant: "default", document_number: "USBPD-100", revision: "v1.0.0",
     },
     members: [],
     evidence: [],
@@ -113,9 +118,24 @@ const detail: BuildDetail = {
     },
 };
 
-/** Start a run from the Settings-first configuration screen. */
+async function continueToIdentity() {
+    const button = await screen.findByRole("button", { name: /^Continue$/i });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+    await screen.findByRole("heading", { name: /Release identity/i });
+}
+
+async function continueToManufacturing() {
+    await continueToIdentity();
+    fireEvent.change(screen.getByLabelText("Tag"), { target: { value: "v1.0.0" } });
+    fireEvent.change(screen.getByLabelText("Document Name"), { target: { value: "USBPD-100" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+    await screen.findByRole("heading", { name: /Manufacturing and assembly/i });
+}
+
 async function startRun() {
-    fireEvent.click(await screen.findByRole("button", { name: /start build/i }));
+    await continueToManufacturing();
+    fireEvent.click(await screen.findByRole("button", { name: /^Continue$/i }));
 }
 
 async function selectHistoryRun() {
@@ -123,12 +143,6 @@ async function selectHistoryRun() {
     fireEvent.click(await screen.findByRole("button", { name: /abcdef12/i }));
 }
 
-/** The Release Studio tab owns the Git-authored configuration template. */
-async function openSettings() {
-    fireEvent.click(await screen.findByRole("button", { name: /^release studio$/i }));
-}
-
-/** Open a run's Outputs stage from the stage rail. */
 async function openOutputs() {
     await selectHistoryRun();
     const outputs = await screen.findByRole("button", { name: /Outputs/i });
@@ -142,43 +156,65 @@ describe("ReleaseStudioPanel", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         window.history.replaceState({}, "", "/");
-        vi.mocked(api.listConfigurations).mockResolvedValue([
-            {
-                config_key: "default",
-                title: "Default",
-                board_rel: "board.kicad_pcb",
-                schematic_rel: "board.kicad_sch",
-                jobset_rel: "Outputs.kicad_jobset",
-                default_variant: "",
-                typography: "geist-pixel-square",
-                vendors: ["jlcpcb"],
+        vi.mocked(api.getSource).mockResolvedValue({
+            source,
+            ipc: {
+                manufacturing: [{ value: "IPC-6012 Class 2", label: "IPC-6012 Class 2" }, { value: "other", label: "Other" }],
+                assembly: [{ value: "IPC-A-610 Class 2", label: "IPC-A-610 Class 2" }, { value: "other", label: "Other" }],
             },
-        ]);
+            forge: { kind: "github", name: "GitHub", host: "github.com", owner_repo: "org/repo", token_configured: true, token_hint: "" },
+        });
         vi.mocked(api.listCandidates).mockResolvedValue([candidate]);
         vi.mocked(api.getBuild).mockResolvedValue(detail);
         vi.mocked(api.listDocumentSheets).mockResolvedValue([]);
+        vi.mocked(api.tagExists).mockResolvedValue(false);
     });
 
-    it("explains an unbuildable project instead of leaving Build inert", async () => {
-        vi.mocked(api.listConfigurations).mockResolvedValue([]);
-        vi.mocked(api.listCandidates).mockResolvedValue([]);
-
+    it("opens a new release on Source and keeps the build action behind identity", async () => {
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-
-        await openSettings();
-        const build = await screen.findByRole("button", { name: /start build/i });
-        expect((build as HTMLButtonElement).disabled).toBe(true);
+        expect(await screen.findByRole("heading", { name: /^Source$/i })).toBeTruthy();
+        expect(screen.getByRole("navigation", { name: /run stages/i }).textContent).toContain("Identity");
+        expect(screen.getByRole("navigation", { name: /run stages/i }).textContent).toContain("Manufacturing");
+        expect(screen.queryByRole("heading", { name: /Manufacturing and assembly/i })).toBeNull();
+        expect(vi.mocked(api.startBuild).mock.calls.length).toBe(0);
     });
 
-    it("renders the committed configuration as an editable Settings form", async () => {
+    it("disables Continue when the revision has no board", async () => {
+        vi.mocked(api.getSource).mockResolvedValue({
+            source: { ...source, board: "", schematic: "", boards: [], schematics: [] },
+            ipc: { manufacturing: [], assembly: [] },
+            forge: { kind: "github", name: "GitHub", host: "github.com", owner_repo: "org/repo", token_configured: true, token_hint: "" },
+        });
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openSettings();
+        expect(await screen.findByRole("button", { name: /^Continue$/i })).toBeDisabled();
+    });
+
+    it("discovers KiCad files at the selected revision", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await waitFor(() => expect(api.getSource).toHaveBeenCalledWith("p1", "abcdef12abcdef12abcdef12abcdef12abcdef12"));
         expect(await screen.findByDisplayValue("board.kicad_pcb")).toBeTruthy();
-        expect(screen.getByDisplayValue("Outputs.kicad_jobset")).toBeTruthy();
-        expect(screen.getByRole("button", { name: /Save & publish/i })).toBeDisabled();
+        expect(screen.getByDisplayValue("board.kicad_sch")).toBeTruthy();
     });
 
-    it("keeps historical revisions buildable but cannot publish over the branch tip", async () => {
+    it("remembers source picks when continuing to identity", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await continueToIdentity();
+        expect(api.saveSourceDefaults).toHaveBeenCalledWith("p1", {
+            board: "board.kicad_pcb",
+            schematic: "board.kicad_sch",
+            variant: "default",
+            bom_preset: "Current project settings",
+        });
+    });
+
+    it("still continues when remembering source picks fails", async () => {
+        vi.mocked(api.saveSourceDefaults).mockRejectedValue(new Error("defaults unavailable"));
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await continueToIdentity();
+        expect(screen.getByText("defaults unavailable")).toBeTruthy();
+    });
+
+    it("keeps historical revisions buildable", async () => {
         const tip = candidate.commit_sha;
         const historical = "1".repeat(40);
         vi.mocked(api.listProjectCommits).mockResolvedValue([
@@ -186,26 +222,44 @@ describe("ReleaseStudioPanel", () => {
             { hash: historical.slice(0, 7), full_hash: historical, author: "designer", email: "d@example.com", date: "2026-08-10T00:00:00Z", message: "historical" },
         ]);
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        const revision = await screen.findByLabelText("Build revision");
+        const revision = await screen.findByLabelText("Revision");
         fireEvent.change(revision, { target: { value: historical } });
-
-        expect(await screen.findByText("Historical")).toBeTruthy();
-        expect(screen.getByRole("button", { name: /Start build/i })).not.toBeDisabled();
-        fireEvent.change(await screen.findByLabelText("Release title"), { target: { value: "Older title" } });
-        expect(screen.getByRole("button", { name: /Save & publish/i })).toBeDisabled();
+        await waitFor(() => expect(api.getSource).toHaveBeenCalledWith("p1", historical));
+        expect(await screen.findByRole("button", { name: /^Continue$/i })).not.toBeDisabled();
     });
 
-    it("preserves absent versus explicitly empty vendor selection and shows normalized response fields", async () => {
-        vi.mocked(api.listConfigurations).mockResolvedValue([
-            { config_key: "legacy", title: "Legacy", board_rel: "board.kicad_pcb", schematic_rel: "board.kicad_sch", jobset_rel: "Outputs.kicad_jobset", default_variant: "" },
-            { config_key: "strict", title: "Strict", board_rel: "board.kicad_pcb", schematic_rel: "board.kicad_sch", jobset_rel: "Outputs.kicad_jobset", default_variant: "A", vendors: [], variants: ["A", "B"], policy: "release-policy.yaml", template: "docs/release.kicad_wks", sheets: ["cover", "fab"], fields: { document_number: "USB-PD" }, notes: { release: ["pilot"] } },
-        ]);
+    it("blocks Identity when the tag already exists", async () => {
+        vi.mocked(api.tagExists).mockResolvedValue(true);
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openSettings();
-        expect(await screen.findByRole("button", { name: "jlcpcb" })).toHaveAttribute("aria-pressed", "true");
-        fireEvent.change(screen.getByLabelText("Configuration"), { target: { value: "strict" } });
-        await waitFor(() => expect(screen.getByRole("button", { name: "jlcpcb" })).toHaveAttribute("aria-pressed", "false"));
-        expect(screen.getByDisplayValue("A, B")).toBeTruthy();
+        await continueToIdentity();
+        fireEvent.change(screen.getByLabelText("Tag"), { target: { value: "v1.0.0" } });
+        fireEvent.change(screen.getByLabelText("Document Name"), { target: { value: "USBPD-100" } });
+        expect(await screen.findByText(/already exists/i)).toBeTruthy();
+        expect(screen.getByRole("button", { name: /^Continue$/i })).toBeDisabled();
+    });
+
+    it("starts a build with identity and manufacturing fields", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await startRun();
+        await waitFor(() => expect(api.startBuild).toHaveBeenCalledWith("p1", expect.objectContaining({
+            commit_sha: "abcdef12abcdef12abcdef12abcdef12abcdef12",
+            board: "board.kicad_pcb",
+            schematic: "board.kicad_sch",
+            identity: expect.objectContaining({ tag: "v1.0.0", document_name: "USBPD-100" }),
+            manufacturing: expect.objectContaining({
+                manufacturing_ipc_class: "IPC-6012 Class 2",
+                assembly_ipc_class: "IPC-A-610 Class 2",
+            }),
+        })));
+    });
+
+    it("offers solder mask, silkscreen, and via treatment dropdowns", async () => {
+        render(<ReleaseStudioPanel projectId="p1" canMutate />);
+        await continueToManufacturing();
+        expect(screen.getByLabelText("Solder mask colour")).toBeTruthy();
+        expect(screen.getByLabelText("Silkscreen colour")).toBeTruthy();
+        expect(screen.getByLabelText("Via treatment")).toBeTruthy();
+        expect(screen.queryByRole("textbox", { name: /solder mask colour/i })).toBeNull();
     });
 
     it("lists composed documentation sheets as a dedicated preview surface", async () => {
@@ -230,7 +284,7 @@ describe("ReleaseStudioPanel", () => {
                 kind: "release_studio_build",
                 status: "running" as const,
                 stage: "checks",
-                message: "Ran drc",
+                message: "Running DRC",
                 percent: 20,
                 pipeline: {
                     jobs: [
@@ -250,17 +304,12 @@ describe("ReleaseStudioPanel", () => {
             return done;
         });
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        // New release opens Source rather than firing an expensive job on one
-        // click; the build starts from the revision that was chosen there.
         await startRun();
         await waitFor(() => expect(screen.getByText("Checks")).toBeTruthy());
         expect(screen.getByText("DRC")).toBeTruthy();
     });
 
     it("starts a new run with no stage already ticked", async () => {
-        // The previous build stayed selected while the new one ran, so its
-        // finished detail drove the rail: Source, Outputs, Publish and
-        // Released all showed done over a build that had only just queued.
         const { watchPrismJob } = await import("@/lib/jobs");
         vi.mocked(watchPrismJob).mockImplementation(async (_id, options) => {
             const job = {
@@ -281,27 +330,11 @@ describe("ReleaseStudioPanel", () => {
 
         const rail = await screen.findByRole("navigation", { name: /run stages/i });
         await waitFor(() => expect(rail.textContent).toContain("running"));
-        // Outputs and Publish belong to the run being replaced, not this one.
         expect(rail.textContent).not.toContain("members");
-        expect(rail.textContent).not.toContain("approval(s)");
-        expect(rail.textContent).not.toContain("release(s)");
-        // And the ticks: the reported symptom was every stage showing done
-        // over a build that had only just been queued.
         const states = Array.from(rail.querySelectorAll("[data-state]")).map((node) =>
             node.getAttribute("data-state"),
         );
-        expect(states).toEqual(["done", "active", "locked", "locked"]);
-    });
-
-    it("keeps Settings first and starts only from the explicit build action", async () => {
-        const before = vi.mocked(api.startBuild).mock.calls.length;
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        expect(await screen.findByRole("heading", { name: /Release configuration/i })).toBeTruthy();
-        expect(vi.mocked(api.startBuild).mock.calls.length).toBe(before);
-        fireEvent.click(await screen.findByRole("button", { name: /start build/i }));
-        await waitFor(() =>
-            expect(vi.mocked(api.startBuild).mock.calls.length).toBe(before + 1),
-        );
+        expect(states).toEqual(["done", "done", "done", "active", "locked", "locked"]);
     });
 
     it("offers a manufacturer pack picker driven by the registry", async () => {
@@ -371,24 +404,15 @@ describe("ReleaseStudioPanel", () => {
         const rail = screen.getByRole("navigation", { name: /run stages/i });
         expect(within(rail).getByRole("button", { name: /Outputs/i })).toBeDisabled();
         expect(within(rail).getByRole("button", { name: /Publish/i })).toBeDisabled();
-        expect(screen.queryByRole("button", { name: /Continue to publish/i })).toBeNull();
-        expect(screen.queryByRole("button", { name: /Sign and release/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /^Continue$/i })).toBeNull();
         expect(screen.getByText("loading")).toBeTruthy();
     });
 
-    it("uses only the resolved immutable HEAD SHA for configuration lookup", async () => {
+    it("fails closed when the selected revision cannot be read", async () => {
+        vi.mocked(api.getSource).mockRejectedValue(new Error("immutable source lookup failed"));
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await waitFor(() => expect(vi.mocked(api.listConfigurations)).toHaveBeenCalledWith("p1", "abcdef12abcdef12abcdef12abcdef12abcdef12"));
-        expect(vi.mocked(api.listConfigurations).mock.calls.every((call) => call[1] === "abcdef12abcdef12abcdef12abcdef12abcdef12")).toBe(true);
-    });
-
-    it("fails closed when the selected revision configuration cannot be read", async () => {
-        vi.mocked(api.listConfigurations).mockRejectedValue(new Error("immutable configuration lookup failed"));
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await openSettings();
-        await waitFor(() => expect(screen.getByText(/immutable configuration lookup failed/i)).toBeTruthy());
-        expect(screen.getByRole("button", { name: /start build/i })).toBeDisabled();
-        expect(vi.mocked(api.listConfigurations).mock.calls.every((call) => call[1] === "abcdef12abcdef12abcdef12abcdef12abcdef12")).toBe(true);
+        await waitFor(() => expect(screen.getByText(/immutable source lookup failed/i)).toBeTruthy());
+        expect(screen.getByRole("button", { name: /^Continue$/i })).toBeDisabled();
     });
 
     it("treats a missing vendor readiness response as unavailable rather than ready", async () => {
@@ -398,16 +422,6 @@ describe("ReleaseStudioPanel", () => {
         expect(screen.getByText("gerber").parentElement?.textContent).toContain("unavailable");
         expect(screen.getByText("bom.csv").parentElement?.textContent).toContain("unavailable");
         expect(screen.getByRole("button", { name: /Download jlcpcb-upload.zip/i })).toBeDisabled();
-    });
-
-    it("builds only from the full immutable SHA selected in Settings", async () => {
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        const revision = await screen.findByLabelText("Build revision");
-        expect(revision).toHaveValue("abcdef12abcdef12abcdef12abcdef12abcdef12");
-        const build = screen.getByRole("button", { name: /Start build/i });
-        await waitFor(() => expect(build).not.toBeDisabled());
-        fireEvent.click(build);
-        await waitFor(() => expect(vi.mocked(api.startBuild)).toHaveBeenCalledWith("p1", expect.objectContaining({ commit_sha: "abcdef12abcdef12abcdef12abcdef12abcdef12" })));
     });
 
     it("refreshes history after a queued build fails and routes the selected attempt to logs", async () => {
@@ -428,12 +442,11 @@ describe("ReleaseStudioPanel", () => {
         expect(await screen.findByRole("button", { name: /failed.*attempt 2/i })).toBeTruthy();
     });
 
-    it("treats a cancelled build as terminal and keeps diagnostics reachable", async () => {
+    it("treats a cancelled build as terminal", async () => {
         const cancelled = { ...candidate.latest_build!, id: "build-cancelled", status: "cancelled" as const, attempt: 2, completed_at: "2026-08-12T00:00:00Z", error_message: "Cancelled by operator" };
         const cancelledCandidate = { ...candidate, latest_build: cancelled, builds: [cancelled] };
         vi.mocked(api.listCandidates).mockResolvedValue([cancelledCandidate]);
         vi.mocked(api.getBuild).mockResolvedValue({ ...detail, build: cancelled, candidate: cancelledCandidate });
-        vi.mocked(api.listBuildLogs).mockResolvedValue({ timings: [], steps: [{ step_id: "gerbers", step_type: "export", status: "cancelled", returncode: 1, elapsed_ms: 5, skipped_reason: "", argv: [] }] });
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
 
         await selectHistoryRun();
@@ -442,38 +455,7 @@ describe("ReleaseStudioPanel", () => {
         expect(within(rail).getByRole("button", { name: /Outputs/i })).toBeDisabled();
         expect(within(rail).getByRole("button", { name: /Publish/i })).toBeDisabled();
         expect(screen.getByRole("button", { name: /cancelled.*attempt 2/i })).toHaveAttribute("aria-current", "true");
-        await waitFor(() => expect(vi.mocked(api.listBuildLogs)).toHaveBeenCalledWith("p1", "build-cancelled"));
-        expect(screen.getByLabelText("cancelled")).toBeTruthy();
-        expect(screen.queryByLabelText("failure")).toBeNull();
-    });
-
-    it("falls back to return code when archived status is an empty string", async () => {
-        vi.mocked(api.listBuildLogs).mockResolvedValue({ timings: [], steps: [{ step_id: "gerbers", step_type: "export", status: "", returncode: 0, elapsed_ms: 5, skipped_reason: "", argv: [] }] });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        await selectHistoryRun();
-        expect(await screen.findByLabelText("success")).toBeTruthy();
-        expect(screen.queryByLabelText("failure")).toBeNull();
-    });
-
-    it("saves manufacturing metadata through the Settings authoring surface", async () => {
-        vi.mocked(api.saveConfiguration).mockResolvedValue({
-            configuration: { ...detail.configuration!, config_key: "default", fields: { manufacturing_ipc_class: "IPC-6012 Class 2" } },
-            commit_sha: candidate.commit_sha,
-            path: ".prism/release-studio/configurations/default.yaml",
-        });
-        render(<ReleaseStudioPanel projectId="p1" canMutate />);
-        fireEvent.change(await screen.findByLabelText("Manufacturing IPC class"), {
-            target: { value: "IPC-6012 Class 2" },
-        });
-        fireEvent.click(screen.getByRole("button", { name: /Save & publish/i }));
-        await waitFor(() => expect(vi.mocked(api.saveConfiguration)).toHaveBeenCalledWith(
-            "p1",
-            "default",
-            expect.objectContaining({
-                fields: expect.objectContaining({ manufacturing_ipc_class: "IPC-6012 Class 2" }),
-            }),
-            candidate.commit_sha,
-        ));
+        expect(await screen.findByText(/Live logs are shown while a run is in progress/i)).toBeTruthy();
     });
 
     it("keeps a live log stream open and cancels the active job", async () => {
@@ -490,6 +472,7 @@ describe("ReleaseStudioPanel", () => {
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
         await startRun();
         expect(await screen.findByLabelText("Live build log")).toHaveTextContent("Running DRC");
+        expect(screen.getByRole("progressbar", { name: /Release build progress/i })).toBeTruthy();
         fireEvent.click(screen.getByRole("button", { name: /Cancel build/i }));
         await waitFor(() => expect(cancelPrismJob).toHaveBeenCalledWith("job-live"));
     });
@@ -514,16 +497,16 @@ describe("ReleaseStudioPanel", () => {
         expect(window.location.search).toContain("build=build-2");
     });
 
-    it("publishes a successful build as a GitHub Release", async () => {
+    it("publishes a successful build as a GitHub Release without editing identity", async () => {
         render(<ReleaseStudioPanel projectId="p1" canMutate />);
         await openOutputs();
-        fireEvent.click(screen.getByRole("button", { name: /Continue to publish/i }));
-        fireEvent.change(await screen.findByLabelText("Tag"), { target: { value: "v1.0.0" } });
-        fireEvent.click(screen.getByRole("button", { name: /Publish to GitHub/i }));
+        fireEvent.click(screen.getByRole("button", { name: /^Continue$/i }));
+        expect(screen.queryByLabelText("Tag")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: /Confirm and publish to GitHub/i }));
         await waitFor(() => expect(vi.mocked(api.publishBuild)).toHaveBeenCalledWith(
             "p1",
             "build-1",
-            { tag: "v1.0.0", title: "", notes: "" },
+            { tag: "v1.0.0", title: "v1.0.0", notes: "" },
         ));
         expect(await screen.findByRole("link", { name: /github.com\/org\/repo\/releases\/tag\/v1/i })).toBeTruthy();
     });

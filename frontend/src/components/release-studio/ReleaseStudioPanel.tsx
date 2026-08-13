@@ -9,18 +9,22 @@ import { cn } from "@/lib/utils";
 import * as api from "./api";
 import { RunList } from "./RunList";
 import { StageRail } from "./StageRail";
-import { DefineConfigStep } from "./steps/DefineConfigStep";
 import { InspectOutputsStep } from "./steps/InspectOutputsStep";
 import { emptyPipeline, ObserveBuildStep } from "./steps/ObserveBuildStep";
 import { PublishStep } from "./steps/PublishStep";
-import { SelectRevisionStep } from "./steps/SelectRevisionStep";
+import { IdentityStep } from "./steps/IdentityStep";
+import { ManufacturingStep } from "./steps/ManufacturingStep";
+import { SourceStep } from "./steps/SourceStep";
 import type {
     BuildDetail,
-    EditableReleaseConfiguration,
+    ManufacturingChoices,
     PipelineState,
     ProjectCommit,
     ReleaseCandidate,
     ReleaseConfiguration,
+    ReleaseIdentity,
+    ReleaseManufacturing,
+    ReleaseSource,
     RunStage,
     StageState,
     StudioView,
@@ -48,24 +52,45 @@ export function ReleaseStudioPanel({
 }: Props) {
     const [view, setView] = useState<StudioView>(() => {
         if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("build")) return "history";
-        return "settings";
+        return "current";
     });
-    const [stage, setStage] = useState<RunStage>("build");
+    const [stage, setStage] = useState<RunStage>("source");
     // Set when the user opens a specific run, so a newer build does not pull
     // the view out from under someone reading an older release's evidence.
     const pinnedRef = useRef(false);
     // "New release" opens the Source stage so a revision and configuration can
     // be chosen. Building immediately took that choice away and made the button
     // fire an expensive job on a single click.
-    const [drafting, setDrafting] = useState(false);
+    const [drafting, setDrafting] = useState(() => {
+        if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("build")) return false;
+        return true;
+    });
     const draftingRef = useRef(false);
     draftingRef.current = drafting;
     const [commits, setCommits] = useState<ProjectCommit[]>([]);
     const [commitsLoading, setCommitsLoading] = useState(true);
     const [commitSha, setCommitSha] = useState(defaultCommit);
-    const [configurations, setConfigurations] = useState<ReleaseConfiguration[] | null>(null);
-    const [configKey, setConfigKey] = useState("default");
     const [variant, setVariant] = useState("");
+    const [bomPreset, setBomPreset] = useState("");
+    const [source, setSource] = useState<ReleaseSource | null>(null);
+    const [ipc, setIpc] = useState<ManufacturingChoices>({ manufacturing: [], assembly: [] });
+    const [identity, setIdentity] = useState<ReleaseIdentity>(() => ({
+        tag: "",
+        document_name: "",
+        date: new Date().toISOString().slice(0, 10),
+        notes: "",
+    }));
+    const [manufacturing, setManufacturing] = useState<ReleaseManufacturing>({
+        manufacturing_ipc_class: "IPC-6012 Class 2",
+        assembly_ipc_class: "IPC-A-610 Class 2",
+        solder_mask_colour: "",
+        silkscreen_colour: "",
+        via_treatment: "",
+        vendors: [],
+    });
+    const [impedanceCsv, setImpedanceCsv] = useState("");
+    const [stackupName, setStackupName] = useState("");
+    const [stackupB64, setStackupB64] = useState("");
     const [profiles, setProfiles] = useState<VendorProfile[]>([]);
     const [candidates, setCandidates] = useState<ReleaseCandidate[]>([]);
     // The run lives in the URL so it survives a reload and can be shared --
@@ -158,26 +183,26 @@ export function ReleaseStudioPanel({
     // not restart candidates, shares, or detail fetches.
     useEffect(() => {
         let cancelled = false;
-        setConfigurations(null);
-        // HEAD is a moving ref. A release configuration must be read from the
-        // exact immutable revision that will be built, never the working tree.
         if (!selectedCommitValid) {
-            setConfigurations([]);
+            setSource(null);
             return;
         }
-        void api.listConfigurations(projectId, commitSha)
+        void api.getSource(projectId, commitSha)
             .then((next) => {
                 if (cancelled) return;
-                setConfigurations(next);
-                setConfigKey((current) => next.some((item) => item.config_key === current) ? current : next[0]?.config_key || "default");
+                setSource(next.source);
+                setIpc(next.ipc);
+                setVariant(next.source.variant || next.source.variants[0] || "default");
+                setBomPreset(next.source.default_bom_preset || "");
+                setManufacturing((current) => current.vendors.length ? current : { ...current, vendors: profiles.map((item) => item.id) });
             })
             .catch((cause: unknown) => {
                 if (cancelled) return;
-                setConfigurations([]);
+                setSource(null);
                 setError(cause instanceof Error ? cause.message : String(cause));
             });
         return () => { cancelled = true; };
-    }, [projectId, commitSha, selectedCommitValid]);
+    }, [projectId, commitSha, selectedCommitValid, profiles]);
 
     useEffect(() => {
         let cancelled = false;
@@ -263,6 +288,7 @@ export function ReleaseStudioPanel({
         if (buildId !== selectedBuildId) {
             setDetail(null);
             setPipeline(null);
+            setLiveLogs([]);
             setJobStatus("");
             setJobMessage("");
             setJobPercent(0);
@@ -321,9 +347,15 @@ export function ReleaseStudioPanel({
             setSelectedBuildId(null);
             setDetail(null);
             const { job } = await api.startBuild(projectId, {
-                config_key: configKey,
                 commit_sha: commitSha,
                 variant: variant.trim(),
+                board: source?.board,
+                schematic: source?.schematic,
+                bom_preset: bomPreset,
+                identity,
+                manufacturing,
+                impedance_csv: impedanceCsv,
+                stackup_pdf_b64: stackupB64,
             });
             setActiveJobId(job.job_id);
             const finished = await watchPrismJob(job.job_id, {
@@ -369,28 +401,6 @@ export function ReleaseStudioPanel({
         }
     };
 
-    const handleSaveConfiguration = async (
-        key: string,
-        document: EditableReleaseConfiguration,
-    ) => {
-        setBusy("save-config");
-        setError("");
-        setNotice("");
-        try {
-            const saved = await api.saveConfiguration(projectId, key, document, commitSha);
-            const nextCommits = await api.listProjectCommits(projectId);
-            setCommits(nextCommits);
-            setConfigKey(saved.configuration.config_key);
-            setCommitSha(saved.commit_sha);
-            setConfigurations([saved.configuration]);
-            setNotice("Configuration published to the tracked branch and selected.");
-        } catch (cause) {
-            setError(cause instanceof Error ? cause.message : String(cause));
-        } finally {
-            setBusy("");
-        }
-    };
-
     const selectedCandidate = useMemo(
         () => candidates.find((item) => (item.builds?.length ? item.builds : item.latest_build ? [item.latest_build] : []).some((build) => build.id === selectedBuildId)) ?? selectedDetail?.candidate ?? null,
         [candidates, selectedBuildId, selectedDetail?.candidate],
@@ -403,18 +413,25 @@ export function ReleaseStudioPanel({
 
     const building = Boolean(activeJobId) || selectedDetail?.build.status === "running" || busy === "build";
     const stageStates = useMemo<Record<RunStage, StageState>>(() => {
-        const locked = { source: "locked", build: "locked", outputs: "locked", publish: "locked" } as const;
+        const locked = { source: "locked", identity: "locked", manufacturing: "locked", build: "locked", outputs: "locked", publish: "locked" } as const;
         if (drafting) {
-            return { ...locked, source: "active" };
+            const draft: Record<RunStage, StageState> = { ...locked, source: stage === "source" ? "active" : "done" };
+            if (stage === "identity") draft.identity = "active";
+            else if (stage !== "source") draft.identity = "done";
+            if (stage === "manufacturing") draft.manufacturing = "active";
+            else if (stage === "build" || stage === "outputs" || stage === "publish") draft.manufacturing = "done";
+            return draft;
         }
-        if (building) return { source: "done", build: "active", outputs: "locked", publish: "locked" };
+        if (building) return { ...locked, source: "done", identity: "done", manufacturing: "done", build: "active" };
         const status = selectedDetail?.build.status;
         const built = status === "succeeded";
-        if (status === "failed") return { source: "done", build: "failed", outputs: "locked", publish: "locked" };
-        if (status === "cancelled") return { source: "done", build: "cancelled", outputs: "locked", publish: "locked" };
-        if (!built) return { source: selectedCandidate ? "done" : "active", build: "active", outputs: "locked", publish: "locked" };
+        if (status === "failed") return { ...locked, source: "done", identity: "done", manufacturing: "done", build: "failed" };
+        if (status === "cancelled") return { ...locked, source: "done", identity: "done", manufacturing: "done", build: "cancelled" };
+        if (!built) return { ...locked, source: selectedCandidate ? "done" : "active", build: "active" };
         return {
-            source: selectedCandidate ? "done" : "pending",
+            source: "done",
+            identity: "done",
+            manufacturing: "done",
             build: "done",
             outputs: stage === "publish" ? "done" : "active",
             publish: stage === "publish" ? "active" : "pending",
@@ -438,7 +455,7 @@ export function ReleaseStudioPanel({
             <header className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
                 <div className="flex items-center gap-1">
                     {([
-                        { id: "settings", label: "Release Studio", icon: Settings2 },
+                        { id: "settings", label: "New release", icon: Settings2 },
                         { id: "current", label: "Current", icon: ListRestart },
                         { id: "history", label: "History", icon: History },
                     ] as const).map(({ id, label, icon: Icon }) => (
@@ -447,6 +464,14 @@ export function ReleaseStudioPanel({
                             type="button"
                             onClick={() => {
                                 setView(id);
+                                if (id === "settings") {
+                                    setDrafting(true);
+                                    setView("current");
+                                    setStage("source");
+                                    setSelectedBuildId(null);
+                                    setDetail(null);
+                                    return;
+                                }
                                 setDrafting(false);
                                 if (id === "current") {
                                     setSelectedBuildId(currentBuildId);
@@ -458,10 +483,10 @@ export function ReleaseStudioPanel({
                                     setStage("build");
                                 }
                             }}
-                            aria-current={view === id ? "page" : undefined}
+                            aria-current={(view === id || (id === "settings" && drafting && !selectedBuildId)) ? "page" : undefined}
                             className={cn(
                                 "flex items-center gap-1.5 rounded px-3 py-1 text-sm",
-                                view === id ? "bg-muted font-medium" : "text-muted-foreground",
+                                view === id || (id === "settings" && drafting && !selectedBuildId) ? "bg-muted font-medium" : "text-muted-foreground",
                             )}
                         >
                             <Icon className="h-3.5 w-3.5" />
@@ -482,26 +507,7 @@ export function ReleaseStudioPanel({
                 </div>
             )}
 
-            {view === "settings" ? (
-                <div className="min-h-0 flex-1 overflow-y-auto p-6">
-                    <DefineConfigStep
-                        configurations={configurations}
-                        configKey={configKey}
-                        variant={variant}
-                        profiles={profiles}
-                        commits={commits}
-                        commitSha={commitSha}
-                        commitsLoading={commitsLoading}
-                        canMutate={canMutate}
-                        busy={busy}
-                        onConfigKey={setConfigKey}
-                        onVariant={setVariant}
-                        onCommit={setCommitSha}
-                        onSave={handleSaveConfiguration}
-                        onBuild={() => void handleBuild()}
-                    />
-                </div>
-            ) : (
+            {view === "settings" ? null : (
                 <div className="flex min-h-0 flex-1">
                     {view === "history" && (
                         <RunList
@@ -549,12 +555,13 @@ export function ReleaseStudioPanel({
                             </div>
                             <IdentityStrip
                                 candidate={selectedCandidate}
-                                configuration={drafting ? configurations?.find((item) => item.config_key === configKey) ?? null : selectedDetail?.configuration ?? null}
+                                configuration={selectedDetail?.configuration ?? null}
+                                identity={identity}
                                 fallbackCommit={commitSha}
                                 variant={variant}
                             />
                             <div className="flex min-h-0 flex-1">
-                                <div className="w-56 shrink-0 border-r p-2">
+                                <div className="w-56 shrink-0 border-r p-3">
                                     <StageRail
                                         stage={stage}
                                         states={stageStates}
@@ -566,25 +573,69 @@ export function ReleaseStudioPanel({
                                 </div>
                                 <div className="min-w-0 flex-1 overflow-y-auto p-6">
                                     {stage === "source" && drafting && (
-                                        <SelectRevisionStep
+                                        <SourceStep
                                             commits={commits}
                                             commitSha={commitSha}
-                                            loading={commitsLoading}
-                                            busy={Boolean(busy)}
-                                            configurations={configurations}
-                                            configKey={configKey}
+                                            commitsLoading={commitsLoading}
+                                            source={source}
                                             variant={variant}
-                                            onConfigKey={setConfigKey}
+                                            bomPreset={bomPreset}
+                                            canMutate={canMutate}
+                                            busy={busy}
+                                            onCommit={(value) => setCommitSha(resolveCommitSelection(value, commits))}
+                                            onBoard={(value) => setSource((current) => current ? { ...current, board: value } : current)}
+                                            onSchematic={(value) => setSource((current) => current ? { ...current, schematic: value } : current)}
                                             onVariant={setVariant}
-                                            actionLabel={
-                                                drafting ? "Build this revision" : "Continue"
-                                            }
-                                            onSelect={(value) => setCommitSha(resolveCommitSelection(value, commits))}
-                                            onContinue={() =>
-                                                drafting
-                                                    ? void handleBuild()
-                                                    : setStage("build")
-                                            }
+                                            onBomPreset={setBomPreset}
+                                            onContinue={() => {
+                                                if (!source) return;
+                                                void api.saveSourceDefaults(projectId, {
+                                                    board: source.board,
+                                                    schematic: source.schematic,
+                                                    variant,
+                                                    bom_preset: bomPreset,
+                                                }).catch((cause: unknown) => {
+                                                    setError(cause instanceof Error ? cause.message : String(cause));
+                                                }).finally(() => setStage("identity"));
+                                            }}
+                                        />
+                                    )}
+                                    {stage === "identity" && drafting && (
+                                        <IdentityStep
+                                            projectId={projectId}
+                                            identity={identity}
+                                            canMutate={canMutate}
+                                            busy={busy}
+                                            onChange={setIdentity}
+                                            onContinue={() => setStage("manufacturing")}
+                                        />
+                                    )}
+                                    {stage === "manufacturing" && drafting && (
+                                        <ManufacturingStep
+                                            projectId={projectId}
+                                            manufacturing={manufacturing}
+                                            ipc={ipc}
+                                            profiles={profiles}
+                                            canMutate={canMutate}
+                                            busy={busy}
+                                            impedanceCsv={impedanceCsv}
+                                            stackupName={stackupName}
+                                            onChange={setManufacturing}
+                                            onImpedanceCsv={setImpedanceCsv}
+                                            onStackup={(file) => {
+                                                setStackupName(file?.name ?? "");
+                                                if (!file) {
+                                                    setStackupB64("");
+                                                    return;
+                                                }
+                                                void file.arrayBuffer().then((buffer) => {
+                                                    const bytes = new Uint8Array(buffer);
+                                                    let binary = "";
+                                                    bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+                                                    setStackupB64(btoa(binary));
+                                                });
+                                            }}
+                                            onBuild={() => void handleBuild()}
                                         />
                                     )}
                                     {stage === "source" && !drafting && selectedDetail && (
@@ -619,13 +670,14 @@ export function ReleaseStudioPanel({
                                         <PublishStep
                                             projectId={projectId}
                                             detail={selectedDetail}
+                                            identity={identity}
                                             canMutate={canMutate}
                                             busy={busy}
                                             onRun={run}
                                         />
                                     )}
                                     {stage === "publish" && !selectedDetail && <LockedStage />}
-                                    {stage !== "source" && stage !== "build" && stage !== "outputs" && stage !== "publish" && <LockedStage />}
+                                    {stage !== "source" && stage !== "identity" && stage !== "manufacturing" && stage !== "build" && stage !== "outputs" && stage !== "publish" && <LockedStage />}
                                 </div>
                             </div>
                         </div>
@@ -641,24 +693,38 @@ export default ReleaseStudioPanel;
 function IdentityStrip({
     candidate,
     configuration,
+    identity,
     fallbackCommit,
     variant,
 }: {
     candidate: ReleaseCandidate | null;
     configuration: ReleaseConfiguration | null;
+    identity: ReleaseIdentity;
     fallbackCommit: string;
     variant: string;
 }) {
     const commit = candidate?.commit_sha || fallbackCommit;
     const resolvedVariant = candidate?.variant || variant || configuration?.default_variant || "default";
-    return <div aria-label="Release identity" className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-2 text-xs">
-        <History className="h-4 w-4 text-muted-foreground" />
-        <span className="rounded border bg-background px-2 py-1 font-mono">{commit.slice(0, 12) || "HEAD"}</span>
-        <span className="rounded border bg-background px-2 py-1">{configuration?.config_key || candidate?.config_key || "—"}</span>
-        <span className="rounded border bg-background px-2 py-1">{resolvedVariant}</span>
-        <span className="rounded border bg-background px-2 py-1">Document {configuration?.document_number || "—"}</span>
-        <span className="rounded border bg-background px-2 py-1">Rev {configuration?.revision || "—"}</span>
-    </div>;
+    return (
+        <div
+            aria-label="Release identity"
+            className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-2.5 text-xs leading-none"
+        >
+            <History className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="inline-flex items-center rounded border bg-background px-2.5 py-1.5 font-mono leading-none">
+                {commit.slice(0, 12) || "HEAD"}
+            </span>
+            <span className="inline-flex items-center rounded border bg-background px-2.5 py-1.5 leading-none">
+                {resolvedVariant}
+            </span>
+            <span className="inline-flex items-center rounded border bg-background px-2.5 py-1.5 leading-none">
+                Document Name {identity.document_name || configuration?.document_number || "—"}
+            </span>
+            <span className="inline-flex items-center rounded border bg-background px-2.5 py-1.5 leading-none">
+                Rev {identity.tag || configuration?.revision || "—"}
+            </span>
+        </div>
+    );
 }
 
 function LockedStage() {
@@ -670,11 +736,9 @@ function SourceDetails({ detail }: { detail: BuildDetail }) {
     const configuration = detail.configuration;
     const rows = [
         ["Commit", source?.commit_sha || "—"],
-        ["Configuration", source?.config_key || configuration?.config_key || "—"],
-        ["Variant", source?.variant || configuration?.default_variant || "default"],
         ["Board", configuration?.board_rel || "—"],
         ["Schematic", configuration?.schematic_rel || "—"],
-        ["Jobset", configuration?.jobset_rel || "—"],
+        ["Variant", source?.variant || configuration?.default_variant || "default"],
     ];
     return <div className="space-y-4"><h3 className="text-lg font-semibold">Source</h3><dl className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">{rows.map(([label, value]) => <div key={label} className="space-y-1"><dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt><dd className="break-all font-mono text-sm">{value}</dd></div>)}</dl></div>;
 }

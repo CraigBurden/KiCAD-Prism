@@ -1567,6 +1567,22 @@ def _release_studio_terminal_and_identity_guards(conn: Any) -> None:
     )
 
 
+def _release_studio_source_defaults(conn: Any) -> None:
+    """Remember last Source picks per project so a new release reuses them.
+
+    These are convenience defaults, not build identity. Discovery still lists
+    what exists at the selected commit; a saved path is used only when that
+    file is still in the tree.
+    """
+
+    conn.execute(
+        """
+        ALTER TABLE ws_projects
+            ADD COLUMN IF NOT EXISTS release_studio_defaults JSONB NOT NULL DEFAULT '{}'::jsonb
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -1581,6 +1597,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (15, "release_studio_configuration_snapshot", _release_studio_configuration_snapshot),
     (16, "release_studio_append_only_evaluations", _release_studio_append_only_evaluations),
     (17, "release_studio_terminal_and_identity_guards", _release_studio_terminal_and_identity_guards),
+    (18, "release_studio_source_defaults", _release_studio_source_defaults),
 )
 
 

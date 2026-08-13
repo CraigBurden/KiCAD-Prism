@@ -736,20 +736,29 @@ class ProjectionShapeTests(unittest.TestCase):
                 "manufacturing_ipc_class": "IPC-6012 Class 2",
                 "assembly_ipc_class": "IPC-A-610 Class 2",
                 "solder_mask_colour": "Green",
+                "silkscreen_colour": "White",
                 "via_treatment": "Tented",
             },
         )
-        svg = _page(result, "cover")
+        overflow = "".join(
+            payload.decode("utf-8")
+            for key, payload in result.page_svgs().items()
+            if key.startswith("cover")
+        )
         for expected in (
             "MANUFACTURING &amp; ASSEMBLY SPEC",
             "IPC-6012 Class 2",
             "IPC-A-610 Class 2",
             "Solder mask colour",
             "Green",
+            "Silkscreen colour",
+            "White",
             "Via treatment",
             "Tented",
         ):
-            self.assertIn(expected, svg)
+            self.assertIn(expected, overflow)
+        self.assertNotIn("ASSEMBLY IPC CLASS", overflow)
+        self.assertNotIn("MANUFACTURING IPC CLASS", overflow)
 
     def test_a_summary_shaped_drill_projection_does_not_crash_the_sheet(self) -> None:
         from app.release_studio.documents.tables import board_summary
@@ -773,6 +782,66 @@ class ProjectionShapeTests(unittest.TestCase):
         self.assertEqual(pairs["Castellated pads"], "No")
         self.assertEqual(pairs["Plated board edge"], "No")
         self.assertEqual(pairs["Edge card connectors"], "No")
+
+    def test_release_specs_live_in_the_manufacturing_table(self) -> None:
+        from app.release_studio.documents.tables import (
+            manufacturing_spec,
+            release_board_characteristics,
+        )
+
+        pairs = dict(
+            release_board_characteristics(
+                STATS,
+                STACKUP,
+                {
+                    "solder_mask_colour": "Green",
+                    "silkscreen_colour": "White",
+                    "via_treatment": "Tented",
+                },
+            )
+        )
+        self.assertNotIn("Silkscreen colour", pairs)
+        spec = dict(
+            manufacturing_spec(
+                {
+                    "manufacturing_ipc_class": "IPC-6012 Class 2",
+                    "assembly_ipc_class": "IPC-A-610 Class 2",
+                    "solder_mask_colour": "Green",
+                    "silkscreen_colour": "White",
+                    "via_treatment": "Tented",
+                }
+            )
+        )
+        self.assertEqual(spec["Manufacturing IPC class"], "IPC-6012 Class 2")
+        self.assertEqual(spec["Assembly IPC class"], "IPC-A-610 Class 2")
+        self.assertEqual(spec["Silkscreen colour"], "White")
+        self.assertEqual(spec["Via treatment"], "Tented")
+
+    def test_bom_schedule_puts_qty_second_and_adds_manufacturer_columns(self) -> None:
+        from app.release_studio.documents.tables import bom_schedule_table
+
+        table = bom_schedule_table(
+            ["Reference", "Value", "Datasheet", "Footprint", "Qty", "DNP"],
+            [
+                [
+                    "C1,C8",
+                    "10uF",
+                    "https://example.com/very/long/datasheet/path/spec.pdf",
+                    "Capacitor_SMD:C_1210_3225Metric",
+                    "2",
+                    "",
+                ]
+            ],
+        )
+        self.assertEqual(
+            table.columns,
+            ("Reference", "Qty", "Value", "Manufacturer", "MPN", "Footprint", "Datasheet", "DNP"),
+        )
+        self.assertEqual(table.rows[0][1], "2")
+        self.assertEqual(table.rows[0][0], "C1,C8")
+        self.assertEqual(table.rows[0][3], "—")
+        self.assertTrue(table.bordered)
+        self.assertEqual(table.max_cell_lines, 2)
 
     def test_the_summary_carries_what_kicads_table_omits(self) -> None:
         from app.release_studio.documents.tables import (
@@ -1608,6 +1677,27 @@ class SheetSetConsistencyTests(unittest.TestCase):
         self.assertLess(thickness.x, material.x)
         self.assertGreaterEqual(material.x - thickness.x, 0.5)
 
+    def test_a_bordered_table_insets_text_from_the_grid(self) -> None:
+        from app.release_studio.documents.layout import Text
+
+        builder = SheetBuilder("t", "T", "A3")
+        table = Table(
+            columns=("Reference",),
+            rows=(("R1",),),
+            widths=(28.0,),
+            bordered=True,
+            font_size=2.2,
+        )
+        origin_x = 10.0
+        draw_table(builder, table, (origin_x, 0.0))
+        sheet = builder.build()
+        cell = next(
+            element
+            for element in sheet.elements
+            if isinstance(element, Text) and element.value == "R1"
+        )
+        self.assertGreaterEqual(cell.x - origin_x, 1.0)
+
     def test_a_continued_table_says_so_in_its_heading(self) -> None:
         from app.release_studio.documents.layout import Text
 
@@ -1667,14 +1757,14 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d17 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d20 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
         "documentation/assembly.pdf":
             "aeb46d242fc8bd1b7281a513ec4ed893250a7fb542393096bb149de602614c25",
         "documentation/cover.pdf":
-            "579a4ae1326c60a290af6a8cad8446deae87e19abf1299d911e19af5b917d9db",
+            "318f57ea262d956f66d7a273dfe9888fcd92fd7f6455c720afc2729cd72d2e6b",
         "documentation/drill.pdf":
             "b46e9c0085d144fb16c3f032672ff646dc84611fe34ed057acd56b723d8f3875",
         "documentation/fabrication.pdf":
@@ -1688,7 +1778,7 @@ class RendererVersionTests(unittest.TestCase):
         "assembly-top":
             "d9d92e8ef4c7cd0f35415eded3ef245037beb0f648bfc226af74785fcd847614",
         "cover":
-            "c15869c766771932999ebfb872aeaf199912df1cb7b4aa5718d08093e0ed8050",
+            "63f4f262e8c6969f167673ea3853677757ac39f7e03e3232779ccaed54b13cbd",
         "cover-1":
             "d1fa8cce518c44e6c2d8a7ac7505e3aa4cea171362809fba618e2b992da229ee",
         "drill":
@@ -1727,7 +1817,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d17",
+            "release-studio-documents/d20",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

@@ -130,11 +130,10 @@ def _fake_runner(stamp: str, plain: str):
 
 
 class StepCatalogueOrderTests(unittest.TestCase):
-    """The catalogue runs concurrently but must report in catalogue order.
+    """The catalogue reports in catalogue order even if a step is slow.
 
-    Member ordering feeds `dossier_digest`, so if results came back in
-    completion order the same build would digest differently depending on which
-    `kicad-cli` finished first.
+    Member ordering feeds `dossier_digest`, so results must not follow
+    completion order.
     """
 
     def test_results_follow_the_catalogue_not_the_finishing_order(self) -> None:
@@ -175,18 +174,40 @@ class StepCatalogueOrderTests(unittest.TestCase):
             if spec.step_id in set(produced)
         ]
         self.assertEqual(produced, expected)
-        # And they really did overlap rather than queueing one behind another.
         self.assertGreater(len(started), 1)
-        self.assertLess(max(started) - min(started), 0.05)
+        # Catalogue steps run one kicad-cli at a time; DRC's 50ms sleep
+        # must finish before the next step starts.
+        self.assertGreaterEqual(max(started) - min(started), 0.04)
 
 
 class CatalogueWaveCoverageTests(unittest.TestCase):
     def test_every_catalogue_step_is_in_exactly_one_wave(self) -> None:
-        from app.release_studio.steps import CATALOGUE_WAVE_A, CATALOGUE_WAVE_B
+        from app.release_studio.steps import (
+            CATALOGUE_WAVE_ARTWORK,
+            CATALOGUE_WAVE_BOM,
+            CATALOGUE_WAVE_CHECKS,
+            CATALOGUE_WAVE_POSITIONS,
+        )
 
-        wave = CATALOGUE_WAVE_A + CATALOGUE_WAVE_B
+        wave = (
+            CATALOGUE_WAVE_CHECKS
+            + CATALOGUE_WAVE_POSITIONS
+            + CATALOGUE_WAVE_BOM
+            + CATALOGUE_WAVE_ARTWORK
+        )
         self.assertEqual(len(wave), len(set(wave)))
         self.assertEqual(set(wave), {spec.step_id for spec in STEP_CATALOGUE})
+
+    def test_bom_is_alone_after_positions_and_checks(self) -> None:
+        from app.release_studio.steps import (
+            CATALOGUE_WAVE_BOM,
+            CATALOGUE_WAVE_CHECKS,
+            CATALOGUE_WAVE_POSITIONS,
+        )
+
+        self.assertEqual(CATALOGUE_WAVE_CHECKS, ("drc", "erc", "board_stats"))
+        self.assertEqual(CATALOGUE_WAVE_POSITIONS, ("positions",))
+        self.assertEqual(CATALOGUE_WAVE_BOM, ("bom",))
 
 
 class ReleaseStudioDossierTests(unittest.TestCase):

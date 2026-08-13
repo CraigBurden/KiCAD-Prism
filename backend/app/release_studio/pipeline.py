@@ -81,7 +81,17 @@ def _job_specs(
         PipelineJobSpec(
             "documents",
             "Documents",
-            (PipelineStepSpec("documents", "Compose documentation"),),
+            (
+                PipelineStepSpec("documents-cover", "Cover page"),
+                PipelineStepSpec("documents-fabrication", "Fabrication drawings"),
+                PipelineStepSpec("documents-impedance", "Controlled impedance table"),
+                PipelineStepSpec("documents-stackup", "Append manufacturer stackup"),
+                PipelineStepSpec("documents-assembly", "Assembly drawings"),
+                PipelineStepSpec("documents-testpoint", "Testpoint drawings"),
+                PipelineStepSpec("documents-drill", "Drill drawing"),
+                PipelineStepSpec("documents-bom", "Bill of materials PDF"),
+                PipelineStepSpec("documents", "Finish documentation"),
+            ),
         ),
         PipelineJobSpec(
             "package",
@@ -135,7 +145,7 @@ class PipelineTracker:
         self._set_step(step_id, "in_progress")
         self._emit(
             stage=step_id,
-            message=message or f"Running {step_id}",
+            message=message or f"Running {self._step_name(step_id)}",
             percent=percent,
         )
 
@@ -156,7 +166,7 @@ class PipelineTracker:
         self._set_step(step_id, "success", **extra)
         self._emit(
             stage=step_id,
-            message=message or f"Finished {step_id}",
+            message=message or f"Finished {self._step_name(step_id)}",
             percent=percent,
         )
 
@@ -180,7 +190,7 @@ class PipelineTracker:
     def skip(self, step_id: str, *, reason: str = "") -> None:
         extra = {"message": reason} if reason else {}
         self._set_step(step_id, "skipped", **extra)
-        self._emit(stage=step_id, message=reason or f"Skipped {step_id}")
+        self._emit(stage=step_id, message=reason or f"Skipped {self._step_name(step_id)}")
 
     def catalogue_event(
         self,
@@ -193,7 +203,7 @@ class PipelineTracker:
         percent: float | None = None,
     ) -> None:
         if status == "in_progress":
-            self.start(step_id, percent=percent)
+            self.start(step_id, message=message or None, percent=percent)
             return
         if status == "success":
             self.succeed(
@@ -214,6 +224,12 @@ class PipelineTracker:
             elapsed_ms=elapsed_ms,
             percent=percent,
         )
+
+    def _step_name(self, step_id: str) -> str:
+        pair = self._step_index.get(step_id)
+        if pair is None:
+            return step_id
+        return str(pair[1].get("name") or step_id)
 
     def _set_step(self, step_id: str, status: str, **extra: Any) -> None:
         pair = self._step_index.get(step_id)
@@ -241,6 +257,10 @@ class PipelineTracker:
         }
         if percent is not None:
             kwargs["percent"] = percent
+        line = f"[{stage}] {message}"
+        if percent is not None:
+            line = f"{line} ({percent:.0f}%)"
+        print(line, flush=True)
         self._progress(**kwargs)
 
 

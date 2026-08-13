@@ -46,14 +46,13 @@ from app.release_studio.config import (
     validate_configuration_for_checkout,
     configuration_relpath,
 )
-from app.release_studio.jobset import (
-    HERMETIC_STEP_TYPES,
-    load_jobset,
-)
+from app.release_studio.jobset import HERMETIC_STEP_TYPES
 from app.release_studio.pipeline import PipelineTracker
 from app.release_studio.steps import (
-    CATALOGUE_WAVE_A,
-    CATALOGUE_WAVE_B,
+    CATALOGUE_WAVE_ARTWORK,
+    CATALOGUE_WAVE_BOM,
+    CATALOGUE_WAVE_CHECKS,
+    CATALOGUE_WAVE_POSITIONS,
     DOCUMENT_STEP_SPEC,
     STEP_CATALOGUE,
     StepExecutionError,
@@ -736,6 +735,7 @@ def prepare_candidate(
     workspace_root: Path,
     created_by: str = "",
     project_relpath: str = ".",
+    configuration: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Materialize the closure and register (or reuse) a candidate.
 
@@ -744,14 +744,18 @@ def prepare_candidate(
     duplicate.
     """
 
-    config = load_configuration_at_commit(repo_root, commit_sha, config_key)
-    selected_variant = variant or str(config.get("default_variant") or "")
-    declared_variants = {str(item) for item in config.get("variants") or ()}
-    if declared_variants and selected_variant not in declared_variants:
-        raise BuildError(
-            f"variant {selected_variant!r} is not declared by committed configuration "
-            f"{config_key!r}"
-        )
+    if configuration is not None:
+        config = dict(configuration)
+        selected_variant = variant or str(config.get("default_variant") or "")
+    else:
+        config = load_configuration_at_commit(repo_root, commit_sha, config_key)
+        selected_variant = variant or str(config.get("default_variant") or "")
+        declared_variants = {str(item) for item in config.get("variants") or ()}
+        if declared_variants and selected_variant not in declared_variants:
+            raise BuildError(
+                f"variant {selected_variant!r} is not declared by committed configuration "
+                f"{config_key!r}"
+            )
     config_digest = technical_config_digest(config)
     policy_document = load_policy_for_configuration_at_commit(
         repo_root,
@@ -812,17 +816,12 @@ def prepare_candidate(
     return candidate
 
 
-def _hermeticity(closure_root: Path, config: Mapping[str, Any]) -> tuple[bool, list[str]]:
-    """Classify the *catalogue that actually runs*, not unused jobset destinations.
+def _hermeticity(_closure_root: Path, _config: Mapping[str, Any]) -> tuple[bool, list[str]]:
+    """Classify the catalogue that actually runs.
 
-    Without a jobset the build runs the fixed step catalogue, whose types are
-    all hermetic by construction; the closure itself has already refused any
-    input that resolves outside it.
-
-    A project may still ship a ``.kicad_jobset``. That file is required to be
-    present and parseable when named, but destinations the catalogue does not
-    execute — including an unreferenced ``special_execute`` — must not taint
-    the build. Hermeticity is a property of the steps Prism runs.
+    Release Studio does not execute a project's ``.kicad_jobset``. Exports come
+    from the pinned step catalogue, whose types are hermetic by construction.
+    The closure has already refused any input that resolves outside it.
     """
 
     reasons: list[str] = []
@@ -834,17 +833,6 @@ def _hermeticity(closure_root: Path, config: Mapping[str, Any]) -> tuple[bool, l
                 f"catalogue step {spec.step_id} ({spec.step_type}) is not a "
                 "hermetic KiCad type"
             )
-
-    jobset_rel = str(config.get("jobset") or "").strip()
-    if jobset_rel:
-        jobset_path = closure_root / jobset_rel
-        if not jobset_path.is_file():
-            return False, [f"jobset not present in the closure: {jobset_rel}"]
-        try:
-            load_jobset(jobset_path)
-        except Exception as exc:  # noqa: BLE001 - an unparseable jobset fails closed
-            return False, [f"jobset could not be parsed: {exc}"]
-
     return not reasons, reasons
 
 
@@ -961,7 +949,38 @@ def execute_build(
         cruncher_pool: ThreadPoolExecutor | None = None
         extra_evidence: dict[str, bytes] = {}
         vendor_outputs: tuple[StepOutput, ...] = ()
+        schematic_rel = str(config.get("schematic") or "") or None
+        variant = str(candidate.get("variant") or "")
+        bom_preset = str(config.get("bom_preset") or "")
+
+        def _catalogue(timing_name: str, only: tuple[str, ...], *, with_bom_preset: bool = False):
+            return _timed(
+                timing_name,
+                lambda: run_step_catalogue(
+                    closure_root=closure_root,
+                    board_rel=board_rel,
+                    schematic_rel=schematic_rel,
+                    output_root=output_root,
+                    variant=variant,
+                    cli_path=cli_path,
+                    only=only,
+                    progress=lambda **kwargs: context.progress(**kwargs),
+                    on_step=_on_catalogue_step,
+                    bom_preset=bom_preset if with_bom_preset else "",
+                ),
+            )
+
         try:
+            # Checks first. Positions, then BOM, then Cruncher: each of those
+            # used to share the worker with DRC/ERC and with each other, and
+            # BOM died with std::bad_alloc.
+            outputs_checks = _catalogue("catalogue-wave-checks", CATALOGUE_WAVE_CHECKS)
+            outputs_positions = _catalogue("catalogue-wave-positions", CATALOGUE_WAVE_POSITIONS)
+            outputs_bom = _catalogue(
+                "catalogue-wave-bom",
+                CATALOGUE_WAVE_BOM,
+                with_bom_preset=True,
+            )
             tracker.start("cruncher-assembly", message="Rendering assembly views")
             if cruncher_path and board_path is not None and board_path.is_file():
                 from app.release_studio.documents.artwork import acquire_board_views
@@ -987,21 +1006,6 @@ def execute_build(
                     if not cruncher_path
                     else "no board in the closure",
                 )
-
-            outputs_a = _timed(
-                "catalogue-wave-a",
-                lambda: run_step_catalogue(
-                    closure_root=closure_root,
-                    board_rel=board_rel,
-                    schematic_rel=str(config.get("schematic") or "") or None,
-                    output_root=output_root,
-                    variant=str(candidate.get("variant") or ""),
-                    cli_path=cli_path,
-                    only=CATALOGUE_WAVE_A,
-                    progress=lambda **kwargs: context.progress(**kwargs),
-                    on_step=_on_catalogue_step,
-                ),
-            )
             if cruncher_future is not None:
                 try:
                     assembly_views = cruncher_future.result()
@@ -1027,30 +1031,20 @@ def execute_build(
                     config=config,
                     closure_root=closure_root,
                     output_root=output_root,
-                    variant=str(candidate.get("variant") or ""),
+                    variant=variant,
                     cruncher_path=cruncher_path,
                     tracker=tracker,
                 ),
             )
-            outputs_b = _timed(
-                "catalogue-wave-b",
-                lambda: run_step_catalogue(
-                    closure_root=closure_root,
-                    board_rel=board_rel,
-                    schematic_rel=str(config.get("schematic") or "") or None,
-                    output_root=output_root,
-                    variant=str(candidate.get("variant") or ""),
-                    cli_path=cli_path,
-                    only=CATALOGUE_WAVE_B,
-                    progress=lambda **kwargs: context.progress(**kwargs),
-                    on_step=_on_catalogue_step,
-                ),
-            )
+            outputs_artwork = _catalogue("catalogue-wave-artwork", CATALOGUE_WAVE_ARTWORK)
         finally:
             if cruncher_pool is not None:
                 cruncher_pool.shutdown(wait=True)
 
-        combined = {output.step_id: output for output in (*outputs_a, *outputs_b)}
+        combined = {
+            output.step_id: output
+            for output in (*outputs_checks, *outputs_positions, *outputs_bom, *outputs_artwork)
+        }
         outputs = tuple(
             combined[spec.step_id]
             for spec in STEP_CATALOGUE
@@ -1058,7 +1052,7 @@ def execute_build(
         )
         if not include_schematic:
             tracker.skip("schematic_pdf", reason="no schematic in the configuration")
-        tracker.start("documents", message="Composing documentation", percent=70)
+        tracker.start("documents-cover", message="Composing documentation", percent=70)
         outputs, document_warnings, projections = _with_documents(
             outputs,
             closure_root=closure_root,
@@ -1073,8 +1067,9 @@ def execute_build(
             assembly_views=assembly_views,
             assembly_error=assembly_error,
             timings=timings,
+            tracker=tracker,
+            repo_url=str(candidate.get("repo_url") or ""),
         )
-        tracker.succeed("documents", percent=74)
         outputs = (*outputs, *vendor_outputs)
 
         tracker.start("package", message="Canonicalizing and packaging", percent=75)
@@ -1277,6 +1272,8 @@ def _with_documents(
     assembly_views: Mapping[str, Any] | None = None,
     assembly_error: BaseException | None = None,
     timings: list[dict[str, Any]] | None = None,
+    tracker: PipelineTracker | None = None,
+    repo_url: str = "",
 ) -> tuple[list[StepOutput], list[str], dict[str, Any]]:
     """Compose the Stage 2 sheets and append them as a member-producing step.
 
@@ -1409,23 +1406,46 @@ def _with_documents(
             for member in existing
         ]
 
-        revision_history = _revision_history(
-            repo_root,
-            commit_sha=str(candidate.get("commit_sha") or "") or None,
-            relative_path=project_relpath or str(candidate.get("project_relpath") or ""),
+        revision_history = _cover_revision_history(
+            repo_url=repo_url,
+            config=config,
+            candidate=candidate,
+            repo_root=repo_root,
         )
 
         typography = str(config.get("typography") or DEFAULT_TYPOGRAPHY)
         logger.info(
-            "Release Studio using typography %s from Git configuration %s "
-            "(a UI template selection is not a build override)",
+            "Release Studio using typography %s",
             typography,
-            candidate.get("config_key"),
         )
+
+        last_step = {"id": None}
+
+        def _on_document_progress(step: str, message: str, percent: float) -> None:
+            if tracker is None:
+                print(f"[{step}] {message} ({percent:.0f}%)", flush=True)
+                return
+            previous = last_step["id"]
+            if previous and previous != step:
+                tracker.succeed(previous, percent=percent)
+            tracker.start(step, message=message, percent=percent)
+            last_step["id"] = step
+
+        impedance_rows = list(candidate.get("_impedance_rows") or [])
+        stackup_pdf = candidate.get("_stackup_pdf") or None
+        bom_headers, bom_rows = _bom_schedule(outputs)
+        if tracker is not None:
+            if not impedance_rows:
+                tracker.skip("documents-impedance", reason="no impedance CSV uploaded")
+            if not stackup_pdf:
+                tracker.skip("documents-stackup", reason="no stackup PDF uploaded")
+            if not bom_rows:
+                tracker.skip("documents-bom", reason="no BOM CSV produced")
 
         compose_kwargs: dict[str, Any] = dict(
             context={
                 "title": str(config.get("title") or config.get("document_number") or "RELEASE"),
+                "document_name": str(config.get("document_number") or ""),
                 "document_number": str(config.get("document_number") or ""),
                 "revision": str(config.get("revision") or ""),
                 "commit_sha": str(candidate.get("commit_sha") or ""),
@@ -1433,6 +1453,7 @@ def _with_documents(
                 "commit_date": _commit_date(
                     repo_root or closure_root, str(candidate.get("commit_sha") or "")
                 ),
+                "release_date": str(config.get("release_date") or ""),
             },
             stats=stats,
             stackup=stackup,
@@ -1450,6 +1471,11 @@ def _with_documents(
             fields=config.get("fields") or {},
             typography=typography,
             revision_history=revision_history,
+            impedance_rows=impedance_rows,
+            stackup_pdf=stackup_pdf if isinstance(stackup_pdf, (bytes, bytearray)) else None,
+            bom_headers=bom_headers,
+            bom_rows=bom_rows,
+            on_progress=_on_document_progress,
         )
         if assembly_error is not None:
             from app.release_studio.documents.artwork import ArtworkError
@@ -1473,6 +1499,8 @@ def _with_documents(
     compose_started = time.perf_counter()
     try:
         document_set = compose(**compose_kwargs)
+        if tracker is not None and last_step["id"]:
+            tracker.succeed(last_step["id"], percent=79)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Documentation Engine produced no sheets")
         warnings.append(f"documentation: no sheets were composed ({exc})")
@@ -1588,6 +1616,56 @@ def _commit_date(repo_root: Path, commit: str) -> str:
     except OSError:
         return ""
     return (result.stdout or "").strip() if result.returncode == 0 else ""
+
+
+def _cover_revision_history(
+    *,
+    repo_url: str,
+    config: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    repo_root: Path | None,
+) -> list[dict[str, Any]]:
+    """This release first, then prior GitHub/GitLab Releases. API failure → current only."""
+
+    from app.services import forge_publish_service as forge
+
+    tag = str(config.get("revision") or "").strip()
+    notes = str(config.get("release_notes") or "").strip()
+    date = str(config.get("release_date") or "")
+    if not date and repo_root:
+        date = _commit_date(repo_root, str(candidate.get("commit_sha") or ""))
+    current = {
+        "tag": tag or "untagged",
+        "date": date,
+        "commit_hash": str(candidate.get("commit_sha") or ""),
+        "message": notes.splitlines()[0] if notes else "",
+    }
+    prior = forge.list_releases(repo_url or None) if repo_url else []
+    history = [current]
+    for row in prior:
+        if str(row.get("tag") or "") == tag:
+            continue
+        history.append(row)
+    return history
+
+
+def _bom_schedule(outputs: Sequence[Any]) -> tuple[list[str], list[list[str]]]:
+    import csv
+    import io
+
+    for output in outputs:
+        if getattr(output, "step_id", "") != "bom":
+            continue
+        for path in getattr(output, "files", ()) or ():
+            candidate = Path(path)
+            if candidate.suffix.lower() != ".csv" or not candidate.is_file():
+                continue
+            reader = csv.reader(io.StringIO(candidate.read_text(encoding="utf-8", errors="replace")))
+            rows = [list(row) for row in reader if any(cell.strip() for cell in row)]
+            if not rows:
+                return [], []
+            return [str(cell) for cell in rows[0]], rows[1:]
+    return [], []
 
 
 def _revision_history(
@@ -1731,10 +1809,15 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
 
     payload = context.payload
     project_id = str(payload["project_id"])
-    config_key = str(payload.get("config_key") or "default")
+    config_key = str(payload.get("config_key") or "release")
     variant = str(payload.get("variant") or "")
     commit_sha = str(payload.get("commit_sha") or "HEAD")
     author = str(payload.get("author") or "anonymous")
+    identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
+    manufacturing = payload.get("manufacturing") if isinstance(payload.get("manufacturing"), dict) else {}
+    board = str(payload.get("board") or "")
+    schematic = str(payload.get("schematic") or "")
+    bom_preset = str(payload.get("bom_preset") or "")
 
     row = workspace_service.workspace.get_project_by_id(project_id)
     if not row:
@@ -1755,6 +1838,24 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         include_schematic=True,
     )
     tracker.start("closure", message="Materializing the input closure", percent=5)
+    synthesized = None
+    if board and schematic:
+        from app.release_studio.inputs import synthesize_configuration
+
+        synthesized = synthesize_configuration(
+            board=board,
+            schematic=schematic,
+            variant=variant,
+            document_name=str(identity.get("document_name") or ""),
+            tag=str(identity.get("tag") or ""),
+            date=str(identity.get("date") or ""),
+            notes=str(identity.get("notes") or ""),
+            manufacturing=manufacturing,
+            vendors=list(manufacturing.get("vendors") or payload.get("vendors") or []),
+            bom_preset=bom_preset,
+            title=str(identity.get("document_name") or identity.get("tag") or ""),
+        )
+        config_key = "release"
     try:
         candidate = prepare_candidate(
             project_id=project_id,
@@ -1766,6 +1867,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
             workspace_root=context.staging_dir,
             created_by=author,
             project_relpath=relative_path,
+            configuration=synthesized,
         )
     except JobCancelled:
         # Cancellation is a terminal worker decision, never a failed
@@ -1816,6 +1918,29 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         )
         raise
     tracker.succeed("closure", percent=8)
+
+    if not board:
+        from app.release_studio.source import discover_source
+
+        try:
+            discovered = discover_source(repo_root, candidate["commit_sha"])
+        except Exception:
+            discovered = {}
+        board = str(discovered.get("board") or "")
+        schematic = schematic or str(discovered.get("schematic") or "")
+
+    from app.release_studio.impedance import parse_impedance_csv
+
+    candidate["repo_url"] = str(row.get("repo_url") or "")
+    candidate["_impedance_rows"] = parse_impedance_csv(str(payload.get("impedance_csv") or ""))
+    stackup_b64 = str(payload.get("stackup_pdf_b64") or "")
+    if stackup_b64:
+        import base64
+
+        try:
+            candidate["_stackup_pdf"] = base64.b64decode(stackup_b64)
+        except Exception:
+            candidate["_stackup_pdf"] = None
 
     result = execute_build(
         context,

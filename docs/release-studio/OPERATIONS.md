@@ -12,6 +12,16 @@ The live release suite runs `kicad-cli` with argument vectors, not shell
 interpolation. The required quality gate on the core merge paths builds the
 pinned AMD64 image and fails on zero tests, skips, failures, or errors.
 
+## Live build console
+
+While a build runs, the Build stage tails job stdout through
+`/api/jobs/{id}/logs` (same endpoint as 3D asset generation). Output appears in
+**ObserveBuildStep** as the worker progresses. Finished runs do not replay this
+stream; archived diagnostics remain in build evidence.
+
+**Cancel build** requests fenced cancellation and remains available after a
+reload when the attempt has a persisted job identity.
+
 ## Forge tokens
 
 Prism's workspace SSH key can clone; it cannot create a GitHub or GitLab
@@ -23,8 +33,16 @@ GITLAB_TOKEN=<token with api scope>
 ```
 
 Use GitHub's token for `github.com` remotes and GitLab's token for GitLab
-hosts. A clone-only token returns HTTP 403 with copy that asks for write
-scope. Tokens are workspace-level, not per-user OAuth.
+hosts. The tokens are also required to:
+
+- check whether a tag already exists (`GET .../tags/{tag}`);
+- list prior Releases for cover revision history; and
+- publish the dossier zip.
+
+Without write scope, publish returns HTTP 403 with copy that asks for write
+scope. Without any token, tag-existence checks and release history degrade
+gracefully (Identity may allow progress; history shows the current row only).
+Tokens are workspace-level, not per-user OAuth.
 
 ## Retention and garbage collection
 
@@ -36,10 +54,14 @@ artifacts remain subject to ordinary retention. Pins have no TTL.
 
 - A failed or cancelled build: open the retained attempt and inspect its
   archived diagnostics. Neither status can be published; start a new attempt.
-- A running build: use the live console. **Cancel build** remains available
-  after a reload when the attempt has a persisted job identity.
-- A configuration publication refusal: confirm the tracked branch is current
-  and Prism can push. Publication uses the same repository write lock as Sync.
+- A running build: use the live console on the Build stage. **Cancel build**
+  remains available after a reload when the attempt has a persisted job
+  identity.
+- A tag clash at Identity: choose an unused tag. Tags are never overwritten.
+- A tag clash at Publish after an API outage during Identity: the forge refused
+  the Release; start a new build with a different tag.
+- A missing source file: confirm board and schematic paths at the
+  selected commit. Use Source discovery or fix the KiCad project layout.
 - A missing vendor pack: confirm the selected profile's complete artifact set;
   for JLCPCB, Gerbers, drill, `bom.csv`, `cpl.csv`, `bom.xlsx`, and `cpl.xlsx`
   are all required.

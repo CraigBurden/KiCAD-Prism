@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ from app.services.job_service import jobs
 from app.services.workspace_service import workspace
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -35,11 +37,23 @@ router = APIRouter(dependencies=[Depends(require_viewer)])
 
 
 class CandidateRequest(BaseModel):
-    config_key: str = Field("default", max_length=200)
-    # A queued build must name an immutable Git object. Ref names and short
-    # SHAs can move or be ambiguous before the worker materializes the closure.
+    config_key: str = Field("release", max_length=200)
     commit_sha: str = Field(..., pattern=r"^[0-9a-fA-F]{40}$")
     variant: str = Field("", max_length=200)
+    board: str = Field("", max_length=500)
+    schematic: str = Field("", max_length=500)
+    bom_preset: str = Field("", max_length=200)
+    identity: dict[str, Any] = Field(default_factory=dict)
+    manufacturing: dict[str, Any] = Field(default_factory=dict)
+    impedance_csv: str = Field("", max_length=200_000)
+    stackup_pdf_b64: str = Field("", max_length=20_000_000)
+
+
+class SourceDefaultsRequest(BaseModel):
+    board: str = Field("", max_length=500)
+    schematic: str = Field("", max_length=500)
+    variant: str = Field("", max_length=200)
+    bom_preset: str = Field("", max_length=200)
 
 
 class ConfigurationWriteRequest(BaseModel):
@@ -142,6 +156,88 @@ async def list_vendor_profiles(
     return {"profiles": public_profile_payload()}
 
 
+@router.get("/{project_id}/release-studio/source")
+async def get_source(
+    project_id: str,
+    commit_sha: str = Query(..., min_length=40, max_length=40),
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    """Discover KiCad files, variants, and BOM presets at an immutable commit."""
+
+    get_project_for_role_or_404(project_id, user.role)
+    if not _is_full_git_sha(commit_sha):
+        raise HTTPException(status_code=400, detail="commit_sha must be a full 40-character hexadecimal Git SHA")
+    project = workspace.get_project_by_id(project_id) or {}
+    repo_root = Path(str(project.get("path") or project.get("clone_path") or ""))
+    for _ in range(6):
+        if (repo_root / ".git").exists():
+            break
+        repo_root = repo_root.parent
+    from app.release_studio.ipc import public_ipc_payload
+    from app.release_studio.source import apply_source_defaults, discover_source
+
+    try:
+        source = discover_source(repo_root, commit_sha)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        source = apply_source_defaults(source, store.get_source_defaults(project_id))
+    except Exception:
+        logger.exception("Could not apply saved Source picks for project %s", project_id)
+    try:
+        forge = forge_publish.describe_forge(str(project.get("repo_url") or "")).to_dict()
+    except forge_publish.ForgePublishError as exc:
+        forge = {
+            "kind": "unsupported",
+            "name": "",
+            "host": "",
+            "owner_repo": "",
+            "token_configured": False,
+            "token_hint": str(exc),
+        }
+    return {"source": source, "ipc": public_ipc_payload(), "forge": forge}
+
+
+@router.put("/{project_id}/release-studio/source/defaults")
+async def save_source_defaults(
+    project_id: str,
+    request: SourceDefaultsRequest,
+    user: AuthenticatedUser = Depends(require_designer),
+):
+    """Remember Source picks for the next release of this project."""
+
+    get_project_for_role_or_404(project_id, user.role)
+    defaults = store.save_source_defaults(project_id, request.model_dump())
+    return {"defaults": defaults}
+
+
+@router.get("/{project_id}/release-studio/tags/{tag}")
+async def check_release_tag(
+    project_id: str,
+    tag: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    get_project_for_role_or_404(project_id, user.role)
+    project = workspace.get_project_by_id(project_id) or {}
+    exists = forge_publish.tag_exists(str(project.get("repo_url") or ""), tag)
+    return {"tag": tag, "exists": exists}
+
+
+@router.get("/{project_id}/release-studio/impedance-template.csv")
+async def impedance_template(
+    project_id: str,
+    user: AuthenticatedUser = Depends(require_viewer),
+):
+    get_project_for_role_or_404(project_id, user.role)
+    from app.release_studio.impedance import TEMPLATE_CSV
+
+    return Response(
+        content=TEMPLATE_CSV.encode("utf-8"),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="controlled-impedance.csv"'},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Candidates and builds
 # ---------------------------------------------------------------------------
@@ -177,14 +273,28 @@ async def create_candidate(
             "config_key": request.config_key,
             "commit_sha": request.commit_sha,
             "variant": request.variant,
+            "board": request.board,
+            "schematic": request.schematic,
+            "bom_preset": request.bom_preset,
+            "identity": request.identity,
+            "manufacturing": request.manufacturing,
+            "impedance_csv": request.impedance_csv,
+            "stackup_pdf_b64": request.stackup_pdf_b64,
             "author": user.email,
         },
         project_id=project_id,
         requested_by=user.email,
         artifact_key=(
-            f"release-studio:{project_id}:{request.config_key}:"
-            f"{request.commit_sha}:{request.variant}"
+            f"release-studio:{project_id}:{request.commit_sha}:"
+            f"{request.variant}:{request.identity.get('tag') or request.config_key}"
         ),
+    )
+    _remember_source_defaults(
+        project_id,
+        board=request.board,
+        schematic=request.schematic,
+        variant=request.variant,
+        bom_preset=request.bom_preset,
     )
     return {"job": job}
 
@@ -236,6 +346,15 @@ async def get_build(
 
 def _is_full_git_sha(value: str) -> bool:
     return len(value) == 40 and all(char in "0123456789abcdefABCDEF" for char in value)
+
+
+def _remember_source_defaults(project_id: str, **fields: str) -> None:
+    """Best-effort persist of last Source picks. A miss must not fail the build."""
+
+    try:
+        store.save_source_defaults(project_id, fields)
+    except Exception:
+        logger.exception("Could not persist Release Studio source defaults for project %s", project_id)
 
 
 @router.get("/{project_id}/release-studio/builds/{build_id}/dossier")

@@ -236,7 +236,7 @@ export function VendorPackCard({
                     <span className="text-muted-foreground">Manufacturer</span>
                     <select
                         aria-label="Manufacturer"
-                        className="flex h-9 min-w-48 border border-input bg-background px-3 text-sm"
+                        className="flex h-9 min-w-48 border border-input bg-background px-3 py-1.5 text-sm leading-none"
                         value={selected.id}
                         onChange={(event) => {
                             setUncontrolledVendorId(event.target.value);

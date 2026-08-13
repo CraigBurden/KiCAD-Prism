@@ -137,7 +137,7 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             "configuration_document": {
                 "schema": "prism.release-studio.configuration/1",
                 "title": "Preparation failure: production",
-                "board": "", "schematic": "", "jobset": "", "default_variant": "",
+                "board": "", "schematic": "", "default_variant": "",
                 "fields": {}, "notes": {"failure_context": "preparation did not complete"}, "variants": [], "typography": "inter",
                 "vendors": [], "document_number": "", "revision": "",
             },

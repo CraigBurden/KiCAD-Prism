@@ -71,6 +71,8 @@ class PipelineTrackerTests(unittest.TestCase):
         last = emitted[-1]
         self.assertIn("pipeline", last["payload_updates"])
         self.assertTrue(last["force"])
+        self.assertEqual(emitted[1]["message"], "Running DRC")
+        self.assertEqual(emitted[-1]["message"], "Finished DRC")
         checks = next(
             job
             for job in last["payload_updates"]["pipeline"]["jobs"]
@@ -117,6 +119,16 @@ class DeterministicZipTests(unittest.TestCase):
         second = write_deterministic_zip({"a.txt": b"a", "b.txt": b"b"})
         self.assertEqual(first, second)
         self.assertEqual(first[:2], b"PK")
+
+    def test_mtime_is_written_into_zip_headers(self) -> None:
+        from datetime import datetime, timezone
+
+        stamp = int(datetime(2026, 8, 14, 3, 39, tzinfo=timezone.utc).timestamp())
+        first = write_deterministic_zip({"a.txt": b"a"}, mtime=stamp)
+        second = write_deterministic_zip({"a.txt": b"a"}, mtime=stamp)
+        self.assertEqual(first, second)
+        with zipfile.ZipFile(io.BytesIO(first)) as archive:
+            self.assertEqual(archive.getinfo("a.txt").date_time, (2026, 8, 14, 3, 39, 0))
 
 
 class VendorPackTests(unittest.TestCase):

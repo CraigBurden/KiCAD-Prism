@@ -46,6 +46,9 @@ CONFIGURATION_KEYS = frozenset(
         "sheets",
         "typography",
         "vendors",
+        "release_date",
+        "release_notes",
+        "bom_preset",
     }
 )
 
@@ -103,12 +106,17 @@ def validate_configuration_mapping(
         kind="schematic",
         suffixes=(".kicad_sch",),
     )
-    jobset = _normalize_repository_path(
-        data.get("jobset"),
-        source=f"{source}.jobset",
-        kind="jobset",
-        suffixes=(".kicad_jobset",),
-    )
+    raw_jobset = data.get("jobset")
+    jobset = ""
+    if raw_jobset is not None and not (
+        isinstance(raw_jobset, str) and not str(raw_jobset).strip()
+    ):
+        jobset = _normalize_repository_path(
+            raw_jobset,
+            source=f"{source}.jobset",
+            kind="jobset",
+            suffixes=(".kicad_jobset",),
+        )
 
     raw_default_variant = data.get("default_variant")
     if raw_default_variant is None or (
@@ -187,19 +195,20 @@ def validate_configuration_mapping(
         "title": title,
         "board": board,
         "schematic": schematic,
-        "jobset": jobset,
         "default_variant": default_variant,
         "fields": dict(fields),
         "notes": {key: list(value) for key, value in notes.items()},
         "variants": variants,
         "typography": typography,
     }
+    if jobset:
+        normalized["jobset"] = jobset
     if policy is not None:
         normalized["policy"] = _normalize_policy_reference(
             policy,
             source=f"{source}.policy",
         )
-    for optional_str in ("document_number", "revision"):
+    for optional_str in ("document_number", "revision", "release_date", "release_notes", "bom_preset"):
         value = data.get(optional_str)
         if value is not None:
             normalized[optional_str] = _require_nonblank_string(

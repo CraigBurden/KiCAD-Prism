@@ -446,6 +446,14 @@ variants: null
             parse_configuration_yaml(without_optional_defaults + "default_variant: \"\"\n"),
         )
 
+    def test_jobset_may_be_omitted(self) -> None:
+        parsed = parse_configuration_yaml(
+            _MIN_CONFIG.replace("jobset: Outputs.kicad_jobset\n", "")
+        )
+        self.assertNotIn("jobset", parsed)
+        self.assertEqual(parsed["board"], "board.kicad_pcb")
+        self.assertEqual(parsed["schematic"], "board.kicad_sch")
+
     def test_checkout_rejects_symlinked_references_outside_checkout(self) -> None:
         workspace = Path(__file__).resolve().parents[2]
         fields = (

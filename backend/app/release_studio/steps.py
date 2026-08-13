@@ -14,8 +14,11 @@ genuine tool failure fails the step.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
+import tempfile
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -26,13 +29,55 @@ from typing import Any, Iterable, Mapping, Sequence
 
 DEFAULT_CLI_TIMEOUT_SECONDS = 900
 
-#: Ceiling on concurrent `kicad-cli` processes.
-#:
-#: Each holds the whole board in memory, so this is bounded by RAM rather than
-#: by cores: eight copies of a 35 MB board's in-memory model is already a lot
-#: to ask of a worker container, and the catalogue is not much longer than this
-#: anyway.
-_MAX_PARALLEL_STEPS = 6
+# KiCad 10.0.4 `sch export bom --preset` looks up built-in names in the
+# temporary vector from BOM_PRESET::BuiltInPresets() and keeps a pointer
+# into it (eeschema_jobs_handler.cpp). After the range-for ends that
+# vector is gone; copying the preset then throws std::bad_alloc /
+# length_error. Translate the built-ins to explicit CLI flags instead.
+_CURRENT_BOM_SETTINGS = "Current project settings"
+_BUILTIN_BOM_CLI: dict[str, tuple[str, ...]] = {
+    "Grouped By Value": (
+        "--fields",
+        "Reference,QUANTITY,Value,Manufacturer,Manufacturer Part Number,Footprint,Datasheet,DNP",
+        "--labels",
+        "Reference,Qty,Value,Manufacturer,MPN,Footprint,Datasheet,DNP",
+        "--group-by",
+        "Value,DNP",
+    ),
+    "Grouped By Value and Footprint": (
+        "--fields",
+        "Reference,QUANTITY,Value,Manufacturer,Manufacturer Part Number,Footprint,Datasheet,DNP",
+        "--labels",
+        "Reference,Qty,Value,Manufacturer,MPN,Footprint,Datasheet,DNP",
+        "--group-by",
+        "Value,Footprint,DNP",
+    ),
+    "Attributes": (
+        "--fields",
+        "Reference,Value,DNP,EXCLUDE_FROM_BOM,EXCLUDE_FROM_BOARD,"
+        "EXCLUDE_FROM_SIM,EXCLUDE_FROM_POS_FILES",
+        "--labels",
+        "Reference,Value,Do Not Place,Exclude from BOM,Exclude from Board,"
+        "Exclude from Simulation,Exclude from Position Files",
+        "--group-by",
+        "Value,Footprint",
+    ),
+}
+
+
+def _bom_extra_argv(bom_preset: str) -> tuple[str, ...]:
+    name = (bom_preset or "").strip()
+    if not name or name == _CURRENT_BOM_SETTINGS:
+        return ()
+    mapped = _BUILTIN_BOM_CLI.get(name)
+    if mapped is not None:
+        return mapped
+    return ("--preset", name)
+
+
+#: One `kicad-cli` at a time. Parallel invocations of `sch export bom` have
+#: died with `std::bad_alloc` even when DRC/ERC on the same schematic succeed.
+_MAX_PARALLEL_STEPS = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,10 +232,30 @@ STEP_CATALOGUE: tuple[StepSpec, ...] = (
 
 STEP_BY_ID: Mapping[str, StepSpec] = {spec.step_id: spec for spec in STEP_CATALOGUE}
 
-#: Cheap validation and BOM/PnP first, overlapping the Cruncher assembly load.
-CATALOGUE_WAVE_A: tuple[str, ...] = ("drc", "erc", "board_stats", "positions", "bom")
+_CATALOGUE_TITLES: Mapping[str, str] = {
+    "drc": "DRC",
+    "erc": "ERC",
+    "board_stats": "board statistics",
+    "gerbers": "Gerbers",
+    "drill": "drill files",
+    "positions": "pick-and-place positions",
+    "bom": "bill of materials",
+    "schematic_pdf": "schematic PDF",
+}
+
+
+def _catalogue_title(spec: StepSpec) -> str:
+    return _CATALOGUE_TITLES.get(spec.step_id, spec.step_id.replace("_", " "))
+
+#: Checks finish before any assembly `kicad-cli` or Cruncher load.
+CATALOGUE_WAVE_CHECKS: tuple[str, ...] = ("drc", "erc", "board_stats")
+#: Pick-and-place after Checks. BOM is a later wave so the two never overlap.
+CATALOGUE_WAVE_POSITIONS: tuple[str, ...] = ("positions",)
+#: Schematic BOM, alone. Parallel `kicad-cli` loads have been dying with
+#: ``std::bad_alloc`` on the worker, including BOM overlapping positions.
+CATALOGUE_WAVE_BOM: tuple[str, ...] = ("bom",)
 #: Artwork the document engine does not itself plot.
-CATALOGUE_WAVE_B: tuple[str, ...] = ("gerbers", "drill", "schematic_pdf")
+CATALOGUE_WAVE_ARTWORK: tuple[str, ...] = ("gerbers", "drill", "schematic_pdf")
 
 # The Documentation Engine's sheets, deliberately *outside* `STEP_CATALOGUE`:
 # they are composed in-process rather than by a `kicad-cli` invocation, so they
@@ -288,6 +353,7 @@ def run_step_catalogue(
     progress: Any = None,
     on_step: Any = None,
     runner: Any = None,
+    bom_preset: str = "",
 ) -> tuple[StepOutput, ...]:
     """Run the catalogue against a materialized closure.
 
@@ -307,11 +373,9 @@ def run_step_catalogue(
     if not specs:
         return ()
 
-    # Every step is an independent `kicad-cli` process reading the closure and
-    # writing its own output path, so they run together.  Serially the fixed
-    # per-invocation cost -- a couple of seconds of process start and board
-    # load each -- was paid nine times over, and DRC alone can take half a
-    # minute while eight other steps wait behind it.
+    # Every step is an independent `kicad-cli` process. They used to overlap;
+    # `sch export bom` then died with std::bad_alloc / basic_string::_M_create
+    # while DRC/ERC still held the design. One process at a time.
     run = partial(
         _run_one,
         cli=cli,
@@ -324,22 +388,27 @@ def run_step_catalogue(
         variant=variant,
         timeout_seconds=timeout_seconds,
         execute=execute,
+        bom_preset=bom_preset,
     )
     results: dict[str, StepOutput] = {}
     completed = 0
+
     with ThreadPoolExecutor(max_workers=min(len(specs), _MAX_PARALLEL_STEPS)) as pool:
         futures = {}
         for spec in specs:
+            title = _catalogue_title(spec)
+            print(f"[{spec.step_id}] Running {title}", flush=True)
             if on_step is not None:
-                on_step(spec.step_id, "in_progress")
+                on_step(spec.step_id, "in_progress", message=f"Running {title}")
             futures[pool.submit(run, spec)] = spec
         for future in as_completed(futures):
             spec = futures[future]
             completed += 1
+            title = _catalogue_title(spec)
             if progress is not None:
                 progress(
                     stage="generate",
-                    message=f"Ran {spec.step_id}",
+                    message=f"Finished {title} ({completed}/{len(specs)})",
                     percent=10 + int(60 * completed / len(specs)),
                 )
             # A failing step still raises, exactly as it did serially; the
@@ -357,12 +426,14 @@ def run_step_catalogue(
                     part for part in (output.stdout, output.stderr) if part
                 )
                 status = "skipped" if output.skipped_reason else "success"
+                done = output.skipped_reason or f"Finished {title}"
+                print(f"[{spec.step_id}] {done}", flush=True)
                 on_step(
                     spec.step_id,
                     status,
                     elapsed_ms=output.elapsed_ms,
                     log=log,
-                    message=output.skipped_reason,
+                    message=done,
                 )
     # Catalogue order, not completion order: the dossier's member ordering and
     # every digest built from it have to be independent of scheduling.
@@ -382,6 +453,7 @@ def _run_one(
     variant: str,
     timeout_seconds: int,
     execute: Any,
+    bom_preset: str = "",
 ) -> StepOutput:
     destination = output_root / spec.output_name
     if spec.output_kind == "dir":
@@ -406,11 +478,16 @@ def _run_one(
     }
     argv = [cli, *(part.format(**substitutions) for part in spec.argv)]
     normalized = ["kicad-cli", *(part.format(**normalized_substitutions) for part in spec.argv)]
-    if spec.variant_flag and variant:
+    if spec.variant_flag and variant and variant.casefold() != "default":
         argv.extend(("--variant", variant))
         normalized.extend(("--variant", variant))
+    if spec.step_id == "bom":
+        extra = _bom_extra_argv(bom_preset)
+        argv.extend(extra)
+        normalized.extend(extra)
 
     started = time.perf_counter()
+    print(f"[{spec.step_id}] $ {shlex.join(str(part) for part in argv)}", flush=True)
     result = execute(argv, closure_root, timeout_seconds)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     files = _collect_outputs(destination, spec)
@@ -468,23 +545,80 @@ class _RunResult:
     stderr: str
 
 
-def _default_runner(argv: Sequence[str], cwd: Path, timeout_seconds: int) -> _RunResult:
+def isolated_cli_env(scratch: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Give each kicad-cli its own temp/runtime dir for the instance lock."""
+
+    env = dict(base if base is not None else os.environ)
+    temp = str(scratch)
+    env["TMPDIR"] = temp
+    env["TMP"] = temp
+    env["TEMP"] = temp
+    env["XDG_RUNTIME_DIR"] = temp
+    return env
+
+
+def _run_cli_process(
+    argv: Sequence[str],
+    cwd: Path,
+    timeout_seconds: int,
+    *,
+    env: Mapping[str, str],
+    start_new_session: bool = False,
+) -> _RunResult:
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             list(argv),
             cwd=str(cwd),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_seconds,
-            check=False,
+            bufsize=1,
+            env=dict(env),
+            start_new_session=start_new_session,
+            close_fds=True,
         )
+    except OSError as exc:
+        raise StepExecutionError(f"kicad-cli could not be executed: {exc}") from exc
+
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+
+    def _pump(stream: Any, bucket: list[str]) -> None:
+        if stream is None:
+            return
+        for line in iter(stream.readline, ""):
+            bucket.append(line)
+            print(line, end="", flush=True)
+
+    readers = (
+        threading.Thread(target=_pump, args=(process.stdout, stdout_chunks), daemon=True),
+        threading.Thread(target=_pump, args=(process.stderr, stderr_chunks), daemon=True),
+    )
+    for thread in readers:
+        thread.start()
+    try:
+        returncode = process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:  # pragma: no cover - timing dependent
+        process.kill()
+        process.wait()
         raise StepExecutionError(
             f"kicad-cli timed out after {timeout_seconds}s: {' '.join(argv[:4])}"
         ) from exc
-    except OSError as exc:
-        raise StepExecutionError(f"kicad-cli could not be executed: {exc}") from exc
-    return _RunResult(completed.returncode, completed.stdout or "", completed.stderr or "")
+    for thread in readers:
+        thread.join(timeout=5)
+    return _RunResult(returncode, "".join(stdout_chunks), "".join(stderr_chunks))
+
+
+def _default_runner(argv: Sequence[str], cwd: Path, timeout_seconds: int) -> _RunResult:
+    """Run kicad-cli and tee its output to the worker stdout for the live log."""
+
+    with tempfile.TemporaryDirectory(prefix="kicad-cli-") as scratch:
+        return _run_cli_process(
+            argv,
+            cwd,
+            timeout_seconds,
+            env=isolated_cli_env(Path(scratch)),
+        )
 
 
 def evidence_counts(report: Mapping[str, Any]) -> dict[str, int]:
@@ -524,6 +658,7 @@ __all__ = [
     "StepOutput",
     "StepSpec",
     "evidence_counts",
+    "isolated_cli_env",
     "resolve_cli_path",
     "run_step_catalogue",
     "selected_steps",

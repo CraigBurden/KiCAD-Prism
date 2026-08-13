@@ -5,6 +5,8 @@
  */
 export const RUN_STAGES = [
     { id: "source", label: "Source" },
+    { id: "identity", label: "Identity" },
+    { id: "manufacturing", label: "Manufacturing" },
     { id: "build", label: "Build" },
     { id: "outputs", label: "Outputs" },
     { id: "publish", label: "Publish" },
@@ -17,6 +19,7 @@ export const DOCUMENT_ORDER = [
     "testpoint",
     "drill",
     "schematic",
+    "bom",
 ] as const;
 
 export function shortDigest(value: string | null | undefined): string {

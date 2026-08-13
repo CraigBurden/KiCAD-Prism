@@ -271,11 +271,11 @@ def _title_fields(context: Mapping[str, Any], extra: Sequence[TitleBlockField] =
     TitleBlockField
 ]:
     fields = [
-        TitleBlockField("DOCUMENT", str(context.get("document_number") or "—")),
+        TitleBlockField("DOCUMENT", str(context.get("document_name") or context.get("document_number") or "—")),
         TitleBlockField("REVISION", str(context.get("revision") or "—")),
         TitleBlockField("COMMIT", str(context.get("commit_sha") or "")[:12] or "—"),
         TitleBlockField("VARIANT", str(context.get("variant") or "default")),
-        TitleBlockField("DATE", str(context.get("commit_date") or "—")),
+        TitleBlockField("DATE", str(context.get("release_date") or context.get("commit_date") or "—")),
     ]
     fields.extend(extra)
     return fields

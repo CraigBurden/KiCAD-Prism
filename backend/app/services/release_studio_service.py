@@ -305,6 +305,47 @@ def upsert_configuration(
     return get_configuration(project_id, config_key) or {}
 
 
+def get_source_defaults(project_id: str) -> dict[str, str]:
+    """Return the last Source picks saved for this project."""
+
+    from app.release_studio.source import normalize_source_defaults
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT release_studio_defaults FROM ws_projects WHERE id = %s",
+            (project_id,),
+        ).fetchone()
+    raw = row["release_studio_defaults"] if row else {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    return normalize_source_defaults(raw)
+
+
+def save_source_defaults(project_id: str, defaults: Mapping[str, Any]) -> dict[str, str]:
+    """Merge and persist Source picks. Empty values leave the previous pick."""
+
+    from app.release_studio.source import normalize_source_defaults
+
+    incoming = {key: value for key, value in normalize_source_defaults(defaults).items() if value}
+    if incoming:
+        with connect() as conn:
+            conn.execute(
+                """
+                UPDATE ws_projects
+                SET release_studio_defaults = COALESCE(release_studio_defaults, '{}'::jsonb) || %s::jsonb
+                WHERE id = %s
+                """,
+                (json.dumps(incoming), project_id),
+            )
+            conn.commit()
+    return get_source_defaults(project_id)
+
+
 def list_configurations(project_id: str) -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
@@ -475,7 +516,6 @@ def record_prepare_failure(
         "title": f"Preparation failure: {config_key}",
         "board": "",
         "schematic": "",
-        "jobset": "",
         "default_variant": variant,
         "fields": {},
         "notes": {"failure_context": "preparation did not complete"},
@@ -2150,6 +2190,8 @@ __all__ = [
     "get_build",
     "get_candidate",
     "get_configuration",
+    "get_source_defaults",
+    "save_source_defaults",
     "get_release_record",
     "get_waiver",
     "initialize",

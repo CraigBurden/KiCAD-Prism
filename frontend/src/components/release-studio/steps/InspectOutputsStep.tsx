@@ -184,7 +184,7 @@ export function InspectOutputsStep({
                 onVendorChange={setVendorId}
             />
 
-            <Button onClick={onContinue}>Continue to publish</Button>
+            <Button onClick={onContinue}>Continue</Button>
         </div>
     );
 }

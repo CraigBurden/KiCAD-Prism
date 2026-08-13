@@ -295,15 +295,15 @@ class CatalogueHermeticityTests(unittest.TestCase):
         self.assertTrue(hermetic, reasons)
         self.assertEqual(reasons, [])
 
-    def test_a_missing_named_jobset_still_fails_closed(self) -> None:
+    def test_a_missing_named_jobset_does_not_fail_the_catalogue(self) -> None:
         from app.services.release_studio_build_service import _hermeticity
 
         with tempfile.TemporaryDirectory() as temporary:
             hermetic, reasons = _hermeticity(
                 Path(temporary), {"jobset": "missing.kicad_jobset"}
             )
-        self.assertFalse(hermetic)
-        self.assertTrue(any("not present" in reason for reason in reasons))
+        self.assertTrue(hermetic, reasons)
+        self.assertEqual(reasons, [])
 
 
 if __name__ == "__main__":

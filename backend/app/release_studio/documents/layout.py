@@ -16,7 +16,7 @@ always serializes to the same bytes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Iterable, Literal, Sequence
 
 from app.release_studio.documents.fonts import (
@@ -554,6 +554,9 @@ class Table:
     #: it is one -- ``LAYER STACKUP (CONTINUED)`` rather than a second table
     #: that looks like a different stackup.
     continued: bool = False
+    bordered: bool = False
+    max_cell_lines: int = MAX_CELL_LINES
+    cell_family: Family = "mono"
 
     @property
     def heading(self) -> str:
@@ -574,14 +577,15 @@ class Table:
     def row_extent(self, row: Sequence[str], typography: str = DEFAULT_TYPOGRAPHY) -> float:
         """How tall one data row must be once its cells are wrapped."""
 
-        gutter = _cell_gutter(self.font_size)
         lines = 1
         for value, width in zip(row, self.widths):
             wrapped = wrap_cell(
                 str(value),
-                max(width - gutter, 1.0),
+                _cell_wrap_width(width, self.font_size, bordered=self.bordered),
                 self.font_size,
+                family=self.cell_family,
                 typography=typography,
+                max_lines=self.max_cell_lines,
             )
             lines = max(lines, len(wrapped))
         if lines <= 1:
@@ -601,28 +605,15 @@ class Table:
 
         if factor >= 1.0:
             return self
-        return Table(
-            columns=self.columns,
-            rows=self.rows,
+        return replace(
+            self,
             widths=tuple(width * factor for width in self.widths),
-            align=self.align,
             font_size=self.font_size * factor,
             row_height=self.row_height * factor,
-            title=self.title,
-            continued=self.continued,
         )
 
     def _with_rows(self, rows: Sequence[Sequence[str]], *, continued: bool) -> "Table":
-        return Table(
-            columns=self.columns,
-            rows=tuple(tuple(row) for row in rows),
-            widths=self.widths,
-            align=self.align,
-            font_size=self.font_size,
-            row_height=self.row_height,
-            title=self.title,
-            continued=continued,
-        )
+        return replace(self, rows=tuple(tuple(row) for row in rows), continued=continued)
 
     def split(
         self, budget: float, typography: str = DEFAULT_TYPOGRAPHY
@@ -801,12 +792,32 @@ def _cell_gutter(font_size: float) -> float:
     return font_size * _CELL_GUTTER_RATIO
 
 
-def _cell_anchor(offset: float, width: float, align: Anchor, font_size: float) -> float:
+def _cell_inset(font_size: float, *, bordered: bool) -> float:
+    """Leading inset. Unbordered tables keep text at the column origin."""
+
+    return _cell_gutter(font_size) if bordered else 0.0
+
+
+def _cell_wrap_width(width: float, font_size: float, *, bordered: bool) -> float:
+    gutter = _cell_gutter(font_size)
+    reserved = 2 * gutter if bordered else gutter
+    return max(width - reserved, 1.0)
+
+
+def _cell_anchor(
+    offset: float,
+    width: float,
+    align: Anchor,
+    font_size: float,
+    *,
+    bordered: bool = False,
+) -> float:
+    inset = _cell_inset(font_size, bordered=bordered)
     if align == "end":
         return offset + width - _cell_gutter(font_size)
     if align == "middle":
         return offset + width / 2
-    return offset
+    return offset + inset
 
 
 def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float]) -> float:
@@ -822,16 +833,17 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
         cursor += 5.0
 
     aligns = table.align or tuple("start" for _ in table.columns)
-    gutter = _cell_gutter(table.font_size)
+    total_width = sum(table.widths)
+    grid_top = cursor
     header_baseline = cursor + table.row_height - 1.4
     offset = x0
     for column, width, align in zip(table.columns, table.widths, aligns):
         builder.text(
-            _cell_anchor(offset, width, align, table.font_size),
+            _cell_anchor(offset, width, align, table.font_size, bordered=table.bordered),
             header_baseline,
             fit_text(
                 column,
-                width - gutter,
+                _cell_wrap_width(width, table.font_size, bordered=table.bordered),
                 table.font_size,
                 bold=True,
                 typography=builder.typography,
@@ -842,9 +854,10 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
         )
         offset += width
     cursor += table.row_height
-    total_width = sum(table.widths)
-    builder.line(x0, cursor - 0.8, x0 + total_width, cursor - 0.8, width=0.3)
+    if not table.bordered:
+        builder.line(x0, cursor - 0.8, x0 + total_width, cursor - 0.8, width=0.3)
 
+    row_stops = [cursor]
     for row in table.rows:
         offset = x0
         row_height = table.row_extent(row, builder.typography)
@@ -852,22 +865,34 @@ def draw_table(builder: SheetBuilder, table: Table, origin: tuple[float, float])
         for value, width, align in zip(row, table.widths, aligns):
             lines = wrap_cell(
                 str(value),
-                max(width - gutter, 1.0),
+                _cell_wrap_width(width, table.font_size, bordered=table.bordered),
                 table.font_size,
-                family="mono",
+                family=table.cell_family,
                 typography=builder.typography,
+                max_lines=table.max_cell_lines,
             )
             for line_index, line in enumerate(lines):
                 builder.text(
-                    _cell_anchor(offset, width, align, table.font_size),
+                    _cell_anchor(offset, width, align, table.font_size, bordered=table.bordered),
                     cursor + table.font_size + line_index * line_pitch,
                     line,
                     size=table.font_size,
                     anchor=align,
-                    family="mono",
+                    family=table.cell_family,
                 )
             offset += width
         cursor += row_height
+        row_stops.append(cursor)
+
+    if table.bordered:
+        builder.rect(Rect(x0, grid_top, total_width, cursor - grid_top), width=0.3)
+        builder.line(x0, row_stops[0], x0 + total_width, row_stops[0], width=0.3)
+        for stop in row_stops[1:-1]:
+            builder.line(x0, stop, x0 + total_width, stop, width=0.2, colour="#666666")
+        col_x = x0
+        for width in table.widths[:-1]:
+            col_x += width
+            builder.line(col_x, grid_top, col_x, cursor, width=0.2, colour="#666666")
 
     return cursor
 

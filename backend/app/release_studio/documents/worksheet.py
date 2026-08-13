@@ -39,7 +39,7 @@ def default_worksheet_elements(
         f"{field.label}: {field.value}" for field in extra_fields if field.value
     )
     comments = {
-        1: f"Document: {context.get('document_number') or '—'}",
+        1: f"Document: {context.get('document_name') or context.get('document_number') or '—'}",
         2: f"Commit: {str(context.get('commit_sha') or '')[:12] or '—'}",
         3: f"Variant: {context.get('variant') or 'default'}",
         4: extras,
@@ -50,7 +50,7 @@ def default_worksheet_elements(
         paper_height_nm=int(round(height_mm * _NM_PER_MM)),
         title_block={
             "title": title,
-            "date": str(context.get("commit_date") or "—"),
+            "date": str(context.get("release_date") or context.get("commit_date") or "—"),
             "rev": str(context.get("revision") or "—"),
             "company": "Prism Release Studio",
             "comments": comments,
@@ -58,7 +58,7 @@ def default_worksheet_elements(
         sheet_index=1,
         sheet_count=1,
         paper_name=paper_name,
-        filename=f"{context.get('document_number') or key}.pdf",
+        filename=f"{context.get('document_name') or context.get('document_number') or key}.pdf",
         sheet_path=f"/{key}",
         sheet_name=key,
         kicad_version=str(context.get("kicad_version") or "KiCad"),

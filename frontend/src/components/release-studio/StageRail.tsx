@@ -59,7 +59,7 @@ export function StageRail({
                         // regression worth catching.
                         data-state={state}
                         className={cn(
-                            "flex items-center gap-3 rounded px-3 py-2 text-left text-sm",
+                            "flex items-center gap-3 rounded px-3 py-2.5 text-left text-sm leading-snug",
                             active ? "bg-muted font-medium" : "hover:bg-muted/40",
                             state === "locked" && "cursor-not-allowed opacity-50 hover:bg-transparent",
                         )}
