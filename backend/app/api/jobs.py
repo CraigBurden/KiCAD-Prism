@@ -68,6 +68,13 @@ def _slim_status(job: dict) -> dict:
             "error_message",
         )
     }
+    payload = job.get("payload") or {}
+    if isinstance(payload, dict) and payload.get("pipeline") is not None:
+        status["pipeline"] = payload["pipeline"]
+    elif isinstance(job.get("result_metadata"), dict):
+        pipeline = job["result_metadata"].get("pipeline")
+        if pipeline is not None:
+            status["pipeline"] = pipeline
     status["result_url"] = (
         f"/api/jobs/{job['job_id']}/artifact"
         if job.get("status") == "completed" and job.get("result_digest")

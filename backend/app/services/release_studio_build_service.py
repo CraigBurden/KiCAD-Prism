@@ -13,33 +13,44 @@ PostgreSQL with the fence re-validated.
 from __future__ import annotations
 
 import logging
+import os
+import re
 import shutil
 import subprocess
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from importlib import metadata
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import yaml
+
 from app.release_studio import dossier as dossier_module
 from app.release_studio.canonical import (
     CANONICALIZER_REGISTRY_NAME,
     CANONICALIZER_REGISTRY_VERSION,
     sha256_canonical,
+    write_deterministic_archive,
 )
+from app.release_studio.canonical.json import canonical_json_bytes
 from app.release_studio.closure import materialize_input_closure
 from app.release_studio.config import (
     list_configuration_keys,
+    list_configuration_keys_at_commit,
     load_configuration_at_commit,
     load_configuration_from_checkout,
     load_policy_for_configuration_at_commit,
     technical_config_digest,
     technical_config_payload,
+    validate_configuration_for_checkout,
+    configuration_relpath,
 )
 from app.release_studio.jobset import (
     HERMETIC_STEP_TYPES,
     load_jobset,
 )
+from app.release_studio.pipeline import PipelineTracker
 from app.release_studio.steps import (
     CATALOGUE_WAVE_A,
     CATALOGUE_WAVE_B,
@@ -51,11 +62,22 @@ from app.release_studio.steps import (
     resolve_cruncher_path,
     run_step_catalogue,
 )
+from app.release_studio.vendors import generate_vendor_outputs, resolve_vendor_ids
 from app.services import release_studio_service as store
 from app.services.job_artifact_service import JobArtifactService
-from app.services.job_runtime import JobContext, JobResult
+from app.services.job_runtime import JobCancelled, JobContext, JobResult
 
 logger = logging.getLogger(__name__)
+
+_FAILURE_SECRET = re.compile(
+    r"(?i)\b(password|passwd|secret|token|api[_-]?key|authorization|cookie)"
+    r"(\s*[:=]\s*)([^\s,;]+)"
+)
+_FAILURE_SECRET_KEY = re.compile(
+    r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|cookie)"
+)
+_AUTH_HEADER = re.compile(r"(?im)\b(authorization|cookie)(\s*[:=]\s*)[^\r\n]+")
+_URL_CREDENTIAL = re.compile(r"://([^/\s:@]+):([^@\s/]+)@")
 
 #: Identity of the code that assembles a dossier from a build's outputs.
 #:
@@ -63,13 +85,135 @@ logger = logging.getLogger(__name__)
 #: the manifest contains or how a fingerprint is composed has to move it.  Two
 #: builds sharing a `build_key` while producing different manifests is exactly
 #: the reproducibility claim the key exists to make.
-#: r24 -- dossier documentation members are PDFs only; timings live in evidence.
-GENERATOR_BUILD = "release-studio/r24"
+#: r25 -- vendor-pack members under manufacturing/vendors/{id}/.
+GENERATOR_BUILD = "release-studio/r25"
 EXECUTOR_IDENTITY_FILE = Path("/etc/prism/kicad-base-image")
 
 
 class BuildError(RuntimeError):
     """A Release Studio build could not be produced."""
+
+
+def _redact_failure_text(value: object) -> str:
+    """Keep operator diagnostics useful without preserving credential-shaped text."""
+
+    text = str(value).replace("\x00", " ")[:4000]
+    text = _URL_CREDENTIAL.sub("://[REDACTED]@", text)
+    text = _AUTH_HEADER.sub(r"\1\2[REDACTED]", text)
+    return _FAILURE_SECRET.sub(r"\1\2[REDACTED]", text)
+
+
+def _redact_failure_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): (
+                "[REDACTED]"
+                if _FAILURE_SECRET_KEY.search(str(key))
+                else _redact_failure_value(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_failure_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_failure_value(item) for item in value]
+    if isinstance(value, str):
+        return _redact_failure_text(value)
+    return value
+
+
+def _publish_failure_evidence(
+    *,
+    artifacts: JobArtifactService,
+    context: JobContext,
+    build: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    error_code: str,
+    error: BaseException | str,
+    pipeline: Mapping[str, Any] | None,
+    timings: Sequence[Mapping[str, Any]] = (),
+) -> str | None:
+    """Publish the small, deterministic diagnostic archive for a failed run.
+
+    It intentionally contains no editable configuration, closure paths, or job
+    payload.  The pipeline snapshot supplies the completed step/log index; all
+    free text is redacted before it reaches immutable artifact storage.
+    """
+
+    message = _redact_failure_text(error)
+    payload = {
+        "schema_version": "release-studio.failure-evidence.v1",
+        "failure": {"code": error_code, "message": message},
+        "build": {
+            "id": str(build.get("id") or ""),
+            "candidate_id": str(candidate.get("id") or build.get("candidate_id") or ""),
+            "commit_sha": str(candidate.get("commit_sha") or ""),
+            "config_key": str(candidate.get("config_key") or ""),
+            "variant": str(candidate.get("variant") or ""),
+        },
+        "pipeline": _redact_failure_value(dict(pipeline or {})),
+        "timings": _redact_failure_value(list(timings)),
+    }
+    steps = {
+        str(step.get("id") or ""): {
+            "step_type": str(step.get("id") or ""),
+            "returncode": None,
+            "elapsed_ms": int(step.get("elapsed_ms") or 0),
+            "skipped_reason": str(step.get("message") or "")
+            if step.get("status") == "skipped"
+            else "",
+            "status": str(step.get("status") or "queued"),
+        }
+        for job in (pipeline or {}).get("jobs", [])
+        for step in job.get("steps", [])
+        if step.get("id")
+    }
+    steps["build-failure"] = {
+        "step_type": "diagnostic",
+        "returncode": None,
+        "elapsed_ms": 0,
+        "skipped_reason": "",
+        "status": "cancelled" if error_code == "cancelled" else "failure",
+    }
+    evidence_index = {
+        "schema_version": "release-studio.build-evidence.v1",
+        "steps": steps,
+        "timings": _redact_failure_value(list(timings)),
+        "diagnostics": payload["failure"],
+        "pipeline": payload["pipeline"],
+    }
+    archive = write_deterministic_archive(
+        {
+            "build-evidence.json": canonical_json_bytes(evidence_index),
+            "failure.json": canonical_json_bytes(payload),
+            "logs/build-failure.log": (message + "\n").encode("utf-8"),
+        }
+    )
+    artifact = _publish(
+        artifacts,
+        context,
+        archive,
+        name="build-failure-evidence.tar.gz",
+        kind="release_build_evidence",
+        artifact_key=f"release-evidence-failure:{build['id']}",
+        allow_cancel_requested=error_code == "cancelled",
+    )
+    artifact_ids = context.service.register_fenced_artifacts(
+        context.job_id,
+        context.worker_id,
+        context.fence,
+        (artifact.__dict__,),
+        allowed_statuses=("running", "cancel_requested")
+        if error_code == "cancelled"
+        else ("running",),
+    )
+    if artifact_ids is None:
+        logger.warning(
+            "Release Studio failure evidence was not registered because the fence is stale",
+            extra={"build_id": build.get("id")},
+        )
+        return None
+    return str(artifact_ids[0])
 
 
 def executor_image() -> str:
@@ -208,6 +352,293 @@ def sync_configurations(project_id: str) -> list[dict[str, Any]]:
             row["revision"] = loaded.get("revision", "")
             row["fields"] = loaded.get("fields", {})
             row["notes"] = loaded.get("notes", {})
+            row["vendors"] = loaded.get("vendors", [])
+            row["variants"] = loaded.get("variants", [])
+            row["policy"] = loaded.get("policy")
+            row["template"] = loaded.get("template")
+            row["sheets"] = loaded.get("sheets")
+    return rows
+
+
+def save_configuration(
+    project_id: str,
+    config_key: str,
+    document: Mapping[str, Any],
+    *,
+    author_email: str,
+    expected_base_commit: str | None = None,
+    workspace_root: Path | None = None,
+    check_cancelled: Any = None,
+) -> dict[str, Any]:
+    """Validate and publish one configuration without diverging Prism's mirror.
+
+    The project checkout is deliberately a read-only fast-forward mirror of
+    the remote.  Authoring therefore happens in a temporary clone.  The new
+    commit is pushed with a lease against the upstream revision we fetched;
+    only after that succeeds is the mirror fast-forwarded.  A rejected push
+    cannot leave an invisible local-only commit behind.
+    """
+
+    from app.services.design_compare_service import _repo_paths
+    from app.services.project_import_service import git_env
+
+    repo_root, _relative, checkout = _repo_paths(project_id)
+    repo_root = repo_root.resolve()
+    checkout = checkout.resolve()
+    rel_to_checkout = configuration_relpath(config_key)
+    try:
+        project_prefix = checkout.relative_to(repo_root)
+    except ValueError as exc:
+        raise BuildError("project checkout is outside its Git repository") from exc
+    repo_rel = (project_prefix / rel_to_checkout).as_posix()
+
+    def git(*args: str, cwd: Path = repo_root, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(cwd), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=dict(env) if env is not None else None,
+        )
+
+    def output(*args: str, cwd: Path = repo_root) -> str:
+        result = git(*args, cwd=cwd)
+        if result.returncode != 0:
+            raise BuildError((result.stderr or result.stdout or f"git {' '.join(args)} failed").strip())
+        return result.stdout.strip()
+
+    tracked_status = git("status", "--porcelain", "--untracked-files=no")
+    if tracked_status.returncode != 0:
+        raise BuildError((tracked_status.stderr or "failed to inspect the project mirror").strip())
+    if tracked_status.stdout.strip():
+        raise BuildError(
+            "the project checkout has tracked local changes; Sync or clean the mirror before publishing"
+        )
+
+    branch = output("symbolic-ref", "--quiet", "--short", "HEAD")
+    upstream = output("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+    if "/" not in upstream:
+        raise BuildError(f"branch {branch!r} has no publishable upstream")
+    remote_name, remote_branch = upstream.split("/", 1)
+    remote_url = output("remote", "get-url", remote_name)
+    remote_ref = f"refs/remotes/{remote_name}/{remote_branch}"
+    remote_head_ref = f"refs/heads/{remote_branch}"
+    network_env = git_env()
+    fetched = git("fetch", "--prune", remote_name, remote_branch, env=network_env)
+    if fetched.returncode != 0:
+        raise BuildError((fetched.stderr or fetched.stdout or "failed to fetch the configuration branch").strip())
+
+    local_head = output("rev-parse", "HEAD")
+    upstream_head = output("rev-parse", remote_ref)
+    counts = output("rev-list", "--left-right", "--count", f"{local_head}...{upstream_head}").split()
+    if len(counts) != 2:
+        raise BuildError("could not compare the project mirror with its upstream")
+    ahead, behind = (int(counts[0]), int(counts[1]))
+    if ahead and behind:
+        raise BuildError("the project checkout has diverged from its upstream; reconcile it before publishing")
+    if behind:
+        advanced = git("merge", "--ff-only", remote_ref)
+        if advanced.returncode != 0:
+            raise BuildError((advanced.stderr or advanced.stdout or "failed to fast-forward before publishing").strip())
+        local_head = upstream_head
+    elif ahead:
+        # Migration seam for the local-only implementation that preceded this
+        # transaction. It is safe to publish only when every unpublished byte
+        # belongs to the exact configuration the user is currently saving.
+        unpublished_paths = {
+            line.strip()
+            for line in output("diff", "--name-only", f"{upstream_head}..{local_head}").splitlines()
+            if line.strip()
+        }
+        if not unpublished_paths or unpublished_paths != {repo_rel}:
+            raise BuildError(
+                "the project checkout contains unpublished commits outside this configuration; "
+                "Prism will not push them implicitly"
+            )
+    if expected_base_commit and expected_base_commit.lower() != local_head.lower():
+        # A worker may be retried after its push succeeded but before job
+        # completion was recorded. It is safe to converge on the newer remote
+        # tip only when that tip already contains this exact normalized
+        # configuration. An unpublished local-ahead commit is deliberately
+        # excluded: it still has to pass through the leased push below.
+        if ahead == 0:
+            try:
+                requested = validate_configuration_for_checkout(
+                    checkout,
+                    document,
+                    source=rel_to_checkout.as_posix(),
+                )
+                current = load_configuration_from_checkout(checkout, config_key)
+            except Exception:  # noqa: BLE001 - mismatch is reported uniformly below
+                requested = None
+                current = None
+            if (
+                requested is not None
+                and current is not None
+                and sha256_canonical(requested) == sha256_canonical(current)
+            ):
+                rows = sync_configurations(project_id)
+                row = next((item for item in rows if item.get("config_key") == config_key), None)
+                if row is not None:
+                    return {"configuration": row, "commit_sha": local_head, "path": repo_rel}
+        raise BuildError(
+            "the tracked branch changed after this configuration was loaded; "
+            "refresh Settings before publishing"
+        )
+
+    owned_workspace: tempfile.TemporaryDirectory[str] | None = None
+    if workspace_root is None:
+        owned_workspace = tempfile.TemporaryDirectory(prefix="prism-release-config-")
+        staging_root = Path(owned_workspace.name)
+    else:
+        staging_root = Path(workspace_root)
+        staging_root.mkdir(parents=True, exist_ok=True)
+    publish_root = staging_root / "configuration-publish"
+    if publish_root.exists():
+        shutil.rmtree(publish_root)
+
+    try:
+        cloned = git("clone", "--shared", "--no-checkout", str(repo_root), str(publish_root))
+        if cloned.returncode != 0:
+            raise BuildError((cloned.stderr or cloned.stdout or "failed to prepare configuration publication").strip())
+        checked_out = git("checkout", "--detach", local_head, cwd=publish_root)
+        if checked_out.returncode != 0:
+            raise BuildError((checked_out.stderr or checked_out.stdout or "failed to materialize the publication base").strip())
+        added_remote = git("remote", "add", "publish", remote_url, cwd=publish_root)
+        if added_remote.returncode != 0:
+            raise BuildError((added_remote.stderr or "failed to prepare the publication remote").strip())
+
+        isolated_checkout = (publish_root / project_prefix).resolve()
+        normalized = validate_configuration_for_checkout(
+            isolated_checkout,
+            document,
+            source=rel_to_checkout.as_posix(),
+        )
+        target = (isolated_checkout / rel_to_checkout).resolve()
+        try:
+            target.relative_to(isolated_checkout)
+        except ValueError as exc:
+            raise BuildError("configuration path escapes the project checkout") from exc
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = yaml.safe_dump(
+            normalized,
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        temporary_name = ""
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=target.parent,
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary.write(payload)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+                temporary_name = temporary.name
+            os.replace(temporary_name, target)
+        finally:
+            if temporary_name and Path(temporary_name).exists():
+                Path(temporary_name).unlink()
+
+        staged = git("add", "--", repo_rel, cwd=publish_root)
+        if staged.returncode != 0:
+            raise BuildError((staged.stderr or "failed to stage the configuration").strip())
+        changed = git("diff", "--cached", "--quiet", cwd=publish_root)
+        if changed.returncode not in {0, 1}:
+            raise BuildError((changed.stderr or "failed to inspect the configuration change").strip())
+        if changed.returncode == 1:
+            committed = git(
+                "-c", "user.name=Prism Release Studio",
+                "-c", f"user.email={author_email}",
+                "commit", "--no-verify",
+                "-m", f"Configure Release Studio ({config_key})",
+                cwd=publish_root,
+            )
+            if committed.returncode != 0:
+                raise BuildError((committed.stderr or committed.stdout or "failed to commit the configuration").strip())
+        commit_sha = output("rev-parse", "HEAD", cwd=publish_root)
+        if check_cancelled is not None:
+            check_cancelled()
+        pushed = git(
+            "push", "--porcelain",
+            f"--force-with-lease={remote_head_ref}:{upstream_head}",
+            "publish", f"{commit_sha}:{remote_head_ref}",
+            cwd=publish_root,
+            env=network_env,
+        )
+        if pushed.returncode != 0:
+            detail = (pushed.stderr or pushed.stdout or "the remote rejected the configuration commit").strip()
+            raise BuildError(
+                f"configuration was not published; the project mirror is unchanged: {detail}"
+            )
+
+        refreshed = git("fetch", remote_name, remote_branch, env=network_env)
+        if refreshed.returncode != 0:
+            raise BuildError(
+                f"configuration {commit_sha} was published, but Prism could not refresh its mirror; run Sync"
+            )
+        mirrored = git("merge", "--ff-only", remote_ref)
+        if mirrored.returncode != 0:
+            raise BuildError(
+                f"configuration {commit_sha} was published, but Prism could not fast-forward its mirror; run Sync"
+            )
+        if output("rev-parse", "HEAD") != commit_sha:
+            raise BuildError("published configuration did not become the mirrored branch tip")
+        rows = sync_configurations(project_id)
+        row = next((item for item in rows if item.get("config_key") == config_key), None)
+        if row is None:
+            raise BuildError("published configuration could not be reloaded")
+        return {"configuration": row, "commit_sha": commit_sha, "path": repo_rel}
+    finally:
+        if owned_workspace is not None:
+            owned_workspace.cleanup()
+
+
+def list_configurations_at_commit(
+    project_id: str,
+    commit_sha: str,
+) -> list[dict[str, Any]]:
+    """Return configurations as they existed at *commit_sha*, without upserting."""
+
+    from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+    from app.services.design_compare_service import _repo_paths
+
+    repo_root, _relative, _checkout = _repo_paths(project_id)
+    rows: list[dict[str, Any]] = []
+    for config_key in list_configuration_keys_at_commit(repo_root, commit_sha):
+        try:
+            config = load_configuration_at_commit(repo_root, commit_sha, config_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "release studio configuration %s/%s at %s did not load: %s",
+                project_id,
+                config_key,
+                commit_sha,
+                exc,
+            )
+            continue
+        rows.append(
+            {
+                "config_key": config_key,
+                "title": str(config.get("title") or config_key),
+                "board_rel": str(config.get("board") or ""),
+                "schematic_rel": str(config.get("schematic") or ""),
+                "jobset_rel": str(config.get("jobset") or ""),
+                "default_variant": str(config.get("default_variant") or ""),
+                "typography": config.get("typography", DEFAULT_TYPOGRAPHY),
+                "document_number": config.get("document_number", ""),
+                "revision": config.get("revision", ""),
+                "fields": config.get("fields", {}),
+                "notes": config.get("notes", {}),
+                "vendors": config.get("vendors", []),
+                "variants": config.get("variants", []),
+            }
+        )
     return rows
 
 
@@ -237,16 +668,61 @@ def policy_document_for_candidate(
         if (repo_root / ".git").exists():
             break
         repo_root = repo_root.parent
-    config = load_configuration_at_commit(
-        repo_root,
-        str(candidate.get("commit_sha") or "HEAD"),
-        str(candidate.get("config_key") or "default"),
-    )
+    config = configuration_for_candidate(project_id, candidate)
     return load_policy_for_configuration_at_commit(
         repo_root,
-        str(candidate.get("commit_sha") or "HEAD"),
+        _candidate_commit(candidate),
         config,
     )
+
+
+def _candidate_commit(candidate: Mapping[str, Any]) -> str:
+    commit = str(candidate.get("commit_sha") or "").strip()
+    if not commit:
+        raise BuildError("candidate has no immutable commit sha")
+    return commit
+
+
+def configuration_for_candidate(
+    project_id: str,
+    candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return the normalized committed configuration for *candidate*.
+
+    New candidates carry this immutable snapshot.  Old rows are supported by
+    reading the exact commit named by the candidate; mutable HEAD/checkouts are
+    deliberately never a compatibility fallback.
+    """
+
+    if candidate.get("configuration_snapshot_captured"):
+        document = candidate.get("configuration_document")
+        if not isinstance(document, Mapping):
+            raise BuildError("candidate configuration snapshot is unavailable")
+        config = dict(document)
+    else:
+        from app.services import workspace_service
+
+        row = workspace_service.workspace.get_project_by_id(project_id)
+        if not row:
+            raise BuildError("project not found")
+        project_path = Path(str(row["path"] if "path" in row else row.get("clone_path") or ""))
+        repo_root = project_path
+        for _ in range(6):
+            if (repo_root / ".git").exists():
+                break
+            repo_root = repo_root.parent
+        else:
+            raise BuildError("project repository is unavailable for committed configuration")
+        config = load_configuration_at_commit(
+            repo_root,
+            _candidate_commit(candidate),
+            str(candidate.get("config_key") or "default"),
+        )
+
+    digest = technical_config_digest(config)
+    if digest != str(candidate.get("technical_config_digest") or ""):
+        raise BuildError("candidate configuration snapshot does not match its technical digest")
+    return config
 
 
 def prepare_candidate(
@@ -269,6 +745,13 @@ def prepare_candidate(
     """
 
     config = load_configuration_at_commit(repo_root, commit_sha, config_key)
+    selected_variant = variant or str(config.get("default_variant") or "")
+    declared_variants = {str(item) for item in config.get("variants") or ()}
+    if declared_variants and selected_variant not in declared_variants:
+        raise BuildError(
+            f"variant {selected_variant!r} is not declared by committed configuration "
+            f"{config_key!r}"
+        )
     config_digest = technical_config_digest(config)
     policy_document = load_policy_for_configuration_at_commit(
         repo_root,
@@ -308,7 +791,7 @@ def prepare_candidate(
         repository_id=repository_id,
         config_key=config_key,
         commit_sha=closure.commit_sha,
-        variant=variant or str(config.get("default_variant") or ""),
+        variant=selected_variant,
         technical_config_digest=config_digest,
         input_closure_digest=closure.input_closure_digest,
         toolchain_digest=toolchain_digest,
@@ -318,6 +801,8 @@ def prepare_candidate(
         closure_inputs=_closure_rows(closure),
         policy_snapshot_captured=True,
         policy_document=policy_document,
+        configuration_snapshot_captured=True,
+        configuration_document=config,
         created_by=created_by,
     )
     candidate["_closure_root"] = str(closure_root)
@@ -427,10 +912,19 @@ def execute_build(
     build = store.start_build(
         candidate["id"], job_id=context.job_id, fence=context.fence
     )
+    tracker: PipelineTracker | None = None
+    timings: list[dict[str, Any]] = []
     try:
         output_root = context.staging_dir / "outputs"
         output_root.mkdir(parents=True, exist_ok=True)
-        timings: list[dict[str, Any]] = []
+        vendor_ids = resolve_vendor_ids(config)
+        include_schematic = bool(str(config.get("schematic") or "").strip())
+        tracker = PipelineTracker(
+            context.progress,
+            vendor_ids=vendor_ids,
+            include_schematic=include_schematic,
+        )
+        tracker.succeed("closure", percent=8)
 
         def _timed(name: str, fn):
             started = time.perf_counter()
@@ -444,12 +938,31 @@ def execute_build(
                     }
                 )
 
+        def _on_catalogue_step(
+            step_id: str,
+            status: str,
+            *,
+            elapsed_ms: int | None = None,
+            log: str = "",
+            message: str = "",
+        ) -> None:
+            tracker.catalogue_event(
+                step_id,
+                status,
+                elapsed_ms=elapsed_ms,
+                log=log,
+                message=message,
+            )
+
         board_rel = str(config.get("board") or "")
         board_path = closure_root / board_rel if board_rel else None
         assembly_views: dict[str, Any] | None = None
         assembly_error: BaseException | None = None
         cruncher_pool: ThreadPoolExecutor | None = None
+        extra_evidence: dict[str, bytes] = {}
+        vendor_outputs: tuple[StepOutput, ...] = ()
         try:
+            tracker.start("cruncher-assembly", message="Rendering assembly views")
             if cruncher_path and board_path is not None and board_path.is_file():
                 from app.release_studio.documents.artwork import acquire_board_views
 
@@ -468,6 +981,12 @@ def execute_build(
                 )
             else:
                 cruncher_future = None
+                tracker.skip(
+                    "cruncher-assembly",
+                    reason="kicad-cruncher is not available"
+                    if not cruncher_path
+                    else "no board in the closure",
+                )
 
             outputs_a = _timed(
                 "catalogue-wave-a",
@@ -480,16 +999,39 @@ def execute_build(
                     cli_path=cli_path,
                     only=CATALOGUE_WAVE_A,
                     progress=lambda **kwargs: context.progress(**kwargs),
+                    on_step=_on_catalogue_step,
                 ),
             )
             if cruncher_future is not None:
                 try:
                     assembly_views = cruncher_future.result()
+                    tracker.succeed("cruncher-assembly")
                 except Exception as exc:  # noqa: BLE001 - compose records the miss
                     assembly_error = exc
                     logger.warning(
                         "Release Studio assembly views unavailable: %s", exc
                     )
+                    tracker.fail("cruncher-assembly", message=str(exc))
+            # Vendor generators also load the board; run them after the
+            # assembly Cruncher so the two parses are not overlapped.
+            #
+            # Measured, because it looks like free parallelism and is not:
+            # overlapping the two on JTYU-OBC took 147.9s against 155.7s
+            # serial -- 8s saved -- while peak worker RSS went from 1.68 GiB
+            # to 6.41 GiB. Both are Cruncher board loads and both are CPU
+            # bound, so concurrency splits the same cores and buys nothing
+            # except an OOM risk on a host with less memory than this one.
+            vendor_outputs, extra_evidence = _timed(
+                "vendors",
+                lambda: _run_vendors(
+                    config=config,
+                    closure_root=closure_root,
+                    output_root=output_root,
+                    variant=str(candidate.get("variant") or ""),
+                    cruncher_path=cruncher_path,
+                    tracker=tracker,
+                ),
+            )
             outputs_b = _timed(
                 "catalogue-wave-b",
                 lambda: run_step_catalogue(
@@ -501,6 +1043,7 @@ def execute_build(
                     cli_path=cli_path,
                     only=CATALOGUE_WAVE_B,
                     progress=lambda **kwargs: context.progress(**kwargs),
+                    on_step=_on_catalogue_step,
                 ),
             )
         finally:
@@ -513,7 +1056,9 @@ def execute_build(
             for spec in STEP_CATALOGUE
             if spec.step_id in combined
         )
-        context.progress(stage="documents", message="Composing documentation", percent=70)
+        if not include_schematic:
+            tracker.skip("schematic_pdf", reason="no schematic in the configuration")
+        tracker.start("documents", message="Composing documentation", percent=70)
         outputs, document_warnings, projections = _with_documents(
             outputs,
             closure_root=closure_root,
@@ -529,8 +1074,10 @@ def execute_build(
             assembly_error=assembly_error,
             timings=timings,
         )
+        tracker.succeed("documents", percent=74)
+        outputs = (*outputs, *vendor_outputs)
 
-        context.progress(stage="package", message="Canonicalizing and packaging", percent=75)
+        tracker.start("package", message="Canonicalizing and packaging", percent=75)
 
         toolchain, toolchain_digest = toolchain_identity()
         assembled = dossier_module.assemble(
@@ -549,6 +1096,7 @@ def execute_build(
                 repo_root, str(candidate.get("commit_sha") or "")
             ),
             timings=timings,
+            extra_evidence=extra_evidence,
         )
 
         dossier_artifact = _publish(
@@ -562,9 +1110,6 @@ def execute_build(
             artifact_key=f"release-evidence:{candidate['build_key']}",
         )
 
-        # Register the artifact rows before the build row: `ws_release_builds`
-        # references them ON DELETE RESTRICT, and the registration re-validates
-        # the fence, so a stale worker's artifact can never become the record.
         context.progress(stage="record", message="Recording the build", percent=92)
         artifact_ids = context.service.register_fenced_artifacts(
             context.job_id,
@@ -586,6 +1131,7 @@ def execute_build(
             fence=context.fence,
             actor=str(context.payload.get("author") or ""),
             projections=projections,
+            timings=timings,
             warnings=[
                 *(
                     f"closure: {reason}"
@@ -594,17 +1140,126 @@ def execute_build(
                 *document_warnings,
             ],
         )
+        # Completion is terminal and immutable. A best-effort progress update
+        # must never turn a committed success into a generic failure/cancel.
+        try:
+            tracker.succeed("package", percent=100)
+        except Exception:
+            logger.warning("Release Studio build completed but final progress update failed", exc_info=True)
         return {
             "build": completed,
             "dossier": assembled,
             "artifacts": (dossier_artifact, evidence_artifact),
+            "pipeline": tracker.snapshot,
         }
+    except JobCancelled as exc:
+        evidence_artifact_id = _failure_evidence_id(
+            artifacts=artifact_service,
+            context=context,
+            build=build,
+            candidate=candidate,
+            error_code="cancelled",
+            error=exc,
+            pipeline=tracker.snapshot if tracker is not None else None,
+            timings=timings,
+        )
+        store.cancel_build(
+            build["id"],
+            message=_redact_failure_text(exc),
+            evidence_artifact_id=evidence_artifact_id,
+        )
+        raise
     except StepExecutionError as exc:
-        store.fail_build(build["id"], error_code="step_failed", error_message=str(exc))
+        evidence_artifact_id = _failure_evidence_id(
+            artifacts=artifact_service,
+            context=context,
+            build=build,
+            candidate=candidate,
+            error_code="step_failed",
+            error=exc,
+            pipeline=tracker.snapshot if tracker is not None else None,
+            timings=timings,
+        )
+        store.fail_build(
+            build["id"],
+            error_code="step_failed",
+            error_message=_redact_failure_text(exc),
+            evidence_artifact_id=evidence_artifact_id,
+        )
         raise BuildError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - the build row must not stay running
-        store.fail_build(build["id"], error_code="build_failed", error_message=str(exc))
+        evidence_artifact_id = _failure_evidence_id(
+            artifacts=artifact_service,
+            context=context,
+            build=build,
+            candidate=candidate,
+            error_code="build_failed",
+            error=exc,
+            pipeline=tracker.snapshot if tracker is not None else None,
+            timings=timings,
+        )
+        store.fail_build(
+            build["id"],
+            error_code="build_failed",
+            error_message=_redact_failure_text(exc),
+            evidence_artifact_id=evidence_artifact_id,
+        )
         raise
+
+
+def _failure_evidence_id(**kwargs: Any) -> str | None:
+    """Failure evidence must not hide the build error when publication itself fails."""
+
+    try:
+        return _publish_failure_evidence(**kwargs)
+    except Exception:  # noqa: BLE001 - failed attempt remains visible either way
+        logger.exception("Could not publish Release Studio failure evidence")
+        return None
+
+
+def _run_vendors(
+    *,
+    config: Mapping[str, Any],
+    closure_root: Path,
+    output_root: Path,
+    variant: str,
+    cruncher_path: str | None,
+    tracker: PipelineTracker,
+) -> tuple[tuple[StepOutput, ...], dict[str, bytes]]:
+    """Generate configured vendor packs after the assembly Cruncher load."""
+
+    vendor_ids = resolve_vendor_ids(config)
+    if not vendor_ids:
+        return (), {}
+    for vendor_id in vendor_ids:
+        tracker.start(f"vendor-{vendor_id}", message=f"Generating {vendor_id} pack")
+    outputs, extra_evidence = generate_vendor_outputs(
+        config=config,
+        closure_root=closure_root,
+        output_root=output_root,
+        variant=variant,
+        cruncher_path=cruncher_path,
+    )
+    by_id = {output.step_id: output for output in outputs}
+    for vendor_id in vendor_ids:
+        step_id = f"vendor-{vendor_id}"
+        output = by_id.get(step_id)
+        if output is None:
+            tracker.skip(step_id, reason="vendor generator produced no output")
+            continue
+        log = "\n".join(part for part in (output.stdout, output.stderr) if part)
+        if output.skipped_reason:
+            tracker.skip(step_id, reason=output.skipped_reason)
+        elif output.returncode != 0:
+            tracker.fail(
+                step_id,
+                message=output.stderr or output.skipped_reason or f"{vendor_id} failed",
+                log=log,
+                elapsed_ms=output.elapsed_ms,
+            )
+        else:
+            tracker.succeed(step_id, elapsed_ms=output.elapsed_ms, log=log)
+    return outputs, extra_evidence
 
 
 def _with_documents(
@@ -1011,6 +1666,7 @@ def _publish(
     name: str,
     kind: str,
     artifact_key: str,
+    allow_cancel_requested: bool = False,
 ):
     staged = context.staging_dir / name
     staged.write_bytes(payload)
@@ -1021,6 +1677,50 @@ def _publish(
         artifact_key=artifact_key,
         media_type="application/gzip",
         generator_version=GENERATOR_BUILD,
+        allow_cancel_requested=allow_cancel_requested,
+    )
+
+
+def run_release_studio_configuration_publish_job(context: JobContext) -> JobResult:
+    """Publish a configuration under the repository's exclusive job lock."""
+
+    payload = context.payload
+    project_id = str(payload["project_id"])
+    config_key = str(payload.get("config_key") or "default")
+    configuration = payload.get("configuration")
+    if not isinstance(configuration, Mapping):
+        raise BuildError("configuration payload is missing")
+    context.progress(
+        stage="validate",
+        message="Validating release configuration",
+        percent=10,
+        force=True,
+    )
+    context.check_cancelled()
+    context.progress(
+        stage="publish",
+        message="Publishing configuration to the tracked branch",
+        percent=35,
+        force=True,
+    )
+    saved = save_configuration(
+        project_id,
+        config_key,
+        configuration,
+        author_email=str(payload.get("author") or "prism@example.com"),
+        expected_base_commit=str(payload.get("base_commit_sha") or "") or None,
+        workspace_root=context.staging_dir,
+        check_cancelled=context.check_cancelled,
+    )
+    context.progress(
+        stage="mirror",
+        message="Configuration published and mirrored",
+        percent=100,
+        force=True,
+    )
+    return JobResult(
+        message="Release configuration published",
+        details=saved,
     )
 
 
@@ -1049,17 +1749,73 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         repo_root = repo_root.parent
 
     context.progress(stage="closure", message="Materializing the input closure", percent=5)
-    candidate = prepare_candidate(
-        project_id=project_id,
-        repository_id=repository_id,
-        repo_root=repo_root,
-        commit_sha=commit_sha,
-        config_key=config_key,
-        variant=variant,
-        workspace_root=context.staging_dir,
-        created_by=author,
-        project_relpath=relative_path,
+    tracker = PipelineTracker(
+        context.progress,
+        vendor_ids=(),
+        include_schematic=True,
     )
+    tracker.start("closure", message="Materializing the input closure", percent=5)
+    try:
+        candidate = prepare_candidate(
+            project_id=project_id,
+            repository_id=repository_id,
+            repo_root=repo_root,
+            commit_sha=commit_sha,
+            config_key=config_key,
+            variant=variant,
+            workspace_root=context.staging_dir,
+            created_by=author,
+            project_relpath=relative_path,
+        )
+    except JobCancelled:
+        # Cancellation is a terminal worker decision, never a failed
+        # preparation diagnostic. A build that has started is handled by
+        # execute_build's dedicated cancelled path below.
+        raise
+    except Exception as exc:
+        # Preparation historically failed before a candidate/build existed,
+        # making accepted jobs disappear from release history. Retain an
+        # explicit failed attempt without altering a successful candidate's
+        # immutable identity.
+        try:
+            tracker.fail("closure", message=_redact_failure_text(exc))
+        except Exception:  # noqa: BLE001 - retain the failure even if progress is stale
+            logger.debug("Could not report failed closure progress", exc_info=True)
+        failed_build = store.record_prepare_failure(
+            project_id=project_id,
+            repository_id=repository_id,
+            config_key=config_key,
+            commit_sha=commit_sha,
+            variant=variant,
+            job_id=context.job_id,
+            fence=context.fence,
+            author=author,
+            error=_redact_failure_text(exc),
+        )
+        failure_candidate = {
+            "id": failed_build.get("candidate_id") or "",
+            "commit_sha": commit_sha,
+            "config_key": config_key,
+            "variant": variant,
+        }
+        evidence_artifact_id = _failure_evidence_id(
+            artifacts=JobArtifactService(),
+            context=context,
+            build=failed_build,
+            candidate=failure_candidate,
+            error_code="prepare_failed",
+            error=exc,
+            pipeline=tracker.snapshot,
+        )
+        store.fail_build(
+            str(failed_build["id"]),
+            error_code="prepare_failed",
+            error_message=_redact_failure_text(exc),
+            actor=author,
+            evidence_artifact_id=evidence_artifact_id,
+        )
+        raise
+    tracker.succeed("closure", percent=8)
 
     result = execute_build(
         context,
@@ -1080,6 +1836,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
             "build_id": build["id"],
             "manifest_digest": build["manifest_digest"],
             "dossier_digest": build["dossier_digest"],
+            "pipeline": result.get("pipeline"),
         },
         artifact=result["artifacts"][0],
         sidecar_artifacts=(result["artifacts"][1],),
@@ -1107,7 +1864,10 @@ __all__ = [
     "BuildError",
     "execute_build",
     "executor_image",
+    "list_configurations_at_commit",
     "prepare_candidate",
+    "run_release_studio_configuration_publish_job",
     "run_release_studio_build_job",
+    "save_configuration",
     "toolchain_identity",
 ]

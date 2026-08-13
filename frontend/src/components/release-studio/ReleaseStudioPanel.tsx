@@ -1,45 +1,35 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-    AlertTriangle,
-    CheckCircle2,
-    Copy,
-    Download,
-    FileCheck2,
-    FileImage,
-    HelpCircle,
-    Loader2,
-    PlayCircle,
-    ShieldCheck,
-    ShieldX,
-    XCircle,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Archive, History, ListRestart, Settings2, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { cancelPrismJob, jobPipeline, throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 
 import * as api from "./api";
-import { PolicyAuthoringCard } from "./PolicyAuthoringCard";
+import { RunList } from "./RunList";
+import { ApprovalList, ReleaseRecordsList, RuleOutcomeList } from "./shared";
+import { StageRail } from "./StageRail";
+import { DefineConfigStep } from "./steps/DefineConfigStep";
+import { InspectOutputsStep } from "./steps/InspectOutputsStep";
+import { emptyPipeline, ObserveBuildStep } from "./steps/ObserveBuildStep";
+import { SignOffStep } from "./steps/SignOffStep";
+import { SelectRevisionStep } from "./steps/SelectRevisionStep";
 import type {
-    Approval,
     AuditEvent,
     BuildDetail,
-    DocumentSheet,
-    Finding,
+    EditableReleaseConfiguration,
+    PipelineState,
+    ProjectCommit,
     ReleaseCandidate,
     ReleaseConfiguration,
-    ReleaseMember,
     ReleaseRecord,
-    RuleOutcome,
+    RunStage,
+    StageState,
+    StudioView,
+    VendorProfile,
     VerificationReport,
-    Waiver,
     WebReleaseShare,
 } from "./types";
 
@@ -50,91 +40,132 @@ type Props = {
     defaultCommit?: string;
 };
 
-const DEFAULT_CONFIG = "default";
-const DEFAULT_TYPOGRAPHY = "geist-pixel-square";
+export { ApprovalList, RuleOutcomeList };
 
-const TYPOGRAPHY_PRESETS = [
-    ["geist-pixel-square", "Geist Pixel Square"],
-    ["geist-pixel-grid", "Geist Pixel Grid"],
-    ["geist-pixel-circle", "Geist Pixel Circle"],
-    ["geist-pixel-triangle", "Geist Pixel Triangle"],
-    ["geist-pixel-line", "Geist Pixel Line"],
-    ["kicad-newstroke", "KiCad NewStroke"],
-] as const;
+const FULL_SHA = /^[a-f0-9]{40}$/i;
 
-function shortDigest(value: string | null | undefined): string {
-    if (!value) return "—";
-    return value.length > 16 ? `${value.slice(0, 12)}…` : value;
+function resolveCommitSelection(value: string, commits: ProjectCommit[]): string {
+    const revision = value.trim();
+    if (revision === "HEAD") return commits[0]?.full_hash ?? revision;
+    return commits.find((commit) => commit.full_hash === revision || commit.hash === revision)?.full_hash ?? revision;
 }
 
-/**
- * `unsupported` gets its own colour deliberately: a rule whose projection was
- * missing has not passed, and the report must never let the two read alike.
- */
-function outcomeTone(outcome: string): string {
-    switch (outcome) {
-        case "pass":
-            return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400";
-        case "blocker":
-        case "failure":
-            return "bg-red-500/15 text-red-600 dark:text-red-400";
-        case "warning":
-            return "bg-amber-500/15 text-amber-600 dark:text-amber-400";
-        case "unsupported":
-            return "bg-violet-500/15 text-violet-600 dark:text-violet-400";
-        default:
-            return "bg-muted text-muted-foreground";
-    }
-}
-
-export function ReleaseStudioPanel({ projectId, canMutate, isAdmin = false, defaultCommit = "HEAD" }: Props) {
+export function ReleaseStudioPanel({
+    projectId,
+    canMutate,
+    isAdmin = false,
+    defaultCommit = "HEAD",
+}: Props) {
+    const [view, setView] = useState<StudioView>(() => {
+        if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("build")) return "history";
+        return "settings";
+    });
+    const [stage, setStage] = useState<RunStage>("build");
+    // Set when the user opens a specific run, so a newer build does not pull
+    // the view out from under someone reading an older release's evidence.
+    const pinnedRef = useRef(false);
+    // "New release" opens the Source stage so a revision and configuration can
+    // be chosen. Building immediately took that choice away and made the button
+    // fire an expensive job on a single click.
+    const [drafting, setDrafting] = useState(false);
+    const draftingRef = useRef(false);
+    draftingRef.current = drafting;
+    const [commits, setCommits] = useState<ProjectCommit[]>([]);
+    const [commitsLoading, setCommitsLoading] = useState(true);
+    const [commitSha, setCommitSha] = useState(defaultCommit);
+    const [configurations, setConfigurations] = useState<ReleaseConfiguration[] | null>(null);
+    const [configKey, setConfigKey] = useState("default");
+    const [variant, setVariant] = useState("");
+    const [profiles, setProfiles] = useState<VendorProfile[]>([]);
     const [candidates, setCandidates] = useState<ReleaseCandidate[]>([]);
-    const [selectedBuildId, setSelectedBuildId] = useState<string | null>(null);
+    // The run lives in the URL so it survives a reload and can be shared --
+    // an approver following a link must land on the build they were asked
+    // about, not on whatever happens to be newest.
+    const [selectedBuildId, setSelectedBuildId] = useState<string | null>(() => {
+        if (typeof window === "undefined") return null;
+        const fromUrl = new URLSearchParams(window.location.search).get("build");
+        if (fromUrl) pinnedRef.current = true;
+        return fromUrl;
+    });
+    const selectedBuildIdRef = useRef<string | null>(selectedBuildId);
+    selectedBuildIdRef.current = selectedBuildId;
+    const detailRequestRef = useRef(0);
     const [detail, setDetail] = useState<BuildDetail | null>(null);
     const [records, setRecords] = useState<ReleaseRecord[]>([]);
-    const [waivers, setWaivers] = useState<Waiver[]>([]);
+    const [shares, setShares] = useState<Record<string, WebReleaseShare[]>>({});
+    const [shareUrls, setShareUrls] = useState<Record<string, string>>({});
+    const [verification, setVerification] = useState<Record<string, VerificationReport>>({});
     const [audit, setAudit] = useState<AuditEvent[]>([]);
     const [auditOk, setAuditOk] = useState<boolean | null>(null);
-    const [verification, setVerification] = useState<Record<string, VerificationReport>>({});
-    const [shareUrls, setShareUrls] = useState<Record<string, string>>({});
-    const [shares, setShares] = useState<Record<string, WebReleaseShare[]>>({});
-    const [busy, setBusy] = useState<string>("");
-    const [error, setError] = useState<string>("");
-    const [notice, setNotice] = useState<string>("");
-    const [commit, setCommit] = useState(defaultCommit);
-    const [variant, setVariant] = useState("");
-    const [jobStatus, setJobStatus] = useState<string>("");
-    const [configurations, setConfigurations] = useState<ReleaseConfiguration[] | null>(null);
+    const [busy, setBusy] = useState("");
+    const [error, setError] = useState("");
+    const [notice, setNotice] = useState("");
+    const [pipeline, setPipeline] = useState<PipelineState | null>(null);
+    const [jobStatus, setJobStatus] = useState("");
+    const [jobMessage, setJobMessage] = useState("");
+    const [jobPercent, setJobPercent] = useState(0);
+    const [liveLogs, setLiveLogs] = useState<string[]>([]);
+    const [activeJobId, setActiveJobId] = useState<string | null>(null);
+    const activeJobIdRef = useRef<string | null>(activeJobId);
+    activeJobIdRef.current = activeJobId;
+    const [currentBuildId, setCurrentBuildId] = useState<string | null>(null);
+    // Never let a retained response drive a different selected run.
+    const selectedDetail = detail?.build.id === selectedBuildId ? detail : null;
+    const selectedCommitValid = FULL_SHA.test(commitSha)
+        && commits.some((commit) => commit.full_hash === commitSha);
 
-    const refresh = useCallback(async () => {
+    const refreshDetail = useCallback(async (buildId: string) => {
+        const request = ++detailRequestRef.current;
         try {
-            const [nextConfigurations, nextCandidates, nextRecords, nextWaivers, nextAudit, chain] =
-                await Promise.all([
-                    api.listConfigurations(projectId),
-                    api.listCandidates(projectId),
-                    api.listRecords(projectId),
-                    api.listWaivers(projectId, DEFAULT_CONFIG),
-                    api.listAudit(projectId, DEFAULT_CONFIG),
-                    api.verifyAudit(projectId, DEFAULT_CONFIG).catch(() => null),
-                ]);
-            setConfigurations(nextConfigurations);
+            const value = await api.getBuild(projectId, buildId);
+            if (request === detailRequestRef.current && selectedBuildIdRef.current === buildId) {
+                setDetail(value);
+            }
+            return value;
+        } catch (cause) {
+            // A selection change invalidates this request. Never surface an
+            // old response/error over the newly selected run.
+            if (request === detailRequestRef.current && selectedBuildIdRef.current === buildId) {
+                throw cause;
+            }
+            return null;
+        }
+    }, [projectId]);
+
+    const refresh = useCallback(async (preferredJobId?: string) => {
+        try {
+            const [nextCandidates, nextRecords, nextProfiles] = await Promise.all([
+                api.listCandidates(projectId),
+                api.listRecords(projectId),
+                api.listVendorProfiles(projectId).catch(() => []),
+            ]);
             setCandidates(nextCandidates);
             setRecords(nextRecords);
-            const shareEntries = await Promise.all(
-                nextRecords.map(async (record) => [
-                    record.id,
-                    await api.listWebReleases(projectId, record.id).catch(() => []),
-                ] as const),
-            );
-            setShares(Object.fromEntries(shareEntries));
-            setWaivers(nextWaivers);
-            setAudit(nextAudit);
-            setAuditOk(chain ? chain.ok : null);
+            setProfiles(nextProfiles);
+            const listedShares = await Promise.all(nextRecords.map(async (record) => [record.id, await api.listWebReleases(projectId, record.id).catch(() => [])] as const));
+            setShares(Object.fromEntries(listedShares));
             setError("");
-            const firstBuild = nextCandidates.find((item) => item.latest_build)?.latest_build;
-            setSelectedBuildId((current) => current ?? firstBuild?.id ?? null);
+            // Follow the newest run unless the user opened a specific one.
+            // The old rule was `current ?? newest`, which set the selection
+            // once and never advanced it, so a build you had just triggered
+            // never became the selected run.
+            const preferredBuild = preferredJobId
+                ? nextCandidates.flatMap((item) => item.builds?.length ? item.builds : item.latest_build ? [item.latest_build] : [])
+                    .find((build) => build.job_id === preferredJobId)
+                : null;
+            setSelectedBuildId((current) => {
+                // A run being composed has no build yet; refreshing must not
+                // drop the user onto the newest finished one.
+                if (preferredBuild) return preferredBuild.id;
+                if (draftingRef.current) return current;
+                if (pinnedRef.current && current) return current;
+                return current;
+            });
+            if (preferredBuild) setCurrentBuildId(preferredBuild.id);
+            return preferredBuild?.id ?? null;
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : String(cause));
+            return null;
         }
     }, [projectId]);
 
@@ -142,1367 +173,612 @@ export function ReleaseStudioPanel({ projectId, canMutate, isAdmin = false, defa
         void refresh();
     }, [refresh]);
 
+    // Configuration is a revision-scoped input to a new release. It is kept
+    // deliberately separate from project history so selecting a commit does
+    // not restart candidates, shares, or detail fetches.
+    useEffect(() => {
+        let cancelled = false;
+        setConfigurations(null);
+        // HEAD is a moving ref. A release configuration must be read from the
+        // exact immutable revision that will be built, never the working tree.
+        if (!selectedCommitValid) {
+            setConfigurations([]);
+            return;
+        }
+        void api.listConfigurations(projectId, commitSha)
+            .then((next) => {
+                if (cancelled) return;
+                setConfigurations(next);
+                setConfigKey((current) => next.some((item) => item.config_key === current) ? current : next[0]?.config_key || "default");
+            })
+            .catch((cause: unknown) => {
+                if (cancelled) return;
+                setConfigurations([]);
+                setError(cause instanceof Error ? cause.message : String(cause));
+            });
+        return () => { cancelled = true; };
+    }, [projectId, commitSha, selectedCommitValid]);
+
+    useEffect(() => {
+        let cancelled = false;
+        setCommitsLoading(true);
+        void api
+            .listProjectCommits(projectId)
+            .then((next) => {
+                if (cancelled) return;
+                setCommits(next);
+                setCommitSha((current) => resolveCommitSelection(current, next));
+            })
+            .catch(() => {
+                if (!cancelled) setCommits([]);
+            })
+            .finally(() => {
+                if (!cancelled) setCommitsLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [projectId]);
+
     useEffect(() => {
         if (!selectedBuildId) {
             setDetail(null);
             return;
         }
+        // Do not render the preceding run while this run's detail is loading.
+        // The id guard below is a second line of defence for batched updates.
+        setDetail(null);
+        void refreshDetail(selectedBuildId).catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause));
+        });
+    }, [refreshDetail, selectedBuildId]);
+
+    useEffect(() => {
+        if (stage !== "signoff" || !selectedBuildId) return;
+        const timer = window.setInterval(() => {
+            void refreshDetail(selectedBuildId).catch(() => undefined);
+        }, 3000);
+        return () => window.clearInterval(timer);
+    }, [refreshDetail, selectedBuildId, stage]);
+
+    useEffect(() => {
+        const jobId = selectedDetail?.build.job_id;
+        if (!jobId || selectedDetail.build.status !== "running" || activeJobIdRef.current === jobId) return;
+        const controller = new AbortController();
+        setCurrentBuildId(selectedDetail.build.id);
+        void watchPrismJob(jobId, {
+            signal: controller.signal,
+            includeLogs: true,
+            onUpdate: (value, logs) => {
+                setJobStatus(value.status);
+                setJobMessage(value.message);
+                setJobPercent(value.percent);
+                setLiveLogs(logs);
+                const next = jobPipeline(value);
+                if (next) setPipeline(next);
+            },
+        }).then(async () => {
+            await refresh(jobId);
+            await refreshDetail(selectedDetail.build.id).catch(() => undefined);
+        }).catch((cause: unknown) => {
+            if (cause instanceof DOMException && cause.name === "AbortError") return;
+            setError(cause instanceof Error ? cause.message : String(cause));
+        });
+        return () => controller.abort();
+    }, [refresh, refreshDetail, selectedDetail?.build.id, selectedDetail?.build.job_id, selectedDetail?.build.status]);
+
+    useEffect(() => {
+        const auditConfigKey = selectedDetail?.candidate?.config_key || selectedDetail?.configuration?.config_key || "";
+        if (!auditConfigKey) return;
         let cancelled = false;
-        void api
-            .getBuild(projectId, selectedBuildId)
-            .then((value) => {
-                if (!cancelled) setDetail(value);
-            })
-            .catch((cause: unknown) => {
-                if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [projectId, selectedBuildId, busy]);
+        void Promise.all([
+            api.listAudit(projectId, auditConfigKey).catch(() => []),
+            api.verifyAudit(projectId, auditConfigKey).catch(() => null),
+        ]).then(([events, chain]) => {
+            if (cancelled) return;
+            setAudit(events.filter((event) => !selectedBuildId || event.subject_id === selectedBuildId));
+            setAuditOk(chain?.ok ?? null);
+        });
+        return () => { cancelled = true; };
+    }, [projectId, selectedBuildId, selectedDetail]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const url = new URL(window.location.href);
+        if (selectedBuildId) url.searchParams.set("build", selectedBuildId);
+        else url.searchParams.delete("build");
+        window.history.replaceState(window.history.state, "", url.toString());
+    }, [selectedBuildId]);
+
+    const openRun = useCallback((buildId: string, destination: RunStage = "build") => {
+        pinnedRef.current = true;
+        // Selecting an already-open library record must retain its detail:
+        // React does not rerun the fetch effect for an unchanged build id.
+        // Different ids still clear synchronously before their fetch starts.
+        if (buildId !== selectedBuildId) {
+            setDetail(null);
+            setPipeline(null);
+            setJobStatus("");
+            setJobMessage("");
+            setJobPercent(0);
+        }
+        setStage(destination);
+        setSelectedBuildId(buildId);
+    }, [selectedBuildId]);
 
     const run = useCallback(
         async (label: string, action: () => Promise<unknown>, success = "") => {
+            const buildId = selectedBuildIdRef.current;
+            let completed = false;
             setBusy(label);
             setError("");
             setNotice("");
             try {
                 await action();
+                // Governance responses alter the current build detail. Fetch
+                // it before showing success, otherwise gates read old facts.
+                if (buildId && selectedBuildIdRef.current === buildId) await refreshDetail(buildId);
+                completed = true;
                 if (success) setNotice(success);
-                await refresh();
             } catch (cause) {
                 setError(cause instanceof Error ? cause.message : String(cause));
             } finally {
+                // A queued build can fail before a job update reaches us. Its
+                // attempt must still enter history and become the selected log.
+                await refresh();
+                if (!completed && buildId && selectedBuildIdRef.current === buildId) {
+                    await refreshDetail(buildId).catch(() => undefined);
+                }
                 setBusy("");
             }
         },
-        [refresh],
+        [refresh, refreshDetail],
     );
 
-    const handleBuild = () =>
-        run("build", async () => {
+    const handleBuild = () => {
+        if (!selectedCommitValid) {
+            setError("Choose a listed immutable 40-character commit before building.");
+            return;
+        }
+        return run("build", async () => {
+            setView("current");
+            setStage("build");
+            setPipeline(emptyPipeline());
+            setLiveLogs([]);
+            // A new run starts with nothing done. Leaving the previous build
+            // selected left its finished detail driving the rail, so a build
+            // that had only just been queued showed Source, Outputs, Sign-off
+            // and Released already ticked -- the last run's state wearing the
+            // new run's progress bar. Release the pin too, so refresh() lands
+            // on the run being created.
+            pinnedRef.current = false;
+            setDrafting(false);
+            setSelectedBuildId(null);
+            setDetail(null);
             const { job } = await api.startBuild(projectId, {
-                config_key: DEFAULT_CONFIG,
-                commit_sha: commit.trim() || "HEAD",
+                config_key: configKey,
+                commit_sha: commitSha,
                 variant: variant.trim(),
             });
-            setJobStatus("queued");
+            setActiveJobId(job.job_id);
             const finished = await watchPrismJob(job.job_id, {
-                onUpdate: (value) => setJobStatus(value.status),
+                includeLogs: true,
+                onUpdate: (value, logs) => {
+                    setJobStatus(value.status);
+                    setJobMessage(value.message);
+                    setJobPercent(value.percent);
+                    setLiveLogs(logs);
+                    const next = jobPipeline(value);
+                    if (next) setPipeline(next);
+                },
             });
-            setJobStatus("");
-            // `watchPrismJob` resolves on any terminal status, so without this a
-            // failed build reports "Build finished." and the operator sees the
-            // button return to idle with nothing else changed.
+            const next = jobPipeline(finished);
+            if (next) setPipeline(next);
+            const builtId = await refresh(job.job_id);
+            if (builtId) {
+                pinnedRef.current = true;
+                setCurrentBuildId(builtId);
+                setSelectedBuildId(builtId);
+            }
+            setActiveJobId(null);
+            if (finished.status === "completed") setStage("outputs");
+            else setStage("build");
             throwIfJobFailed(finished, "The build failed.");
         }, "Build finished.");
+    };
 
-    const evaluation = detail?.evaluation ?? null;
+    const handleCancel = async () => {
+        const jobId = activeJobId ?? selectedDetail?.build.job_id ?? null;
+        if (!jobId || busy === "cancel-build") return;
+        setBusy("cancel-build");
+        setError("");
+        try {
+            await cancelPrismJob(jobId);
+            setJobStatus("cancel_requested");
+            setJobMessage("Cancellation requested");
+            setNotice("Cancellation requested.");
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+        } finally {
+            setBusy("");
+        }
+    };
+
+    const handleSaveConfiguration = async (
+        key: string,
+        document: EditableReleaseConfiguration,
+    ) => {
+        setBusy("save-config");
+        setError("");
+        setNotice("");
+        try {
+            const saved = await api.saveConfiguration(projectId, key, document, commitSha);
+            const nextCommits = await api.listProjectCommits(projectId);
+            setCommits(nextCommits);
+            setConfigKey(saved.configuration.config_key);
+            setCommitSha(saved.commit_sha);
+            setConfigurations([saved.configuration]);
+            setNotice("Configuration published to the tracked branch and selected.");
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+        } finally {
+            setBusy("");
+        }
+    };
+
+    const evaluation = selectedDetail?.evaluation ?? null;
     const openBlockers = useMemo(
         () =>
             (evaluation?.findings ?? []).filter(
-                (finding) => finding.status !== "waived"
+                (finding) =>
+                    finding.status !== "waived"
                     && (finding.severity === "blocker" || finding.severity === "failure"),
             ),
         [evaluation],
     );
 
+    const selectedCandidate = useMemo(
+        () => candidates.find((item) => (item.builds?.length ? item.builds : item.latest_build ? [item.latest_build] : []).some((build) => build.id === selectedBuildId)) ?? selectedDetail?.candidate ?? null,
+        [candidates, selectedBuildId, selectedDetail?.candidate],
+    );
+    const newestBuildId = candidates.flatMap((item) => item.builds?.length ? item.builds : item.latest_build ? [item.latest_build] : [])
+        .sort((left, right) => Date.parse(right.completed_at || right.started_at || "") - Date.parse(left.completed_at || left.started_at || ""))[0]?.id ?? null;
+    const behind = Boolean(
+        selectedBuildId && newestBuildId && selectedBuildId !== newestBuildId,
+    );
+    const releasedHere = records.filter((record) => record.build_id === selectedBuildId);
+
+    const building = Boolean(activeJobId) || selectedDetail?.build.status === "running" || busy === "build";
+    const stageStates = useMemo<Record<RunStage, StageState>>(() => {
+        if (drafting) {
+            return {
+                source: "active", build: "locked", outputs: "locked", signoff: "locked", released: "locked",
+            };
+        }
+        if (building) return { source: "done", build: "active", outputs: "locked", signoff: "locked", released: "locked" };
+        const status = selectedDetail?.build.status;
+        const built = status === "succeeded";
+        if (status === "failed") return { source: "done", build: "failed", outputs: "locked", signoff: "locked", released: "locked" };
+        if (status === "cancelled") return { source: "done", build: "cancelled", outputs: "locked", signoff: "locked", released: "locked" };
+        if (!built) return { source: selectedCandidate ? "done" : "active", build: "active", outputs: "locked", signoff: "locked", released: "locked" };
+        return {
+            source: selectedCandidate ? "done" : "pending",
+            build: "done",
+            outputs: stage === "signoff" || stage === "released" ? "done" : "active",
+            signoff: releasedHere.length > 0 ? "done" : stage === "signoff" ? "active" : "locked",
+            // The library is project-wide, while its record actions remain
+            // record/build-bound. Keep it reachable from an older run.
+            released: releasedHere.length > 0 ? "done" : records.length > 0 ? "active" : "locked",
+        };
+    }, [building, drafting, selectedDetail?.build.status, selectedCandidate, records.length, releasedHere.length, stage]);
+
+    const stageSummaries = useMemo<Partial<Record<RunStage, string>>>(
+        () => (building ? { build: "running" } : drafting ? { source: "choose a revision" } : {
+            source: selectedCandidate
+                ? `${selectedCandidate.commit_sha.slice(0, 8)} · ${selectedCandidate.config_key}`
+                : undefined,
+            build: selectedDetail ? selectedDetail.build.status : undefined,
+            outputs: selectedDetail ? `${selectedDetail.members.length} members` : undefined,
+            signoff: selectedDetail
+                ? openBlockers.length > 0
+                    ? `${openBlockers.length} blocker(s)`
+                    : `${selectedDetail.approvals.length} approval(s)`
+                : undefined,
+            released: releasedHere.length ? `${releasedHere.length} release(s)` : records.length ? `${records.length} in library` : undefined,
+        }),
+        [building, drafting, selectedCandidate, selectedDetail, openBlockers.length, records.length, releasedHere.length],
+    );
+
+
     return (
-        <div className="h-full overflow-y-auto p-6 space-y-6">
-            <header className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                    <h2 className="text-2xl font-semibold tracking-tight">Release Studio</h2>
-                    <p className="text-sm text-muted-foreground max-w-2xl">
-                        Turn an exact commit into a verified, approved, immutable manufacturing
-                        release whose provenance can be audited offline.
-                    </p>
+        <div className="flex h-full min-h-0 flex-col">
+            <header className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
+                <h2 className="text-sm font-semibold">Release Studio</h2>
+                <div className="flex items-center gap-1">
+                    {([
+                        { id: "settings", label: "Settings", icon: Settings2 },
+                        { id: "current", label: "Current", icon: ListRestart },
+                        { id: "history", label: "History", icon: History },
+                        { id: "library", label: "Library", icon: Archive },
+                    ] as const).map(({ id, label, icon: Icon }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => {
+                                setView(id);
+                                setDrafting(false);
+                                if (id === "current") {
+                                    setSelectedBuildId(currentBuildId);
+                                    setStage(activeJobId ? "build" : "outputs");
+                                } else if (id === "history" || id === "library") {
+                                    pinnedRef.current = false;
+                                    setSelectedBuildId(null);
+                                    setDetail(null);
+                                    setStage(id === "library" ? "released" : "build");
+                                }
+                            }}
+                            aria-current={view === id ? "page" : undefined}
+                            className={cn(
+                                "flex items-center gap-1.5 rounded px-3 py-1 text-sm",
+                                view === id ? "bg-muted font-medium" : "text-muted-foreground",
+                            )}
+                        >
+                            <Icon className="h-3.5 w-3.5" />
+                            {label}
+                        </button>
+                    ))}
                 </div>
                 {auditOk !== null && (
-                    <Badge variant={auditOk ? "secondary" : "destructive"} className="gap-1">
-                        {auditOk ? <ShieldCheck className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                        Audit chain {auditOk ? "verified" : "BROKEN"}
-                    </Badge>
+                    <Sheet>
+                        <SheetTrigger asChild>
+                            <Button variant={auditOk ? "secondary" : "destructive"} size="sm" className="ml-auto gap-1">
+                                {auditOk ? <ShieldCheck className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                                Audit chain {auditOk ? "verified" : "BROKEN"}
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent className="flex w-full flex-col sm:max-w-lg">
+                            <SheetHeader><SheetTitle>Audit chain</SheetTitle></SheetHeader>
+                            <div className="mt-4 min-h-0 space-y-2 overflow-y-auto font-mono text-xs">
+                                {audit.length === 0 && <p className="font-sans text-sm text-muted-foreground">No events for this build.</p>}
+                                {audit.map((event) => <div key={event.id} className="border p-2"><span className="text-muted-foreground">{event.sequence}</span> {event.event_type} <span className="text-muted-foreground">{event.actor}</span></div>)}
+                            </div>
+                        </SheetContent>
+                    </Sheet>
                 )}
             </header>
 
             {error && (
-                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                <div className="border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
                     {error}
                 </div>
             )}
             {notice && (
-                <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-400">
+                <div className="border-b border-success/40 bg-success/10 px-4 py-2 text-sm text-success">
                     {notice}
                 </div>
             )}
 
-            <Card>
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-base">New candidate</CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-wrap items-end gap-3">
-                    <div className="space-y-1">
-                        <Label htmlFor="rs-commit">Commit</Label>
-                        <Input
-                            id="rs-commit"
-                            value={commit}
-                            onChange={(event) => setCommit(event.target.value)}
-                            className="w-56 font-mono text-xs"
-                            placeholder="HEAD or a full SHA"
-                        />
-                    </div>
-                    <div className="space-y-1">
-                        <Label htmlFor="rs-variant">Variant</Label>
-                        <Input
-                            id="rs-variant"
-                            value={variant}
-                            onChange={(event) => setVariant(event.target.value)}
-                            className="w-44"
-                            placeholder="(default)"
-                        />
-                    </div>
-                    {canMutate && (
-                        <Button
-                            onClick={handleBuild}
-                            disabled={Boolean(busy) || configurations?.length === 0}
-                        >
-                            {busy === "build" ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                                <PlayCircle className="mr-2 h-4 w-4" />
-                            )}
-                            Build
-                        </Button>
-                    )}
-                    {jobStatus && (
-                        <span className="text-xs text-muted-foreground">Job: {jobStatus}</span>
-                    )}
-                    {configurations?.length === 0 && (
-                        <span className="text-xs text-muted-foreground">
-                            This project has no release configuration. Commit one to{" "}
-                            <code className="font-mono">
-                                .prism/release-studio/configurations/{DEFAULT_CONFIG}.yaml
-                            </code>{" "}
-                            to enable builds.
-                        </span>
-                    )}
-                </CardContent>
-            </Card>
-
-            <TypographyTemplateForm configuration={configurations?.[0] ?? null} />
-            {isAdmin && <PolicyAuthoringCard />}
-
-            <Card>
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Candidates</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                    {candidates.length === 0 && (
-                        <p className="text-sm text-muted-foreground">
-                            No candidates yet. Build one from a commit above.
-                        </p>
-                    )}
-                    {candidates.map((candidate) => {
-                        const build = candidate.latest_build;
-                        const active = build?.id === selectedBuildId;
-                        return (
-                            <button
-                                key={candidate.id}
-                                type="button"
-                                onClick={() => build && setSelectedBuildId(build.id)}
-                                className={cn(
-                                    "w-full rounded-md border px-3 py-2 text-left text-sm transition-colors",
-                                    active ? "border-primary bg-primary/5" : "hover:bg-muted",
-                                )}
-                            >
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="font-mono text-xs">
-                                        {candidate.commit_sha.slice(0, 10)}
-                                    </span>
-                                    <Badge variant="outline">{candidate.variant || "default"}</Badge>
-                                    <Badge variant="secondary">{candidate.status}</Badge>
-                                    {!candidate.hermetic && (
-                                        <Badge variant="destructive" className="gap-1">
-                                            <AlertTriangle className="h-3 w-3" /> non-hermetic
-                                        </Badge>
-                                    )}
-                                    {build && (
-                                        <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-                                            manifest {shortDigest(build.manifest_digest)}
-                                        </span>
-                                    )}
-                                </div>
-                                {!candidate.hermetic && candidate.non_hermetic_reasons?.length > 0 && (
-                                    <ul className="mt-1 list-disc pl-5 text-xs text-destructive">
-                                        {candidate.non_hermetic_reasons.slice(0, 3).map((reason) => (
-                                            <li key={reason}>{reason}</li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </button>
-                        );
-                    })}
-                </CardContent>
-            </Card>
-
-            {detail && (
-                <BuildDetailView
-                    projectId={projectId}
-                    detail={detail}
-                    canMutate={canMutate}
-                    isAdmin={isAdmin}
-                    waivers={waivers}
-                    busy={busy}
-                    openBlockers={openBlockers}
-                    onRun={run}
-                />
-            )}
-
-            <Card>
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Releases</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                    {records.length === 0 && (
-                        <p className="text-sm text-muted-foreground">Nothing released yet.</p>
-                    )}
-                    {records.map((record) => {
-                        const report = verification[record.id];
-                        return (
-                            <div key={record.id} className="rounded-md border p-3 text-sm space-y-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="font-semibold">{record.release_label}</span>
-                                    {record.revision && <Badge variant="outline">rev {record.revision}</Badge>}
-                                    <span className="font-mono text-xs text-muted-foreground">
-                                        {record.commit_sha.slice(0, 10)} · dossier {shortDigest(record.dossier_digest)}
-                                    </span>
-                                    <div className="ml-auto flex gap-2">
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() =>
-                                                void api.downloadFile(
-                                                    api.downloadUrl(projectId, `records/${record.id}/release-archive`),
-                                                    `${record.release_label}-release.tar.gz`,
-                                                )
-                                            }
-                                        >
-                                            <Download className="mr-1 h-3 w-3" /> Archive
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() =>
-                                                void run(`verify-${record.id}`, async () => {
-                                                    const result = await api.verifyRecord(projectId, record.id);
-                                                    setVerification((current) => ({
-                                                        ...current,
-                                                        [record.id]: result,
-                                                    }));
-                                                })
-                                            }
-                                        >
-                                            <FileCheck2 className="mr-1 h-3 w-3" /> Verify
-                                        </Button>
-                                        {canMutate && <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => void run(`share-${record.id}`, async () => {
-                                                const result = await api.createWebRelease(projectId, record.id);
-                                                const absolute = new URL(result.url, window.location.origin).toString();
-                                                setShareUrls((current) => ({ ...current, [record.id]: absolute }));
-                                                await navigator.clipboard.writeText(absolute);
-                                            }, "Public release link copied. It is shown once; revoke it when no longer needed.")}
-                                        >
-                                            <Copy className="mr-1 h-3 w-3" /> Share
-                                        </Button>}
-                                    </div>
-                                </div>
-                                {shareUrls[record.id] && <div className="rounded border bg-muted/40 px-3 py-2 font-mono text-xs break-all">{shareUrls[record.id]}</div>}
-                                {(shares[record.id] ?? []).length > 0 && (
-                                    <div className="space-y-1 rounded border bg-muted/20 px-3 py-2">
-                                        {(shares[record.id] ?? []).map((share) => (
-                                            <div key={share.id} className="flex flex-wrap items-center gap-2 text-xs">
-                                                <Badge variant={share.status === "active" ? "secondary" : "outline"}>
-                                                    {share.status}
-                                                </Badge>
-                                                <span className="text-muted-foreground">
-                                                    created by {share.created_by || "unknown"}
-                                                    {share.expires_at ? ` · expires ${new Date(share.expires_at).toLocaleString()}` : " · no expiry"}
-                                                </span>
-                                                {canMutate && share.status === "active" && (
-                                                    <Button
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        className="ml-auto h-7 text-destructive"
-                                                        disabled={Boolean(busy)}
-                                                        onClick={() => void run(
-                                                            `revoke-share-${share.id}`,
-                                                            () => api.revokeWebRelease(projectId, share.id),
-                                                            "Public release link revoked.",
-                                                        )}
-                                                    >
-                                                        <ShieldX className="mr-1 h-3 w-3" /> Revoke
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                {report && (
-                                    <div
-                                        className={cn(
-                                            "rounded border px-3 py-2 text-xs",
-                                            report.ok
-                                                ? "border-emerald-500/40 bg-emerald-500/10"
-                                                : "border-destructive/40 bg-destructive/10",
-                                        )}
-                                    >
-                                        <div className="mb-1 font-semibold">
-                                            {report.ok ? "VERIFIED" : "REJECTED"}
-                                        </div>
-                                        <ul className="space-y-0.5">
-                                            {report.checks.map((check, index) => (
-                                                <li key={index} className="flex items-start gap-1">
-                                                    {check.ok ? (
-                                                        <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />
-                                                    ) : (
-                                                        <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
-                                                    )}
-                                                    <span>{check.message}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Audit trail</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="max-h-64 space-y-1 overflow-y-auto font-mono text-xs">
-                        {audit.map((event) => (
-                            <div key={event.id} className="flex gap-2">
-                                <span className="w-10 shrink-0 text-muted-foreground">
-                                    #{event.sequence}
-                                </span>
-                                <span className="w-44 shrink-0">{event.event_type}</span>
-                                <span className="w-32 shrink-0 truncate">{event.actor || "—"}</span>
-                                <span className="truncate text-muted-foreground">
-                                    {shortDigest(event.event_hash)}
-                                </span>
-                            </div>
-                        ))}
-                        {audit.length === 0 && (
-                            <p className="font-sans text-sm text-muted-foreground">No events yet.</p>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
-    );
-}
-
-function TypographyTemplateForm({
-    configuration,
-}: {
-    configuration: ReleaseConfiguration | null;
-}) {
-    const [preset, setPreset] = useState(DEFAULT_TYPOGRAPHY);
-    const [copied, setCopied] = useState(false);
-
-    useEffect(() => {
-        setPreset(configuration?.typography || DEFAULT_TYPOGRAPHY);
-    }, [configuration?.config_key, configuration?.typography]);
-
-    const yaml = useMemo(
-        () => [
-            "schema: prism.release-studio.configuration/1",
-            `title: ${JSON.stringify(configuration?.title || "Manufacturing release")}`,
-            `board: ${configuration?.board_rel || "board.kicad_pcb"}`,
-            `schematic: ${configuration?.schematic_rel || "board.kicad_sch"}`,
-            `jobset: ${configuration?.jobset_rel || "Outputs.kicad_jobset"}`,
-            `typography: ${preset}`,
-        ].join("\n"),
-        [configuration, preset],
-    );
-
-    const copy = async () => {
-        await navigator.clipboard.writeText(yaml);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
-    };
-
-    return (
-        <Card>
-            <CardHeader className="pb-3">
-                <CardTitle className="text-base">Documentation template</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
-                <div className="space-y-2">
-                    <Label htmlFor="rs-typography">Display typography</Label>
-                    <select
-                        id="rs-typography"
-                        value={preset}
-                        onChange={(event) => setPreset(event.target.value)}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    >
-                        {TYPOGRAPHY_PRESETS.map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                        ))}
-                    </select>
-                    <p className="text-xs text-muted-foreground">
-                        This selector only fills the YAML template. Compose reads
-                        {" "}<code>typography</code> from the committed configuration;
-                        if that key is absent, the default is Geist Pixel Square.
-                    </p>
-                </div>
-                <div className="min-w-0 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                        <Label htmlFor="rs-template-yaml">Configuration YAML</Label>
-                        <Button size="sm" variant="outline" onClick={() => void copy()}>
-                            <Copy className="mr-1 h-3 w-3" /> {copied ? "Copied" : "Copy YAML"}
-                        </Button>
-                    </div>
-                    <Textarea
-                        id="rs-template-yaml"
-                        value={yaml}
-                        readOnly
-                        className="min-h-36 font-mono text-xs"
+            {view === "settings" ? (
+                <div className="min-h-0 flex-1 overflow-y-auto p-6">
+                    <DefineConfigStep
+                        configurations={configurations}
+                        configKey={configKey}
+                        variant={variant}
+                        profiles={profiles}
+                        commits={commits}
+                        commitSha={commitSha}
+                        commitsLoading={commitsLoading}
+                        canMutate={canMutate}
+                        busy={busy}
+                        onConfigKey={setConfigKey}
+                        onVariant={setVariant}
+                        onCommit={setCommitSha}
+                        onSave={handleSaveConfiguration}
+                        onBuild={() => void handleBuild()}
                     />
                 </div>
-            </CardContent>
-        </Card>
-    );
-}
+            ) : (
+                <div className="flex min-h-0 flex-1">
+                    {(view === "history" || view === "library") && (
+                        <RunList
+                            mode={view}
+                            candidates={candidates}
+                            records={records}
+                            selectedBuildId={selectedBuildId}
+                            onSelect={(buildId) => {
+                                setDrafting(false);
+                                openRun(buildId);
+                            }}
+                            onSelectRecord={(record) => {
+                                setDrafting(false);
+                                openRun(record.build_id, "released");
+                            }}
+                        />
+                    )}
 
-type DetailProps = {
-    projectId: string;
-    detail: BuildDetail;
-    canMutate: boolean;
-    isAdmin: boolean;
-    waivers: Waiver[];
-    busy: string;
-    openBlockers: Finding[];
-    onRun: (label: string, action: () => Promise<unknown>, success?: string) => Promise<void>;
-};
-
-function DocumentSheetPreview({
-    projectId,
-    buildId,
-    sheet,
-}: {
-    projectId: string;
-    buildId: string;
-    sheet: DocumentSheet;
-}) {
-    const [objectUrl, setObjectUrl] = useState("");
-    const [failure, setFailure] = useState("");
-
-    useEffect(() => {
-        let revoked = false;
-        let created = "";
-        setObjectUrl("");
-        setFailure("");
-        void api.sheetObjectUrl(projectId, buildId, sheet.key)
-            .then((url) => {
-                if (revoked) {
-                    URL.revokeObjectURL(url);
-                    return;
-                }
-                created = url;
-                setObjectUrl(url);
-            })
-            .catch((cause: unknown) => {
-                if (!revoked) setFailure(cause instanceof Error ? cause.message : String(cause));
-            });
-        return () => {
-            revoked = true;
-            if (created) URL.revokeObjectURL(created);
-        };
-    }, [projectId, buildId, sheet.key]);
-
-    return (
-        <div className="space-y-2 rounded-md border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium capitalize">{sheet.key.replace(/-/g, " ")}</span>
-                {sheet.pdf && (
-                    <span className="font-mono text-xs text-muted-foreground">
-                        {shortDigest(sheet.pdf.released_digest)}
-                    </span>
-                )}
-                {sheet.pdf && (
-                    <Button
-                        className="ml-auto"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void api.downloadFile(
-                            api.downloadUrl(
-                                projectId,
-                                `builds/${encodeURIComponent(buildId)}/members/`
-                                    + sheet.pdf!.path.split("/").map(encodeURIComponent).join("/")
-                                    + "?disposition=attachment",
-                            ),
-                            `${sheet.key}.pdf`,
-                        )}
-                    >
-                        <Download className="mr-1 h-3 w-3" /> PDF
-                    </Button>
-                )}
-            </div>
-            {failure && <p className="text-sm text-destructive">{failure}</p>}
-            {!failure && !objectUrl && (
-                <div className="flex min-h-48 items-center justify-center rounded border bg-muted/30">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Loading sheet" />
-                </div>
-            )}
-            {objectUrl && (
-                <iframe
-                    src={objectUrl}
-                    title={`${sheet.key} documentation`}
-                    className="h-[70vh] w-full rounded border bg-background"
-                />
-            )}
-        </div>
-    );
-}
-
-function BuildDetailView({
-    projectId,
-    detail,
-    canMutate,
-    isAdmin,
-    waivers,
-    busy,
-    openBlockers,
-    onRun,
-}: DetailProps) {
-    const [role, setRole] = useState("pcb_design");
-    const [domains, setDomains] = useState<string>("bare_board");
-    const [exceptionReason, setExceptionReason] = useState("");
-    const [label, setLabel] = useState("");
-    const [revision, setRevision] = useState("A");
-    const [overrideBlockers, setOverrideBlockers] = useState(false);
-    const [overrideReason, setOverrideReason] = useState("");
-    // Track the member by path rather than by object so the viewer follows the
-    // same file across a refresh that replaces the member rows.
-    const [viewedMemberPath, setViewedMemberPath] = useState("");
-    const [sheets, setSheets] = useState<DocumentSheet[]>([]);
-    const [selectedSheetKey, setSelectedSheetKey] = useState("");
-    const [sheetFailure, setSheetFailure] = useState("");
-    const build = detail.build;
-    const evaluation = detail.evaluation;
-    const viewedMember = detail.members.find((item) => item.path === viewedMemberPath) ?? null;
-    const selectedSheet = sheets.find((item) => item.key === selectedSheetKey) ?? sheets[0] ?? null;
-
-    useEffect(() => {
-        let cancelled = false;
-        setSheets([]);
-        setSelectedSheetKey("");
-        setSheetFailure("");
-        void api.listDocumentSheets(projectId, build.id)
-            .then((items) => {
-                if (cancelled) return;
-                setSheets(items);
-                setSelectedSheetKey(items[0]?.key ?? "");
-            })
-            .catch((cause: unknown) => {
-                if (!cancelled) {
-                    setSheetFailure(cause instanceof Error ? cause.message : String(cause));
-                }
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [projectId, build.id]);
-
-    return (
-        <Card>
-            <CardHeader className="pb-3">
-                <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                    Build
-                    <Badge variant={build.status === "succeeded" ? "secondary" : "destructive"}>
-                        {build.status}
-                    </Badge>
-                    <span className="font-mono text-xs font-normal text-muted-foreground">
-                        manifest {shortDigest(build.manifest_digest)} · dossier{" "}
-                        {shortDigest(build.dossier_digest)}
-                    </span>
-                    <div className="ml-auto flex gap-2">
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                                void api.downloadFile(
-                                    api.downloadUrl(projectId, `builds/${build.id}/dossier`),
-                                    `dossier-${build.id}.tar.gz`,
-                                )
-                            }
-                        >
-                            <Download className="mr-1 h-3 w-3" /> Dossier
-                        </Button>
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                                void api.downloadFile(
-                                    api.downloadUrl(projectId, `builds/${build.id}/build-evidence`),
-                                    `evidence-${build.id}.tar.gz`,
-                                )
-                            }
-                        >
-                            <Download className="mr-1 h-3 w-3" /> Evidence
-                        </Button>
-                    </div>
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                {Array.isArray(build.warnings) && build.warnings.length > 0 && (
-                    <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-                        <p className="font-medium text-amber-900 dark:text-amber-200">
-                            Build warnings ({build.warnings.length})
-                        </p>
-                        <ul className="mt-1 list-disc space-y-1 pl-5 text-amber-950/90 dark:text-amber-100/90">
-                            {build.warnings.map((warning) => (
-                                <li key={warning}>{warning}</li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-                <Tabs defaultValue="evaluation">
-                    <TabsList>
-                        <TabsTrigger value="evaluation">Evaluation</TabsTrigger>
-                        <TabsTrigger value="documents">Documents ({sheets.length})</TabsTrigger>
-                        <TabsTrigger value="members">Members ({detail.members.length})</TabsTrigger>
-                        <TabsTrigger value="evidence">Evidence</TabsTrigger>
-                        <TabsTrigger value="approvals">Approvals</TabsTrigger>
-                        <TabsTrigger value="waivers">Waivers</TabsTrigger>
-                        <TabsTrigger value="release">Release</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="evaluation" className="space-y-3 pt-4">
-                        <div className="flex items-center gap-2">
-                            <Badge className={outcomeTone(evaluation?.outcome ?? "")}>
-                                {evaluation?.outcome ?? "not evaluated"}
-                            </Badge>
-                            {canMutate && (
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={Boolean(busy)}
-                                    onClick={() =>
-                                        void onRun("evaluate", () =>
-                                            api.evaluateBuild(projectId, build.id, DEFAULT_CONFIG),
-                                        )
-                                    }
-                                >
-                                    Re-evaluate
-                                </Button>
-                            )}
-                            <span className="text-xs text-muted-foreground">
-                                Re-evaluating runs no KiCad step and leaves the manifest untouched.
-                            </span>
+                    {!selectedBuildId && !building && !drafting ? (
+                        <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
+                            Select a run, or start a new release.
                         </div>
-
-                        {evaluation && (
-                            <>
-                                <RuleOutcomeList outcomes={evaluation.rule_outcomes} />
-                                <Separator />
-                                <FindingList findings={evaluation.findings} />
-                            </>
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="documents" className="space-y-3 pt-4">
-                        {sheetFailure && (
-                            <p className="text-sm text-destructive">{sheetFailure}</p>
-                        )}
-                        {!sheetFailure && sheets.length === 0 && (
-                            <p className="text-sm text-muted-foreground">
-                                This build has no composed documentation sheets.
-                            </p>
-                        )}
-                        {sheets.length > 0 && (
-                            <div className="flex flex-wrap gap-2" role="list" aria-label="Document sheets">
-                                {sheets.map((sheet) => (
-                                    <Button
-                                        key={sheet.key}
-                                        size="sm"
-                                        variant={sheet.key === selectedSheet?.key ? "secondary" : "outline"}
-                                        onClick={() => setSelectedSheetKey(sheet.key)}
-                                    >
-                                        <FileImage className="mr-1 h-3 w-3" />
-                                        {sheet.key}
-                                    </Button>
-                                ))}
-                            </div>
-                        )}
-                        {selectedSheet && (
-                            <DocumentSheetPreview
-                                projectId={projectId}
-                                buildId={build.id}
-                                sheet={selectedSheet}
-                            />
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="members" className="space-y-3 pt-4">
-                        {viewedMember && (
-                            <MemberViewer
-                                projectId={projectId}
-                                buildId={detail.build.id}
-                                member={viewedMember}
-                                onClose={() => setViewedMemberPath("")}
-                            />
-                        )}
-                        <div className="max-h-96 overflow-y-auto">
-                            <table className="w-full text-xs">
-                                <thead className="sticky top-0 bg-background">
-                                    <tr className="border-b text-left text-muted-foreground">
-                                        <th className="py-1">Path</th>
-                                        <th>Domains</th>
-                                        <th>Canonicalizer</th>
-                                        <th className="text-right">Released digest</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {detail.members.map((member) => (
-                                        <tr
-                                            key={member.id}
-                                            className="cursor-pointer border-b last:border-0 hover:bg-muted/50"
-                                            onClick={() => setViewedMemberPath(member.path)}
-                                        >
-                                            <td className="py-1 font-mono">{member.path}</td>
-                                            <td>
-                                                {member.domains.map((domain) => (
-                                                    <Badge key={domain} variant="outline" className="mr-1">
-                                                        {domain}
-                                                    </Badge>
-                                                ))}
-                                            </td>
-                                            <td className="text-muted-foreground">{member.canonicalizer}</td>
-                                            <td className="text-right font-mono">
-                                                {shortDigest(member.released_digest)}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </TabsContent>
-
-                    <TabsContent value="evidence" className="space-y-2 pt-4">
-                        {detail.evidence.length === 0 && (
-                            <p className="text-sm text-muted-foreground">No DRC/ERC evidence captured.</p>
-                        )}
-                        {detail.evidence.map((item) => (
-                            <div key={item.kind} className="rounded-md border p-3 text-sm">
-                                <div className="flex items-center gap-2">
-                                    <span className="font-semibold uppercase">{item.kind}</span>
-                                    <span className="font-mono text-xs text-muted-foreground">
-                                        {shortDigest(item.report_digest)}
-                                    </span>
-                                </div>
-                                <div className="mt-1 flex flex-wrap gap-2">
-                                    {Object.entries(item.counts).map(([severity, count]) => (
-                                        <Badge
-                                            key={severity}
-                                            variant={
-                                                severity === "error" && count > 0 ? "destructive" : "outline"
-                                            }
-                                        >
-                                            {severity}: {count}
-                                        </Badge>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </TabsContent>
-
-                    <TabsContent value="approvals" className="space-y-3 pt-4">
-                        <ApprovalList approvals={detail.approvals} />
-                        {canMutate && (
-                            <div className="rounded-md border p-3 space-y-2">
-                                <div className="flex flex-wrap gap-2">
-                                    <div className="space-y-1">
-                                        <Label htmlFor="rs-role">Role</Label>
-                                        <Input
-                                            id="rs-role"
-                                            value={role}
-                                            onChange={(event) => setRole(event.target.value)}
-                                            className="w-44"
-                                        />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label htmlFor="rs-domains">Domains (comma separated)</Label>
-                                        <Input
-                                            id="rs-domains"
-                                            value={domains}
-                                            onChange={(event) => setDomains(event.target.value)}
-                                            className="w-64"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="space-y-1">
-                                    <Label htmlFor="rs-exception">
-                                        Self-approval / emergency reason (only if you authored this candidate)
-                                    </Label>
-                                    <Textarea
-                                        id="rs-exception"
-                                        value={exceptionReason}
-                                        onChange={(event) => setExceptionReason(event.target.value)}
-                                        rows={2}
-                                    />
-                                </div>
-                                <Button
-                                    size="sm"
-                                    disabled={Boolean(busy)}
-                                    onClick={() =>
-                                        void onRun(
-                                            "approve",
-                                            () =>
-                                                api.createApproval(projectId, build.id, {
-                                                    role,
-                                                    domains: domains
-                                                        .split(",")
-                                                        .map((item) => item.trim())
-                                                        .filter(Boolean),
-                                                    decision: "approved",
-                                                    exception_kind: exceptionReason.trim()
-                                                        ? "self_approval"
-                                                        : null,
-                                                    exception_reason: exceptionReason.trim() || null,
-                                                }),
-                                            "Approval recorded.",
-                                        )
-                                    }
-                                >
-                                    Approve
-                                </Button>
-                            </div>
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="waivers" className="space-y-2 pt-4">
-                        {waivers.length === 0 && (
-                            <p className="text-sm text-muted-foreground">No waivers.</p>
-                        )}
-                        {waivers.map((waiver) => (
-                            <div
-                                key={waiver.id}
-                                className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm"
-                            >
-                                <Badge variant="outline">{waiver.rule_id}</Badge>
-                                <Badge variant="secondary">{waiver.status}</Badge>
-                                <span className="text-muted-foreground">{waiver.reason}</span>
-                                <span className="text-xs text-muted-foreground">
-                                    owner {waiver.owner}
-                                    {waiver.approver ? ` · approved by ${waiver.approver}` : ""}
-                                    {waiver.expires_at ? ` · expires ${waiver.expires_at}` : ""}
+                    ) : (
+                        <div className="flex min-h-0 flex-1 flex-col">
+                            <div className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
+                                <span className="font-mono text-sm">
+                                    {selectedCandidate?.commit_sha.slice(0, 12)
+                                        ?? (building || drafting
+                                            ? commitSha.slice(0, 12)
+                                            : selectedBuildId)}
                                 </span>
-                                {waiver.exception_kind && (
-                                    <span className="text-xs text-amber-600 dark:text-amber-500">
-                                        self-approved · {waiver.exception_reason}
-                                    </span>
-                                )}
-                                {canMutate && waiver.status === "proposed" && (
-                                    <WaiverApproval
-                                        projectId={projectId}
-                                        waiver={waiver}
-                                        busy={busy}
-                                        onRun={onRun}
-                                    />
+                                <Badge variant="outline">
+                                    {building
+                                        ? "building"
+                                        : drafting
+                                          ? "new release"
+                                          : (selectedDetail?.build.status ?? "loading")}
+                                </Badge>
+                                {behind && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => {
+                                            pinnedRef.current = false;
+                                            if (newestBuildId) openRun(newestBuildId);
+                                        }}
+                                    >
+                                        Jump to latest
+                                    </Button>
                                 )}
                             </div>
-                        ))}
-                        {canMutate && openBlockers.length > 0 && (
-                            <WaiverComposer
-                                projectId={projectId}
-                                findings={openBlockers}
-                                busy={busy}
-                                onRun={onRun}
+                            <IdentityStrip
+                                candidate={selectedCandidate}
+                                configuration={drafting ? configurations?.find((item) => item.config_key === configKey) ?? null : selectedDetail?.configuration ?? null}
+                                fallbackCommit={commitSha}
+                                variant={variant}
                             />
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="release" className="space-y-3 pt-4">
-                        {openBlockers.length > 0 && (
-                            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
-                                {openBlockers.length} unwaived blocking finding(s). Release is refused
-                                until each is resolved or waived.
-                            </div>
-                        )}
-                        {/*
-                          Break-glass, and deliberately not a convenience. It is
-                          admin-only, demands a reason, and is written into the
-                          signed attestation, so a recipient can see that a
-                          release went out over open blockers.
-                        */}
-                        {canMutate && isAdmin && openBlockers.length > 0 && (
-                            <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
-                                <label className="flex items-center gap-2 text-sm font-medium">
-                                    <input
-                                        type="checkbox"
-                                        checked={overrideBlockers}
-                                        onChange={(event) => setOverrideBlockers(event.target.checked)}
-                                        aria-label="Release over open blockers"
+                            <div className="flex min-h-0 flex-1">
+                                <div className="w-56 shrink-0 border-r p-2">
+                                    <StageRail
+                                        stage={stage}
+                                        states={stageStates}
+                                        summaries={stageSummaries}
+                                        onSelect={(next) => {
+                                            if (stageStates[next] !== "locked") setStage(next);
+                                        }}
                                     />
-                                    Release over open blockers (administrative override)
-                                </label>
-                                {overrideBlockers && (
-                                    <div className="space-y-1">
-                                        <Label htmlFor="rs-override-reason">Override reason</Label>
-                                        <Input
-                                            id="rs-override-reason"
-                                            value={overrideReason}
-                                            onChange={(event) => setOverrideReason(event.target.value)}
-                                            placeholder="Why this release proceeds over open blockers"
+                                </div>
+                                <div className="min-w-0 flex-1 overflow-y-auto p-6">
+                                    {stage === "source" && drafting && (
+                                        <SelectRevisionStep
+                                            commits={commits}
+                                            commitSha={commitSha}
+                                            loading={commitsLoading}
+                                            busy={Boolean(busy)}
+                                            configurations={configurations}
+                                            configKey={configKey}
+                                            variant={variant}
+                                            onConfigKey={setConfigKey}
+                                            onVariant={setVariant}
+                                            actionLabel={
+                                                drafting ? "Build this revision" : "Continue"
+                                            }
+                                            onSelect={(value) => setCommitSha(resolveCommitSelection(value, commits))}
+                                            onContinue={() =>
+                                                drafting
+                                                    ? void handleBuild()
+                                                    : setStage("build")
+                                            }
                                         />
-                                        <p className="text-xs text-muted-foreground">
-                                            This is recorded in the audit chain and inside the signed
-                                            attestation, naming every finding it steps over. Prefer a
-                                            waiver, which names an owner, an approver, and an expiry.
-                                        </p>
-                                    </div>
-                                )}
+                                    )}
+                                    {stage === "source" && !drafting && selectedDetail && (
+                                        <SourceDetails detail={selectedDetail} />
+                                    )}
+                                    {stage === "build" && (
+                                        <ObserveBuildStep
+                                            pipeline={pipeline}
+                                            jobStatus={jobStatus}
+                                            message={jobMessage}
+                                            percent={jobPercent}
+                                            projectId={projectId}
+                                            buildId={selectedBuildId}
+                                            liveLogs={liveLogs}
+                                            canCancel={Boolean(activeJobId ?? selectedDetail?.build.job_id) && canMutate && (jobStatus || selectedDetail?.build.status) !== "cancel_requested" && selectedDetail?.build.status !== "succeeded" && selectedDetail?.build.status !== "failed" && selectedDetail?.build.status !== "cancelled"}
+                                            cancelling={busy === "cancel-build"}
+                                            onCancel={() => void handleCancel()}
+                                        />
+                                    )}
+                                    {stage === "outputs" && selectedDetail && (
+                                        <InspectOutputsStep
+                                            projectId={projectId}
+                                            detail={selectedDetail}
+                                            profiles={profiles}
+                                            busy={busy}
+                                            onContinue={() => setStage("signoff")}
+                                            onRun={run}
+                                        />
+                                    )}
+                                    {stage === "outputs" && !selectedDetail && <LockedStage />}
+                                    {stage === "signoff" && selectedDetail && (
+                                        <SignOffStep
+                                            projectId={projectId}
+                                            detail={selectedDetail}
+                                            configuration={selectedDetail.configuration}
+                                            canMutate={canMutate}
+                                            isAdmin={isAdmin}
+                                            busy={busy}
+                                            openBlockers={openBlockers}
+                                            onRun={run}
+                                        />
+                                    )}
+                                    {stage === "signoff" && !selectedDetail && <LockedStage />}
+                                    {stage === "released" && (
+                                        <div className="space-y-3">
+                                            <h3 className="text-lg font-semibold">Released</h3>
+                                            <ReleaseRecordsList
+                                                projectId={projectId}
+                                                records={records}
+                                                shares={shares}
+                                                shareUrls={shareUrls}
+                                                verification={verification}
+                                                canMutate={canMutate}
+                                                busy={busy}
+                                                profiles={profiles}
+                                                vendorReadinessByBuild={selectedDetail ? { [selectedDetail.build.id]: selectedDetail.vendor_readiness } : {}}
+                                                onRun={run}
+                                                onVerified={(recordId, report) => setVerification((current) => ({ ...current, [recordId]: report }))}
+                                                onShared={(recordId, url) => setShareUrls((current) => ({ ...current, [recordId]: url }))}
+                                            />
+                                        </div>
+                                    )}
+                                    {stage !== "source" && stage !== "build" && stage !== "outputs" && stage !== "signoff" && stage !== "released" && <LockedStage />}
+                                </div>
                             </div>
-                        )}
-                        <div className="flex flex-wrap items-end gap-3">
-                            <div className="space-y-1">
-                                <Label htmlFor="rs-label">Release label</Label>
-                                <Input
-                                    id="rs-label"
-                                    value={label}
-                                    onChange={(event) => setLabel(event.target.value)}
-                                    className="w-56"
-                                    placeholder="REL-0001"
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <Label htmlFor="rs-revision">Revision</Label>
-                                <Input
-                                    id="rs-revision"
-                                    value={revision}
-                                    onChange={(event) => setRevision(event.target.value)}
-                                    className="w-24"
-                                />
-                            </div>
-                            {canMutate && (
-                                <Button
-                                    disabled={
-                                        Boolean(busy) ||
-                                        !label.trim() ||
-                                        (overrideBlockers && !overrideReason.trim())
-                                    }
-                                    onClick={() =>
-                                        void onRun(
-                                            "release",
-                                            () =>
-                                                api.createRelease(projectId, build.id, {
-                                                    release_label: label.trim(),
-                                                    document_number: "",
-                                                    revision: revision.trim(),
-                                                    override_blockers: overrideBlockers,
-                                                    override_reason: overrideReason.trim(),
-                                                }),
-                                            overrideBlockers
-                                                ? "Release created and signed over open blockers."
-                                                : "Release created and signed.",
-                                        )
-                                    }
-                                >
-                                    <ShieldCheck className="mr-2 h-4 w-4" />{" "}
-                                    {overrideBlockers ? "Override and release" : "Sign and release"}
-                                </Button>
-                            )}
                         </div>
-                    </TabsContent>
-                </Tabs>
-            </CardContent>
-        </Card>
-    );
-}
-
-export function RuleOutcomeList({ outcomes }: { outcomes: RuleOutcome[] }) {
-    if (outcomes.length === 0) return null;
-    return (
-        <div className="space-y-1">
-            <h4 className="text-sm font-semibold">Rules</h4>
-            {outcomes.map((outcome) => (
-                <div key={outcome.rule_id} className="flex items-center gap-2 text-sm">
-                    <Badge className={outcomeTone(outcome.outcome)}>
-                        {outcome.outcome === "unsupported" && (
-                            <HelpCircle className="mr-1 h-3 w-3" />
-                        )}
-                        {outcome.outcome}
-                    </Badge>
-                    <span className="font-mono text-xs">{outcome.rule_id}</span>
-                    {outcome.unsupported_reason && (
-                        <span className="text-xs text-muted-foreground">
-                            — {outcome.unsupported_reason}
-                        </span>
                     )}
                 </div>
-            ))}
-        </div>
-    );
-}
-
-export function FindingList({ findings }: { findings: Finding[] }) {
-    if (findings.length === 0) {
-        return <p className="text-sm text-muted-foreground">No findings.</p>;
-    }
-    const byDomain = findings.reduce<Record<string, Finding[]>>((accumulator, finding) => {
-        (accumulator[finding.domain] ??= []).push(finding);
-        return accumulator;
-    }, {});
-    return (
-        <div className="space-y-3">
-            {Object.entries(byDomain).map(([domain, items]) => (
-                <div key={domain} className="space-y-1">
-                    <h4 className="text-sm font-semibold capitalize">{domain.replace("_", " ")}</h4>
-                    {items.map((finding) => (
-                        <div key={finding.id ?? finding.finding_key} className="rounded border p-2 text-sm">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <Badge className={outcomeTone(finding.severity)}>{finding.severity}</Badge>
-                                {finding.status === "waived" && (
-                                    <Badge variant="outline">waived</Badge>
-                                )}
-                                <span className="font-mono text-xs">{finding.rule_id}</span>
-                                <span className="text-xs text-muted-foreground">{finding.subject}</span>
-                            </div>
-                            <p className="mt-1 text-xs">{finding.message}</p>
-                        </div>
-                    ))}
-                </div>
-            ))}
-        </div>
-    );
-}
-
-export function ApprovalList({ approvals }: { approvals: Approval[] }) {
-    if (approvals.length === 0) {
-        return <p className="text-sm text-muted-foreground">No approvals yet.</p>;
-    }
-    return (
-        <div className="space-y-2">
-            {approvals.map((approval) => {
-                const invalidation = approval.invalidations?.[0];
-                return (
-                    <div key={approval.id} className="rounded-md border p-3 text-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant={invalidation ? "destructive" : "secondary"}>
-                                {invalidation ? "invalidated" : approval.decision}
-                            </Badge>
-                            <span className="font-semibold">{approval.role}</span>
-                            {approval.domains.map((domain) => (
-                                <Badge key={domain} variant="outline">
-                                    {domain}
-                                </Badge>
-                            ))}
-                            <span className="text-xs text-muted-foreground">
-                                by {approval.approver}
-                            </span>
-                            {approval.carried_from_approval_id && (
-                                <Badge variant="outline">carried forward</Badge>
-                            )}
-                        </div>
-                        {approval.exception_kind && (
-                            <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                                Exception ({approval.exception_kind}): {approval.exception_reason}
-                            </p>
-                        )}
-                        {invalidation && (
-                            <p className="mt-1 text-xs text-destructive">
-                                Stale <strong>{invalidation.stale_component}</strong> binding
-                                {invalidation.changed_domains.length > 0 &&
-                                    ` — changed: ${invalidation.changed_domains.join(", ")}`}
-                                . {invalidation.reason}
-                            </p>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-/** Media types this panel can render in place; everything else is a download. */
-function previewKind(mediaType: string, path: string): "pdf" | "image" | "text" | "none" {
-    const type = (mediaType || "").toLowerCase();
-    if (type === "application/pdf") return "pdf";
-    if (type.startsWith("image/")) return "image";
-    if (
-        type.startsWith("text/")
-        || type === "application/json"
-        // Gerber and Excellon are plain text with vendor media types, and being
-        // able to read the released artwork header is most of the point.
-        || type === "application/vnd.gerber"
-        || /\.(gbr|g[a-z0-9]{2}|drl|csv|json|txt)$/i.test(path)
-    ) {
-        return "text";
-    }
-    return "none";
-}
-
-/**
- * Render one released member inside Prism.
- *
- * The bytes come from the digest-checked member route, so what is displayed is
- * the released artefact itself rather than a re-derived preview.
- */
-function MemberViewer({
-    projectId,
-    buildId,
-    member,
-    onClose,
-}: {
-    projectId: string;
-    buildId: string;
-    member: ReleaseMember;
-    onClose: () => void;
-}) {
-    const [objectUrl, setObjectUrl] = useState<string>("");
-    const [text, setText] = useState<string>("");
-    const [failure, setFailure] = useState<string>("");
-    const kind = previewKind(member.media_type, member.path);
-
-    useEffect(() => {
-        let revoked = false;
-        let created = "";
-        setObjectUrl("");
-        setText("");
-        setFailure("");
-        if (kind === "none") return undefined;
-
-        void api
-            .memberObjectUrl(projectId, buildId, member.path)
-            .then(async ({ url }) => {
-                if (revoked) {
-                    URL.revokeObjectURL(url);
-                    return;
-                }
-                created = url;
-                if (kind === "text") {
-                    const body = await (await fetch(url)).text();
-                    if (!revoked) setText(body);
-                } else {
-                    setObjectUrl(url);
-                }
-            })
-            .catch((cause: unknown) => {
-                if (!revoked) {
-                    setFailure(cause instanceof Error ? cause.message : String(cause));
-                }
-            });
-
-        return () => {
-            revoked = true;
-            if (created) URL.revokeObjectURL(created);
-        };
-    }, [projectId, buildId, member.path, kind]);
-
-    return (
-        <div className="space-y-2 rounded-md border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-sm">{member.path}</span>
-                <Badge variant="outline">{member.media_type || "unknown"}</Badge>
-                <span className="font-mono text-xs text-muted-foreground">
-                    {shortDigest(member.released_digest)}
-                </span>
-                <div className="ml-auto flex gap-2">
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                            void api.downloadFile(
-                                api.downloadUrl(
-                                    projectId,
-                                    `builds/${encodeURIComponent(buildId)}/members/`
-                                        + `${member.path.split("/").map(encodeURIComponent).join("/")}`
-                                        + "?disposition=attachment",
-                                ),
-                                member.path.split("/").pop() ?? "member",
-                            )
-                        }
-                    >
-                        Download
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={onClose}>
-                        Close
-                    </Button>
-                </div>
-            </div>
-
-            {failure && <p className="text-sm text-destructive">{failure}</p>}
-
-            {!failure && kind === "none" && (
-                <p className="text-sm text-muted-foreground">
-                    This member type has no in-app preview. Download it to inspect the
-                    released bytes.
-                </p>
             )}
-            {!failure && kind === "pdf" && objectUrl && (
-                <iframe title={member.path} src={objectUrl} className="h-[70vh] w-full rounded border" />
-            )}
-            {!failure && kind === "image" && objectUrl && (
-                <img
-                    alt={member.path}
-                    src={objectUrl}
-                    className="max-h-[70vh] w-full rounded border bg-white object-contain"
-                />
-            )}
-            {!failure && kind === "text" && text && (
-                <pre className="max-h-[70vh] overflow-auto rounded border bg-muted/40 p-2 text-xs">
-                    {text}
-                </pre>
-            )}
-        </div>
-    );
-}
-
-/**
- * Approving a waiver you raised yourself is possible only as a named exception
- * with a written reason, which the audit chain records. The reason field is
- * revealed rather than always present so the ordinary two-person path stays the
- * obvious one and the exception stays a deliberate act.
- */
-function WaiverApproval({
-    projectId,
-    waiver,
-    busy,
-    onRun,
-}: {
-    projectId: string;
-    waiver: Waiver;
-    busy: string;
-    onRun: DetailProps["onRun"];
-}) {
-    const [claiming, setClaiming] = useState(false);
-    const [exceptionReason, setExceptionReason] = useState("");
-
-    const approve = (exception?: { exception_kind: "self_approval"; exception_reason: string }) =>
-        void onRun("waiver", () =>
-            api.transitionWaiver(projectId, waiver.id, "approve", "", exception),
-        );
-
-    if (claiming) {
-        return (
-            <div className="ml-auto flex w-full flex-col gap-2 sm:w-80">
-                <Textarea
-                    value={exceptionReason}
-                    onChange={(event) => setExceptionReason(event.target.value)}
-                    placeholder="Why is no second approver available?"
-                    rows={2}
-                    className="text-sm"
-                />
-                <div className="flex gap-2">
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={Boolean(busy) || !exceptionReason.trim()}
-                        onClick={() =>
-                            approve({
-                                exception_kind: "self_approval",
-                                exception_reason: exceptionReason.trim(),
-                            })
-                        }
-                    >
-                        Record exception and approve
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setClaiming(false)}>
-                        Cancel
-                    </Button>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="ml-auto flex gap-2">
-            <Button
-                size="sm"
-                variant="outline"
-                disabled={Boolean(busy)}
-                onClick={() => approve()}
-            >
-                Approve waiver
-            </Button>
-            <Button
-                size="sm"
-                variant="ghost"
-                disabled={Boolean(busy)}
-                onClick={() => setClaiming(true)}
-            >
-                Self-approve…
-            </Button>
-        </div>
-    );
-}
-
-function WaiverComposer({
-    projectId,
-    findings,
-    busy,
-    onRun,
-}: {
-    projectId: string;
-    findings: Finding[];
-    busy: string;
-    onRun: DetailProps["onRun"];
-}) {
-    const [selected, setSelected] = useState(findings[0]?.finding_key ?? "");
-    const [reason, setReason] = useState("");
-    const finding = findings.find((item) => item.finding_key === selected) ?? findings[0];
-
-    return (
-        <div className="rounded-md border p-3 space-y-2">
-            <h4 className="text-sm font-semibold">Propose a waiver</h4>
-            <select
-                className="w-full rounded border bg-background px-2 py-1 text-sm"
-                value={selected}
-                onChange={(event) => setSelected(event.target.value)}
-            >
-                {findings.map((item) => (
-                    <option key={item.finding_key} value={item.finding_key}>
-                        {item.rule_id} — {item.subject}
-                    </option>
-                ))}
-            </select>
-            <Textarea
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                rows={2}
-                placeholder="Why is this acceptable to manufacture?"
-            />
-            <Button
-                size="sm"
-                disabled={Boolean(busy) || !reason.trim() || !finding}
-                onClick={() =>
-                    void onRun(
-                        "waiver",
-                        () =>
-                            api.createWaiver(projectId, {
-                                config_key: DEFAULT_CONFIG,
-                                rule_id: finding.rule_id,
-                                domain: finding.domain,
-                                reason: reason.trim(),
-                                finding_key: finding.finding_key,
-                            }),
-                        "Waiver proposed. It needs a second person to approve it.",
-                    )
-                }
-            >
-                Propose waiver
-            </Button>
         </div>
     );
 }
 
 export default ReleaseStudioPanel;
+
+function IdentityStrip({
+    candidate,
+    configuration,
+    fallbackCommit,
+    variant,
+}: {
+    candidate: ReleaseCandidate | null;
+    configuration: ReleaseConfiguration | null;
+    fallbackCommit: string;
+    variant: string;
+}) {
+    const commit = candidate?.commit_sha || fallbackCommit;
+    const resolvedVariant = candidate?.variant || variant || configuration?.default_variant || "default";
+    return <div aria-label="Release identity" className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-2 text-xs">
+        <History className="h-4 w-4 text-muted-foreground" />
+        <span className="rounded border bg-background px-2 py-1 font-mono">{commit.slice(0, 12) || "HEAD"}</span>
+        <span className="rounded border bg-background px-2 py-1">{configuration?.config_key || candidate?.config_key || "—"}</span>
+        <span className="rounded border bg-background px-2 py-1">{resolvedVariant}</span>
+        <span className="rounded border bg-background px-2 py-1">Document {configuration?.document_number || "—"}</span>
+        <span className="rounded border bg-background px-2 py-1">Rev {configuration?.revision || "—"}</span>
+    </div>;
+}
+
+function LockedStage() {
+    return <div className="rounded border border-dashed p-4 text-sm text-muted-foreground">This stage is locked until the preceding build evidence is available.</div>;
+}
+
+function SourceDetails({ detail }: { detail: BuildDetail }) {
+    const source = detail.candidate;
+    const configuration = detail.configuration;
+    const rows = [
+        ["Commit", source?.commit_sha || "—"],
+        ["Configuration", source?.config_key || configuration?.config_key || "—"],
+        ["Variant", source?.variant || configuration?.default_variant || "default"],
+        ["Board", configuration?.board_rel || "—"],
+        ["Schematic", configuration?.schematic_rel || "—"],
+        ["Jobset", configuration?.jobset_rel || "—"],
+    ];
+    return <div className="space-y-4"><h3 className="text-lg font-semibold">Source</h3><dl className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">{rows.map(([label, value]) => <div key={label} className="space-y-1"><dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt><dd className="break-all font-mono text-sm">{value}</dd></div>)}</dl></div>;
+}

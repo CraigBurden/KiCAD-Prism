@@ -784,6 +784,21 @@ class CommentsStoreService:
                     },
                 )
 
+    def delete_project_comments(self, project_id: str) -> None:
+        """Remove every comment listing stored for a deleted project."""
+        self.initialize()
+
+        with self._connect() as conn:
+            with conn.transaction():
+                conn.execute(
+                    "DELETE FROM comments WHERE project_id = %s",
+                    (project_id,),
+                )
+                conn.execute(
+                    "DELETE FROM project_comment_state WHERE project_id = %s",
+                    (project_id,),
+                )
+
     def delete_comment(self, project_id: str, project_path: str, comment_id: str) -> bool:
         self.initialize()
 

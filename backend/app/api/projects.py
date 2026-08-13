@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.api._helpers import get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
 from app.core.config import settings
+from app.core.roles import role_meets_minimum
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services import (
     derived_assets,
@@ -27,7 +28,8 @@ from app.services import (
     semantic_index_service,
     semantic_visualizer_service,
 )
-from app.services.workspace_service import workspace
+from app.services.comments_store_service import comments_store
+from app.services.workspace_service import ProjectHasSignedReleasesError, workspace
 from app.services.comments_url_service import build_comments_source_urls, resolve_comments_base_url
 from app.services.git_service import (
     get_branches,
@@ -1211,6 +1213,8 @@ async def delete_project_endpoint(project_id: str, user: AuthenticatedUser = Dep
     Delete a project from the registry.
     For standalone projects, this also deletes the project files.
     For monorepo sub-projects, only removes the registry entry.
+    Admins always cascade associated workspace and release-studio listings.
+    Designers can delete a project that has no signed release records.
     """
     project = get_project_for_role_or_404(project_id, user.role)
     row = workspace.get_project_by_id(project_id)
@@ -1220,14 +1224,27 @@ async def delete_project_endpoint(project_id: str, user: AuthenticatedUser = Dep
     repo_id = row.get("repo_id")
     import_type = row.get("import_type") or "single"
     clone_path = row.get("parent_repo_path") or project.path
-    success = await asyncio.to_thread(workspace.delete_project, project_id)
+    force = role_meets_minimum(user.role, "admin")
+    try:
+        success = await asyncio.to_thread(
+            workspace.delete_project, project_id, force=force
+        )
+    except ProjectHasSignedReleasesError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not success:
         raise HTTPException(status_code=404, detail="Project not found")
 
     remaining_projects = await asyncio.to_thread(workspace.get_projects_by_repo, repo_id) if repo_id else []
     should_delete_repo = import_type == "single" or not remaining_projects
     removed_files = False
-    file_warning = None
+    warnings: List[str] = []
+
+    try:
+        await asyncio.to_thread(comments_store.delete_project_comments, project_id)
+    except Exception as exc:
+        warnings.append(
+            f"Project was removed from the workspace, but comments could not be deleted: {exc}"
+        )
 
     if should_delete_repo and repo_id:
         await asyncio.to_thread(workspace.delete_repository, repo_id)
@@ -1238,11 +1255,13 @@ async def delete_project_endpoint(project_id: str, user: AuthenticatedUser = Dep
                 await asyncio.to_thread(shutil.rmtree, target)
                 removed_files = True
         except Exception as exc:
-            file_warning = f"Project was removed from the workspace, but files could not be deleted: {exc}"
+            warnings.append(
+                f"Project was removed from the workspace, but files could not be deleted: {exc}"
+            )
 
     response = {"message": "Project deleted successfully", "removed_files": removed_files}
-    if file_warning:
-        response["warning"] = file_warning
+    if warnings:
+        response["warning"] = " ".join(warnings)
     response["repository_deleted"] = should_delete_repo
     return response
 

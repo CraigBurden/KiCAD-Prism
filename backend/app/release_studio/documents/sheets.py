@@ -571,6 +571,7 @@ def technical_cover(
     revision_history: Sequence[Mapping[str, Any]] | None = None,
     placements: Sequence[Mapping[str, Any]] | None = None,
     render: Any = None,
+    release_fields: Mapping[str, Any] | None = None,
 ) -> tuple[Sheet, list]:
     """The rich cover: what this release is, and exactly what is in it.
 
@@ -607,8 +608,13 @@ def technical_cover(
         tables.variant_table(variants, str(context.get("variant") or "")),
         tables.revision_history_table(revision_history or (), width=_COVER_TABLE_WIDTH),
         tables.key_value_table(
+            "MANUFACTURING & ASSEMBLY SPEC",
+            tables.manufacturing_spec(release_fields),
+            width=_COVER_TABLE_WIDTH,
+        ),
+        tables.key_value_table(
             "BOARD CHARACTERISTICS",
-            tables.board_characteristics(stats, stackup),
+            tables.release_board_characteristics(stats, stackup, release_fields),
             width=_COVER_TABLE_WIDTH,
         ),
         tables.key_value_table(
@@ -991,7 +997,7 @@ def drill_sheet(
         sheet_notes, width=table_width, typography=typography
     ) + _TABLE_GAP
     column, overflow, _factor = split_columns(
-        [[tables.drill_table(stackup, stats)]],
+        [[tables.via_statistics_table(stackup), tables.drill_table(stackup, stats)]],
         Rect(area.x, area.y, area.width, area.height - reserve),
         gap=_TABLE_GAP,
     )

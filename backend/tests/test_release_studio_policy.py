@@ -361,5 +361,51 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(result.findings[0].waiver_id, "wv-9")
 
 
+class WaiverBuildBindingTests(unittest.TestCase):
+    """A waiver accepts a finding on one build, not on every later one."""
+
+    def _finding(self):
+        from app.release_studio.policy import Finding
+
+        return Finding(
+            rule_id="drc.clean",
+            rule_version="1",
+            severity="blocker",
+            domain="evidence",
+            subject="drc/error",
+            message="DRC reported 42 error(s)",
+            observed={},
+            expected={},
+        )
+
+    def _waiver(self, build_id: str):
+        return {
+            "id": "wv-1",
+            "status": "approved",
+            "rule_id": "drc.clean",
+            "finding_key": "",
+            "subject_pattern": "drc/*",
+            "build_id": build_id,
+        }
+
+    def test_a_waiver_applies_to_the_build_it_was_raised_against(self) -> None:
+        from app.release_studio.policy import _apply_waivers
+
+        waived = _apply_waivers(self._finding(), [self._waiver("build-1")], "build-1")
+        self.assertEqual(waived.status, "waived")
+        self.assertEqual(waived.waiver_id, "wv-1")
+
+    def test_a_waiver_does_not_travel_to_the_next_build(self) -> None:
+        """Even on the same commit: finding_key is stable across rebuilds, so
+        without the build binding an exception nobody re-examined would keep
+        clearing the same blocker release after release."""
+
+        from app.release_studio.policy import _apply_waivers
+
+        carried = _apply_waivers(self._finding(), [self._waiver("build-1")], "build-2")
+        self.assertEqual(carried.status, "open")
+        self.assertIsNone(carried.waiver_id)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

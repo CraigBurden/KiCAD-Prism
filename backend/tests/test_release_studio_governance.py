@@ -533,13 +533,32 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
                 decision="approved", approver="quality",
             )
 
-    # -- the two separation properties -------------------------------------
-
-    def test_policy_bump_invalidates_approvals_but_no_technical_row_moves(self) -> None:
+    def test_only_approver_or_admin_can_rescind_an_approval(self) -> None:
         candidate = self._candidate()
         built = self._built(candidate, _dossier())
         self._evaluate(built["id"])
-        self.service.create_approval(
+        approval = self.service.create_approval(
+            build_id=built["id"], role="pcb_design", domains=["bare_board"],
+            decision="approved", approver="quality",
+        )
+        with self.assertRaisesRegex(self.service.ReleaseStudioError, "original approver or an admin"):
+            self.service.rescind_approval(
+                approval_id=approval["id"], build_id=built["id"],
+                reason="not my approval", actor="designer",
+            )
+        invalidation = self.service.rescind_approval(
+            approval_id=approval["id"], build_id=built["id"],
+            reason="administrative correction", actor="admin", is_admin=True,
+        )
+        self.assertEqual(invalidation["created_by"], "admin")
+
+    # -- the two separation properties -------------------------------------
+
+    def test_policy_reevaluation_excludes_old_approval_until_current_evaluation_is_approved(self) -> None:
+        candidate = self._candidate()
+        built = self._built(candidate, _dossier())
+        self._evaluate(built["id"])
+        old_approval = self.service.create_approval(
             build_id=built["id"], role="pcb_design", domains=["bare_board"],
             decision="approved", approver="quality",
         )
@@ -553,15 +572,19 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
             built["id"],
             rules=[{"id": "drc.clean", "severity": "warning", "params": {"max_errors": 1}}],
         )
-        invalidated = self.service.invalidate_for_policy_change(
-            build_id=built["id"],
-            new_policy_binding_digest=second.policy_binding_digest,
-            actor="quality",
-        )
-
-        self.assertEqual(len(invalidated), 1)
-        self.assertEqual(invalidated[0]["stale_component"], "policy")
+        # Re-evaluation creates a fresh policy binding. The old approval is
+        # immutable history, but cannot satisfy current coverage merely because
+        # it did not receive a separate invalidation row.
         self.assertEqual(self.service.effective_approvals(built["id"]), [])
+        self.assertEqual(self.service.list_approvals(built["id"])[0]["id"], old_approval["id"])
+        current_approval = self.service.create_approval(
+            build_id=built["id"], role="pcb_design", domains=["bare_board"],
+            decision="approved", approver="quality",
+        )
+        self.assertEqual(
+            [item["id"] for item in self.service.effective_approvals(built["id"])],
+            [current_approval["id"]],
+        )
 
         after = self.service.get_build(built["id"])
         self.assertEqual(before_manifest, after["manifest_digest"])
@@ -572,6 +595,21 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
                 for domain, record in self.service.build_fingerprints(built["id"]).items()
             },
         )
+
+    def test_repeated_evaluation_under_same_policy_is_append_only_and_stales_approval(self) -> None:
+        candidate = self._candidate()
+        built = self._built(candidate, _dossier())
+        first = self._evaluate(built["id"])
+        approval = self.service.create_approval(
+            build_id=built["id"], role="pcb_design", domains=["bare_board"],
+            decision="approved", approver="quality",
+        )
+        second = self._evaluate(built["id"])
+        self.assertNotEqual(first.policy_binding_digest, "")
+        self.assertEqual(first.policy_binding_digest, second.policy_binding_digest)
+        latest = self.service.latest_evaluation(built["id"])
+        self.assertNotEqual(latest["id"], approval["evaluation_id"])
+        self.assertEqual(self.service.effective_approvals(built["id"]), [])
 
     def test_assembly_only_change_carries_bare_board_and_invalidates_assembly(self) -> None:
         candidate = self._candidate()
@@ -707,8 +745,19 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
             attestation=attestation,
             signature=key.sign_hex(attestation["attestation_digest"]),
             signing_key_id=key.key_id,
-            policy_snapshot={"waivers": [waiver["id"]]},
+            policy_snapshot={
+                "policy_binding_digest": cleared.policy_binding_digest,
+                "waivers": [waiver["id"]],
+            },
             approval_snapshot=[{"approver": approval["approver"]}],
+            expected_evaluation_id=self.service.latest_evaluation(built["id"])["id"],
+            expected_policy_binding_digest=cleared.policy_binding_digest,
+            expected_waiver_binding_digest="",
+            expected_required_approvals=[
+                {"role": "pcb_design", "domains": ["bare_board"]}
+            ],
+            expected_approval_ids=[approval["id"]],
+            expected_audit_head=head["event_hash"],
         )
         self.assertEqual(record["release_label"], "REL-0001")
         self.assertIn(waiver["id"], record["policy_snapshot"]["waivers"])
@@ -747,13 +796,78 @@ class ReleaseStudioGovernanceTests(unittest.TestCase):
             attestation={"attestation_digest": "x" * 64},
             signature="00",
             signing_key_id="k",
-            policy_snapshot={},
+            policy_snapshot={
+                "policy_binding_digest": self.service.latest_evaluation(
+                    built["id"]
+                )["policy_binding_digest"]
+            },
             approval_snapshot=[],
+            expected_evaluation_id=self.service.latest_evaluation(built["id"])["id"],
+            expected_policy_binding_digest=self.service.latest_evaluation(built["id"])["policy_binding_digest"],
+            expected_waiver_binding_digest="",
+            expected_required_approvals=[],
+            expected_approval_ids=[],
+            expected_audit_head=self.service.current_audit_head(
+                self.project_id, self.config_key
+            )["event_hash"],
         )
         first = self.service.create_release_record(release_label="REL-1", **common)
+        common["expected_audit_head"] = self.service.current_audit_head(
+            self.project_id, self.config_key
+        )["event_hash"]
         second = self.service.create_release_record(release_label="REL-2", **common)
         self.assertEqual(first["dossier_digest"], second["dossier_digest"])
         self.assertEqual(len(self.service.list_release_records(self.project_id)), 2)
+
+    def test_release_record_rejects_changed_reviewed_state_before_insert(self) -> None:
+        """The store is the final authority, not the API's earlier read."""
+
+        candidate = self._candidate()
+        built = self._built(candidate, _dossier())
+        result = self._evaluate(built["id"])
+        evaluation = self.service.latest_evaluation(built["id"])
+        self.service.upsert_signing_key(
+            key_id="gate-key", algorithm="ed25519", public_key="public"
+        )
+        common = {
+            "build_id": built["id"],
+            "release_label": "REL-GATE",
+            "document_number": "DOC",
+            "revision": "A",
+            "released_by": "manager",
+            "attestation": {"attestation_digest": "a" * 64},
+            "signature": "00",
+            "signing_key_id": "gate-key",
+            "policy_snapshot": {"policy_binding_digest": result.policy_binding_digest},
+            "approval_snapshot": [],
+            "expected_policy_binding_digest": result.policy_binding_digest,
+            "expected_waiver_binding_digest": str(evaluation["waiver_binding_digest"]),
+            "expected_required_approvals": [],
+            "expected_approval_ids": [],
+            "expected_audit_head": self.service.current_audit_head(
+                self.project_id, self.config_key
+            )["event_hash"],
+        }
+        with self.assertRaisesRegex(self.service.ReleaseGateError, "evaluation"):
+            self.service.create_release_record(
+                expected_evaluation_id="eval-stale", **common
+            )
+        with self.assertRaisesRegex(self.service.ReleaseGateError, "approvals"):
+            self.service.create_release_record(
+                expected_evaluation_id=evaluation["id"],
+                expected_approval_ids=["approval-rescinded"],
+                **{key: value for key, value in common.items() if key != "expected_approval_ids"},
+            )
+        with self.assertRaisesRegex(self.service.ReleaseGateError, "waiver"):
+            self.service.create_release_record(
+                expected_evaluation_id=evaluation["id"],
+                expected_waiver_binding_digest="w" * 64,
+                **{
+                    key: value
+                    for key, value in common.items()
+                    if key != "expected_waiver_binding_digest"
+                },
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover

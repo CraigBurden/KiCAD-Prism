@@ -16,8 +16,10 @@ import sys
 import tarfile
 import unittest
 import uuid
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +32,7 @@ except ImportError:  # pragma: no cover
     psycopg = None
 
 from fastapi import HTTPException  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
 
 TEST_POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
 
@@ -49,6 +52,147 @@ class _User:
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
+    def test_approval_request_requires_the_displayed_evaluation_id(self) -> None:
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            self.api.ApprovalRequest(role="pcb_design", domains=["bare_board"])
+        request = self.api.ApprovalRequest(
+            evaluation_id="eval-current", role="pcb_design", domains=["bare_board"]
+        )
+        self.assertEqual(request.evaluation_id, "eval-current")
+
+    def setUp(self) -> None:
+        from app.api import release_studio as api
+
+        self.api = api
+
+    def test_candidate_requires_a_full_immutable_git_sha(self) -> None:
+        valid = "a" * 40
+        self.assertEqual(self.api.CandidateRequest(commit_sha=valid).commit_sha, valid)
+        for mutable_or_ambiguous in ("HEAD", "main", "a" * 12, "g" * 40):
+            with self.assertRaises(ValidationError):
+                self.api.CandidateRequest(commit_sha=mutable_or_ambiguous)
+
+    def test_configuration_authoring_is_repository_locked_and_published(self) -> None:
+        user = _User("designer@example.com")
+        request = self.api.ConfigurationWriteRequest(
+            configuration={"schema": "prism.release-studio.configuration/1"},
+            base_commit_sha="a" * 40,
+            commit=True,
+        )
+        queued = {"job_id": "job-config"}
+        with (
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_id": "repo-1"}),
+            patch.object(self.api.jobs, "enqueue", return_value=queued) as enqueue,
+        ):
+            actual = _run(
+                self.api.save_configuration("project", "default", request, user)
+            )
+        self.assertEqual(actual, {"job": queued})
+        args, kwargs = enqueue.call_args
+        self.assertEqual(args[0], "release_studio_configuration_publish")
+        self.assertEqual(args[1]["configuration"], request.configuration)
+        self.assertEqual(args[1]["base_commit_sha"], "a" * 40)
+        self.assertEqual(kwargs["repository_id"], "repo-1")
+        self.assertEqual(
+            kwargs["locks"],
+            [{"key": "repository:repo-1", "mode": "write"}],
+        )
+
+    def test_candidate_enqueue_identity_includes_variant(self) -> None:
+        user = _User("designer")
+        requests: list[dict] = []
+
+        def enqueue(kind, payload, **kwargs):  # noqa: ANN001 - JobService seam
+            requests.append({"kind": kind, "payload": payload, **kwargs})
+            return {"job_id": f"job-{len(requests)}"}
+
+        with (
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api.jobs, "enqueue", side_effect=enqueue),
+        ):
+            first = _run(self.api.create_candidate(
+                "project", self.api.CandidateRequest(
+                    config_key="production", commit_sha="a" * 40, variant="A"
+                ), user
+            ))
+            same = _run(self.api.create_candidate(
+                "project", self.api.CandidateRequest(
+                    config_key="production", commit_sha="a" * 40, variant="A"
+                ), user
+            ))
+            other = _run(self.api.create_candidate(
+                "project", self.api.CandidateRequest(
+                    config_key="production", commit_sha="a" * 40, variant="B"
+                ), user
+            ))
+        self.assertEqual(first["job"]["job_id"], "job-1")
+        self.assertEqual(same["job"]["job_id"], "job-2")
+        self.assertNotEqual(requests[0]["artifact_key"], requests[2]["artifact_key"])
+        self.assertEqual(requests[0]["artifact_key"], requests[1]["artifact_key"])
+        self.assertEqual(other["job"]["job_id"], "job-3")
+
+    def test_configuration_preview_rejects_mutable_or_short_commit_ids(self) -> None:
+        user = _User("viewer", role="viewer")
+        with patch.object(self.api, "get_project_for_role_or_404", lambda *_args: None):
+            for mutable_or_ambiguous in ("HEAD", "main", "a" * 12):
+                with self.assertRaises(HTTPException) as caught:
+                    _run(self.api.list_configurations(
+                        "project", commit_sha=mutable_or_ambiguous, user=user
+                    ))
+                self.assertEqual(caught.exception.status_code, 400)
+
+    def test_build_detail_marks_a_stale_waiver_evaluation_not_fresh(self) -> None:
+        build = {"id": "build", "candidate_id": "candidate"}
+        candidate = {"id": "candidate", "config_key": "default"}
+        with (
+            patch.object(self.api, "get_project_for_role_or_404", lambda *_args: None),
+            patch.object(self.api, "_build_or_404", return_value=build),
+            patch.object(self.api, "_candidate_configuration", return_value={"vendors": []}),
+            patch.object(self.api.store, "get_candidate", return_value=candidate),
+            patch.object(self.api.store, "latest_evaluation", return_value={"waiver_binding_digest": "old"}),
+            patch.object(self.api.store, "waiver_binding_digest", return_value="new"),
+            patch.object(self.api.store, "build_members", return_value=[]),
+            patch.object(self.api.store, "build_evidence", return_value=[]),
+            patch.object(self.api.store, "build_fingerprints", return_value={}),
+            patch.object(self.api.store, "list_approvals", return_value=[]),
+            patch.object(self.api.store, "list_waivers", return_value=[]),
+            patch.object(self.api, "_vendor_readiness", return_value=[]),
+            patch.object(self.api, "_required_approval_coverage", return_value={"available": True, "required_approvals": []}),
+        ):
+            payload = _run(self.api.get_build("project", "build", user=_User("viewer", role="viewer")))
+        self.assertFalse(payload["evaluation_fresh"])
+        self.assertIn("stale", payload["evaluation_fresh_error"].lower())
+
+    def test_required_approval_coverage_keeps_a_valid_empty_policy_distinct(self) -> None:
+        build = {"id": "build", "candidate_id": "candidate"}
+        with (
+            patch.object(self.api.store, "get_candidate", return_value={"id": "candidate"}),
+            patch.object(self.api, "_policy_document", return_value={"rules": []}),
+            patch.object(self.api, "resolve_policy", return_value=SimpleNamespace(required_approvals=[])),
+            patch.object(self.api.store, "effective_approvals", return_value=[]),
+        ):
+            coverage = self.api._required_approval_coverage("project", build)
+        self.assertTrue(coverage["available"])
+        self.assertEqual(coverage["required_approvals"], [])
+        self.assertNotIn("error", coverage)
+
+    def test_required_approval_coverage_reports_policy_resolution_failure(self) -> None:
+        build = {"id": "build", "candidate_id": "candidate"}
+        with (
+            patch.object(self.api.store, "get_candidate", return_value={"id": "candidate"}),
+            patch.object(self.api, "_policy_document", return_value={"rules": []}),
+            patch.object(self.api, "resolve_policy", side_effect=RuntimeError("immutable policy missing")),
+        ):
+            coverage = self.api._required_approval_coverage("project", build)
+        self.assertFalse(coverage["available"])
+        self.assertIsNone(coverage["required_approvals"])
+        self.assertIn("immutable policy missing", coverage["error"])
 
 
 class ReleaseStudioDocumentSheetApiTests(unittest.TestCase):
@@ -111,6 +255,120 @@ class ReleaseStudioDocumentSheetApiTests(unittest.TestCase):
                 )
             )
         self.assertEqual(caught.exception.status_code, 404)
+
+
+class ReleaseStudioVendorApiTests(unittest.TestCase):
+    """Vendor profiles and packs are registry-shaped, not JLCPCB-shaped."""
+
+    def setUp(self) -> None:
+        from app.api import release_studio as api
+
+        self.api = api
+        self.user = _User("viewer", role="viewer")
+        gerber = b"G04 gerber*\n"
+        xlsx = b"xlsx-bom"
+        dossier = io.BytesIO()
+        with tarfile.open(fileobj=dossier, mode="w:gz") as archive:
+            for name, payload in (
+                ("fabrication/gerbers/board-F_Cu.gbr", gerber),
+                ("fabrication/drill/board-PTH.drl", b"M48\n"),
+                ("manufacturing/vendors/jlcpcb/bom.csv", b"Comment,Designator\n"),
+                ("manufacturing/vendors/jlcpcb/cpl.csv", b"Designator,PosX\n"),
+            ):
+                info = tarfile.TarInfo(name)
+                info.size = len(payload)
+                archive.addfile(info, io.BytesIO(payload))
+        evidence = io.BytesIO()
+        with tarfile.open(fileobj=evidence, mode="w:gz") as archive:
+            info = tarfile.TarInfo("raw/vendors/jlcpcb/bom.xlsx")
+            info.size = len(xlsx)
+            archive.addfile(info, io.BytesIO(xlsx))
+            info = tarfile.TarInfo("raw/vendors/jlcpcb/cpl.xlsx")
+            info.size = len(xlsx)
+            archive.addfile(info, io.BytesIO(xlsx))
+        self.dossier_bytes = dossier.getvalue()
+        self.evidence_bytes = evidence.getvalue()
+        patches = (
+            patch.object(api, "get_project_for_role_or_404", lambda *_args: None),
+            patch.object(
+                api,
+                "_build_or_404",
+                lambda *_args: {
+                    "id": "build-1",
+                    "dossier_artifact_id": "dossier-1",
+                    "evidence_artifact_id": "evidence-1",
+                },
+            ),
+            patch.object(
+                api,
+                "_artifact_bytes",
+                lambda artifact_id: (
+                    self.dossier_bytes
+                    if artifact_id == "dossier-1"
+                    else self.evidence_bytes
+                ),
+            ),
+        )
+        for patcher in patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_lists_registered_profiles(self) -> None:
+        payload = _run(self.api.list_vendor_profiles("proj", user=self.user))
+        self.assertEqual([item["id"] for item in payload["profiles"]], ["jlcpcb"])
+        self.assertTrue(all("pack_filename" in item for item in payload["profiles"]))
+        self.assertTrue(all("title" in item for item in payload["profiles"]))
+
+    def test_unknown_vendor_pack_is_not_jlc_shaped(self) -> None:
+        with self.assertRaises(HTTPException) as caught:
+            _run(
+                self.api.download_build_vendor_pack(
+                    "proj", "build-1", "pcbway", user=self.user
+                )
+            )
+        self.assertEqual(caught.exception.status_code, 404)
+        self.assertIn("Unknown vendor", str(caught.exception.detail))
+
+    def test_jlcpcb_pack_is_a_zip_of_gerbers_and_workbooks(self) -> None:
+        response = _run(
+            self.api.download_build_vendor_pack(
+                "proj", "build-1", "jlcpcb", user=self.user
+            )
+        )
+        self.assertEqual(response.media_type, "application/zip")
+        self.assertIn("jlcpcb-upload.zip", response.headers["content-disposition"])
+        with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
+            names = set(archive.namelist())
+        self.assertIn("gerbers/board-F_Cu.gbr", names)
+        self.assertIn("drill/board-PTH.drl", names)
+        self.assertIn("bom.xlsx", names)
+        self.assertIn("cpl.xlsx", names)
+
+
+class ReleaseStudioWaiverFreshnessTests(unittest.TestCase):
+    """Release must not reuse an evaluation across waiver-state changes."""
+
+    def setUp(self) -> None:
+        from app.api import release_studio as api
+
+        self.api = api
+        self.evaluation = {"waiver_binding_digest": "before"}
+
+    def test_release_freshness_rejects_a_revoked_waiver(self) -> None:
+        # Revocation removes a previously applied approved waiver from the
+        # active set; the release predicate must refuse that old evaluation.
+        with patch.object(self.api.store, "waiver_binding_digest", return_value="after-revocation"):
+            self.assertFalse(self.api._evaluation_has_current_waivers(
+                "project", "default", "build", self.evaluation
+            ))
+
+    def test_release_freshness_rejects_an_expired_waiver(self) -> None:
+        # Expiry has the same security property even though no mutation occurs:
+        # the active set changed underneath a stored evaluation.
+        with patch.object(self.api.store, "waiver_binding_digest", return_value="after-expiry"):
+            self.assertFalse(self.api._evaluation_has_current_waivers(
+                "project", "default", "build", self.evaluation
+            ))
 
 
 @unittest.skipIf(psycopg is None, "psycopg is required")
@@ -220,13 +478,27 @@ class ReleaseStudioApiTests(unittest.TestCase):
         projections: dict[str, object] | None = None,
     ):
         from tests.test_release_studio_governance import _dossier
+        from app.release_studio.config.digests import technical_config_digest
+
+        configuration = {
+            "schema": "prism.release-studio.configuration/1",
+            "title": "API fixture",
+            "board": "board.kicad_pcb",
+            "schematic": "board.kicad_sch",
+            "jobset": "Outputs.kicad_jobset",
+            "default_variant": "default",
+            "fields": {}, "notes": {}, "variants": [], "typography": "inter",
+            "vendors": [], "document_number": "COMMITTED-100", "revision": "A",
+        }
 
         candidate = self.service.create_candidate(
             project_id=self.project_id, repository_id="repo-1", config_key="default",
             commit_sha="a" * 40, variant="default",
-            technical_config_digest="tc" * 32, input_closure_digest="ic" * 32,
+            technical_config_digest=technical_config_digest(configuration), input_closure_digest="ic" * 32,
             toolchain_digest="tl" * 32, generator_build="r11", hermetic=True,
             policy_snapshot_captured=True,
+            configuration_snapshot_captured=True,
+            configuration_document=configuration,
             created_by="designer",
         )
         build = self.service.start_build(candidate["id"], job_id=None, fence=1)
@@ -267,10 +539,53 @@ class ReleaseStudioApiTests(unittest.TestCase):
         payload = _run(self.api.get_build(self.project_id, build["id"], user=self.user))
         self.assertEqual(
             sorted(payload),
-            ["approvals", "build", "evaluation", "evidence", "fingerprints", "members"],
+            [
+                "approvals", "build", "candidate", "configuration", "evaluation",
+                "evidence", "fingerprints", "members",
+                # What the policy demands before release, so the first mention
+                # of a required role is not the refusal that names it.
+                "required_approvals",
+                "vendor_readiness", "waivers",
+            ],
         )
         self.assertEqual(len(payload["members"]), 3)
         self.assertEqual(sorted(payload["fingerprints"]), ["assembly", "bare_board", "evidence"])
+
+    def test_candidate_history_returns_all_attempts_newest_first(self) -> None:
+        candidate, build = self._built()
+        retry = self.service.start_build(candidate["id"], job_id=None, fence=2)
+        self.service.fail_build(retry["id"], error_code="fixture", error_message="retry failed")
+        payload = _run(self.api.get_candidate(self.project_id, candidate["id"], user=self.user))
+        self.assertEqual([item["id"] for item in payload["builds"]], [retry["id"], build["id"]])
+        self.assertEqual(payload["latest_build"]["id"], retry["id"])
+
+    def test_designer_cannot_fulfill_a_required_approval(self) -> None:
+        _candidate, build = self._built()
+        _run(self.api.evaluate_build(self.project_id, build["id"], self.api.EvaluateRequest(), user=self.user))
+        with self.assertRaises(HTTPException) as caught:
+            _run(self.api.create_approval(
+                self.project_id, build["id"],
+                self.api.ApprovalRequest(
+                    evaluation_id="eval-displayed",
+                    role="pcb_design",
+                    domains=["bare_board"],
+                ),
+                user=_User("designer", role="designer"),
+            ))
+        self.assertEqual(caught.exception.status_code, 403)
+
+    def test_legacy_waiver_cannot_splice_another_projects_build(self) -> None:
+        _candidate, build = self._built()
+        with self.assertRaises(HTTPException) as caught:
+            _run(self.api.create_waiver(
+                "other-project",
+                self.api.WaiverRequest(
+                    rule_id="drc.clean", domain="evidence", reason="fixture",
+                    subject_pattern="drc/*", build_id=build["id"],
+                ),
+                user=self.user,
+            ))
+        self.assertEqual(caught.exception.status_code, 404)
 
     def test_evaluate_records_rule_outcomes_including_unsupported(self) -> None:
         _candidate, build = self._built()
@@ -470,6 +785,9 @@ class ReleaseStudioApiTests(unittest.TestCase):
                 rule_id=finding["rule_id"], domain=finding["domain"],
                 reason="synthetic fixture", owner="designer",
                 finding_key=finding["finding_key"],
+                # Waivers are build-scoped: an exception accepted on one set of
+                # outputs does not carry to the next release.
+                build_id=build["id"],
             )
             self.service.transition_waiver(waiver["id"], status="approved", actor="quality")
 
@@ -600,12 +918,24 @@ class ReleaseStudioApiTests(unittest.TestCase):
         # The service opens its own connection, so this has to be visible to it.
         self.conn.commit()
 
+        from app.release_studio.config.digests import technical_config_digest
+
+        configuration = {
+            "schema": "prism.release-studio.configuration/1",
+            "title": "Published fixture",
+            "board": "board.kicad_pcb", "schematic": "board.kicad_sch",
+            "jobset": "Outputs.kicad_jobset", "default_variant": "default",
+            "fields": {}, "notes": {}, "variants": [], "typography": "inter",
+            "vendors": [], "document_number": "COMMITTED-200", "revision": "B",
+        }
         candidate = self.service.create_candidate(
             project_id=self.project_id, repository_id="repo-1", config_key="default",
             commit_sha="a" * 40, variant="default",
-            technical_config_digest="tc" * 32, input_closure_digest="ic" * 32,
+            technical_config_digest=technical_config_digest(configuration), input_closure_digest="ic" * 32,
             toolchain_digest="tl" * 32, generator_build="r11", hermetic=True,
             policy_snapshot_captured=True,
+            configuration_snapshot_captured=True,
+            configuration_document=configuration,
             created_by="designer",
         )
         build = self.service.start_build(candidate["id"], job_id=None, fence=1)
@@ -638,15 +968,29 @@ class ReleaseStudioApiTests(unittest.TestCase):
                 rule_id=finding["rule_id"], domain=finding["domain"],
                 reason="synthetic fixture", owner="designer",
                 finding_key=finding["finding_key"],
+                # Waivers are build-scoped: an exception accepted on one set of
+                # outputs does not carry to the next release.
+                build_id=build["id"],
             )
             self.service.transition_waiver(waiver["id"], status="approved", actor="quality")
 
+        # Waiver transitions change the active-waiver binding. Refresh once,
+        # then all required approvals intentionally bind to this same view.
+        _run(self.api.evaluate_build(
+            self.project_id, build["id"], self.api.EvaluateRequest(), user=self.user
+        ))
+        evaluation = self.service.latest_evaluation(build["id"])
         for role, domain in (("pcb_design", "bare_board"), ("manufacturing", "assembly")):
             _run(
                 self.api.create_approval(
                     self.project_id, build["id"],
-                    self.api.ApprovalRequest(role=role, domains=[domain], decision="approved"),
-                    user=_User("quality"),
+                    self.api.ApprovalRequest(
+                        evaluation_id=evaluation["id"],
+                        role=role,
+                        domains=[domain],
+                        decision="approved",
+                    ),
+                    user=_User("quality", role="admin"),
                 )
             )
 
@@ -663,6 +1007,8 @@ class ReleaseStudioApiTests(unittest.TestCase):
         self.assertTrue(record["signature"])
         self.assertTrue(record["attestation_digest"])
         self.assertEqual(record["dossier_digest"], build["dossier_digest"])
+        self.assertEqual(record["document_number"], "COMMITTED-200")
+        self.assertEqual(record["revision"], "B")
 
         # The archive a recipient actually receives.
         response = _run(
@@ -689,9 +1035,10 @@ class ReleaseStudioApiTests(unittest.TestCase):
         self.assertFalse(untrusted.ok)
 
     def test_waiver_cannot_be_approved_by_its_owner_through_the_api(self) -> None:
+        _candidate, build = self._built()
         waiver = _run(
-            self.api.create_waiver(
-                self.project_id,
+            self.api.create_build_waiver(
+                self.project_id, build["id"],
                 self.api.WaiverRequest(
                     config_key="default", rule_id="drc.clean", domain="evidence",
                     reason="agreed with the CM", subject_pattern="drc/*",

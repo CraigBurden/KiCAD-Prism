@@ -371,6 +371,11 @@ def _release_studio(conn: Any) -> None:
             authored_overrides    JSONB NOT NULL DEFAULT '{}'::jsonb,
             policy_snapshot_captured BOOLEAN NOT NULL DEFAULT FALSE,
             policy_document        JSONB,
+            -- The normalized configuration read from the candidate's immutable
+            -- commit.  This is the release identity source, not the mutable
+            -- configuration registry / checkout.
+            configuration_snapshot_captured BOOLEAN NOT NULL DEFAULT FALSE,
+            configuration_document JSONB,
             created_by             TEXT NOT NULL DEFAULT '',
             created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -594,12 +599,11 @@ def _release_studio(conn: Any) -> None:
                                   REFERENCES ws_release_builds(id) ON DELETE CASCADE,
             policy_binding        JSONB NOT NULL DEFAULT '{}'::jsonb,
             policy_binding_digest TEXT NOT NULL,
+            waiver_binding_digest TEXT NOT NULL DEFAULT '',
             outcome               TEXT NOT NULL,
             counts                JSONB NOT NULL DEFAULT '{}'::jsonb,
             evaluator_build       TEXT NOT NULL DEFAULT '',
             created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            CONSTRAINT uq_ws_release_evaluations_identity
-                UNIQUE (build_id, policy_binding_digest, evaluator_build),
             CONSTRAINT ck_ws_release_evaluations_outcome_vocabulary
                 CHECK (outcome IN (
                     'pass', 'warning', 'failure', 'blocker', 'unsupported', 'waived'
@@ -620,6 +624,11 @@ def _release_studio(conn: Any) -> None:
                             )),
             subject_pattern TEXT NOT NULL,
             finding_key     TEXT NOT NULL,
+            -- The build the waiver was raised against. A waiver accepts a
+            -- finding on a specific set of outputs; letting it apply to every
+            -- later build of the same configuration meant a fresh release
+            -- silently inherited exceptions nobody re-examined.
+            build_id        TEXT NOT NULL DEFAULT '',
             reason          TEXT NOT NULL,
             owner           TEXT NOT NULL,
             approver        TEXT,
@@ -635,8 +644,9 @@ def _release_studio(conn: Any) -> None:
             exception_kind  TEXT,
             exception_reason TEXT,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            -- Waivers are never deleted, so they hold their project open: a
-            -- project cannot be removed while an audited exception refers to it.
+            -- RESTRICT, not CASCADE: an audited exception must not vanish
+            -- because a project row was removed implicitly. Project teardown
+            -- deletes waivers explicitly after disabling the no-delete trigger.
             CONSTRAINT fk_ws_release_waivers_project_restrict
                 FOREIGN KEY (project_id) REFERENCES ws_projects(id) ON DELETE RESTRICT,
             CONSTRAINT ck_ws_release_waivers_exception
@@ -749,7 +759,9 @@ def _release_studio(conn: Any) -> None:
                             REFERENCES ws_release_approvals(id) ON DELETE CASCADE,
             reason          TEXT NOT NULL,
             stale_component TEXT NOT NULL
-                            CHECK (stale_component IN ('technical', 'policy', 'both')),
+                            CHECK (stale_component IN (
+                                'technical', 'policy', 'both', 'withdrawn'
+                            )),
             changed_domains TEXT[] NOT NULL DEFAULT '{}'::text[],
             created_by      TEXT NOT NULL DEFAULT '',
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1064,6 +1076,7 @@ def _release_studio(conn: Any) -> None:
                OR NEW.released_by IS DISTINCT FROM OLD.released_by
                OR NEW.policy_snapshot IS DISTINCT FROM OLD.policy_snapshot
                OR NEW.approval_snapshot IS DISTINCT FROM OLD.approval_snapshot
+               OR NEW.attestation_body IS DISTINCT FROM OLD.attestation_body
                OR NEW.created_at IS DISTINCT FROM OLD.created_at
             THEN
                 RAISE EXCEPTION
@@ -1246,6 +1259,16 @@ def _release_studio(conn: Any) -> None:
                     'a captured candidate policy snapshot is immutable'
                     USING ERRCODE = '55000';
             END IF;
+            IF OLD.configuration_snapshot_captured
+               AND (
+                   NEW.configuration_document IS DISTINCT FROM OLD.configuration_document
+                   OR NEW.configuration_snapshot_captured IS DISTINCT FROM OLD.configuration_snapshot_captured
+               )
+            THEN
+                RAISE EXCEPTION
+                    'a captured candidate configuration snapshot is immutable'
+                    USING ERRCODE = '55000';
+            END IF;
             IF NEW.commit_sha IS DISTINCT FROM OLD.commit_sha
                OR NEW.build_key IS DISTINCT FROM OLD.build_key
                OR NEW.technical_config_digest IS DISTINCT FROM OLD.technical_config_digest
@@ -1283,6 +1306,59 @@ def _release_studio(conn: Any) -> None:
         EXECUTE FUNCTION ws_release_record_guard()
         """
     )
+    conn.execute(
+        """
+        CREATE OR REPLACE FUNCTION ws_release_signing_key_guard()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            IF TG_OP = 'UPDATE'
+               AND (NEW.algorithm IS DISTINCT FROM OLD.algorithm
+                    OR NEW.public_key IS DISTINCT FROM OLD.public_key)
+            THEN
+                RAISE EXCEPTION 'a signing key id is permanently bound to its material'
+                    USING ERRCODE = '55000';
+            END IF;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+        """
+    )
+    conn.execute("DROP TRIGGER IF EXISTS trg_ws_release_signing_keys_guard ON ws_release_signing_keys")
+    conn.execute(
+        """
+        CREATE TRIGGER trg_ws_release_signing_keys_guard
+        BEFORE UPDATE ON ws_release_signing_keys
+        FOR EACH ROW EXECUTE FUNCTION ws_release_signing_key_guard()
+        """
+    )
+    conn.execute(
+        """
+        CREATE OR REPLACE FUNCTION ws_release_build_terminal_guard()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            IF OLD.status IN ('succeeded', 'failed', 'cancelled')
+               AND NEW IS DISTINCT FROM OLD
+            THEN
+                RAISE EXCEPTION 'terminal release build rows are immutable'
+                    USING ERRCODE = '55000';
+            END IF;
+            IF OLD.status <> 'running' AND NEW.status IN ('succeeded', 'failed', 'cancelled') THEN
+                RAISE EXCEPTION 'only a running build may become terminal'
+                    USING ERRCODE = '55000';
+            END IF;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+        """
+    )
+    conn.execute("DROP TRIGGER IF EXISTS trg_ws_release_builds_terminal_guard ON ws_release_builds")
+    conn.execute(
+        """
+        CREATE TRIGGER trg_ws_release_builds_terminal_guard
+        BEFORE UPDATE ON ws_release_builds
+        FOR EACH ROW EXECUTE FUNCTION ws_release_build_terminal_guard()
+        """
+    )
 
 
 def _release_studio_build_projections(conn: Any) -> None:
@@ -1310,6 +1386,187 @@ def _release_studio_build_projections(conn: Any) -> None:
     )
 
 
+def _release_studio_waiver_build_scope(conn: Any) -> None:
+    """Bind waivers to a build, and let an approval be withdrawn.
+
+    M8 carries both in its CREATE TABLE for a fresh database, but M8 is already
+    recorded wherever Release Studio has run, so an amendment there never
+    reaches an existing workspace. R23 folds this back into M8 when the ladder
+    is collapsed.
+
+    Existing waiver rows keep the empty default and therefore stop applying to
+    new builds. That is the point: an exception was accepted against one set of
+    outputs, and the next release has to accept it again rather than inherit it.
+    """
+
+    statements = (
+        """
+        ALTER TABLE ws_release_waivers
+        ADD COLUMN IF NOT EXISTS build_id TEXT NOT NULL DEFAULT ''
+        """,
+        """
+        ALTER TABLE ws_release_approval_invalidations
+        DROP CONSTRAINT IF EXISTS ws_release_approval_invalidations_stale_component_check
+        """,
+        """
+        ALTER TABLE ws_release_approval_invalidations
+        ADD CONSTRAINT ws_release_approval_invalidations_stale_component_check
+        CHECK (stale_component IN ('technical', 'policy', 'both', 'withdrawn'))
+        """,
+    )
+    for statement in statements:
+        conn.execute(statement)
+
+
+def _release_studio_configuration_snapshot(conn: Any) -> None:
+    """Persist the committed configuration that defines release identity.
+
+    Existing candidates intentionally remain readable: service code loads their
+    configuration from the recorded commit when this additive snapshot is
+    absent.  It never falls back to the working tree.
+    """
+
+    for statement in (
+        """
+        ALTER TABLE ws_release_candidates
+        ADD COLUMN IF NOT EXISTS configuration_snapshot_captured BOOLEAN NOT NULL DEFAULT FALSE
+        """,
+        """
+        ALTER TABLE ws_release_candidates
+        ADD COLUMN IF NOT EXISTS configuration_document JSONB
+        """,
+    ):
+        conn.execute(statement)
+    # Databases which already ran M8 retain its earlier trigger body.  Rebuild
+    # it after the columns exist so the immutable-snapshot boundary is not a
+    # fresh-install-only guarantee.
+    conn.execute(
+        """
+        CREATE OR REPLACE FUNCTION ws_release_candidate_snapshot_guard()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            IF OLD.policy_snapshot_captured
+               AND (
+                   NEW.policy_document IS DISTINCT FROM OLD.policy_document
+                   OR NEW.policy_snapshot_captured IS DISTINCT FROM OLD.policy_snapshot_captured
+               )
+            THEN
+                RAISE EXCEPTION 'a captured candidate policy snapshot is immutable'
+                    USING ERRCODE = '55000';
+            END IF;
+            IF OLD.configuration_snapshot_captured
+               AND (
+                   NEW.configuration_document IS DISTINCT FROM OLD.configuration_document
+                   OR NEW.configuration_snapshot_captured IS DISTINCT FROM OLD.configuration_snapshot_captured
+               )
+            THEN
+                RAISE EXCEPTION 'a captured candidate configuration snapshot is immutable'
+                    USING ERRCODE = '55000';
+            END IF;
+            IF NEW.commit_sha IS DISTINCT FROM OLD.commit_sha
+               OR NEW.build_key IS DISTINCT FROM OLD.build_key
+               OR NEW.technical_config_digest IS DISTINCT FROM OLD.technical_config_digest
+               OR NEW.input_closure_digest IS DISTINCT FROM OLD.input_closure_digest
+               OR NEW.variant IS DISTINCT FROM OLD.variant
+            THEN
+                RAISE EXCEPTION 'a candidate identity is immutable once created'
+                    USING ERRCODE = '55000';
+            END IF;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+        """
+    )
+
+
+def _release_studio_append_only_evaluations(conn: Any) -> None:
+    """Make every evaluation a historical fact and bind it to waiver state."""
+
+    conn.execute(
+        "ALTER TABLE ws_release_evaluations "
+        "ADD COLUMN IF NOT EXISTS waiver_binding_digest TEXT NOT NULL DEFAULT ''"
+    )
+    conn.execute(
+        "ALTER TABLE ws_release_evaluations "
+        "DROP CONSTRAINT IF EXISTS uq_ws_release_evaluations_identity"
+    )
+
+
+def _release_studio_terminal_and_identity_guards(conn: Any) -> None:
+    """Forward-install terminal, signing, and release-body immutability guards."""
+
+    conn.execute(
+        """
+        CREATE OR REPLACE FUNCTION ws_release_build_terminal_guard()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            IF OLD.status IN ('succeeded', 'failed', 'cancelled') AND NEW IS DISTINCT FROM OLD THEN
+                RAISE EXCEPTION 'terminal release build rows are immutable' USING ERRCODE='55000';
+            END IF;
+            IF OLD.status <> 'running' AND NEW.status IN ('succeeded', 'failed', 'cancelled') THEN
+                RAISE EXCEPTION 'only a running build may become terminal' USING ERRCODE='55000';
+            END IF;
+            RETURN NEW;
+        END; $$ LANGUAGE plpgsql
+        """
+    )
+    conn.execute("DROP TRIGGER IF EXISTS trg_ws_release_builds_terminal_guard ON ws_release_builds")
+    conn.execute(
+        "CREATE TRIGGER trg_ws_release_builds_terminal_guard BEFORE UPDATE ON ws_release_builds "
+        "FOR EACH ROW EXECUTE FUNCTION ws_release_build_terminal_guard()"
+    )
+    conn.execute(
+        """
+        CREATE OR REPLACE FUNCTION ws_release_signing_key_guard()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            IF TG_OP='UPDATE' AND (NEW.algorithm IS DISTINCT FROM OLD.algorithm
+                OR NEW.public_key IS DISTINCT FROM OLD.public_key) THEN
+                RAISE EXCEPTION 'a signing key id is permanently bound to its material' USING ERRCODE='55000';
+            END IF;
+            RETURN NEW;
+        END; $$ LANGUAGE plpgsql
+        """
+    )
+    conn.execute("DROP TRIGGER IF EXISTS trg_ws_release_signing_keys_guard ON ws_release_signing_keys")
+    conn.execute(
+        "CREATE TRIGGER trg_ws_release_signing_keys_guard BEFORE UPDATE ON ws_release_signing_keys "
+        "FOR EACH ROW EXECUTE FUNCTION ws_release_signing_key_guard()"
+    )
+    conn.execute(
+        """
+        CREATE OR REPLACE FUNCTION ws_release_record_guard()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            IF TG_OP='DELETE' THEN
+                RAISE EXCEPTION 'release records are immutable; update superseded_by instead' USING ERRCODE='55000';
+            END IF;
+            IF NEW.id IS DISTINCT FROM OLD.id OR NEW.project_id IS DISTINCT FROM OLD.project_id
+               OR NEW.config_key IS DISTINCT FROM OLD.config_key OR NEW.candidate_id IS DISTINCT FROM OLD.candidate_id
+               OR NEW.build_id IS DISTINCT FROM OLD.build_id OR NEW.release_label IS DISTINCT FROM OLD.release_label
+               OR NEW.document_number IS DISTINCT FROM OLD.document_number OR NEW.revision IS DISTINCT FROM OLD.revision
+               OR NEW.dossier_digest IS DISTINCT FROM OLD.dossier_digest OR NEW.manifest_digest IS DISTINCT FROM OLD.manifest_digest
+               OR NEW.attestation_digest IS DISTINCT FROM OLD.attestation_digest OR NEW.signature IS DISTINCT FROM OLD.signature
+               OR NEW.signing_key_id IS DISTINCT FROM OLD.signing_key_id
+               OR NEW.attestation_artifact_id IS DISTINCT FROM OLD.attestation_artifact_id
+               OR NEW.commit_sha IS DISTINCT FROM OLD.commit_sha OR NEW.variant IS DISTINCT FROM OLD.variant
+               OR NEW.released_by IS DISTINCT FROM OLD.released_by OR NEW.policy_snapshot IS DISTINCT FROM OLD.policy_snapshot
+               OR NEW.approval_snapshot IS DISTINCT FROM OLD.approval_snapshot
+               OR NEW.attestation_body IS DISTINCT FROM OLD.attestation_body
+               OR NEW.created_at IS DISTINCT FROM OLD.created_at
+            THEN RAISE EXCEPTION 'release records are immutable except for superseded_by' USING ERRCODE='55000';
+            END IF;
+            RETURN NEW;
+        END; $$ LANGUAGE plpgsql
+        """
+    )
+    conn.execute("DROP TRIGGER IF EXISTS trg_ws_release_records_guard ON ws_release_records")
+    conn.execute(
+        "CREATE TRIGGER trg_ws_release_records_guard BEFORE UPDATE OR DELETE ON ws_release_records "
+        "FOR EACH ROW EXECUTE FUNCTION ws_release_record_guard()"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -1320,6 +1577,10 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (7, "generated_thumbnail_default", _generated_thumbnail_default),
     (8, "release_studio", _release_studio),
     (13, "release_studio_build_projections", _release_studio_build_projections),
+    (14, "release_studio_waiver_build_scope", _release_studio_waiver_build_scope),
+    (15, "release_studio_configuration_snapshot", _release_studio_configuration_snapshot),
+    (16, "release_studio_append_only_evaluations", _release_studio_append_only_evaluations),
+    (17, "release_studio_terminal_and_identity_guards", _release_studio_terminal_and_identity_guards),
 )
 
 

@@ -237,6 +237,41 @@ class ReleaseStudioDossierTests(unittest.TestCase):
 
     # -- Stage 1 exit criterion 1 ------------------------------------------
 
+    def test_every_step_leaves_a_full_log_in_build_evidence(self) -> None:
+        """A release must not outlive the record of how it was built.
+
+        The job row keeps a 4000-character tail and is pruned on the job
+        retention schedule; build-evidence is pinned for as long as the release
+        exists, so the durable copy belongs there.
+        """
+
+        import io
+        import tarfile
+
+        assembled = self._build("2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "logs")
+        with tarfile.open(fileobj=io.BytesIO(assembled.evidence_bytes)) as archive:
+            logs = [name for name in archive.getnames() if name.startswith("logs/")]
+            self.assertTrue(logs, "build-evidence carries no step logs")
+            first = archive.extractfile(logs[0]).read().decode("utf-8")
+        # The argv matters as much as the text: a log that shows output but not
+        # the invocation leaves a reader guessing which command produced it.
+        self.assertIn("step:", first)
+        self.assertIn("argv:", first)
+        self.assertIn("returncode:", first)
+
+    def test_step_logs_stay_out_of_the_dossier(self) -> None:
+        """Logs are evidence. Releasing them would change released digests."""
+
+        import io
+        import tarfile
+
+        assembled = self._build("2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "sep")
+        with tarfile.open(fileobj=io.BytesIO(assembled.dossier_bytes)) as archive:
+            self.assertEqual(
+                [name for name in archive.getnames() if name.startswith("logs/")], []
+            )
+        self.assertTrue(all("logs/" not in member.path for member in assembled.members))
+
     def test_two_builds_at_different_times_are_semantically_identical(self) -> None:
         early = self._build("2026-08-11T07:00:00+00:00", "2026-08-11 07:00:00", "a")
         later = self._build("2026-08-11T09:41:12+00:00", "2026-08-11 09:41:12", "b")
@@ -315,6 +350,12 @@ class ReleaseStudioDossierTests(unittest.TestCase):
             evidence = json.loads(tar.extractfile("build-evidence.json").read().decode())
         self.assertIn("TF.CreationDate", raw, "build evidence must keep pre-canonical bytes")
         self.assertEqual(evidence["manifest_digest"], built.manifest_digest)
+        self.assertTrue(
+            all(
+                step["status"] in {"success", "failure", "skipped"}
+                for step in evidence["steps"].values()
+            )
+        )
         self.assertTrue(any(name.startswith("raw/") for name in names))
 
     # -- domains and fingerprints ------------------------------------------

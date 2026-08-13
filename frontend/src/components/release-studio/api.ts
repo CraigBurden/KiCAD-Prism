@@ -1,9 +1,11 @@
 import { fetchJson, fetchApi } from "@/lib/api";
+import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 
 import type {
     Approval,
     AuditEvent,
     BuildDetail,
+    BuildLogIndex,
     DocumentSheet,
     OrganizationPolicy,
     PolicyVersion,
@@ -14,6 +16,10 @@ import type {
     VerificationReport,
     Waiver,
     WebReleaseShare,
+    VendorProfile,
+    ProjectCommit,
+    EditableReleaseConfiguration,
+    SavedReleaseConfiguration,
 } from "./types";
 
 const base = (projectId: string) =>
@@ -21,13 +27,39 @@ const base = (projectId: string) =>
 
 export async function listConfigurations(
     projectId: string,
+    commitSha?: string,
 ): Promise<ReleaseConfiguration[]> {
+    const query = commitSha ? `?commit_sha=${encodeURIComponent(commitSha)}` : "";
     const data = await fetchJson<{ configurations: ReleaseConfiguration[] }>(
-        `${base(projectId)}/configurations`,
+        `${base(projectId)}/configurations${query}`,
         undefined,
         "Could not load release configurations",
     );
     return data.configurations ?? [];
+}
+
+export async function saveConfiguration(
+    projectId: string,
+    configKey: string,
+    configuration: EditableReleaseConfiguration,
+    baseCommitSha: string,
+): Promise<SavedReleaseConfiguration> {
+    const queued = await fetchJson<{ job: { job_id: string } }>(
+        `${base(projectId)}/configurations/${encodeURIComponent(configKey)}`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ configuration, base_commit_sha: baseCommitSha, commit: true }),
+        },
+        "Could not save the release configuration",
+    );
+    const completed = await watchPrismJob(queued.job.job_id);
+    throwIfJobFailed(completed, "Could not publish the release configuration");
+    const result = completed.result_metadata as Partial<SavedReleaseConfiguration> | undefined;
+    if (!result?.configuration || !result.commit_sha || !result.path) {
+        throw new Error("Published configuration job returned an incomplete result");
+    }
+    return result as SavedReleaseConfiguration;
 }
 
 export async function listDocumentSheets(
@@ -94,14 +126,16 @@ export async function getBuild(projectId: string, buildId: string): Promise<Buil
 export async function evaluateBuild(
     projectId: string,
     buildId: string,
-    configKey: string,
 ): Promise<{ outcome: string }> {
     return fetchJson(
         `${base(projectId)}/builds/${encodeURIComponent(buildId)}/evaluate`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ config_key: configKey }),
+            // The server evaluates from the immutable configuration captured
+            // by this build. A client-selected config would make old evidence
+            // look like it belonged to a newer revision.
+            body: JSON.stringify({}),
         },
         "Could not evaluate the build",
     );
@@ -118,10 +152,11 @@ export async function listWaivers(projectId: string, configKey: string): Promise
 
 export async function createWaiver(
     projectId: string,
+    buildId: string,
     body: Record<string, unknown>,
 ): Promise<Waiver> {
     return fetchJson(
-        `${base(projectId)}/waivers`,
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}/waivers`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -170,8 +205,6 @@ export async function createRelease(
     buildId: string,
     body: {
         release_label: string;
-        document_number: string;
-        revision: string;
         override_blockers?: boolean;
         override_reason?: string;
     },
@@ -330,6 +363,14 @@ export function downloadUrl(projectId: string, path: string): string {
     return `${base(projectId)}/${path}`;
 }
 
+export function dossierDownloadUrl(projectId: string, buildId: string): string {
+    return `${base(projectId)}/builds/${encodeURIComponent(buildId)}/dossier`;
+}
+
+export function buildEvidenceDownloadUrl(projectId: string, buildId: string): string {
+    return `${base(projectId)}/builds/${encodeURIComponent(buildId)}/build-evidence`;
+}
+
 /**
  * Fetch one released member as an object URL for inline display.
  *
@@ -372,4 +413,88 @@ export async function downloadFile(url: string, filename: string): Promise<void>
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(href);
+}
+
+export async function listVendorProfiles(projectId: string): Promise<VendorProfile[]> {
+    const data = await fetchJson<{ profiles: VendorProfile[] }>(
+        `${base(projectId)}/vendor-profiles`,
+        undefined,
+        "Could not load manufacturer profiles",
+    );
+    return data.profiles ?? [];
+}
+
+export function vendorPackUrl(
+    projectId: string,
+    buildId: string,
+    vendorId: string,
+): string {
+    return `${base(projectId)}/builds/${encodeURIComponent(buildId)}/vendor-packs/${encodeURIComponent(vendorId)}`;
+}
+
+export function recordVendorPackUrl(
+    projectId: string,
+    recordId: string,
+    vendorId: string,
+): string {
+    return `${base(projectId)}/records/${encodeURIComponent(recordId)}/vendor-packs/${encodeURIComponent(vendorId)}`;
+}
+
+export async function listProjectCommits(
+    projectId: string,
+    limit = 50,
+): Promise<ProjectCommit[]> {
+    const data = await fetchJson<{ commits: ProjectCommit[] }>(
+        `/api/projects/${encodeURIComponent(projectId)}/commits?limit=${limit}&include_total=false`,
+        undefined,
+        "Could not load commits",
+    );
+    return data.commits ?? [];
+}
+
+export async function listBuildLogs(
+    projectId: string,
+    buildId: string,
+): Promise<BuildLogIndex> {
+    return fetchJson<BuildLogIndex>(
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}/logs`,
+        undefined,
+        "Could not load build logs",
+    );
+}
+
+/** One step's full log, straight from build-evidence.
+ *
+ * Returns "" when the build predates log archiving, which is an ordinary
+ * absence rather than a failure worth surfacing as an error.
+ */
+export async function fetchBuildLog(
+    projectId: string,
+    buildId: string,
+    stepId: string,
+): Promise<string> {
+    const response = await fetch(
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}/logs/${encodeURIComponent(stepId)}`,
+    );
+    if (response.status === 404) return "";
+    if (!response.ok) throw new Error("Could not load the step log");
+    return response.text();
+}
+
+/** Withdraw an approval. Appends an invalidation; the row itself is immutable. */
+export async function rescindApproval(
+    projectId: string,
+    buildId: string,
+    approvalId: string,
+    reason: string,
+): Promise<unknown> {
+    return fetchJson(
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}/approvals/${encodeURIComponent(approvalId)}/rescind`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason }),
+        },
+        "Could not rescind the approval",
+    );
 }

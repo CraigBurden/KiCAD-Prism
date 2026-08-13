@@ -385,6 +385,7 @@ def assemble(
     projections: Mapping[str, Any] | None = None,
     archive_mtime: int = 0,
     timings: Sequence[Mapping[str, Any]] | None = None,
+    extra_evidence: Mapping[str, bytes] | None = None,
 ) -> Dossier:
     """Canonicalize, fingerprint, and package one build's outputs."""
 
@@ -431,6 +432,15 @@ def assemble(
     evidence_members = {
         f"raw/{path}": data for path, data in _raw_bytes_by_path(outputs, members).items()
     }
+    for relative, payload in (extra_evidence or {}).items():
+        evidence_members[f"raw/{relative}"] = payload
+    # One log per step, in full. The job row keeps only a 4000-character tail
+    # and is pruned on the job retention schedule, so a release used to outlive
+    # the record of how it was built. build-evidence is pinned for as long as
+    # the release exists and sits outside the dossier, so nothing here reaches
+    # a released digest.
+    for output in outputs:
+        evidence_members[f"logs/{output.step_id}.log"] = _step_log_bytes(output)
     evidence_members["build-evidence.json"] = _manifest_bytes(
         {
             "schema": "prism.release-studio.build-evidence/1",
@@ -451,6 +461,10 @@ def assemble(
                     "returncode": output.returncode,
                     "skipped_reason": output.skipped_reason,
                     "elapsed_ms": output.elapsed_ms,
+                    "status": (
+                        "skipped" if output.skipped_reason
+                        else ("success" if output.returncode == 0 else "failure")
+                    ),
                 }
                 for output in outputs
             },
@@ -476,6 +490,31 @@ def assemble(
         evidence=_evidence_records(outputs, members),
         fingerprints=fingerprints,
     )
+
+
+def _step_log_bytes(output: Any) -> bytes:
+    """One step's full log: what was run, how it ended, and everything it said.
+
+    The header matters as much as the output. A log that shows the text but not
+    the argv leaves a reader guessing which invocation produced it, and the
+    argv is already normalized so no absolute path is recorded here.
+    """
+
+    header = [
+        f"step: {output.step_id}",
+        f"type: {output.step_type}",
+        f"argv: {' '.join(output.normalized_argv)}",
+        f"returncode: {output.returncode}",
+        f"elapsed_ms: {output.elapsed_ms}",
+    ]
+    if output.skipped_reason:
+        header.append(f"skipped: {output.skipped_reason}")
+    sections = ["\n".join(header)]
+    if output.stdout:
+        sections.append(f"--- stdout ---\n{output.stdout.rstrip()}")
+    if output.stderr:
+        sections.append(f"--- stderr ---\n{output.stderr.rstrip()}")
+    return ("\n\n".join(sections) + "\n").encode("utf-8")
 
 
 def _manifest_bytes(payload: Mapping[str, Any]) -> bytes:

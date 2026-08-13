@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { PolicyAuthoringCard } from "@/components/release-studio/PolicyAuthoringCard";
 import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -17,7 +18,7 @@ interface SettingsDialogProps {
     user: User | null;
 }
 
-type SettingsTab = "git" | "access" | "general";
+type SettingsTab = "git" | "access" | "policies" | "general";
 
 interface RoleAssignment {
     email: string;
@@ -60,6 +61,17 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
                         Access Control
                     </Button>
 
+                    {isAdmin && (
+                        <Button
+                            variant={activeTab === "policies" ? "secondary" : "ghost"}
+                            className="justify-start"
+                            onClick={() => setActiveTab("policies")}
+                        >
+                            <Shield className="mr-2 h-4 w-4" />
+                            Release policies
+                        </Button>
+                    )}
+
                     <Button
                         variant={activeTab === "general" ? "secondary" : "ghost"}
                         className="justify-start opacity-50 cursor-not-allowed"
@@ -73,6 +85,11 @@ export function SettingsDialog({ open, onOpenChange, user }: SettingsDialogProps
                 <div className="flex-1 overflow-y-auto p-6">
                     {activeTab === "git" && <GitSettings user={user} />}
                     {activeTab === "access" && <AccessControlSettings isAdmin={isAdmin} />}
+                    {/* Org policies are workspace-wide, not per-board: authoring one
+                        from inside a single project's release flow made an
+                        admin-only, org-scoped action look like a step in shipping
+                        that board. */}
+                    {activeTab === "policies" && isAdmin && <PolicyAuthoringCard />}
                     {activeTab === "general" && (
                         <div className="flex items-center justify-center h-full text-muted-foreground">
                             General settings coming soon.

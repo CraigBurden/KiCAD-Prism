@@ -286,6 +286,7 @@ def run_step_catalogue(
     only: Sequence[str] | None = None,
     timeout_seconds: int = DEFAULT_CLI_TIMEOUT_SECONDS,
     progress: Any = None,
+    on_step: Any = None,
     runner: Any = None,
 ) -> tuple[StepOutput, ...]:
     """Run the catalogue against a materialized closure.
@@ -327,7 +328,11 @@ def run_step_catalogue(
     results: dict[str, StepOutput] = {}
     completed = 0
     with ThreadPoolExecutor(max_workers=min(len(specs), _MAX_PARALLEL_STEPS)) as pool:
-        futures = {pool.submit(run, spec): spec for spec in specs}
+        futures = {}
+        for spec in specs:
+            if on_step is not None:
+                on_step(spec.step_id, "in_progress")
+            futures[pool.submit(run, spec)] = spec
         for future in as_completed(futures):
             spec = futures[future]
             completed += 1
@@ -340,7 +345,25 @@ def run_step_catalogue(
             # A failing step still raises, exactly as it did serially; the
             # pool's context manager lets the others finish first so a retry
             # is not starting from nothing.
-            results[spec.step_id] = future.result()
+            try:
+                output = future.result()
+            except Exception as exc:
+                if on_step is not None:
+                    on_step(spec.step_id, "failure", message=str(exc))
+                raise
+            results[spec.step_id] = output
+            if on_step is not None:
+                log = "\n".join(
+                    part for part in (output.stdout, output.stderr) if part
+                )
+                status = "skipped" if output.skipped_reason else "success"
+                on_step(
+                    spec.step_id,
+                    status,
+                    elapsed_ms=output.elapsed_ms,
+                    log=log,
+                    message=output.skipped_reason,
+                )
     # Catalogue order, not completion order: the dossier's member ordering and
     # every digest built from it have to be independent of scheduling.
     return tuple(results[spec.step_id] for spec in specs)

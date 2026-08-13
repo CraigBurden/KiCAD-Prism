@@ -29,10 +29,14 @@ def renderer_resource_digest() -> str:
     """Identity of every bundled resource that can change a composed sheet.
 
     Fonts are one such resource; the Cruncher view configuration is another,
-    because it decides what the assembly drawings contain.  Both feed
-    ``toolchain_digest``, so editing either moves the build key rather than
-    silently producing different sheets under an unchanged one.
+    because it decides what the assembly drawings contain.  The vendor pack
+    configuration is a third: it decides which parts reach a fab house's BOM,
+    which is a released member rather than a drawing.  All feed
+    ``toolchain_digest``, so editing any of them moves the build key rather
+    than silently producing different output under an unchanged one.
     """
+
+    from app.release_studio.vendors.jlcpcb import VENDOR_CONFIG
 
     return hashlib.sha256(
         "\0".join(
@@ -40,6 +44,7 @@ def renderer_resource_digest() -> str:
                 resource_bundle_digest(),
                 hashlib.sha256(PCB_SVG_CONFIG.read_bytes()).hexdigest(),
                 hashlib.sha256(PCB_SVG_TESTPOINT_CONFIG.read_bytes()).hexdigest(),
+                hashlib.sha256(VENDOR_CONFIG.read_bytes()).hexdigest(),
             ]
         ).encode("utf-8")
     ).hexdigest()
@@ -52,6 +57,9 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d17 -- release configuration carries manufacturing/assembly IPC classes,
+#: solder-mask colour and via treatment onto the cover; the drill drawing adds
+#: projected via type, span, layer-count and quantity statistics.
 #: d15 -- released members are PDFs only (page SVGs stay in memory for tests);
 #: the fabrication opening page is the first copper layer rather than a second
 #: Edge.Cuts+F.Cu plot of the same geometry.
@@ -85,7 +93,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d15"
+RENDERER_VERSION = "release-studio-documents/d17"
 
 __all__ = [
     "ASSEMBLY_SIDES",

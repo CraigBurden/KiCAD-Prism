@@ -14,6 +14,7 @@ import io
 import json as _json
 import re
 import tarfile
+import zipfile
 from pathlib import Path
 from typing import Callable
 
@@ -370,6 +371,35 @@ def canonicalize_archive(data: bytes) -> bytes:
     return write_deterministic_archive(members, gzip_compress=gzip_compress)
 
 
+def write_deterministic_zip(
+    members: dict[str, bytes],
+    *,
+    mtime: int = 0,
+) -> bytes:
+    """Build a deterministic zip without filesystem metadata.
+
+    Fab houses want zip, not tar.gz. This helper is for derived convenience
+    packs only — it is not a member canonicalizer and does not feed a
+    fingerprint. ``mtime`` is accepted for symmetry with the tar writer and
+    ignored: zip local headers use a fixed DOS datetime so two packs with the
+    same members are byte-identical.
+    """
+
+    del mtime  # zip DOS time is fixed; callers pass archive_mtime for symmetry
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(members):
+            _validate_archive_name(name)
+            payload = members[name]
+            if not isinstance(payload, bytes):
+                raise TypeError(f"zip member {name!r} must be bytes")
+            info = zipfile.ZipInfo(filename=name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            archive.writestr(info, payload)
+    return output.getvalue()
+
+
 def canonicalize_json(data: bytes) -> bytes:
     """Canonicalize a manifest, attestation, or other JSON record."""
 
@@ -605,4 +635,5 @@ __all__ = [
     "canonicalizer_registry",
     "sha256_canonical",
     "write_deterministic_archive",
+    "write_deterministic_zip",
 ]

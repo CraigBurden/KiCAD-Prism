@@ -512,6 +512,7 @@ def evaluate(
     context: RuleContext,
     *,
     waivers: Sequence[Mapping[str, Any]] = (),
+    build_id: str = "",
 ) -> Evaluation:
     """Run every enabled rule and fold the results into one outcome."""
 
@@ -546,7 +547,7 @@ def evaluate(
             )
             for item in raw
         ]
-        produced = [_apply_waivers(item, waivers) for item in produced]
+        produced = [_apply_waivers(item, waivers, build_id) for item in produced]
         findings.extend(produced)
         if not produced:
             outcomes.append(RuleOutcome(spec.rule_id, spec.version, "pass", 0))
@@ -567,9 +568,22 @@ def evaluate(
     )
 
 
-def _apply_waivers(finding: Finding, waivers: Sequence[Mapping[str, Any]]) -> Finding:
+def _apply_waivers(
+    finding: Finding, waivers: Sequence[Mapping[str, Any]], build_id: str = ""
+) -> Finding:
+    """Waive *finding* if an approved waiver raised against *build_id* matches.
+
+    The build binding is deliberate. `finding_key` is stable across rebuilds,
+    so a configuration-scoped waiver silently carried an accepted exception
+    into every later release of that configuration -- including one nobody had
+    re-examined. An exception is granted against a specific set of outputs and
+    has to be granted again for the next.
+    """
+
     for waiver in waivers:
         if str(waiver.get("status")) != "approved":
+            continue
+        if str(waiver.get("build_id") or "") != build_id:
             continue
         if str(waiver.get("rule_id")) != finding.rule_id:
             continue

@@ -96,7 +96,13 @@ def fabrication_layers(stackup: Mapping[str, Any]) -> tuple[str, ...]:
     copper: list[str] = []
     for layer in (stackup.get("layers") or []) if isinstance(stackup, Mapping) else []:
         name = str(layer.get("name") or "").strip()
-        kind = str(layer.get("type") or layer.get("kind") or "").strip().lower()
+        # `kind` is the projection's own normalized classification; `type` is
+        # KiCad's raw value, which for copper is "signal"/"power"/"mixed" and
+        # never the word "copper". Reading `type` first therefore rejected
+        # every copper layer on a board that declares signal layers, leaving
+        # the fabrication document with no copper pages at all and an
+        # "unavailable" overview page where the first copper plot belongs.
+        kind = str(layer.get("kind") or layer.get("type") or "").strip().lower()
         if not name or not name.endswith(".Cu"):
             continue
         if kind and "copper" not in kind:
@@ -356,6 +362,11 @@ def compose(
     # shared a configuration.  They run *after* the plot pool (and after the
     # assembly Cruncher, when that was overlapped with catalogue wave A) so
     # they cannot steal an acquisition slot from a layer plot.
+    #
+    # Measured rather than assumed: pooling them alongside the layer plots on
+    # JTYU-OBC moved compose from 213.3s to 217.5s. Cruncher is CPU bound, so
+    # overlapping it with the plots splits the same cores instead of filling
+    # idle ones.
     if board is not None and cruncher_path and workdir is not None and not testpoint:
         try:
             testpoint_views = (testpoint_acquirer or acquire_testpoint_views)(
@@ -398,7 +409,16 @@ def compose(
     # frame (or otherwise dwarfs the board).  Package size already ignored those
     # frames; placement must too or the board sits tiny inside an empty window.
     art = {
-        key: content_view(drawing, extent_width, extent_height)
+        # The drill map is exempt. It is a page, not a layer plot: KiCad draws
+        # the board *and* a hole legend beside it, so it is legitimately several
+        # times the board's size, and `acquire_drill_map` has already trimmed
+        # the viewport to that ink. Cropping it to a board-sized window centred
+        # on the page keeps a patch of the middle and throws the map away.
+        key: (
+            drawing
+            if key == DRILL_ARTWORK_KEY
+            else content_view(drawing, extent_width, extent_height)
+        )
         for key, drawing in art.items()
     }
     assembly = {
@@ -422,6 +442,7 @@ def compose(
         revision_history=revision_history,
         placements=placements,
         render=board_render,
+        release_fields=fields,
     )
     _append_document(
         outputs,
@@ -534,8 +555,13 @@ def compose(
         outputs, testpoint_pages, "testpoint", "TESTPOINT DRAWING", warnings
     )
 
+    # The package ratio is shared by the sheets that draw the board itself, so
+    # a reader can measure across them. The drill map is not one of those: it
+    # carries a hole legend alongside the board, so forcing the board's ratio
+    # onto it overruns the window and the sheet then states a ratio its own
+    # artwork does not honour. It fits itself and reports what it used.
     drill, drill_scale, drill_overflow = sheet_templates.drill_sheet(
-        context, stats, stackup, art.get("drill"), size=sheet_size, scale=scale,
+        context, stats, stackup, art.get("drill"), size=sheet_size, scale=None,
         notes=sheet_notes["drill"], fields=title_fields, typography=typography,
     )
     _append_document(

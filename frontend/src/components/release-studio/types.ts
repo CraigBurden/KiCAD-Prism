@@ -17,6 +17,37 @@ export type ReleaseConfiguration = {
     revision?: string;
     fields?: Record<string, string>;
     notes?: Record<string, string[]>;
+    vendors?: string[];
+    variants?: string[];
+    /** Available only when the API exposes this normalized configuration field. */
+    policy?: string | Record<string, unknown>;
+    template?: string;
+    sheets?: string[];
+};
+
+export type EditableReleaseConfiguration = {
+    schema: "prism.release-studio.configuration/1";
+    title: string;
+    board: string;
+    schematic: string;
+    jobset: string;
+    default_variant: string;
+    policy?: string | Record<string, unknown>;
+    fields: Record<string, string>;
+    notes: Record<string, string[]>;
+    document_number?: string;
+    revision?: string;
+    variants: string[];
+    template?: string;
+    sheets?: string[];
+    typography?: string;
+    vendors: string[];
+};
+
+export type SavedReleaseConfiguration = {
+    configuration: ReleaseConfiguration;
+    commit_sha: string;
+    path: string;
 };
 
 export type DocumentSheet = {
@@ -40,12 +71,15 @@ export type ReleaseCandidate = {
     toolchain_digest: string;
     created_by: string;
     created_at: string;
+    /** Attempts are newest first. Older servers only supply latest_build. */
+    builds?: ReleaseBuild[];
     latest_build?: ReleaseBuild | null;
 };
 
 export type ReleaseBuild = {
     id: string;
     candidate_id: string;
+    job_id?: string | null;
     status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
     attempt: number;
     manifest_digest: string;
@@ -131,6 +165,8 @@ export type Approval = {
     exception_kind: string | null;
     exception_reason: string | null;
     policy_binding_digest: string;
+    /** Exact evaluation the approval binds to; historical approvals do not cover a re-evaluation. */
+    evaluation_id: string;
     technical_scope_fingerprints: Record<string, string>;
     carried_from_approval_id: string | null;
     created_at: string;
@@ -157,6 +193,10 @@ export type Waiver = {
 export type ReleaseRecord = {
     id: string;
     config_key: string;
+    /** Which build was released. `ws_release_records.build_id` has always been
+     *  returned; the type omitted it, so the UI could not tell which run in a
+     *  list had actually shipped. */
+    build_id: string;
     release_label: string;
     document_number: string;
     revision: string;
@@ -227,11 +267,104 @@ export type WebReleaseShare = {
     created_at: string;
 };
 
+export type RequiredApproval = {
+    role: string;
+    domain: string;
+    satisfied: boolean;
+    /** Policy-owned eligibility: the client never asserts a role or domain. */
+    eligible_app_roles?: string[];
+    can_current_user_approve?: boolean;
+};
+
+export type VendorReadiness = {
+    vendor_id?: string;
+    /** Compatibility with a short-lived backend payload name. */
+    profile_id?: string;
+    ready: boolean;
+    missing_requirements?: string[];
+};
+
 export type BuildDetail = {
     build: ReleaseBuild;
+    /** Immutable source identity captured with this build. */
+    candidate?: ReleaseCandidate;
+    /** Normalized, committed configuration captured with this build. */
+    configuration?: ReleaseConfiguration;
     members: ReleaseMember[];
     evidence: ReleaseEvidence[];
     fingerprints: Record<string, { fingerprint: string; fidelity: string }>;
     evaluation: Evaluation | null;
+    /** False means build-scoped waivers changed after the stored evaluation. */
+    evaluation_fresh?: boolean;
+    evaluation_fresh_error?: string;
     approvals: Approval[];
+    /** What the policy demands before release, and what is already covered.
+     *  Absent on older responses. */
+    /** Explicit backend coverage contract. `null` is unavailable, not an empty policy. */
+    required_approvals?: RequiredApproval[] | null;
+    required_approvals_available?: boolean;
+    required_approvals_error?: string;
+    /** Manufacturer readiness is build-scoped, never inferred from file names. */
+    vendor_readiness?: VendorReadiness[];
+    /** Build-scoped exceptions returned with the evidence they affect. */
+    waivers?: Waiver[];
+};
+
+export type ProjectCommit = {
+    hash: string;
+    full_hash: string;
+    author: string;
+    email: string;
+    date: string;
+    message: string;
+};
+
+export type VendorProfile = {
+    id: string;
+    title: string;
+    pack_filename: string;
+    description: string;
+    required_pack_artifacts?: string[];
+};
+
+export type PipelineStepStatus = "queued" | "in_progress" | "success" | "failure" | "cancelled" | "skipped";
+
+export type PipelineStep = {
+    id: string;
+    name: string;
+    status: PipelineStepStatus;
+    elapsed_ms?: number;
+    log?: string;
+    message?: string;
+};
+
+export type PipelineJob = {
+    id: string;
+    name: string;
+    status: PipelineStepStatus;
+    steps: PipelineStep[];
+};
+
+export type PipelineState = {
+    jobs: PipelineJob[];
+};
+
+export type RunStage = "source" | "build" | "outputs" | "signoff" | "released";
+export type StudioView = "settings" | "current" | "history" | "library";
+
+/** What a stage rail shows next to each stage. */
+export type StageState = "done" | "active" | "pending" | "failed" | "cancelled" | "locked";
+
+export type BuildLogIndex = {
+    timings: { name: string; elapsed_ms: number }[];
+    steps: {
+        step_id: string;
+        step_type: string;
+        /** Persisted authoritative terminal state, when log archiving recorded one. */
+        status?: string;
+        returncode: number | null;
+        elapsed_ms: number;
+        skipped_reason: string;
+        argv: string[];
+    }[];
 };

@@ -167,6 +167,29 @@ def board_summary(
     return tuple(rows)
 
 
+def release_board_characteristics(
+    stats: Mapping[str, Any],
+    stackup: Mapping[str, Any],
+    fields: Mapping[str, Any] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Cover characteristics, extending KiCad's table with release specs."""
+
+    configured = fields or {}
+    return (
+        *board_characteristics(stats, stackup),
+        ("Solder mask colour", _text(configured.get("solder_mask_colour"))),
+        ("Via treatment", _text(configured.get("via_treatment"))),
+    )
+
+
+def manufacturing_spec(fields: Mapping[str, Any] | None = None) -> tuple[tuple[str, str], ...]:
+    configured = fields or {}
+    return (
+        ("Manufacturing", _text(configured.get("manufacturing_ipc_class"))),
+        ("Assembly", _text(configured.get("assembly_ipc_class"))),
+    )
+
+
 def variant_table_is_empty(variants: Mapping[str, Any]) -> bool:
     """True when there is nothing useful to show in the variants panel."""
 
@@ -275,6 +298,40 @@ def drill_table(stackup: Mapping[str, Any], stats: Mapping[str, Any]) -> Table:
         rows=tuple(rows),
         widths=(18.0, 34.0, 22.0, 16.0, 14.0),
         align=("start", "start", "end", "middle", "end"),
+    )
+
+
+def via_statistics_table(stackup: Mapping[str, Any]) -> Table:
+    """Via technology and layer-span counts for the drill drawing."""
+
+    rows: list[tuple[str, ...]] = []
+    spans = stackup.get("via_spans") if isinstance(stackup.get("via_spans"), list) else []
+    for entry in spans:
+        if not isinstance(entry, Mapping):
+            continue
+        start = _text(entry.get("start_layer"))
+        stop = _text(entry.get("stop_layer"))
+        rows.append((
+            _text(entry.get("via_type")).replace("_", " ").title(),
+            f"{start} - {stop}",
+            _text(entry.get("span_layer_count")),
+            _text(entry.get("count")),
+        ))
+    if not rows:
+        counts = stackup.get("via_type_counts") if isinstance(stackup.get("via_type_counts"), Mapping) else {}
+        rows.extend(
+            (str(via_type).replace("_", " ").title(), "—", "—", _text(count))
+            for via_type, count in counts.items()
+            if isinstance(count, (int, float)) and count
+        )
+    if not rows:
+        rows.append(("No vias", "—", "—", "0"))
+    return Table(
+        title="VIA STATISTICS",
+        columns=("Type", "Span", "Layers", "Count"),
+        rows=tuple(rows),
+        widths=(22.0, 34.0, 16.0, 16.0),
+        align=("start", "start", "end", "end"),
     )
 
 

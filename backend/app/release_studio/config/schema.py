@@ -8,6 +8,13 @@ from typing import Any, Mapping
 
 from .errors import ConfigSchemaError
 
+# Imported for the vendor-id allowlist only. The registry module does not
+# import this schema, so the cycle stays one-directional.
+from app.release_studio.vendors.registry import (  # noqa: E402
+    DEFAULT_VENDORS,
+    known_vendor_ids,
+)
+
 CONFIGURATION_SCHEMA = "prism.release-studio.configuration/1"
 POLICY_SCHEMA = "prism.release-studio.policy/1"
 # Re-exported from the renderer rather than restated here.  A second copy of
@@ -38,6 +45,7 @@ CONFIGURATION_KEYS = frozenset(
         "template",
         "sheets",
         "typography",
+        "vendors",
     }
 )
 
@@ -57,6 +65,7 @@ POLICY_KEYS = frozenset(
 _PINNED_ORG_EXTENDS_RE = re.compile(r"^org:([A-Za-z0-9._-]+)@([1-9][0-9]*)$")
 _UNPINNED_ORG_EXTENDS_RE = re.compile(r"^org:([A-Za-z0-9._-]+)$")
 _LOCAL_POLICY_DIR = PurePosixPath(".prism/release-studio/policies")
+_VENDOR_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 
 def validate_configuration_mapping(
@@ -204,6 +213,9 @@ def validate_configuration_mapping(
         )
     if normalized_sheets is not None:
         normalized["sheets"] = normalized_sheets
+    normalized["vendors"] = _normalize_vendors(
+        data.get("vendors"), source=f"{source}.vendors"
+    )
     return normalized
 
 
@@ -435,6 +447,35 @@ def _normalize_nonblank_string_list(
                 f"{source}[{index}]: {description} entries must be non-empty strings"
             )
         normalized.append(item.strip())
+    return normalized
+
+
+def _normalize_vendors(value: Any, *, source: str) -> list[str]:
+    """Allowlist of registered fab-house profiles; omitted key defaults to JLCPCB."""
+
+    if value is None:
+        return list(DEFAULT_VENDORS)
+    ids = _normalize_nonblank_string_list(
+        value, source=source, description="vendors"
+    )
+    known = known_vendor_ids()
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for vendor_id in ids:
+        if not _VENDOR_ID_RE.fullmatch(vendor_id):
+            raise ConfigSchemaError(
+                f"{source}: vendor id {vendor_id!r} must be lowercase "
+                "alphanumeric with hyphens"
+            )
+        if vendor_id in seen:
+            raise ConfigSchemaError(f"{source}: duplicate vendor id {vendor_id!r}")
+        if vendor_id not in known:
+            listed = ", ".join(sorted(known)) or "(none)"
+            raise ConfigSchemaError(
+                f"{source}: unknown vendor {vendor_id!r}; known profiles: {listed}"
+            )
+        seen.add(vendor_id)
+        normalized.append(vendor_id)
     return normalized
 
 

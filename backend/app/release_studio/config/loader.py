@@ -65,6 +65,48 @@ def list_configuration_keys(checkout_root: Path | str) -> list[str]:
     return sorted(keys)
 
 
+def list_configuration_keys_at_commit(repo_root: Path | str, commit: str) -> list[str]:
+    """List configuration keys present in *commit* via ``git ls-tree``."""
+
+    root = _checkout_root(repo_root)
+    if not commit or commit.startswith("-") or any(ch.isspace() for ch in commit):
+        raise ConfigLoadError(f"invalid commit ref: {commit!r}")
+    directory = CONFIG_DIR.as_posix()
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            commit,
+            "--",
+            directory,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).decode("utf-8", errors="replace").strip()
+        raise ConfigLoadError(
+            f"failed to list configurations at {commit}: {detail or 'git ls-tree failed'}"
+        )
+    keys: list[str] = []
+    for record in result.stdout.split(b"\0"):
+        if not record:
+            continue
+        try:
+            name = record.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ConfigLoadError("Git tree contained an invalid configuration path") from exc
+        path = PurePosixPath(name)
+        if path.suffix == ".yaml" and path.parent.as_posix() == directory:
+            keys.append(path.stem)
+    return sorted(keys)
+
+
 def parse_configuration_yaml(
     text: str,
     *,
@@ -120,6 +162,21 @@ def load_configuration_from_checkout(
     config = parse_configuration_yaml(text, source=rel.as_posix())
     _validate_referenced_checkout_paths(root, config)
     _load_referenced_policy_from_checkout(root, config, source=rel.as_posix())
+    return config
+
+
+def validate_configuration_for_checkout(
+    checkout_root: Path | str,
+    data: Mapping[str, Any],
+    *,
+    source: str = "<configuration>",
+) -> dict[str, Any]:
+    """Validate an editor payload against the checkout it will be saved in."""
+
+    root = _checkout_root(checkout_root)
+    config = validate_configuration_mapping(data, source=source)
+    _validate_referenced_checkout_paths(root, config)
+    _load_referenced_policy_from_checkout(root, config, source=source)
     return config
 
 

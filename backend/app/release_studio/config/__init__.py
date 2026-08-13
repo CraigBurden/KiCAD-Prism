@@ -14,12 +14,14 @@ from .loader import (
     POLICIES_DIR,
     configuration_relpath,
     list_configuration_keys,
+    list_configuration_keys_at_commit,
     load_configuration_at_commit,
     load_configuration_from_checkout,
     load_policy_for_configuration_at_commit,
     load_policy_from_mapping,
     parse_configuration_yaml,
     parse_policy_yaml,
+    validate_configuration_for_checkout,
 )
 from .schema import (
     CONFIGURATION_SCHEMA,
@@ -39,6 +41,7 @@ __all__ = [
     "canonical_json",
     "configuration_relpath",
     "list_configuration_keys",
+    "list_configuration_keys_at_commit",
     "load_configuration_at_commit",
     "load_configuration_from_checkout",
     "load_policy_for_configuration_at_commit",
@@ -50,5 +53,6 @@ __all__ = [
     "substitute_value",
     "technical_config_digest",
     "technical_config_payload",
+    "validate_configuration_for_checkout",
     "validate_org_extends",
 ]

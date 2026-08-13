@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.release_studio.canonical import canonical_json, sha256_canonical
 from app.release_studio.config import (
@@ -95,6 +96,171 @@ def _commit_temp_repo(root: Path, message: str) -> str:
         cwd=root,
         text=True,
     ).strip()
+
+
+class ConfigurationAuthoringTests(unittest.TestCase):
+    def _checkout_with_remote(self, root: Path) -> tuple[Path, Path]:
+        remote = root / "remote.git"
+        checkout = root / "checkout"
+        subprocess.run(
+            ["git", "init", "--bare", "--initial-branch=main", str(remote)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "clone", str(remote), str(checkout)],
+            check=True,
+            capture_output=True,
+        )
+        _write_design_files(checkout)
+        subprocess.run(["git", "config", "user.email", "seed@example.com"], cwd=checkout, check=True)
+        subprocess.run(["git", "config", "user.name", "Seed"], cwd=checkout, check=True)
+        subprocess.run(["git", "add", "."], cwd=checkout, check=True)
+        subprocess.run(["git", "commit", "-m", "design"], cwd=checkout, check=True, capture_output=True)
+        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=checkout, check=True, capture_output=True)
+        return checkout, remote
+
+    def test_studio_publishes_then_fast_forwards_the_clean_mirror(self) -> None:
+        from app.services import release_studio_build_service as builds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkout, remote = self._checkout_with_remote(root)
+            (checkout / "unrelated.txt").write_text("leave me untracked\n", encoding="utf-8")
+            document = parse_configuration_yaml(_MIN_CONFIG)
+            row = {
+                "config_key": "default",
+                "title": "Demo",
+                "board_rel": "board.kicad_pcb",
+                "schematic_rel": "board.kicad_sch",
+                "jobset_rel": "Outputs.kicad_jobset",
+                "default_variant": "default",
+            }
+            with (
+                patch("app.services.design_compare_service._repo_paths", return_value=(checkout, None, checkout)),
+                patch.object(builds, "sync_configurations", return_value=[row]),
+            ):
+                saved = builds.save_configuration(
+                    "project",
+                    "default",
+                    document,
+                    author_email="designer@example.com",
+                )
+
+            self.assertRegex(saved["commit_sha"], r"^[0-9a-f]{40}$")
+            committed = subprocess.run(
+                ["git", f"--git-dir={remote}", "show", "main:.prism/release-studio/configurations/default.yaml"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertIn("schema: prism.release-studio.configuration/1", committed)
+            local_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            remote_head = subprocess.check_output(["git", f"--git-dir={remote}", "rev-parse", "main"], text=True).strip()
+            self.assertEqual(local_head, remote_head)
+            changed = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=checkout,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertIn("?? unrelated.txt", changed)
+
+    def test_a_rejected_push_leaves_no_local_configuration_commit(self) -> None:
+        from app.services import release_studio_build_service as builds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkout, remote = self._checkout_with_remote(root)
+            old_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            hook = remote / "hooks" / "pre-receive"
+            hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            hook.chmod(0o755)
+            with patch(
+                "app.services.design_compare_service._repo_paths",
+                return_value=(checkout, None, checkout),
+            ):
+                with self.assertRaisesRegex(builds.BuildError, "mirror is unchanged"):
+                    builds.save_configuration(
+                        "project",
+                        "default",
+                        parse_configuration_yaml(_MIN_CONFIG),
+                        author_email="designer@example.com",
+                    )
+
+            self.assertEqual(
+                subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip(),
+                old_head,
+            )
+            self.assertFalse(
+                (checkout / ".prism" / "release-studio" / "configurations" / "default.yaml").exists()
+            )
+
+    def test_a_form_loaded_from_an_older_tip_cannot_overwrite_newer_remote_state(self) -> None:
+        from app.services import release_studio_build_service as builds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkout, _remote = self._checkout_with_remote(root)
+            stale_tip = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            (checkout / "board.kicad_pcb").write_text("newer design\n", encoding="utf-8")
+            subprocess.run(["git", "add", "board.kicad_pcb"], cwd=checkout, check=True)
+            subprocess.run(["git", "commit", "-m", "newer design"], cwd=checkout, check=True, capture_output=True)
+            subprocess.run(["git", "push"], cwd=checkout, check=True, capture_output=True)
+
+            with patch(
+                "app.services.design_compare_service._repo_paths",
+                return_value=(checkout, None, checkout),
+            ):
+                with self.assertRaisesRegex(builds.BuildError, "changed after this configuration was loaded"):
+                    builds.save_configuration(
+                        "project",
+                        "default",
+                        parse_configuration_yaml(_MIN_CONFIG),
+                        author_email="designer@example.com",
+                        expected_base_commit=stale_tip,
+                    )
+
+    def test_retry_after_a_successful_push_converges_on_the_published_commit(self) -> None:
+        from app.services import release_studio_build_service as builds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkout, _remote = self._checkout_with_remote(root)
+            base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            document = parse_configuration_yaml(_MIN_CONFIG)
+            row = {
+                "config_key": "default",
+                "title": "Demo",
+                "board_rel": "board.kicad_pcb",
+                "schematic_rel": "board.kicad_sch",
+                "jobset_rel": "Outputs.kicad_jobset",
+                "default_variant": "default",
+            }
+            with (
+                patch(
+                    "app.services.design_compare_service._repo_paths",
+                    return_value=(checkout, None, checkout),
+                ),
+                patch.object(builds, "sync_configurations", return_value=[row]),
+            ):
+                first = builds.save_configuration(
+                    "project",
+                    "default",
+                    document,
+                    author_email="designer@example.com",
+                    expected_base_commit=base,
+                )
+                retried = builds.save_configuration(
+                    "project",
+                    "default",
+                    document,
+                    author_email="designer@example.com",
+                    expected_base_commit=base,
+                )
+
+            self.assertEqual(retried["commit_sha"], first["commit_sha"])
 
 
 class ReleaseStudioConfigTests(unittest.TestCase):

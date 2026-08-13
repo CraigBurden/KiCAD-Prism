@@ -5,7 +5,7 @@
 miniature Gerber, drill, STEP, SVG, PDF, or report files are checked into the
 locked ``fixtures/release-studio`` root.  The generated files live only in a
 temporary directory for the test process; their provenance is documented in
-``docs/release-studio/R4.md`` and by :func:`_generate_samples` below.
+``docs/release-studio/ARTIFACTS.md`` and by :func:`_generate_samples` below.
 """
 
 from __future__ import annotations

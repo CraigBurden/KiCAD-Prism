@@ -708,6 +708,49 @@ class ProjectionShapeTests(unittest.TestCase):
         self.assertEqual(table.rows[0][2], "0.3000 mm")
         self.assertEqual(table.rows[0][4], "21")
 
+    def test_via_types_and_spans_are_listed_on_the_drill_page(self) -> None:
+        from app.release_studio.documents.tables import via_statistics_table
+
+        stackup = {
+            **STACKUP,
+            "via_count": 7,
+            "via_type_counts": {"through": 5, "blind": 2, "buried": 0, "micro": 0},
+            "via_spans": [
+                {"via_type": "through", "start_layer": "F.Cu", "stop_layer": "B.Cu", "span_layer_count": 2, "count": 5},
+                {"via_type": "blind", "start_layer": "F.Cu", "stop_layer": "In1.Cu", "span_layer_count": 2, "count": 2},
+            ],
+        }
+        table = via_statistics_table(stackup)
+        self.assertEqual(table.rows[0], ("Through", "F.Cu - B.Cu", "2", "5"))
+        self.assertEqual(table.rows[1], ("Blind", "F.Cu - In1.Cu", "2", "2"))
+
+    def test_cover_carries_manufacturing_and_board_finish_specs(self) -> None:
+        result = compose(
+            context=CONTEXT,
+            stats=STATS,
+            stackup={**STACKUP, "via_count": 5, "via_type_counts": {"through": 5}},
+            variants=VARIANTS,
+            placements=PLACEMENTS,
+            members=MEMBERS,
+            fields={
+                "manufacturing_ipc_class": "IPC-6012 Class 2",
+                "assembly_ipc_class": "IPC-A-610 Class 2",
+                "solder_mask_colour": "Green",
+                "via_treatment": "Tented",
+            },
+        )
+        svg = _page(result, "cover")
+        for expected in (
+            "MANUFACTURING &amp; ASSEMBLY SPEC",
+            "IPC-6012 Class 2",
+            "IPC-A-610 Class 2",
+            "Solder mask colour",
+            "Green",
+            "Via treatment",
+            "Tented",
+        ):
+            self.assertIn(expected, svg)
+
     def test_a_summary_shaped_drill_projection_does_not_crash_the_sheet(self) -> None:
         from app.release_studio.documents.tables import board_summary
 
@@ -1432,6 +1475,71 @@ class AssemblySheetTests(unittest.TestCase):
         )
         self.assertTrue(all(len(page.artwork_digest) == 64 for page in assembly.pages))
 
+    def test_copper_pages_survive_kicad_calling_the_layers_signal(self) -> None:
+        """The stackup's own classification decides copper, not KiCad's type.
+
+        A `.kicad_pcb` describes F.Cu as type "signal"; only the projection's
+        `kind` says "copper". Reading `type` first dropped every copper page
+        from the fabrication document and left its opening page stating that
+        board artwork was unavailable -- on any board whose stackup is
+        authored this way, which is most of them.
+        """
+
+        from app.release_studio.documents.engine import fabrication_layers
+
+        self.assertEqual(STACKUP["layers"][0]["type"], "signal")
+        pages = fabrication_layers(STACKUP)
+        self.assertEqual([page for page in pages if page.endswith(".Cu")],
+                         ["F.Cu", "B.Cu"])
+        # Copper leads: the opening fabrication page is the first copper plot.
+        self.assertEqual(pages[0], "F.Cu")
+
+    def test_the_drill_map_is_not_cropped_to_the_board(self) -> None:
+        """A drill map is a page -- board plus hole legend -- not a plot.
+
+        Cropping it to a board-sized window centred on the page keeps a patch
+        of the middle and discards the map, and the sheet then claims the
+        package ratio while showing something drawn at another one.
+        """
+
+        from unittest.mock import patch
+
+        import app.release_studio.documents.engine as engine_module
+
+        board_w, board_h = 50.0, 40.0
+        # Three times the board, which is what `--generate-map` emits once the
+        # legend sits beside the outline.
+        map_art = _svg_artwork(150.0, 120.0)
+        cropped: list[float] = []
+        real_content_view = engine_module.content_view
+
+        def spy(art, width, height):
+            cropped.append(art.view_width)
+            return real_content_view(art, width, height)
+
+        with patch.object(engine_module, "content_view", spy):
+            result = compose(
+                context=CONTEXT, stats=STATS, stackup=STACKUP, variants=VARIANTS,
+                placements=PLACEMENTS, members=MEMBERS,
+                board=Path("/nonexistent/board.kicad_pcb"),
+                cli_path="kicad-cli",
+                workdir=Path("/tmp"),
+                acquirer=lambda *_a, **_k: _svg_artwork(board_w, board_h),
+                drill_acquirer=lambda *_a, **_k: map_art,
+                board_render_acquirer=lambda *_a, **_k: None,
+            )
+
+        # Layer plots are still board-cropped; the map never enters that path.
+        self.assertNotIn(map_art.view_width, cropped)
+        drill = next(output for output in result.outputs if output.key == "drill")
+        page = drill.pages[0]
+        self.assertNotIn(b"unavailable", page.svg_bytes)
+        # It fits itself, so the ratio it states is one its own artwork honours
+        # rather than the board ratio the fabrication sheets share.
+        self.assertLessEqual(
+            page.scale * map_art.view_width, sheet_templates.SHEET_SIZES["A4"][0]
+        )
+
     def test_a_failed_view_degrades_one_sheet_and_says_so(self) -> None:
         def fake(cruncher_path, board, workdir, **kwargs):
             raise artwork_module.ArtworkError("geometer refused the board")
@@ -1559,16 +1667,16 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d15 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d17 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
         "documentation/assembly.pdf":
             "aeb46d242fc8bd1b7281a513ec4ed893250a7fb542393096bb149de602614c25",
         "documentation/cover.pdf":
-            "0dc27a4f3fab9ef84171a2ab385745b09ad14d62b7ef112c669bc1266888a7ef",
+            "579a4ae1326c60a290af6a8cad8446deae87e19abf1299d911e19af5b917d9db",
         "documentation/drill.pdf":
-            "e0fc0f989eca3ac081071eaf658eb5374ecefea273e08e2e29a0a37c728ba763",
+            "b46e9c0085d144fb16c3f032672ff646dc84611fe34ed057acd56b723d8f3875",
         "documentation/fabrication.pdf":
             "4156eadf95893486e6cd53c9c20b068857d93fbec10f66adc11d2465215c0a3b",
         "documentation/testpoint.pdf":
@@ -1580,9 +1688,11 @@ class RendererVersionTests(unittest.TestCase):
         "assembly-top":
             "d9d92e8ef4c7cd0f35415eded3ef245037beb0f648bfc226af74785fcd847614",
         "cover":
-            "5f532616b986a230997896ba28268bd629a6b19cc294b1ddcd80b9793255c639",
+            "c15869c766771932999ebfb872aeaf199912df1cb7b4aa5718d08093e0ed8050",
+        "cover-1":
+            "d1fa8cce518c44e6c2d8a7ac7505e3aa4cea171362809fba618e2b992da229ee",
         "drill":
-            "7df49001af1408ba3c186fcba07b2f07ca764889a2d64509ac9106cfbb3b96e3",
+            "b449b589fbaf31354972b360ad424e4f80177a1e4b72792b4d361991fe9fc61b",
         "fabrication":
             "f73ab9c2b7e50a1691ee1b35a2b2d9c4f9d8a632d97dd8e1b02ff8bd05cbaeb0",
         "testpoint-bottom":
@@ -1617,7 +1727,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d15",
+            "release-studio-documents/d17",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

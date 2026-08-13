@@ -25,6 +25,7 @@ _TECHNICAL_KEYS = frozenset(
         "template",
         "sheets",
         "typography",
+        "vendors",
     }
 )
 _GOVERNANCE_KEYS = frozenset({"policy"})

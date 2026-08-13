@@ -961,6 +961,8 @@ class JobService:
         worker_id: str,
         fence: int,
         artifacts: Sequence[Mapping[str, Any]],
+        *,
+        allowed_statuses: Sequence[str] = ("running",),
     ) -> list[str] | None:
         """Register artifact rows mid-job and return their ids, in order.
 
@@ -977,7 +979,9 @@ class JobService:
         self.initialize()
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
-            if not self._authoritative_claim(conn, job_id, worker_id, fence):
+            if not self._authoritative_claim(
+                conn, job_id, worker_id, fence, statuses=allowed_statuses
+            ):
                 conn.commit()
                 return None
             artifact_ids: list[str] = []

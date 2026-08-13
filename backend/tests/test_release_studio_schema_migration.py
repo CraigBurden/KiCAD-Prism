@@ -80,6 +80,8 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "authored_overrides",
         "policy_snapshot_captured",
         "policy_document",
+        "configuration_snapshot_captured",
+        "configuration_document",
         "created_by",
         "created_at",
         "updated_at",
@@ -171,6 +173,7 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "build_id",
         "policy_binding",
         "policy_binding_digest",
+        "waiver_binding_digest",
         "outcome",
         "counts",
         "evaluator_build",
@@ -184,6 +187,7 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "domain",
         "subject_pattern",
         "finding_key",
+        "build_id",
         "reason",
         "owner",
         "approver",
@@ -336,10 +340,6 @@ EXPECTED_UNIQUES = {
     ("ws_release_members", ("id", "build_id")),
     ("ws_release_policies", ("policy_key",)),
     ("ws_release_policy_versions", ("policy_id", "version")),
-    (
-        "ws_release_evaluations",
-        ("build_id", "policy_binding_digest", "evaluator_build"),
-    ),
     ("ws_release_records", ("project_id", "config_key", "release_label")),
     ("ws_release_records", ("project_id", "config_key", "id")),
     ("ws_release_web_shares", ("token_digest",)),
@@ -1267,6 +1267,23 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
             ("f" * 64, candidate_id),
         )
 
+    def test_a_captured_candidate_configuration_snapshot_cannot_be_rewritten(self) -> None:
+        ids = self._seed_release_graph()
+        candidate_id = ids["candidate"]
+        self.conn.execute(
+            """
+            UPDATE ws_release_candidates
+            SET configuration_snapshot_captured = TRUE,
+                configuration_document = %s::jsonb
+            WHERE id = %s
+            """,
+            ('{"schema": "prism.release-studio.configuration/1"}', candidate_id),
+        )
+        self._assert_rejected(
+            "UPDATE ws_release_candidates SET configuration_document = %s::jsonb WHERE id = %s",
+            ('{"schema": "changed"}', candidate_id),
+        )
+
     def test_parent_deletions_are_blocked_by_restrict_history_fks(self) -> None:
         ids = self._seed_release_graph()
         for statement, value in (
@@ -1707,7 +1724,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
             (first_id,),
         )
 
-    def test_release_studio_ladder_includes_the_projections_follow_up(self) -> None:
+    def test_release_studio_ladder_includes_immutable_configuration_follow_ups(self) -> None:
         """M8 is the collapsed Release Studio schema; M13 upgrades older DBs.
 
         Long-lived branch databases already recorded M9-M12 from the pre-collapse
@@ -1728,6 +1745,9 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (7, "generated_thumbnail_default"),
                 (8, "release_studio"),
                 (13, "release_studio_build_projections"),
+                (14, "release_studio_waiver_build_scope"),
+                (15, "release_studio_configuration_snapshot"),
+                (16, "release_studio_append_only_evaluations"),
             ],
         )
 
