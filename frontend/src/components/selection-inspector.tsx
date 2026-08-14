@@ -104,11 +104,12 @@ function PropertyRow({ label, value }: { label: string; value: ReactNode }) {
 
 // A Yes/No flag as a colored icon: green tick for the "good" state, red cross
 // for the other. `goodWhenYes` flips which value is the green one.
-function FlagValue({ value, goodWhenYes }: { value: string | undefined; goodWhenYes: boolean }) {
-    if (value === undefined || value.trim() === "") {
+function FlagValue({ value, goodWhenYes }: { value: unknown; goodWhenYes: boolean }) {
+    if (value === undefined || value === null || String(value).trim() === "") {
         return <span className="text-xs text-muted-foreground">Unknown</span>;
     }
-    const yes = value.trim().toLowerCase() === "yes";
+    const text = String(value);
+    const yes = text.trim().toLowerCase() === "yes";
     const good = goodWhenYes ? yes : !yes;
     return (
         <span className="inline-flex items-center justify-end gap-1.5">
@@ -117,7 +118,7 @@ function FlagValue({ value, goodWhenYes }: { value: string | undefined; goodWhen
             ) : (
                 <X className="h-4 w-4 text-destructive" aria-hidden />
             )}
-            <span className="text-xs">{value}</span>
+            <span className="text-xs">{text}</span>
         </span>
     );
 }
