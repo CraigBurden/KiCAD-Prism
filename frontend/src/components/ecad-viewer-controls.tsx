@@ -179,15 +179,6 @@ export function EcadViewerControls({
             style={{ width: railWidth }}
             aria-label={context === "SCH" ? "Schematic pages" : "PCB display controls"}
         >
-            {open && (
-                <div
-                    className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize touch-none hover:bg-primary/20"
-                    onPointerDown={onResizePointerDown}
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label="Resize side menu"
-                />
-            )}
             <div className="flex h-10 shrink-0 items-center border-b">
                 {/* Always reserve the leading flex area so the collapse handle stays on the
                     right edge of the panel. The closed transform keeps that right strip
@@ -313,6 +304,15 @@ export function EcadViewerControls({
                         </ScrollArea>
                     )}
                 </>
+            )}
+            {open && (
+                <div
+                    className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize touch-none hover:bg-primary/20"
+                    onPointerDown={onResizePointerDown}
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize side menu"
+                />
             )}
         </aside>
     );
