@@ -579,7 +579,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                       <div className="mb-4 flex items-center justify-between rounded-lg border bg-card/30 px-3 py-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-xs text-muted-foreground">
-                            Page {currentPage} of {totalPages} · {pageLabel}
+                            {pageLabel}
                           </p>
                           {canManageProjects && listProjects.length > 0 && (
                             <Button
@@ -624,6 +624,9 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                           >
                             Previous
                           </Button>
+                          <span className="px-1 text-[11px] text-muted-foreground">
+                            Page {currentPage} of {totalPages}
+                          </span>
                           <Button
                             size="sm"
                             variant="outline"
