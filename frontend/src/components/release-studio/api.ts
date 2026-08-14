@@ -1,60 +1,25 @@
 import { fetchJson, fetchApi } from "@/lib/api";
-import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 
 import type {
+    ApprovalState,
     BuildDetail,
     BuildLogIndex,
     DocumentSheet,
     ReleaseCandidate,
-    ReleaseConfiguration,
     ManufacturingChoices,
     VendorProfile,
     ProjectCommit,
-    EditableReleaseConfiguration,
-    SavedReleaseConfiguration,
     ReleaseSource,
+    ReviewSlot,
     ForgeTarget,
 } from "./types";
 
 const base = (projectId: string) =>
     `/api/projects/${encodeURIComponent(projectId)}/release-studio`;
 
-export async function listConfigurations(
-    projectId: string,
-    commitSha?: string,
-): Promise<ReleaseConfiguration[]> {
-    const query = commitSha ? `?commit_sha=${encodeURIComponent(commitSha)}` : "";
-    const data = await fetchJson<{ configurations: ReleaseConfiguration[] }>(
-        `${base(projectId)}/configurations${query}`,
-        undefined,
-        "Could not load release configurations",
-    );
-    return data.configurations ?? [];
-}
-
-export async function saveConfiguration(
-    projectId: string,
-    configKey: string,
-    configuration: EditableReleaseConfiguration,
-    baseCommitSha: string,
-): Promise<SavedReleaseConfiguration> {
-    const queued = await fetchJson<{ job: { job_id: string } }>(
-        `${base(projectId)}/configurations/${encodeURIComponent(configKey)}`,
-        {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ configuration, base_commit_sha: baseCommitSha, commit: true }),
-        },
-        "Could not save the release configuration",
-    );
-    const completed = await watchPrismJob(queued.job.job_id);
-    throwIfJobFailed(completed, "Could not publish the release configuration");
-    const result = completed.result_metadata as Partial<SavedReleaseConfiguration> | undefined;
-    if (!result?.configuration || !result.commit_sha || !result.path) {
-        throw new Error("Published configuration job returned an incomplete result");
-    }
-    return result as SavedReleaseConfiguration;
-}
+// YAML configuration authoring (`GET`/`PUT .../configurations`) was removed
+// with the Source-to-Publish flow. Identity and manufacturing are UI inputs
+// snapshotted onto each build.
 
 export async function listDocumentSheets(
     projectId: string,
@@ -188,6 +153,38 @@ export async function publishBuild(
     );
 }
 
+export async function approveBuild(
+    projectId: string,
+    buildId: string,
+    body: { slot: ReviewSlot; note?: string },
+): Promise<{ approvals: ApprovalState }> {
+    return fetchJson(
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}/approvals`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        },
+        "Could not record the sign-off",
+    );
+}
+
+export async function withdrawApproval(
+    projectId: string,
+    buildId: string,
+    body: { slot: ReviewSlot; note?: string },
+): Promise<{ approvals: ApprovalState }> {
+    return fetchJson(
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}/approvals/withdraw`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        },
+        "Could not withdraw the sign-off",
+    );
+}
+
 export function downloadUrl(projectId: string, path: string): string {
     return `${base(projectId)}/${path}`;
 }
@@ -198,6 +195,22 @@ export function dossierDownloadUrl(projectId: string, buildId: string): string {
 
 export function buildEvidenceDownloadUrl(projectId: string, buildId: string): string {
     return `${base(projectId)}/builds/${encodeURIComponent(buildId)}/build-evidence`;
+}
+
+/**
+ * Parse a released JSON member (DRC/ERC reports) from the dossier.
+ */
+export async function memberJson(
+    projectId: string,
+    buildId: string,
+    memberPath: string,
+): Promise<unknown> {
+    const encoded = memberPath.split("/").map(encodeURIComponent).join("/");
+    return fetchJson(
+        `${base(projectId)}/builds/${encodeURIComponent(buildId)}/members/${encoded}`,
+        undefined,
+        `Could not load ${memberPath}`,
+    );
 }
 
 /**
@@ -261,9 +274,17 @@ export function vendorPackUrl(
     return `${base(projectId)}/builds/${encodeURIComponent(buildId)}/vendor-packs/${encodeURIComponent(vendorId)}`;
 }
 
+/**
+ * Revisions offered on the Source stage.
+ *
+ * Re-issuing documentation for a board frozen months ago is an ordinary
+ * request, so the window has to reach back further than a sprint's worth of
+ * commits. A SHA outside it can still be pasted in: the panel accepts any full
+ * 40-character SHA and source discovery is what proves it exists.
+ */
 export async function listProjectCommits(
     projectId: string,
-    limit = 50,
+    limit = 200,
 ): Promise<ProjectCommit[]> {
     const data = await fetchJson<{ commits: ProjectCommit[] }>(
         `/api/projects/${encodeURIComponent(projectId)}/commits?limit=${limit}&include_total=false`,
@@ -294,7 +315,7 @@ export async function fetchBuildLog(
     buildId: string,
     stepId: string,
 ): Promise<string> {
-    const response = await fetch(
+    const response = await fetchApi(
         `${base(projectId)}/builds/${encodeURIComponent(buildId)}/logs/${encodeURIComponent(stepId)}`,
     );
     if (response.status === 404) return "";

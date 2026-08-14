@@ -35,7 +35,7 @@ export function RunList({
         .sort((left, right) => Date.parse(right.build.completed_at || right.build.started_at || right.candidate.created_at) - Date.parse(left.build.completed_at || left.build.started_at || left.candidate.created_at));
 
     return (
-        <aside className="flex h-full min-h-0 w-72 shrink-0 flex-col border-r">
+        <div className="flex h-full min-h-0 flex-1 flex-col">
             <div className="border-b px-3 py-2 text-sm font-medium">Run history</div>
             <div className="min-h-0 flex-1 overflow-y-auto">
                 {attempts.length === 0 && <Empty>No runs yet.</Empty>}
@@ -46,6 +46,9 @@ export function RunList({
                             <span className="flex items-center gap-2">
                                 <span className="font-mono text-xs">{candidate.commit_sha.slice(0, 8)}</span>
                                 <Badge variant={build.status === "failed" ? "destructive" : build.status === "cancelled" ? "secondary" : "outline"}>{build.status}</Badge>
+                                {build.published && (
+                                    <Badge variant="success">published</Badge>
+                                )}
                             </span>
                             <span className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <span>{candidate.config_key}</span>
@@ -57,7 +60,7 @@ export function RunList({
                     );
                 })}
             </div>
-        </aside>
+        </div>
     );
 }
 

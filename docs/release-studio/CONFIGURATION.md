@@ -128,20 +128,12 @@ shown.
 Board characteristics include solder mask, silkscreen, and via treatment.
 Manufacturing and assembly spec lines come from the IPC fields.
 
-## Committed YAML fallback
+## Committed YAML leftover
 
-Committed YAML under:
-
-```text
-.prism/release-studio/configurations/<key>.yaml
-```
-
-still exists for compatibility and for tooling that publishes configurations
-directly. It is **not** the normal Release Studio authoring path.
-
-When board and schematic are omitted from the job payload, the build
-loads the committed configuration at the chosen commit instead of synthesizing
-one. When both paths are present, synthesis replaces that lookup.
+Committed YAML under `.prism/release-studio/configurations/` is leftover from
+an earlier authoring path. The running product does not expose `GET`/`PUT`
+configuration endpoints. Per-release Identity and Manufacturing are entered in
+the UI and snapshotted onto the build.
 
 A project's `.kicad_jobset` is not a Release Studio input. Exports come from
 the pinned catalogue, not `kicad-cli jobset run`. A jobset key in committed

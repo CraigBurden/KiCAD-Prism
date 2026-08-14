@@ -224,16 +224,43 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             encoding="utf-8",
         )
         hostile_commit = self._commit(self.repo, "host path")
+        # Recorded, and not fatal: the closure still materializes, so a
+        # documentation build is never refused over a library table.
         closure = materialize_input_closure(
             self.repo,
             hostile_commit,
             self.root / "host-recorded",
             relative_path="hardware/board",
         )
-        self.assertEqual(closure.non_hermetic_reasons(), [])
-        self.assertTrue(any("/tmp/host-only-footprints" in reason for reason in closure.advisory_reasons()))
+        # A footprint library is a real input. Calling it advisory would let a
+        # build whose footprints came off the host record itself as hermetic,
+        # so it counts against hermeticity even though it does not block.
+        self.assertTrue(
+            any("/tmp/host-only-footprints" in reason for reason in closure.non_hermetic_reasons())
+        )
+        self.assertEqual(closure.advisory_reasons(), [])
 
-    def test_a_missing_library_table_entry_is_advisory(self) -> None:
+    def test_hermeticity_still_distinguishes_a_clean_closure(self) -> None:
+        """The flag has to be able to say no, or recording it means nothing.
+
+        Pinned alongside the two tests above: they prove an off-closure input
+        makes `hermetic` false, and this proves an ordinary board leaves it
+        true. Without both, a regression that hard-codes either answer passes.
+        """
+
+        self.repo.joinpath("hardware/board/model.step").write_bytes(
+            b"small hydrated STEP payload\n"
+        )
+        commit = self._commit(self.repo, "clean closure")
+        closure = materialize_input_closure(
+            self.repo,
+            commit,
+            self.root / "clean",
+            relative_path="hardware/board",
+        )
+        self.assertEqual(closure.non_hermetic_reasons(), [])
+
+    def test_a_missing_library_table_entry_is_recorded_not_fatal(self) -> None:
         self.repo.joinpath("hardware/board/model.step").write_bytes(
             b"small hydrated STEP payload\n"
         )
@@ -250,10 +277,13 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             self.root / "missing-lib",
             relative_path="hardware/board",
         )
-        self.assertEqual(closure.non_hermetic_reasons(), [])
+        # Same rule as the host-absolute URI above: a footprint library the
+        # design names but the closure does not hold is a hermeticity finding,
+        # reported rather than fatal.
         self.assertTrue(
-            any("absent.pretty" in reason for reason in closure.advisory_reasons())
+            any("absent.pretty" in reason for reason in closure.non_hermetic_reasons())
         )
+        self.assertEqual(closure.advisory_reasons(), [])
 
     def test_a_stock_3d_model_reference_is_advisory_not_a_blocker(self) -> None:
         # Every real KiCad board carries `(model "${KICAD9_3DMODEL_DIR}/...")`

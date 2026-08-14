@@ -55,11 +55,18 @@ def apply_source_defaults(
     return result
 
 
-def discover_source(repo_root: Path | str, commit_sha: str) -> dict[str, Any]:
-    """List boards, schematics, variants, and BOM presets at *commit_sha*."""
+def discover_source(
+    repo_root: Path | str, commit_sha: str, relative_path: str | None = None
+) -> dict[str, Any]:
+    """List boards, schematics, variants, and BOM presets at *commit_sha*.
+
+    ``relative_path`` is the imported project's subdirectory. A monorepo holds
+    several projects in one repository, so discovery that ignored it would
+    offer a sibling project's board as this project's default.
+    """
 
     root = Path(repo_root)
-    files = _ls_tree(root, commit_sha)
+    files = _scoped(_ls_tree(root, commit_sha), relative_path)
     boards = [path for path in files if path.endswith(".kicad_pcb")]
     schematics = [path for path in files if path.endswith(".kicad_sch")]
     projects = [path for path in files if path.endswith(".kicad_pro")]
@@ -86,6 +93,21 @@ def discover_source(repo_root: Path | str, commit_sha: str) -> dict[str, Any]:
         "variant": "",
     }
     return apply_source_defaults(discovered)
+
+
+def _scoped(files: list[str], relative_path: str | None) -> list[str]:
+    """Narrow the commit tree to the imported project's subdirectory.
+
+    A project rooted at the repository, and a scope that matches nothing at
+    this commit, both fall back to the whole tree: an empty Source stage is a
+    worse answer than a wide one.
+    """
+
+    prefix = (relative_path or "").strip().strip("/")
+    if not prefix or prefix == ".":
+        return files
+    scoped = [path for path in files if path.startswith(f"{prefix}/")]
+    return scoped or files
 
 
 def _ls_tree(repo_root: Path, commit: str) -> list[str]:

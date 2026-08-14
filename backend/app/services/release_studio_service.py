@@ -1,14 +1,8 @@
-"""Persistence and governance for Release Studio (R11, R15-R17, R18).
+"""Persistence for Release Studio technical builds.
 
-The two domains stay separated here as strictly as they do in the digest
-graph.  Technical rows — candidates, builds, members, fingerprints — never read
-a policy or an approver.  Governance rows bind to the *pair*
-``(technical_scope_fingerprint[domain], policy_binding_digest)`` stored in two
-independent columns, so a stale approval can say which half went stale.
-
-Approvals and audit events are immutable at the application boundary (database
-triggers raise on UPDATE/DELETE); invalidation is an append to
-``ws_release_approval_invalidations``, never an edit.
+Candidates, builds, members, fingerprints, and (later) LM-shaped review
+decisions live here. Signed policy evaluation, waivers, attestations, and
+offline verify are not part of the running product.
 """
 
 from __future__ import annotations
@@ -22,52 +16,14 @@ from datetime import datetime, timezone
 from typing import Any, Iterator, Mapping, Sequence
 
 from app.release_studio.canonical import sha256_canonical
-from app.release_studio.dossier import GOVERNED_DOMAINS
 from app.services.postgres_database import database
 from app.services.workspace_schema_migrations import apply_workspace_migrations
 
-SELF_APPROVAL_BYPASS_REASON = "two-person rule bypassed by deployment configuration"
-
-
-def self_approval_bypassed() -> bool:
-    """May one identity both raise and approve, with no second person?
-
-    Automatic when authentication is off, because there is then exactly one
-    identity in the entire deployment and the two-person rule is not merely
-    inconvenient but unsatisfiable.  ``PRISM_RELEASE_ALLOW_SELF_APPROVAL``
-    forces it on for an authenticated deployment that has made that call
-    deliberately.
-
-    The bypass changes who may approve; it never changes what is recorded.  A
-    self-approval taken under it is still written to the row and to the
-    hash-chained audit trail as a ``self_approval`` exception, so a reader can
-    always tell that no second person was involved.
-    """
-
-    import os
-
-    flag = os.environ.get("PRISM_RELEASE_ALLOW_SELF_APPROVAL", "").strip().casefold()
-    if flag in {"1", "true", "yes", "on"}:
-        return True
-    if flag in {"0", "false", "no", "off"}:
-        return False
-
-    from app.core.config import settings
-
-    return not settings.AUTH_ENABLED
-
 CANDIDATE_STATUSES = ("draft", "building", "built", "failed", "superseded", "frozen")
-APPROVAL_DECISIONS = ("approved", "rejected", "changes_requested")
-EXCEPTION_KINDS = ("self_approval", "emergency", "self_approval_and_emergency")
-WAIVER_STATUSES = ("proposed", "approved", "rejected", "revoked", "expired")
 
 
 class ReleaseStudioError(RuntimeError):
     """A Release Studio operation was refused."""
-
-
-class ReleaseGateError(ReleaseStudioError):
-    """A release was refused by policy, evidence, or approval gates."""
 
 
 def _now_iso() -> str:
@@ -205,69 +161,6 @@ def list_audit_events(project_id: str, config_key: str, limit: int = 500) -> lis
             (project_id, config_key, limit),
         ).fetchall()
     return [dict(row) for row in rows]
-
-
-def verify_audit_chain(project_id: str, config_key: str) -> dict[str, Any]:
-    """Walk the chain and recompute every link.
-
-    Unlike the migration's shape precondition, this checks *linkage*: sequence
-    contiguity, a single genesis, and ``previous_hash[n] == event_hash[n-1]``.
-    """
-
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM ws_release_audit_events
-            WHERE project_id = %s AND config_key = %s ORDER BY sequence ASC
-            """,
-            (project_id, config_key),
-        ).fetchall()
-
-    problems: list[str] = []
-    previous_hash: str | None = None
-    expected_sequence = 1
-    for row in rows:
-        record = dict(row)
-        if int(record["sequence"]) != expected_sequence:
-            problems.append(
-                f"sequence gap: expected {expected_sequence}, found {record['sequence']}"
-            )
-            expected_sequence = int(record["sequence"])
-        if record["previous_hash"] != previous_hash:
-            problems.append(
-                f"broken link at sequence {record['sequence']}: previous_hash does not "
-                "match the preceding event_hash"
-            )
-        recomputed = _event_hash(
-            record["previous_hash"],
-            {
-                "project_id": record["project_id"],
-                "config_key": record["config_key"],
-                "sequence": int(record["sequence"]),
-                "event_type": record["event_type"],
-                "actor": record["actor"],
-                "subject_kind": record["subject_kind"],
-                "subject_id": record["subject_id"],
-                "details": record["details"] or {},
-            },
-            record["created_at_iso"],
-        )
-        if recomputed != record["event_hash"]:
-            problems.append(f"event {record['sequence']} hash does not match its content")
-        previous_hash = record["event_hash"]
-        expected_sequence += 1
-
-    return {
-        "ok": not problems,
-        "events": len(rows),
-        "head": previous_hash or "",
-        "problems": problems,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Configurations
-# ---------------------------------------------------------------------------
 
 
 def upsert_configuration(
@@ -942,12 +835,23 @@ def list_builds(candidate_id: str) -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT * FROM ws_release_builds WHERE candidate_id = %s
-            ORDER BY attempt DESC, created_at DESC
+            SELECT b.*,
+                   (p.id IS NOT NULL) AS published,
+                   COALESCE(p.tag, '') AS published_tag
+            FROM ws_release_builds b
+            LEFT JOIN ws_release_publish_records p ON p.build_id = b.id
+            WHERE b.candidate_id = %s
+            ORDER BY b.attempt DESC, b.created_at DESC
             """,
             (candidate_id,),
         ).fetchall()
-    return [dict(row) for row in rows]
+    builds: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["published"] = bool(item.get("published"))
+        item["published_tag"] = str(item.get("published_tag") or "")
+        builds.append(item)
+    return builds
 
 
 def get_artifact(artifact_id: str) -> dict[str, Any] | None:
@@ -1018,1173 +922,368 @@ def build_projections(build_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Evaluation
+# LM-shaped dual sign-off and publish records
 # ---------------------------------------------------------------------------
 
+REVIEW_SLOTS = ("designer", "qa")
+REVIEW_DECISIONS = ("approved", "withdrawn")
 
-def record_evaluation(
-    *,
-    build_id: str,
-    evaluation,
-    evaluator_build: str,
-    waiver_binding_digest: str = "",
-    actor: str = "",
-) -> dict[str, Any]:
-    """Persist one evaluation. Re-evaluating never touches technical rows."""
 
+class ReviewDecisionError(ReleaseStudioError):
+    """A review or publish gate refused the request."""
+
+    def __init__(self, message: str, *, status_code: int = 409) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def electrical_error_kinds(evidence: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Unwaived DRC/ERC error severities on this build. Warnings do not count."""
+
+    kinds: list[str] = []
+    for row in evidence:
+        kind = str(row.get("kind") or "").strip().lower()
+        if kind not in {"drc", "erc"}:
+            continue
+        counts = _json_object(row.get("counts"))
+        if int(counts.get("error") or 0) > 0:
+            kinds.append(kind)
+    return kinds
+
+
+def latest_review_decision(build_id: str, slot: str) -> dict[str, Any] | None:
     with connect() as conn:
-        build = conn.execute(
-            "SELECT * FROM ws_release_builds WHERE id = %s FOR UPDATE", (build_id,)
+        row = conn.execute(
+            """
+            SELECT * FROM ws_release_review_decisions
+            WHERE build_id = %s AND slot = %s
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (build_id, slot),
         ).fetchone()
-        if build is None:
-            raise ReleaseStudioError("build not found")
-        if build["status"] != "succeeded":
-            raise ReleaseStudioError("only a successful immutable build can be evaluated")
-        candidate = conn.execute(
-            "SELECT * FROM ws_release_candidates WHERE id = %s", (build["candidate_id"],)
-        ).fetchone()
-        if not waiver_binding_digest:
-            waiver_binding_digest = _waiver_binding_digest_for_connection(
-                conn,
-                project_id=str(candidate["project_id"]),
-                config_key=str(candidate["config_key"]),
-                build_id=build_id,
-            )
+    return dict(row) if row else None
 
-        # Evaluations are append-only. Updating an existing row after a waiver
-        # change would retroactively change the evidence an approval referred
-        # to, while keeping its evaluation id valid.
-        evaluation_id = _new_id("eval")
+
+def list_review_decisions(build_id: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM ws_release_review_decisions
+            WHERE build_id = %s
+            ORDER BY created_at ASC
+            """,
+            (build_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_publish_record(build_id: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM ws_release_publish_records WHERE build_id = %s",
+            (build_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    record = dict(row)
+    names = record.get("asset_names")
+    if isinstance(names, str):
+        try:
+            names = json.loads(names)
+        except json.JSONDecodeError:
+            names = []
+    record["asset_names"] = list(names or [])
+    return record
+
+
+def _active_approval(row: Mapping[str, Any] | None, digest: str) -> dict[str, Any] | None:
+    if not row:
+        return None
+    if str(row.get("decision") or "") != "approved":
+        return None
+    if str(row.get("dossier_digest") or "") != digest:
+        return None
+    return dict(row)
+
+
+def selected_vendor_packs_ready(vendor_readiness: Sequence[Mapping[str, Any]]) -> bool:
+    if not vendor_readiness:
+        return True
+    return all(bool(item.get("ready")) for item in vendor_readiness)
+
+
+def build_approval_state(
+    *,
+    build: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    evidence: Sequence[Mapping[str, Any]],
+    vendor_readiness: Sequence[Mapping[str, Any]],
+    designer_row: Mapping[str, Any] | None,
+    qa_row: Mapping[str, Any] | None,
+    publish_row: Mapping[str, Any] | None,
+    actor_email: str = "",
+    actor_role: str = "",
+) -> dict[str, Any]:
+    digest = str(build.get("dossier_digest") or "")
+    designer = _active_approval(designer_row, digest)
+    qa = _active_approval(qa_row, digest)
+    electrical = electrical_error_kinds(evidence)
+    vendors_ready = selected_vendor_packs_ready(vendor_readiness)
+    published = dict(publish_row) if publish_row else None
+    succeeded = str(build.get("status") or "") == "succeeded"
+    author = str(candidate.get("created_by") or "")
+    actor = (actor_email or "").strip()
+    role = (actor_role or "").strip()
+    blocked: list[str] = []
+    if electrical and not (designer and qa):
+        blocked.append("Unwaived DRC or ERC errors remain on this build.")
+    if not vendors_ready:
+        blocked.append("A selected vendor pack is not ready.")
+    if not designer or not qa:
+        blocked.append("Designer and QA must both approve this dossier.")
+    can_approve_designer, can_approve_qa = _slot_capabilities(
+        role=role,
+        actor=actor,
+        author=author,
+        designer=designer,
+        qa=qa,
+        published=published,
+        succeeded=succeeded,
+        electrical=electrical,
+    )
+    can_withdraw = bool(succeeded and not published and (designer or qa) and role in {"admin", "designer", "qa"})
+    if published:
+        can_withdraw = False
+        can_approve_designer = False
+        can_approve_qa = False
+    can_publish = bool(
+        succeeded
+        and designer
+        and qa
+        and vendors_ready
+        and not published
+        and role in {"admin", "designer", "qa"}
+    )
+    return {
+        "designer": designer,
+        "qa": qa,
+        "both_approved": bool(designer and qa),
+        "published": published,
+        "electrical_errors": electrical,
+        "can_approve_designer": can_approve_designer,
+        "can_approve_qa": can_approve_qa,
+        "can_withdraw": can_withdraw,
+        "can_publish": can_publish,
+        "blocked_reason": " ".join(blocked) if not can_publish and not published else "",
+    }
+
+
+def _slot_capabilities(
+    *,
+    role: str,
+    actor: str,
+    author: str,
+    designer: Mapping[str, Any] | None,
+    qa: Mapping[str, Any] | None,
+    published: Mapping[str, Any] | None,
+    succeeded: bool,
+    electrical: Sequence[str],
+) -> tuple[bool, bool]:
+    if published or not succeeded or not actor:
+        return False, False
+    if electrical and role != "admin":
+        return False, False
+    if role not in {"admin", "designer", "qa"}:
+        return False, False
+    designer_actor = str((designer or {}).get("actor") or author)
+    can_designer = False
+    if role in {"designer", "admin"} and not designer:
+        can_designer = actor == author or role == "admin"
+    can_qa = False
+    if role in {"qa", "admin"} and not qa:
+        same_person = actor == designer_actor
+        can_qa = (not same_person) or role == "admin"
+    return can_designer, can_qa
+
+
+def record_review_decision(
+    *,
+    project_id: str,
+    build_id: str,
+    slot: str,
+    actor: str,
+    actor_role: str,
+    decision: str,
+    note: str = "",
+    dossier_digest: str,
+    author: str,
+    published: bool,
+    electrical_errors: Sequence[str] = (),
+    build_status: str = "",
+    config_key: str = "",
+) -> dict[str, Any]:
+    if slot not in REVIEW_SLOTS:
+        raise ReviewDecisionError("Unknown review slot.", status_code=400)
+    if decision not in REVIEW_DECISIONS:
+        raise ReviewDecisionError("Unknown review decision.", status_code=400)
+    if published:
+        raise ReviewDecisionError("This release is published; sign-off cannot change.")
+    if str(build_status or "") != "succeeded":
+        raise ReviewDecisionError("Only a successful build can be signed off.")
+    digest = (dossier_digest or "").strip()
+    if not digest:
+        raise ReviewDecisionError("This build has no dossier digest to bind a decision to.")
+    written = (note or "").strip()
+    if decision == "approved" and electrical_errors:
+        if actor_role != "admin":
+            raise ReviewDecisionError("Unwaived DRC or ERC errors remain on this build.")
+        if not written:
+            raise ReviewDecisionError("Admin override of DRC or ERC errors needs a written note.")
+
+    current = latest_review_decision(build_id, slot)
+    active = _active_approval(current, digest)
+    other_slot = "qa" if slot == "designer" else "designer"
+    other = _active_approval(latest_review_decision(build_id, other_slot), digest)
+
+    if decision == "withdrawn":
+        if not active:
+            raise ReviewDecisionError(f"There is no {slot} approval to withdraw.")
+        if actor_role not in {"admin", "designer", "qa"}:
+            raise ReviewDecisionError("Designer, QA, or Admin role required.", status_code=403)
+        if actor != str(active.get("actor") or "") and actor_role != "admin":
+            raise ReviewDecisionError("Only the caster or an admin can withdraw this sign-off.")
+        if not written:
+            raise ReviewDecisionError("A withdrawal note is required.")
+    else:
+        if active:
+            raise ReviewDecisionError(f"The {slot} slot is already approved for this dossier.")
+        if slot == "designer":
+            if actor_role not in {"designer", "admin"}:
+                raise ReviewDecisionError("The Designer slot requires a designer or admin.", status_code=403)
+            if actor != author and actor_role != "admin":
+                raise ReviewDecisionError("Only the build author can cast the Designer sign-off.")
+            if actor != author and not written:
+                raise ReviewDecisionError("Admin override of the Designer slot needs a written note.")
+        else:
+            if actor_role not in {"qa", "admin"}:
+                raise ReviewDecisionError("The QA slot requires QA or admin.", status_code=403)
+            designer_actor = str((other or {}).get("actor") or author)
+            if actor == designer_actor and actor_role != "admin":
+                raise ReviewDecisionError("The same person cannot fill both sign-off slots.")
+            if actor == designer_actor and not written:
+                raise ReviewDecisionError("Admin override of the two-person rule needs a written note.")
+
+    row_id = _new_id("rev")
+    with connect() as conn:
         conn.execute(
             """
-            INSERT INTO ws_release_evaluations(
-                id, build_id, policy_binding, policy_binding_digest,
-                waiver_binding_digest, outcome, counts, evaluator_build
+            INSERT INTO ws_release_review_decisions(
+                id, project_id, build_id, slot, actor, decision, note, dossier_digest
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
             """,
-            (
-                evaluation_id, build_id, json.dumps(dict(evaluation.policy_binding)),
-                evaluation.policy_binding_digest, waiver_binding_digest,
-                evaluation.outcome, json.dumps(dict(evaluation.counts)), evaluator_build,
-            ),
+            (row_id, project_id, build_id, slot, actor, decision, written, digest),
         )
-
-        for finding in evaluation.findings:
-            conn.execute(
-                """
-                INSERT INTO ws_release_findings(
-                    id, evaluation_id, rule_id, rule_version, severity, status,
-                    domain, subject, message, observed, expected, finding_key, waiver_id
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """,
-                (
-                    _new_id("find"), evaluation_id, finding.rule_id, finding.rule_version,
-                    finding.severity, finding.status, finding.domain, finding.subject,
-                    finding.message, json.dumps(dict(finding.observed)),
-                    json.dumps(dict(finding.expected)), finding.finding_key,
-                    finding.waiver_id or None,
-                ),
-            )
-        for outcome in evaluation.rule_outcomes:
-            conn.execute(
-                """
-                INSERT INTO ws_release_rule_outcomes(
-                    id, evaluation_id, rule_id, rule_version, outcome,
-                    finding_count, unsupported_reason
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s)
-                """,
-                (
-                    _new_id("out"), evaluation_id, outcome.rule_id, outcome.rule_version,
-                    outcome.outcome, outcome.finding_count, outcome.unsupported_reason,
-                ),
-            )
-
         append_audit_event(
             conn,
-            project_id=candidate["project_id"],
-            config_key=candidate["config_key"],
-            event_type="build.evaluated",
+            project_id=project_id,
+            config_key=config_key,
+            event_type=f"review.{decision}",
             actor=actor,
-            subject_kind="evaluation",
-            subject_id=evaluation_id,
-            details={
-                "outcome": evaluation.outcome,
-                "policy_binding_digest": evaluation.policy_binding_digest,
-                "waiver_binding_digest": waiver_binding_digest,
-            },
+            subject_kind="build",
+            subject_id=build_id,
+            details={"slot": slot, "note": written, "dossier_digest": digest},
         )
         conn.commit()
-        row = conn.execute(
-            "SELECT * FROM ws_release_evaluations WHERE id = %s", (evaluation_id,)
-        ).fetchone()
-    return dict(row)
+    return latest_review_decision(build_id, slot) or {}
 
 
-def latest_evaluation(build_id: str) -> dict[str, Any] | None:
-    with connect() as conn:
-        row = conn.execute(
-            """
-            SELECT * FROM ws_release_evaluations WHERE build_id = %s
-            ORDER BY created_at DESC LIMIT 1
-            """,
-            (build_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        evaluation = dict(row)
-        evaluation["findings"] = [
-            dict(item)
-            for item in conn.execute(
-                """
-                SELECT * FROM ws_release_findings WHERE evaluation_id = %s
-                ORDER BY domain, rule_id, subject
-                """,
-                (evaluation["id"],),
-            ).fetchall()
-        ]
-        evaluation["rule_outcomes"] = [
-            dict(item)
-            for item in conn.execute(
-                "SELECT * FROM ws_release_rule_outcomes WHERE evaluation_id = %s ORDER BY rule_id",
-                (evaluation["id"],),
-            ).fetchall()
-        ]
-    return evaluation
-
-
-# ---------------------------------------------------------------------------
-# Waivers (R15)
-# ---------------------------------------------------------------------------
-
-
-def create_waiver(
+def record_publish(
     *,
     project_id: str,
-    config_key: str,
-    rule_id: str,
-    domain: str,
-    reason: str,
-    owner: str,
-    subject_pattern: str = "",
-    finding_key: str = "",
-    build_id: str = "",
-    expires_at: str | None = None,
+    build_id: str,
+    tag: str,
+    commit_sha: str,
+    dossier_digest: str,
+    published_by: str,
+    forge_url: str,
+    asset_names: Sequence[str],
+    config_key: str = "",
 ) -> dict[str, Any]:
-    if not subject_pattern and not finding_key:
-        raise ReleaseStudioError("a waiver must scope either a subject_pattern or a finding_key")
-    if not reason.strip():
-        raise ReleaseStudioError("a waiver requires a reason")
-    waiver_id = _new_id("wv")
-    with connect() as conn:
-        # `project_id` and `config_key` are compatibility inputs only.  A
-        # build-scoped waiver derives both from the immutable build chain and
-        # rejects any attempt to splice a build from another project/config.
-        if build_id:
-            build = conn.execute(
-                "SELECT * FROM ws_release_builds WHERE id = %s FOR UPDATE", (build_id,)
-            ).fetchone()
-            if build is None:
-                raise ReleaseStudioError("build not found")
-            candidate = conn.execute(
-                "SELECT * FROM ws_release_candidates WHERE id = %s", (build["candidate_id"],)
-            ).fetchone()
-            if candidate is None:
-                raise ReleaseStudioError("build candidate not found")
-            if build["status"] != "succeeded":
-                raise ReleaseStudioError("a waiver requires a successful immutable build")
-            if project_id and project_id != candidate["project_id"]:
-                raise ReleaseStudioError("build does not belong to this project")
-            if config_key and config_key != candidate["config_key"]:
-                raise ReleaseStudioError("build does not belong to this configuration")
-            project_id = str(candidate["project_id"])
-            config_key = str(candidate["config_key"])
-        else:
-            # Kept solely for direct legacy callers. HTTP mutations require a
-            # build id; these rows cannot silently apply to a current build.
-            if not project_id or not config_key:
-                raise ReleaseStudioError("a waiver requires a build")
-        conn.execute(
-            """
-            INSERT INTO ws_release_waivers(
-                id, project_id, config_key, rule_id, domain, subject_pattern,
-                finding_key, build_id, reason, owner, status, expires_at
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'proposed',%s)
-            """,
-            (
-                waiver_id, project_id, config_key, rule_id, domain,
-                subject_pattern, finding_key, build_id, reason, owner, expires_at,
-            ),
-        )
-        append_audit_event(
-            conn, project_id=project_id, config_key=config_key,
-            event_type="waiver.proposed", actor=owner,
-            subject_kind="waiver", subject_id=waiver_id,
-            details={"rule_id": rule_id, "domain": domain},
-        )
-        conn.commit()
-    return get_waiver(waiver_id) or {}
-
-
-def transition_waiver(
-    waiver_id: str,
-    *,
-    status: str,
-    actor: str,
-    reason: str = "",
-    exception_kind: str | None = None,
-    exception_reason: str = "",
-    project_id: str | None = None,
-) -> dict[str, Any]:
-    """Waiver rows are never deleted; every transition is audited."""
-
-    if status not in WAIVER_STATUSES:
-        raise ReleaseStudioError(f"unknown waiver status: {status!r}")
-    if exception_kind is not None and exception_kind != "self_approval":
-        raise ReleaseStudioError(f"unknown waiver exception kind: {exception_kind!r}")
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM ws_release_waivers WHERE id = %s FOR UPDATE", (waiver_id,)
-        ).fetchone()
-        if row is None:
-            raise ReleaseStudioError("waiver not found")
-        if row["build_id"]:
-            # The release transaction locks this same immutable build before
-            # comparing its waiver binding and inserting the record.
-            conn.execute(
-                "SELECT id FROM ws_release_builds WHERE id=%s FOR UPDATE",
-                (row["build_id"],),
-            ).fetchone()
-        if project_id is not None:
-            if not row["build_id"]:
-                raise ReleaseStudioError("legacy waiver is not bound to an immutable build")
-            build = conn.execute(
-                "SELECT * FROM ws_release_builds WHERE id = %s FOR UPDATE", (row["build_id"],)
-            ).fetchone()
-            candidate = conn.execute(
-                "SELECT * FROM ws_release_candidates WHERE id = %s", (build["candidate_id"],)
-            ).fetchone() if build else None
-            if candidate is None or candidate["project_id"] != project_id:
-                raise ReleaseStudioError("waiver does not belong to this project")
-            if row["project_id"] != candidate["project_id"] or row["config_key"] != candidate["config_key"]:
-                raise ReleaseStudioError("waiver ownership chain is invalid")
-        if status == "approved":
-            own = str(row["owner"]).casefold() == actor.casefold()
-            if own and exception_kind != "self_approval" and self_approval_bypassed():
-                # Still recorded as an exception: the bypass decides who may
-                # approve, not what the trail says happened.
-                exception_kind = "self_approval"
-                exception_reason = SELF_APPROVAL_BYPASS_REASON
-            if own and exception_kind != "self_approval":
-                raise ReleaseStudioError(
-                    "a waiver cannot be approved by its own owner without an "
-                    "audited self_approval exception"
-                )
-            if own and not exception_reason.strip():
-                raise ReleaseStudioError(
-                    "a self-approved waiver requires a written exception reason"
-                )
-            if not own and exception_kind is not None:
-                raise ReleaseStudioError(
-                    "a waiver approved by another person takes no exception"
-                )
+    existing = get_publish_record(build_id)
+    if existing:
+        raise ReviewDecisionError("This build is already published.")
+    row_id = _new_id("pub")
+    try:
+        with connect() as conn:
             conn.execute(
                 """
-                UPDATE ws_release_waivers SET status='approved', approver=%s,
-                       approved_at=NOW(), exception_kind=%s, exception_reason=%s
-                WHERE id=%s
+                INSERT INTO ws_release_publish_records(
+                    id, project_id, build_id, tag, commit_sha, dossier_digest,
+                    published_by, forge_url, asset_names
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
-                    actor,
-                    exception_kind,
-                    exception_reason.strip() if exception_kind else None,
-                    waiver_id,
+                    row_id,
+                    project_id,
+                    build_id,
+                    tag,
+                    commit_sha,
+                    dossier_digest,
+                    published_by,
+                    forge_url,
+                    json.dumps(list(asset_names)),
                 ),
             )
-        elif status == "revoked":
-            conn.execute(
-                """
-                UPDATE ws_release_waivers SET status='revoked', revoked_at=NOW(),
-                       revoked_reason=%s WHERE id=%s
-                """,
-                (reason, waiver_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE ws_release_waivers SET status=%s WHERE id=%s", (status, waiver_id)
-            )
-        append_audit_event(
-            conn, project_id=row["project_id"], config_key=row["config_key"],
-            event_type=f"waiver.{status}", actor=actor,
-            subject_kind="waiver", subject_id=waiver_id,
-            details={
-                "from": row["status"],
-                "to": status,
-                "reason": reason,
-                # The exception is the whole point of the escape hatch: it must
-                # be in the hash-chained trail, not only on the waiver row.
-                **(
-                    {
-                        "exception_kind": exception_kind,
-                        "exception_reason": exception_reason.strip(),
-                    }
-                    if exception_kind
-                    else {}
-                ),
-            },
-        )
-        conn.commit()
-    return get_waiver(waiver_id) or {}
-
-
-def get_waiver(waiver_id: str) -> dict[str, Any] | None:
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM ws_release_waivers WHERE id = %s", (waiver_id,)
-        ).fetchone()
-    return dict(row) if row else None
-
-
-def active_waivers(
-    project_id: str, config_key: str, build_id: str | None = None
-) -> list[dict[str, Any]]:
-    """Approved and unexpired. An expired waiver stops applying without deletion."""
-
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM ws_release_waivers
-            WHERE project_id = %s AND config_key = %s AND status = 'approved'
-              AND (expires_at IS NULL OR expires_at > NOW())
-              AND (%s::text IS NULL OR build_id = %s)
-            ORDER BY created_at
-            """,
-            (project_id, config_key, build_id, build_id),
-        ).fetchall()
-    return [dict(row) for row in rows]
-
-
-def waiver_binding_digest(
-    project_id: str,
-    config_key: str,
-    build_id: str,
-    *,
-    waivers: Sequence[Mapping[str, Any]] | None = None,
-) -> str:
-    """Digest the active exceptions an evaluation was allowed to apply."""
-
-    return sha256_canonical(
-        [
-            {
-                "id": row["id"], "rule_id": row["rule_id"], "domain": row["domain"],
-                "subject_pattern": row["subject_pattern"], "finding_key": row["finding_key"],
-                "expires_at": row["expires_at"].isoformat() if row.get("expires_at") else None,
-            }
-            for row in (waivers if waivers is not None else active_waivers(project_id, config_key, build_id))
-        ]
-    )
-
-
-def _waiver_binding_digest_for_connection(
-    conn: Any,
-    *,
-    project_id: str,
-    config_key: str,
-    build_id: str,
-) -> str:
-    rows = conn.execute(
-        """
-        SELECT id, rule_id, domain, subject_pattern, finding_key, expires_at
-        FROM ws_release_waivers
-        WHERE project_id = %s AND config_key = %s AND build_id = %s
-          AND status = 'approved'
-          AND (expires_at IS NULL OR expires_at > NOW())
-        ORDER BY id
-        """,
-        (project_id, config_key, build_id),
-    ).fetchall()
-    return sha256_canonical(
-        [
-            {
-                "id": row["id"], "rule_id": row["rule_id"], "domain": row["domain"],
-                "subject_pattern": row["subject_pattern"], "finding_key": row["finding_key"],
-                "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
-            }
-            for row in rows
-        ]
-    )
-
-
-def list_waivers(
-    project_id: str, config_key: str, build_id: str | None = None
-) -> list[dict[str, Any]]:
-    clause = " AND build_id = %s" if build_id is not None else ""
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM ws_release_waivers WHERE project_id = %s AND config_key = %s
-            """ + clause + """
-            ORDER BY created_at DESC
-            """,
-            (project_id, config_key, *([build_id] if build_id is not None else [])),
-        ).fetchall()
-    return [dict(row) for row in rows]
-
-
-# ---------------------------------------------------------------------------
-# Approvals and carry-forward (R16/R17)
-# ---------------------------------------------------------------------------
-
-
-def create_approval(
-    *,
-    build_id: str,
-    role: str,
-    domains: Sequence[str],
-    decision: str,
-    approver: str,
-    note: str = "",
-    exception_kind: str | None = None,
-    exception_reason: str | None = None,
-    reauth_context: Mapping[str, Any] | None = None,
-    carried_from_approval_id: str | None = None,
-    expected_policy_binding_digest: str | None = None,
-    expected_evaluation_id: str | None = None,
-) -> dict[str, Any]:
-    """Insert one immutable approval bound to (fingerprints, policy digest)."""
-
-    if decision not in APPROVAL_DECISIONS:
-        raise ReleaseStudioError(f"unknown approval decision: {decision!r}")
-    if exception_kind is not None and exception_kind not in EXCEPTION_KINDS:
-        raise ReleaseStudioError(f"unknown exception kind: {exception_kind!r}")
-    if exception_kind and not (exception_reason or "").strip():
-        raise ReleaseStudioError("an approval exception requires a written reason")
-    unknown = sorted(set(domains) - set(GOVERNED_DOMAINS))
-    if unknown:
-        raise ReleaseStudioError(f"unknown governed domains: {unknown}")
-
-    with connect() as conn:
-        build = conn.execute(
-            "SELECT * FROM ws_release_builds WHERE id = %s FOR UPDATE", (build_id,)
-        ).fetchone()
-        if build is None:
-            raise ReleaseStudioError("build not found")
-        if build["status"] != "succeeded":
-            raise ReleaseStudioError("only a successful immutable build can be approved")
-        candidate = conn.execute(
-            "SELECT * FROM ws_release_candidates WHERE id = %s", (build["candidate_id"],)
-        ).fetchone()
-        evaluation = conn.execute(
-            """
-            SELECT * FROM ws_release_evaluations WHERE build_id = %s
-            ORDER BY created_at DESC LIMIT 1
-            """,
-            (build_id,),
-        ).fetchone()
-        if evaluation is None:
-            raise ReleaseStudioError("a build must be evaluated before it can be approved")
-        if expected_evaluation_id is not None and evaluation["id"] != expected_evaluation_id:
-            raise ReleaseStudioError(
-                "the reviewed evaluation is no longer current; refresh and evaluate approval again"
-            )
-        if evaluation["waiver_binding_digest"] != _waiver_binding_digest_for_connection(
-            conn,
-            project_id=str(candidate["project_id"]),
-            config_key=str(candidate["config_key"]),
-            build_id=build_id,
-        ):
-            raise ReleaseStudioError(
-                "the build evaluation is stale after a waiver change; evaluate it again before approval"
-            )
-        if (
-            expected_policy_binding_digest is not None
-            and evaluation["policy_binding_digest"] != expected_policy_binding_digest
-        ):
-            raise ReleaseStudioError(
-                "the build evaluation is stale for the current policy; evaluate it again before approval"
-            )
-
-        fingerprints = {
-            row["domain"]: row["fingerprint"]
-            for row in conn.execute(
-                "SELECT domain, fingerprint FROM ws_release_scope_fingerprints WHERE build_id = %s",
-                (build_id,),
-            ).fetchall()
-            if row["domain"] in set(domains)
-        }
-        missing = sorted(set(domains) - set(fingerprints))
-        if missing:
-            raise ReleaseStudioError(f"build has no fingerprint for domain(s) {missing}")
-
-        is_self = (
-            str(candidate["created_by"] or "").casefold() == approver.casefold()
-            and decision == "approved"
-            and not (exception_kind and "self_approval" in exception_kind)
-        )
-        if is_self and self_approval_bypassed():
-            exception_kind = "self_approval"
-            exception_reason = exception_reason or SELF_APPROVAL_BYPASS_REASON
-        elif is_self:
-            raise ReleaseStudioError(
-                "two-person approval required: the candidate author cannot approve it "
-                "without an audited self-approval exception"
-            )
-
-        approval_id = _new_id("appr")
-        conn.execute(
-            """
-            INSERT INTO ws_release_approvals(
-                id, project_id, config_key, candidate_id, build_id, role, domains,
-                decision, approver, note, exception_kind, exception_reason,
-                technical_scope_fingerprints, policy_binding_digest, manifest_digest,
-                carried_from_approval_id, reauth_context, evaluation_id
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                approval_id, candidate["project_id"], candidate["config_key"],
-                build["candidate_id"], build_id, role, list(domains), decision, approver,
-                note, exception_kind, exception_reason, json.dumps(fingerprints),
-                evaluation["policy_binding_digest"], build["manifest_digest"] or "",
-                carried_from_approval_id, json.dumps(dict(reauth_context or {})),
-                evaluation["id"],
-            ),
-        )
-        append_audit_event(
-            conn, project_id=candidate["project_id"], config_key=candidate["config_key"],
-            event_type=f"approval.{decision}", actor=approver,
-            subject_kind="approval", subject_id=approval_id,
-            details={
-                "role": role,
-                "domains": list(domains),
-                "carried_from": carried_from_approval_id,
-                "exception_kind": exception_kind,
-            },
-        )
-        conn.commit()
-        row = conn.execute(
-            "SELECT * FROM ws_release_approvals WHERE id = %s", (approval_id,)
-        ).fetchone()
-    return dict(row)
-
-
-def list_approvals(build_id: str) -> list[dict[str, Any]]:
-    with connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM ws_release_approvals WHERE build_id = %s ORDER BY created_at",
-            (build_id,),
-        ).fetchall()
-        approvals = [dict(row) for row in rows]
-        for approval in approvals:
-            approval["invalidations"] = [
-                dict(item)
-                for item in conn.execute(
-                    """
-                    SELECT * FROM ws_release_approval_invalidations
-                    WHERE approval_id = %s ORDER BY created_at
-                    """,
-                    (approval["id"],),
-                ).fetchall()
-            ]
-    return approvals
-
-
-def effective_approvals(build_id: str) -> list[dict[str, Any]]:
-    """Approvals that bind to the build's current evaluation.
-
-    Approval is not a role-shaped token that remains valid after the policy is
-    re-evaluated.  It binds to both the exact evaluation row and that row's
-    policy digest.  Old rows remain in history (and may be invalidated by a
-    diagnostic workflow) but naturally cannot cover the current gate.
-    """
-
-    current = latest_evaluation(build_id)
-    if current is None:
-        return []
-    evaluation_id = str(current["id"])
-    policy_binding_digest = str(current["policy_binding_digest"])
-
-    return [
-        approval
-        for approval in list_approvals(build_id)
-        if (
-            approval["decision"] == "approved"
-            and not approval["invalidations"]
-            and str(approval.get("evaluation_id") or "") == evaluation_id
-            and str(approval.get("policy_binding_digest") or "") == policy_binding_digest
-        )
-    ]
-
-
-def carry_forward_approvals(
-    *,
-    source_build_id: str,
-    target_build_id: str,
-    actor: str = "",
-) -> dict[str, Any]:
-    """Carry approvals whose binding still holds; audit the rest as invalid.
-
-    An approval binds to two independent values.  Comparing them separately is
-    what lets the diagnostic name *which half* went stale rather than reporting
-    an opaque invalidation.
-    """
-
-    carried: list[dict[str, Any]] = []
-    invalidated: list[dict[str, Any]] = []
-
-    target_fingerprints = build_fingerprints(target_build_id)
-    with connect() as conn:
-        target_evaluation = conn.execute(
-            """
-            SELECT * FROM ws_release_evaluations WHERE build_id = %s
-            ORDER BY created_at DESC LIMIT 1
-            """,
-            (target_build_id,),
-        ).fetchone()
-    if target_evaluation is None:
-        raise ReleaseStudioError("the target build must be evaluated before carry-forward")
-    target_policy_digest = target_evaluation["policy_binding_digest"]
-
-    for approval in effective_approvals(source_build_id):
-        source_fingerprints = approval["technical_scope_fingerprints"] or {}
-        changed_domains = [
-            domain
-            for domain in approval["domains"]
-            if (target_fingerprints.get(domain) or {}).get("fingerprint")
-            != source_fingerprints.get(domain)
-        ]
-        policy_changed = approval["policy_binding_digest"] != target_policy_digest
-
-        if not changed_domains and not policy_changed:
-            carried.append(
-                create_approval(
-                    build_id=target_build_id,
-                    role=approval["role"],
-                    domains=approval["domains"],
-                    decision="approved",
-                    approver=approval["approver"],
-                    note=f"carried forward from {approval['id']}",
-                    exception_kind=approval["exception_kind"],
-                    exception_reason=approval["exception_reason"],
-                    carried_from_approval_id=approval["id"],
-                )
-            )
-            continue
-
-        stale_component = (
-            "both" if changed_domains and policy_changed
-            else ("technical" if changed_domains else "policy")
-        )
-        reason = (
-            f"technical scope changed for {changed_domains}" if changed_domains and not policy_changed
-            else "policy binding changed" if policy_changed and not changed_domains
-            else f"technical scope changed for {changed_domains} and the policy binding changed"
-        )
-        invalidated.append(
-            _record_invalidation(
-                approval_id=approval["id"],
-                reason=reason,
-                stale_component=stale_component,
-                changed_domains=changed_domains,
-                created_by=actor,
-            )
-        )
-
-    return {"carried": carried, "invalidated": invalidated}
-
-
-def rescind_approval(
-    *, approval_id: str, build_id: str, reason: str, actor: str, is_admin: bool = False
-) -> dict[str, Any]:
-    """Withdraw an approval a person no longer stands behind.
-
-    Not a deletion: approval rows are immutable at the database boundary, and
-    the fact that someone approved and later withdrew is itself part of the
-    record. `stale_component` is ``withdrawn`` because neither the technical
-    nor the policy half of the binding went stale -- a person changed their
-    mind, and conflating that with staleness would misreport why the approval
-    stopped counting.
-    """
-
-    if not reason.strip():
-        raise ReleaseStudioError("rescinding an approval requires a reason")
-    with connect() as conn:
-        approval = conn.execute(
-            "SELECT * FROM ws_release_approvals WHERE id = %s", (approval_id,)
-        ).fetchone()
-    if approval is None:
-        raise ReleaseStudioError("approval not found")
-    if str(approval["build_id"]) != build_id:
-        raise ReleaseStudioError("approval does not belong to this build")
-    if not is_admin and str(approval["approver"]).casefold() != actor.casefold():
-        raise ReleaseStudioError("only the original approver or an admin may rescind an approval")
-    return _record_invalidation(
-        approval_id=approval_id,
-        reason=reason.strip(),
-        stale_component="withdrawn",
-        changed_domains=list(approval["domains"] or []),
-        created_by=actor,
-    )
-
-
-def _record_invalidation(
-    *,
-    approval_id: str,
-    reason: str,
-    stale_component: str,
-    changed_domains: Sequence[str],
-    created_by: str,
-) -> dict[str, Any]:
-    invalidation_id = _new_id("inval")
-    with connect() as conn:
-        approval = conn.execute(
-            "SELECT * FROM ws_release_approvals WHERE id = %s", (approval_id,)
-        ).fetchone()
-        if approval is not None:
-            conn.execute(
-                "SELECT id FROM ws_release_builds WHERE id = %s FOR UPDATE",
-                (approval["build_id"],),
-            ).fetchone()
-        conn.execute(
-            """
-            INSERT INTO ws_release_approval_invalidations(
-                id, approval_id, reason, stale_component, changed_domains, created_by
-            ) VALUES (%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                invalidation_id, approval_id, reason, stale_component,
-                list(changed_domains), created_by,
-            ),
-        )
-        append_audit_event(
-            conn, project_id=approval["project_id"], config_key=approval["config_key"],
-            event_type="approval.invalidated", actor=created_by,
-            subject_kind="approval", subject_id=approval_id,
-            details={"stale_component": stale_component, "changed_domains": list(changed_domains)},
-        )
-        conn.commit()
-        row = conn.execute(
-            "SELECT * FROM ws_release_approval_invalidations WHERE id = %s", (invalidation_id,)
-        ).fetchone()
-    return dict(row)
-
-
-def invalidate_for_policy_change(
-    *, build_id: str, new_policy_binding_digest: str, actor: str = ""
-) -> list[dict[str, Any]]:
-    """Policy moved with no source change: approvals go, the technical rows stay."""
-
-    invalidated = []
-    for approval in effective_approvals(build_id):
-        if approval["policy_binding_digest"] == new_policy_binding_digest:
-            continue
-        invalidated.append(
-            _record_invalidation(
-                approval_id=approval["id"],
-                reason="policy binding changed",
-                stale_component="policy",
-                changed_domains=[],
-                created_by=actor,
-            )
-        )
-    return invalidated
-
-
-# ---------------------------------------------------------------------------
-# Release records (R18)
-# ---------------------------------------------------------------------------
-
-
-def create_release_record(
-    *,
-    build_id: str,
-    release_label: str,
-    document_number: str,
-    revision: str,
-    released_by: str,
-    attestation: Mapping[str, Any],
-    signature: str,
-    signing_key_id: str,
-    policy_snapshot: Mapping[str, Any],
-    approval_snapshot: Sequence[Mapping[str, Any]],
-    expected_evaluation_id: str,
-    expected_policy_binding_digest: str,
-    expected_waiver_binding_digest: str,
-    expected_required_approvals: Sequence[Mapping[str, Any]],
-    expected_approval_ids: Sequence[str],
-    expected_audit_head: str,
-    attestation_artifact_id: str | None = None,
-) -> dict[str, Any]:
-    with connect() as conn:
-        build = conn.execute(
-            "SELECT * FROM ws_release_builds WHERE id = %s FOR UPDATE", (build_id,)
-        ).fetchone()
-        if build is None:
-            raise ReleaseGateError("build not found")
-        if build["status"] != "succeeded":
-            raise ReleaseGateError("only a successful immutable build can be released")
-        candidate = conn.execute(
-            "SELECT * FROM ws_release_candidates WHERE id = %s FOR UPDATE", (build["candidate_id"],)
-        ).fetchone()
-        conn.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-            (f"release-audit:{candidate['project_id']}:{candidate['config_key']}",),
-        )
-        evaluation = conn.execute(
-            """
-            SELECT * FROM ws_release_evaluations WHERE build_id = %s
-            ORDER BY created_at DESC LIMIT 1 FOR UPDATE
-            """,
-            (build_id,),
-        ).fetchone()
-        if evaluation is None:
-            raise ReleaseGateError("build has not been evaluated")
-        if str(evaluation["id"]) != expected_evaluation_id:
-            raise ReleaseGateError("the reviewed evaluation is no longer current")
-        if str(evaluation["policy_binding_digest"]) != expected_policy_binding_digest:
-            raise ReleaseGateError("the reviewed policy binding is no longer current")
-        waiver_rows = conn.execute(
-            """
-            SELECT id, rule_id, domain, subject_pattern, finding_key, expires_at
-            FROM ws_release_waivers
-            WHERE project_id=%s AND config_key=%s AND build_id=%s
-              AND status='approved' AND (expires_at IS NULL OR expires_at > NOW())
-            ORDER BY id FOR UPDATE
-            """,
-            (candidate["project_id"], candidate["config_key"], build_id),
-        ).fetchall()
-        current_waiver_digest = sha256_canonical(
-            [
-                {
-                    "id": row["id"], "rule_id": row["rule_id"], "domain": row["domain"],
-                    "subject_pattern": row["subject_pattern"], "finding_key": row["finding_key"],
-                    "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
-                }
-                for row in waiver_rows
-            ]
-        )
-        if (
-            str(evaluation["waiver_binding_digest"]) != expected_waiver_binding_digest
-            or current_waiver_digest != expected_waiver_binding_digest
-        ):
-            raise ReleaseGateError("the reviewed evaluation is stale after a waiver change")
-        approvals = conn.execute(
-            """
-            SELECT a.* FROM ws_release_approvals a
-            WHERE a.build_id=%s AND a.decision='approved'
-              AND a.evaluation_id=%s AND a.policy_binding_digest=%s
-              AND NOT EXISTS (
-                SELECT 1 FROM ws_release_approval_invalidations i
-                WHERE i.approval_id=a.id
-              )
-            ORDER BY a.id FOR UPDATE
-            """,
-            (
-                build_id,
-                expected_evaluation_id,
-                expected_policy_binding_digest,
-            ),
-        ).fetchall()
-        approval_ids = {str(row["id"]) for row in approvals}
-        if approval_ids != {str(value) for value in expected_approval_ids}:
-            raise ReleaseGateError("the reviewed approvals changed before release could be recorded")
-        covered = {
-            (str(row["role"]), str(domain))
-            for row in approvals
-            for domain in (row["domains"] or [])
-        }
-        required_pairs = {
-            (str(entry["role"]), str(domain))
-            for entry in expected_required_approvals
-            for domain in entry.get("domains", [])
-        }
-        if not required_pairs.issubset(covered):
-            raise ReleaseGateError("required approval coverage is no longer current")
-        if str(dict(policy_snapshot).get("policy_binding_digest") or "") != expected_policy_binding_digest:
-            raise ReleaseGateError("signed policy snapshot does not match the reviewed evaluation")
-        audit_row = conn.execute(
-            """
-            SELECT event_hash FROM ws_release_audit_events
-            WHERE project_id=%s AND config_key=%s
-            ORDER BY sequence DESC LIMIT 1 FOR UPDATE
-            """,
-            (candidate["project_id"], candidate["config_key"]),
-        ).fetchone()
-        if str(audit_row["event_hash"] if audit_row else "") != expected_audit_head:
-            raise ReleaseGateError("the reviewed audit state changed before release could be recorded")
-        record_id = _new_id("rel")
-        conn.execute(
-            """
-            INSERT INTO ws_release_records(
-                id, project_id, config_key, candidate_id, build_id, release_label,
-                document_number, revision, dossier_digest, manifest_digest,
-                attestation_digest, signature, signing_key_id, attestation_artifact_id,
-                commit_sha, variant, released_by, policy_snapshot, approval_snapshot,
-                attestation_body
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                record_id, candidate["project_id"], candidate["config_key"],
-                build["candidate_id"], build_id, release_label, document_number,
-                revision, build["dossier_digest"], build["manifest_digest"],
-                attestation["attestation_digest"], signature, signing_key_id,
-                attestation_artifact_id, candidate["commit_sha"], candidate["variant"],
-                released_by, json.dumps(dict(policy_snapshot)),
-                json.dumps([dict(item) for item in approval_snapshot]),
-                json.dumps(dict(attestation)),
-            ),
-        )
-        conn.execute(
-            "UPDATE ws_release_candidates SET status='frozen', updated_at=NOW() WHERE id=%s",
-            (build["candidate_id"],),
-        )
-        override = dict(policy_snapshot).get("override")
-        if override:
-            # Its own event, before the release event, so a reviewer scanning
-            # the chain for exceptional acts finds it without having to read
-            # inside every release event's details.
             append_audit_event(
-                conn, project_id=candidate["project_id"],
-                config_key=candidate["config_key"],
-                event_type="release.blockers_overridden", actor=released_by,
-                subject_kind="build", subject_id=build_id,
-                details=dict(override),
+                conn,
+                project_id=project_id,
+                config_key=config_key,
+                event_type="release.published",
+                actor=published_by,
+                subject_kind="build",
+                subject_id=build_id,
+                details={"tag": tag, "forge_url": forge_url, "asset_names": list(asset_names)},
             )
-        append_audit_event(
-            conn, project_id=candidate["project_id"], config_key=candidate["config_key"],
-            event_type="release.created", actor=released_by,
-            subject_kind="release", subject_id=record_id,
-            details={
-                "release_label": release_label,
-                "manifest_digest": build["manifest_digest"],
-                "signing_key_id": signing_key_id,
-                "blockers_overridden": bool(override),
-            },
-        )
-        conn.commit()
-        row = conn.execute(
-            "SELECT * FROM ws_release_records WHERE id = %s", (record_id,)
-        ).fetchone()
-    return dict(row)
+            conn.commit()
+    except Exception as exc:
+        message = str(exc).lower()
+        if "uq_ws_release_publish_records_tag" in message or "unique" in message:
+            raise ReviewDecisionError(f"{tag} is already published for this project.") from exc
+        raise
+    return get_publish_record(build_id) or {}
 
 
-def list_release_records(project_id: str, config_key: str | None = None) -> list[dict[str, Any]]:
-    query = "SELECT * FROM ws_release_records WHERE project_id = %s"
-    params: list[Any] = [project_id]
-    if config_key:
-        query += " AND config_key = %s"
-        params.append(config_key)
-    query += " ORDER BY created_at DESC"
-    with connect() as conn:
-        rows = conn.execute(query, tuple(params)).fetchall()
-    return [dict(row) for row in rows]
-
-
-def get_release_record(record_id: str) -> dict[str, Any] | None:
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM ws_release_records WHERE id = %s", (record_id,)
-        ).fetchone()
-    return dict(row) if row else None
-
-
-# ---------------------------------------------------------------------------
-# Signing keys (public material only)
-# ---------------------------------------------------------------------------
-
-
-def upsert_signing_key(
-    *,
-    key_id: str,
-    algorithm: str,
-    public_key: str,
-    created_by: str = "",
-    status: str = "active",
-    valid_from: str | None = None,
-    valid_to: str | None = None,
-) -> dict[str, Any]:
-    with connect() as conn:
-        existing = conn.execute(
-            "SELECT * FROM ws_release_signing_keys WHERE key_id=%s FOR UPDATE", (key_id,)
-        ).fetchone()
-        if existing is not None and (
-            existing["algorithm"] != algorithm or existing["public_key"] != public_key
-        ):
-            raise ReleaseStudioError("a signing key id is permanently bound to its algorithm and public key")
-        conn.execute(
-            """
-            INSERT INTO ws_release_signing_keys(
-                key_id, algorithm, public_key, status, created_by, valid_from, valid_to
-            ) VALUES (%s,%s,%s,%s,%s,COALESCE(%s::timestamptz, NOW()),%s)
-            ON CONFLICT (key_id) DO UPDATE SET
-                status = EXCLUDED.status,
-                valid_to = EXCLUDED.valid_to
-            """,
-            (key_id, algorithm, public_key, status, created_by, valid_from, valid_to),
-        )
-        conn.commit()
-        row = conn.execute(
-            "SELECT * FROM ws_release_signing_keys WHERE key_id = %s", (key_id,)
-        ).fetchone()
-    return dict(row)
-
-
-def list_signing_keys() -> list[dict[str, Any]]:
-    """Superseded keys stay published so old releases keep verifying."""
-
-    with connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM ws_release_signing_keys ORDER BY created_at DESC"
-        ).fetchall()
-    return [dict(row) for row in rows]
-
-
-# ---------------------------------------------------------------------------
-# Public web-release shares
-# ---------------------------------------------------------------------------
-
-
-def create_web_share(
-    record_id: str,
-    *,
-    actor: str,
-    expires_at: str | None = None,
-) -> dict[str, Any]:
-    """Create a bearer share, storing only SHA-256(token) in PostgreSQL."""
-
-    token = secrets.token_urlsafe(32)
-    token_digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    with connect() as conn:
-        record = conn.execute(
-            "SELECT * FROM ws_release_records WHERE id=%s", (record_id,)
-        ).fetchone()
-        if record is None:
-            raise ReleaseStudioError("release record not found")
-        share_id = _new_id("share")
-        conn.execute(
-            """
-            INSERT INTO ws_release_web_shares(
-                id, record_id, token_digest, expires_at, created_by
-            ) VALUES (%s,%s,%s,%s::timestamptz,%s)
-            """,
-            (share_id, record_id, token_digest, expires_at, actor),
-        )
-        append_audit_event(
-            conn,
-            project_id=record["project_id"],
-            config_key=record["config_key"],
-            event_type="web_share.created",
-            actor=actor,
-            subject_kind="web_share",
-            subject_id=share_id,
-            details={"record_id": record_id, "expires_at": expires_at},
-        )
-        conn.commit()
-        row = conn.execute(
-            "SELECT * FROM ws_release_web_shares WHERE id=%s", (share_id,)
-        ).fetchone()
-    result = dict(row)
-    result["token"] = token
-    return result
-
-
-def list_web_shares(record_id: str) -> list[dict[str, Any]]:
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, record_id, status, expires_at, created_by, created_at,
-                   revoked_by, revoked_at
-            FROM ws_release_web_shares WHERE record_id=%s
-            ORDER BY created_at DESC
-            """,
-            (record_id,),
-        ).fetchall()
-    return [dict(row) for row in rows]
-
-
-def resolve_web_share(token: str) -> dict[str, Any] | None:
-    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    with connect() as conn:
-        row = conn.execute(
-            """
-            SELECT s.*, r.project_id, r.config_key, r.build_id
-            FROM ws_release_web_shares s
-            JOIN ws_release_records r ON r.id=s.record_id
-            WHERE s.token_digest=%s AND s.status='active'
-              AND (s.expires_at IS NULL OR s.expires_at > NOW())
-            """,
-            (digest,),
-        ).fetchone()
-    return dict(row) if row else None
-
-
-def revoke_web_share(
-    share_id: str,
-    *,
-    project_id: str,
-    actor: str,
-) -> dict[str, Any]:
-    with connect() as conn:
-        row = conn.execute(
-            """
-            SELECT s.*, r.project_id, r.config_key
-            FROM ws_release_web_shares s
-            JOIN ws_release_records r ON r.id=s.record_id
-            WHERE s.id=%s AND r.project_id=%s FOR UPDATE OF s
-            """,
-            (share_id, project_id),
-        ).fetchone()
-        if row is None:
-            raise ReleaseStudioError("web share not found")
-        if row["status"] != "active":
-            raise ReleaseStudioError("web share is already revoked")
-        conn.execute(
-            """
-            UPDATE ws_release_web_shares
-            SET status='revoked', revoked_by=%s, revoked_at=NOW() WHERE id=%s
-            """,
-            (actor, share_id),
-        )
-        append_audit_event(
-            conn,
-            project_id=row["project_id"],
-            config_key=row["config_key"],
-            event_type="web_share.revoked",
-            actor=actor,
-            subject_kind="web_share",
-            subject_id=share_id,
-            details={"record_id": row["record_id"]},
-        )
-        conn.commit()
-        updated = conn.execute(
-            "SELECT * FROM ws_release_web_shares WHERE id=%s", (share_id,)
-        ).fetchone()
-    return dict(updated)
+# Signed policy evaluation, waivers, cryptographic attestations, and web shares
+# stay frozen on `feature/release-studio-governance`. Their tables remain in
+# existing migrations; see docs/release-studio/GOVERNANCE.md.
 
 
 __all__ = [
-    "APPROVAL_DECISIONS",
     "CANDIDATE_STATUSES",
-    "EXCEPTION_KINDS",
-    "WAIVER_STATUSES",
-    "ReleaseGateError",
     "ReleaseStudioError",
-    "active_waivers",
     "append_audit_event",
     "audit_head",
     "build_evidence",
     "cancel_build",
     "build_fingerprints",
     "build_members",
-    "carry_forward_approvals",
     "complete_build",
     "compute_build_key",
     "connect",
-    "create_approval",
     "create_candidate",
-    "create_release_record",
-    "create_web_share",
-    "create_waiver",
     "current_audit_head",
-    "effective_approvals",
     "fail_build",
     "get_artifact",
     "get_build",
@@ -2192,31 +1291,23 @@ __all__ = [
     "get_configuration",
     "get_source_defaults",
     "save_source_defaults",
-    "get_release_record",
-    "get_waiver",
     "initialize",
-    "invalidate_for_policy_change",
     "latest_build",
-    "latest_evaluation",
-    "list_approvals",
     "list_builds",
     "list_audit_events",
     "list_candidates",
     "list_configurations",
-    "list_release_records",
-    "list_signing_keys",
-    "list_web_shares",
-    "list_waivers",
-    "record_evaluation",
     "record_prepare_failure",
-    "resolve_web_share",
-    "revoke_web_share",
+    "record_publish",
+    "record_review_decision",
+    "ReviewDecisionError",
+    "build_approval_state",
+    "electrical_error_kinds",
+    "get_publish_record",
+    "latest_review_decision",
+    "list_review_decisions",
+    "selected_vendor_packs_ready",
     "set_candidate_status",
-    "self_approval_bypassed",
     "start_build",
-    "transition_waiver",
     "upsert_configuration",
-    "upsert_signing_key",
-    "verify_audit_chain",
-    "waiver_binding_digest",
 ]

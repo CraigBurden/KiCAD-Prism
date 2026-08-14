@@ -196,7 +196,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 component["id"],
                 "done",
                 actor=reviewer,
-                actor_role="component_qa",
+                actor_role="qa",
                 expected_revision_id=review["revision_id"],
                 expected_manifest_hash=review["manifest_hash"],
             )
@@ -282,15 +282,15 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             component["id"],
             "done",
             actor="qa@example.com",
-            actor_role="component_qa",
+            actor_role="qa",
             expected_revision_id=with_spice["revision_id"],
             expected_manifest_hash=with_spice["manifest_hash"],
         )
         released = self.service.set_release_status(
             component["id"],
             "released",
-            actor="release@example.com",
-            actor_role="admin",
+            actor="designer@example.com",
+            actor_role="designer",
             expected_revision_id=approved["revision_id"],
             expected_manifest_hash=approved["manifest_hash"],
         )

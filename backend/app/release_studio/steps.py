@@ -13,6 +13,7 @@ genuine tool failure fails the step.
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
@@ -491,7 +492,13 @@ def _run_one(
     result = execute(argv, closure_root, timeout_seconds)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     files = _collect_outputs(destination, spec)
-    if result.returncode != 0 and not files:
+    # A directory export writes one file per layer, so "some output exists" says
+    # nothing about completeness: a gerber run that dies after F.Cu leaves a
+    # non-empty directory behind. Only a single-file step -- DRC and ERC, which
+    # exit non-zero precisely *because* they wrote a report of violations -- may
+    # treat a produced file as success despite the exit code.
+    partial_directory = spec.output_kind == "dir" and result.returncode != 0
+    if result.returncode != 0 and (not files or partial_directory):
         message = (result.stderr or result.stdout or "").strip()
         if spec.optional:
             return StepOutput(
@@ -523,6 +530,40 @@ def _run_one(
         stderr=result.stderr,
         elapsed_ms=elapsed_ms,
     )
+
+
+def gerber_manifest_gaps(files: Sequence[Path]) -> tuple[bool, tuple[str, ...]]:
+    """Check a Gerber export against the ``.gbrjob`` manifest it wrote.
+
+    Returns ``(manifest_found, missing_paths)``.
+
+    KiCad writes the job file last and lists every plot it produced under
+    ``FilesAttributes``, so the manifest is the export's own statement of what
+    the set should contain. Comparing against it beats an allowlist of layer
+    names: copper layers are renamed freely by the designer -- the boards in
+    this repository plot ``TOP``/``GND1``/``BOT`` rather than ``F_Cu``/``B_Cu``
+    -- so a fixed expected set would be wrong for most real projects.
+    """
+
+    present = {path.name for path in files}
+    job = next((path for path in files if path.suffix.casefold() == ".gbrjob"), None)
+    if job is None:
+        return False, ()
+    try:
+        manifest = json.loads(job.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return False, ()
+    attributes = manifest.get("FilesAttributes") if isinstance(manifest, Mapping) else None
+    if not isinstance(attributes, list):
+        return False, ()
+    missing = [
+        str(entry["Path"])
+        for entry in attributes
+        if isinstance(entry, Mapping)
+        and str(entry.get("Path") or "")
+        and str(entry["Path"]) not in present
+    ]
+    return True, tuple(sorted(missing))
 
 
 def _collect_outputs(destination: Path, spec: StepSpec) -> tuple[Path, ...]:
@@ -631,6 +672,8 @@ def evidence_counts(report: Mapping[str, Any]) -> dict[str, int]:
     counts: dict[str, int] = {}
     total = 0
     for item in _iter_violations(report):
+        if item.get("excluded") or item.get("ignored") or item.get("waived"):
+            continue
         severity = str(item.get("severity") or "unknown").strip().lower() or "unknown"
         counts[severity] = counts.get(severity, 0) + 1
         total += 1
@@ -658,6 +701,7 @@ __all__ = [
     "StepOutput",
     "StepSpec",
     "evidence_counts",
+    "gerber_manifest_gaps",
     "isolated_cli_env",
     "resolve_cli_path",
     "run_step_catalogue",

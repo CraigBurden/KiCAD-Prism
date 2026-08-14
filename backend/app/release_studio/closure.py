@@ -1029,16 +1029,22 @@ def _resolve_project_paths(
         try:
             resolved.append(resolver.resolve(source, reference, kind))
         except ClosureError as exc:
-            # Footprints and symbols are already copied into the board/schematic.
-            # A host-absolute fp-lib-table URI or a missing .pretty must not
-            # refuse a documentation build. Record the path so it is visible.
+            # Footprints and symbols are already copied into the board/schematic,
+            # so a host-absolute fp-lib-table URI or a missing .pretty must not
+            # refuse a documentation build -- neither of these is fatal, and
+            # both are recorded so they stay visible.
+            #
+            # They are not equivalent, though. A `.step`/`.wrl` no build step
+            # opens is advisory; anything else is a real input that resolved
+            # outside the closure, and marking those advisory too let a build
+            # whose symbols came off the host record itself as fully hermetic.
             resolved.append(
                 ResolvedLibraryPath(
                     source_path=source,
                     reference=reference,
                     resolved_path="",
                     location="external" if isinstance(exc, ExternalPathError) else "missing",
-                    advisory=True,
+                    advisory=_is_advisory_reference(reference),
                 )
             )
     return resolved, sorted(resolver.bindings.values(), key=lambda binding: binding.name)

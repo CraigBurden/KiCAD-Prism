@@ -8,6 +8,15 @@ import { Textarea } from "@/components/ui/textarea";
 import * as api from "../api";
 import type { ReleaseIdentity } from "../types";
 
+/**
+ * What the forges accept, mirroring `_TAG_RE` in `forge_publish_service`.
+ *
+ * Checked here because the tag is printed as the drawing revision: a tag the
+ * forge rejects is only discovered at Publish, by which point every sheet has
+ * already been composed with it and the build has to be thrown away.
+ */
+const FORGE_TAG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+
 export function IdentityStep({
     projectId,
     identity,
@@ -26,38 +35,41 @@ export function IdentityStep({
     const [tagError, setTagError] = useState("");
     const [checking, setChecking] = useState(false);
     const tag = identity.tag.trim();
-    const ready = Boolean(tag && identity.document_name.trim() && identity.date.trim());
+    const malformed = Boolean(tag) && !FORGE_TAG.test(tag);
+    const ready = Boolean(tag && !malformed && identity.document_name.trim() && identity.date.trim());
 
     useEffect(() => {
-        if (!tag) {
+        // A malformed tag cannot exist on the forge, and asking wastes a call.
+        if (!tag || malformed) {
             setTagError("");
+            setChecking(false);
             return;
         }
         let cancelled = false;
         setChecking(true);
-        void api.tagExists(projectId, tag)
-            .then((exists) => {
-                if (!cancelled) setTagError(exists ? `${tag} already exists on GitHub/GitLab.` : "");
-            })
-            .catch(() => {
-                if (!cancelled) setTagError("");
-            })
-            .finally(() => {
-                if (!cancelled) setChecking(false);
-            });
+        // Debounced: this reaches GitHub/GitLab through the backend, and firing
+        // it per keystroke spent a round-trip on every prefix of the tag.
+        const timer = window.setTimeout(() => {
+            void api.tagExists(projectId, tag)
+                .then((exists) => {
+                    if (!cancelled) setTagError(exists ? `${tag} already exists on GitHub/GitLab.` : "");
+                })
+                .catch(() => {
+                    if (!cancelled) setTagError("");
+                })
+                .finally(() => {
+                    if (!cancelled) setChecking(false);
+                });
+        }, 400);
         return () => {
             cancelled = true;
+            window.clearTimeout(timer);
         };
-    }, [projectId, tag]);
+    }, [projectId, tag, malformed]);
 
     return (
         <div className="space-y-5">
-            <div>
-                <h3 className="text-lg font-semibold">Release identity</h3>
-                <p className="text-sm text-muted-foreground">
-                    The tag is printed as the drawing revision and created as the GitHub or GitLab Release. Name it before the PDFs are generated.
-                </p>
-            </div>
+            <h3 className="text-lg font-semibold">Release identity</h3>
             <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                     <Label htmlFor="rs-identity-tag">Tag</Label>
@@ -68,8 +80,15 @@ export function IdentityStep({
                         placeholder="v1.0.0"
                         disabled={!canMutate}
                     />
-                    {checking && <p className="text-xs text-muted-foreground">Checking whether this tag exists…</p>}
-                    {tagError && <p className="text-sm text-destructive">{tagError}</p>}
+                    {malformed && (
+                        <p className="text-sm text-destructive">
+                            GitHub and GitLab will not accept this tag. Start with a letter or
+                            digit and use only letters, digits, dots, underscores, and hyphens
+                            — no slashes.
+                        </p>
+                    )}
+                    {!malformed && checking && <p className="text-xs text-muted-foreground">Checking whether this tag exists…</p>}
+                    {!malformed && tagError && <p className="text-sm text-destructive">{tagError}</p>}
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="rs-identity-doc">Document Name</Label>
@@ -103,7 +122,7 @@ export function IdentityStep({
                 />
             </div>
             {canMutate && (
-                <Button disabled={!ready || Boolean(tagError) || Boolean(busy)} onClick={onContinue}>
+                <Button disabled={!ready || Boolean(tagError) || checking || Boolean(busy)} onClick={onContinue}>
                     Continue
                 </Button>
             )}

@@ -662,11 +662,13 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         <ProjectSectionPanel
                             key={`${projectId}:release-studio`}
                             active={activeSection === "release-studio"}
+                            fill
                         >
                             <ErrorBoundary label="the release studio panel" resetKeys={[projectId]}>
                                 <ReleaseStudioPanel
                                     projectId={projectId!}
                                     canMutate={canMutateProject}
+                                    userRole={user?.role}
                                 />
                             </ErrorBoundary>
                         </ProjectSectionPanel>

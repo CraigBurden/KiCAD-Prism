@@ -7,7 +7,7 @@ Release Studio separates these identities:
 | Boundary | What it binds |
 | --- | --- |
 | Commit and configuration snapshot | Exact Git tree, synthesized or committed configuration, variant, tag, Document Name, date, and selected KiCad paths. |
-| Input closure | Repository files, submodules, LFS bytes, library resolution, environment bindings, and verified toolchain resources. Missing or host-absolute library URIs are advisory. |
+| Input closure | Repository files, submodules, LFS bytes, library resolution, environment bindings, and verified toolchain resources. Missing or host-absolute library URIs are recorded as non-hermetic. |
 | Candidate and build attempt | Technical build identity plus one queued/running/succeeded/failed/cancelled execution; failed and cancelled attempts are retained. |
 | Dossier | Canonical technical members, manifest, evidence references, and technical scope fingerprints. |
 | Forge Release | A GitHub or GitLab Release on the imported remote, tagged at the build commit, named with the tag, with the dossier zip attached. |
@@ -49,9 +49,9 @@ or forge publish.
 ## Data model
 
 Technical tables retain configurations, candidates, closure entries, builds,
-members/domains, evidence, projections, scope fingerprints, and artifact pins.
-Governance tables from the archived signed-release work remain in the schema
-but are unused by the running API.
+members/domains, evidence, projections, scope fingerprints, artifact pins,
+review decisions, and publish records. Governance tables from the archived
+signed-release work remain in the schema but are unused by the running API.
 
 ## Security and trust boundaries
 

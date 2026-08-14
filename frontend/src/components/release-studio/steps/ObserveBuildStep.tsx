@@ -4,8 +4,9 @@ import { Ban, Check, Circle, Loader2, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import * as api from "../api";
 import type {
-    PipelineJob,
+    BuildLogStep,
     PipelineState,
     PipelineStep,
     PipelineStepStatus,
@@ -22,6 +23,8 @@ export function ObserveBuildStep({
     onCancel,
     projectId,
     buildId,
+    errorCode = "",
+    errorMessage = "",
 }: {
     pipeline: PipelineState | null;
     jobStatus: string;
@@ -33,6 +36,8 @@ export function ObserveBuildStep({
     onCancel?: () => void;
     projectId?: string;
     buildId?: string | null;
+    errorCode?: string;
+    errorMessage?: string;
 }) {
     const jobs = useMemo(() => pipeline?.jobs ?? [], [pipeline]);
     const [selectedId, setSelectedId] = useState(
@@ -64,19 +69,21 @@ export function ObserveBuildStep({
 
     // Live logs are only the worker stdout for this attempt. Reopening a
     // finished run does not replay them; they were never stored for the UI.
-    if (jobs.length === 0 && projectId && buildId) {
+    // The recorded failure and the archived per-step logs are what remain, and
+    // they are the whole reason someone reopens a failed attempt.
+    if (jobs.length === 0 && projectId && buildId && !live) {
         return (
             <div className="space-y-4">
                 <h3 className="text-lg font-semibold">Build</h3>
-                <p className="text-sm text-muted-foreground">
-                    Live logs are shown while a run is in progress. This attempt has finished; step status is kept on the pipeline rail.
-                </p>
+                <BuildFailure code={errorCode} message={errorMessage} />
+                <ArchivedStepLogs projectId={projectId} buildId={buildId} />
             </div>
         );
     }
 
     return (
         <div className="space-y-4">
+            <BuildFailure code={errorCode} message={errorMessage} />
             <div className="flex flex-wrap items-start gap-3">
                 <div className="min-w-0 flex-1 space-y-2">
                     <h3 className="text-lg font-semibold">Build</h3>
@@ -181,6 +188,106 @@ export function ObserveBuildStep({
     );
 }
 
+/** The reason the attempt ended, as the build row recorded it. */
+function BuildFailure({ code, message }: { code?: string; message?: string }) {
+    if (!message?.trim() && !code?.trim()) return null;
+    return (
+        <div
+            aria-label="Build failure"
+            className="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 p-3"
+        >
+            {code?.trim() && (
+                <p className="font-mono text-xs uppercase tracking-wide text-destructive">{code}</p>
+            )}
+            {message?.trim() && (
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-destructive">
+                    {message}
+                </pre>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Per-step logs kept in build-evidence for as long as the release lives.
+ *
+ * The worker's stdout tail is pruned on the job retention schedule, so for any
+ * attempt older than that this is the only surviving record of what each step
+ * did. Loaded on demand: a log is only worth a request once someone opens it.
+ */
+function ArchivedStepLogs({ projectId, buildId }: { projectId: string; buildId: string }) {
+    const [steps, setSteps] = useState<BuildLogStep[]>([]);
+    const [openStep, setOpenStep] = useState<string | null>(null);
+    const [logs, setLogs] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+        let cancelled = false;
+        setSteps([]);
+        setOpenStep(null);
+        setLogs({});
+        void api.listBuildLogs(projectId, buildId)
+            .then((index) => {
+                if (!cancelled) setSteps(index.steps ?? []);
+            })
+            .catch(() => {
+                // An attempt that predates log archiving simply has none.
+                if (!cancelled) setSteps([]);
+            });
+        return () => { cancelled = true; };
+    }, [projectId, buildId]);
+
+    const toggle = (stepId: string) => {
+        if (openStep === stepId) {
+            setOpenStep(null);
+            return;
+        }
+        setOpenStep(stepId);
+        if (logs[stepId] !== undefined) return;
+        void api.fetchBuildLog(projectId, buildId, stepId)
+            .then((text) => setLogs((current) => ({ ...current, [stepId]: text })))
+            .catch(() => setLogs((current) => ({ ...current, [stepId]: "" })));
+    };
+
+    if (steps.length === 0) return null;
+
+    return (
+        <div className="space-y-1">
+            <h4 className="text-sm font-semibold">Archived step logs</h4>
+            <ol className="space-y-1">
+                {steps.map((step) => (
+                    <li key={step.step_id} className="border">
+                        <button
+                            type="button"
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm"
+                            onClick={() => toggle(step.step_id)}
+                        >
+                            <span className="flex-1 font-mono">{step.step_id}</span>
+                            {step.skipped_reason
+                                ? <span className="text-xs text-muted-foreground">skipped</span>
+                                : typeof step.returncode === "number" && (
+                                    <span className={cn("text-xs", step.returncode === 0 ? "text-muted-foreground" : "text-destructive")}>
+                                        exit {step.returncode}
+                                    </span>
+                                )}
+                            {Boolean(step.elapsed_ms) && (
+                                <span className="text-xs text-muted-foreground">
+                                    {(step.elapsed_ms / 1000).toFixed(1)}s
+                                </span>
+                            )}
+                        </button>
+                        {openStep === step.step_id && (
+                            <pre className="max-h-64 overflow-auto border-t bg-muted/30 p-2 text-xs">
+                                {step.skipped_reason ? `${step.skipped_reason}\n` : ""}
+                                {logs[step.step_id] ?? "Loading…"}
+                            </pre>
+                        )}
+                    </li>
+                ))}
+            </ol>
+        </div>
+    );
+}
+
 function StatusIcon({ status }: { status: PipelineStepStatus }) {
     if (status === "in_progress") {
         return <Loader2 className="h-4 w-4 animate-spin text-warning" aria-label="in progress" />;
@@ -203,35 +310,9 @@ function Duration({ steps }: { steps: PipelineStep[] }) {
     return <span className="text-xs text-muted-foreground">{(total / 1000).toFixed(0)}s</span>;
 }
 
-export function emptyPipeline(): PipelineState {
-    const queued = (id: string, name: string, steps: Array<[string, string]>): PipelineJob => ({
-        id,
-        name,
-        status: "queued",
-        steps: steps.map(([stepId, stepName]) => ({ id: stepId, name: stepName, status: "queued" })),
-    });
-    return {
-        jobs: [
-            queued("closure", "Closure", [["closure", "Materialize input closure"]]),
-            queued("checks", "Checks", [["drc", "DRC"], ["erc", "ERC"], ["board_stats", "Board stats"]]),
-            queued("assembly", "Assembly", [
-                ["positions", "Positions"],
-                ["bom", "Bill of materials"],
-                ["cruncher-assembly", "Assembly views"],
-            ]),
-            queued("artwork", "Artwork", [["gerbers", "Gerbers"], ["drill", "Drill"], ["schematic_pdf", "Schematic PDF"]]),
-            queued("documents", "Documents", [
-                ["documents-cover", "Cover page"],
-                ["documents-fabrication", "Fabrication drawings"],
-                ["documents-impedance", "Controlled impedance table"],
-                ["documents-stackup", "Append manufacturer stackup"],
-                ["documents-assembly", "Assembly drawings"],
-                ["documents-testpoint", "Testpoint drawings"],
-                ["documents-drill", "Drill drawing"],
-                ["documents-bom", "Bill of materials PDF"],
-                ["documents", "Finish documentation"],
-            ]),
-            queued("package", "Package", [["package", "Canonicalize, fingerprint, record"]]),
-        ],
-    };
-}
+// A local copy of the queued jobs/steps tree used to live here as an
+// optimistic placeholder. It was a hand-transcribed duplicate of
+// `pipeline_skeleton()` in `app/release_studio/pipeline.py`, already missing
+// that function's per-vendor steps, and it would have drifted again the first
+// time the backend catalogue changed. The worker emits the real skeleton with
+// its first progress update, so the nav simply reads "Queued…" until it lands.

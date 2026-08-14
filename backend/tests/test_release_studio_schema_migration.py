@@ -305,6 +305,29 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "revoked_at",
     },
     "ws_artifact_release_pins": {"artifact_id", "pin_kind", "pin_ref", "created_at"},
+    "ws_release_review_decisions": {
+        "id",
+        "project_id",
+        "build_id",
+        "slot",
+        "actor",
+        "decision",
+        "note",
+        "dossier_digest",
+        "created_at",
+    },
+    "ws_release_publish_records": {
+        "id",
+        "project_id",
+        "build_id",
+        "tag",
+        "commit_sha",
+        "dossier_digest",
+        "published_by",
+        "forge_url",
+        "asset_names",
+        "created_at",
+    },
 }
 
 
@@ -329,6 +352,8 @@ EXPECTED_PRIMARY_KEYS = {
     "ws_release_audit_events": ("id",),
     "ws_release_web_shares": ("id",),
     "ws_artifact_release_pins": ("artifact_id",),
+    "ws_release_review_decisions": ("id",),
+    "ws_release_publish_records": ("id",),
 }
 
 
@@ -343,10 +368,16 @@ EXPECTED_UNIQUES = {
     ("ws_release_records", ("project_id", "config_key", "release_label")),
     ("ws_release_records", ("project_id", "config_key", "id")),
     ("ws_release_web_shares", ("token_digest",)),
+    ("ws_release_publish_records", ("project_id", "tag")),
+    ("ws_release_publish_records", ("build_id",)),
 }
 
 
 EXPECTED_FKS = {
+    ("ws_release_review_decisions", ("project_id",), "ws_projects", ("id",), "CASCADE"),
+    ("ws_release_review_decisions", ("build_id",), "ws_release_builds", ("id",), "CASCADE"),
+    ("ws_release_publish_records", ("project_id",), "ws_projects", ("id",), "CASCADE"),
+    ("ws_release_publish_records", ("build_id",), "ws_release_builds", ("id",), "RESTRICT"),
     ("ws_release_configurations", ("project_id",), "ws_projects", ("id",), "CASCADE"),
     ("ws_release_candidates", ("project_id",), "ws_projects", ("id",), "CASCADE"),
     (
@@ -1750,6 +1781,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (16, "release_studio_append_only_evaluations"),
                 (17, "release_studio_terminal_and_identity_guards"),
                 (18, "release_studio_source_defaults"),
+                (19, "release_studio_project_signoff"),
             ],
         )
 

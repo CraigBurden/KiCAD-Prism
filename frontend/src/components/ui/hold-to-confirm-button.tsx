@@ -14,6 +14,8 @@ export interface HoldToConfirmButtonProps
   /** Label while the user is holding. Defaults to "Keep holding…". */
   holdingLabel?: string;
   holdDurationMs?: number;
+  /** Fill that grows while the pointer is held. */
+  progressClassName?: string;
 }
 
 /**
@@ -35,6 +37,7 @@ const HoldToConfirmButton = React.forwardRef<HTMLButtonElement, HoldToConfirmBut
       children,
       holdingLabel = "Keep holding…",
       holdDurationMs = DEFAULT_HOLD_MS,
+      progressClassName = "bg-destructive/35",
       className,
       variant = "destructive",
       disabled,
@@ -152,7 +155,7 @@ const HoldToConfirmButton = React.forwardRef<HTMLButtonElement, HoldToConfirmBut
             transform-driven, so it reads as a progress bar at any button size. */}
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 left-0 -z-10 bg-destructive/35"
+          className={cn("pointer-events-none absolute inset-y-0 left-0 -z-10", progressClassName)}
           style={{ width: `${percent}%` }}
         />
         {/* inline-flex, because children are usually an icon plus a label and a

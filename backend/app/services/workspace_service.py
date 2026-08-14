@@ -367,7 +367,7 @@ class WorkspaceService:
     ) -> Optional[Dict[str, Any]]:
         """Resolve and authorize a project in one PostgreSQL query."""
 
-        viewer_fallback = user_role in {"viewer", "component_designer", "component_qa"}
+        viewer_fallback = user_role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -950,7 +950,7 @@ class WorkspaceService:
     def get_bootstrap_data(self, user_role: Optional[Role] = None) -> Dict[str, Any]:
         role = user_role or "admin"
         bypass_visibility = user_role is None
-        viewer_fallback = role in {"viewer", "component_designer", "component_qa"}
+        viewer_fallback = role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
                 """

@@ -77,6 +77,7 @@ export function ManufacturingStep({
     onImpedanceCsv,
     onStackup,
     onBuild,
+    identityComplete = true,
 }: {
     projectId: string;
     manufacturing: ReleaseManufacturing;
@@ -90,15 +91,11 @@ export function ManufacturingStep({
     onImpedanceCsv: (value: string) => void;
     onStackup: (file: File | null) => void;
     onBuild: () => void;
+    identityComplete?: boolean;
 }) {
     return (
         <div className="space-y-5">
-            <div>
-                <h3 className="text-lg font-semibold">Manufacturing and assembly</h3>
-                <p className="text-sm text-muted-foreground">
-                    Process callouts for this release. They are snapshotted onto the build and printed on the drawings.
-                </p>
-            </div>
+            <h3 className="text-lg font-semibold">Manufacturing and assembly</h3>
             <div className="grid gap-3 sm:grid-cols-2">
                 <IpcSelect
                     label="Manufacturing IPC class"
@@ -203,7 +200,7 @@ export function ManufacturingStep({
                 </div>
             </div>
             {canMutate && (
-                <Button disabled={Boolean(busy)} onClick={onBuild}>
+                <Button disabled={!identityComplete || Boolean(busy)} onClick={onBuild}>
                     Continue
                 </Button>
             )}
@@ -230,8 +227,14 @@ function IpcSelect({
 }) {
     const known = new Set(options.filter((item) => item.value !== OTHER).map((item) => item.value));
     const isOther = Boolean(value) && !known.has(value);
-    const selected = !value ? undefined : isOther ? OTHER : value;
     const [custom, setCustom] = useState(isOther && value !== OTHER ? value : "");
+    // Choosing Other is a statement about the *control*, not yet a value. It
+    // used to be stored as the literal string "other", which then travelled
+    // through the configuration snapshot and printed on the drawing's title
+    // block as "VIA TREATMENT: other". Track the mode here and let the field
+    // stay empty until the user actually types the standard they mean.
+    const [otherMode, setOtherMode] = useState(isOther);
+    const selected = otherMode ? OTHER : !value ? undefined : isOther ? OTHER : value;
     const id = `rs-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     return (
         <div className="space-y-2">
@@ -240,8 +243,13 @@ function IpcSelect({
                 value={selected}
                 disabled={disabled}
                 onValueChange={(next) => {
-                    if (next === OTHER) onChange(custom.trim() || OTHER);
-                    else onChange(next);
+                    if (next === OTHER) {
+                        setOtherMode(true);
+                        onChange(custom.trim());
+                    } else {
+                        setOtherMode(false);
+                        onChange(next);
+                    }
                 }}
             >
                 <SelectTrigger id={id} className="w-full">
@@ -254,16 +262,23 @@ function IpcSelect({
                 </SelectContent>
             </Select>
             {selected === OTHER && (
-                <Input
-                    value={custom}
-                    placeholder={otherPlaceholder}
-                    aria-label={`${label} other`}
-                    disabled={disabled}
-                    onChange={(event) => {
-                        setCustom(event.target.value);
-                        onChange(event.target.value);
-                    }}
-                />
+                <>
+                    <Input
+                        value={custom}
+                        placeholder={otherPlaceholder}
+                        aria-label={`${label} other`}
+                        disabled={disabled}
+                        onChange={(event) => {
+                            setCustom(event.target.value);
+                            onChange(event.target.value);
+                        }}
+                    />
+                    {!custom.trim() && (
+                        <p className="text-xs text-muted-foreground">
+                            Type the value to print, or this field is left off the drawing.
+                        </p>
+                    )}
+                </>
             )}
         </div>
     );

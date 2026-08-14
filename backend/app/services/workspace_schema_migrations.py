@@ -1583,6 +1583,55 @@ def _release_studio_source_defaults(conn: Any) -> None:
     )
 
 
+def _release_studio_project_signoff(conn: Any) -> None:
+    """LM-shaped dual sign-off and publish records for project releases."""
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ws_release_review_decisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES ws_projects(id) ON DELETE CASCADE,
+            build_id TEXT NOT NULL REFERENCES ws_release_builds(id) ON DELETE CASCADE,
+            slot TEXT NOT NULL CHECK (slot IN ('designer', 'qa')),
+            actor TEXT NOT NULL,
+            decision TEXT NOT NULL CHECK (decision IN ('approved', 'withdrawn')),
+            note TEXT NOT NULL DEFAULT '',
+            dossier_digest TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ws_release_review_decisions_build
+        ON ws_release_review_decisions(build_id, slot, created_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ws_release_publish_records (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES ws_projects(id) ON DELETE CASCADE,
+            build_id TEXT NOT NULL REFERENCES ws_release_builds(id) ON DELETE RESTRICT,
+            tag TEXT NOT NULL,
+            commit_sha TEXT NOT NULL,
+            dossier_digest TEXT NOT NULL,
+            published_by TEXT NOT NULL,
+            forge_url TEXT NOT NULL DEFAULT '',
+            asset_names JSONB NOT NULL DEFAULT '[]'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT uq_ws_release_publish_records_tag UNIQUE (project_id, tag)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_ws_release_publish_records_build
+        ON ws_release_publish_records(build_id)
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "v3_job_foundation", _v3_job_foundation),
     (2, "workspace_read_versions", _workspace_read_versions),
@@ -1598,6 +1647,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (16, "release_studio_append_only_evaluations", _release_studio_append_only_evaluations),
     (17, "release_studio_terminal_and_identity_guards", _release_studio_terminal_and_identity_guards),
     (18, "release_studio_source_defaults", _release_studio_source_defaults),
+    (19, "release_studio_project_signoff", _release_studio_project_signoff),
 )
 
 

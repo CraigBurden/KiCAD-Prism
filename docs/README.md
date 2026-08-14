@@ -36,7 +36,7 @@ testers of unreleased behavior work from `dev`.
 - [Remote Symbol Provider](REMOTE_SYMBOL_PROVIDER.md) covers connecting desktop
   KiCad and placing released components.
 - [Release Studio](release-studio/README.md) covers committed-revision
-  manufacturing builds, governed approvals, signed releases, and verification.
+  manufacturing documents, dual sign-off, and GitHub/GitLab publish.
 
 ## Participate
 

@@ -47,14 +47,14 @@ def _normalize_workflow_stage(value: str) -> str:
 
 def _can_transition_workflow(user: AuthenticatedUser, current_stage: str, next_stage: str) -> bool:
     if current_stage == next_stage:
-        return user.role in {"admin", "component_designer"} or (user.role == "component_qa" and current_stage == "qa_review")
+        return user.role in {"admin", "designer"} or (user.role == "qa" and current_stage == "qa_review")
     if next_stage not in WORKFLOW_TRANSITIONS.get(current_stage, set()):
         return False
     if user.role == "admin":
         return True
-    if user.role == "component_designer":
+    if user.role == "designer":
         return not (current_stage == "qa_review" and next_stage == "done")
-    if user.role == "component_qa":
+    if user.role == "qa":
         return current_stage == "qa_review" and next_stage in {"done", "in_progress", "archived"}
     return False
 

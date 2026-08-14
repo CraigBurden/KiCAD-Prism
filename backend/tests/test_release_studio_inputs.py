@@ -357,12 +357,14 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
             schematic="board.kicad_sch",
             variant="assembly",
             bom_preset="Grouped By Value",
-            identity={"tag": "v1.0.0"},
+            identity={"tag": "v1.0.0", "document_name": "DOC", "date": "2026-08-14"},
         )
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(self.api.jobs, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults") as persist,
+            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
+            patch.object(self.api.forge_publish, "tag_exists", return_value=False),
         ):
             payload = asyncio.run(self.api.create_candidate("proj", request, user=self.user))
         persist.assert_called_once()
@@ -374,11 +376,17 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
     def test_create_candidate_succeeds_when_defaults_cannot_be_saved(self) -> None:
         import asyncio
 
-        request = self.api.CandidateRequest(commit_sha="a" * 40, board="board.kicad_pcb")
+        request = self.api.CandidateRequest(
+            commit_sha="a" * 40,
+            board="board.kicad_pcb",
+            identity={"tag": "v1.0.0", "document_name": "DOC", "date": "2026-08-14"},
+        )
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(self.api.jobs, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults", side_effect=RuntimeError("db down")),
+            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
+            patch.object(self.api.forge_publish, "tag_exists", return_value=False),
         ):
             payload = asyncio.run(self.api.create_candidate("proj", request, user=self.user))
         self.assertEqual(payload["job"]["job_id"], "job-1")

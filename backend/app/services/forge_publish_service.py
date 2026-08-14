@@ -12,7 +12,7 @@ import json
 import re
 import tarfile
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 from urllib.parse import quote
 
 import requests
@@ -127,7 +127,14 @@ def list_releases(repo_url: str | None, *, limit: int = 10) -> list[dict[str, st
 
 
 def tag_exists(repo_url: str | None, tag: str) -> bool:
-    """True when the forge already has this tag. API failures are treated as absent."""
+    """True when the forge already has this Git tag. API failures read as absent.
+
+    This asks about the *tag*, not about a Release. A tag pushed from a
+    workstation with no Release attached still makes the name unusable: both
+    forges bind a new Release to the existing tag and ignore the commit the
+    caller asked for, which would point the Release at a different revision
+    than the one the dossier was built from.
+    """
 
     candidate = (tag or "").strip()
     if not candidate:
@@ -142,7 +149,8 @@ def tag_exists(repo_url: str | None, tag: str) -> bool:
         if target.kind == "github":
             _request(
                 "GET",
-                f"{target.api_root}/repos/{target.owner_repo}/releases/tags/{quote(candidate)}",
+                f"{target.api_root}/repos/{target.owner_repo}/git/ref/"
+                f"tags/{quote(candidate, safe='')}",
                 headers=_github_headers(),
                 forge="GitHub",
             )
@@ -150,14 +158,13 @@ def tag_exists(repo_url: str | None, tag: str) -> bool:
         project = quote(target.owner_repo, safe="")
         _request(
             "GET",
-            f"{target.api_root}/projects/{project}/releases/{quote(candidate, safe='')}",
+            f"{target.api_root}/projects/{project}/repository/tags/"
+            f"{quote(candidate, safe='')}",
             headers=_gitlab_headers(),
             forge="GitLab",
         )
         return True
-    except ForgePublishError as exc:
-        if exc.status_code == 404:
-            return False
+    except ForgePublishError:
         return False
 
 
@@ -170,8 +177,13 @@ def publish_release(
     notes: str,
     zip_bytes: bytes,
     filename: str,
+    extra_assets: Sequence[tuple[str, bytes]] = (),
 ) -> dict[str, str]:
-    """Create the forge Release on ``commit_sha`` and attach ``filename``."""
+    """Create the forge Release on ``commit_sha`` and attach the zip plus extras.
+
+    The Release *name* is the tag. ``title`` is ignored so a client cannot
+    publish sheets that state one revision under a different Release title.
+    """
 
     target = describe_forge(repo_url)
     if not target.token_configured:
@@ -181,11 +193,17 @@ def publish_release(
             "Publishing is only implemented for GitHub and GitLab remotes."
         )
     normalized_tag = _require_tag(tag)
-    name = (title or "").strip() or normalized_tag
+    _ = title
+    name = normalized_tag
     body = notes.strip()
+    extras = list(extra_assets)
     if target.kind == "github":
-        return _publish_github(target, commit_sha, normalized_tag, name, body, zip_bytes, filename)
-    return _publish_gitlab(target, commit_sha, normalized_tag, name, body, zip_bytes, filename)
+        return _publish_github(
+            target, commit_sha, normalized_tag, name, body, zip_bytes, filename, extras
+        )
+    return _publish_gitlab(
+        target, commit_sha, normalized_tag, name, body, zip_bytes, filename, extras
+    )
 
 
 def release_zip_filename(project_name: str, tag: str) -> str:
@@ -272,6 +290,7 @@ def _github_release_row(item: dict[str, Any]) -> dict[str, str]:
         "date": str(item.get("published_at") or item.get("created_at") or ""),
         "commit_hash": commit,
         "message": body.strip().splitlines()[0] if body.strip() else "",
+        "url": str(item.get("html_url") or ""),
     }
 
 
@@ -279,11 +298,15 @@ def _gitlab_release_row(item: dict[str, Any]) -> dict[str, str]:
     commit_info = item.get("commit") if isinstance(item.get("commit"), dict) else {}
     commit = str(commit_info.get("id") or "")
     body = str(item.get("description") or item.get("name") or "")
+    tag = str(item.get("tag_name") or "")
+    links = item.get("_links") if isinstance(item.get("_links"), dict) else {}
+    url = str(item.get("html_url") or links.get("self") or "")
     return {
-        "tag": str(item.get("tag_name") or ""),
+        "tag": tag,
         "date": str(item.get("released_at") or item.get("created_at") or ""),
         "commit_hash": commit,
         "message": body.strip().splitlines()[0] if body.strip() else "",
+        "url": url,
     }
 
 
@@ -295,6 +318,7 @@ def _publish_github(
     body: str,
     zip_bytes: bytes,
     filename: str,
+    extra_assets: Sequence[tuple[str, bytes]] = (),
 ) -> dict[str, str]:
     headers = _github_headers()
     created = _request(
@@ -311,20 +335,58 @@ def _publish_github(
         },
         forge="GitHub",
     )
-    upload_url = str(created.get("upload_url") or "").split("{", 1)[0]
-    if not upload_url:
-        raise ForgePublishError("GitHub created the release but returned no upload URL.")
-    _request(
-        "POST",
-        f"{upload_url}?name={quote(filename)}",
-        headers={**headers, "Content-Type": "application/zip"},
-        data=zip_bytes,
-        forge="GitHub",
-    )
+    # The Release exists from here on. Anything that goes wrong before every
+    # asset is attached has to take it back down: a Release with a missing
+    # dossier or pack is both publicly visible and unretryable, because the
+    # tag it holds makes the next create fail with "already_exists".
+    release_id = created.get("id")
+    try:
+        upload_url = str(created.get("upload_url") or "").split("{", 1)[0]
+        if not upload_url:
+            raise ForgePublishError("GitHub created the release but returned no upload URL.")
+        assets = [(filename, zip_bytes), *list(extra_assets)]
+        for asset_name, payload in assets:
+            _request(
+                "POST",
+                f"{upload_url}?name={quote(asset_name)}",
+                headers={**headers, "Content-Type": "application/zip"},
+                data=payload,
+                forge="GitHub",
+            )
+    except ForgePublishError as exc:
+        _delete_github_release(target, headers, release_id)
+        raise ForgePublishError(
+            f"{exc} The incomplete GitHub Release was removed; publish again.",
+            status_code=exc.status_code,
+        ) from exc
     html_url = str(created.get("html_url") or "")
     if not html_url:
         html_url = f"https://github.com/{target.owner_repo}/releases/tag/{quote(tag)}"
     return {"url": html_url, "tag": tag, "forge": "github"}
+
+
+def _delete_github_release(
+    target: ForgeTarget, headers: dict[str, str], release_id: Any
+) -> None:
+    """Best-effort removal of a Release whose asset upload failed.
+
+    The upload error is what the user needs to see, so a failed cleanup is
+    logged into neither the response nor an exception -- it only means the
+    operator has to delete the empty Release by hand, which is the situation
+    this function is trying to avoid, not one it can make worse.
+    """
+
+    if not release_id:
+        return
+    try:
+        _request(
+            "DELETE",
+            f"{target.api_root}/repos/{target.owner_repo}/releases/{release_id}",
+            headers=headers,
+            forge="GitHub",
+        )
+    except ForgePublishError:
+        return
 
 
 def _publish_gitlab(
@@ -335,20 +397,25 @@ def _publish_gitlab(
     body: str,
     zip_bytes: bytes,
     filename: str,
+    extra_assets: Sequence[tuple[str, bytes]] = (),
 ) -> dict[str, str]:
     headers = _gitlab_headers()
     project = quote(target.owner_repo, safe="")
-    package_url = (
-        f"{target.api_root}/projects/{project}/packages/generic/"
-        f"{quote(tag, safe='')}/{quote(tag, safe='')}/{quote(filename)}"
-    )
-    _request(
-        "PUT",
-        package_url,
-        headers=headers,
-        data=zip_bytes,
-        forge="GitLab",
-    )
+    assets = [(filename, zip_bytes), *list(extra_assets)]
+    links: list[dict[str, str]] = []
+    for asset_name, payload in assets:
+        package_url = (
+            f"{target.api_root}/projects/{project}/packages/generic/"
+            f"{quote(tag, safe='')}/{quote(tag, safe='')}/{quote(asset_name)}"
+        )
+        _request(
+            "PUT",
+            package_url,
+            headers=headers,
+            data=payload,
+            forge="GitLab",
+        )
+        links.append({"name": asset_name, "url": package_url, "link_type": "package"})
     _request(
         "POST",
         f"{target.api_root}/projects/{project}/releases",
@@ -358,15 +425,7 @@ def _publish_gitlab(
             "tag_name": tag,
             "ref": commit_sha,
             "description": body,
-            "assets": {
-                "links": [
-                    {
-                        "name": filename,
-                        "url": package_url,
-                        "link_type": "package",
-                    }
-                ]
-            },
+            "assets": {"links": links},
         },
         forge="GitLab",
     )

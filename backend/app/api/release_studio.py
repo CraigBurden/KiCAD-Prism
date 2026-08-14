@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import tarfile
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,12 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.api._helpers import get_project_for_role_or_404
-from app.core.security import AuthenticatedUser, require_designer, require_viewer
+from app.core.security import (
+    AuthenticatedUser,
+    require_designer,
+    require_project_release_actor,
+    require_viewer,
+)
 from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
@@ -56,97 +62,20 @@ class SourceDefaultsRequest(BaseModel):
     bom_preset: str = Field("", max_length=200)
 
 
-class ConfigurationWriteRequest(BaseModel):
-    configuration: dict[str, Any]
-    base_commit_sha: str = Field(..., pattern=r"^[0-9a-fA-F]{40}$")
-    commit: bool = True
-
-
 class PublishRequest(BaseModel):
     tag: str = Field(..., min_length=1, max_length=100)
     title: str = Field("", max_length=200)
     notes: str = Field("", max_length=8000)
 
 
+class ReviewDecisionRequest(BaseModel):
+    slot: str = Field(..., pattern="^(designer|qa)$")
+    note: str = Field("", max_length=4000)
+
+
 # ---------------------------------------------------------------------------
-# Configurations
+# Vendor profiles and source discovery
 # ---------------------------------------------------------------------------
-
-
-@router.get("/{project_id}/release-studio/configurations")
-async def list_configurations(
-    project_id: str,
-    commit_sha: str | None = Query(None),
-    user: AuthenticatedUser = Depends(require_viewer),
-):
-    get_project_for_role_or_404(project_id, user.role)
-    if commit_sha:
-        if not _is_full_git_sha(commit_sha):
-            raise HTTPException(
-                status_code=400,
-                detail="commit_sha must be a full 40-character hexadecimal Git SHA",
-            )
-        try:
-            configurations = build_service.list_configurations_at_commit(
-                project_id, commit_sha
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"configurations": configurations}
-    return {"configurations": build_service.sync_configurations(project_id)}
-
-
-@router.put("/{project_id}/release-studio/configurations/{config_key}")
-async def save_configuration(
-    project_id: str,
-    config_key: str,
-    request: ConfigurationWriteRequest,
-    user: AuthenticatedUser = Depends(require_designer),
-):
-    """Publish a configuration through the repository-locked worker."""
-
-    get_project_for_role_or_404(project_id, user.role)
-    if not request.commit:
-        raise HTTPException(
-            status_code=400,
-            detail="Release configurations must be committed before they can be built",
-        )
-    row = workspace.get_project_by_id(project_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
-    repository_id = str(row.get("repo_id") or "")
-    document_digest = hashlib.sha256(
-        json.dumps(
-            request.configuration,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-    job = jobs.enqueue(
-        "release_studio_configuration_publish",
-        {
-            "project_id": project_id,
-            "config_key": config_key,
-            "configuration": request.configuration,
-            "base_commit_sha": request.base_commit_sha,
-            "author": user.email,
-        },
-        project_id=project_id,
-        repository_id=repository_id or None,
-        requested_by=user.email,
-        artifact_key=f"release-studio-config:{project_id}:{config_key}:{document_digest}",
-        max_attempts=2,
-        resources={"prism_worker": 1},
-        locks=[{
-            "key": f"repository:{repository_id}" if repository_id else f"project:{project_id}",
-            "mode": "write",
-        }],
-    )
-    return {"job": job}
-
-
-@router.get("/{project_id}/release-studio/vendor-profiles")
 async def list_vendor_profiles(
     project_id: str, user: AuthenticatedUser = Depends(require_viewer)
 ):
@@ -177,7 +106,9 @@ async def get_source(
     from app.release_studio.source import apply_source_defaults, discover_source
 
     try:
-        source = discover_source(repo_root, commit_sha)
+        source = discover_source(
+            repo_root, commit_sha, str(project.get("relative_path") or "")
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
@@ -266,6 +197,8 @@ async def create_candidate(
     """Enqueue a build. Idempotent on ``build_key`` once the closure resolves."""
 
     get_project_for_role_or_404(project_id, user.role)
+    project = workspace.get_project_by_id(project_id) or {}
+    _require_enqueue_identity(request.identity, project)
     job = jobs.enqueue(
         "release_studio_build",
         {
@@ -288,6 +221,10 @@ async def create_candidate(
             f"release-studio:{project_id}:{request.commit_sha}:"
             f"{request.variant}:{request.identity.get('tag') or request.config_key}"
         ),
+        # A build runs kicad-cli and a Cruncher board load; two of them on one
+        # worker have been measured at 6.4 GiB peak RSS. Take the same slot
+        # every other heavy job takes so they serialize instead of racing.
+        resources={"prism_worker": 1},
     )
     _remember_source_defaults(
         project_id,
@@ -332,6 +269,10 @@ async def get_build(
             "token_configured": False,
             "token_hint": str(exc),
         }
+    vendor_readiness = _vendor_readiness(build, configuration)
+    approvals = _approval_state(project_id, build, candidate, configuration, vendor_readiness, user)
+    tag = str(configuration.get("revision") or "").strip()
+    forge_release = _live_forge_release(str(project.get("repo_url") or ""), tag, approvals.get("published"))
     return {
         "build": build,
         "candidate": candidate,
@@ -339,8 +280,10 @@ async def get_build(
         "members": store.build_members(build_id),
         "evidence": store.build_evidence(build_id),
         "fingerprints": store.build_fingerprints(build_id),
-        "vendor_readiness": _vendor_readiness(build, configuration),
+        "vendor_readiness": vendor_readiness,
         "forge": forge,
+        "approvals": approvals,
+        "forge_release": forge_release,
     }
 
 
@@ -597,14 +540,36 @@ async def download_build_evidence(
 # ---------------------------------------------------------------------------
 
 
+@router.post("/{project_id}/release-studio/builds/{build_id}/approvals")
+async def approve_build(
+    project_id: str,
+    build_id: str,
+    request: ReviewDecisionRequest,
+    user: AuthenticatedUser = Depends(require_project_release_actor),
+):
+    get_project_for_role_or_404(project_id, user.role)
+    return _record_decision(project_id, build_id, request.slot, "approved", request.note, user)
+
+
+@router.post("/{project_id}/release-studio/builds/{build_id}/approvals/withdraw")
+async def withdraw_build_approval(
+    project_id: str,
+    build_id: str,
+    request: ReviewDecisionRequest,
+    user: AuthenticatedUser = Depends(require_project_release_actor),
+):
+    get_project_for_role_or_404(project_id, user.role)
+    return _record_decision(project_id, build_id, request.slot, "withdrawn", request.note, user)
+
+
 @router.post("/{project_id}/release-studio/builds/{build_id}/publish")
 async def publish_build(
     project_id: str,
     build_id: str,
     request: PublishRequest,
-    user: AuthenticatedUser = Depends(require_designer),
+    user: AuthenticatedUser = Depends(require_project_release_actor),
 ):
-    """Zip the dossier and create a GitHub or GitLab Release on the imported remote."""
+    """Zip the dossier, attach ready selected vendor packs, and create the forge Release."""
 
     get_project_for_role_or_404(project_id, user.role)
     build = _build_or_404(project_id, build_id)
@@ -614,25 +579,52 @@ async def publish_build(
     commit_sha = str(candidate.get("commit_sha") or "")
     if not _is_full_git_sha(commit_sha):
         raise HTTPException(status_code=409, detail="The build is not bound to a full Git commit")
+    configuration = _candidate_configuration(project_id, candidate)
+    tag, notes = _bound_release_identity(configuration, request)
+    vendor_readiness = _vendor_readiness(build, configuration)
+    approvals = _approval_state(project_id, build, candidate, configuration, vendor_readiness, user)
+    if approvals.get("published"):
+        raise HTTPException(status_code=409, detail="This build is already published")
+    if not approvals.get("can_publish"):
+        raise HTTPException(
+            status_code=409,
+            detail=approvals.get("blocked_reason") or "This build is not clear to publish",
+        )
     project = workspace.get_project_by_id(project_id) or {}
     try:
         zip_bytes = forge_publish.dossier_tar_to_zip(_artifact_bytes(build.get("dossier_artifact_id")))
         filename = forge_publish.release_zip_filename(
             str(project.get("name") or project.get("parent_repo") or "release"),
-            request.tag,
+            tag,
         )
+        extra_assets, extra_names = _ready_vendor_pack_assets(build, configuration, filename)
         published = forge_publish.publish_release(
             repo_url=str(project.get("repo_url") or ""),
             commit_sha=commit_sha,
-            tag=request.tag,
-            title=request.title,
-            notes=request.notes,
+            tag=tag,
+            title=tag,
+            notes=notes,
             zip_bytes=zip_bytes,
             filename=filename,
+            extra_assets=extra_assets,
         )
     except forge_publish.ForgePublishError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    return {"release": published, "filename": filename}
+    try:
+        record = store.record_publish(
+            project_id=project_id,
+            build_id=build_id,
+            tag=tag,
+            commit_sha=commit_sha,
+            dossier_digest=str(build.get("dossier_digest") or ""),
+            published_by=user.email,
+            forge_url=str(published.get("url") or ""),
+            asset_names=[filename, *extra_names],
+            config_key=str(candidate.get("config_key") or ""),
+        )
+    except store.ReviewDecisionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {"release": published, "filename": filename, "publish": record}
 
 
 # ---------------------------------------------------------------------------
@@ -656,17 +648,204 @@ def _candidate_configuration(project_id: str, candidate: dict[str, Any]) -> dict
     except build_service.BuildError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+
+def _bound_release_identity(
+    configuration: dict[str, Any], request: PublishRequest
+) -> tuple[str, str]:
+    """Resolve the tag and notes from the build, refusing a browser's substitute.
+
+    The build's configuration snapshot is authoritative: those are the values
+    document composition printed. A request that names a different tag is a
+    stale draft or a hand-rolled call, and publishing it would attach sheets
+    that state one revision to a Release named another.
+    """
+
+    recorded_tag = str(configuration.get("revision") or "").strip()
+    requested_tag = (request.tag or "").strip()
+    if not recorded_tag:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This build recorded no tag, so there is no drawing revision to "
+                "publish under. Start a new release and name the tag in Identity."
+            ),
+        )
+    if requested_tag and requested_tag != recorded_tag:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This build was composed as {recorded_tag}; it cannot be published "
+                f"as {requested_tag}. Publish is confirm-only -- start a new build "
+                "to release under a different tag."
+            ),
+        )
+    # Release notes reach the cover's revision-history table, so the published
+    # description comes from the build too rather than from the browser.
+    notes = str(configuration.get("release_notes") or "").strip() or request.notes
+    return recorded_tag, notes
+
+
+def _require_enqueue_identity(identity: dict[str, Any], project: dict[str, Any]) -> None:
+    """Refuse a build that has no forge-legal Identity before KiCad runs."""
+
+    tag = str(identity.get("tag") or "").strip()
+    document = str(identity.get("document_name") or "").strip()
+    date = str(identity.get("date") or "").strip()
+    if not tag or not document or not date:
+        raise HTTPException(
+            status_code=400,
+            detail="Tag, Document Name, and date are required before a build can start.",
+        )
+    try:
+        forge_publish._require_tag(tag)
+    except forge_publish.ForgePublishError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if forge_publish.tag_exists(str(project.get("repo_url") or ""), tag):
+        raise HTTPException(
+            status_code=409,
+            detail=f"{tag} already exists on GitHub/GitLab.",
+        )
+
+
+def _approval_state(
+    project_id: str,
+    build: dict[str, Any],
+    candidate: dict[str, Any],
+    configuration: dict[str, Any],
+    vendor_readiness: list[dict[str, Any]],
+    user: AuthenticatedUser,
+) -> dict[str, Any]:
+    del project_id, configuration
+    return store.build_approval_state(
+        build=build,
+        candidate=candidate,
+        evidence=store.build_evidence(str(build["id"])),
+        vendor_readiness=vendor_readiness,
+        designer_row=store.latest_review_decision(str(build["id"]), "designer"),
+        qa_row=store.latest_review_decision(str(build["id"]), "qa"),
+        publish_row=store.get_publish_record(str(build["id"])),
+        actor_email=user.email,
+        actor_role=user.role,
+    )
+
+
+def _record_decision(
+    project_id: str,
+    build_id: str,
+    slot: str,
+    decision: str,
+    note: str,
+    user: AuthenticatedUser,
+) -> dict[str, Any]:
+    build = _build_or_404(project_id, build_id)
+    candidate = store.get_candidate(str(build["candidate_id"])) or {}
+    configuration = _candidate_configuration(project_id, candidate)
+    vendor_readiness = _vendor_readiness(build, configuration)
+    try:
+        store.record_review_decision(
+            project_id=project_id,
+            build_id=build_id,
+            slot=slot,
+            actor=user.email,
+            actor_role=user.role,
+            decision=decision,
+            note=note,
+            dossier_digest=str(build.get("dossier_digest") or ""),
+            author=str(candidate.get("created_by") or ""),
+            published=store.get_publish_record(build_id) is not None,
+            electrical_errors=store.electrical_error_kinds(store.build_evidence(build_id)),
+            build_status=str(build.get("status") or ""),
+            config_key=str(candidate.get("config_key") or ""),
+        )
+    except store.ReviewDecisionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    approvals = _approval_state(project_id, build, candidate, configuration, vendor_readiness, user)
+    return {"approvals": approvals}
+
+
+def _live_forge_release(
+    repo_url: str, tag: str, published: dict[str, Any] | None
+) -> dict[str, str] | None:
+    """Join the public record by tag. A deleted forge Release looks unpublished."""
+
+    if not tag:
+        return None
+    live = next(
+        (row for row in forge_publish.list_releases(repo_url or None, limit=30) if row.get("tag") == tag),
+        None,
+    )
+    if live is None:
+        return None
+    url = str(live.get("url") or (published or {}).get("forge_url") or "")
+    return {"tag": tag, "url": url}
+
+
+def _ready_vendor_pack_assets(
+    build: dict[str, Any],
+    configuration: dict[str, Any],
+    zip_filename: str,
+) -> tuple[list[tuple[str, bytes]], list[str]]:
+    from app.release_studio.vendors import VendorPackError, build_vendor_pack, profile_by_id
+
+    extras: list[tuple[str, bytes]] = []
+    names: list[str] = []
+    stem = zip_filename.removesuffix(".zip")
+    for vendor_id in configuration.get("vendors") or []:
+        try:
+            profile = profile_by_id(str(vendor_id))
+            pack = build_vendor_pack(
+                str(vendor_id),
+                dossier_bytes=_artifact_bytes(build.get("dossier_artifact_id")),
+                evidence_bytes=_artifact_bytes(build.get("evidence_artifact_id"))
+                if build.get("evidence_artifact_id")
+                else b"",
+            )
+        except (KeyError, VendorPackError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Selected vendor pack {vendor_id} is not ready: {exc}",
+            ) from exc
+        pack_name = f"{stem}-{profile.pack_filename}"
+        extras.append((pack_name, pack))
+        names.append(pack_name)
+    return extras, names
+
+
 def _vendor_readiness(build: dict[str, Any], configuration: dict[str, Any]) -> list[dict[str, Any]]:
     """Expose exact pack readiness; archive downloads use the same predicate."""
 
+    return list(
+        _cached_vendor_readiness(
+            str(build.get("dossier_artifact_id") or ""),
+            str(build.get("evidence_artifact_id") or ""),
+            tuple(configuration.get("vendors") or []),
+        )
+    )
+
+
+@lru_cache(maxsize=64)
+def _cached_vendor_readiness(
+    dossier_artifact_id: str,
+    evidence_artifact_id: str,
+    vendor_ids: tuple[str, ...],
+) -> tuple[dict[str, Any], ...]:
+    """Readiness for one immutable pair of archives.
+
+    Build detail is polled every few seconds while Publish is open, and each
+    uncached call read *and* re-hashed the whole dossier and evidence archives
+    -- hundreds of megabytes a minute for a board with a large gerber set.
+    Artifacts are content-addressed and never rewritten, so keying on their
+    ids makes the repeat reads unnecessary rather than merely cheaper.
+    """
+
     from app.release_studio.vendors import vendor_pack_readiness
 
-    dossier = _artifact_bytes(build.get("dossier_artifact_id")) if build.get("dossier_artifact_id") else b""
-    evidence = _artifact_bytes(build.get("evidence_artifact_id")) if build.get("evidence_artifact_id") else b""
-    return [
+    dossier = _artifact_bytes(dossier_artifact_id) if dossier_artifact_id else b""
+    evidence = _artifact_bytes(evidence_artifact_id) if evidence_artifact_id else b""
+    return tuple(
         vendor_pack_readiness(vendor_id, dossier_bytes=dossier, evidence_bytes=evidence)
-        for vendor_id in configuration.get("vendors") or []
-    ]
+        for vendor_id in vendor_ids
+    )
 
 
 def _vendor_pack_response(

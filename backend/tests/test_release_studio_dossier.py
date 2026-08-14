@@ -592,6 +592,20 @@ class ReleaseStudioDossierTests(unittest.TestCase):
         )
         self.assertEqual(counts, {"error": 2, "warning": 1, "exclusion": 1, "total": 4})
 
+    def test_evidence_counts_skip_excluded_ignored_and_waived_items(self) -> None:
+        counts = evidence_counts(
+            {
+                "violations": [
+                    {"severity": "error"},
+                    {"severity": "error", "excluded": True},
+                    {"severity": "error", "ignored": True},
+                    {"severity": "error", "waived": True},
+                    {"severity": "warning"},
+                ]
+            }
+        )
+        self.assertEqual(counts, {"error": 1, "warning": 1, "total": 2})
+
     def test_every_protel_gerber_extension_resolves_to_the_gerber_canonicalizer(self) -> None:
         # Transcribed from the pinned KiCad 10.0.4 source,
         # `pcbnew/pcbplot.cpp:44` `GetGerberProtelExtension`.  A jobset with

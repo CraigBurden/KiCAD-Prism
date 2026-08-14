@@ -55,36 +55,10 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 self.api.CandidateRequest(commit_sha=mutable_or_ambiguous)
 
-    def test_configuration_authoring_is_repository_locked_and_published(self) -> None:
-        user = _User("designer@example.com")
-        request = self.api.ConfigurationWriteRequest(
-            configuration={"schema": "prism.release-studio.configuration/1"},
-            base_commit_sha="a" * 40,
-            commit=True,
-        )
-        queued = {"job_id": "job-config"}
-        with (
-            patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_id": "repo-1"}),
-            patch.object(self.api.jobs, "enqueue", return_value=queued) as enqueue,
-        ):
-            actual = _run(
-                self.api.save_configuration("project", "default", request, user)
-            )
-        self.assertEqual(actual, {"job": queued})
-        args, kwargs = enqueue.call_args
-        self.assertEqual(args[0], "release_studio_configuration_publish")
-        self.assertEqual(args[1]["configuration"], request.configuration)
-        self.assertEqual(args[1]["base_commit_sha"], "a" * 40)
-        self.assertEqual(kwargs["repository_id"], "repo-1")
-        self.assertEqual(
-            kwargs["locks"],
-            [{"key": "repository:repo-1", "mode": "write"}],
-        )
-
     def test_candidate_enqueue_identity_includes_variant(self) -> None:
         user = _User("designer")
         requests: list[dict] = []
+        identity = {"tag": "v1.0.0", "document_name": "DOC", "date": "2026-08-14"}
 
         def enqueue(kind, payload, **kwargs):  # noqa: ANN001 - JobService seam
             requests.append({"kind": kind, "payload": payload, **kwargs})
@@ -93,20 +67,22 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(self.api.jobs, "enqueue", side_effect=enqueue),
+            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": "https://github.com/org/repo.git"}),
+            patch.object(self.api.forge_publish, "tag_exists", return_value=False),
         ):
             first = _run(self.api.create_candidate(
                 "project", self.api.CandidateRequest(
-                    config_key="production", commit_sha="a" * 40, variant="A"
+                    config_key="production", commit_sha="a" * 40, variant="A", identity=identity
                 ), user
             ))
             same = _run(self.api.create_candidate(
                 "project", self.api.CandidateRequest(
-                    config_key="production", commit_sha="a" * 40, variant="A"
+                    config_key="production", commit_sha="a" * 40, variant="A", identity=identity
                 ), user
             ))
             other = _run(self.api.create_candidate(
                 "project", self.api.CandidateRequest(
-                    config_key="production", commit_sha="a" * 40, variant="B"
+                    config_key="production", commit_sha="a" * 40, variant="B", identity=identity
                 ), user
             ))
         self.assertEqual(first["job"]["job_id"], "job-1")
@@ -114,16 +90,6 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
         self.assertNotEqual(requests[0]["artifact_key"], requests[2]["artifact_key"])
         self.assertEqual(requests[0]["artifact_key"], requests[1]["artifact_key"])
         self.assertEqual(other["job"]["job_id"], "job-3")
-
-    def test_configuration_preview_rejects_mutable_or_short_commit_ids(self) -> None:
-        user = _User("viewer", role="viewer")
-        with patch.object(self.api, "get_project_for_role_or_404", lambda *_args: None):
-            for mutable_or_ambiguous in ("HEAD", "main", "a" * 12):
-                with self.assertRaises(HTTPException) as caught:
-                    _run(self.api.list_configurations(
-                        "project", commit_sha=mutable_or_ambiguous, user=user
-                    ))
-                self.assertEqual(caught.exception.status_code, 400)
 
     def test_publish_request_requires_a_tag(self) -> None:
         with self.assertRaises(ValidationError):
@@ -153,12 +119,24 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
                 return_value={"name": "board", "repo_url": "https://github.com/org/repo.git"},
             ),
             patch.object(self.api, "_artifact_bytes", return_value=b"tar-bytes"),
+            patch.object(
+                self.api,
+                "_candidate_configuration",
+                return_value={"revision": "v1.0.0", "release_notes": "composed notes"},
+            ),
             patch.object(self.api.forge_publish, "dossier_tar_to_zip", return_value=b"zip-bytes") as zip_fn,
             patch.object(
                 self.api.forge_publish,
                 "publish_release",
                 return_value={"url": "https://github.com/org/repo/releases/tag/v1.0.0", "tag": "v1.0.0", "forge": "github"},
             ) as publish_fn,
+            patch.object(
+                self.api,
+                "_approval_state",
+                return_value={"can_publish": True, "published": None, "blocked_reason": ""},
+            ),
+            patch.object(self.api, "_ready_vendor_pack_assets", return_value=([], [])),
+            patch.object(self.api.store, "record_publish", return_value={"id": "pub-1", "tag": "v1.0.0"}),
         ):
             payload = _run(
                 self.api.publish_build(
@@ -176,6 +154,80 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
         self.assertEqual(kwargs["tag"], "v1.0.0")
         self.assertEqual(kwargs["commit_sha"], "a" * 40)
         self.assertEqual(kwargs["filename"], "board-v1.0.0.zip")
+        # Notes reach the cover's revision-history table, so the Release
+        # description is the composed text rather than the browser's copy.
+        self.assertEqual(kwargs["notes"], "composed notes")
+        self.assertEqual(kwargs["title"], "v1.0.0")
+        self.assertEqual(kwargs["extra_assets"], [])
+
+    def test_publish_refuses_a_tag_the_build_was_not_composed_as(self) -> None:
+        """A stale draft must not name a Release the sheets inside contradict."""
+
+        user = _User("designer@example.com")
+        build = {
+            "id": "build-1",
+            "candidate_id": "candidate-1",
+            "status": "succeeded",
+            "dossier_artifact_id": "dossier-1",
+        }
+        with (
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api, "_build_or_404", return_value=build),
+            patch.object(
+                self.api.store,
+                "get_candidate",
+                return_value={"id": "candidate-1", "commit_sha": "a" * 40},
+            ),
+            patch.object(
+                self.api,
+                "_candidate_configuration",
+                return_value={"revision": "v1.1.0"},
+            ),
+            patch.object(self.api.forge_publish, "publish_release") as publish_fn,
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                _run(
+                    self.api.publish_build(
+                        "project",
+                        "build-1",
+                        self.api.PublishRequest(tag="v1.2.0"),
+                        user,
+                    )
+                )
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("v1.1.0", str(caught.exception.detail))
+        publish_fn.assert_not_called()
+
+    def test_publish_refuses_a_build_that_recorded_no_tag(self) -> None:
+        user = _User("designer@example.com")
+        build = {
+            "id": "build-1",
+            "candidate_id": "candidate-1",
+            "status": "succeeded",
+            "dossier_artifact_id": "dossier-1",
+        }
+        with (
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api, "_build_or_404", return_value=build),
+            patch.object(
+                self.api.store,
+                "get_candidate",
+                return_value={"id": "candidate-1", "commit_sha": "a" * 40},
+            ),
+            patch.object(self.api, "_candidate_configuration", return_value={}),
+            patch.object(self.api.forge_publish, "publish_release") as publish_fn,
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                _run(
+                    self.api.publish_build(
+                        "project",
+                        "build-1",
+                        self.api.PublishRequest(tag="v1.0.0"),
+                        user,
+                    )
+                )
+        self.assertEqual(caught.exception.status_code, 409)
+        publish_fn.assert_not_called()
 
     def test_publish_refuses_a_failed_build(self) -> None:
         user = _User("designer@example.com")
@@ -197,6 +249,97 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
                     )
                 )
         self.assertEqual(caught.exception.status_code, 409)
+
+
+    def test_enqueue_requires_tag_document_name_and_date(self) -> None:
+        user = _User("designer@example.com")
+        with (
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
+            patch.object(self.api.jobs, "enqueue") as enqueue,
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                _run(
+                    self.api.create_candidate(
+                        "project",
+                        self.api.CandidateRequest(commit_sha="a" * 40),
+                        user,
+                    )
+                )
+        self.assertEqual(caught.exception.status_code, 400)
+        enqueue.assert_not_called()
+
+    def test_enqueue_refuses_a_tag_that_already_exists(self) -> None:
+        user = _User("designer@example.com")
+        with (
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(
+                self.api.workspace,
+                "get_project_by_id",
+                return_value={"repo_url": "https://github.com/org/repo.git"},
+            ),
+            patch.object(self.api.forge_publish, "tag_exists", return_value=True),
+            patch.object(self.api.jobs, "enqueue") as enqueue,
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                _run(
+                    self.api.create_candidate(
+                        "project",
+                        self.api.CandidateRequest(
+                            commit_sha="a" * 40,
+                            identity={"tag": "v1.0.0", "document_name": "DOC", "date": "2026-08-14"},
+                        ),
+                        user,
+                    )
+                )
+        self.assertEqual(caught.exception.status_code, 409)
+        enqueue.assert_not_called()
+
+    def test_publish_refuses_a_build_that_is_not_clear_to_publish(self) -> None:
+        user = _User("designer@example.com")
+        build = {
+            "id": "build-1",
+            "candidate_id": "candidate-1",
+            "status": "succeeded",
+            "dossier_artifact_id": "dossier-1",
+        }
+        with (
+            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api, "_build_or_404", return_value=build),
+            patch.object(
+                self.api.store,
+                "get_candidate",
+                return_value={"id": "candidate-1", "commit_sha": "a" * 40},
+            ),
+            patch.object(
+                self.api,
+                "_candidate_configuration",
+                return_value={"revision": "v1.0.0"},
+            ),
+            patch.object(self.api, "_vendor_readiness", return_value=[]),
+            patch.object(
+                self.api,
+                "_approval_state",
+                return_value={
+                    "can_publish": False,
+                    "published": None,
+                    "blocked_reason": "Designer and QA must both approve this dossier.",
+                },
+            ),
+            patch.object(self.api.forge_publish, "publish_release") as publish_fn,
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                _run(
+                    self.api.publish_build(
+                        "project",
+                        "build-1",
+                        self.api.PublishRequest(tag="v1.0.0"),
+                        user,
+                    )
+                )
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("Designer and QA", str(caught.exception.detail))
+        publish_fn.assert_not_called()
 
 
 class ReleaseStudioDocumentSheetApiTests(unittest.TestCase):

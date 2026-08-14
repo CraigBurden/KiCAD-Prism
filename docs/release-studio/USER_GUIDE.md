@@ -1,7 +1,9 @@
 # Release Studio user guide
 
-Release Studio is opened from a project. Viewers can inspect build material;
-users with the project's design authority can start builds and publish.
+Release Studio is opened from a project. Viewers can inspect. Designers start
+builds and cast the Designer slot. QA inspects, casts the QA slot, and either
+role may publish after both slots are approved. Admin may fill either slot with
+a written override.
 
 ## Source
 
@@ -14,7 +16,8 @@ normalized to that full SHA. Arbitrary branch names are rejected.
 Prism discovers board and schematic candidates from the imported KiCad
 project at the selected commit (`GET .../source?commit_sha=`). Confirm or
 adjust those paths, choose a variant, and select a KiCad BOM preset
-(`kicad-cli sch export bom --preset`). Continuing from Source, or starting a
+(`kicad-cli sch export bom --preset`). A full 40-character SHA may be pasted
+when the revision is older than the recent-commit list. Continuing from Source, or starting a
 build, stores those picks on the project (`PUT .../source/defaults`). The next
 release reuses them when the same files still exist at the selected commit;
 otherwise Prism falls back to discovery. Identity and manufacturing are not
@@ -94,6 +97,20 @@ For a successful build, inspect:
 - the dossier, build evidence, individual members, and enabled vendor packs
   from their download controls.
 
+Designer and QA sign off on Outputs. The Designer slot is the build author, or
+an admin with a written override. The QA slot is `qa` or `admin`, and not the
+same person unless an admin override is written. Either caster may withdraw
+until Publish. Decisions bind to this dossier digest, so a rebuilt attempt
+cannot inherit them.
+
+Unwaived DRC or ERC *errors* block designer and QA sign-off. An admin can
+override them with a written note on the slot; once both slots are approved,
+Publish can proceed. Warnings do not block. KiCad native waivers in that commit
+count as cleared. Selected vendor packs must all be ready.
+
+After enqueue, Identity and Manufacturing are read-only snapshots. Change
+inputs only by starting a new release.
+
 The fabrication PDF is Prism layer plots, then optional impedance table pages
 when a CSV was uploaded, then the vendor stackup PDF appended unchanged. The
 release BOM is exported from the selected KiCad preset as CSV and typeset as a
@@ -102,9 +119,13 @@ BOM PDF. JLCPCB keeps its own vendor BOM in the pack.
 ## Publish
 
 **Publish** is confirm-only. Tag, Document Name, date, and notes cannot be
-edited here. **Publish to GitHub** or **Publish to GitLab** zips the stored
-dossier and creates a Release on the imported remote at this build's commit.
-The Release name is the tag. On success, Release Studio shows the Release URL.
+edited here. Either Designer or QA may publish after both slots are approved.
+**Publish to GitHub** or **Publish to GitLab** zips the stored dossier, attaches
+each ready selected vendor pack, and creates a Release on the imported remote
+at this build's commit. The Release name is the tag. On success, Release Studio
+shows the Release URL. History refreshes that URL by tag; a deleted forge
+Release looks unpublished on the next refresh, and Prism does not rewrite the
+publish record.
 
 The workspace SSH key can clone; it cannot create a Release. Set:
 

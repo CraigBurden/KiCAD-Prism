@@ -14,6 +14,8 @@ python -m unittest tests.test_release_studio_closure -v
 python -m unittest tests.test_release_studio_dossier -v
 python -m unittest tests.test_release_studio_documents -v
 python -m unittest tests.test_release_studio_api -v
+python -m unittest tests.test_release_studio_approvals -v
+python -m unittest tests.test_release_studio_gerber_set -v
 python -m unittest tests.test_release_studio_vendors -v
 python -m unittest tests.test_forge_publish_service -v
 ```
@@ -82,7 +84,6 @@ authority for each fixture's project, board, schematic, and jobset paths.
 | Identity | Enter tag, Document Name, date, and notes. Confirm an existing forge tag blocks here. Confirm API outage allows progress. |
 | Manufacturing | Set IPC classes, colours, via treatment, vendor packs. Upload optional stackup PDF and impedance CSV. **Continue** enqueues only when prior stages are complete. |
 | Build and history | Observe live job logs during the run; confirm they do not replay on a finished attempt. Fail one build and cancel another; confirm both retained attempts cannot be published. |
-| Inspect | Preview document PDFs (including BOM PDF and fabrication with impedance/stackup when supplied), inspect members/evidence/digests, and download dossier/evidence/member material. |
-| Closure warnings | A host-absolute `fp-lib-table` URI warns and still completes the build. |
-| Artifacts and vendor | Verify JLC readiness requires Gerbers, drill, `bom.csv`, `cpl.csv`, `bom.xlsx`, and `cpl.xlsx`. |
-| Publish | Confirm-only screen; Release name equals tag. With `GITHUB_TOKEN`/`GITLAB_TOKEN`, create a Release on the imported remote and confirm the zip is attached. A clone-only token shows a write-scope error. |
+| Inspect | Preview document PDFs, inspect members/evidence/digests, and download dossier/evidence/member material. Confirm DRC/ERC errors block designer/QA sign-off unless an admin overrides with a note. |
+| Sign-off | Designer then QA (or admin override with a note). Withdraw before publish. Decisions bind to the dossier digest. |
+| Publish | Confirm-only; disabled until both slots, clear errors, and ready selected packs. Release name equals tag. Dossier zip plus vendor packs attach. History refreshes the URL by tag. |

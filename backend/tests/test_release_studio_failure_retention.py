@@ -155,7 +155,7 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             "id": "build-prepare-failed", "candidate_id": candidate["id"],
             "status": "failed", "evidence_artifact_id": "artifact-1",
         }
-        user = SimpleNamespace(role="viewer")
+        user = SimpleNamespace(role="viewer", email="viewer@example.com")
         with (
             patch.object(api, "get_project_for_role_or_404"),
             patch.object(api, "_build_or_404", return_value=build),
@@ -164,7 +164,10 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             patch.object(api.store, "build_members", return_value=[]),
             patch.object(api.store, "build_evidence", return_value=[]),
             patch.object(api.store, "build_fingerprints", return_value={}),
+            patch.object(api.store, "latest_review_decision", return_value=None),
+            patch.object(api.store, "get_publish_record", return_value=None),
             patch.object(api, "_vendor_readiness", return_value=[]),
+            patch.object(api.forge_publish, "list_releases", return_value=[]),
         ):
             detail = asyncio.run(api.get_build("project-1", build["id"], user))
         self.assertEqual(

@@ -2065,8 +2065,9 @@ export function LibraryComponentWorkspace({
         {!historical && !canMutate ? (
           <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-            You have read-only access to this component. Editing metadata, attaching assets, and workflow
-            decisions need the Component Designer or Admin role.
+            You have read-only access to this component. Editing metadata and attaching
+            assets need the Designer or Admin role.
+            {user?.role === "qa" ? " QA Review actions remain available on the workflow panel." : ""}
           </div>
         ) : null}
         {historical ? (

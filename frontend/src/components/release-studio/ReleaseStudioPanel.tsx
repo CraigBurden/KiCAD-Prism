@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { History, ListRestart, Settings2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { cancelPrismJob, jobPipeline, throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
+import type { UserRole } from "@/types/auth";
 
 import * as api from "./api";
 import { RunList } from "./RunList";
 import { StageRail } from "./StageRail";
 import { InspectOutputsStep } from "./steps/InspectOutputsStep";
-import { emptyPipeline, ObserveBuildStep } from "./steps/ObserveBuildStep";
+import { ObserveBuildStep } from "./steps/ObserveBuildStep";
 import { PublishStep } from "./steps/PublishStep";
 import { IdentityStep } from "./steps/IdentityStep";
 import { ManufacturingStep } from "./steps/ManufacturingStep";
@@ -34,10 +37,34 @@ import type {
 type Props = {
     projectId: string;
     canMutate: boolean;
+    userRole?: UserRole;
     defaultCommit?: string;
 };
 
 const FULL_SHA = /^[a-f0-9]{40}$/i;
+
+/**
+ * Kept below the 20 MB base64 ceiling `CandidateRequest.stackup_pdf_b64`
+ * enforces: base64 inflates by 4/3, so the raw file has to stay under ~15 MB.
+ * Checking here turns a 422 that arrives at build time into an answer the
+ * moment the file is chosen.
+ */
+const MAX_STACKUP_BYTES = 14_000_000;
+
+/**
+ * Base64 without building a megabyte-long string one character at a time.
+ *
+ * The per-byte `binary += String.fromCharCode(...)` this replaces walked the
+ * whole file on the main thread and froze the tab on a large vendor stackup.
+ */
+function base64FromBytes(bytes: Uint8Array): string {
+    const CHUNK = 0x8000;
+    const parts: string[] = [];
+    for (let offset = 0; offset < bytes.length; offset += CHUNK) {
+        parts.push(String.fromCharCode(...bytes.subarray(offset, offset + CHUNK)));
+    }
+    return btoa(parts.join(""));
+}
 
 function resolveCommitSelection(value: string, commits: ProjectCommit[]): string {
     const revision = value.trim();
@@ -48,6 +75,7 @@ function resolveCommitSelection(value: string, commits: ProjectCommit[]): string
 export function ReleaseStudioPanel({
     projectId,
     canMutate,
+    userRole,
     defaultCommit = "HEAD",
 }: Props) {
     const [view, setView] = useState<StudioView>(() => {
@@ -108,7 +136,6 @@ export function ReleaseStudioPanel({
     const [detail, setDetail] = useState<BuildDetail | null>(null);
     const [busy, setBusy] = useState("");
     const [error, setError] = useState("");
-    const [notice, setNotice] = useState("");
     const [pipeline, setPipeline] = useState<PipelineState | null>(null);
     const [jobStatus, setJobStatus] = useState("");
     const [jobMessage, setJobMessage] = useState("");
@@ -120,8 +147,14 @@ export function ReleaseStudioPanel({
     const [currentBuildId, setCurrentBuildId] = useState<string | null>(null);
     // Never let a retained response drive a different selected run.
     const selectedDetail = detail?.build.id === selectedBuildId ? detail : null;
-    const selectedCommitValid = FULL_SHA.test(commitSha)
-        && commits.some((commit) => commit.full_hash === commitSha);
+    // A full 40-character SHA is the whole requirement. Membership of the
+    // fetched page is not: that list is a convenience, and a release for a
+    // commit older than it must not become unreachable. `getSource` resolves
+    // the SHA against the commit tree and fails loudly if it names nothing.
+    const selectedCommitValid = FULL_SHA.test(commitSha);
+    const canStartBuild = canMutate;
+    const canSignOff = userRole ? ["admin", "designer", "qa"].includes(userRole) : canMutate;
+    const identityComplete = Boolean(identity.tag.trim() && identity.document_name.trim() && identity.date.trim());
 
     const refreshDetail = useCallback(async (buildId: string) => {
         const request = ++detailRequestRef.current;
@@ -303,14 +336,13 @@ export function ReleaseStudioPanel({
             let completed = false;
             setBusy(label);
             setError("");
-            setNotice("");
             try {
                 await action();
                 // Governance responses alter the current build detail. Fetch
                 // it before showing success, otherwise gates read old facts.
                 if (buildId && selectedBuildIdRef.current === buildId) await refreshDetail(buildId);
                 completed = true;
-                if (success) setNotice(success);
+                if (success) toast.success(success);
             } catch (cause) {
                 setError(cause instanceof Error ? cause.message : String(cause));
             } finally {
@@ -334,7 +366,9 @@ export function ReleaseStudioPanel({
         return run("build", async () => {
             setView("current");
             setStage("build");
-            setPipeline(emptyPipeline());
+            // The worker's first progress update carries the authoritative
+            // skeleton, vendor steps included. Nothing here has to guess it.
+            setPipeline(null);
             setLiveLogs([]);
             // A new run starts with nothing done. Leaving the previous build
             // selected left its finished detail driving the rail, so a build
@@ -393,7 +427,7 @@ export function ReleaseStudioPanel({
             await cancelPrismJob(jobId);
             setJobStatus("cancel_requested");
             setJobMessage("Cancellation requested");
-            setNotice("Cancellation requested.");
+            toast.message("Cancellation requested.");
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : String(cause));
         } finally {
@@ -424,19 +458,19 @@ export function ReleaseStudioPanel({
         }
         if (building) return { ...locked, source: "done", identity: "done", manufacturing: "done", build: "active" };
         const status = selectedDetail?.build.status;
-        const built = status === "succeeded";
         if (status === "failed") return { ...locked, source: "done", identity: "done", manufacturing: "done", build: "failed" };
         if (status === "cancelled") return { ...locked, source: "done", identity: "done", manufacturing: "done", build: "cancelled" };
-        if (!built) return { ...locked, source: selectedCandidate ? "done" : "active", build: "active" };
+        if (status !== "succeeded") return { ...locked, source: selectedCandidate ? "done" : "active", build: "active" };
+        const published = Boolean(selectedDetail?.approvals?.published || selectedDetail?.build.published);
         return {
             source: "done",
             identity: "done",
             manufacturing: "done",
             build: "done",
-            outputs: stage === "publish" ? "done" : "active",
-            publish: stage === "publish" ? "active" : "pending",
+            outputs: "done",
+            publish: published ? "done" : "pending",
         };
-    }, [building, drafting, selectedDetail?.build.status, selectedCandidate, stage]);
+    }, [building, drafting, selectedCandidate, selectedDetail?.approvals?.published, selectedDetail?.build.published, selectedDetail?.build.status, stage]);
 
     const stageSummaries = useMemo<Partial<Record<RunStage, string>>>(
         () => (building ? { build: "running" } : drafting ? { source: "choose a revision" } : {
@@ -452,8 +486,8 @@ export function ReleaseStudioPanel({
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <header className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
-                <div className="flex items-center gap-1">
+            <header className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1">
+                <div className="flex items-center gap-0.5">
                     {([
                         { id: "settings", label: "New release", icon: Settings2 },
                         { id: "current", label: "Current", icon: ListRestart },
@@ -485,7 +519,7 @@ export function ReleaseStudioPanel({
                             }}
                             aria-current={(view === id || (id === "settings" && drafting && !selectedBuildId)) ? "page" : undefined}
                             className={cn(
-                                "flex items-center gap-1.5 rounded px-3 py-1 text-sm",
+                                "flex items-center gap-1.5 rounded px-2.5 py-1 text-sm",
                                 view === id || (id === "settings" && drafting && !selectedBuildId) ? "bg-muted font-medium" : "text-muted-foreground",
                             )}
                         >
@@ -494,30 +528,54 @@ export function ReleaseStudioPanel({
                         </button>
                     ))}
                 </div>
+                {(selectedBuildId || building || drafting) && (
+                    <IdentityStrip
+                        candidate={selectedCandidate}
+                        configuration={selectedDetail?.configuration ?? null}
+                        identity={identity}
+                        fallbackCommit={commitSha}
+                        variant={variant}
+                        status={
+                            building
+                                ? "building"
+                                : drafting
+                                  ? "new release"
+                                  : (selectedDetail?.build.status ?? "loading")
+                        }
+                        behind={behind}
+                        onJumpToLatest={() => {
+                            pinnedRef.current = false;
+                            if (newestBuildId) openRun(newestBuildId);
+                        }}
+                    />
+                )}
             </header>
 
             {error && (
-                <div className="border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+                <div className="shrink-0 border-b border-destructive/40 bg-destructive/10 px-3 py-1.5 text-sm text-destructive">
                     {error}
                 </div>
             )}
-            {notice && (
-                <div className="border-b border-success/40 bg-success/10 px-4 py-2 text-sm text-success">
-                    {notice}
-                </div>
-            )}
-
             {view === "settings" ? null : (
                 <div className="flex min-h-0 flex-1">
                     {view === "history" && (
-                        <RunList
-                            candidates={candidates}
-                            selectedBuildId={selectedBuildId}
-                            onSelect={(buildId) => {
-                                setDrafting(false);
-                                openRun(buildId);
-                            }}
-                        />
+                        <ResizablePanel
+                            side="left"
+                            storageKey="prism.releaseStudio.runHistoryWidth"
+                            defaultWidth={288}
+                            minWidth={180}
+                            maxWidth={480}
+                            aria-label="Run history"
+                        >
+                            <RunList
+                                candidates={candidates}
+                                selectedBuildId={selectedBuildId}
+                                onSelect={(buildId) => {
+                                    setDrafting(false);
+                                    openRun(buildId);
+                                }}
+                            />
+                        </ResizablePanel>
                     )}
 
                     {!selectedBuildId && !building && !drafting ? (
@@ -525,43 +583,16 @@ export function ReleaseStudioPanel({
                             Select a run, or start a new release.
                         </div>
                     ) : (
-                        <div className="flex min-h-0 flex-1 flex-col">
-                            <div className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
-                                <span className="font-mono text-sm">
-                                    {selectedCandidate?.commit_sha.slice(0, 12)
-                                        ?? (building || drafting
-                                            ? commitSha.slice(0, 12)
-                                            : selectedBuildId)}
-                                </span>
-                                <Badge variant="outline">
-                                    {building
-                                        ? "building"
-                                        : drafting
-                                          ? "new release"
-                                          : (selectedDetail?.build.status ?? "loading")}
-                                </Badge>
-                                {behind && (
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => {
-                                            pinnedRef.current = false;
-                                            if (newestBuildId) openRun(newestBuildId);
-                                        }}
-                                    >
-                                        Jump to latest
-                                    </Button>
-                                )}
-                            </div>
-                            <IdentityStrip
-                                candidate={selectedCandidate}
-                                configuration={selectedDetail?.configuration ?? null}
-                                identity={identity}
-                                fallbackCommit={commitSha}
-                                variant={variant}
-                            />
-                            <div className="flex min-h-0 flex-1">
-                                <div className="w-56 shrink-0 border-r p-3">
+                        <div className="flex min-h-0 flex-1">
+                            <ResizablePanel
+                                side="left"
+                                storageKey="prism.releaseStudio.stageRailWidth"
+                                defaultWidth={176}
+                                minWidth={140}
+                                maxWidth={320}
+                                aria-label="Run stages"
+                            >
+                                <div className="h-full overflow-y-auto p-2">
                                     <StageRail
                                         stage={stage}
                                         states={stageStates}
@@ -571,7 +602,15 @@ export function ReleaseStudioPanel({
                                         }}
                                     />
                                 </div>
-                                <div className="min-w-0 flex-1 overflow-y-auto p-6">
+                            </ResizablePanel>
+                            <div
+                                className={cn(
+                                    "min-h-0 min-w-0 flex-1",
+                                    stage === "outputs" || stage === "publish"
+                                        ? "flex flex-col overflow-hidden p-2"
+                                        : "overflow-y-auto p-4",
+                                )}
+                            >
                                     {stage === "source" && drafting && (
                                         <SourceStep
                                             commits={commits}
@@ -580,7 +619,7 @@ export function ReleaseStudioPanel({
                                             source={source}
                                             variant={variant}
                                             bomPreset={bomPreset}
-                                            canMutate={canMutate}
+                                            canMutate={canStartBuild}
                                             busy={busy}
                                             onCommit={(value) => setCommitSha(resolveCommitSelection(value, commits))}
                                             onBoard={(value) => setSource((current) => current ? { ...current, board: value } : current)}
@@ -604,7 +643,7 @@ export function ReleaseStudioPanel({
                                         <IdentityStep
                                             projectId={projectId}
                                             identity={identity}
-                                            canMutate={canMutate}
+                                            canMutate={canStartBuild}
                                             busy={busy}
                                             onChange={setIdentity}
                                             onContinue={() => setStage("manufacturing")}
@@ -616,23 +655,33 @@ export function ReleaseStudioPanel({
                                             manufacturing={manufacturing}
                                             ipc={ipc}
                                             profiles={profiles}
-                                            canMutate={canMutate}
+                                            canMutate={canStartBuild}
                                             busy={busy}
+                                            identityComplete={identityComplete}
                                             impedanceCsv={impedanceCsv}
                                             stackupName={stackupName}
                                             onChange={setManufacturing}
                                             onImpedanceCsv={setImpedanceCsv}
                                             onStackup={(file) => {
-                                                setStackupName(file?.name ?? "");
                                                 if (!file) {
+                                                    setStackupName("");
                                                     setStackupB64("");
+                                                    setError("");
                                                     return;
                                                 }
+                                                if (file.size > MAX_STACKUP_BYTES) {
+                                                    setStackupName("");
+                                                    setStackupB64("");
+                                                    setError(
+                                                        `${file.name} is ${(file.size / 1_000_000).toFixed(1)} MB. `
+                                                        + `The stackup PDF must be under ${MAX_STACKUP_BYTES / 1_000_000} MB.`,
+                                                    );
+                                                    return;
+                                                }
+                                                setStackupName(file.name);
+                                                setError("");
                                                 void file.arrayBuffer().then((buffer) => {
-                                                    const bytes = new Uint8Array(buffer);
-                                                    let binary = "";
-                                                    bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-                                                    setStackupB64(btoa(binary));
+                                                    setStackupB64(base64FromBytes(new Uint8Array(buffer)));
                                                 });
                                             }}
                                             onBuild={() => void handleBuild()}
@@ -640,6 +689,12 @@ export function ReleaseStudioPanel({
                                     )}
                                     {stage === "source" && !drafting && selectedDetail && (
                                         <SourceDetails detail={selectedDetail} />
+                                    )}
+                                    {stage === "identity" && !drafting && selectedDetail && (
+                                        <IdentityDetails configuration={selectedDetail.configuration ?? null} />
+                                    )}
+                                    {stage === "manufacturing" && !drafting && selectedDetail && (
+                                        <ManufacturingDetails configuration={selectedDetail.configuration ?? null} />
                                     )}
                                     {stage === "build" && (
                                         <ObserveBuildStep
@@ -650,6 +705,8 @@ export function ReleaseStudioPanel({
                                             projectId={projectId}
                                             buildId={selectedBuildId}
                                             liveLogs={liveLogs}
+                                            errorCode={selectedDetail?.build.error_code ?? ""}
+                                            errorMessage={selectedDetail?.build.error_message ?? ""}
                                             canCancel={Boolean(activeJobId ?? selectedDetail?.build.job_id) && canMutate && (jobStatus || selectedDetail?.build.status) !== "cancel_requested" && selectedDetail?.build.status !== "succeeded" && selectedDetail?.build.status !== "failed" && selectedDetail?.build.status !== "cancelled"}
                                             cancelling={busy === "cancel-build"}
                                             onCancel={() => void handleCancel()}
@@ -663,6 +720,7 @@ export function ReleaseStudioPanel({
                                             busy={busy}
                                             onContinue={() => setStage("publish")}
                                             onRun={run}
+                                            onRefresh={() => selectedBuildId ? refreshDetail(selectedBuildId) : undefined}
                                         />
                                     )}
                                     {stage === "outputs" && !selectedDetail && <LockedStage />}
@@ -670,8 +728,7 @@ export function ReleaseStudioPanel({
                                         <PublishStep
                                             projectId={projectId}
                                             detail={selectedDetail}
-                                            identity={identity}
-                                            canMutate={canMutate}
+                                            canMutate={canSignOff}
                                             busy={busy}
                                             onRun={run}
                                         />
@@ -680,7 +737,6 @@ export function ReleaseStudioPanel({
                                     {stage !== "source" && stage !== "identity" && stage !== "manufacturing" && stage !== "build" && stage !== "outputs" && stage !== "publish" && <LockedStage />}
                                 </div>
                             </div>
-                        </div>
                     )}
                 </div>
             )}
@@ -696,49 +752,109 @@ function IdentityStrip({
     identity,
     fallbackCommit,
     variant,
+    status,
+    behind,
+    onJumpToLatest,
 }: {
     candidate: ReleaseCandidate | null;
     configuration: ReleaseConfiguration | null;
     identity: ReleaseIdentity;
     fallbackCommit: string;
     variant: string;
+    status: string;
+    behind: boolean;
+    onJumpToLatest: () => void;
 }) {
     const commit = candidate?.commit_sha || fallbackCommit;
     const resolvedVariant = candidate?.variant || variant || configuration?.default_variant || "default";
+    const documentName = configuration?.document_number || identity.document_name || "—";
+    const revision = configuration?.revision || identity.tag || "—";
     return (
         <div
             aria-label="Release identity"
-            className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-2.5 text-xs leading-none"
+            className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5 text-xs leading-none"
         >
-            <History className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="inline-flex items-center rounded border bg-background px-2.5 py-1.5 font-mono leading-none">
-                {commit.slice(0, 12) || "HEAD"}
-            </span>
-            <span className="inline-flex items-center rounded border bg-background px-2.5 py-1.5 leading-none">
-                {resolvedVariant}
-            </span>
-            <span className="inline-flex items-center rounded border bg-background px-2.5 py-1.5 leading-none">
-                Document Name {identity.document_name || configuration?.document_number || "—"}
-            </span>
-            <span className="inline-flex items-center rounded border bg-background px-2.5 py-1.5 leading-none">
-                Rev {identity.tag || configuration?.revision || "—"}
-            </span>
+            <span className="font-mono text-muted-foreground">{commit.slice(0, 12) || "HEAD"}</span>
+            <Badge variant="outline" className="h-5 px-1.5">{status}</Badge>
+            <span className="text-muted-foreground">{resolvedVariant}</span>
+            <span className="truncate">{documentName}</span>
+            <span className="text-muted-foreground">Rev {revision}</span>
+            {behind && (
+                <Button size="xs" variant="outline" onClick={onJumpToLatest}>
+                    Jump to latest
+                </Button>
+            )}
         </div>
     );
 }
 
 function LockedStage() {
-    return <div className="rounded border border-dashed p-4 text-sm text-muted-foreground">This stage is locked until the preceding build evidence is available.</div>;
+    return <div className="rounded border border-dashed p-4 text-sm text-muted-foreground">Locked until the build finishes.</div>;
 }
 
 function SourceDetails({ detail }: { detail: BuildDetail }) {
     const source = detail.candidate;
     const configuration = detail.configuration;
-    const rows = [
+    const rows: [string, string][] = [
         ["Commit", source?.commit_sha || "—"],
         ["Board", configuration?.board_rel || "—"],
         ["Schematic", configuration?.schematic_rel || "—"],
         ["Variant", source?.variant || configuration?.default_variant || "default"],
     ];
-    return <div className="space-y-4"><h3 className="text-lg font-semibold">Source</h3><dl className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">{rows.map(([label, value]) => <div key={label} className="space-y-1"><dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt><dd className="break-all font-mono text-sm">{value}</dd></div>)}</dl></div>;
+    return <SnapshotDetails title="Source" rows={rows} />;
+}
+
+function IdentityDetails({ configuration }: { configuration: ReleaseConfiguration | null }) {
+    return (
+        <SnapshotDetails
+            title="Release identity"
+            rows={[
+                ["Tag", configuration?.revision || "—"],
+                ["Document Name", configuration?.document_number || "—"],
+                ["Date", configuration?.release_date || "—"],
+                ["Release notes", configuration?.release_notes || "—"],
+            ]}
+        />
+    );
+}
+
+function snapshotSpec(configuration: ReleaseConfiguration | null, key: string): string {
+    // synthesize_configuration stores IPC/finish callouts under fields[]; identity
+    // stays at the document root. History must read the same shape the cover uses.
+    const nested = configuration?.fields?.[key];
+    const top = (configuration as Record<string, unknown> | null)?.[key];
+    const value = (typeof nested === "string" && nested) || (typeof top === "string" && top) || "";
+    return value.trim() || "—";
+}
+
+function ManufacturingDetails({ configuration }: { configuration: ReleaseConfiguration | null }) {
+    return (
+        <SnapshotDetails
+            title="Manufacturing and assembly"
+            rows={[
+                ["Manufacturing IPC class", snapshotSpec(configuration, "manufacturing_ipc_class")],
+                ["Assembly IPC class", snapshotSpec(configuration, "assembly_ipc_class")],
+                ["Solder mask colour", snapshotSpec(configuration, "solder_mask_colour")],
+                ["Silkscreen colour", snapshotSpec(configuration, "silkscreen_colour")],
+                ["Via treatment", snapshotSpec(configuration, "via_treatment")],
+                ["Vendors", (configuration?.vendors || []).join(", ") || "—"],
+            ]}
+        />
+    );
+}
+
+function SnapshotDetails({ title, rows }: { title: string; rows: [string, string][] }) {
+    return (
+        <div className="space-y-4">
+            <h3 className="text-lg font-semibold">{title}</h3>
+            <dl className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
+                {rows.map(([label, value]) => (
+                    <div key={label} className="space-y-1">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
+                        <dd className="break-all text-sm">{value}</dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
+    );
 }

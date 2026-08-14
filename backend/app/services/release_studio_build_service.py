@@ -40,7 +40,6 @@ from app.release_studio.config import (
     list_configuration_keys_at_commit,
     load_configuration_at_commit,
     load_configuration_from_checkout,
-    load_policy_for_configuration_at_commit,
     technical_config_digest,
     technical_config_payload,
     validate_configuration_for_checkout,
@@ -57,6 +56,7 @@ from app.release_studio.steps import (
     STEP_CATALOGUE,
     StepExecutionError,
     StepOutput,
+    gerber_manifest_gaps,
     resolve_cli_path,
     resolve_cruncher_path,
     run_step_catalogue,
@@ -641,40 +641,6 @@ def list_configurations_at_commit(
     return rows
 
 
-def policy_document_for_candidate(
-    project_id: str,
-    candidate: Mapping[str, Any],
-) -> dict[str, Any] | None:
-    """Return the candidate's immutable Git-owned policy snapshot.
-
-    Candidates produced before snapshot persistence retain an exact-commit
-    compatibility path. New candidates do not depend on a mutable checkout at
-    evaluation time.
-    """
-
-    if candidate.get("policy_snapshot_captured"):
-        document = candidate.get("policy_document")
-        return dict(document) if isinstance(document, Mapping) else None
-
-    from app.services import workspace_service
-
-    row = workspace_service.workspace.get_project_by_id(project_id)
-    if not row:
-        raise BuildError("project not found")
-    project_path = Path(str(row["path"] if "path" in row else row.get("clone_path") or ""))
-    repo_root = project_path
-    for _ in range(6):
-        if (repo_root / ".git").exists():
-            break
-        repo_root = repo_root.parent
-    config = configuration_for_candidate(project_id, candidate)
-    return load_policy_for_configuration_at_commit(
-        repo_root,
-        _candidate_commit(candidate),
-        config,
-    )
-
-
 def _candidate_commit(candidate: Mapping[str, Any]) -> str:
     commit = str(candidate.get("commit_sha") or "").strip()
     if not commit:
@@ -757,11 +723,6 @@ def prepare_candidate(
                 f"{config_key!r}"
             )
     config_digest = technical_config_digest(config)
-    policy_document = load_policy_for_configuration_at_commit(
-        repo_root,
-        commit_sha,
-        config,
-    )
 
     closure_root = workspace_root / "closure"
     if closure_root.exists():
@@ -803,8 +764,8 @@ def prepare_candidate(
         hermetic=hermetic,
         non_hermetic_reasons=reasons,
         closure_inputs=_closure_rows(closure),
-        policy_snapshot_captured=True,
-        policy_document=policy_document,
+        policy_snapshot_captured=False,
+        policy_document=None,
         configuration_snapshot_captured=True,
         configuration_document=config,
         created_by=created_by,
@@ -812,6 +773,10 @@ def prepare_candidate(
     candidate["_closure_root"] = str(closure_root)
     candidate["_config"] = config
     candidate["_advisory_reasons"] = advisory
+    # An input that resolved outside the closure is recorded on the candidate,
+    # but the person reading Outputs sees the build. Carry the reasons across
+    # so a non-hermetic closure is visible where the release is inspected.
+    candidate["_non_hermetic_reasons"] = list(closure_reasons)
     candidate["project_relpath"] = project_relpath
     return candidate
 
@@ -1050,6 +1015,25 @@ def execute_build(
             for spec in STEP_CATALOGUE
             if spec.step_id in combined
         )
+        # An incomplete Gerber set is the one omission that costs a fab run,
+        # and it is invisible downstream: the vendor pack only asks whether
+        # *any* gerber is present.
+        build_warnings: list[str] = []
+        gerbers = combined.get("gerbers")
+        if gerbers is not None and gerbers.ran:
+            has_manifest, missing_plots = gerber_manifest_gaps(gerbers.files)
+            if missing_plots:
+                raise BuildError(
+                    "the Gerber export is incomplete: its job file lists "
+                    f"{', '.join(missing_plots)}, which {'was' if len(missing_plots) == 1 else 'were'} "
+                    "not written"
+                )
+            if not has_manifest:
+                build_warnings.append(
+                    "fabrication: the Gerber export wrote no readable .gbrjob "
+                    "manifest, so the layer set could not be checked for "
+                    "completeness"
+                )
         if not include_schematic:
             tracker.skip("schematic_pdf", reason="no schematic in the configuration")
         tracker.start("documents-cover", message="Composing documentation", percent=70)
@@ -1070,6 +1054,23 @@ def execute_build(
             tracker=tracker,
             repo_url=str(candidate.get("repo_url") or ""),
         )
+        # The release *is* the documentation set. A dossier that reached
+        # packaging with a failed compose would be a succeeded, publishable
+        # build whose zip holds gerbers and no drawings, so the compose failure
+        # has to end the attempt rather than ride along in evidence.
+        composed = next(
+            (
+                output
+                for output in outputs
+                if getattr(output, "step_id", "") == DOCUMENT_STEP_SPEC.step_id
+            ),
+            None,
+        )
+        if composed is not None and composed.returncode != 0:
+            raise BuildError(
+                "document composition produced no sheets: "
+                f"{composed.skipped_reason or 'compose failed'}"
+            )
         outputs = (*outputs, *vendor_outputs)
 
         tracker.start("package", message="Canonicalizing and packaging", percent=75)
@@ -1093,6 +1094,19 @@ def execute_build(
             timings=timings,
             extra_evidence=extra_evidence,
         )
+
+        # DRC/ERC are evidence, not a gate -- a release is allowed to carry
+        # violations, and deciding which ones block is the archived governance
+        # work. What must not happen is publishing a board with errors without
+        # anyone being told, so the count is stated on the build.
+        for record in assembled.evidence:
+            errors = int((record.get("counts") or {}).get("error") or 0)
+            if errors:
+                kind = str(record.get("kind") or "check").upper()
+                build_warnings.append(
+                    f"{kind}: {errors} error-severity violation"
+                    f"{'' if errors == 1 else 's'} in this release"
+                )
 
         dossier_artifact = _publish(
             artifact_service, context, assembled.dossier_bytes,
@@ -1130,8 +1144,14 @@ def execute_build(
             warnings=[
                 *(
                     f"closure: {reason}"
+                    for reason in candidate.get("_non_hermetic_reasons") or ()
+                ),
+                *(
+                    f"closure: {reason}"
                     for reason in candidate.get("_advisory_reasons") or ()
                 ),
+                *(candidate.get("_input_warnings") or ()),
+                *build_warnings,
                 *document_warnings,
             ],
         )
@@ -1434,11 +1454,27 @@ def _with_documents(
         impedance_rows = list(candidate.get("_impedance_rows") or [])
         stackup_pdf = candidate.get("_stackup_pdf") or None
         bom_headers, bom_rows = _bom_schedule(outputs)
+        impedance_supplied = bool(candidate.get("_impedance_supplied"))
+        stackup_supplied = bool(candidate.get("_stackup_supplied"))
         if tracker is not None:
             if not impedance_rows:
-                tracker.skip("documents-impedance", reason="no impedance CSV uploaded")
+                tracker.skip(
+                    "documents-impedance",
+                    reason=(
+                        "the uploaded impedance CSV produced no rows"
+                        if impedance_supplied
+                        else "no impedance CSV uploaded"
+                    ),
+                )
             if not stackup_pdf:
-                tracker.skip("documents-stackup", reason="no stackup PDF uploaded")
+                tracker.skip(
+                    "documents-stackup",
+                    reason=(
+                        "the uploaded stackup PDF could not be read"
+                        if stackup_supplied
+                        else "no stackup PDF uploaded"
+                    ),
+                )
             if not bom_rows:
                 tracker.skip("documents-bom", reason="no BOM CSV produced")
 
@@ -1668,52 +1704,6 @@ def _bom_schedule(outputs: Sequence[Any]) -> tuple[list[str], list[list[str]]]:
     return [], []
 
 
-def _revision_history(
-    repo_root: Path | None,
-    *,
-    commit_sha: str | None = None,
-    relative_path: str | None = None,
-    limit: int = 10,
-) -> list[dict[str, Any]]:
-    """Git tags for the cover revision-history table.
-
-    Uses the same tag listing the project Releases UI uses.  Failures degrade
-    to an empty list so a cover still composes without Git metadata.
-    """
-
-    if repo_root is None or not Path(repo_root).exists():
-        return []
-    try:
-        from app.services.git_service import get_releases, get_releases_filtered
-
-        rel = (relative_path or "").strip().strip("./")
-        if rel and rel not in {".", ""}:
-            page = get_releases_filtered(
-                str(repo_root),
-                rel,
-                commit_sha or None,
-                limit,
-                0,
-                False,
-            )
-        else:
-            page = get_releases(
-                str(repo_root),
-                commit_sha or None,
-                limit,
-                0,
-                False,
-            )
-    except Exception:  # noqa: BLE001 - cover degrades without history
-        logger.warning("Revision history unavailable for documentation cover", exc_info=True)
-        return []
-    if isinstance(page, dict):
-        releases = page.get("releases") or []
-    else:
-        releases = page or []
-    return [item for item in releases if isinstance(item, Mapping)]
-
-
 def _commit_timestamp(repo_root: Path, commit: str) -> int:
     """Commit author time as an archive-safe epoch, or the neutral epoch."""
 
@@ -1923,7 +1913,9 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         from app.release_studio.source import discover_source
 
         try:
-            discovered = discover_source(repo_root, candidate["commit_sha"])
+            discovered = discover_source(
+                repo_root, candidate["commit_sha"], relative_path
+            )
         except Exception:
             discovered = {}
         board = str(discovered.get("board") or "")
@@ -1932,15 +1924,32 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
     from app.release_studio.impedance import parse_impedance_csv
 
     candidate["repo_url"] = str(row.get("repo_url") or "")
-    candidate["_impedance_rows"] = parse_impedance_csv(str(payload.get("impedance_csv") or ""))
+    # Track what the user actually attached, separately from what survived
+    # parsing. Without this a CSV whose header did not match, and a CSV that
+    # was never uploaded, both reach the UI as "no impedance CSV uploaded".
+    impedance_csv = str(payload.get("impedance_csv") or "")
     stackup_b64 = str(payload.get("stackup_pdf_b64") or "")
+    input_warnings: list[str] = []
+    candidate["_impedance_supplied"] = bool(impedance_csv.strip())
+    candidate["_stackup_supplied"] = bool(stackup_b64.strip())
+    candidate["_impedance_rows"] = parse_impedance_csv(impedance_csv)
+    if candidate["_impedance_supplied"] and not candidate["_impedance_rows"]:
+        input_warnings.append(
+            "inputs: the uploaded controlled-impedance CSV produced no rows; its "
+            "header must match the template columns, including \"Target Z (Ω)\""
+        )
     if stackup_b64:
         import base64
 
         try:
             candidate["_stackup_pdf"] = base64.b64decode(stackup_b64)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - the miss must not be silent
             candidate["_stackup_pdf"] = None
+            input_warnings.append(
+                f"inputs: the uploaded stackup PDF could not be decoded ({exc}); "
+                "the fabrication PDF was composed without it"
+            )
+    candidate["_input_warnings"] = input_warnings
 
     result = execute_build(
         context,

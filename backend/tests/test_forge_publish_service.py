@@ -130,9 +130,84 @@ class ForgePublishTests(unittest.TestCase):
             )
         self.assertEqual(published["url"], "https://github.com/org/board/releases/tag/v1.0.0")
         self.assertEqual(calls[0]["json"]["tag_name"], "v1.0.0")
+        self.assertEqual(calls[0]["json"]["name"], "v1.0.0")
         self.assertEqual(calls[0]["json"]["target_commitish"], "a" * 40)
         self.assertIn("name=board-v1.0.0.zip", calls[1]["url"])
         self.assertEqual(calls[1]["data"], b"zip-bytes")
+
+    def test_failed_asset_upload_removes_the_release_it_created(self) -> None:
+        """An assetless Release is unretryable: its tag blocks the next create."""
+
+        calls: list[tuple[str, str]] = []
+
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            calls.append((method, url))
+            if method == "POST" and url.endswith("/releases"):
+                return _Response(
+                    201,
+                    {
+                        "id": 4242,
+                        "html_url": "https://github.com/org/board/releases/tag/v1.0.0",
+                        "upload_url": "https://uploads.github.com/repos/org/board/releases/4242/assets{?name,label}",
+                    },
+                )
+            if "uploads.github.com" in url:
+                return _Response(502, {"message": "upstream timeout"})
+            return _Response(204, {})
+
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            with self.assertRaises(forge.ForgePublishError) as caught:
+                forge.publish_release(
+                    repo_url="https://github.com/org/board.git",
+                    commit_sha="a" * 40,
+                    tag="v1.0.0",
+                    title="Board",
+                    notes="notes",
+                    zip_bytes=b"zip-bytes",
+                    filename="board-v1.0.0.zip",
+                )
+        self.assertIn("removed", str(caught.exception))
+        self.assertIn(
+            ("DELETE", "https://api.github.com/repos/org/board/releases/4242"), calls
+        )
+
+    def test_github_uploads_extra_assets_and_rolls_them_back_together(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            calls.append((method, url))
+            if method == "POST" and url.endswith("/releases"):
+                return _Response(
+                    201,
+                    {
+                        "id": 7,
+                        "html_url": "https://github.com/org/board/releases/tag/v1.0.0",
+                        "upload_url": "https://uploads.github.com/repos/org/board/releases/7/assets{?name,label}",
+                    },
+                )
+            if "jlcpcb-upload.zip" in url:
+                return _Response(502, {"message": "pack failed"})
+            return _Response(201, {})
+
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            with self.assertRaises(forge.ForgePublishError):
+                forge.publish_release(
+                    repo_url="https://github.com/org/board.git",
+                    commit_sha="a" * 40,
+                    tag="v1.0.0",
+                    title="ignored",
+                    notes="",
+                    zip_bytes=b"zip-bytes",
+                    filename="board-v1.0.0.zip",
+                    extra_assets=[("board-v1.0.0-jlcpcb-upload.zip", b"pack")],
+                )
+        self.assertIn(("DELETE", "https://api.github.com/repos/org/board/releases/7"), calls)
 
     def test_gitlab_uploads_a_package_then_creates_the_release(self) -> None:
         calls: list[str] = []
@@ -231,11 +306,46 @@ class ForgeListTests(unittest.TestCase):
             self.assertEqual(forge.list_releases("https://github.com/org/board.git"), [])
 
     def test_tag_exists_on_github(self) -> None:
+        calls: list[str] = []
+
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            calls.append(url)
+            return _Response(200, {"ref": "refs/tags/v1.0.0"})
+
         with (
             patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
-            patch.object(forge.requests, "request", return_value=_Response(200, {"tag_name": "v1.0.0"})),
+            patch.object(forge.requests, "request", side_effect=request),
         ):
             self.assertTrue(forge.tag_exists("https://github.com/org/board.git", "v1.0.0"))
+        # A tag pushed without a Release still takes the name, so the question
+        # has to be asked of the Git ref rather than of the Releases list.
+        self.assertIn("/git/ref/tags/v1.0.0", calls[0])
+
+    def test_a_tag_without_a_release_still_reads_as_taken(self) -> None:
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            if "/git/ref/tags/" in url:
+                return _Response(200, {"ref": "refs/tags/v2.0.0"})
+            return _Response(404, {"message": "Not Found"})
+
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            self.assertTrue(forge.tag_exists("https://github.com/org/board.git", "v2.0.0"))
+
+    def test_gitlab_tag_existence_asks_the_repository_tags(self) -> None:
+        calls: list[str] = []
+
+        def request(method, url, **_kwargs):  # noqa: ANN001
+            calls.append(url)
+            return _Response(200, {"name": "v1.0.0"})
+
+        with (
+            patch.object(forge.settings, "GITLAB_TOKEN", "glpat_example"),
+            patch.object(forge.requests, "request", side_effect=request),
+        ):
+            self.assertTrue(forge.tag_exists("https://gitlab.com/org/board.git", "v1.0.0"))
+        self.assertIn("/repository/tags/v1.0.0", calls[0])
 
     def test_missing_tag_is_not_an_error(self) -> None:
         with (

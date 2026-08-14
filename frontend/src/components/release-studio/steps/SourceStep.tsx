@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -44,12 +45,7 @@ export function SourceStep({
     const ready = Boolean(commitSha && source?.board && source.schematic);
     return (
         <div className="space-y-5">
-            <div>
-                <h3 className="text-lg font-semibold">Source</h3>
-                <p className="text-sm text-muted-foreground">
-                    Builds the tracked branch tip by default. Pick an older commit if you need a historical revision.
-                </p>
-            </div>
+            <h3 className="text-lg font-semibold">Source</h3>
             <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Revision" htmlFor="rs-source-commit">
                     <select
@@ -64,7 +60,20 @@ export function SourceStep({
                                 {commit.hash} · {commit.message}
                             </option>
                         ))}
+                        {!commits.some((commit) => commit.full_hash === commitSha) && /^[a-f0-9]{40}$/i.test(commitSha) && (
+                            <option value={commitSha}>{commitSha.slice(0, 7)} · pasted SHA</option>
+                        )}
                     </select>
+                </Field>
+                <Field label="Or paste a full SHA" htmlFor="rs-source-sha">
+                    <Input
+                        id="rs-source-sha"
+                        value={commits.some((commit) => commit.full_hash === commitSha) ? "" : commitSha}
+                        placeholder="40-character Git SHA"
+                        disabled={Boolean(busy)}
+                        className="font-mono text-xs"
+                        onChange={(event) => onCommit(event.target.value.trim())}
+                    />
                 </Field>
                 <Field label="Variant" htmlFor="rs-source-variant">
                     <select

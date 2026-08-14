@@ -457,7 +457,7 @@ export function LibraryCatalogWorkspace({
             {/* Shown disabled rather than hidden: a reader who cannot find the
                 button assumes the feature is missing, where a disabled one that
                 explains itself tells them exactly what to ask for. */}
-            <PermissionHint blocked={!canCreate} action="create catalog components" allowedRoles={["component_designer", "admin"]}>
+            <PermissionHint blocked={!canCreate} action="create catalog components" allowedRoles={["designer", "admin"]}>
               <Button size="sm" disabled={!canCreate} onClick={() => setCreateOpen(true)}><Plus className="h-3.5 w-3.5" /> New component</Button>
             </PermissionHint>
           </div>

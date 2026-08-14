@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Download } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 import * as api from "./api";
 import { DOCUMENT_ORDER, shortDigest } from "./flow";
@@ -65,29 +64,17 @@ export function DocumentSheetPreview({
     }, [projectId, buildId, sheet.key]);
 
     return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold capitalize">{sheet.key.replace(/-/g, " ")}</h3>
-                <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                        void api.downloadFile(
-                            api.downloadUrl(
-                                projectId,
-                                `builds/${encodeURIComponent(buildId)}/sheets/${encodeURIComponent(sheet.key)}.pdf`,
-                            ),
-                            `${sheet.key}.pdf`,
-                        )
-                    }
-                >
-                    <Download className="mr-1 h-3 w-3" /> Download PDF
-                </Button>
+        <div className="flex min-h-0 flex-1 flex-col">
+            {error && <p className="shrink-0 text-sm text-destructive">{error}</p>}
+            <div className="relative min-h-0 flex-1 overflow-hidden border bg-preview-surface">
+                {url && (
+                    <iframe
+                        title={sheet.key}
+                        src={url}
+                        className="absolute inset-0 h-full w-full border-0 bg-preview-surface"
+                    />
+                )}
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            {url && (
-                <iframe title={sheet.key} src={url} className="h-[70vh] w-full border bg-preview-surface" />
-            )}
         </div>
     );
 }
@@ -187,9 +174,7 @@ export function MemberViewer({
             </div>
             {failure && <p className="text-sm text-destructive">{failure}</p>}
             {!failure && kind === "none" && (
-                <p className="text-sm text-muted-foreground">
-                    This member type has no in-app preview. Download it to inspect the released bytes.
-                </p>
+                <p className="text-sm text-muted-foreground">No preview. Download to inspect.</p>
             )}
             {!failure && kind === "pdf" && objectUrl && (
                 <iframe title={member.path} src={objectUrl} className="h-[70vh] w-full border" />
@@ -212,6 +197,7 @@ export function VendorPackCard({
     readiness = [],
     vendorId: controlledVendorId,
     onVendorChange,
+    children,
 }: {
     projectId: string;
     buildId: string;
@@ -220,6 +206,7 @@ export function VendorPackCard({
     readiness?: VendorReadiness[];
     vendorId?: string;
     onVendorChange?: (vendorId: string) => void;
+    children?: ReactNode;
 }) {
     const [uncontrolledVendorId, setUncontrolledVendorId] = useState(profiles[0]?.id ?? "");
     const vendorId = controlledVendorId ?? uncontrolledVendorId;
@@ -229,14 +216,13 @@ export function VendorPackCard({
     if (!selected) return null;
 
     return (
-        <div className="space-y-2 rounded-md border p-3">
-            <h4 className="text-sm font-semibold">Download for manufacturer</h4>
+        <div className="space-y-2 border p-3">
             <div className="flex flex-wrap items-end gap-2">
-                <label className="space-y-1 text-sm">
+                <label className="min-w-0 flex-1 space-y-1 text-xs">
                     <span className="text-muted-foreground">Manufacturer</span>
                     <select
                         aria-label="Manufacturer"
-                        className="flex h-9 min-w-48 border border-input bg-background px-3 py-1.5 text-sm leading-none"
+                        className="flex h-8 w-full border border-input bg-background px-2 py-1 text-xs leading-none"
                         value={selected.id}
                         onChange={(event) => {
                             setUncontrolledVendorId(event.target.value);
@@ -251,8 +237,9 @@ export function VendorPackCard({
                     </select>
                 </label>
                 <Button
-                    size="sm"
+                    size="xs"
                     variant="outline"
+                    aria-label={`Download ${selected.pack_filename}`}
                     disabled={Boolean(busy) || !ready}
                     onClick={() =>
                         void api.downloadFile(
@@ -261,12 +248,15 @@ export function VendorPackCard({
                         )
                     }
                 >
-                    <Download className="mr-1 h-3 w-3" /> Download {selected.pack_filename}
+                    <Download className="mr-1 h-3 w-3" /> {selected.pack_filename}
                 </Button>
             </div>
-            <p className={cn("text-xs", ready ? "text-muted-foreground" : "text-destructive")}>
-                {ready ? selected.description : `Incomplete: ${(readinessForSelected?.missing_requirements ?? []).join(", ") || "manufacturer pack is not ready"}`}
-            </p>
+            {children}
+            {!ready && (
+                <p className="text-xs text-destructive">
+                    Incomplete: {(readinessForSelected?.missing_requirements ?? []).join(", ") || "manufacturer pack is not ready"}
+                </p>
+            )}
         </div>
     );
 }
