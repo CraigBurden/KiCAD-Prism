@@ -359,7 +359,7 @@ export function SelectionInspector({
                 </div>
             </header>
 
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea className="themed-scrollbar min-h-0 flex-1">
                 <div className="space-y-5 p-4 text-xs">
                     {showLabelNav && (
                         <CollapsibleSection title="Instances" defaultOpen={false}>
@@ -393,7 +393,7 @@ export function SelectionInspector({
                                     <ChevronRight className="h-4 w-4" />
                                 </Button>
                             </div>
-                            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto border bg-card/20 p-2">
+                            <ul className="themed-scrollbar mt-2 max-h-40 space-y-1 overflow-y-auto border bg-card/20 p-2">
                                 {labelInstances.map((instance) => {
                                     const active = instance.uuid === activeUuid;
                                     return (

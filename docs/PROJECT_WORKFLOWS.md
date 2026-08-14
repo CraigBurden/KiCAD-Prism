@@ -62,6 +62,14 @@ Project sections include:
 | --- | --- |
 | Overview | README and project summary |
 | History | commits, tags, and comparison entry points |
+
+From an expanded commit's file list:
+
+- schematic, board, project, and library files (`.kicad_sch`, `.kicad_pcb`, `.kicad_pro`, `.kicad_sym`, `.kicad_mod`) open in the visualizer;
+- PDF, CSV, `.txt`, and Markdown open in a new browser tab, served from that commit with the file's real content type;
+- gerbers and other non-CAD files do nothing — they are listed, not visualized.
+
+A commit-file endpoint is confined to the project's own subtree so one subproject cannot read a sibling's files.
 | Visualizers | schematic, PCB, 3D, BOM, stackup, and assembly views |
 | Workflows | fixed KiCad design, manufacturing, and render jobs |
 | Assets | generated output browser |
@@ -84,6 +92,10 @@ manufacturing approval.
 The schematic and PCB viewers support object and area comments. Designers and
 administrators can create, reply, resolve, and delete; viewers can read and
 navigate discussions.
+
+With nothing selected, `C` toggles commenting mode (the same as the toolbar
+button). With a selection, `C` opens the comment form for that element. Escape
+also leaves commenting mode.
 
 Comments support class, severity, and stored mentions. Mention storage does not
 currently send email or an in-product notification.
