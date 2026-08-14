@@ -575,11 +575,17 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                   />
 
                   <div className="relative mt-6 min-h-0 flex-1 overflow-hidden">
-                    <div className="h-full overflow-y-auto pr-1">
+                    <div
+                      className={`h-full overflow-y-auto pr-1 ${
+                        selectedProject !== null
+                          ? "md:pr-[376px] lg:pr-[416px] xl:pr-[476px]"
+                          : ""
+                      }`}
+                    >
                       <div className="mb-4 flex items-center justify-between rounded-lg border bg-card/30 px-3 py-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-xs text-muted-foreground">
-                            Page {currentPage} of {totalPages} · {pageLabel}
+                            {pageLabel}
                           </p>
                           {canManageProjects && listProjects.length > 0 && (
                             <Button
@@ -620,19 +626,13 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                             variant="outline"
                             className="h-7 px-2 text-[11px]"
                             disabled={currentPage <= 1}
-                            onClick={() => setCurrentPage(1)}
-                          >
-                            First
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-[11px]"
-                            disabled={currentPage <= 1}
                             onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                           >
                             Previous
                           </Button>
+                          <span className="px-1 text-[11px] text-muted-foreground">
+                            Page {currentPage} of {totalPages}
+                          </span>
                           <Button
                             size="sm"
                             variant="outline"
@@ -641,15 +641,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
                             onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                           >
                             Next
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-[11px]"
-                            disabled={currentPage >= totalPages}
-                            onClick={() => setCurrentPage(totalPages)}
-                          >
-                            Last
                           </Button>
                         </div>
                       </div>
