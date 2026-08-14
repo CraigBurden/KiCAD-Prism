@@ -1588,7 +1588,8 @@ async def get_project_commit_file(
     in the browser's own viewer rather than routing them to the visualizer.
 
     The mime type is guessed from the name, so a PDF is served as
-    application/pdf and the browser opens it inline.
+    application/pdf and the browser opens it inline. History only opens this
+    endpoint for PDF, CSV, text, and markdown; CAD files go to the visualizer.
     """
     project = get_project_for_role_or_404(project_id, user.role)
     repo_path, relative_path = _repo_context(project)

@@ -40,6 +40,7 @@ import {
     selectRevisionSlot,
     type RevisionRef,
 } from "./history-comparison-selection";
+import { historyFileOpenAction, visualizerTabForFile } from "./history-file-open";
 
 interface Release {
     tag: string;
@@ -163,21 +164,6 @@ function fileTypeIcon(filename: string): { Icon: typeof FileText; color: string 
     return { Icon: FileText, color: "text-muted-foreground" };
 }
 
-// Files the browser can display on its own (PDFs, images). These open in a new
-// tab against their raw bytes rather than the visualizer, which has no view for
-// them and would otherwise just fall back to the commit view.
-function opensInBrowser(filename: string): boolean {
-    return /\.(pdf|png|jpe?g|gif|svg|webp|bmp)$/i.test(filename);
-}
-
-// Which visualizer tab a changed file opens onto. Board and schematic have their
-// own views; anything else (project, libraries) just opens the visualizer on its
-// default tab, since there is no dedicated viewer for it.
-function visualizerTabForFile(filename: string): string | undefined {
-    if (filename.endsWith(".kicad_pcb")) return "pcb";
-    if (filename.endsWith(".kicad_sch")) return "sch";
-    return undefined;
-}
 
 // Small chip indicating that a commit (or file) touched N items of a given
 // kind. Renders nothing when count is 0 so rows without that kind of change
@@ -422,28 +408,10 @@ function CommitItem({
                         .sort((a, b) => fileSortRank(a.filename) - fileSortRank(b.filename))
                         .map((file) => {
                             const { Icon: TypeIcon, color: typeColor } = fileTypeIcon(file.filename);
-                            return (
-                                <button
-                                    key={file.path}
-                                    type="button"
-                                    className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    onClick={() => {
-                                        if (opensInBrowser(file.filename)) {
-                                            const url = `/api/projects/${projectId}/commits/${commit.full_hash}/file?path=${encodeURIComponent(file.path)}`;
-                                            window.open(url, "_blank", "noopener");
-                                            return;
-                                        }
-                                        onOpenVisualizer(
-                                            commit.full_hash,
-                                            visualizerTabForFile(file.filename),
-                                        );
-                                    }}
-                                    title={
-                                        opensInBrowser(file.filename)
-                                            ? `Open ${file.filename} in a new tab`
-                                            : `Open ${file.filename} at this commit`
-                                    }
-                                >
+                            const openAction = historyFileOpenAction(file.filename);
+                            const rowClassName = "flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs";
+                            const rowBody = (
+                                <>
                                     <span className={`flex items-center gap-1 shrink-0 ${STATUS_COLOR[file.status] ?? "text-muted-foreground"}`}>
                                         {STATUS_ICON[file.status]}
                                     </span>
@@ -462,6 +430,38 @@ function CommitItem({
                                             )}
                                         </span>
                                     )}
+                                </>
+                            );
+                            if (openAction === "none") {
+                                return (
+                                    <div key={file.path} className={rowClassName}>
+                                        {rowBody}
+                                    </div>
+                                );
+                            }
+                            return (
+                                <button
+                                    key={file.path}
+                                    type="button"
+                                    className={`${rowClassName} hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                                    onClick={() => {
+                                        if (openAction === "browser") {
+                                            const url = `/api/projects/${projectId}/commits/${commit.full_hash}/file?path=${encodeURIComponent(file.path)}`;
+                                            window.open(url, "_blank", "noopener");
+                                            return;
+                                        }
+                                        onOpenVisualizer(
+                                            commit.full_hash,
+                                            visualizerTabForFile(file.filename),
+                                        );
+                                    }}
+                                    title={
+                                        openAction === "browser"
+                                            ? `Open ${file.filename} in a new tab`
+                                            : `Open ${file.filename} at this commit`
+                                    }
+                                >
+                                    {rowBody}
                                 </button>
                             );
                         })}
