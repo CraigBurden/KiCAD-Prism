@@ -1620,14 +1620,9 @@ def _release_studio_project_signoff(conn: Any) -> None:
             forge_url TEXT NOT NULL DEFAULT '',
             asset_names JSONB NOT NULL DEFAULT '[]'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            CONSTRAINT uq_ws_release_publish_records_tag UNIQUE (project_id, tag)
+            CONSTRAINT uq_ws_release_publish_records_tag UNIQUE (project_id, tag),
+            CONSTRAINT uq_ws_release_publish_records_build UNIQUE (build_id)
         )
-        """
-    )
-    conn.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_ws_release_publish_records_build
-        ON ws_release_publish_records(build_id)
         """
     )
 
