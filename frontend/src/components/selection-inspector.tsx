@@ -104,7 +104,10 @@ function PropertyRow({ label, value }: { label: string; value: ReactNode }) {
 
 // A Yes/No flag as a colored icon: green tick for the "good" state, red cross
 // for the other. `goodWhenYes` flips which value is the green one.
-function FlagValue({ value, goodWhenYes }: { value: string; goodWhenYes: boolean }) {
+function FlagValue({ value, goodWhenYes }: { value: string | undefined; goodWhenYes: boolean }) {
+    if (value === undefined || value.trim() === "") {
+        return <span className="text-xs text-muted-foreground">Unknown</span>;
+    }
     const yes = value.trim().toLowerCase() === "yes";
     const good = goodWhenYes ? yes : !yes;
     return (
@@ -120,7 +123,7 @@ function FlagValue({ value, goodWhenYes }: { value: string; goodWhenYes: boolean
 }
 
 // A value that is a link: the text, followed by an external-link glyph, opening
-// in a new tab. Used for datasheet/other URLs and the formed LCSC part link.
+// in a new tab. Used for datasheet and other URL fields.
 function LinkValue({ href, text }: { href: string; text: string }) {
     // Wrap long URLs onto new lines instead of overflowing the card. break-all
     // lets the URL break mid-string; the glyph trails the last line inline.
@@ -139,9 +142,9 @@ function LinkValue({ href, text }: { href: string; text: string }) {
 }
 
 // Fields shown separately or that are internal parser bookkeeping, not worth a
-// row on the component card: the reference/value/footprint (shown elsewhere),
-// KiCad's own attributes (kicad_*/ki_*/_source), and the sheet-location fields.
-const HIDDEN_FIELD_KEYS = new Set(["Reference", "Value", "Footprint", "Sheetfile", "Sheetname"]);
+// row on the component card: the reference/value/footprint (shown elsewhere)
+// and KiCad's own attributes (kicad_*/ki_*/_source). Sheetfile/Sheetname stay.
+const HIDDEN_FIELD_KEYS = new Set(["Reference", "Value", "Footprint"]);
 
 function isDisplayableField(key: string, value: string): boolean {
     if (HIDDEN_FIELD_KEYS.has(key)) return false;
@@ -157,21 +160,11 @@ function normalizeUrl(value: string): string | null {
     return trimmed.startsWith("www.") ? `https://${trimmed}` : trimmed;
 }
 
-// The LCSC catalog URL for a part code like "C125977".
-function lcscUrl(part: string): string | null {
-    const code = part.trim().match(/^C\d+$/i)?.[0];
-    return code ? `https://www.lcsc.com/product-detail/${code.toUpperCase()}.html` : null;
-}
-
-// Decide how one field's value should render: DNP/In BOM as flags, an LCSC part
-// as a formed link, a URL as a link, otherwise plain text.
+// Decide how one field's value should render: DNP/In BOM as flags, a URL as a
+// link, otherwise plain text.
 function renderFieldValue(key: string, value: string): ReactNode {
     if (key === "DNP") return <FlagValue value={value} goodWhenYes={false} />;
     if (key === "In BOM") return <FlagValue value={value} goodWhenYes={true} />;
-    if (key === "LCSC Part") {
-        const href = lcscUrl(value);
-        return href ? <LinkValue href={href} text={value} /> : value;
-    }
     const url = normalizeUrl(value);
     if (url) return <LinkValue href={url} text={value} />;
     return value;
@@ -368,7 +361,7 @@ export function SelectionInspector({
             <ScrollArea className="min-h-0 flex-1">
                 <div className="space-y-5 p-4 text-xs">
                     {showLabelNav && (
-                        <CollapsibleSection title="Instances">
+                        <CollapsibleSection title="Instances" defaultOpen={false}>
                             <div className="flex items-center justify-between gap-2 border bg-card/40 px-3 py-2">
                                 <Button
                                     type="button"
@@ -424,7 +417,7 @@ export function SelectionInspector({
                         </CollapsibleSection>
                     )}
 
-                    <CollapsibleSection title="Identity" icon={CircuitBoard}>
+                    <CollapsibleSection title="Identity" icon={CircuitBoard} defaultOpen={false}>
                         <dl>
                             {selection.kind !== "net" && <PropertyRow label="Reference" value={selection.reference} />}
                             {selection.kind === "terminal" && <PropertyRow label="Pin / pad" value={selection.pin} />}
@@ -460,16 +453,16 @@ export function SelectionInspector({
                                 <dl>
                                     <PropertyRow label="Value" value={component.value} />
                                     <PropertyRow label="Footprint" value={component.footprint} />
-                                    {/* DNP and BOM always show, as flags, right at
-                                        the top. Default to KiCad's defaults when
-                                        the parse did not carry the field. */}
+                                    {/* DNP and BOM always show under Value and
+                                        Footprint. Missing parse → Unknown, never
+                                        a guessed KiCad default. */}
                                     <PropertyRow
                                         label="DNP"
-                                        value={<FlagValue value={String(component.fields?.DNP ?? "No")} goodWhenYes={false} />}
+                                        value={<FlagValue value={component.fields?.DNP} goodWhenYes={false} />}
                                     />
                                     <PropertyRow
                                         label="BOM"
-                                        value={<FlagValue value={String(component.fields?.["In BOM"] ?? "Yes")} goodWhenYes={true} />}
+                                        value={<FlagValue value={component.fields?.["In BOM"]} goodWhenYes={true} />}
                                     />
                                     {Object.entries(component.fields || {})
                                         .filter(([key, value]) => key !== "DNP" && key !== "In BOM" && isDisplayableField(key, String(value)))
@@ -504,7 +497,7 @@ export function SelectionInspector({
                     {(terminal || net) && (
                         <>
                             <Separator />
-                            <CollapsibleSection title="Connectivity">
+                            <CollapsibleSection title="Connectivity" defaultOpen={false}>
                                 <dl>
                                     <PropertyRow label="Net" value={terminal?.netName || net?.name} />
                                     <PropertyRow label="Net class" value={net?.netClass} />

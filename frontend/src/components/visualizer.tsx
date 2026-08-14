@@ -810,16 +810,15 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const activeViewContext: "SCH" | "PCB" | null =
         activeTab === "pcb" ? "PCB" : activeTab === "sch" ? "SCH" : null;
 
-    // Whether the selection card belongs on the active view. A cross-probe
-    // (double-click focus) mirrors the item into both viewers, so its card
-    // follows whichever view is on screen. A plain single-view selection stays
-    // with its own view: switching away does not carry the card over.
+    // Whether the selection card belongs on the active view.
+    // Single-click: stay on SCH and PCB; close on 3D/stackup/BOM.
+    // Double-click (cross-probe): stay on every tab.
     const selectionVisibleInActiveView = Boolean(
         globalSelection
         && (
             selectionIsProbing
-            || activeViewContext === null
-            || globalSelection.sourceContext === activeViewContext
+            || activeTab === "sch"
+            || activeTab === "pcb"
         ),
     );
 
@@ -1442,7 +1441,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 selection={globalSelection}
                                 semanticIndex={semanticIndex}
                                 layerColors={layerColors}
-                                viewContext={selectionIsProbing ? (activeViewContext ?? undefined) : undefined}
+                                viewContext={activeViewContext ?? undefined}
                                 onOpenChange={(open) => {
                                     if (!open) setRightRailTab(null);
                                 }}
