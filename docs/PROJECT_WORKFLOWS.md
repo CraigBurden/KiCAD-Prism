@@ -93,6 +93,10 @@ The schematic and PCB viewers support object and area comments. Designers and
 administrators can create, reply, resolve, and delete; viewers can read and
 navigate discussions.
 
+With nothing selected, `C` toggles commenting mode (the same as the toolbar
+button). With a selection, `C` opens the comment form for that element. Escape
+also leaves commenting mode.
+
 Comments support class, severity, and stored mentions. Mention storage does not
 currently send email or an in-product notification.
 
