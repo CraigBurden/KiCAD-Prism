@@ -123,6 +123,12 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         () => branches.find((branch) => branch.ref === selectedBranchRef) || null,
         [branches, selectedBranchRef]
     );
+    // The empty-value option means "the branch the repo is checked out to".
+    // Show that branch's name rather than the generic "Current checkout".
+    const currentBranch = useMemo(
+        () => branches.find((branch) => branch.is_current) || null,
+        [branches]
+    );
     const activeCommit = currentCommit || selectedBranch?.commit || null;
     const comparisonUrl = useMemo(
         () => readComparisonUrlState(searchParams),
@@ -419,19 +425,41 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                 <div className="hidden min-w-0 items-center gap-2 md:flex">
                     <GitBranch className="h-4 w-4 text-muted-foreground" />
                     <select
-                        value={selectedBranchRef || ""}
+                        // An explicit ?branch= for the current branch has no
+                        // option of its own (it lives in the default entry), so
+                        // map it back to the default value to keep the select
+                        // in sync rather than falling through to the first item.
+                        value={
+                            selectedBranchRef && selectedBranchRef !== currentBranch?.ref
+                                ? selectedBranchRef
+                                : ""
+                        }
                         onChange={(event) => handleBranchChange(event.target.value)}
                         disabled={branchesLoading}
                         title={branchError || "View this project on another branch"}
-                        className="h-9 max-w-[260px] rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        className="h-9 max-w-[260px] appearance-none rounded-md border border-input bg-background bg-no-repeat py-0 pl-3 pr-8 text-sm text-foreground shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        style={{
+                            backgroundImage:
+                                "url(\"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+                            backgroundPosition: "right 0.5rem center",
+                            backgroundSize: "1rem",
+                        }}
                     >
-                        <option value="">{branchesLoading ? "Loading branches..." : "Current checkout"}</option>
-                        {branches.map((branch) => (
-                            <option key={branch.ref} value={branch.ref}>
-                                {branch.source === "remote" ? branch.ref : branch.name}
-                                {branch.is_current ? " (current)" : ""}
-                            </option>
-                        ))}
+                        <option value="">
+                            {branchesLoading
+                                ? "Loading branches..."
+                                : currentBranch?.name || "Current checkout"}
+                        </option>
+                        {/* The default option above already represents the
+                            current branch by name, so skip it here rather than
+                            listing it a second time with a "(current)" suffix. */}
+                        {branches
+                            .filter((branch) => !branch.is_current)
+                            .map((branch) => (
+                                <option key={branch.ref} value={branch.ref}>
+                                    {branch.source === "remote" ? branch.ref : branch.name}
+                                </option>
+                            ))}
                     </select>
                 </div>
 
