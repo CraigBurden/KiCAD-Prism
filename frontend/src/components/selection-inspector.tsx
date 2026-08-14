@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { selectionLabel } from "@/lib/prism-selection";
 import type {
     PrismSelection,
+    PrismSelectionContext,
     PrismSemanticIndex,
     SemanticComponent,
     SemanticNet,
@@ -186,7 +187,7 @@ const capitalizeFirst = (value: string): string =>
 const effectiveContext = (
     selection: PrismSelection,
     viewContext?: "SCH" | "PCB",
-): "SCH" | "PCB" | undefined => viewContext ?? selection.sourceContext;
+): PrismSelectionContext | undefined => viewContext ?? selection.sourceContext;
 
 const resolvedItemType = (
     selection: PrismSelection,
