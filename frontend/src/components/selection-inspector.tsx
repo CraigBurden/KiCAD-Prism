@@ -1,9 +1,14 @@
+import type { ReactNode } from "react";
+import { useState } from "react";
 import {
+    Check,
+    ChevronDown,
     ChevronLeft,
     ChevronRight,
     CircuitBoard,
     Cpu,
     Database,
+    ExternalLink,
     LibraryBig,
     LoaderCircle,
     Network,
@@ -15,9 +20,10 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { contextLabel, selectionLabel } from "@/lib/prism-selection";
+import { selectionLabel } from "@/lib/prism-selection";
 import type {
     PrismSelection,
+    PrismSelectionContext,
     PrismSemanticIndex,
     SemanticComponent,
     SemanticNet,
@@ -46,6 +52,14 @@ interface SelectionInspectorProps {
     onFocusLabelInstance?: (uuid: string) => void;
     navigatingLabelInstance?: boolean;
     embedded?: boolean;
+    /** Layer name -> swatch color, so the Layer row can show the layer's color. */
+    layerColors?: Record<string, string>;
+    /**
+     * The view currently on screen. When set, the card presents the (cross-
+     * probed) selection as it belongs to this view, overriding the context the
+     * selection was originally made in.
+     */
+    viewContext?: "SCH" | "PCB";
 }
 
 const atIndex = <T,>(items: T[], index: number | undefined): T | undefined =>
@@ -78,29 +92,117 @@ function resolveTerminal(selection: PrismSelection, index: PrismSemanticIndex | 
     return atIndex(index.terminals, index.indexes.terminalByReferencePin?.[`${selection.reference}:${selection.pin}`]);
 }
 
-function PropertyRow({ label, value }: { label: string; value: string | number | undefined }) {
-    if (value === undefined || value === "") return null;
+function PropertyRow({ label, value }: { label: string; value: ReactNode }) {
+    if (value === undefined || value === null || value === "") return null;
     return (
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3 border-b py-2.5 last:border-b-0">
             <dt className="text-muted-foreground">{label}</dt>
-            <dd className="break-words text-right font-medium">{value}</dd>
+            <dd className="min-w-0 break-words text-right font-medium">{value}</dd>
         </div>
     );
 }
 
-const resolvedItemType = (selection: PrismSelection): string => {
+// A Yes/No flag as a colored icon: green tick for the "good" state, red cross
+// for the other. `goodWhenYes` flips which value is the green one.
+function FlagValue({ value, goodWhenYes }: { value: unknown; goodWhenYes: boolean }) {
+    if (value === undefined || value === null || String(value).trim() === "") {
+        return <span className="text-xs text-muted-foreground">Unknown</span>;
+    }
+    const text = String(value);
+    const yes = text.trim().toLowerCase() === "yes";
+    const good = goodWhenYes ? yes : !yes;
+    return (
+        <span className="inline-flex items-center justify-end gap-1.5">
+            {good ? (
+                <Check className="h-4 w-4 text-success" aria-hidden />
+            ) : (
+                <X className="h-4 w-4 text-destructive" aria-hidden />
+            )}
+            <span className="text-xs">{text}</span>
+        </span>
+    );
+}
+
+// A value that is a link: the text, followed by an external-link glyph, opening
+// in a new tab. Used for datasheet and other URL fields.
+function LinkValue({ href, text }: { href: string; text: string }) {
+    // Wrap long URLs onto new lines instead of overflowing the card. break-all
+    // lets the URL break mid-string; the glyph trails the last line inline.
+    return (
+        <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-all text-primary hover:underline"
+            title={href}
+        >
+            {text}
+            <ExternalLink className="ml-1 inline-block h-3 w-3 shrink-0 align-text-bottom" aria-hidden />
+        </a>
+    );
+}
+
+// Fields shown separately or that are internal parser bookkeeping, not worth a
+// row on the component card: the reference/value/footprint (shown elsewhere)
+// and KiCad's own attributes (kicad_*/ki_*/_source). Sheetfile/Sheetname stay.
+const HIDDEN_FIELD_KEYS = new Set(["Reference", "Value", "Footprint"]);
+
+function isDisplayableField(key: string, value: string): boolean {
+    if (HIDDEN_FIELD_KEYS.has(key)) return false;
+    if (key.startsWith("_") || key.startsWith("kicad_") || key.startsWith("ki_")) return false;
+    return value !== "";
+}
+
+const URL_PATTERN = /^(https?:\/\/|www\.)\S+$/i;
+
+function normalizeUrl(value: string): string | null {
+    const trimmed = value.trim();
+    if (!URL_PATTERN.test(trimmed)) return null;
+    return trimmed.startsWith("www.") ? `https://${trimmed}` : trimmed;
+}
+
+// Decide how one field's value should render: DNP/In BOM as flags, a URL as a
+// link, otherwise plain text.
+function renderFieldValue(key: string, value: string): ReactNode {
+    if (key === "DNP") return <FlagValue value={value} goodWhenYes={false} />;
+    if (key === "In BOM") return <FlagValue value={value} goodWhenYes={true} />;
+    const url = normalizeUrl(value);
+    if (url) return <LinkValue href={url} text={value} />;
+    return value;
+}
+
+const capitalizeFirst = (value: string): string =>
+    value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+
+// The context to present the selection in. When the reviewer switches views,
+// the same (cross-probed) component should read as belonging to the active
+// view, so the caller passes viewContext to override the selection's original
+// sourceContext for display.
+const effectiveContext = (
+    selection: PrismSelection,
+    viewContext?: "SCH" | "PCB",
+): PrismSelectionContext | undefined => viewContext ?? selection.sourceContext;
+
+const resolvedItemType = (
+    selection: PrismSelection,
+    viewContext?: "SCH" | "PCB",
+): string => {
+    const context = effectiveContext(selection, viewContext);
+    // The anchor's own itemType is view-specific, so ignore it when presenting
+    // the selection in a different view than the one it was made in.
+    const anchorMatchesView = !viewContext || viewContext === selection.sourceContext;
     const raw = selection.anchor?.itemType?.trim();
-    if (raw && raw.toLocaleLowerCase() !== "unknown") return raw;
+    if (anchorMatchesView && raw && raw.toLocaleLowerCase() !== "unknown") return raw;
     if (selection.kind === "component") {
-        if (selection.sourceContext === "SCH") return "Schematic symbol";
-        if (selection.sourceContext === "PCB") return "PCB footprint";
+        if (context === "SCH") return "Schematic symbol";
+        if (context === "PCB") return "PCB footprint";
         return "Component";
     }
     if (selection.kind === "terminal") {
-        return selection.sourceContext === "SCH" ? "Schematic pin" : "PCB pad";
+        return context === "SCH" ? "Schematic pin" : "PCB pad";
     }
-    if (selection.sourceContext === "SCH") return "Schematic net item";
-    if (selection.sourceContext === "PCB") return "PCB copper net";
+    if (context === "SCH") return "Schematic net item";
+    if (context === "PCB") return "PCB copper net";
     return "Net geometry";
 };
 
@@ -122,6 +224,42 @@ function IntegrationRow({ icon: Icon, title, description }: {
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>
             </div>
         </div>
+    );
+}
+
+/**
+ * A card section whose body can be folded away. Cards with many fields get long
+ * fast, so each section collapses independently; the header stays as a compact
+ * row you can scan and click to expand. Defaults to open.
+ */
+function CollapsibleSection({
+    title,
+    icon: Icon,
+    defaultOpen = true,
+    children,
+}: {
+    title: string;
+    icon?: typeof CircuitBoard;
+    defaultOpen?: boolean;
+    children: React.ReactNode;
+}) {
+    const [open, setOpen] = useState(defaultOpen);
+    return (
+        <section>
+            <button
+                type="button"
+                className="flex w-full items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => setOpen((value) => !value)}
+                aria-expanded={open}
+            >
+                <ChevronDown
+                    className={cn("h-3.5 w-3.5 shrink-0 transition-transform", !open && "-rotate-90")}
+                />
+                {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
+                <span>{title}</span>
+            </button>
+            {open && <div className="mt-1">{children}</div>}
+        </section>
     );
 }
 
@@ -163,6 +301,8 @@ export function SelectionInspector({
     onFocusLabelInstance,
     navigatingLabelInstance = false,
     embedded = false,
+    layerColors,
+    viewContext,
 }: SelectionInspectorProps) {
     if (!open || !selection) return null;
     const component = resolveComponent(selection, semanticIndex);
@@ -202,32 +342,27 @@ export function SelectionInspector({
                         </Button>
                     )}
                 </div>
-                <div className="mt-4 flex items-start gap-3">
+                <div className="mt-4 flex items-center gap-3">
                     <div className="border bg-primary/10 p-2.5 text-primary">
                         <SelectionIcon className="h-5 w-5" />
                     </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            <Badge variant="secondary">{contextLabel(selection.sourceContext)}</Badge>
-                            <Badge variant="outline">{resolvedItemType(selection)}</Badge>
+                    <div className="min-w-0 flex-1 leading-tight">
+                        <h2 className="truncate font-mono text-lg font-semibold" title={title}>{title}</h2>
+                        {/* Nudge just the tag up so its bottom lines up with the
+                            icon's bottom, without reflowing the icon or title. */}
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 -translate-y-1.5">
+                            <Badge variant="outline" className="px-2 py-0 text-[11px] font-medium">
+                                {capitalizeFirst(resolvedItemType(selection, viewContext))}
+                            </Badge>
                         </div>
-                        <h2 className="mt-2 truncate font-mono text-lg font-semibold" title={title}>{title}</h2>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            {selection.kind === "component" && "Component identity, sourcing, and library context"}
-                            {selection.kind === "terminal" && "Terminal identity and resolved connectivity"}
-                            {selection.kind === "net" && "Electrical connectivity across schematic, PCB, and 3D"}
-                        </p>
                     </div>
                 </div>
             </header>
 
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea className="themed-scrollbar min-h-0 flex-1">
                 <div className="space-y-5 p-4 text-xs">
                     {showLabelNav && (
-                        <section>
-                            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Instances
-                            </h3>
+                        <CollapsibleSection title="Instances" defaultOpen={false}>
                             <div className="flex items-center justify-between gap-2 border bg-card/40 px-3 py-2">
                                 <Button
                                     type="button"
@@ -258,7 +393,7 @@ export function SelectionInspector({
                                     <ChevronRight className="h-4 w-4" />
                                 </Button>
                             </div>
-                            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto border bg-card/20 p-2">
+                            <ul className="themed-scrollbar mt-2 max-h-40 space-y-1 overflow-y-auto border bg-card/20 p-2">
                                 {labelInstances.map((instance) => {
                                     const active = instance.uuid === activeUuid;
                                     return (
@@ -280,52 +415,71 @@ export function SelectionInspector({
                                     );
                                 })}
                             </ul>
-                        </section>
+                        </CollapsibleSection>
                     )}
 
-                    <section>
-                        <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            <CircuitBoard className="h-3.5 w-3.5" /> Identity
-                        </h3>
+                    <CollapsibleSection title="Identity" icon={CircuitBoard} defaultOpen={false}>
                         <dl>
                             {selection.kind !== "net" && <PropertyRow label="Reference" value={selection.reference} />}
                             {selection.kind === "terminal" && <PropertyRow label="Pin / pad" value={selection.pin} />}
                             {selection.kind === "net" && <PropertyRow label="Net" value={selection.netName} />}
-                            <PropertyRow label="Item type" value={resolvedItemType(selection)} />
+                            <PropertyRow label="Item type" value={resolvedItemType(selection, viewContext)} />
                             <PropertyRow label="Component UID" value={selection.kind !== "net" ? selection.componentUid : undefined} />
                             <PropertyRow label="Terminal UID" value={selection.kind === "terminal" ? selection.terminalUid : undefined} />
                             <PropertyRow label="Net UID" value={selection.kind !== "component" ? selection.netUid : undefined} />
                             <PropertyRow label="Source UUID" value={selection.uuid || selection.anchor?.uuid} />
                             <PropertyRow label="Page" value={selection.anchor?.page} />
-                            <PropertyRow label="Layer" value={selection.anchor?.layer} />
+                            <PropertyRow
+                                label="Layer"
+                                value={selection.anchor?.layer && (
+                                    <span className="inline-flex items-center justify-end gap-1.5">
+                                        {layerColors?.[selection.anchor.layer] && (
+                                            <span
+                                                className="size-3 shrink-0 border"
+                                                style={{ backgroundColor: layerColors[selection.anchor.layer] }}
+                                                aria-hidden
+                                            />
+                                        )}
+                                        <span>{selection.anchor.layer}</span>
+                                    </span>
+                                )}
+                            />
                         </dl>
-                    </section>
+                    </CollapsibleSection>
 
                     {component && (
                         <>
                             <Separator />
-                            <section>
-                                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Component data</h3>
+                            <CollapsibleSection title="Component data">
                                 <dl>
                                     <PropertyRow label="Value" value={component.value} />
                                     <PropertyRow label="Footprint" value={component.footprint} />
+                                    {/* DNP and BOM always show under Value and
+                                        Footprint. Missing parse → Unknown, never
+                                        a guessed KiCad default. */}
+                                    <PropertyRow
+                                        label="DNP"
+                                        value={<FlagValue value={component.fields?.DNP} goodWhenYes={false} />}
+                                    />
+                                    <PropertyRow
+                                        label="BOM"
+                                        value={<FlagValue value={component.fields?.["In BOM"]} goodWhenYes={true} />}
+                                    />
                                     {Object.entries(component.fields || {})
-                                        .filter(([key, value]) => !["Reference", "Value", "Footprint"].includes(key) && !key.startsWith("_") && !key.startsWith("kicad_") && value !== "")
-                                        .map(([key, value]) => <PropertyRow key={key} label={key} value={String(value)} />)}
+                                        .filter(([key, value]) => key !== "DNP" && key !== "In BOM" && isDisplayableField(key, String(value)))
+                                        .map(([key, value]) => (
+                                            <PropertyRow key={key} label={key} value={renderFieldValue(key, String(value))} />
+                                        ))}
                                 </dl>
-                            </section>
+                            </CollapsibleSection>
                         </>
                     )}
 
                     {selection.kind !== "net" && (
                         <>
                             <Separator />
-                            <section>
-                                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Library & sourcing</h3>
-                                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                                    Stage this project component with commit-pinned provenance before release review.
-                                </p>
-                                <div className="mt-2 border bg-card/40 px-3">
+                            <CollapsibleSection title="Library & sourcing">
+                                <div className="border bg-card/40 px-3">
                                     {onImportComponent ? (
                                         <LibraryImportRow
                                             onImport={onImportComponent}
@@ -337,15 +491,14 @@ export function SelectionInspector({
                                     )}
                                     <IntegrationRow icon={Database} title="Component database" description="Lifecycle, alternates, approved vendors, and organization metadata." />
                                 </div>
-                            </section>
+                            </CollapsibleSection>
                         </>
                     )}
 
                     {(terminal || net) && (
                         <>
                             <Separator />
-                            <section>
-                                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Connectivity</h3>
+                            <CollapsibleSection title="Connectivity" defaultOpen={false}>
                                 <dl>
                                     <PropertyRow label="Net" value={terminal?.netName || net?.name} />
                                     <PropertyRow label="Net class" value={net?.netClass} />
@@ -353,7 +506,7 @@ export function SelectionInspector({
                                     <PropertyRow label="Schematic pin UUID" value={terminal?.schematicPinUuid} />
                                     <PropertyRow label="PCB pad UUID" value={terminal?.pcbPadUuid} />
                                 </dl>
-                            </section>
+                            </CollapsibleSection>
                         </>
                     )}
 
