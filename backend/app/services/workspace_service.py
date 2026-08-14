@@ -20,6 +20,31 @@ from app.services.workspace_schema_migrations import apply_workspace_migrations
 
 logger = logging.getLogger(__name__)
 
+_RELEASE_IMMUTABLE_TRIGGERS = (
+    ("ws_release_approvals", "trg_ws_release_approvals_immutable"),
+    (
+        "ws_release_approval_invalidations",
+        "trg_ws_release_approval_invalidations_immutable",
+    ),
+    ("ws_release_audit_events", "trg_ws_release_audit_events_immutable"),
+    ("ws_release_waivers", "trg_ws_release_waivers_no_delete"),
+    ("ws_release_records", "trg_ws_release_records_guard"),
+)
+
+
+class ProjectHasSignedReleasesError(Exception):
+    """Raised when a non-admin delete is blocked by signed release records."""
+
+    def __init__(self, project_id: str, record_count: int) -> None:
+        self.project_id = project_id
+        self.record_count = record_count
+        super().__init__(
+            "This project has signed release records and cannot be deleted. "
+            "An admin can permanently delete the project and its associated "
+            "release history."
+        )
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -342,7 +367,7 @@ class WorkspaceService:
     ) -> Optional[Dict[str, Any]]:
         """Resolve and authorize a project in one PostgreSQL query."""
 
-        viewer_fallback = user_role in {"viewer", "component_designer", "component_qa"}
+        viewer_fallback = user_role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -457,11 +482,122 @@ class WorkspaceService:
             conn.commit()
         return len(normalized_ids)
 
-    def delete_project(self, project_id: str) -> bool:
+    def delete_project(self, project_id: str, *, force: bool = False) -> bool:
+        """Remove a project and its workspace/release-studio listings.
+
+        Release Studio history uses ``ON DELETE RESTRICT`` plus immutability
+        triggers so accidental cascades cannot erase an audit chain. Project
+        deletion is the explicit teardown path: unsigned candidates, builds,
+        waivers, and audit events are always removed. Signed release records
+        require ``force=True`` (admin).
+        """
         with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM ws_projects WHERE id=%s FOR UPDATE",
+                (project_id,),
+            ).fetchone()
+            if not row:
+                return False
+
+            if not force:
+                signed = conn.execute(
+                    "SELECT COUNT(*) AS n FROM ws_release_records WHERE project_id=%s",
+                    (project_id,),
+                ).fetchone()
+                record_count = int(signed["n"]) if signed else 0
+                if record_count:
+                    raise ProjectHasSignedReleasesError(project_id, record_count)
+
+            self._purge_project_associated_rows(conn, project_id)
             cur = conn.execute("DELETE FROM ws_projects WHERE id=%s", (project_id,))
+            conn.execute("DELETE FROM ws_jobs WHERE project_id=%s", (project_id,))
             conn.commit()
         return cur.rowcount > 0
+
+    def _purge_project_associated_rows(self, conn: Any, project_id: str) -> None:
+        """Drop RESTRICT/immutable rows that would otherwise block DELETE."""
+        for table, trigger in _RELEASE_IMMUTABLE_TRIGGERS:
+            conn.execute(f"ALTER TABLE {table} DISABLE TRIGGER {trigger}")
+        try:
+            conn.execute(
+                """
+                UPDATE ws_release_findings
+                   SET waiver_id = NULL
+                 WHERE waiver_id IN (
+                     SELECT id FROM ws_release_waivers WHERE project_id = %s
+                 )
+                """,
+                (project_id,),
+            )
+            conn.execute(
+                """
+                DELETE FROM ws_artifact_release_pins
+                 WHERE pin_ref IN (
+                           SELECT b.id
+                             FROM ws_release_builds b
+                             JOIN ws_release_candidates c ON c.id = b.candidate_id
+                            WHERE c.project_id = %s
+                       )
+                    OR pin_ref IN (
+                           SELECT id FROM ws_release_records WHERE project_id = %s
+                       )
+                    OR artifact_id IN (
+                           SELECT dossier_artifact_id
+                             FROM ws_release_builds b
+                             JOIN ws_release_candidates c ON c.id = b.candidate_id
+                            WHERE c.project_id = %s
+                              AND dossier_artifact_id IS NOT NULL
+                           UNION
+                           SELECT evidence_artifact_id
+                             FROM ws_release_builds b
+                             JOIN ws_release_candidates c ON c.id = b.candidate_id
+                            WHERE c.project_id = %s
+                              AND evidence_artifact_id IS NOT NULL
+                           UNION
+                           SELECT attestation_artifact_id
+                             FROM ws_release_records
+                            WHERE project_id = %s
+                              AND attestation_artifact_id IS NOT NULL
+                       )
+                """,
+                (project_id, project_id, project_id, project_id, project_id),
+            )
+            conn.execute(
+                """
+                DELETE FROM ws_release_web_shares
+                 WHERE record_id IN (
+                     SELECT id FROM ws_release_records WHERE project_id = %s
+                 )
+                """,
+                (project_id,),
+            )
+            conn.execute(
+                "UPDATE ws_release_records SET superseded_by = NULL WHERE project_id = %s",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM ws_release_records WHERE project_id = %s",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM ws_release_approvals WHERE project_id = %s",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM ws_release_waivers WHERE project_id = %s",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM ws_release_audit_events WHERE project_id = %s",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM ws_webgpu_ready WHERE project_id = %s",
+                (project_id,),
+            )
+        finally:
+            for table, trigger in _RELEASE_IMMUTABLE_TRIGGERS:
+                conn.execute(f"ALTER TABLE {table} ENABLE TRIGGER {trigger}")
 
     # ------------------------------------------------------------------
     # Job CRUD
@@ -814,7 +950,7 @@ class WorkspaceService:
     def get_bootstrap_data(self, user_role: Optional[Role] = None) -> Dict[str, Any]:
         role = user_role or "admin"
         bypass_visibility = user_role is None
-        viewer_fallback = role in {"viewer", "component_designer", "component_qa"}
+        viewer_fallback = role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
                 """

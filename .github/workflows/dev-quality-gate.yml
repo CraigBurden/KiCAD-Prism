@@ -5,10 +5,15 @@ on:
     branches:
       - dev
       - main
+      - feature/release-studio
   push:
     branches:
       - dev
       - main
+      - feature/release-studio
+  schedule:
+    # Live KiCad is not on every feature commit; keep a daily executor check.
+    - cron: "17 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -259,6 +264,51 @@ jobs:
             echo "  $scheme: compose configuration is valid"
           done
 
+  kicad-live:
+    name: Release Studio live KiCad
+    # Rebuilds the Prism backend image (FROM pinned kicad/kicad). That proves
+    # kicad-cli and the baked executor identity. It is not compiling KiCad, and
+    # it is not a per-commit concern — run it where a merge or nightly matters.
+    if: >-
+      github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev'))
+      || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build backend image from Dockerfile KiCad default
+        run: >-
+          docker build
+          --platform linux/amd64
+          --build-arg KICAD_BASE_PLATFORM=linux/amd64
+          --tag release-studio-live-kicad:ci
+          --file backend/Dockerfile
+          .
+
+      - name: Run Release Studio live KiCad tests
+        run: |
+          set -euo pipefail
+          BAKED_IMAGE="$(docker run --rm --entrypoint /bin/cat release-studio-live-kicad:ci /etc/prism/kicad-base-image | tr -d '\r\n')"
+          if [[ ! "$BAKED_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]; then
+            echo "baked KiCad base image must end with @sha256:<64 lowercase hex>; got: ${BAKED_IMAGE}" >&2
+            exit 1
+          fi
+          export PRISM_RELEASE_EXECUTOR_IMAGE="$BAKED_IMAGE"
+          echo "PRISM_RELEASE_EXECUTOR_IMAGE=${PRISM_RELEASE_EXECUTOR_IMAGE}"
+
+          docker run --rm \
+            --platform linux/amd64 \
+            --env "PRISM_RELEASE_EXECUTOR_IMAGE=${PRISM_RELEASE_EXECUTOR_IMAGE}" \
+            --volume "${GITHUB_WORKSPACE}/fixtures/release-studio:/fixtures/release-studio:ro" \
+            --entrypoint /app/venv/bin/python \
+            release-studio-live-kicad:ci \
+            -m tests.release_studio_live_runner
+
   quality-gate:
     name: Quality gate
     if: ${{ always() }}
@@ -267,6 +317,7 @@ jobs:
       - backend
       - semantic-viewer
       - deployment-config
+      - kicad-live
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -277,8 +328,16 @@ jobs:
           BACKEND_RESULT: ${{ needs.backend.result }}
           VIEWER_RESULT: ${{ needs.semantic-viewer.result }}
           DEPLOYMENT_RESULT: ${{ needs.deployment-config.result }}
+          KICAD_LIVE_RESULT: ${{ needs.kicad-live.result }}
         run: |
           test "$FRONTEND_RESULT" = "success"
           test "$BACKEND_RESULT" = "success"
           test "$VIEWER_RESULT" = "success"
           test "$DEPLOYMENT_RESULT" = "success"
+          case "$KICAD_LIVE_RESULT" in
+            success|skipped) ;;
+            *)
+              echo "Release Studio live KiCad: $KICAD_LIVE_RESULT" >&2
+              exit 1
+              ;;
+          esac

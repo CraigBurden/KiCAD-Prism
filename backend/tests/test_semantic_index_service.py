@@ -106,6 +106,44 @@ class SemanticIndexServiceTests(unittest.TestCase):
         self.assertFalse(design.include_pcb)
         self.assertEqual(payload["components"], [])
 
+    def test_an_injected_pcb_is_not_reparsed(self) -> None:
+        class FakeDesign:
+            def __init__(self):
+                self._pcb = None
+
+            def to_netlist(self):
+                return SimpleNamespace(components=[], nets=[])
+
+            @property
+            def pcb(self):
+                if self._pcb is not None:
+                    return self._pcb
+                raise AssertionError("semantic index re-parsed the PCB")
+
+            def to_json(self, include_indexes=True, *, include_pcb=True):
+                return {"components": [], "nets": []}
+
+        design = FakeDesign()
+        injected = object()
+
+        class FakeKiCadDesign:
+            @staticmethod
+            def from_project_file(_path):
+                return design
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            sys.modules,
+            {"kicad_monkey": SimpleNamespace(KiCadDesign=FakeKiCadDesign)},
+        ):
+            semantic_index_service.build_semantic_index(
+                Path(temporary) / "board.kicad_pro",
+                source_revision_key="revision-a",
+                pcb=injected,
+            )
+
+        self.assertIs(design._pcb, injected)
+        self.assertIs(design.pcb, injected)
+
     def test_full_bundle_overlay_commits_bundle_json_last(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

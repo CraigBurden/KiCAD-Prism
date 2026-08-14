@@ -244,7 +244,17 @@ class Settings(BaseSettings):
     # ===========================================
     GITHUB_TOKEN: str = Field(
         default="",
-        description="GitHub Personal Access Token for private repository access."
+        description=(
+            "GitHub token for HTTPS clone and Release publishing. "
+            "Publishing a Release Studio zip needs contents:write, not clone-only."
+        ),
+    )
+    GITLAB_TOKEN: str = Field(
+        default="",
+        description=(
+            "GitLab token for Release publishing. Creating a Release needs api scope; "
+            "the workspace SSH key can clone but cannot publish."
+        ),
     )
 
     COMMENTS_API_BASE_URL: str = Field(

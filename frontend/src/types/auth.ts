@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "designer" | "viewer" | "component_designer" | "component_qa";
+export type UserRole = "admin" | "designer" | "viewer" | "qa";
 
 export interface User {
     name: string;

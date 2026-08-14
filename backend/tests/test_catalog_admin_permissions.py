@@ -19,7 +19,7 @@ class CatalogAdminPermissionTests(unittest.TestCase):
     def test_only_admins_can_manage_metadata_field_definitions(self) -> None:
         admin = AuthenticatedUser(email="admin@example.com", name="Admin", role="admin")
         designer = AuthenticatedUser(
-            email="designer@example.com", name="Designer", role="component_designer"
+            email="designer@example.com", name="Designer", role="designer"
         )
 
         _require_field_admin(admin)
@@ -49,13 +49,14 @@ class CatalogAdminPermissionTests(unittest.TestCase):
 
     def test_workflow_transition_permissions_match_component_roles(self) -> None:
         admin = AuthenticatedUser(email="admin@example.com", name="Admin", role="admin")
-        designer = AuthenticatedUser(email="designer@example.com", name="Designer", role="component_designer")
-        qa = AuthenticatedUser(email="qa@example.com", name="QA", role="component_qa")
-        read_only = AuthenticatedUser(email="viewer@example.com", name="Viewer", role="designer")
+        designer = AuthenticatedUser(email="designer@example.com", name="Designer", role="designer")
+        qa = AuthenticatedUser(email="qa@example.com", name="QA", role="qa")
+        read_only = AuthenticatedUser(email="viewer@example.com", name="Viewer", role="viewer")
 
         self.assertTrue(_can_transition_workflow(admin, "qa_review", "done"))
         self.assertFalse(_can_transition_workflow(designer, "qa_review", "done"))
         self.assertTrue(_can_transition_workflow(designer, "in_progress", "qa_review"))
+        self.assertTrue(_can_transition_workflow(designer, "done", "released"))
         self.assertTrue(_can_transition_workflow(qa, "qa_review", "done"))
         self.assertTrue(_can_transition_workflow(qa, "qa_review", "in_progress"))
         self.assertTrue(_can_transition_workflow(qa, "qa_review", "archived"))

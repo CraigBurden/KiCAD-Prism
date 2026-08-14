@@ -21,6 +21,9 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       args:
+        # Both must be passed together. Passing only the platform lets the
+        # Dockerfile's AMD64-only default digest be forced to another platform,
+        # which builds a mixed-architecture image that fails in confusing ways.
         KICAD_BASE_IMAGE: ${KICAD_BASE_IMAGE:-kicad/kicad:10.0.4@sha256:ee71e88396f8563168eb1ef282cda9ff2670fe86a677c63dd78b35e3d464454c}
         KICAD_BASE_PLATFORM: ${KICAD_BASE_PLATFORM:-linux/amd64}
     platform: ${DOCKER_PLATFORM:-linux/amd64}
@@ -40,6 +43,9 @@ services:
       - ./data/projects:/app/projects
       # Mount SSH directory for Git persistence (GitLab/GitHub SSH)
       - ./data/ssh:/root/.ssh:rw
+      # Release Studio signing key. Read-only, and mounted only into the API:
+      # the private key must never reach the worker or the database.
+      - ./data/secrets:/run/secrets/prism:ro
     environment:
       - PYTHONUNBUFFERED=1
       # Root directory for storing projects
@@ -86,8 +92,9 @@ services:
       - DEV_GUEST_ROLE=${DEV_GUEST_ROLE:-viewer}
       # Development affordances only; this no longer disables authentication.
       - DEV_MODE=false
-      # GitHub Token for private repository access (optional)
+      # GitHub Token for private repository access and Release publishing (optional)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITLAB_TOKEN=${GITLAB_TOKEN:-}
       - PRISM_DATABASE_URL=${PRISM_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
       - PRISM_DATABASE_POOL_MIN_SIZE=${PRISM_DATABASE_POOL_MIN_SIZE:-1}
       - PRISM_DATABASE_POOL_MAX_SIZE=${PRISM_DATABASE_POOL_MAX_SIZE:-10}

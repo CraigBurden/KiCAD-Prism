@@ -51,7 +51,8 @@ Database capacity must cover all API and worker pools, not only one process.
 
 | Setting | Purpose |
 | --- | --- |
-| `GITHUB_TOKEN` | optional private GitHub HTTPS credential |
+| `GITHUB_TOKEN` | optional private GitHub HTTPS credential for clone **and** Release publish (`contents:write`) |
+| `GITLAB_TOKEN` | optional private GitLab HTTPS credential for clone **and** Release publish (`api` scope) |
 | `IMPORT_ALLOWED_HOSTS_STR` | comma-separated Git host allowlist |
 | `IMPORT_ALLOW_INSECURE_HTTP` | permits plaintext HTTP remotes when explicitly required |
 | `GIT_SCAN_KNOWN_HOSTS_ON_STARTUP` | optional host-key discovery during startup |
@@ -94,9 +95,11 @@ KICAD_BASE_PLATFORM=linux/amd64
 DOCKER_PLATFORM=linux/amd64
 ```
 
-The repository default also pins `KICAD_BASE_IMAGE` to the selected stable KiCad
-AMD64 manifest digest. The public source-build and release targets are Linux
-AMD64.
+The repository default pins `KICAD_BASE_IMAGE` in `backend/Dockerfile` to the
+selected stable KiCad AMD64 manifest digest. Compose does not duplicate that
+default; override at build time with
+`docker compose build --build-arg KICAD_BASE_IMAGE=...`. The public
+source-build and release targets are Linux AMD64.
 
 ## Project-level `.prism.json`
 

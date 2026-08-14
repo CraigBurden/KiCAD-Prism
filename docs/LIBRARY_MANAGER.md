@@ -7,10 +7,10 @@ evidence, and exports.
 
 ## Roles
 
-- `component_designer`: create, import, edit, and submit components.
-- `component_qa`: review, return, approve, and release according to the workflow.
+- `designer`: create, import, edit, and submit components, and click Released after QA has approved.
+- `qa`: review, return, and approve components in QA review.
 - `admin`: all catalog actions and exceptional administration.
-- `designer`: catalog read access but not catalog authoring.
+- `viewer`: no catalog access.
 
 Users currently have one role. See
 [Authentication and access](AUTHENTICATION_AND_ACCESS.md).
@@ -106,8 +106,8 @@ QA users should work from Release Queue, verify the exact revision and attached
 evidence, record a review note where appropriate, and release only after the
 item reaches `done`.
 
-Two-person approval prevents a revision author from approving or releasing the
-same revision.
+Two-person approval prevents a revision author from taking the item from QA
+review to Approved. After QA has approved, the same designer may click Released.
 
 ## Placeability
 

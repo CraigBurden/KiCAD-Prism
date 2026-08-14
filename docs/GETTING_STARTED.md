@@ -41,8 +41,10 @@ PRISM_WORKER_CONCURRENCY=1
 CATALOG_WORKER_CONCURRENCY=1
 ```
 
-This grants every visitor administrator access. Use it only on a private
-machine with the frontend bound to loopback.
+This grants every visitor the guest role. `viewer` is enough to inspect.
+To start Release Studio builds and complete dual sign-off as one person, set
+`DEV_GUEST_ROLE=admin`. A guest `designer` cannot skip the QA slot. Use guest
+mode only on a private machine with the frontend bound to loopback.
 
 Start the digest-pinned images:
 
@@ -72,6 +74,10 @@ AUTH_ENABLED=false
 DEV_GUEST_ROLE=viewer
 UVICORN_WORKERS=1
 ```
+
+`DEV_GUEST_ROLE=viewer` is enough to inspect projects. To start Release Studio
+builds and complete dual sign-off as one person, set `DEV_GUEST_ROLE=admin`.
+A guest `designer` cannot skip the QA slot.
 
 The root configuration defaults to the pinned stable AMD64 KiCad base:
 

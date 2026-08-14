@@ -45,14 +45,36 @@ def initialize_role_store() -> None:
                 """
                 CREATE TABLE IF NOT EXISTS user_roles (
                     email TEXT PRIMARY KEY,
-                    role TEXT NOT NULL CHECK (role IN ('admin', 'designer', 'viewer', 'component_designer', 'component_qa')),
+                    role TEXT NOT NULL CHECK (role IN ('admin', 'designer', 'viewer', 'qa')),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_by TEXT NOT NULL
                 )
                 """
             )
+            _migrate_legacy_roles(connection)
             connection.commit()
         _initialized = True
+
+
+def _migrate_legacy_roles(connection: object) -> None:
+    """Map archived catalog-only roles onto the current four-role model."""
+
+    connection.execute(  # type: ignore[attr-defined]
+        "ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_role_check"
+    )
+    connection.execute(  # type: ignore[attr-defined]
+        "UPDATE user_roles SET role = 'designer' WHERE role = 'component_designer'"
+    )
+    connection.execute(  # type: ignore[attr-defined]
+        "UPDATE user_roles SET role = 'qa' WHERE role = 'component_qa'"
+    )
+    connection.execute(  # type: ignore[attr-defined]
+        """
+        ALTER TABLE user_roles
+        ADD CONSTRAINT user_roles_role_check
+        CHECK (role IN ('admin', 'designer', 'viewer', 'qa'))
+        """
+    )
 
 
 def _load_explicit_user_role(normalized_email: str) -> Role | None:

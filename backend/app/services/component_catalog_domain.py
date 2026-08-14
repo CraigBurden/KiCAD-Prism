@@ -6578,11 +6578,11 @@ class ComponentCatalogDomainService:
                 raise ValueError("A review note is required when requesting changes")
             if (
                 actor
-                and release_status in {"done", "released"}
+                and release_status == "done"
                 and str(revision.get("created_by") or "").casefold() == actor.casefold()
                 and not self_approval_override_reason.strip()
             ):
-                raise ValueError("Two-person approval required: revision authors cannot approve or release their own revision")
+                raise ValueError("Two-person approval required: revision authors cannot approve their own revision")
 
             assets = self._load_assets_for_revision(conn, revision["id"])
             validation = self._component_validation_summary(conn, str(revision["id"]), assets)

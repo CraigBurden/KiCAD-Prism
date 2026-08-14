@@ -2,8 +2,9 @@
 ARG KICAD_MONKEY_VARIANT=kicad-monkey-upstream
 
 # KiCad CLI runtime. Release/source defaults are reproducible and AMD64-only.
-# Developers can override both build args in an uncommitted .env when testing
-# another native runtime.
+# Compose supplies the platform from its environment file. Select a different
+# base image explicitly with `docker compose build --build-arg`; it is not a
+# runtime environment value.
 ARG KICAD_BASE_PLATFORM=linux/amd64
 ARG KICAD_BASE_IMAGE=kicad/kicad:10.0.4@sha256:ee71e88396f8563168eb1ef282cda9ff2670fe86a677c63dd78b35e3d464454c
 
@@ -15,7 +16,11 @@ COPY frontend/ .
 RUN npm run build:panel
 
 FROM --platform=${KICAD_BASE_PLATFORM} ${KICAD_BASE_IMAGE} AS prism-runtime
+# Redeclare so the value that satisfied FROM is available in this stage and can
+# be baked into the image as the Release Studio executor identity.
+ARG KICAD_BASE_IMAGE
 ARG KICAD_LIBRARY_UTILS_REF=7124a92887b2280f85cfe2d5abb216062978d5e1
+LABEL prism.release.kicad_base_image="${KICAD_BASE_IMAGE}"
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -57,6 +62,10 @@ RUN git clone --depth 1 https://gitlab.com/kicad/libraries/kicad-library-utils.g
 WORKDIR /app
 
 ENV UV_NO_CACHE=1
+# Pin the interpreter rather than inheriting the base image's system Python.
+# The KiCad 10.0.4 base ships 3.13; Prism's dependency set -- kicad-monkey and
+# kicad-cruncher in particular -- is validated on 3.12, so the venv selects it
+# explicitly and a base-image Python bump cannot silently move it.
 RUN uv python install 3.12 \
     && uv venv /app/venv --python 3.12
 ENV PATH="/app/venv/bin:$PATH"
@@ -90,6 +99,12 @@ RUN cd /opt/kicad-prism-viewer && npm run build
 COPY backend/ .
 COPY scripts/ scripts/
 COPY --from=remote-provider-panel /panel/dist/remote_provider/ /app/app/static/remote_provider/
+
+# Stable on-disk identity for toolchain_digest / live CI. Written late so the
+# expensive layers above stay cacheable when only executor identity changes.
+RUN mkdir -p /etc/prism \
+    && printf '%s\n' "${KICAD_BASE_IMAGE}" > /etc/prism/kicad-base-image \
+    && chmod 0644 /etc/prism/kicad-base-image
 
 # Expose backend port
 EXPOSE 8000

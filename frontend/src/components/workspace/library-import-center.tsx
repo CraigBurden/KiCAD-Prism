@@ -415,7 +415,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           <PermissionHint
             blocked={!canWrite}
             action="import components into the catalog"
-            allowedRoles={["component_designer", "admin"]}
+            allowedRoles={["designer", "admin"]}
             className="max-w-4xl"
           >
           <div className="flex flex-wrap items-center justify-end gap-2">

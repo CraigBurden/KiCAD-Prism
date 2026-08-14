@@ -84,8 +84,10 @@ class JobArtifactService:
         schema_version: str = "",
         generator_version: str = "",
         readiness: str = "ready",
+        allow_cancel_requested: bool = False,
     ) -> PreparedArtifact:
-        context.check_cancelled()
+        if not allow_cancel_requested:
+            context.check_cancelled()
         source = source.resolve()
         try:
             source.relative_to(context.staging_dir.resolve())

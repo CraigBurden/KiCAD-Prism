@@ -2,7 +2,14 @@ from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.core.roles import CATALOG_READ_ROLES, CATALOG_WRITE_ROLES, Role, normalize_role, role_meets_minimum
+from app.core.roles import (
+    CATALOG_READ_ROLES,
+    CATALOG_WRITE_ROLES,
+    PROJECT_RELEASE_ACTOR_ROLES,
+    Role,
+    normalize_role,
+    role_meets_minimum,
+)
 from app.core.session import SESSION_COOKIE_NAME, decode_session_token
 from app.services import (
     access_service,
@@ -134,6 +141,22 @@ async def require_admin(user: AuthenticatedUser = Depends(get_current_user)) -> 
         raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot access admin APIs")
     if not role_meets_minimum(user.role, "admin"):
         raise HTTPException(status_code=403, detail="Admin role required")
+    return user
+
+
+async def require_project_release_actor(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    """Designer, QA, or Admin: approve or publish a project release.
+
+    Starting a build still uses ``require_designer``. QA is intentionally
+    below designer in ``ROLE_ORDER``, so a rank check cannot express this.
+    """
+
+    if user.auth_type == "kicad_provider":
+        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens cannot modify Prism resources")
+    if user.role not in PROJECT_RELEASE_ACTOR_ROLES:
+        raise HTTPException(status_code=403, detail="Designer, QA, or Admin role required")
     return user
 
 

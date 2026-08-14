@@ -54,17 +54,15 @@ invalidates provider tokens signed with the old value.
 
 Each user currently has exactly one role:
 
-| Role | Project access | Project mutations | Catalog access |
-| --- | --- | --- | --- |
-| `viewer` | browse and review | none | none |
-| `designer` | browse and review | import, sync, comments, workflows, organization | read |
-| `component_designer` | browse and review | none | create and edit drafts |
-| `component_qa` | browse and review | none | QA and release actions |
-| `admin` | full | full | full |
+| Role | Project access | Project mutations | Catalog access | Project releases |
+| --- | --- | --- | --- | --- |
+| `viewer` | browse and review | none | none | inspect |
+| `designer` | browse and review | import, sync, comments, workflows, organization | create and edit drafts; Released after QA | start builds, Designer sign-off, publish after dual sign-off |
+| `qa` | browse and review | none | QA review actions | QA sign-off, publish after dual sign-off |
+| `admin` | full | full | full | either sign-off with a written override, publish |
 
-This is not yet a composable permission model. A person who must both import
-projects and author catalog components needs `admin` today. Account for that
-constraint when assigning responsibilities.
+This is not a composable permission model. `designer` covers both project work
+and catalog authoring. Independent QA still requires a separate `qa` account.
 
 Use `BOOTSTRAP_ADMIN_USERS_STR` only to establish initial administrators. After
 first login, manage ordinary assignments in Settings. `DEFAULT_VIEWER_DOMAINS_STR`
@@ -81,6 +79,9 @@ DEV_GUEST_ROLE=viewer
 Guest mode removes the login wall and grants the selected role to every request.
 Use it only for a deliberately public read-only demonstration or a private local
 development instance. Never use guest `admin` on a shared network.
+
+A single-user evaluation that must start builds **and** complete dual sign-off
+should set `DEV_GUEST_ROLE=admin`. A guest `designer` cannot skip the QA slot.
 
 `DEV_MODE` does not disable authentication.
 

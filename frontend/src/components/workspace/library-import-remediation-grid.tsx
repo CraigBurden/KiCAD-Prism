@@ -579,7 +579,7 @@ export function LibraryImportRemediationGrid({
         <PermissionHint
           blocked={!canWrite}
           action="edit or accept import proposals"
-          allowedRoles={["component_designer", "admin"]}
+          allowedRoles={["designer", "admin"]}
           className="ml-auto"
         >
         <div className="flex flex-wrap items-center gap-2">
