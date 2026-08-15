@@ -59,6 +59,9 @@ export function WorkspaceGalleryView({
 }: WorkspaceGalleryViewProps) {
   const projectGridClass = propertiesPanelOpen ? PROJECT_GRID_CLASS_COMPACT : PROJECT_GRID_CLASS;
   const folderGridClass = propertiesPanelOpen ? FOLDER_GRID_CLASS_COMPACT : FOLDER_GRID_CLASS;
+  const selectCheckboxClass = propertiesPanelOpen
+    ? "h-4 w-4 border-2 bg-background/95 shadow-md"
+    : "h-5 w-5 border-2 bg-background/95 shadow-md";
 
   return (
     <div className="space-y-6">
@@ -82,7 +85,7 @@ export function WorkspaceGalleryView({
                       onDoubleClick={(event) => event.stopPropagation()}
                     >
                       <Checkbox
-                        className="h-5 w-5 border-2 bg-background/95 shadow-md"
+                        className={selectCheckboxClass}
                         checked={bulkSelectedProjectIds.has(project.id)}
                         onCheckedChange={(checked) => onToggleProjectSelection(project.id, checked === true)}
                         aria-label={`Select ${getProjectDisplayName(project)}`}
@@ -91,6 +94,7 @@ export function WorkspaceGalleryView({
                   )}
                   <ProjectCard
                     project={project}
+                    dense={propertiesPanelOpen}
                     selected={selectedProjectId === project.id || bulkSelectedProjectIds.has(project.id)}
                     searchQuery={searchQuery}
                     onClick={() => onSelectProject(project)}
@@ -176,7 +180,7 @@ export function WorkspaceGalleryView({
                         onDoubleClick={(event) => event.stopPropagation()}
                       >
                         <Checkbox
-                          className="h-5 w-5 border-2 bg-background/95 shadow-md"
+                          className={selectCheckboxClass}
                           checked={bulkSelectedProjectIds.has(project.id)}
                           onCheckedChange={(checked) => onToggleProjectSelection(project.id, checked === true)}
                           aria-label={`Select ${getProjectDisplayName(project)}`}
@@ -185,6 +189,7 @@ export function WorkspaceGalleryView({
                     )}
                     <ProjectCard
                       project={project}
+                      dense={propertiesPanelOpen}
                       selected={selectedProjectId === project.id || bulkSelectedProjectIds.has(project.id)}
                       onClick={() => onSelectProject(project)}
                       onDoubleClick={() => onOpenProject(project)}

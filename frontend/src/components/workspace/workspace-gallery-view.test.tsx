@@ -61,6 +61,7 @@ describe("WorkspaceGalleryView project selection", () => {
     const { getByTestId } = renderGallery({ propertiesPanelOpen: true });
     expect(getByTestId("project-gallery-grid").className).toContain("minmax(220px");
     expect(getByTestId("project-gallery-grid").className).not.toContain("xl:grid-cols-4");
+    expect(screen.getByRole("checkbox", { name: "Select Card Board" })).toHaveClass("h-4", "w-4");
   });
 });
 
