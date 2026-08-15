@@ -16,7 +16,7 @@ from app.api.oauth import router as oauth_router
 from app.api.service_clients import router as service_clients_router
 from app.api.jobs import router as jobs_router
 from app.api.health import router as health_router
-from app.services import rate_limit_service, session_store_service
+from app.services import password_credential_service, rate_limit_service, session_store_service
 from app.services.comments_store_service import initialize_comments_store
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
@@ -172,6 +172,17 @@ async def lifespan(app: FastAPI):
         session_store_service.initialize_session_store()
         session_store_service.prune_expired_sessions()
         rate_limit_service.initialize_rate_limit_store()
+        try:
+            seeded = password_credential_service.seed_bootstrap_admins()
+            if seeded:
+                logger.warning(
+                    "Seeded a one-time bootstrap password for: %s. They must "
+                    "change it on first sign-in; clear BOOTSTRAP_ADMIN_PASSWORD "
+                    "afterwards.",
+                    ", ".join(seeded),
+                )
+        except Exception:
+            logger.exception("Failed to seed bootstrap admin password")
     try:
         yield
     finally:
