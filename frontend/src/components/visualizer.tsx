@@ -11,7 +11,7 @@ import { EcadViewerControls } from "./ecad-viewer-controls";
 import { CommentForm, type CommentFormSubmitPayload } from "./comment-form";
 import { CommentCard } from "./comment-card";
 import { CommentPanel } from "./comment-panel";
-import { ViewerOverlayRail } from "./viewer-overlay-rail";
+import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-overlay-rail";
 import { fetchApi, readApiError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { canWriteCatalog } from "@/lib/roles";
@@ -1432,6 +1432,12 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         onClose={() => setRightRailTab(null)}
                         onVisibleWidthChange={setRightRailInset}
                         ariaLabel="Viewer details"
+                        resizable={
+                            (activeTab === "sch" || activeTab === "pcb")
+                                && rightRailTab === "selection"
+                                ? SELECTION_INSPECTOR_RAIL_RESIZE
+                                : undefined
+                        }
                     >
                         {rightRailTab === "comments" ? (
                             <CommentPanel
