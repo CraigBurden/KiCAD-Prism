@@ -1147,7 +1147,14 @@ class ComponentCatalogDomainService:
         for field in ("value", "description", "datasheet_url", "manufacturer", "mpn"):
             if not normalized[field]:
                 raise ValueError(f"{field} is required")
-        normalized["name"] = normalized["mpn"] or normalized["value"]
+        # An explicit name wins. Database-library imports carry an internal part
+        # number that is not the manufacturer part number, and deriving the name
+        # from `mpn` would drop it from the record entirely.
+        normalized["name"] = (
+            str(payload.get("name") or "").strip()
+            or normalized["mpn"]
+            or normalized["value"]
+        )
         normalized["summary"] = normalized["description"]
         raw_extra_fields = payload.get("extra_fields") or payload.get("fields") or {}
         normalized["extra_fields"] = {
