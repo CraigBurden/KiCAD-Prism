@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.comments import router as comments_router
-from app.api.diff import router as diff_router
 from app.api.design_compare import router as design_compare_router
 from app.api.release_studio import router as release_studio_router
 from app.api.folders import router as folders_router
@@ -208,7 +207,6 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 app.include_router(comments_router, prefix="/api/projects", tags=["comments"])
-app.include_router(diff_router, prefix="/api/projects", tags=["diff"])
 app.include_router(design_compare_router, prefix="/api/projects", tags=["design-compare"])
 app.include_router(release_studio_router, prefix="/api/projects", tags=["release-studio"])
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
