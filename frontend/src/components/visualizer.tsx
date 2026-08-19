@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EngineeringBomTable } from "./engineering-bom-table";
-import { SelectionInspector, type LabelInstanceRef } from "./selection-inspector";
+import { SelectionInspector } from "./selection-inspector";
+import { filterLabelInstances, type LabelInstanceRef } from "@/lib/label-instances";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
 import { EcadViewerControls } from "./ecad-viewer-controls";
 import { CommentForm, type CommentFormSubmitPayload } from "./comment-form";
@@ -896,37 +897,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             return;
         }
 
-        const itemType = (selection.anchor?.itemType || "").toLowerCase();
-        if (itemType !== "global-label" && itemType !== "label") {
-            setLabelInstances([]);
-            return;
-        }
-
         const all = viewer.findLabelInstances(selection.netName);
-        const pageHint =
-            activeSchematicPage?.filename ||
-            selection.anchor?.page ||
-            selection.anchor?.sheet ||
-            undefined;
-        const sheetBase = (value: string) => {
-            const parts = value.split("/").filter(Boolean);
-            return parts[parts.length - 1] || value;
-        };
-        const sheetMatches = (sheet: string, page: string | undefined) => {
-            if (!page) return true;
-            if (sheet === page) return true;
-            return sheetBase(sheet) === sheetBase(page);
-        };
-
-        const filtered =
-            itemType === "global-label"
-                ? all.filter((instance) => instance.kind === "global")
-                : all.filter(
-                      (instance) =>
-                          instance.kind === "net" && sheetMatches(instance.sheet, pageHint),
-                  );
-        setLabelInstances(filtered);
-    }, [activeSchematicPage?.filename, globalSelection, schematicViewerElement]);
+        setLabelInstances(filterLabelInstances(all, selection.anchor?.itemType));
+    }, [globalSelection, schematicViewerElement]);
 
     const focusLabelInstance = useCallback(async (uuid: string) => {
         const viewer = schematicViewerRef.current;
