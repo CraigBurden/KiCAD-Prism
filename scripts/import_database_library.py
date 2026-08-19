@@ -119,6 +119,11 @@ class ImportStats:
     mpn_fallback: int = 0
 
 
+# Actor recorded on revisions this importer creates. Downstream tooling uses it
+# to tell components that came from a database library apart from components
+# that merely share a name with one.
+DATABASE_LIBRARY_IMPORT_ACTOR = "system:import_database_library"
+
 # The database library carries the real manufacturer part number in its own
 # column; the "Part Number" column is the library's internal part number. Older
 # imports wrote the internal number into `mpn`, which made every component
@@ -417,7 +422,7 @@ def _insert_import_component(
             summary, keywords, extra_fields, search_document, created_at, updated_at
         )
         VALUES (
-            %s, %s, 1, '', 'import', 'Imported from database library', 'system:import_database_library',
+            %s, %s, 1, '', 'import', 'Imported from database library', %s,
             '', %s, 'open', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s
         )
@@ -425,6 +430,7 @@ def _insert_import_component(
         (
             revision_id,
             component_id,
+            DATABASE_LIBRARY_IMPORT_ACTOR,
             REVISION_MANIFEST_A2,
             metadata["name"],
             metadata["value"],
@@ -767,7 +773,7 @@ def _import_plans(
         service._ensure_extra_field_definitions(  # type: ignore[attr-defined]
             target_conn,
             sorted(discovered_keys),
-            actor="system:import_database_library",
+            actor=DATABASE_LIBRARY_IMPORT_ACTOR,
         )
 
     for plan in plans:

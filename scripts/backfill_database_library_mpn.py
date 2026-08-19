@@ -85,6 +85,7 @@ class BackfillStats:
     already_correct: int = 0
     updated: int = 0
     released: int = 0
+    repaired_in_workflow: int = 0
     skipped_not_place_ready: int = 0
     failed: int = 0
     mpn_recovered: int = 0
@@ -134,6 +135,15 @@ def _build_source_index(
 
 
 def _catalog_rows(conn: Any) -> list[dict[str, Any]]:
+    """Components that actually came from a database-library import.
+
+    Provenance is taken from the component's first revision, not its current
+    one, because repairing a component rewrites `created_by` on the revision it
+    creates -- keying off the current revision would make a second run find
+    nothing. Names are not evidence of origin: a component imported from a
+    symbol library can carry a name that happens to equal a database library's
+    part number, and repairing it would rewrite a part the library never owned.
+    """
     rows = conn.execute(
         """
         SELECT
@@ -148,8 +158,16 @@ def _catalog_rows(conn: Any) -> list[dict[str, Any]]:
         JOIN component_revisions revision ON revision.id = component.current_revision_id
         WHERE component.source = 'import'
           AND component.is_active = 1
+          AND EXISTS (
+              SELECT 1
+              FROM component_revisions origin
+              WHERE origin.component_id = component.id
+                AND origin.version = 1
+                AND origin.created_by = %s
+          )
         ORDER BY revision.name
-        """
+        """,
+        (importer.DATABASE_LIBRARY_IMPORT_ACTOR,),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -384,15 +402,20 @@ def _repair_component(
     stats: BackfillStats,
 ) -> bool:
     component_id = str(row["component_id"])
-    place_ready, missing = _is_place_ready(service, conn, str(row["revision_id"]))
-    if not place_ready and not force:
-        stats.skipped_not_place_ready += 1
-        _record_error(
-            stats,
-            f"{row['name']}: not place-ready ({', '.join(missing) or 'unknown'}); "
-            "rerun with --force to release anyway",
-        )
-        return False
+    parent_status = str(row["release_status"] or "")
+    # Completeness only gates publishing. A component still moving through the
+    # workflow is expected to be incomplete, and its metadata is repaired without
+    # ever being released, so there is nothing here for the check to protect.
+    if parent_status == "released" and not force:
+        place_ready, missing = _is_place_ready(service, conn, str(row["revision_id"]))
+        if not place_ready:
+            stats.skipped_not_place_ready += 1
+            _record_error(
+                stats,
+                f"{row['name']}: not place-ready ({', '.join(missing) or 'unknown'}); "
+                "rerun with --force to release anyway",
+            )
+            return False
 
     revision = service._clone_revision(  # type: ignore[attr-defined]
         conn,
@@ -412,16 +435,28 @@ def _repair_component(
         actor=actor,
         now=now,
     )
-    _release_revision(
-        conn,
-        service,
-        component_id=component_id,
-        revision_id=revision_id,
-        actor=actor,
-        now=now,
-    )
+    if parent_status == "released":
+        _release_revision(
+            conn,
+            service,
+            component_id=component_id,
+            revision_id=revision_id,
+            actor=actor,
+            now=now,
+        )
+        stats.released += 1
+    else:
+        # Work that was still moving through the workflow keeps moving. Publishing
+        # it here would bypass whatever review it was waiting on, and the clone
+        # carries the author's content forward, so the only thing to preserve is
+        # the stage it was sitting at. `_clone_revision` demotes `done` to
+        # `in_progress`, so the stage is restored explicitly rather than inherited.
+        conn.execute(
+            "UPDATE component_revisions SET release_status = %s, updated_at = %s WHERE id = %s",
+            (parent_status, now, revision_id),
+        )
+        stats.repaired_in_workflow += 1
     stats.updated += 1
-    stats.released += 1
     return True
 
 
