@@ -29,6 +29,7 @@ class AuthenticatedUser(BaseModel):
     client_id: str = ""
     scopes: list[str] = []
     session_id: str = ""
+    user_id: str = ""
 
 
 def guest_user() -> AuthenticatedUser:
@@ -73,6 +74,7 @@ async def get_current_user(request: Request) -> AuthenticatedUser:
             role=role,
             auth_type="session",
             session_id=session.session_id,
+            user_id=session.user_id,
         )
 
     authorization = request.headers.get("authorization") or ""
