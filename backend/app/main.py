@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.comments import router as comments_router
@@ -192,6 +193,12 @@ app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
 
 
 app.middleware("http")(apply_security_headers)
+
+# Compress large text responses. KiCad source blobs are the heaviest thing the
+# app serves (a 9MB .kicad_pcb the comparison viewer fetches twice, once per
+# side) and gzip ~5x on them, so this is a large cut on the load path for any
+# client that accepts it. Small responses skip it via minimum_size.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 # Configure CORS
