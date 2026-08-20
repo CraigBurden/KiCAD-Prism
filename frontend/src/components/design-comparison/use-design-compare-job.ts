@@ -27,7 +27,18 @@ export type DesignCompareJob = {
     error: string | null;
 };
 
-const POLL_INTERVAL_MS = 800;
+// Poll fast at first, then back off. A warm comparison is ready in a couple of
+// seconds and the progressive initial result lands sooner, so a flat 800ms
+// interval left the viewer waiting up to that long after the backend was
+// already done. Starting tight catches those quick completions; widening keeps
+// a long cold job from hammering the status endpoint.
+const POLL_MIN_MS = 150;
+const POLL_MAX_MS = 800;
+const POLL_BACKOFF = 1.4;
+
+function nextPollDelay(current: number): number {
+    return Math.min(POLL_MAX_MS, Math.round(current * POLL_BACKOFF));
+}
 
 export function useDesignCompareJob(
     projectId: string,
@@ -87,6 +98,7 @@ export function useDesignCompareJob(
         const controller = new AbortController();
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
+        let pollDelay = POLL_MIN_MS;
         const poll = async () => {
             try {
                 const response = await fetchApi(
@@ -128,7 +140,8 @@ export function useDesignCompareJob(
                 } else if (next.status === "completed") {
                     return;
                 } else {
-                    timer = setTimeout(poll, POLL_INTERVAL_MS);
+                    timer = setTimeout(poll, pollDelay);
+                    pollDelay = nextPollDelay(pollDelay);
                 }
             } catch (caught) {
                 if (!cancelled) {
