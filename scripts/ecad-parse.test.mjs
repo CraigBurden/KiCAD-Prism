@@ -11,8 +11,11 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { index_document } from "./ecad-parse.mjs";
+import { index_document, index_snapshot } from "./ecad-parse.mjs";
 
 const SCHEMATIC = `
 (kicad_sch
@@ -513,4 +516,62 @@ test("point order stays significant", () => {
         first.byUuid.get("eeee-0002").hash,
         second.byUuid.get("eeee-0002").hash,
     );
+});
+
+test("index_snapshot caches its parse and rehydrates identically", () => {
+    const board = mkdtempSync(join(tmpdir(), "ecad-snap-"));
+    const root = join(board, "snapshot");
+    mkdirSync(root);
+    writeFileSync(
+        join(root, "a.kicad_sch"),
+        '(kicad_sch (polyline (pts (xy 0 0) (xy 2 0)) (uuid "aaaa-0001")))',
+    );
+
+    const first = index_snapshot(root);
+    assert.equal(first.timings.cacheHit, false);
+    // The cache file sits beside the snapshot dir, never inside it.
+    assert.equal(existsSync(join(board, "snapshot.index-cache.json")), true);
+
+    const second = index_snapshot(root);
+    assert.equal(second.timings.cacheHit, true);
+    // A hit must reproduce the parse exactly, minus run-specific timing.
+    assert.deepEqual(second.objects, first.objects);
+    assert.deepEqual(second.counts, first.counts);
+    assert.deepEqual(second.routeMetrics, first.routeMetrics);
+});
+
+test("editing a snapshot invalidates its cached index", () => {
+    const board = mkdtempSync(join(tmpdir(), "ecad-snap-"));
+    const root = join(board, "snapshot");
+    mkdirSync(root);
+    const file = join(root, "a.kicad_sch");
+    writeFileSync(file, '(kicad_sch (polyline (pts (xy 0 0) (xy 2 0)) (uuid "bbbb-0001")))');
+    index_snapshot(root); // writes the cache
+
+    // A different object count with a larger file: the size-and-mtime signature
+    // changes, so the second read must re-parse rather than serve stale objects.
+    writeFileSync(
+        file,
+        '(kicad_sch (polyline (pts (xy 0 0) (xy 2 0)) (uuid "bbbb-0001"))'
+        + ' (polyline (pts (xy 0 0) (xy 3 0)) (uuid "bbbb-0002")))',
+    );
+    const reparsed = index_snapshot(root);
+    assert.equal(reparsed.timings.cacheHit, false);
+    assert.equal(reparsed.counts.total, 2);
+});
+
+test("ECAD_INDEX_CACHE=0 disables the cache", () => {
+    const previous = process.env.ECAD_INDEX_CACHE;
+    process.env.ECAD_INDEX_CACHE = "0";
+    try {
+        const board = mkdtempSync(join(tmpdir(), "ecad-snap-"));
+        const root = join(board, "snapshot");
+        mkdirSync(root);
+        writeFileSync(join(root, "a.kicad_sch"), '(kicad_sch (junction (at 0 0)))');
+        index_snapshot(root);
+        assert.equal(existsSync(join(board, "snapshot.index-cache.json")), false);
+    } finally {
+        if (previous === undefined) delete process.env.ECAD_INDEX_CACHE;
+        else process.env.ECAD_INDEX_CACHE = previous;
+    }
 });
