@@ -214,7 +214,7 @@ export function PartDetailScreen({
     : `${component.library_name}:${component.symbol_name}`;
 
   return (
-    <div className="flex flex-col gap-3 pb-24">
+    <div className="flex flex-1 flex-col gap-3">
       {/* ── Header Row ─────────────────────────────────────────── */}
       <div className="flex items-start gap-2">
         <Button variant="ghost" size="icon-xs" onClick={onBack} className="mt-0.5 shrink-0">
@@ -385,7 +385,7 @@ export function PartDetailScreen({
             ))}
           </div>
         )}
-        {!localSources.length && sources.length > 0 && (
+        {!localSources.length && (
           <p className="mt-1 px-0.5 text-[10px] text-muted-foreground/70">
             Local stock not recorded.
           </p>
@@ -393,7 +393,7 @@ export function PartDetailScreen({
       </Section>
 
       {/* ── Sticky action bar ──────────────────────────────────── */}
-      <div className="fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[460px] border-t bg-background/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div className="sticky bottom-0 z-30 -mx-3 mt-auto border-t bg-background/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex items-center gap-2">
           {component.datasheet_url ? (
             <a
@@ -511,15 +511,27 @@ function ZoomablePreview({
   version?: string;
   onExpand?: () => void;
 }) {
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
+    "loading"
+  );
+
+  useEffect(() => {
+    setLoadState("loading");
+  }, [url]);
+
   const isReady = Boolean(url) && status !== "failed";
 
-  if (!isReady) {
+  if (!isReady || loadState === "error") {
+    const message =
+      status === "failed"
+        ? `${label} preview failed`
+        : loadState === "error"
+          ? `${label} preview failed to load`
+          : `No ${label.toLowerCase()} preview`;
     return (
       <div className="mb-2 overflow-hidden rounded border border-border/50">
         <div className="flex min-h-[100px] items-center justify-center bg-preview-surface">
-          <span className="text-[11px] text-muted-foreground/50">
-            {status === "failed" ? `${label} preview failed` : `No ${label.toLowerCase()} preview`}
-          </span>
+          <span className="text-[11px] text-muted-foreground/50">{message}</span>
         </div>
         <div className="border-t border-border/30 px-2.5 py-1 text-[10px] text-muted-foreground">
           {meta || label}
@@ -530,14 +542,31 @@ function ZoomablePreview({
 
   return (
     <div className="mb-2">
-      <LibraryPreviewViewport viewportKey={`${label}-${url}`} wheelZoom={false} onExpand={onExpand}>
-        <img
-          src={url}
-          alt={`${label} preview`}
-          draggable={false}
-          className="pointer-events-none h-full max-h-[220px] w-full select-none object-contain p-2"
-        />
-      </LibraryPreviewViewport>
+      <div className="relative">
+        <LibraryPreviewViewport
+          viewportKey={`${label}-${url}`}
+          className="min-h-[220px]"
+          wheelZoom={false}
+          onExpand={loadState === "ready" ? onExpand : undefined}
+        >
+          <img
+            src={url}
+            alt={`${label} preview`}
+            draggable={false}
+            onLoad={() => setLoadState("ready")}
+            onError={() => setLoadState("error")}
+            className={cn(
+              "pointer-events-none h-full max-h-[220px] w-full select-none object-contain p-2",
+              loadState === "loading" && "invisible"
+            )}
+          />
+        </LibraryPreviewViewport>
+        {loadState === "loading" && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-preview-surface/60">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        )}
+      </div>
       <div className="mt-1 flex items-center justify-between px-0.5 text-[10px] text-muted-foreground">
         <span className="truncate">{meta || label}</span>
         {version ? <span className="shrink-0">{version}</span> : null}
@@ -562,12 +591,9 @@ function AvailabilityCard({ source }: { source: PanelSupplySource }) {
       : source.stock > 0
         ? "border-amber-400/30 bg-amber-400/10 text-amber-300"
         : "border-red-500/30 bg-red-500/10 text-red-400";
-  const statusLabel =
-    isVendor && source.unit_price != null
-      ? null
-      : source.stock_status
-        ? source.stock_status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-        : null;
+  const statusLabel = source.stock_status
+    ? source.stock_status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    : null;
 
   return (
     <div className="rounded-md border border-border/60 bg-secondary/20">
@@ -609,20 +635,23 @@ function AvailabilityCard({ source }: { source: PanelSupplySource }) {
             ) : null}
           </div>
         </div>
-        {isVendor && source.unit_price != null ? (
-          <div className="text-right">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Unit{source.price_break_qty ? ` @ ${formatQuantity(source.price_break_qty)}` : ""}
+        <div className="flex items-center gap-2">
+          {statusLabel ? (
+            <Badge variant="outline" className={cn("shrink-0", statusTone)}>
+              {statusLabel}
+            </Badge>
+          ) : null}
+          {isVendor && source.unit_price != null ? (
+            <div className="text-right">
+              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                Unit{source.price_break_qty ? ` @ ${formatQuantity(source.price_break_qty)}` : ""}
+              </div>
+              <div className="mt-1.5 text-lg font-semibold leading-none tabular-nums">
+                {formatPrice(source.unit_price, source.currency)}
+              </div>
             </div>
-            <div className="mt-1.5 text-lg font-semibold leading-none tabular-nums">
-              {formatPrice(source.unit_price, source.currency)}
-            </div>
-          </div>
-        ) : statusLabel ? (
-          <Badge variant="outline" className={cn("shrink-0", statusTone)}>
-            {statusLabel}
-          </Badge>
-        ) : null}
+          ) : null}
+        </div>
       </div>
 
       {breaks.length > 0 ? (

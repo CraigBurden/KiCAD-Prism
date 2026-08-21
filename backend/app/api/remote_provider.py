@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -149,9 +150,12 @@ async def provider_metadata(request: Request):
     return metadata
 
 
-# Panel bundle URLs keep fixed filenames, so the HTML must reference them with
-# a content-derived query string. Otherwise KiCad's WebView pins whatever
-# bundle was current when it first filled its disk cache.
+# Vite emits content-hashed names for everything except the panel entry
+# bundle, whose fixed filenames carry a `?v=<digest>` query baked into the
+# HTML. Both URL shapes are content-addressed and safe to cache long-lived;
+# anything else must revalidate against an ETag on every open.
+_VITE_HASH_SUFFIX = re.compile(r"-[0-9a-zA-Z_-]{8}$")
+
 _asset_versions: dict[str, tuple[float, str]] = {}
 
 
@@ -189,7 +193,7 @@ async def provider_panel():
 
 
 @router.get("/remote-provider/assets/{asset_name:path}", include_in_schema=False)
-async def provider_static_asset(asset_name: str):
+async def provider_static_asset(asset_name: str, request: Request):
     asset_path = (STATIC_DIR / asset_name).resolve()
     try:
         asset_path.relative_to(STATIC_DIR.resolve())
@@ -209,18 +213,28 @@ async def provider_static_asset(asset_name: str):
     }
     suffix = asset_path.suffix.lower()
     media_type = mime_map.get(suffix, "application/octet-stream")
-    # The panel bundle keeps a fixed filename, so KiCad's WebView must
-    # revalidate on every open or it pins a stale UI for the cache lifetime.
-    # Fonts are content-stable and safe to cache long.
-    cache_control = (
-        "public, max-age=31536000, immutable"
-        if suffix in (".woff", ".woff2", ".ttf")
-        else "no-cache"
+    # Starlette's FileResponse never answers conditional requests itself, so
+    # handle If-None-Match here: content-addressed URLs cache long-lived,
+    # everything else gets a cheap 304 revalidation path instead of no-cache.
+    digest = _asset_version(asset_name)
+    etag = f'"{digest}"'
+    content_addressed = (
+        request.query_params.get("v") == digest
+        or bool(_VITE_HASH_SUFFIX.search(asset_path.stem))
     )
+    if content_addressed:
+        cache_control = "public, max-age=31536000, immutable"
+    else:
+        cache_control = "no-cache"
+        if request.headers.get("if-none-match") == etag:
+            return Response(
+                status_code=304,
+                headers={"ETag": etag, "Cache-Control": cache_control},
+            )
     return FileResponse(
         asset_path,
         media_type=media_type,
-        headers={"Cache-Control": cache_control},
+        headers={"Cache-Control": cache_control, "ETag": etag},
     )
 
 

@@ -23,8 +23,8 @@ CATALOG_SCHEMA_EPOCH = "2"
 # stay outside the migration ladder, which records a migration as run once.
 POSTGRES_SEARCH_VERSION = "catalog-search-v2"
 POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v4"
-POSTGRES_HEAD_PROJECTION_VERSION = "catalog-component-heads-v4"
-POSTGRES_REMOTE_HEAD_PROJECTION_VERSION = "catalog-remote-heads-v3"
+POSTGRES_HEAD_PROJECTION_VERSION = "catalog-component-heads-v5"
+POSTGRES_REMOTE_HEAD_PROJECTION_VERSION = "catalog-remote-heads-v4"
 
 def _postgres_dsn(value: str) -> str:
     """Accept both native and SQLAlchemy-style psycopg URLs."""
@@ -367,15 +367,17 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                             'quantity', agg.quantity,
                             'uom', agg.uom,
                             'inventory_status', agg.inventory_status,
+                            'fetch_status', agg.fetch_status,
                             'fetched_at', agg.fetched_at
-                        ))::text, '[]') AS sources_json
+                        ) ORDER BY CASE agg.source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END,
+                                  agg.source)::text, '[]') AS sources_json
                     FROM (
                         SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
                                MIN(inventory_status) AS inventory_status,
+                               MIN(fetch_status) AS fetch_status,
                                MAX(fetched_at) AS fetched_at
                         FROM inventory_levels WHERE component_id = component.id
                         GROUP BY source
-                        ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END, source
                     ) agg
                 ) inventory_all ON true
                 WHERE component.id = target_component_id AND component.current_revision_id <> '';
@@ -590,15 +592,17 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                             'quantity', agg.quantity,
                             'uom', agg.uom,
                             'inventory_status', agg.inventory_status,
+                            'fetch_status', agg.fetch_status,
                             'fetched_at', agg.fetched_at
-                        ))::text, '[]') AS sources_json
+                        ) ORDER BY CASE agg.source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END,
+                                  agg.source)::text, '[]') AS sources_json
                     FROM (
                         SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
                                MIN(inventory_status) AS inventory_status,
+                               MIN(fetch_status) AS fetch_status,
                                MAX(fetched_at) AS fetched_at
                         FROM inventory_levels WHERE component_id = component.id
                         GROUP BY source
-                        ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END, source
                     ) agg
                 ) inventory_all ON true
                 LEFT JOIN LATERAL (
