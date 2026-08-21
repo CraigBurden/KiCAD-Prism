@@ -82,11 +82,7 @@ def _component_payload(component: dict, origin: str, representation_id: str = ""
         "place_enabled": component["place_enabled"],
         "release_status": component.get("release_status", ""),
         "workflow_stage": component.get("workflow_stage", component.get("release_status", "")),
-        "stock_quantity": component["stock_quantity"],
-        "stock_uom": component["stock_uom"],
-        "inventory_status": component["inventory_status"],
-        "local_inventory": component.get("local_inventory"),
-        "stock_known": bool(component.get("stock_known")),
+        "supply": component.get("supply") or {"sources": []},
         "preview_status": preview_status,
         "symbol_preview_url": symbol.get("preview_url", "") if symbol else preview_map.get("symbol", ""),
         "footprint_preview_url": footprint.get("preview_url", "") if footprint else preview_map.get("footprint", ""),
@@ -119,7 +115,7 @@ async def provider_metadata(request: Request):
     auth_metadata = {"type": "none"}
     metadata = {
         "provider_name": "KiCAD Prism Remote Symbols",
-        "provider_version": "0.2.0",
+        "provider_version": "0.3.0",
         "api_base_url": base_url,
         "panel_url": f"{base_url}/remote-provider/panel",
         "auth": auth_metadata,
@@ -153,12 +149,43 @@ async def provider_metadata(request: Request):
     return metadata
 
 
+# Panel bundle URLs keep fixed filenames, so the HTML must reference them with
+# a content-derived query string. Otherwise KiCad's WebView pins whatever
+# bundle was current when it first filled its disk cache.
+_asset_versions: dict[str, tuple[float, str]] = {}
+
+
+def _asset_version(asset_name: str) -> str:
+    path = STATIC_DIR / asset_name
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return "0"
+    cached = _asset_versions.get(asset_name)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    _asset_versions[asset_name] = (mtime, digest)
+    return digest
+
+
+def _panel_html(html_path: Path) -> HTMLResponse:
+    html = html_path.read_text(encoding="utf-8")
+    for asset_name in ("panel.js", "panel.css"):
+        if asset_name in html:
+            html = html.replace(
+                f"assets/{asset_name}",
+                f"assets/{asset_name}?v={_asset_version(asset_name)}",
+            )
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/remote-provider/panel", response_class=HTMLResponse, include_in_schema=False)
 async def provider_panel():
     html_path = STATIC_DIR / "panel.html"
     if not html_path.is_file():
         html_path = STATIC_DIR / "index.html"
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    return _panel_html(html_path)
 
 
 @router.get("/remote-provider/assets/{asset_name:path}", include_in_schema=False)
@@ -182,10 +209,18 @@ async def provider_static_asset(asset_name: str):
     }
     suffix = asset_path.suffix.lower()
     media_type = mime_map.get(suffix, "application/octet-stream")
+    # The panel bundle keeps a fixed filename, so KiCad's WebView must
+    # revalidate on every open or it pins a stale UI for the cache lifetime.
+    # Fonts are content-stable and safe to cache long.
+    cache_control = (
+        "public, max-age=31536000, immutable"
+        if suffix in (".woff", ".woff2", ".ttf")
+        else "no-cache"
+    )
     return FileResponse(
         asset_path,
         media_type=media_type,
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={"Cache-Control": cache_control},
     )
 
 

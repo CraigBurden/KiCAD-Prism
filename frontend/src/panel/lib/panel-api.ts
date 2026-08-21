@@ -21,18 +21,7 @@ export interface PanelComponent {
   availability_state: "metadata_only" | "files_partial" | "place_ready";
   missing_assets: string[];
   place_enabled: boolean;
-  stock_quantity: number;
-  stock_uom: string;
-  inventory_status: string;
-  stock_known: boolean;
-  local_inventory: {
-    source: string;
-    quantity: number;
-    uom: string;
-    inventory_status: string;
-    fetch_status: string;
-    fetched_at: string;
-  } | null;
+  supply?: PanelSupply;
   representations: PanelRepresentation[];
   default_representation_id: string;
   effective_representation_id: string;
@@ -41,6 +30,36 @@ export interface PanelComponent {
   footprint_preview_url: string;
   manifest_url: string;
   inline_url: string;
+}
+
+export interface PanelSupplySource {
+  kind: "vendor" | "local";
+  id: string;
+  display_name: string;
+  /** Vendor sources carry pricing; local sources carry quantity + uom. */
+  stock: number;
+  uom: string;
+  stock_status: string;
+  fetch_status: string;
+  fetched_at: string;
+  unit_price?: number;
+  currency?: string;
+  price_break_qty?: number;
+  price_breaks?: { qty: number; price: number }[];
+  product_url?: string;
+}
+
+export interface PanelSupply {
+  sources: PanelSupplySource[];
+}
+
+/** Local inventory row for badges; vendor rows are ignored for on-shelf counts. */
+export function primaryLocalSource(component: PanelComponent): PanelSupplySource | null {
+  const sources = component.supply?.sources ?? [];
+  return (
+    sources.find((source) => source.kind === "local") ??
+    null
+  );
 }
 
 export interface PanelRepresentation {
