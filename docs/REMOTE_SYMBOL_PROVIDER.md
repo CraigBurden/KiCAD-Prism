@@ -74,8 +74,9 @@ Depending on the supported KiCad build:
 2. open a schematic and the Remote Symbols panel;
 3. complete SSO in the system browser when prompted;
 4. search by part name, manufacturer part number, or category;
-5. open a component and inspect its symbol and footprint;
-6. place it into a disposable project;
+5. open a component, select a representation, and verify that both symbol and
+   footprint previews change together;
+6. place both the default and a non-default representation into a disposable project;
 7. verify the project-local remote library files were created.
 
 Default placement settings are:
@@ -88,6 +89,12 @@ destination: ${KIPRJMOD}/RemoteLibrary
 If KiCad uses different values, configure matching
 `REMOTE_PROVIDER_LIBRARY_PREFIX` and `REMOTE_PROVIDER_DESTINATION_DIR` values in
 Prism.
+
+Clients that omit the `representation` query parameter continue to receive the
+default representation. Representation-aware clients pass the selected ID to
+the component detail, part manifest, inline bundle, and signed asset download
+flows. Unknown and incomplete IDs are rejected rather than silently falling
+back.
 
 ## What users can see
 

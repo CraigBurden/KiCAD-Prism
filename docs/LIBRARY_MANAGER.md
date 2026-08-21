@@ -118,6 +118,12 @@ A component is exposed to the Remote Symbol Provider only when it is:
 - backed by the released revision;
 - complete enough for placement.
 
+Placeability is evaluated from the revision's default symbol-footprint
+representation. A released revision has exactly one complete default. Other
+complete representations can be previewed and selected by clients that
+advertise representation support. Provisional source-IPN components remain
+draft-only until a real manufacturer and MPN establish their catalog identity.
+
 Unreleased drafts, archived components, and incomplete components are not part
 of the released provider projection.
 
@@ -127,6 +133,10 @@ Prism can generate a KiCad database-library bundle from released place-ready
 components. The export contains a generated SQLite database and KiCad DBL files.
 That SQLite file is a delivery artifact; Prism itself continues to use
 PostgreSQL.
+
+DBL has no representation-selection protocol, so the export intentionally
+contains only each released component's default representation. Use the Remote
+Symbol Provider when users need to choose a non-default representation.
 
 Generate through the catalog administration API or supported Library Manager
 action, then distribute the complete export directory. Do not copy only the

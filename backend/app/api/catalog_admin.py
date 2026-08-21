@@ -119,6 +119,28 @@ class UpdateComponentMetadataRequest(BaseModel):
     extra_fields: dict[str, str] | None = None
 
 
+class CreateRepresentationRequest(BaseModel):
+    label: str = "Representation"
+    symbol_asset_id: str = ""
+    footprint_asset_id: str = ""
+    display_order: int = 0
+    is_default: bool = False
+    source_internal_part_number: str = ""
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    expected_revision_id: str = Field(min_length=1)
+    change_summary: str = "Add component representation"
+
+
+class UpdateRepresentationRequest(BaseModel):
+    label: str | None = None
+    symbol_asset_id: str | None = None
+    footprint_asset_id: str | None = None
+    display_order: int | None = None
+    is_default: bool | None = None
+    expected_revision_id: str = Field(min_length=1)
+    change_summary: str = "Update component representation"
+
+
 class MetadataFieldRequest(BaseModel):
     key: str = ""
     label: str = ""
@@ -811,9 +833,18 @@ def create_catalog_component(
 
 
 @router.get("/components/{component_id}")
-def get_catalog_component(component_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+def get_catalog_component(
+    component_id: str,
+    representation: str = Query(default=""),
+    user: AuthenticatedUser = Depends(require_catalog_reader),
+):
     _ = user
-    component = catalog_service.get_component(component_id)
+    try:
+        component = catalog_service.get_component(
+            component_id, representation_id=representation
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return component
@@ -945,12 +976,85 @@ def update_catalog_component(
     return component
 
 
+@router.post("/components/{component_id}/representations", status_code=201)
+def create_component_representation(
+    component_id: str,
+    payload: CreateRepresentationRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    try:
+        return catalog_service.create_representation(
+            component_id,
+            label=payload.label,
+            symbol_asset_id=payload.symbol_asset_id,
+            footprint_asset_id=payload.footprint_asset_id,
+            display_order=payload.display_order,
+            make_default=payload.is_default,
+            source_internal_part_number=payload.source_internal_part_number,
+            provenance=payload.provenance,
+            expected_revision_id=payload.expected_revision_id,
+            actor=user.email,
+            change_summary=payload.change_summary,
+        )
+    except ValueError as exc:
+        status = 409 if "revision conflict" in str(exc).lower() else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+@router.patch("/components/{component_id}/representations/{representation_id}")
+def update_component_representation(
+    component_id: str,
+    representation_id: str,
+    payload: UpdateRepresentationRequest,
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    updates = {
+        key: value
+        for key, value in payload.model_dump(
+            exclude={"expected_revision_id", "change_summary"}
+        ).items()
+        if value is not None
+    }
+    try:
+        return catalog_service.update_representation(
+            component_id,
+            representation_id,
+            updates=updates,
+            expected_revision_id=payload.expected_revision_id,
+            actor=user.email,
+            change_summary=payload.change_summary,
+        )
+    except ValueError as exc:
+        status = 409 if "revision conflict" in str(exc).lower() else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+@router.delete("/components/{component_id}/representations/{representation_id}")
+def delete_component_representation(
+    component_id: str,
+    representation_id: str,
+    expected_revision_id: str = Query(...),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    try:
+        return catalog_service.delete_representation(
+            component_id,
+            representation_id,
+            expected_revision_id=expected_revision_id,
+            actor=user.email,
+        )
+    except ValueError as exc:
+        status = 409 if "revision conflict" in str(exc).lower() else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
 @router.post("/components/{component_id}/symbol-import")
 async def import_symbol_library(
     component_id: str,
     file: UploadFile = File(...),
     target_library: str = Form(default=""),
     selected_symbol: str = Form(default=""),
+    counterpart_asset_id: str = Form(default=""),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     payload = await file.read()
@@ -964,6 +1068,7 @@ async def import_symbol_library(
             payload=payload,
             target_library=target_library or component_id,
             selected_symbol=selected_symbol,
+            counterpart_asset_id=counterpart_asset_id,
             actor=user.email,
         )
     except ValueError as exc:
@@ -976,6 +1081,7 @@ async def import_footprint(
     file: UploadFile = File(...),
     target_library: str = Form(default=""),
     selected_footprint: str = Form(default=""),
+    counterpart_asset_id: str = Form(default=""),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     payload = await file.read()
@@ -989,6 +1095,7 @@ async def import_footprint(
             payload=payload,
             target_library=target_library or "Prism_Footprints",
             selected_footprint=selected_footprint,
+            counterpart_asset_id=counterpart_asset_id,
             actor=user.email,
         )
     except ValueError as exc:
@@ -1030,6 +1137,25 @@ def detach_component_asset(
         return catalog_service.detach_asset(component_id, asset_type, actor=user.email)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/components/{component_id}/assets/id/{asset_id}")
+def detach_component_asset_by_id(
+    component_id: str,
+    asset_id: str,
+    expected_revision_id: str = Query(...),
+    user: AuthenticatedUser = Depends(require_catalog_writer),
+):
+    try:
+        return catalog_service.detach_asset_by_id(
+            component_id,
+            asset_id,
+            expected_revision_id=expected_revision_id,
+            actor=user.email,
+        )
+    except ValueError as exc:
+        status = 409 if "revision conflict" in str(exc).lower() or "referenced" in str(exc).lower() else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 @router.delete("/components/{component_id}")
@@ -1378,8 +1504,18 @@ def export_kicad_dbl_bundle(user: AuthenticatedUser = Depends(require_catalog_wr
 
 # ─── Phase 2: CSV Import Routes ──────────────────────────────────────────────
 
-@router.post("/stock/sync-csv")
-async def import_stock_csv(
+@router.get("/inventory/export.csv")
+def export_inventory_csv(user: AuthenticatedUser = Depends(require_catalog_reader)):
+    _ = user
+    return Response(
+        content="\ufeff" + catalog_service.export_inventory_csv(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="component-inventory.csv"'},
+    )
+
+
+@router.post("/inventory/sync-csv")
+async def import_inventory_csv(
     file: UploadFile = File(...),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
@@ -1387,7 +1523,7 @@ async def import_stock_csv(
     content = await file.read()
     try:
         csv_str = content.decode("utf-8")
-        return catalog_service.import_stock_csv(csv_str)
+        return catalog_service.import_inventory_csv(csv_str)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1411,6 +1547,7 @@ class LinkAssetRequest(BaseModel):
     file_path: str
     target_library: str = ""
     target_name: str = ""
+    counterpart_asset_id: str = ""
 
 
 @router.post("/components/{component_id}/assets/{asset_type}/link")
@@ -1428,6 +1565,7 @@ def link_library_asset(
             file_path_rel=payload.file_path,
             target_library=payload.target_library,
             target_name=payload.target_name,
+            counterpart_asset_id=payload.counterpart_asset_id,
             actor=user.email,
         )
     except ValueError as exc:

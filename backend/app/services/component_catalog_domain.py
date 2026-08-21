@@ -42,6 +42,12 @@ PREVIEW_PIPELINE_VERSION = "prism-preview-a2-multi-unit"
 REVISION_MANIFEST_A0 = "prism.revision_manifest_a0"
 REVISION_MANIFEST_A1 = "prism.revision_manifest_a1"
 REVISION_MANIFEST_A2 = "prism.revision_manifest_a2"
+REVISION_MANIFEST_A3 = "prism.revision_manifest_a3"
+
+IDENTITY_KIND_MPN = "mpn"
+IDENTITY_KIND_PROVISIONAL_IPN = "provisional_ipn"
+MPN_SOURCE_MANUFACTURER = "manufacturer"
+MPN_SOURCE_PROVISIONAL_IPN = "provisional_ipn"
 
 SOURCE_MANUAL = "manual"
 SOURCE_EXTERNAL = "external"
@@ -419,6 +425,11 @@ def _normalize_workflow_stage(stage: str) -> str:
     return LEGACY_WORKFLOW_STAGE_MAP.get(normalized, normalized)
 
 
+def _normalize_identity_value(value: Any) -> str:
+    """Canonical catalog identity normalization: trim and lowercase only."""
+    return str(value or "").strip().lower()
+
+
 def _json_loads(value: Any, default: Any) -> Any:
     if value in (None, ""):
         return default
@@ -520,6 +531,10 @@ class ComponentCatalogDomainService:
             CREATE TABLE IF NOT EXISTS components (
                 id TEXT PRIMARY KEY,
                 slug TEXT NOT NULL UNIQUE,
+                identity_kind TEXT NOT NULL DEFAULT 'mpn',
+                identity_source TEXT NOT NULL DEFAULT '',
+                normalized_manufacturer TEXT NOT NULL DEFAULT '',
+                normalized_part_number TEXT NOT NULL,
                 source TEXT NOT NULL DEFAULT 'manual',
                 external_source TEXT NOT NULL DEFAULT '',
                 external_id TEXT NOT NULL DEFAULT '',
@@ -531,13 +546,6 @@ class ComponentCatalogDomainService:
                 external_updated_at TEXT,
                 sync_status TEXT NOT NULL DEFAULT '',
                 sync_error TEXT NOT NULL DEFAULT '',
-                stock_quantity REAL NOT NULL DEFAULT 0,
-                stock_uom TEXT NOT NULL DEFAULT '',
-                inventory_status TEXT NOT NULL DEFAULT '',
-                serial_number TEXT NOT NULL DEFAULT '',
-                lot_number TEXT NOT NULL DEFAULT '',
-                pedigree TEXT NOT NULL DEFAULT '',
-                last_synced_at TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 current_revision_id TEXT NOT NULL DEFAULT '',
                 released_revision_id TEXT NOT NULL DEFAULT '',
@@ -562,6 +570,9 @@ class ComponentCatalogDomainService:
                 datasheet_url TEXT NOT NULL,
                 manufacturer TEXT NOT NULL,
                 mpn TEXT NOT NULL,
+                normalized_manufacturer TEXT NOT NULL DEFAULT '',
+                normalized_mpn TEXT NOT NULL DEFAULT '',
+                mpn_source TEXT NOT NULL DEFAULT 'manufacturer',
                 category TEXT NOT NULL DEFAULT '',
                 package_name TEXT NOT NULL DEFAULT '',
                 vendor TEXT NOT NULL DEFAULT '',
@@ -697,6 +708,35 @@ class ComponentCatalogDomainService:
                 PRIMARY KEY(revision_id, asset_id)
             );
 
+            CREATE TABLE IF NOT EXISTS revision_representations (
+                id TEXT PRIMARY KEY,
+                revision_id TEXT NOT NULL REFERENCES component_revisions(id) ON DELETE CASCADE,
+                label TEXT NOT NULL,
+                symbol_asset_id TEXT REFERENCES assets(id),
+                footprint_asset_id TEXT REFERENCES assets(id),
+                is_default INTEGER NOT NULL DEFAULT 0,
+                display_order INTEGER NOT NULL DEFAULT 0,
+                source_internal_part_number TEXT NOT NULL DEFAULT '',
+                provenance_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(revision_id, symbol_asset_id, footprint_asset_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS inventory_levels (
+                source TEXT NOT NULL,
+                component_id TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+                location_key TEXT NOT NULL DEFAULT '',
+                source_record_id TEXT NOT NULL DEFAULT '',
+                quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+                uom TEXT NOT NULL DEFAULT '',
+                inventory_status TEXT NOT NULL DEFAULT '',
+                fetch_status TEXT NOT NULL DEFAULT 'ok',
+                fetched_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(source, component_id, location_key)
+            );
+
             CREATE TABLE IF NOT EXISTS asset_previews (
                 id TEXT PRIMARY KEY,
                 asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
@@ -805,11 +845,18 @@ class ComponentCatalogDomainService:
 
             CREATE INDEX IF NOT EXISTS idx_components_active ON components(is_active);
             CREATE INDEX IF NOT EXISTS idx_components_source ON components(source, external_source, external_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_components_identity_mpn
+                ON components(normalized_manufacturer, normalized_part_number)
+                WHERE identity_kind = 'mpn';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_components_identity_provisional
+                ON components(identity_source, normalized_part_number)
+                WHERE identity_kind = 'provisional_ipn';
             CREATE INDEX IF NOT EXISTS idx_revisions_component ON component_revisions(component_id, version DESC);
             CREATE INDEX IF NOT EXISTS idx_revisions_status ON component_revisions(release_status);
             CREATE INDEX IF NOT EXISTS idx_revisions_category ON component_revisions(category);
             CREATE INDEX IF NOT EXISTS idx_revisions_search ON component_revisions(search_document);
             CREATE INDEX IF NOT EXISTS idx_revisions_mpn ON component_revisions(mpn);
+            CREATE INDEX IF NOT EXISTS idx_revisions_normalized_mpn ON component_revisions(normalized_mpn);
             CREATE INDEX IF NOT EXISTS idx_revisions_updated ON component_revisions(updated_at);
             CREATE INDEX IF NOT EXISTS idx_audit_component ON catalog_audit_events(component_id, created_at, id);
             CREATE INDEX IF NOT EXISTS idx_project_import_status ON project_component_import_sessions(status, created_at);
@@ -820,6 +867,12 @@ class ComponentCatalogDomainService:
             CREATE INDEX IF NOT EXISTS idx_component_releases_component ON component_release_records(component_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_assets_kind ON assets(asset_type, target_library, target_name);
             CREATE INDEX IF NOT EXISTS idx_revision_assets_revision ON revision_assets(revision_id);
+            CREATE INDEX IF NOT EXISTS idx_revision_representations_revision
+                ON revision_representations(revision_id, display_order, id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_revision_representations_default
+                ON revision_representations(revision_id) WHERE is_default = 1;
+            CREATE INDEX IF NOT EXISTS idx_inventory_levels_component
+                ON inventory_levels(component_id, source, location_key);
             CREATE INDEX IF NOT EXISTS idx_asset_previews_asset ON asset_previews(asset_id, kind);
             CREATE INDEX IF NOT EXISTS idx_asset_preview_versions_asset ON asset_preview_versions(asset_id, kind, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_revision_previews_revision ON revision_previews(revision_id, kind);
@@ -1125,6 +1178,15 @@ class ComponentCatalogDomainService:
         )
 
     def _normalize_metadata(self, payload: dict[str, Any]) -> dict[str, Any]:
+        requested_kind = str(payload.get("identity_kind") or "").strip().lower()
+        mpn_source = str(payload.get("mpn_source") or "").strip().lower()
+        identity_kind = requested_kind or (
+            IDENTITY_KIND_PROVISIONAL_IPN
+            if mpn_source in {MPN_SOURCE_PROVISIONAL_IPN, "fallback_ipn"}
+            else IDENTITY_KIND_MPN
+        )
+        if identity_kind not in {IDENTITY_KIND_MPN, IDENTITY_KIND_PROVISIONAL_IPN}:
+            raise ValueError("identity_kind must be 'mpn' or 'provisional_ipn'")
         normalized = {
             "value": str(payload.get("value") or "").strip(),
             "description": str(payload.get("description") or "").strip(),
@@ -1143,10 +1205,27 @@ class ComponentCatalogDomainService:
             "power_dissipation_w": str(payload.get("power_dissipation_w") or "").strip(),
             "rate": str(payload.get("rate") or "").strip(),
             "sap_code": str(payload.get("sap_code") or "").strip(),
+            "identity_kind": identity_kind,
+            "identity_source": str(payload.get("identity_source") or "").strip(),
+            "source_internal_part_number": str(
+                payload.get("source_internal_part_number")
+                or payload.get("internal_part_number")
+                or ""
+            ).strip(),
         }
-        for field in ("value", "description", "datasheet_url", "manufacturer", "mpn"):
+        for field in ("value", "description", "datasheet_url", "manufacturer"):
             if not normalized[field]:
                 raise ValueError(f"{field} is required")
+        if identity_kind == IDENTITY_KIND_MPN and not normalized["mpn"]:
+            raise ValueError("mpn is required for manufacturer-part identities")
+        if identity_kind == IDENTITY_KIND_PROVISIONAL_IPN:
+            normalized["mpn"] = ""
+            if not normalized["identity_source"]:
+                raise ValueError("identity_source is required for provisional parts")
+            if not normalized["source_internal_part_number"]:
+                normalized["source_internal_part_number"] = str(payload.get("name") or "").strip()
+            if not normalized["source_internal_part_number"]:
+                raise ValueError("source_internal_part_number is required for provisional parts")
         # An explicit name wins. Database-library imports carry an internal part
         # number that is not the manufacturer part number, and deriving the name
         # from `mpn` would drop it from the record entirely.
@@ -1156,6 +1235,18 @@ class ComponentCatalogDomainService:
             or normalized["value"]
         )
         normalized["summary"] = normalized["description"]
+        normalized["normalized_manufacturer"] = _normalize_identity_value(normalized["manufacturer"])
+        normalized["normalized_mpn"] = _normalize_identity_value(normalized["mpn"])
+        normalized["normalized_part_number"] = _normalize_identity_value(
+            normalized["mpn"]
+            if identity_kind == IDENTITY_KIND_MPN
+            else normalized["source_internal_part_number"]
+        )
+        normalized["mpn_source"] = (
+            MPN_SOURCE_MANUFACTURER
+            if identity_kind == IDENTITY_KIND_MPN
+            else MPN_SOURCE_PROVISIONAL_IPN
+        )
         raw_extra_fields = payload.get("extra_fields") or payload.get("fields") or {}
         normalized["extra_fields"] = {
             str(key): str(value or "")
@@ -1188,38 +1279,45 @@ class ComponentCatalogDomainService:
         manufacturer: str,
         mpn: str,
         name: str = "",
+        identity_kind: str = IDENTITY_KIND_MPN,
+        identity_source: str = "",
+        source_internal_part_number: str = "",
         component_id: str = "",
         acquire_identity_lock: bool = True,
     ) -> None:
-        """Reject a second component that is indistinguishable from an existing one.
-
-        Identity is manufacturer, manufacturer part number and name together. A
-        library legitimately holds several components for one physical part --
-        symbol orientation variants, multi-part connectors split across sheets,
-        alternate footprints -- and those share a manufacturer part number by
-        definition. `name` is what separates them, so it belongs in the key;
-        without it a catalog cannot represent variants at all.
-        """
+        """Reject a second component with the same orderable or provisional identity."""
+        _ = name
+        normalized_manufacturer = _normalize_identity_value(manufacturer)
+        normalized_part_number = _normalize_identity_value(
+            mpn if identity_kind == IDENTITY_KIND_MPN else source_internal_part_number
+        )
         if acquire_identity_lock:
-            self._lock_component_identity(conn, manufacturer, mpn)
+            self._lock_component_identity(
+                conn,
+                normalized_manufacturer if identity_kind == IDENTITY_KIND_MPN else identity_source,
+                normalized_part_number,
+            )
         existing = conn.execute(
             """
-            SELECT component.id
-            FROM components component
-            JOIN component_revisions revision ON revision.id = component.current_revision_id
-            WHERE component.is_active = 1
-              AND lower(trim(revision.manufacturer)) = lower(trim(%s))
-              AND lower(trim(revision.mpn)) = lower(trim(%s))
-              AND lower(trim(revision.name)) = lower(trim(%s))
-              AND component.id <> %s
+            SELECT id
+            FROM components
+            WHERE identity_kind = %s
+              AND normalized_manufacturer = %s
+              AND normalized_part_number = %s
+              AND identity_source = %s
+              AND id <> %s
             LIMIT 1
             """,
-            (manufacturer, mpn, name, component_id),
+            (
+                identity_kind,
+                normalized_manufacturer if identity_kind == IDENTITY_KIND_MPN else "",
+                normalized_part_number,
+                identity_source if identity_kind == IDENTITY_KIND_PROVISIONAL_IPN else "",
+                component_id,
+            ),
         ).fetchone()
         if existing:
-            raise ValueError(
-                "A component with this manufacturer, manufacturer part number and name already exists"
-            )
+            raise ValueError("A component with this manufacturer-part identity already exists")
 
     def _component_row(self, conn: Any, component_id: str) -> dict[str, Any] | None:
         row = conn.execute("SELECT * FROM components WHERE id = %s", (component_id,)).fetchone()
@@ -1352,6 +1450,28 @@ class ComponentCatalogDomainService:
             }
         elif manifest_schema == REVISION_MANIFEST_A2:
             payload = {"schema": REVISION_MANIFEST_A2, **payload}
+        elif manifest_schema == REVISION_MANIFEST_A3:
+            payload = {
+                "schema": REVISION_MANIFEST_A3,
+                **payload,
+                "representations": [
+                    {
+                        "label": str(item["label"]),
+                        "symbol_asset_id": str(item["symbol_asset_id"] or ""),
+                        "footprint_asset_id": str(item["footprint_asset_id"] or ""),
+                        "is_default": bool(item["is_default"]),
+                        "display_order": int(item["display_order"]),
+                        "source_internal_part_number": str(item["source_internal_part_number"] or ""),
+                        "provenance": _json_loads(item["provenance_json"], {}),
+                    }
+                    for item in conn.execute(
+                        "SELECT * FROM revision_representations WHERE revision_id = %s "
+                        "ORDER BY display_order, label, COALESCE(symbol_asset_id, ''), "
+                        "COALESCE(footprint_asset_id, '')",
+                        (revision_id,),
+                    ).fetchall()
+                ],
+            }
         elif manifest_schema != REVISION_MANIFEST_A0:
             raise ValueError(f"Unsupported revision manifest schema: {manifest_schema}")
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -1420,13 +1540,15 @@ class ComponentCatalogDomainService:
             INSERT INTO component_revisions (
                 id, component_id, version, parent_revision_id, change_kind, change_summary, created_by,
                 manifest_hash, manifest_schema, release_status, name, value, description, datasheet_url,
-                manufacturer, mpn, category, package_name, vendor, vendor_part_number, mass_g,
+                manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
+                category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
                 summary, keywords, extra_fields, search_document, created_at, updated_at
             )
             SELECT
                 %s, component_id, %s, id, %s, %s, %s, '', %s, %s, name, value, description, datasheet_url,
-                manufacturer, mpn, category, package_name, vendor, vendor_part_number, mass_g,
+                manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
+                category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
                 summary, keywords, extra_fields, search_document, %s, %s
             FROM component_revisions
@@ -1438,7 +1560,7 @@ class ComponentCatalogDomainService:
                 change_kind,
                 change_summary,
                 actor,
-                REVISION_MANIFEST_A2,
+                REVISION_MANIFEST_A3,
                 next_status,
                 now,
                 now,
@@ -1454,6 +1576,31 @@ class ComponentCatalogDomainService:
             """,
             (revision_id, now, now, current["id"]),
         )
+        for representation in conn.execute(
+            """
+            SELECT label, symbol_asset_id, footprint_asset_id, is_default, display_order,
+                   source_internal_part_number, provenance_json
+            FROM revision_representations
+            WHERE revision_id = %s
+            ORDER BY display_order, id
+            """,
+            (current["id"],),
+        ).fetchall():
+            conn.execute(
+                """
+                INSERT INTO revision_representations (
+                    id, revision_id, label, symbol_asset_id, footprint_asset_id, is_default,
+                    display_order, source_internal_part_number, provenance_json, created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    str(uuid.uuid4()), revision_id, representation["label"],
+                    representation["symbol_asset_id"], representation["footprint_asset_id"],
+                    representation["is_default"], representation["display_order"],
+                    representation["source_internal_part_number"], representation["provenance_json"],
+                    now, now,
+                ),
+            )
         conn.execute(
             """
             INSERT INTO revision_previews (revision_id, asset_id, kind, preview_id, created_at)
@@ -1497,6 +1644,88 @@ class ComponentCatalogDomainService:
             (revision_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def _load_representations_for_revision(
+        self,
+        conn: Any,
+        revision_id: str,
+        *,
+        assets: list[dict[str, Any]] | None = None,
+        previews: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        assets = assets if assets is not None else self._load_assets_for_revision(conn, revision_id)
+        previews = previews if previews is not None else self._load_previews_for_revision(conn, revision_id)
+        assets_by_id = {str(asset["id"]): asset for asset in assets}
+        previews_by_asset: dict[str, list[dict[str, Any]]] = {}
+        for preview in previews:
+            previews_by_asset.setdefault(str(preview["asset_id"]), []).append(preview)
+
+        def asset_payload(asset_id: Any) -> dict[str, Any] | None:
+            asset = assets_by_id.get(str(asset_id or ""))
+            if not asset:
+                return None
+            ready_preview = next(
+                (
+                    preview
+                    for preview in previews_by_asset.get(str(asset["id"]), [])
+                    if str(preview.get("status") or "") == PREVIEW_STATUS_READY
+                ),
+                None,
+            )
+            return {
+                "id": str(asset["id"]),
+                "asset_type": str(asset["asset_type"]),
+                "name": str(asset["name"]),
+                "target_library": str(asset["target_library"]),
+                "target_name": str(asset["target_name"]),
+                "sha256": str(asset["sha256"]),
+                "preview_id": str(ready_preview["id"]) if ready_preview else "",
+            }
+
+        rows = conn.execute(
+            "SELECT * FROM revision_representations WHERE revision_id = %s "
+            "ORDER BY display_order, id",
+            (revision_id,),
+        ).fetchall()
+        return [
+            {
+                "id": str(row["id"]),
+                "revision_id": str(row["revision_id"]),
+                "label": str(row["label"]),
+                "symbol": asset_payload(row["symbol_asset_id"]),
+                "footprint": asset_payload(row["footprint_asset_id"]),
+                "is_default": bool(row["is_default"]),
+                "display_order": int(row["display_order"]),
+                "source_internal_part_number": str(row["source_internal_part_number"] or ""),
+                "provenance": _json_loads(row["provenance_json"], {}),
+            }
+            for row in rows
+        ]
+
+    def _local_inventory(self, conn: Any, component_id: str) -> dict[str, Any] | None:
+        row = conn.execute(
+            """
+            SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
+                   MIN(inventory_status) AS inventory_status,
+                   MIN(fetch_status) AS fetch_status, MAX(fetched_at) AS fetched_at
+            FROM inventory_levels
+            WHERE component_id = %s
+            GROUP BY source
+            ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END, source
+            LIMIT 1
+            """,
+            (component_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "source": str(row["source"]),
+            "quantity": float(row["quantity"] or 0),
+            "uom": str(row["uom"] or ""),
+            "inventory_status": str(row["inventory_status"] or ""),
+            "fetch_status": str(row["fetch_status"] or "ok"),
+            "fetched_at": str(row["fetched_at"] or ""),
+        }
 
     def _load_previews_for_assets(self, conn: Any, asset_ids: list[str]) -> list[dict[str, Any]]:
         if not asset_ids:
@@ -1782,15 +2011,40 @@ class ComponentCatalogDomainService:
         preloaded_assets: list[dict[str, Any]] | None = None,
         preloaded_previews: list[dict[str, Any]] | None = None,
         preloaded_validation_runs: dict[str, dict[str, Any]] | None = None,
+        representation_id: str = "",
     ) -> dict[str, Any]:
         assets = preloaded_assets if preloaded_assets is not None else self._load_assets_for_revision(conn, str(revision_row["id"]))
         previews = preloaded_previews if preloaded_previews is not None else self._load_previews_for_revision(conn, str(revision_row["id"]))
-        availability_state, missing_assets, place_enabled = self._availability(
-            assets,
-            str(revision_row["release_status"]),
-            bool(component_row["is_active"]),
+        representations = self._load_representations_for_revision(
+            conn, str(revision_row["id"]), assets=assets, previews=previews
         )
-        symbol_asset = next((asset for asset in assets if asset["asset_type"] == "symbol"), None)
+        default_representation = next((item for item in representations if item["is_default"]), None)
+        effective_representation = default_representation
+        if representation_id:
+            effective_representation = next(
+                (item for item in representations if item["id"] == representation_id), None
+            )
+            if not effective_representation:
+                raise ValueError("Representation was not found on this revision")
+            if not effective_representation.get("symbol") or not effective_representation.get("footprint"):
+                raise ValueError("Selected representation is incomplete")
+        symbol_asset = effective_representation.get("symbol") if effective_representation else None
+        footprint_asset = effective_representation.get("footprint") if effective_representation else None
+        missing_assets = [
+            kind
+            for kind, value in (("symbol", symbol_asset), ("footprint", footprint_asset))
+            if not value
+        ]
+        availability_state = (
+            STATE_PLACE_READY if not missing_assets else STATE_FILES_PARTIAL if len(missing_assets) == 1 else STATE_METADATA_ONLY
+        )
+        place_enabled = (
+            bool(component_row["is_active"])
+            and str(component_row.get("identity_kind") or IDENTITY_KIND_MPN) == IDENTITY_KIND_MPN
+            and not missing_assets
+            and _release_allows_remote(str(revision_row["release_status"]))
+        )
+        local_inventory = self._local_inventory(conn, str(component_row["id"]))
         validation_summary = self._component_validation_summary(
             conn,
             str(revision_row["id"]),
@@ -1831,6 +2085,7 @@ class ComponentCatalogDomainService:
             "sync_status": str(component_row.get("sync_status", "")),
             "sync_error": str(component_row.get("sync_error", "")),
             "source": str(component_row["source"]),
+            "identity_kind": str(component_row.get("identity_kind") or IDENTITY_KIND_MPN),
             "name": str(revision_row["name"]),
             "value": str(revision_row["value"]),
             "manufacturer": str(revision_row["manufacturer"]),
@@ -1854,13 +2109,15 @@ class ComponentCatalogDomainService:
             "availability_state": availability_state,
             "missing_assets": missing_assets,
             "place_enabled": place_enabled,
-            "stock_quantity": float(component_row["stock_quantity"]),
-            "stock_uom": str(component_row["stock_uom"]),
-            "inventory_status": str(component_row["inventory_status"]),
-            "serial_number": str(component_row["serial_number"]),
-            "lot_number": str(component_row["lot_number"]),
-            "pedigree": str(component_row["pedigree"]),
-            "last_synced_at": str(component_row["last_synced_at"] or ""),
+            "local_inventory": local_inventory,
+            "stock_known": local_inventory is not None,
+            "stock_quantity": float(local_inventory["quantity"]) if local_inventory else 0.0,
+            "stock_uom": str(local_inventory["uom"]) if local_inventory else "",
+            "inventory_status": str(local_inventory["inventory_status"]) if local_inventory else "",
+            "serial_number": "",
+            "lot_number": "",
+            "pedigree": "",
+            "last_synced_at": str(local_inventory["fetched_at"]) if local_inventory else "",
             "is_active": bool(component_row["is_active"]),
             "revision_id": str(revision_row["id"]),
             "revision": int(revision_row["version"]),
@@ -1880,6 +2137,9 @@ class ComponentCatalogDomainService:
             "summary": str(revision_row["summary"]),
             "library_name": str(symbol_asset["target_library"]) if symbol_asset else "",
             "symbol_name": str(symbol_asset["target_name"]) if symbol_asset else "",
+            "representations": representations,
+            "default_representation_id": str(default_representation["id"]) if default_representation else "",
+            "effective_representation_id": str(effective_representation["id"]) if effective_representation else "",
             "release_status": _normalize_workflow_stage(str(revision_row["release_status"])),
             "workflow_stage": _normalize_workflow_stage(str(revision_row["release_status"])),
             "released_view": released_view,
@@ -2197,13 +2457,50 @@ class ComponentCatalogDomainService:
                 asset_changes.append({"key": key, "before": old_asset, "after": new_asset, "status": status})
             changed_metadata = sum(change["status"] != "unchanged" for change in metadata_changes)
             changed_assets = sum(change["status"] != "unchanged" for change in asset_changes)
+            def representation_map(revision_id: str) -> dict[str, dict[str, Any]]:
+                rows = conn.execute(
+                    "SELECT * FROM revision_representations WHERE revision_id = %s ORDER BY display_order, id",
+                    (revision_id,),
+                ).fetchall()
+                return {
+                    f"{row['symbol_asset_id'] or ''}:{row['footprint_asset_id'] or ''}": {
+                        "label": str(row["label"]),
+                        "symbolAssetId": str(row["symbol_asset_id"] or ""),
+                        "footprintAssetId": str(row["footprint_asset_id"] or ""),
+                        "isDefault": bool(row["is_default"]),
+                        "displayOrder": int(row["display_order"]),
+                        "sourceInternalPartNumber": str(row["source_internal_part_number"] or ""),
+                        "provenance": _json_loads(row.get("provenance_json"), {}),
+                    }
+                    for row in rows
+                }
+
+            before_representations = representation_map(before_revision_id)
+            after_representations = representation_map(after_revision_id)
+            representation_changes = []
+            for key in sorted(set(before_representations) | set(after_representations)):
+                old_representation = before_representations.get(key)
+                new_representation = after_representations.get(key)
+                status = (
+                    "added" if old_representation is None else
+                    "removed" if new_representation is None else
+                    "unchanged" if old_representation == new_representation else
+                    "modified"
+                )
+                representation_changes.append(
+                    {"key": key, "before": old_representation, "after": new_representation, "status": status}
+                )
+            changed_representations = sum(
+                change["status"] != "unchanged" for change in representation_changes
+            )
             return {
                 "componentId": component_id,
                 "before": {"revisionId": before_revision_id, "version": int(before["version"]), "manifestHash": str(before["manifest_hash"])},
                 "after": {"revisionId": after_revision_id, "version": int(after["version"]), "manifestHash": str(after["manifest_hash"])},
-                "summary": {"metadataChanges": changed_metadata, "assetChanges": changed_assets},
+                "summary": {"metadataChanges": changed_metadata, "assetChanges": changed_assets, "representationChanges": changed_representations},
                 "metadataChanges": metadata_changes,
                 "assetChanges": asset_changes,
+                "representationChanges": representation_changes,
             }
 
     def list_component_usage(self, component_id: str, *, include_history: bool = False) -> list[dict[str, Any]]:
@@ -3125,6 +3422,8 @@ class ComponentCatalogDomainService:
             str(revision_row["release_status"]),
             bool(component_row["is_active"]),
         )
+        if str(component_row.get("identity_kind") or IDENTITY_KIND_MPN) != IDENTITY_KIND_MPN:
+            place_enabled = False
         symbol_asset = next((asset for asset in assets if asset["asset_type"] == "symbol"), None)
         # Lightweight payloads are used by the KiCad remote panel; avoid validation lookups on search paths.
         validation_summary = validation_summary or {
@@ -3141,6 +3440,7 @@ class ComponentCatalogDomainService:
             "id": str(component_row["id"]),
             "slug": str(component_row["slug"]),
             "source": str(component_row["source"]),
+            "identity_kind": str(component_row.get("identity_kind") or IDENTITY_KIND_MPN),
             "name": str(revision_row["name"]),
             "value": str(revision_row["value"]),
             "manufacturer": str(revision_row["manufacturer"]),
@@ -3168,9 +3468,11 @@ class ComponentCatalogDomainService:
             "availability_state": availability_state,
             "missing_assets": missing_assets,
             "place_enabled": place_enabled,
-            "stock_quantity": float(component_row["stock_quantity"]),
-            "stock_uom": str(component_row["stock_uom"]),
-            "inventory_status": str(component_row["inventory_status"]),
+            "local_inventory": None,
+            "stock_known": False,
+            "stock_quantity": 0.0,
+            "stock_uom": "",
+            "inventory_status": "",
             "release_status": _normalize_workflow_stage(str(revision_row["release_status"])),
             "workflow_stage": _normalize_workflow_stage(str(revision_row["release_status"])),
             "released_view": released_view,
@@ -3727,6 +4029,7 @@ class ComponentCatalogDomainService:
                     "id": str(row["component_id"]),
                     "slug": str(row["slug"]),
                     "name": str(row["name"]),
+                    "identity_kind": str(row.get("identity_kind") or IDENTITY_KIND_MPN),
                     "manufacturer": str(row["manufacturer"]),
                     "mpn": str(row["mpn"]),
                     "description": str(row["description"]),
@@ -3741,12 +4044,26 @@ class ComponentCatalogDomainService:
                     "previews": previews,
                     "availability_state": availability_state,
                     "missing_assets": missing_assets,
-                    "place_enabled": has_symbol and has_footprint,
+                    "place_enabled": has_symbol and has_footprint and str(row.get("identity_kind") or IDENTITY_KIND_MPN) == IDENTITY_KIND_MPN,
                     "release_status": "released",
                     "workflow_stage": "released",
                     "stock_quantity": float(row["stock_quantity"]),
                     "stock_uom": str(row["stock_uom"]),
                     "inventory_status": str(row["inventory_status"]),
+                    "stock_known": bool(row.get("stock_known")),
+                    "local_inventory": (
+                        {
+                            "quantity": float(row["stock_quantity"]),
+                            "uom": str(row["stock_uom"]),
+                            "inventory_status": str(row["inventory_status"]),
+                        }
+                        if bool(row.get("stock_known")) else None
+                    ),
+                    "default_representation_id": str(row.get("default_representation_id") or ""),
+                    "representation_count": int(row.get("representation_count") or 0),
+                    "symbol_variant_count": int(row.get("symbol_variant_count") or 0),
+                    "footprint_variant_count": int(row.get("footprint_variant_count") or 0),
+                    "representations": [],
                     "extra_fields": _json_loads(row.get("extra_fields"), {}),
                 }
             )
@@ -3828,7 +4145,14 @@ class ComponentCatalogDomainService:
         self._category_cache_ts = now
         return result
 
-    def get_component(self, component_id: str, *, include_inactive: bool = True, released_only: bool = False) -> dict[str, Any] | None:
+    def get_component(
+        self,
+        component_id: str,
+        *,
+        include_inactive: bool = True,
+        released_only: bool = False,
+        representation_id: str = "",
+    ) -> dict[str, Any] | None:
         self.initialize()
         with self._connect() as conn:
             component, revision = self._active_revision_row(conn, component_id, released=released_only)
@@ -3838,7 +4162,241 @@ class ComponentCatalogDomainService:
                 return None
             if released_only and _normalize_workflow_stage(str(revision["release_status"])) != "released":
                 return None
-            return self._component_payload(conn, component, revision, released_view=released_only)
+            return self._component_payload(
+                conn,
+                component,
+                revision,
+                released_view=released_only,
+                representation_id=representation_id,
+            )
+
+    def _representation_asset_id(
+        self, conn: Any, revision_id: str, asset_id: str, expected_type: str
+    ) -> str | None:
+        value = str(asset_id or "").strip()
+        if not value:
+            return None
+        row = conn.execute(
+            """
+            SELECT asset.id
+            FROM revision_assets link
+            JOIN assets asset ON asset.id = link.asset_id
+            WHERE link.revision_id = %s AND asset.id = %s
+              AND link.asset_type = %s AND asset.asset_type = %s
+            """,
+            (revision_id, value, expected_type, expected_type),
+        ).fetchone()
+        if not row:
+            raise ValueError(f"{expected_type} asset is not attached to this revision")
+        return value
+
+    def create_representation(
+        self,
+        component_id: str,
+        *,
+        label: str,
+        symbol_asset_id: str = "",
+        footprint_asset_id: str = "",
+        display_order: int = 0,
+        make_default: bool = False,
+        source_internal_part_number: str = "",
+        provenance: dict[str, Any] | None = None,
+        expected_revision_id: str,
+        actor: str = "",
+        change_summary: str = "Add component representation",
+    ) -> dict[str, Any]:
+        self.initialize()
+        with self._connect() as conn:
+            revision = self._clone_revision(
+                conn,
+                component_id,
+                actor=actor,
+                change_kind="representation",
+                change_summary=change_summary,
+                expected_revision_id=expected_revision_id,
+            )
+            revision_id = str(revision["id"])
+            symbol_id = self._representation_asset_id(conn, revision_id, symbol_asset_id, "symbol")
+            footprint_id = self._representation_asset_id(conn, revision_id, footprint_asset_id, "footprint")
+            existing_count = int(
+                conn.execute(
+                    "SELECT COUNT(*) AS total FROM revision_representations WHERE revision_id = %s",
+                    (revision_id,),
+                ).fetchone()["total"]
+            )
+            duplicate = conn.execute(
+                """
+                SELECT 1 FROM revision_representations
+                WHERE revision_id = %s
+                  AND symbol_asset_id IS NOT DISTINCT FROM %s
+                  AND footprint_asset_id IS NOT DISTINCT FROM %s
+                """,
+                (revision_id, symbol_id, footprint_id),
+            ).fetchone()
+            if duplicate:
+                raise ValueError("This symbol-footprint pair already has a representation")
+            is_default = bool(make_default or existing_count == 0)
+            if is_default:
+                conn.execute(
+                    "UPDATE revision_representations SET is_default = 0, updated_at = %s WHERE revision_id = %s",
+                    (_utc_now_iso(), revision_id),
+                )
+            now = _utc_now_iso()
+            conn.execute(
+                """
+                INSERT INTO revision_representations (
+                    id, revision_id, label, symbol_asset_id, footprint_asset_id, is_default,
+                    display_order, source_internal_part_number, provenance_json, created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    str(uuid.uuid4()), revision_id, label.strip() or "Representation",
+                    symbol_id, footprint_id, 1 if is_default else 0, int(display_order),
+                    source_internal_part_number.strip(),
+                    json.dumps(provenance or {}, sort_keys=True, separators=(",", ":")), now, now,
+                ),
+            )
+            self._finalize_revision(
+                conn,
+                component_id=component_id,
+                revision_id=revision_id,
+                event_type="revision.created",
+                actor=actor,
+                details={"change_kind": "representation", "change_summary": change_summary},
+            )
+            conn.commit()
+        return self.get_component(component_id) or {}
+
+    def _current_representation_row(
+        self, conn: Any, component_id: str, representation_id: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        _, revision = self._active_revision_row(conn, component_id, released=False)
+        if not revision:
+            raise ValueError("Component not found")
+        row = conn.execute(
+            "SELECT * FROM revision_representations WHERE id = %s AND revision_id = %s",
+            (representation_id, revision["id"]),
+        ).fetchone()
+        if not row:
+            raise ValueError("Representation was not found on the current revision")
+        return revision, dict(row)
+
+    def update_representation(
+        self,
+        component_id: str,
+        representation_id: str,
+        *,
+        updates: dict[str, Any],
+        expected_revision_id: str,
+        actor: str = "",
+        change_summary: str = "Update component representation",
+    ) -> dict[str, Any]:
+        self.initialize()
+        with self._connect() as conn:
+            current, original = self._current_representation_row(conn, component_id, representation_id)
+            if str(current["id"]) != expected_revision_id:
+                raise ValueError("Component revision conflict: refresh the component before saving")
+            revision = self._clone_revision(
+                conn, component_id, actor=actor, change_kind="representation",
+                change_summary=change_summary, expected_revision_id=expected_revision_id,
+            )
+            revision_id = str(revision["id"])
+            cloned = conn.execute(
+                """
+                SELECT * FROM revision_representations
+                WHERE revision_id = %s
+                  AND symbol_asset_id IS NOT DISTINCT FROM %s
+                  AND footprint_asset_id IS NOT DISTINCT FROM %s
+                ORDER BY display_order, id LIMIT 1
+                """,
+                (revision_id, original["symbol_asset_id"], original["footprint_asset_id"]),
+            ).fetchone()
+            if not cloned:
+                raise ValueError("Cloned representation could not be resolved")
+            symbol_id = self._representation_asset_id(
+                conn, revision_id, str(updates.get("symbol_asset_id", cloned["symbol_asset_id"]) or ""), "symbol"
+            )
+            footprint_id = self._representation_asset_id(
+                conn, revision_id, str(updates.get("footprint_asset_id", cloned["footprint_asset_id"]) or ""), "footprint"
+            )
+            make_default = bool(updates.get("is_default", cloned["is_default"]))
+            if bool(cloned["is_default"]) and "is_default" in updates and not make_default:
+                raise ValueError("The default representation cannot be unset; make another representation default")
+            now = _utc_now_iso()
+            if make_default:
+                conn.execute(
+                    "UPDATE revision_representations SET is_default = 0, updated_at = %s WHERE revision_id = %s",
+                    (now, revision_id),
+                )
+            conn.execute(
+                """
+                UPDATE revision_representations
+                SET label = %s, symbol_asset_id = %s, footprint_asset_id = %s,
+                    is_default = %s, display_order = %s, updated_at = %s
+                WHERE id = %s
+                """,
+                (
+                    str(updates.get("label", cloned["label"]) or "Representation").strip(),
+                    symbol_id, footprint_id, 1 if make_default else 0,
+                    int(updates.get("display_order", cloned["display_order"])), now, cloned["id"],
+                ),
+            )
+            self._finalize_revision(
+                conn, component_id=component_id, revision_id=revision_id,
+                event_type="revision.created", actor=actor,
+                details={"change_kind": "representation", "change_summary": change_summary},
+            )
+            conn.commit()
+        return self.get_component(component_id) or {}
+
+    def delete_representation(
+        self,
+        component_id: str,
+        representation_id: str,
+        *,
+        expected_revision_id: str,
+        actor: str = "",
+    ) -> dict[str, Any]:
+        self.initialize()
+        with self._connect() as conn:
+            current, original = self._current_representation_row(conn, component_id, representation_id)
+            if str(current["id"]) != expected_revision_id:
+                raise ValueError("Component revision conflict: refresh the component before saving")
+            revision = self._clone_revision(
+                conn, component_id, actor=actor, change_kind="representation",
+                change_summary="Delete component representation", expected_revision_id=expected_revision_id,
+            )
+            revision_id = str(revision["id"])
+            cloned = conn.execute(
+                """
+                SELECT id, is_default FROM revision_representations
+                WHERE revision_id = %s
+                  AND symbol_asset_id IS NOT DISTINCT FROM %s
+                  AND footprint_asset_id IS NOT DISTINCT FROM %s
+                ORDER BY display_order, id LIMIT 1
+                """,
+                (revision_id, original["symbol_asset_id"], original["footprint_asset_id"]),
+            ).fetchone()
+            if cloned:
+                was_default = bool(cloned["is_default"])
+                conn.execute("DELETE FROM revision_representations WHERE id = %s", (cloned["id"],))
+                if was_default:
+                    replacement = conn.execute(
+                        "SELECT id FROM revision_representations WHERE revision_id = %s ORDER BY display_order, id LIMIT 1",
+                        (revision_id,),
+                    ).fetchone()
+                    if replacement:
+                        conn.execute(
+                            "UPDATE revision_representations SET is_default = 1, updated_at = %s WHERE id = %s",
+                            (_utc_now_iso(), replacement["id"]),
+                        )
+            self._finalize_revision(
+                conn, component_id=component_id, revision_id=revision_id,
+                event_type="revision.created", actor=actor,
+                details={"change_kind": "representation", "change_summary": "Delete component representation"},
+            )
+            conn.commit()
+        return self.get_component(component_id) or {}
 
     def create_manual_component(self, *, actor: str = "", change_summary: str = "Create component", **payload: Any) -> dict[str, Any]:
         self.initialize()
@@ -3884,7 +4442,9 @@ class ComponentCatalogDomainService:
             conn,
             manufacturer=metadata["manufacturer"],
             mpn=metadata["mpn"],
-            name=metadata["name"],
+            identity_kind=metadata["identity_kind"],
+            identity_source=metadata["identity_source"],
+            source_internal_part_number=metadata["source_internal_part_number"],
             component_id=existing_component_id or "",
         )
         if existing_component_id:
@@ -3900,6 +4460,7 @@ class ComponentCatalogDomainService:
                 """
                 UPDATE component_revisions
                 SET name = %s, value = %s, description = %s, datasheet_url = %s, manufacturer = %s, mpn = %s,
+                    normalized_manufacturer = %s, normalized_mpn = %s, mpn_source = %s,
                     category = %s, package_name = %s, vendor = %s, vendor_part_number = %s, mass_g = %s,
                     rqjc_c_w = %s, rqjc_top_c_w = %s, temp_max_c = %s, temp_min_c = %s,
                     power_dissipation_w = %s, rate = %s, sap_code = %s, summary = %s, keywords = %s, extra_fields = %s,
@@ -3913,6 +4474,9 @@ class ComponentCatalogDomainService:
                     metadata["datasheet_url"],
                     metadata["manufacturer"],
                     metadata["mpn"],
+                    metadata["normalized_manufacturer"],
+                    metadata["normalized_mpn"],
+                    metadata["mpn_source"],
                     metadata["category"],
                     metadata["package_name"],
                     metadata["vendor"],
@@ -3933,7 +4497,23 @@ class ComponentCatalogDomainService:
                     revision["id"],
                 ),
             )
-            conn.execute("UPDATE components SET updated_at = %s WHERE id = %s", (now, existing_component_id))
+            conn.execute(
+                """
+                UPDATE components
+                SET identity_kind = %s, identity_source = %s,
+                    normalized_manufacturer = %s, normalized_part_number = %s,
+                    updated_at = %s
+                WHERE id = %s
+                """,
+                (
+                    metadata["identity_kind"],
+                    metadata["identity_source"] if metadata["identity_kind"] == IDENTITY_KIND_PROVISIONAL_IPN else "",
+                    metadata["normalized_manufacturer"] if metadata["identity_kind"] == IDENTITY_KIND_MPN else "",
+                    metadata["normalized_part_number"],
+                    now,
+                    existing_component_id,
+                ),
+            )
             if finalize_revision:
                 self._finalize_revision(
                     conn,
@@ -3945,30 +4525,47 @@ class ComponentCatalogDomainService:
                 )
             return existing_component_id, str(revision["id"])
 
-        slug = self._unique_slug(conn, metadata["mpn"] or metadata["value"])
+        slug = self._unique_slug(
+            conn,
+            metadata["mpn"] or metadata["source_internal_part_number"] or metadata["value"],
+        )
         revision_id = str(uuid.uuid4())
         conn.execute(
             """
             INSERT INTO components (
-                id, slug, source, external_source, external_id, stock_quantity, stock_uom, inventory_status,
-                serial_number, lot_number, pedigree, last_synced_at, is_active, current_revision_id,
+                id, slug, identity_kind, identity_source, normalized_manufacturer, normalized_part_number,
+                source, external_source, external_id, is_active, current_revision_id,
                 released_revision_id, created_at, updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, 0, '', '', '', '', '', NULL, 1, %s, '', %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, '', %s, %s)
             """,
-            (component_id, slug, source, external_source, external_id, revision_id, now, now),
+            (
+                component_id,
+                slug,
+                metadata["identity_kind"],
+                metadata["identity_source"] if metadata["identity_kind"] == IDENTITY_KIND_PROVISIONAL_IPN else "",
+                metadata["normalized_manufacturer"] if metadata["identity_kind"] == IDENTITY_KIND_MPN else "",
+                metadata["normalized_part_number"],
+                source,
+                external_source,
+                external_id,
+                revision_id,
+                now,
+                now,
+            ),
         )
         conn.execute(
             """
             INSERT INTO component_revisions (
                 id, component_id, version, parent_revision_id, change_kind, change_summary, created_by,
                 manifest_hash, manifest_schema, release_status, name, value, description, datasheet_url,
-                manufacturer, mpn, category, package_name, vendor, vendor_part_number, mass_g,
+                manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
+                category, package_name, vendor, vendor_part_number, mass_g,
                 rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
                 summary, keywords, extra_fields, search_document, created_at, updated_at
             )
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             """,
             (
@@ -3980,7 +4577,7 @@ class ComponentCatalogDomainService:
                 change_summary,
                 actor,
                 "",
-                REVISION_MANIFEST_A2,
+                REVISION_MANIFEST_A3,
                 "open",
                 metadata["name"],
                 metadata["value"],
@@ -3988,6 +4585,9 @@ class ComponentCatalogDomainService:
                 metadata["datasheet_url"],
                 metadata["manufacturer"],
                 metadata["mpn"],
+                metadata["normalized_manufacturer"],
+                metadata["normalized_mpn"],
+                metadata["mpn_source"],
                 metadata["category"],
                 metadata["package_name"],
                 metadata["vendor"],
@@ -4054,6 +4654,13 @@ class ComponentCatalogDomainService:
             if str(revision["id"]) != expected_revision_id:
                 raise ValueError("Component revision conflict: refresh the component before saving")
             merged = {**revision}
+            merged["identity_kind"] = str(component.get("identity_kind") or IDENTITY_KIND_MPN)
+            merged["identity_source"] = str(component.get("identity_source") or "")
+            if merged["identity_kind"] == IDENTITY_KIND_PROVISIONAL_IPN:
+                merged["source_internal_part_number"] = str(component.get("normalized_part_number") or "")
+                if target_mpn.strip():
+                    merged["identity_kind"] = IDENTITY_KIND_MPN
+                    merged["identity_source"] = ""
             merged["extra_fields"] = _json_loads(revision.get("extra_fields"), {})
             field_map = {
                 "datasheet_url": "datasheet_url",
@@ -5001,7 +5608,37 @@ class ComponentCatalogDomainService:
             conn.commit()
         return {"created": created, "updated": updated, "errors": []}
 
-    def import_stock_csv(self, file_content: str) -> dict[str, Any]:
+    def export_inventory_csv(self) -> str:
+        self.initialize()
+        output = io.StringIO()
+        writer = csv.DictWriter(
+            output,
+            fieldnames=(
+                "component_id", "manufacturer", "mpn", "quantity", "uom", "inventory_status"
+            ),
+        )
+        writer.writeheader()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT component.id AS component_id, revision.manufacturer, revision.mpn,
+                       COALESCE(SUM(inventory.quantity), 0) AS quantity,
+                       COALESCE(MIN(inventory.uom), '') AS uom,
+                       COALESCE(MIN(inventory.inventory_status), '') AS inventory_status
+                FROM components component
+                JOIN component_revisions revision ON revision.id = component.current_revision_id
+                LEFT JOIN inventory_levels inventory
+                  ON inventory.component_id = component.id AND inventory.source = 'csv'
+                WHERE component.identity_kind = 'mpn'
+                GROUP BY component.id, revision.manufacturer, revision.mpn
+                ORDER BY lower(revision.manufacturer), lower(revision.mpn), component.id
+                """
+            ).fetchall()
+        for row in rows:
+            writer.writerow(dict(row))
+        return output.getvalue()
+
+    def import_inventory_csv(self, file_content: str) -> dict[str, Any]:
         self.initialize()
         reader = csv.DictReader(io.StringIO(file_content))
         if not reader.fieldnames:
@@ -5011,41 +5648,73 @@ class ComponentCatalogDomainService:
         errors: list[str] = []
         with self._connect() as conn:
             for index, row in enumerate(reader, start=2):
+                component_id = str(row.get("component_id") or "").strip()
+                manufacturer = str(row.get("manufacturer") or "").strip()
                 mpn = str(row.get("manufacturer_part_number") or row.get("mpn") or "").strip()
-                if not mpn:
-                    errors.append(f"Row {index}: missing manufacturer_part_number")
+                if not component_id and (not manufacturer or not mpn):
+                    errors.append(f"Row {index}: component_id or manufacturer+mpn is required")
                     continue
-                component = conn.execute(
-                    """
-                    SELECT c.id
-                    FROM components c
-                    JOIN component_revisions cr ON cr.id = c.current_revision_id
-                    WHERE cr.mpn = %s
-                    LIMIT 1
-                    """,
-                    (mpn,),
-                ).fetchone()
+                if component_id:
+                    component = conn.execute(
+                        """
+                        SELECT component.id, component.identity_kind,
+                               component.normalized_manufacturer, component.normalized_part_number
+                        FROM components component WHERE component.id = %s
+                        """,
+                        (component_id,),
+                    ).fetchone()
+                else:
+                    component = conn.execute(
+                        """
+                        SELECT id, identity_kind, normalized_manufacturer, normalized_part_number
+                        FROM components
+                        WHERE identity_kind = 'mpn'
+                          AND normalized_manufacturer = %s AND normalized_part_number = %s
+                        """,
+                        (_normalize_identity_value(manufacturer), _normalize_identity_value(mpn)),
+                    ).fetchone()
                 if not component:
                     not_found += 1
+                    errors.append(f"Row {index}: component identity was not found")
+                    continue
+                if str(component["identity_kind"]) != IDENTITY_KIND_MPN:
+                    errors.append(f"Row {index}: provisional components cannot receive MPN inventory")
+                    continue
+                if manufacturer and _normalize_identity_value(manufacturer) != str(component["normalized_manufacturer"]):
+                    errors.append(f"Row {index}: manufacturer does not match component_id")
+                    continue
+                if mpn and _normalize_identity_value(mpn) != str(component["normalized_part_number"]):
+                    errors.append(f"Row {index}: mpn does not match component_id")
+                    continue
+                try:
+                    quantity = float(row.get("quantity") or row.get("stock_quantity") or 0)
+                except (TypeError, ValueError):
+                    errors.append(f"Row {index}: quantity must be numeric")
                     continue
                 now = _utc_now_iso()
                 conn.execute(
                     """
-                    UPDATE components
-                    SET stock_quantity = %s, stock_uom = %s, inventory_status = %s, serial_number = %s,
-                        lot_number = %s, pedigree = %s, last_synced_at = %s, updated_at = %s
-                    WHERE id = %s
+                    INSERT INTO inventory_levels (
+                        source, component_id, location_key, source_record_id, quantity, uom,
+                        inventory_status, fetch_status, fetched_at, updated_at
+                    ) VALUES ('csv', %s, '', %s, %s, %s, %s, 'ok', %s, %s)
+                    ON CONFLICT(source, component_id, location_key) DO UPDATE SET
+                        source_record_id = EXCLUDED.source_record_id,
+                        quantity = EXCLUDED.quantity,
+                        uom = EXCLUDED.uom,
+                        inventory_status = EXCLUDED.inventory_status,
+                        fetch_status = EXCLUDED.fetch_status,
+                        fetched_at = EXCLUDED.fetched_at,
+                        updated_at = EXCLUDED.updated_at
                     """,
                     (
-                        float(row.get("stock_quantity") or 0),
-                        str(row.get("stock_uom") or ""),
-                        str(row.get("inventory_status") or ""),
-                        str(row.get("serial_number") or ""),
-                        str(row.get("lot_number") or ""),
-                        str(row.get("pedigree") or ""),
-                        now,
-                        now,
                         component["id"],
+                        f"csv:{index}",
+                        quantity,
+                        str(row.get("uom") or row.get("stock_uom") or ""),
+                        str(row.get("inventory_status") or ""),
+                        now,
+                        now,
                     ),
                 )
                 updated += 1
@@ -5074,6 +5743,7 @@ class ComponentCatalogDomainService:
         required: bool,
         actor: str,
         change_summary: str,
+        counterpart_asset_id: str = "",
     ) -> dict[str, Any]:
         _, current = self._active_revision_row(conn, component_id, released=False)
         if not current:
@@ -5102,7 +5772,7 @@ class ComponentCatalogDomainService:
             for row in latest_preview_rows:
                 latest_by_kind.setdefault(str(row["kind"]), str(row["id"]))
             preview_changed = bool(latest_by_kind and latest_by_kind != current_by_kind)
-        if existing and bool(existing["required"]) == required:
+        if existing and bool(existing["required"]) == required and not counterpart_asset_id:
             if preview_changed:
                 self._refresh_revision_preview_outputs_in_conn(conn, str(current["id"]))
             return current
@@ -5113,7 +5783,13 @@ class ComponentCatalogDomainService:
             change_kind="asset",
             change_summary=change_summary,
         )
-        self._link_asset_to_revision(conn, revision["id"], asset, required=required)
+        self._link_asset_to_revision(
+            conn,
+            revision["id"],
+            asset,
+            required=required,
+            counterpart_asset_id=counterpart_asset_id,
+        )
         effective_change_kind = "asset"
         self._finalize_revision(
             conn,
@@ -5418,7 +6094,10 @@ class ComponentCatalogDomainService:
             isolated_footprint = isolated_library / f"{_sanitize_name(target_name, footprint_source.stem)}.kicad_mod"
             shutil.copy2(footprint_source, isolated_footprint)
             success, error = self._run_kicad_cli(
-                ["fp", "export", "svg", "--output", tmp_dir, "--footprint", target_name, str(isolated_library)]
+                [
+                    "fp", "export", "svg", "--output", tmp_dir,
+                    "--footprint", isolated_footprint.stem, str(isolated_library),
+                ]
             )
             if not success:
                 return PREVIEW_STATUS_FAILED, error
@@ -5713,28 +6392,18 @@ class ComponentCatalogDomainService:
                     progress_callback(counts.copy())
         return counts
 
-    def _link_asset_to_revision(self, conn: Any, revision_id: str, asset: dict[str, Any], *, required: bool) -> None:
+    def _link_asset_to_revision(
+        self,
+        conn: Any,
+        revision_id: str,
+        asset: dict[str, Any],
+        *,
+        required: bool,
+        counterpart_asset_id: str = "",
+    ) -> None:
         now = _utc_now_iso()
         if str(asset["asset_type"]) in PLACE_REQUIRED_ASSET_TYPES:
             kind = PREVIEW_KIND_SYMBOL if str(asset["asset_type"]) == "symbol" else PREVIEW_KIND_FOOTPRINT
-            conn.execute(
-                "DELETE FROM revision_preview_outputs WHERE revision_id = %s AND (kind = %s OR kind LIKE %s) AND asset_id <> %s",
-                (revision_id, kind, f"{kind}:unit%", asset["id"]),
-            )
-            conn.execute(
-                """
-                DELETE FROM revision_validation_evidence_links
-                WHERE revision_id = %s AND asset_id IN (
-                    SELECT asset_id FROM revision_assets
-                    WHERE revision_id = %s AND asset_type = %s AND asset_id <> %s
-                )
-                """,
-                (revision_id, revision_id, asset["asset_type"], asset["id"]),
-            )
-            conn.execute(
-                "DELETE FROM revision_assets WHERE revision_id = %s AND asset_type = %s AND asset_id <> %s",
-                (revision_id, asset["asset_type"], asset["id"]),
-            )
         conn.execute(
             """
             INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
@@ -5765,6 +6434,89 @@ class ComponentCatalogDomainService:
                     DO UPDATE SET preview_id = excluded.preview_id, generated_at = excluded.generated_at
                     """,
                     (revision_id, str(asset["id"]), preview_kind, str(preview["id"]), now),
+                )
+            default_representation = conn.execute(
+                "SELECT id, symbol_asset_id, footprint_asset_id FROM revision_representations "
+                "WHERE revision_id = %s AND is_default = 1 LIMIT 1",
+                (revision_id,),
+            ).fetchone()
+            if counterpart_asset_id:
+                expected_type = "footprint" if str(asset["asset_type"]) == "symbol" else "symbol"
+                counterpart = conn.execute(
+                    """
+                    SELECT linked.id
+                    FROM revision_assets link
+                    JOIN assets linked ON linked.id = link.asset_id
+                    WHERE link.revision_id = %s AND linked.id = %s
+                      AND link.asset_type = %s AND linked.asset_type = %s
+                    """,
+                    (revision_id, counterpart_asset_id, expected_type, expected_type),
+                ).fetchone()
+                if not counterpart:
+                    raise ValueError("Selected counterpart asset is not attached to this revision")
+            if default_representation:
+                missing_symbol = not default_representation["symbol_asset_id"]
+                missing_footprint = not default_representation["footprint_asset_id"]
+                fills_default = (
+                    str(asset["asset_type"]) == "symbol" and missing_symbol
+                ) or (
+                    str(asset["asset_type"]) == "footprint" and missing_footprint
+                )
+                default_counterpart_id = (
+                    str(default_representation["footprint_asset_id"] or "")
+                    if str(asset["asset_type"]) == "symbol"
+                    else str(default_representation["symbol_asset_id"] or "")
+                )
+                if fills_default and (
+                    not counterpart_asset_id or counterpart_asset_id == default_counterpart_id
+                ):
+                    column = (
+                        "symbol_asset_id"
+                        if str(asset["asset_type"]) == "symbol"
+                        else "footprint_asset_id"
+                    )
+                    conn.execute(
+                        f"UPDATE revision_representations SET {column} = %s, updated_at = %s WHERE id = %s",
+                        (str(asset["id"]), now, str(default_representation["id"])),
+                    )
+                    return
+            symbol_id = (
+                str(asset["id"])
+                if str(asset["asset_type"]) == "symbol"
+                else counterpart_asset_id or str(default_representation["symbol_asset_id"] or "") if default_representation else counterpart_asset_id
+            )
+            footprint_id = (
+                str(asset["id"])
+                if str(asset["asset_type"]) == "footprint"
+                else counterpart_asset_id or str(default_representation["footprint_asset_id"] or "") if default_representation else counterpart_asset_id
+            )
+            duplicate = conn.execute(
+                """
+                SELECT 1 FROM revision_representations
+                WHERE revision_id = %s
+                  AND symbol_asset_id IS NOT DISTINCT FROM %s
+                  AND footprint_asset_id IS NOT DISTINCT FROM %s
+                """,
+                (revision_id, symbol_id or None, footprint_id or None),
+            ).fetchone()
+            if not duplicate:
+                count = int(
+                    conn.execute(
+                        "SELECT COUNT(*) AS total FROM revision_representations WHERE revision_id = %s",
+                        (revision_id,),
+                    ).fetchone()["total"]
+                )
+                conn.execute(
+                    """
+                    INSERT INTO revision_representations (
+                        id, revision_id, label, symbol_asset_id, footprint_asset_id, is_default,
+                        display_order, source_internal_part_number, provenance_json, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, '', '{}', %s, %s)
+                    """,
+                    (
+                        str(uuid.uuid4()), revision_id, str(asset.get("target_name") or asset.get("name") or "Representation"),
+                        symbol_id or None, footprint_id or None, 1 if count == 0 else 0, count, now, now,
+                    ),
                 )
 
     def _resolve_existing_asset(
@@ -5833,6 +6585,7 @@ class ComponentCatalogDomainService:
         target_library: str,
         target_name: str,
         *,
+        counterpart_asset_id: str = "",
         actor: str = "",
     ) -> dict[str, Any]:
         if asset_type not in SUPPORTED_ASSET_TYPES:
@@ -5853,6 +6606,7 @@ class ComponentCatalogDomainService:
                 required=asset_type in PLACE_REQUIRED_ASSET_TYPES,
                 actor=actor,
                 change_summary=f"Link {asset_type} asset",
+                counterpart_asset_id=counterpart_asset_id,
             )
             conn.commit()
         return {"component": self.get_component(component_id)}
@@ -5878,6 +6632,7 @@ class ComponentCatalogDomainService:
         payload: bytes,
         target_library: str,
         selected_symbol: str,
+        counterpart_asset_id: str = "",
         actor: str = "",
     ) -> dict[str, Any]:
         self.initialize()
@@ -5907,6 +6662,7 @@ class ComponentCatalogDomainService:
                 required=True,
                 actor=actor,
                 change_summary=f"Import symbol {chosen}",
+                counterpart_asset_id=counterpart_asset_id,
             )
             conn.commit()
         return {
@@ -5942,6 +6698,7 @@ class ComponentCatalogDomainService:
         payload: bytes,
         target_library: str,
         selected_footprint: str,
+        counterpart_asset_id: str = "",
         actor: str = "",
     ) -> dict[str, Any]:
         self.initialize()
@@ -5971,6 +6728,7 @@ class ComponentCatalogDomainService:
                 required=True,
                 actor=actor,
                 change_summary=f"Import footprint {chosen}",
+                counterpart_asset_id=counterpart_asset_id,
             )
             conn.commit()
         return {
@@ -6019,6 +6777,10 @@ class ComponentCatalogDomainService:
     def detach_asset(self, component_id: str, asset_type: str, *, actor: str = "") -> dict[str, Any]:
         if asset_type not in SUPPORTED_ASSET_TYPES:
             raise ValueError("Unsupported asset type")
+        if asset_type in PLACE_REQUIRED_ASSET_TYPES:
+            raise ValueError(
+                "Symbol and footprint assets must be detached by asset ID after removing or reassigning their representations"
+            )
         self.initialize()
         with self._connect() as conn:
             _, current = self._active_revision_row(conn, component_id, released=False)
@@ -6072,6 +6834,59 @@ class ComponentCatalogDomainService:
                 event_type="revision.created",
                 actor=actor,
                 details={"change_kind": "asset", "change_summary": f"Detach {asset_type} asset"},
+            )
+            conn.commit()
+        return {"component": self.get_component(component_id)}
+
+    def detach_asset_by_id(
+        self,
+        component_id: str,
+        asset_id: str,
+        *,
+        expected_revision_id: str,
+        actor: str = "",
+    ) -> dict[str, Any]:
+        self.initialize()
+        with self._connect() as conn:
+            _, current = self._active_revision_row(conn, component_id, released=False)
+            if not current:
+                raise ValueError("Component not found")
+            if str(current["id"]) != expected_revision_id:
+                raise ValueError("Component revision conflict: refresh the component before saving")
+            linked = conn.execute(
+                "SELECT asset_type FROM revision_assets WHERE revision_id = %s AND asset_id = %s",
+                (current["id"], asset_id),
+            ).fetchone()
+            if not linked:
+                raise ValueError("Asset is not attached to the current revision")
+            referenced = conn.execute(
+                """
+                SELECT 1 FROM revision_representations
+                WHERE revision_id = %s AND (symbol_asset_id = %s OR footprint_asset_id = %s)
+                LIMIT 1
+                """,
+                (current["id"], asset_id, asset_id),
+            ).fetchone()
+            if referenced:
+                raise ValueError("Asset is referenced by a representation; remove or reassign it first")
+            revision = self._clone_revision(
+                conn, component_id, actor=actor, change_kind="asset",
+                change_summary=f"Detach {linked['asset_type']} asset",
+                expected_revision_id=expected_revision_id,
+            )
+            revision_id = str(revision["id"])
+            for table in (
+                "revision_previews", "revision_preview_outputs",
+                "revision_validation_evidence_links", "revision_assets",
+            ):
+                conn.execute(
+                    f"DELETE FROM {table} WHERE revision_id = %s AND asset_id = %s",
+                    (revision_id, asset_id),
+                )
+            self._finalize_revision(
+                conn, component_id=component_id, revision_id=revision_id,
+                event_type="revision.created", actor=actor,
+                details={"change_kind": "asset", "change_summary": "Detach asset", "asset_id": asset_id},
             )
             conn.commit()
         return {"component": self.get_component(component_id)}
@@ -6612,6 +7427,11 @@ class ComponentCatalogDomainService:
                 and not self_approval_override_reason.strip()
             ):
                 raise ValueError("Two-person approval required: revision authors cannot approve their own revision")
+            if (
+                release_status in {"done", "released"}
+                and str(component.get("identity_kind") or IDENTITY_KIND_MPN) != IDENTITY_KIND_MPN
+            ):
+                raise ValueError("Provisional components require a manufacturer part number before approval or release")
 
             assets = self._load_assets_for_revision(conn, revision["id"])
             validation = self._component_validation_summary(conn, str(revision["id"]), assets)
@@ -6619,9 +7439,21 @@ class ComponentCatalogDomainService:
                 "two_person_approval": True,
                 "klc_release_gate": self._klc_release_gate(),
             }
-            availability_state, missing_assets, _ = self._availability(assets, release_status, bool(component["is_active"]))
-            if release_status == "released" and availability_state != STATE_PLACE_READY:
-                raise ValueError(f"Cannot release component while files are incomplete: missing {', '.join(missing_assets)}")
+            default_representation = conn.execute(
+                """
+                SELECT symbol_asset_id, footprint_asset_id
+                FROM revision_representations
+                WHERE revision_id = %s AND is_default = 1
+                LIMIT 1
+                """,
+                (revision["id"],),
+            ).fetchone()
+            if release_status == "released" and (
+                not default_representation
+                or not default_representation["symbol_asset_id"]
+                or not default_representation["footprint_asset_id"]
+            ):
+                raise ValueError("Cannot release component without one complete default representation")
             if release_status == "released" and self._klc_release_gate() == "block":
                 if validation["status"] in {VALIDATION_STATUS_FAILED, VALIDATION_STATUS_SKIPPED, VALIDATION_STATUS_NOT_RUN}:
                     raise ValueError(
@@ -6788,7 +7620,37 @@ class ComponentCatalogDomainService:
             "name": path.name,
         }
 
-    def build_manifest(self, component_id: str, base_url: str) -> dict[str, Any] | None:
+    def _placement_assets(
+        self, conn: Any, revision_id: str, representation_id: str = ""
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        if representation_id:
+            row = conn.execute(
+                "SELECT * FROM revision_representations WHERE id = %s AND revision_id = %s",
+                (representation_id, revision_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM revision_representations WHERE revision_id = %s AND is_default = 1 LIMIT 1",
+                (revision_id,),
+            ).fetchone()
+        if not row:
+            raise ValueError("Representation was not found on this revision")
+        if not row["symbol_asset_id"] or not row["footprint_asset_id"]:
+            raise ValueError("Selected representation is incomplete")
+        all_assets = self._load_assets_for_revision(conn, revision_id)
+        selected_ids = {str(row["symbol_asset_id"]), str(row["footprint_asset_id"])}
+        assets = [
+            asset
+            for asset in all_assets
+            if str(asset["asset_type"]) in {"3dmodel", "spice"} or str(asset["id"]) in selected_ids
+        ]
+        if len([asset for asset in assets if str(asset["id"]) in selected_ids]) != 2:
+            raise ValueError("Selected representation references unavailable assets")
+        return dict(row), assets
+
+    def build_manifest(
+        self, component_id: str, base_url: str, representation_id: str = ""
+    ) -> dict[str, Any] | None:
         self.initialize()
         component = self.get_component(component_id, include_inactive=False, released_only=True)
         if not component:
@@ -6796,7 +7658,9 @@ class ComponentCatalogDomainService:
         if not component["place_enabled"]:
             raise ValueError("Component is not placeable because it is not released or required files are missing")
         with self._connect() as conn:
-            assets = self._load_assets_for_revision(conn, component["revision_id"])
+            representation, assets = self._placement_assets(
+                conn, component["revision_id"], representation_id
+            )
         manifest_assets = []
         for raw_asset in assets:
             asset = self._materialize_asset(raw_asset, assets, component)
@@ -6810,7 +7674,10 @@ class ComponentCatalogDomainService:
                     "size_bytes": asset["size_bytes"],
                     "sha256": asset["sha256"],
                     "required": bool(raw_asset["required"]),
-                    "download_url": self.build_signed_asset_url(asset["id"], component["revision_id"], base_url),
+                    "download_url": self.build_signed_asset_url(
+                        asset["id"], component["revision_id"], base_url,
+                        representation_id=str(representation["id"]),
+                    ),
                 }
             )
         return {
@@ -6818,12 +7685,15 @@ class ComponentCatalogDomainService:
             "display_name": component["name"],
             "summary": component["summary"] or component["description"],
             "license": "Managed in KiCAD Prism",
-            "library_name": component["library_name"],
-            "symbol_name": component["symbol_name"],
+            "representation_id": str(representation["id"]),
+            "library_name": next(str(a["target_library"]) for a in assets if a["asset_type"] == "symbol"),
+            "symbol_name": next(str(a["target_name"]) for a in assets if a["asset_type"] == "symbol"),
             "assets": manifest_assets,
         }
 
-    def build_inline_bundle(self, component_id: str) -> dict[str, Any] | None:
+    def build_inline_bundle(
+        self, component_id: str, representation_id: str = ""
+    ) -> dict[str, Any] | None:
         self.initialize()
         component = self.get_component(component_id, include_inactive=False, released_only=True)
         if not component:
@@ -6831,7 +7701,9 @@ class ComponentCatalogDomainService:
         if not component["place_enabled"]:
             raise ValueError("Component is not placeable because it is not released or required files are missing")
         with self._connect() as conn:
-            assets = self._load_assets_for_revision(conn, component["revision_id"])
+            representation, assets = self._placement_assets(
+                conn, component["revision_id"], representation_id
+            )
         bundle_entries = []
         for raw_asset in assets:
             asset = self._materialize_asset(raw_asset, assets, component)
@@ -6847,13 +7719,16 @@ class ComponentCatalogDomainService:
         return {
             "part_id": component["id"],
             "display_name": component["name"],
-            "library": component["library_name"],
-            "symbol_name": component["symbol_name"],
+            "representation_id": str(representation["id"]),
+            "library": next(str(a["target_library"]) for a in assets if a["asset_type"] == "symbol"),
+            "symbol_name": next(str(a["target_name"]) for a in assets if a["asset_type"] == "symbol"),
             "compression": "NONE",
             "data": base64.b64encode(json.dumps(bundle_entries, separators=(",", ":")).encode("utf-8")).decode("ascii"),
         }
 
-    def get_asset_by_id(self, asset_id: str, *, revision_id: str = "") -> dict[str, Any] | None:
+    def get_asset_by_id(
+        self, asset_id: str, *, revision_id: str = "", representation_id: str = ""
+    ) -> dict[str, Any] | None:
         self.initialize()
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM assets WHERE id = %s", (asset_id,)).fetchone()
@@ -6864,7 +7739,12 @@ class ComponentCatalogDomainService:
             if not effective_revision_id:
                 link = conn.execute("SELECT revision_id FROM revision_assets WHERE asset_id = %s ORDER BY updated_at DESC LIMIT 1", (asset_id,)).fetchone()
                 effective_revision_id = str(link["revision_id"]) if link else ""
-            assets_for_revision = self._load_assets_for_revision(conn, effective_revision_id) if effective_revision_id else [asset]
+            if effective_revision_id and representation_id:
+                _, assets_for_revision = self._placement_assets(
+                    conn, effective_revision_id, representation_id
+                )
+            else:
+                assets_for_revision = self._load_assets_for_revision(conn, effective_revision_id) if effective_revision_id else [asset]
             component = None
             if effective_revision_id:
                 revision = self._revision_row(conn, effective_revision_id)
@@ -6920,15 +7800,26 @@ class ComponentCatalogDomainService:
         secret = settings.SESSION_SECRET.encode("utf-8")
         return base64.urlsafe_b64encode(hmac.new(secret, message.encode("utf-8"), hashlib.sha256).digest()).rstrip(b"=").decode("ascii")
 
-    def build_signed_asset_url(self, asset_id: str, revision_id: str, base_url: str, ttl_seconds: int = 300) -> str:
+    def build_signed_asset_url(
+        self, asset_id: str, revision_id: str, base_url: str, ttl_seconds: int = 300,
+        *, representation_id: str = "",
+    ) -> str:
         expires_at = int(time.time()) + ttl_seconds
-        signature = self._sign(f"{asset_id}:{revision_id}:{expires_at}")
-        return f"{base_url.rstrip('/')}/api/remote-provider/assets/{asset_id}?rev={revision_id}&exp={expires_at}&sig={signature}"
+        signature = self._sign(f"{asset_id}:{revision_id}:{representation_id}:{expires_at}")
+        return (
+            f"{base_url.rstrip('/')}/api/remote-provider/assets/{asset_id}?rev={revision_id}"
+            f"&representation={representation_id}&exp={expires_at}&sig={signature}"
+        )
 
-    def validate_asset_signature(self, asset_id: str, revision_id: str, expires_at: int, signature: str) -> bool:
+    def validate_asset_signature(
+        self, asset_id: str, revision_id: str, expires_at: int, signature: str,
+        representation_id: str = "",
+    ) -> bool:
         if expires_at <= int(time.time()):
             return False
-        return hmac.compare_digest(self._sign(f"{asset_id}:{revision_id}:{expires_at}"), signature)
+        return hmac.compare_digest(
+            self._sign(f"{asset_id}:{revision_id}:{representation_id}:{expires_at}"), signature
+        )
 
     def store_auth_code(self, code: str, grant: dict[str, Any], exp: int) -> None:
         self.initialize()
@@ -6990,8 +7881,12 @@ class ComponentCatalogDomainService:
         part_number: str,
         custom_fields: list[dict[str, Any]],
     ) -> dict[str, str]:
-        symbol_asset = next((asset for asset in component["assets"] if asset["asset_type"] == "symbol"), None)
-        footprint_asset = next((asset for asset in component["assets"] if asset["asset_type"] == "footprint"), None)
+        default_representation = next(
+            (item for item in component.get("representations", []) if item.get("is_default")),
+            None,
+        )
+        symbol_asset = default_representation.get("symbol") if default_representation else None
+        footprint_asset = default_representation.get("footprint") if default_representation else None
         lib_symbol = ""
         lib_footprint = ""
         if symbol_asset:
@@ -7023,7 +7918,7 @@ class ComponentCatalogDomainService:
         export_root: Path,
         conn: Any,
     ) -> None:
-        assets = self._load_assets_for_revision(conn, component["revision_id"])
+        _, assets = self._placement_assets(conn, component["revision_id"])
         for raw_asset in assets:
             if raw_asset["asset_type"] not in {"symbol", "footprint"}:
                 continue

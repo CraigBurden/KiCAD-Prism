@@ -6,6 +6,7 @@ export interface PanelComponent {
   id: string;
   slug: string;
   name: string;
+  identity_kind: "mpn" | "provisional_ipn";
   manufacturer: string;
   mpn: string;
   description: string;
@@ -23,11 +24,33 @@ export interface PanelComponent {
   stock_quantity: number;
   stock_uom: string;
   inventory_status: string;
+  stock_known: boolean;
+  local_inventory: {
+    source: string;
+    quantity: number;
+    uom: string;
+    inventory_status: string;
+    fetch_status: string;
+    fetched_at: string;
+  } | null;
+  representations: PanelRepresentation[];
+  default_representation_id: string;
+  effective_representation_id: string;
   preview_status: Record<string, { status: string; error: string }>;
   symbol_preview_url: string;
   footprint_preview_url: string;
   manifest_url: string;
   inline_url: string;
+}
+
+export interface PanelRepresentation {
+  id: string;
+  label: string;
+  symbol: (PanelAsset & { preview_id?: string; preview_url?: string }) | null;
+  footprint: (PanelAsset & { preview_id?: string; preview_url?: string }) | null;
+  is_default: boolean;
+  display_order: number;
+  source_internal_part_number: string;
 }
 
 export interface PanelAsset {
@@ -142,26 +165,34 @@ export async function getComponentsByCategory(
 
 export async function getComponent(
   componentId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  representationId = ""
 ): Promise<PanelComponent> {
+  const params = new URLSearchParams();
+  if (representationId) params.set("representation", representationId);
+  const query = params.toString();
   return panelFetch<PanelComponent>(
-    `/api/remote-provider/components/${componentId}`,
+    `/api/remote-provider/components/${componentId}${query ? `?${query}` : ""}`,
     signal
   );
 }
 
 export async function getPartManifest(
-  partId: string
+  partId: string,
+  representationId = ""
 ): Promise<Record<string, unknown>> {
+  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/parts/${partId}`
+    `/api/remote-provider/parts/${partId}${query}`
   );
 }
 
 export async function getInlineBundle(
-  componentId: string
+  componentId: string,
+  representationId = ""
 ): Promise<Record<string, unknown>> {
+  const query = representationId ? `?representation=${encodeURIComponent(representationId)}` : "";
   return panelFetch<Record<string, unknown>>(
-    `/api/remote-provider/components/${componentId}/inline`
+    `/api/remote-provider/components/${componentId}/inline${query}`
   );
 }

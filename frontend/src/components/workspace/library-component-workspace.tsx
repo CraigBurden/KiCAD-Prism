@@ -73,6 +73,7 @@ import type {
   CatalogComponentUsage,
   CatalogReviewDecision,
   CatalogReleaseRecord,
+  CatalogRepresentation,
   CatalogRevisionDiff,
   CatalogRevisionDiffAsset,
   CatalogRevisionSummary,
@@ -335,6 +336,11 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
 
   return (
     <div className="space-y-4">
+      {component.identity_kind === "provisional_ipn" ? (
+        <div className="border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+          <strong>Provisional component.</strong> Add the real manufacturer part number before approval, release, inventory synchronization, or placement.
+        </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Release state" value={WORKFLOW_LABELS[workflowStage(component)]} detail={`Revision v${component.revision}`} />
         <MetricCard label="Required assets" value={`${requiredAttached}/${requiredAttached + component.missing_assets.length}`} detail={component.missing_assets.length ? `Missing ${component.missing_assets.join(", ")}` : "All required assets attached"} />
@@ -366,7 +372,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
             { label: "Vendor", value: component.vendor },
             { label: "Vendor P/N", value: component.vendor_part_number },
             { label: "SAP code", value: component.sap_code },
-            { label: "Stock", value: component.stock_quantity ? `${component.stock_quantity} ${component.stock_uom}` : "PLM sync not configured" },
+            { label: "Stock", value: component.stock_known ? `${component.stock_quantity} ${component.stock_uom}`.trim() : "Not synchronized" },
           ]} />
         </PanelCard>
       </div>
@@ -403,24 +409,159 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
   );
 }
 
+function RepresentationRow({
+  component,
+  representation,
+  canMutate,
+  onChanged,
+}: {
+  component: CatalogComponent;
+  representation: CatalogRepresentation;
+  canMutate: boolean;
+  onChanged: () => void;
+}) {
+  const symbols = component.assets.filter((asset) => asset.asset_type === "symbol");
+  const footprints = component.assets.filter((asset) => asset.asset_type === "footprint");
+  const [label, setLabel] = useState(representation.label);
+  const [symbolId, setSymbolId] = useState(representation.symbol?.id || "");
+  const [footprintId, setFootprintId] = useState(representation.footprint?.id || "");
+  const [order, setOrder] = useState(String(representation.display_order));
+  const [saving, setSaving] = useState(false);
+
+  const update = async (makeDefault = representation.is_default) => {
+    setSaving(true);
+    try {
+      await fetchJson(`/api/catalog/components/${encodeURIComponent(component.id)}/representations/${encodeURIComponent(representation.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          label,
+          symbol_asset_id: symbolId,
+          footprint_asset_id: footprintId,
+          display_order: Number(order) || 0,
+          is_default: makeDefault,
+          expected_revision_id: component.revision_id,
+        }),
+      });
+      toast.success(makeDefault && !representation.is_default ? "Default representation updated." : "Representation saved.");
+      onChanged();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    setSaving(true);
+    try {
+      await fetchJson(`/api/catalog/components/${encodeURIComponent(component.id)}/representations/${encodeURIComponent(representation.id)}?expected_revision_id=${encodeURIComponent(component.revision_id)}`, { method: "DELETE" });
+      toast.success("Representation removed in a new revision.");
+      onChanged();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-2 border p-3 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_5rem_auto]">
+      <Input aria-label="Representation label" value={label} onChange={(event) => setLabel(event.target.value)} disabled={!canMutate || saving} />
+      <Select value={symbolId || "none"} onValueChange={(value) => setSymbolId(value === "none" ? "" : value)} disabled={!canMutate || saving}>
+        <SelectTrigger aria-label="Symbol asset"><SelectValue placeholder="No symbol" /></SelectTrigger>
+        <SelectContent><SelectItem value="none">No symbol</SelectItem>{symbols.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.target_name}</SelectItem>)}</SelectContent>
+      </Select>
+      <Select value={footprintId || "none"} onValueChange={(value) => setFootprintId(value === "none" ? "" : value)} disabled={!canMutate || saving}>
+        <SelectTrigger aria-label="Footprint asset"><SelectValue placeholder="No footprint" /></SelectTrigger>
+        <SelectContent><SelectItem value="none">No footprint</SelectItem>{footprints.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.target_name}</SelectItem>)}</SelectContent>
+      </Select>
+      <Input aria-label="Display order" type="number" value={order} onChange={(event) => setOrder(event.target.value)} disabled={!canMutate || saving} />
+      <div className="flex items-center justify-end gap-1">
+        {representation.is_default ? <Badge>Default</Badge> : <Button size="sm" variant="outline" disabled={!canMutate || saving || !symbolId || !footprintId} onClick={() => void update(true)}>Make default</Button>}
+        <Button size="sm" disabled={!canMutate || saving} onClick={() => void update()}>{saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}Save</Button>
+        <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Delete ${representation.label}`} disabled={!canMutate || saving} onClick={() => void remove()}><XCircle className="h-3.5 w-3.5" /></Button>
+      </div>
+      {(representation.symbol?.preview_id || representation.footprint?.preview_id) ? (
+        <div className="grid gap-2 border-t pt-2 lg:col-span-5 sm:grid-cols-2">
+          {(["symbol", "footprint"] as const).map((kind) => {
+            const asset = representation[kind];
+            return asset?.preview_id ? (
+              <div key={kind} className="flex min-h-28 items-center justify-center bg-preview-surface p-2">
+                <img src={`/api/catalog/previews/${encodeURIComponent(asset.preview_id)}`} alt={`${representation.label} ${kind} preview`} className="max-h-36 max-w-full object-contain" />
+              </div>
+            ) : <div key={kind} className="flex min-h-28 items-center justify-center border border-dashed text-xs text-muted-foreground">No {kind} preview</div>;
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RepresentationsPanel({ component, canMutate, onChanged }: { component: CatalogComponent; canMutate: boolean; onChanged: () => void }) {
+  const [creating, setCreating] = useState(false);
+  const symbols = component.assets.filter((asset) => asset.asset_type === "symbol");
+  const footprints = component.assets.filter((asset) => asset.asset_type === "footprint");
+  const add = async () => {
+    setCreating(true);
+    try {
+      const currentDefault = component.representations.find((item) => item.is_default);
+      const candidates = symbols.flatMap((symbol) => footprints.map((footprint) => ({ symbol, footprint })));
+      const unused = candidates.find(({ symbol, footprint }) => !component.representations.some((item) => item.symbol?.id === symbol.id && item.footprint?.id === footprint.id));
+      await fetchJson(`/api/catalog/components/${encodeURIComponent(component.id)}/representations`, {
+        method: "POST",
+        body: JSON.stringify({
+          label: `Representation ${component.representations.length + 1}`,
+          symbol_asset_id: unused?.symbol.id || (component.representations.length ? "" : currentDefault?.symbol?.id || symbols[0]?.id || ""),
+          footprint_asset_id: unused?.footprint.id || (component.representations.length ? "" : currentDefault?.footprint?.id || footprints[0]?.id || ""),
+          display_order: component.representations.length,
+          expected_revision_id: component.revision_id,
+        }),
+      });
+      toast.success("Representation added in a new revision.");
+      onChanged();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setCreating(false);
+    }
+  };
+  return (
+    <PanelCard
+      title="Symbol-footprint representations"
+      description="Pair any attached symbol with any attached footprint. Placement and previews follow the selected pair."
+      action={canMutate ? <Button size="sm" variant="outline" disabled={creating} onClick={() => void add()}>{creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers3 className="h-3.5 w-3.5" />} Add representation</Button> : null}
+    >
+      {component.identity_kind === "provisional_ipn" ? <div className="mb-3 border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">This provisional component cannot be completed or released until it has a real manufacturer and MPN.</div> : null}
+      <div className="space-y-2">
+        {component.representations.map((representation) => <RepresentationRow key={representation.id} component={component} representation={representation} canMutate={canMutate} onChanged={onChanged} />)}
+        {!component.representations.length ? <EmptyState icon={Layers3} title="No representations" detail="Attach symbol and footprint assets, then pair them here." /> : null}
+      </div>
+    </PanelCard>
+  );
+}
+
 function AssetsPanel({
   component,
   canMutate,
   busyAction,
   onAttach,
   onDetach,
+  onDetachAsset,
   onDownload,
   onRegeneratePreviews,
   onValidate,
+  onRepresentationsChanged,
 }: {
   component: CatalogComponent;
   canMutate: boolean;
   busyAction: string;
   onAttach: (assetType: AssetType) => void;
   onDetach: (assetType: AssetType) => void;
+  onDetachAsset: (asset: CatalogAsset) => void;
   onDownload: (asset: CatalogAsset) => void;
   onRegeneratePreviews: () => void;
   onValidate: () => void;
+  onRepresentationsChanged: () => void;
 }) {
   const groups = (["symbol", "footprint", "3dmodel", "spice"] as const).map((type) => ({
     type,
@@ -431,6 +572,7 @@ function AssetsPanel({
 
   return (
     <div className="space-y-4">
+      <RepresentationsPanel component={component} canMutate={canMutate} onChanged={onRepresentationsChanged} />
       <div className="flex flex-wrap items-center justify-between gap-3 border bg-card p-3">
         <div>
           <p className="text-sm font-medium">Revision assets and evidence</p>
@@ -455,7 +597,7 @@ function AssetsPanel({
             action={(
               <div className="flex items-center gap-2">
                 <StatusBadge tone={assets.length ? "success" : type === "symbol" || type === "footprint" ? "danger" : "warning"}>{assets.length ? "Attached" : "Missing"}</StatusBadge>
-                {canMutate ? <Button size="sm" variant="outline" disabled={Boolean(busyAction)} onClick={() => onAttach(type)}><Upload className="h-3.5 w-3.5" />{assets.length && (type === "symbol" || type === "footprint") ? "Replace" : "Add"}</Button> : null}
+                {canMutate ? <Button size="sm" variant="outline" disabled={Boolean(busyAction)} onClick={() => onAttach(type)}><Upload className="h-3.5 w-3.5" />Add</Button> : null}
               </div>
             )}
           >
@@ -471,6 +613,7 @@ function AssetsPanel({
                       <div className="flex shrink-0 items-center gap-1">
                         {asset.required ? <Badge>Required</Badge> : <Badge variant="secondary">Optional</Badge>}
                         <Button size="icon-sm" variant="ghost" aria-label={`Download ${asset.name}`} title={downloadsAvailable ? "Download released asset" : "Downloads are available from the released revision"} disabled={!downloadsAvailable} onClick={() => onDownload(asset)}><Download className="h-3.5 w-3.5" /></Button>
+                        {canMutate && (type === "symbol" || type === "footprint") ? <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Detach ${asset.name}`} onClick={() => onDetachAsset(asset)}><XCircle className="h-3.5 w-3.5" /></Button> : null}
                       </div>
                     </div>
                     <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
@@ -484,9 +627,9 @@ function AssetsPanel({
             ) : (
               <EmptyState icon={CircleDashed} title={`No ${humanize(type)} asset`} detail={type === "symbol" || type === "footprint" ? "This required asset blocks place readiness." : "This optional asset has not been provided."} />
             )}
-            {canMutate && assets.length ? (
+            {canMutate && assets.length && (type === "3dmodel" || type === "spice") ? (
               <div className="mt-3 border-t pt-3">
-                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={Boolean(busyAction)} onClick={() => onDetach(type)}>Detach {type === "symbol" || type === "footprint" ? "asset" : `all ${ASSET_LABELS[type].toLowerCase()} files`}</Button>
+                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={Boolean(busyAction)} onClick={() => onDetach(type)}>Detach all {ASSET_LABELS[type].toLowerCase()} files</Button>
               </div>
             ) : null}
           </PanelCard>
@@ -1329,6 +1472,8 @@ function AssetAttachDialog({
   file,
   targetLibrary,
   targetName,
+  counterpartAssets,
+  counterpartAssetId,
   links,
   selectedLink,
   selection,
@@ -1339,6 +1484,7 @@ function AssetAttachDialog({
   onFileChange,
   onTargetLibraryChange,
   onTargetNameChange,
+  onCounterpartAssetChange,
   onSelectedLinkChange,
   onSelectionChange,
   onUpload,
@@ -1349,6 +1495,8 @@ function AssetAttachDialog({
   file: File | null;
   targetLibrary: string;
   targetName: string;
+  counterpartAssets: CatalogAsset[];
+  counterpartAssetId: string;
   links: string[];
   selectedLink: string;
   selection: AssetImportSelection | null;
@@ -1359,6 +1507,7 @@ function AssetAttachDialog({
   onFileChange: (file: File | null) => void;
   onTargetLibraryChange: (value: string) => void;
   onTargetNameChange: (value: string) => void;
+  onCounterpartAssetChange: (value: string) => void;
   onSelectedLinkChange: (value: string) => void;
   onSelectionChange: (value: string) => void;
   onUpload: () => void;
@@ -1369,7 +1518,7 @@ function AssetAttachDialog({
     <Dialog open={assetType !== null} onOpenChange={(next) => { if (!submitting) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Add or replace {label.toLowerCase()}</DialogTitle>
+          <DialogTitle>Add {label.toLowerCase()}</DialogTitle>
           <DialogDescription>Upload a file or link one already present in Prism storage. Attaching it creates a new immutable component revision.</DialogDescription>
         </DialogHeader>
         {selection ? (
@@ -1413,6 +1562,16 @@ function AssetAttachDialog({
                 <div className="space-y-2"><Label htmlFor="component-asset-library">Target library</Label><Input id="component-asset-library" value={targetLibrary} onChange={(event) => onTargetLibraryChange(event.target.value)} placeholder="Prism library" /></div>
                 {mode === "link" ? <div className="space-y-2"><Label htmlFor="component-asset-name">Target item name</Label><Input id="component-asset-name" value={targetName} onChange={(event) => onTargetNameChange(event.target.value)} placeholder="Auto-detect" /></div> : null}
               </div>
+              {(assetType === "symbol" || assetType === "footprint") && counterpartAssets.length ? (
+                <div className="space-y-2">
+                  <Label htmlFor="component-counterpart-asset">Pair with {assetType === "symbol" ? "footprint" : "symbol"}</Label>
+                  <Select value={counterpartAssetId} onValueChange={onCounterpartAssetChange}>
+                    <SelectTrigger id="component-counterpart-asset"><SelectValue placeholder="Select the counterpart asset" /></SelectTrigger>
+                    <SelectContent>{counterpartAssets.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.target_library ? `${asset.target_library}:` : ""}{asset.target_name}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">The current default counterpart is preselected. You can edit the resulting pair in Representations.</p>
+                </div>
+              ) : null}
             </div>
             <DialogFooter>
               <Button variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -1479,11 +1638,13 @@ export function LibraryComponentWorkspace({
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const [attachTargetLibrary, setAttachTargetLibrary] = useState("");
   const [attachTargetName, setAttachTargetName] = useState("");
+  const [attachCounterpartId, setAttachCounterpartId] = useState("");
   const [availableLinks, setAvailableLinks] = useState<string[]>([]);
   const [selectedLink, setSelectedLink] = useState("");
   const [linksLoading, setLinksLoading] = useState(false);
   const [importSelection, setImportSelection] = useState<AssetImportSelection | null>(null);
   const [detachAssetType, setDetachAssetType] = useState<AssetType | null>(null);
+  const [detachAsset, setDetachAsset] = useState<CatalogAsset | null>(null);
   const [busyAction, setBusyAction] = useState("");
 
   const updateParams = useCallback((values: Record<string, string | null>) => {
@@ -1845,6 +2006,7 @@ export function LibraryComponentWorkspace({
     setAttachFile(null);
     setAttachTargetLibrary("");
     setAttachTargetName("");
+    setAttachCounterpartId("");
     setAvailableLinks([]);
     setSelectedLink("");
     setImportSelection(null);
@@ -1857,6 +2019,14 @@ export function LibraryComponentWorkspace({
     setAttachFile(null);
     setAttachTargetLibrary(currentComponent.library_name || currentComponent.name);
     setAttachTargetName("");
+    const defaultRepresentation = currentComponent.representations.find((item) => item.is_default);
+    setAttachCounterpartId(
+      assetType === "symbol"
+        ? defaultRepresentation?.footprint?.id || ""
+        : assetType === "footprint"
+          ? defaultRepresentation?.symbol?.id || ""
+          : ""
+    );
     setSelectedLink("");
     setImportSelection(null);
     setLinksLoading(true);
@@ -1880,6 +2050,7 @@ export function LibraryComponentWorkspace({
       const form = new FormData();
       form.append("file", sourceFile);
       form.append("target_library", importSelection?.targetLibrary || attachTargetLibrary || currentComponent.name);
+      if (attachCounterpartId) form.append("counterpart_asset_id", attachCounterpartId);
       if (importSelection?.selected) {
         form.append(attachAssetType === "symbol" ? "selected_symbol" : "selected_footprint", importSelection.selected);
       }
@@ -1915,6 +2086,7 @@ export function LibraryComponentWorkspace({
           file_path: selectedLink,
           target_library: attachTargetLibrary.trim() || currentComponent.name,
           target_name: attachTargetName.trim(),
+          counterpart_asset_id: attachCounterpartId,
         }),
       });
       toast.success(`${ASSET_LABELS[attachAssetType]} linked as a new revision.`);
@@ -1935,6 +2107,23 @@ export function LibraryComponentWorkspace({
       await fetchJson(`/api/catalog/components/${encodeURIComponent(componentId)}/assets/${encodeURIComponent(detachAssetType)}`, { method: "DELETE" });
       toast.success(`${ASSET_LABELS[detachAssetType]} detached in a new revision.`);
       setDetachAssetType(null);
+      updateParams({ revision: null, compare: null });
+      setRefreshKey((value) => value + 1);
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const handleAssetDetachById = async () => {
+    if (!detachAsset || !canMutate || !currentComponent) return;
+    setBusyAction("detach-id");
+    try {
+      const params = new URLSearchParams({ expected_revision_id: currentComponent.revision_id });
+      await fetchJson(`/api/catalog/components/${encodeURIComponent(componentId)}/assets/id/${encodeURIComponent(detachAsset.id)}?${params.toString()}`, { method: "DELETE" });
+      toast.success(`${ASSET_LABELS[detachAsset.asset_type]} detached in a new revision.`);
+      setDetachAsset(null);
       updateParams({ revision: null, compare: null });
       setRefreshKey((value) => value + 1);
     } catch (reason) {
@@ -2110,9 +2299,14 @@ export function LibraryComponentWorkspace({
               busyAction={busyAction}
               onAttach={(assetType) => void openAttachDialog(assetType)}
               onDetach={setDetachAssetType}
+              onDetachAsset={setDetachAsset}
               onDownload={(asset) => void handleDownloadAsset(asset)}
               onRegeneratePreviews={() => void handleRegeneratePreviews()}
               onValidate={() => void handleValidateComponent()}
+              onRepresentationsChanged={() => {
+                updateParams({ revision: null, compare: null });
+                setRefreshKey((value) => value + 1);
+              }}
             />
           ) : null}
           {activeTab === "revisions" ? (
@@ -2203,6 +2397,8 @@ export function LibraryComponentWorkspace({
         file={attachFile}
         targetLibrary={attachTargetLibrary}
         targetName={attachTargetName}
+        counterpartAssets={currentComponent.assets.filter((asset) => attachAssetType === "symbol" ? asset.asset_type === "footprint" : attachAssetType === "footprint" ? asset.asset_type === "symbol" : false)}
+        counterpartAssetId={attachCounterpartId}
         links={availableLinks}
         selectedLink={selectedLink}
         selection={importSelection}
@@ -2213,6 +2409,7 @@ export function LibraryComponentWorkspace({
         onFileChange={setAttachFile}
         onTargetLibraryChange={setAttachTargetLibrary}
         onTargetNameChange={setAttachTargetName}
+        onCounterpartAssetChange={setAttachCounterpartId}
         onSelectedLinkChange={setSelectedLink}
         onSelectionChange={(selected) => setImportSelection((current) => current ? { ...current, selected } : current)}
         onUpload={() => void handleAssetUpload()}
@@ -2229,6 +2426,19 @@ export function LibraryComponentWorkspace({
           <DialogFooter>
             <Button variant="outline" disabled={busyAction === "detach"} onClick={() => setDetachAssetType(null)}>Cancel</Button>
             <Button variant="destructive" disabled={busyAction === "detach"} onClick={() => void handleAssetDetach()}>{busyAction === "detach" ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Detach asset</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={detachAsset !== null} onOpenChange={(open) => { if (!open && busyAction !== "detach-id") setDetachAsset(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Detach {detachAsset?.name || "asset"}</DialogTitle>
+            <DialogDescription>The asset can only be detached when no representation references it. Prior revisions and canonical files remain intact.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={busyAction === "detach-id"} onClick={() => setDetachAsset(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={busyAction === "detach-id"} onClick={() => void handleAssetDetachById()}>{busyAction === "detach-id" ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Detach asset</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

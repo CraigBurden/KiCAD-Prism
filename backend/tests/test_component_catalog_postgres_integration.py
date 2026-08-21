@@ -6,6 +6,9 @@ import tempfile
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+import base64
+import importlib.util
+import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -91,6 +94,145 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.component_ids.append(str(component["id"]))
         return component
 
+    def test_concurrent_creation_allows_one_manufacturer_mpn_identity(self) -> None:
+        token = "identity-" + uuid.uuid4().hex[:8]
+
+        def create() -> tuple[str, str]:
+            try:
+                component = self.service.create_manual_component(
+                    value="part",
+                    description="Concurrent identity fixture",
+                    datasheet="https://example.com/identity.pdf",
+                    manufacturer="Prism Identity",
+                    manufacturer_part_number=token,
+                    actor="author@example.com",
+                )
+                return "ok", str(component["id"])
+            except ValueError as exc:
+                return "duplicate", str(exc)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda _: create(), range(2)))
+        successful = [value for status, value in results if status == "ok"]
+        self.assertEqual(len(successful), 1)
+        self.component_ids.extend(successful)
+        self.assertEqual([status for status, _ in results].count("duplicate"), 1)
+
+    def test_cern_scoped_reset_preserves_non_cern_components(self) -> None:
+        manual = self._component("reset-manual-" + uuid.uuid4().hex[:8])
+        imported = self.service.create_manual_component(
+            value="cern",
+            description="CERN reset fixture",
+            datasheet="https://example.com/cern.pdf",
+            manufacturer="CERN Reset Fixture",
+            manufacturer_part_number="CERN-" + uuid.uuid4().hex[:8],
+            actor="system:import_database_library",
+        )
+        imported_id = str(imported["id"])
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            conn.execute(
+                "UPDATE components SET source = 'import', external_source = %s, external_id = %s WHERE id = %s",
+                ("cern-database-library", "cern:CERN", imported_id),
+            )
+            conn.commit()
+
+        script = Path(__file__).resolve().parents[2] / "scripts" / "reset_prism_catalog.py"
+        spec = importlib.util.spec_from_file_location("prism_catalog_reset", script)
+        assert spec and spec.loader
+        reset_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reset_module)
+
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            component_count, _, _ = reset_module._delete_cern_imports(conn, dry_run=True)
+            self.assertEqual(component_count, 1)
+            component_count, orphan_count, _ = reset_module._delete_cern_imports(conn, dry_run=False)
+            conn.commit()
+        self.assertEqual(component_count, 1)
+        self.assertEqual(orphan_count, 0)
+        self.assertIsNone(self.service.get_component(imported_id))
+        self.assertIsNotNone(self.service.get_component(str(manual["id"])))
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.assertRaisesRegex(Exception, "immutable catalog evidence"):
+                conn.execute("DELETE FROM components WHERE id = %s", (manual["id"],))
+            conn.rollback()
+
+    def test_provisional_identity_is_draft_only_and_can_be_corrected_to_mpn(self) -> None:
+        token = uuid.uuid4().hex[:8]
+        provisional = self.service.create_manual_component(
+            name=f"IPN-{token}",
+            value="provisional",
+            description="Missing manufacturer MPN",
+            datasheet="https://example.com/provisional.pdf",
+            manufacturer="Prism Provisional",
+            manufacturer_part_number="",
+            identity_kind="provisional_ipn",
+            identity_source="fixture",
+            source_internal_part_number=f"IPN-{token}",
+            actor="author@example.com",
+        )
+        self.component_ids.append(str(provisional["id"]))
+        self.assertEqual(provisional["identity_kind"], "provisional_ipn")
+        self.assertFalse(provisional["place_enabled"])
+        self.service.set_release_status(provisional["id"], "in_progress", actor="author@example.com")
+        review = self.service.set_release_status(provisional["id"], "qa_review", actor="author@example.com")
+        with self.assertRaisesRegex(ValueError, "Provisional"):
+            self.service.set_release_status(
+                provisional["id"], "done", actor="qa@example.com",
+                expected_revision_id=review["revision_id"],
+                expected_manifest_hash=review["manifest_hash"],
+            )
+        corrected = self.service.update_component_metadata(
+            provisional["id"],
+            {"mpn": f"REAL-{token}"},
+            actor="author@example.com",
+            expected_revision_id=review["revision_id"],
+        )
+        assert corrected is not None
+        self.assertEqual(corrected["identity_kind"], "mpn")
+        self.assertEqual(corrected["mpn"], f"REAL-{token}")
+
+    def test_inventory_distinguishes_unknown_zero_and_error(self) -> None:
+        component = self._component("inventory-" + uuid.uuid4().hex[:8])
+        self.assertFalse(component["stock_known"])
+        result = self.service.import_inventory_csv(
+            "component_id,manufacturer,mpn,quantity,uom,inventory_status\n"
+            f"{component['id']},{component['manufacturer']},{component['mpn']},0,pcs,available\n"
+        )
+        self.assertEqual(result["updated"], 1)
+        zero = self.service.get_component(component["id"])
+        assert zero is not None
+        self.assertTrue(zero["stock_known"])
+        self.assertEqual(zero["stock_quantity"], 0)
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            conn.execute(
+                "UPDATE inventory_levels SET fetch_status = 'error' WHERE component_id = %s",
+                (component["id"],),
+            )
+            conn.commit()
+        errored = self.service.get_component(component["id"])
+        assert errored is not None
+        self.assertEqual(errored["local_inventory"]["fetch_status"], "error")
+
+    def test_mpn_correction_updates_identity_and_rejects_conflicts(self) -> None:
+        first = self._component("correction-a-" + uuid.uuid4().hex[:8])
+        second = self._component("correction-b-" + uuid.uuid4().hex[:8])
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.service.update_component_metadata(
+                second["id"],
+                {"manufacturer": first["manufacturer"], "mpn": first["mpn"]},
+                actor="editor@example.com",
+                expected_revision_id=second["revision_id"],
+            )
+        corrected_mpn = "corrected-" + uuid.uuid4().hex[:8]
+        corrected = self.service.update_component_metadata(
+            second["id"],
+            {"mpn": corrected_mpn},
+            actor="editor@example.com",
+            expected_revision_id=second["revision_id"],
+        )
+        assert corrected is not None
+        self.assertEqual(corrected["mpn"], corrected_mpn)
+
     def test_concurrent_edits_serialize_head_and_audit(self) -> None:
         component = self._component("concurrent-" + uuid.uuid4().hex[:8])
         expected_revision_id = component["revision_id"]
@@ -155,7 +297,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         with self.service._connect() as conn:  # type: ignore[attr-defined]
             version = conn.execute(
                 "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = %s",
-                ("catalog-postgres-v6",),
+                (POSTGRES_SCHEMA_VERSION,),
             ).fetchone()
         self.assertIsNotNone(version)
 
@@ -305,11 +447,87 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertIsNone(remote["total"])
         self.assertFalse(remote["has_more"])
         self.assertTrue(remote["items"][0]["place_enabled"])
+        self.assertEqual(remote["items"][0]["representation_count"], 1)
+        self.assertTrue(remote["items"][0]["default_representation_id"])
         self.assertNotEqual(remote["projection_version"], "0")
+        inline = self.service.build_inline_bundle(component["id"])
+        assert inline is not None
+        self.assertEqual(
+            inline["representation_id"], released["default_representation_id"]
+        )
         records = self.service.list_component_release_records(component["id"])
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["manifest_hash"], released["manifest_hash"])
         self.assertTrue(self.service.verify_component_audit_chain(component["id"])["valid"])
+
+    def test_non_default_representation_drives_manifest_and_inline_pair(self) -> None:
+        component = self._component("representations-" + uuid.uuid4().hex[:8])
+
+        def symbol_payload(name: str) -> bytes:
+            return f'''(kicad_symbol_lib (version 20231120) (generator "test")
+              (symbol "{name}"
+                (property "Reference" "U" (at 0 0 0) (effects (font (size 1.27 1.27))))
+                (property "Value" "{name}" (at 0 0 0) (effects (font (size 1.27 1.27))))
+              )
+            )'''.encode()
+
+        first_symbol = self.service.import_symbol_library(
+            component["id"], upload_name="S1.kicad_sym", payload=symbol_payload("S1"),
+            target_library="Representations", selected_symbol="S1", actor="designer@example.com",
+        )["component"]
+        first_footprint = self.service.import_footprint(
+            component["id"], upload_name="F1.kicad_mod",
+            payload=b'(footprint "F1" (version 20240108) (generator "test"))',
+            target_library="Representations", selected_footprint="F1", actor="designer@example.com",
+        )["component"]
+        default_footprint_id = first_footprint["representations"][0]["footprint"]["id"]
+        second_symbol = self.service.import_symbol_library(
+            component["id"], upload_name="S2.kicad_sym", payload=symbol_payload("S2"),
+            target_library="Representations", selected_symbol="S2",
+            counterpart_asset_id=default_footprint_id, actor="designer@example.com",
+        )["component"]
+        stale_representation_id = next(
+            item["id"] for item in second_symbol["representations"]
+            if item["symbol"] and item["symbol"]["target_name"] == "S2"
+        )
+        second_symbol_id = next(
+            item["symbol"]["id"] for item in second_symbol["representations"]
+            if item["symbol"] and item["symbol"]["target_name"] == "S2"
+        )
+        second_footprint = self.service.import_footprint(
+            component["id"], upload_name="F2.kicad_mod",
+            payload=b'(footprint "F2" (version 20240108) (generator "test"))',
+            target_library="Representations", selected_footprint="F2",
+            counterpart_asset_id=second_symbol_id, actor="designer@example.com",
+        )["component"]
+        selected = next(
+            item for item in second_footprint["representations"]
+            if item["symbol"] and item["footprint"]
+            and item["symbol"]["target_name"] == "S2"
+            and item["footprint"]["target_name"] == "F2"
+        )
+        self.assertNotEqual(selected["id"], second_footprint["default_representation_id"])
+        self.service.set_release_status(component["id"], "in_progress", actor="designer@example.com")
+        self.service.set_release_status(component["id"], "qa_review", actor="designer@example.com")
+        approved = self.service.set_release_status(
+            component["id"], "done", actor="qa@example.com",
+            expected_revision_id=second_footprint["revision_id"],
+            expected_manifest_hash=second_footprint["manifest_hash"],
+        )
+        self.service.set_release_status(
+            component["id"], "released", actor="designer@example.com",
+            expected_revision_id=approved["revision_id"], expected_manifest_hash=approved["manifest_hash"],
+        )
+
+        bundle = self.service.build_inline_bundle(component["id"], selected["id"])
+        assert bundle is not None
+        entries = json.loads(base64.b64decode(bundle["data"]))
+        self.assertEqual(
+            {(entry["type"], entry["name"]) for entry in entries if entry["type"] in {"symbol", "footprint"}},
+            {("symbol", "S2"), ("footprint", "F2")},
+        )
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.service.build_inline_bundle(component["id"], stale_representation_id)
 
     def test_database_guards_and_widened_portable_types(self) -> None:
         component = self._component("guards-" + uuid.uuid4().hex[:8])
@@ -392,7 +610,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                     SELECT table_name, column_name, data_type
                     FROM information_schema.columns
                     WHERE table_schema = 'catalog' AND (
-                        (table_name = 'components' AND column_name = 'stock_quantity') OR
+                        (table_name = 'inventory_levels' AND column_name = 'quantity') OR
                         (table_name = 'assets' AND column_name = 'size_bytes') OR
                         (table_name = 'catalog_audit_events' AND column_name = 'sequence') OR
                         (table_name = 'oauth_auth_codes' AND column_name = 'exp') OR
@@ -401,7 +619,15 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                     """
                 ).fetchall()
             }
-        self.assertEqual(types[("components", "stock_quantity")], "double precision")
+            component_stock_column = conn.execute(
+                """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'catalog' AND table_name = 'components'
+                  AND column_name = 'stock_quantity'
+                """
+            ).fetchone()
+        self.assertIsNone(component_stock_column)
+        self.assertEqual(types[("inventory_levels", "quantity")], "double precision")
         for key in (
             ("assets", "size_bytes"),
             ("catalog_audit_events", "sequence"),
@@ -468,6 +694,26 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 "SELECT count(*) AS total FROM catalog_schema_versions"
             ).fetchone()
             self.assertEqual(int(applied["total"]), len(MIGRATIONS))
+
+    def test_populated_pre_epoch_two_catalog_is_refused_with_reset_guidance(self) -> None:
+        self._component("epoch-" + uuid.uuid4().hex[:8])
+        with self.service._connect() as conn:  # type: ignore[attr-defined]
+            conn.execute("DELETE FROM catalog_meta WHERE key = 'catalog_schema_epoch'")
+            conn.commit()
+        incompatible = ComponentCatalogPostgresService(
+            store_root=Path(self.tempdir.name) / "components",
+            database_url=POSTGRES_URL,
+        )
+        try:
+            with self.assertRaisesRegex(RuntimeError, "catalog-only reset"):
+                incompatible.initialize()
+        finally:
+            with self.service._connect() as conn:  # type: ignore[attr-defined]
+                conn.execute(
+                    "INSERT INTO catalog_meta(key, value) VALUES ('catalog_schema_epoch', '2') "
+                    "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value"
+                )
+                conn.commit()
 
 
 if __name__ == "__main__":

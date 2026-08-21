@@ -276,6 +276,118 @@ open a database a newer V3 build has touched. That preserves the catalog
 rollback convention; it does not make a V2 SQLite installation or arbitrary
 alpha API changes backwards-compatible.
 
+## Catalog epoch 2 cutover
+
+The component-as-part catalog is an intentional destructive catalog boundary.
+The backend refuses a populated pre-epoch-2 catalog and leaves every
+non-catalog PostgreSQL schema untouched. Use this rollout order:
+
+1. Create and verify a Prism backup, then rotate any exposed InvenTree token.
+2. Stop the backend and catalog workers.
+3. If the legacy catalog contains non-CERN work, export and verify the survivor
+   archive described below.
+4. Run `import_database_library.py --dry-run --report-json …` and archive the report.
+5. Check that report against the survivor archive before deleting anything.
+6. Run the catalog-only reset below.
+7. Start the new backend once to create epoch 2.
+8. Restore the survivor archive before importing CERN.
+9. Re-import CERN without `--replace-catalog`, then generate previews.
+10. Rebuild project usage if the deployment requires it.
+11. Run catalog acceptance queries and default/non-default KiCad placement smoke tests before reopening access.
+
+### Preserving non-CERN work from a legacy catalog
+
+Pre-epoch-2 CERN imports did not carry the newer `external_source` marker. Their
+immutable first revision did use `system:import_database_library`, which is the
+one-time classifier used by `migrate_legacy_catalog_survivors.py`. Everything
+whose first revision has a different creator is archived as a survivor,
+including manually created components and footprint-library imports.
+
+Run the export with deployment-specific expected counts so an unexpected row is
+a hard stop. Write the archive outside
+`data/projects/.kicad-prism/components`, because the full reset removes that
+component store:
+
+```bash
+python3 scripts/migrate_legacy_catalog_survivors.py export \
+  --output /migration/prism-legacy-survivors.zip \
+  --expect-survivors <survivor-count> \
+  --expect-librarian <librarian-impacted-count> \
+  --expect-excluded-cern <legacy-cern-count>
+
+python3 scripts/migrate_legacy_catalog_survivors.py verify \
+  /migration/prism-legacy-survivors.zip
+```
+
+The archive contains the complete legacy component, revision, audit, review,
+release, usage, and asset rows plus checksum-verified asset payloads. Epoch 2
+restores the active current/released snapshots as new A3 representations while
+the complete historical evidence remains in the archive. A provisional or
+incomplete legacy revision that cannot satisfy epoch-2 release invariants is
+restored as an open draft and listed in the restore report rather than silently
+being treated as released.
+
+After producing the CERN importer dry-run report, require a clean identity
+comparison:
+
+```bash
+python3 scripts/migrate_legacy_catalog_survivors.py check-cern-report \
+  /migration/prism-legacy-survivors.zip \
+  /migration/cern-preflight.json
+```
+
+Only after the backup, archive verification, importer preflight, and collision
+check all pass should the full reset run. Start the new backend once to create
+epoch 2, stop catalog writers again, and preflight then execute restoration:
+
+```bash
+python3 scripts/migrate_legacy_catalog_survivors.py restore \
+  /migration/prism-legacy-survivors.zip \
+  --expect-components <survivor-count> \
+  --confirm RESTORE-PRISM-LEGACY-SURVIVORS-EPOCH-2 \
+  --dry-run
+
+python3 scripts/migrate_legacy_catalog_survivors.py restore \
+  /migration/prism-legacy-survivors.zip \
+  --expect-components <survivor-count> \
+  --confirm RESTORE-PRISM-LEGACY-SURVIVORS-EPOCH-2
+```
+
+Restore preserves component IDs, current metadata attribution, active assets,
+and component-usage rows. It refuses corrupt payloads, duplicate survivor
+identities, existing destination IDs/slugs/identities, ambiguous legacy asset
+pairing, a non-epoch-2 destination, or a CERN preflight identity collision.
+Keep the verified archive with the full Prism backup; neither is replaced by
+the other.
+
+The reset command is:
+
+```bash
+python3 scripts/reset_prism_catalog.py \
+  --confirm RESET-PRISM-CATALOG-EPOCH-2
+```
+
+After an epoch-2 CERN import, later refreshes can remove only components carrying
+the importer's explicit CERN origin marker. Non-CERN components and assets still
+referenced by them are preserved:
+
+```bash
+python3 scripts/reset_prism_catalog.py \
+  --cern-only \
+  --confirm RESET-PRISM-CERN-IMPORTS
+```
+
+Add `--dry-run` to preview the CERN-scoped component and orphan-asset counts.
+Stop the backend and catalog workers before executing the non-dry-run form; the
+reset temporarily disables named catalog immutability triggers inside its locked
+transaction and restores them before commit.
+
+The command removes only the `catalog` schema and catalog component,
+preview, KLC-validation, and DBL artifact roots. Project repositories, database
+volumes, environment files, other PostgreSQL schemas, and unrelated derived data
+are preserved. Rolling a populated epoch-2 catalog back to a pre-epoch-2 backend
+is unsupported; restore the backup instead.
+
 ---
 
 # Reference
