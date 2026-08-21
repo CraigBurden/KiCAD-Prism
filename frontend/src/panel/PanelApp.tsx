@@ -198,7 +198,7 @@ export function PanelApp() {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[460px] flex-col">
       {/* Main content area */}
-      <main className="flex-1 px-3 py-3">
+      <main className="flex flex-1 flex-col px-3 py-3">
         {screen.kind === "login" && (
           <PanelLoginScreen
             onLogin={handleLogin}

@@ -67,6 +67,40 @@ STATE_METADATA_ONLY = "metadata_only"
 STATE_FILES_PARTIAL = "files_partial"
 STATE_PLACE_READY = "place_ready"
 
+# Availability sources shown in the remote-provider payload. Everything today
+# is local inventory; distributor adapters (supply_quotes) extend
+# SUPPLY_VENDOR_SOURCE_NAMES when they land.
+SUPPLY_KIND_VENDOR = "vendor"
+SUPPLY_KIND_LOCAL = "local"
+SUPPLY_VENDOR_SOURCE_NAMES: dict[str, str] = {}
+SUPPLY_LOCAL_SOURCE_NAMES: dict[str, str] = {
+    "csv": "CSV",
+    "inventree": "InvenTree",
+    "sap": "SAP",
+    "manufacturo": "Manufacturo",
+    "partsdb": "PartsDB",
+}
+
+
+def _supply_source_payload(row: dict[str, Any]) -> dict[str, Any]:
+    source = str(row.get("source") or "")
+    kind = (
+        SUPPLY_KIND_VENDOR if source in SUPPLY_VENDOR_SOURCE_NAMES else SUPPLY_KIND_LOCAL
+    )
+    display_name = SUPPLY_VENDOR_SOURCE_NAMES.get(source) or SUPPLY_LOCAL_SOURCE_NAMES.get(
+        source
+    ) or source.replace("_", " ").title()
+    return {
+        "kind": kind,
+        "id": source,
+        "display_name": display_name,
+        "stock": float(row.get("quantity") or 0),
+        "uom": str(row.get("uom") or ""),
+        "stock_status": str(row.get("inventory_status") or ""),
+        "fetch_status": str(row.get("fetch_status") or "ok"),
+        "fetched_at": str(row.get("fetched_at") or ""),
+    }
+
 VALIDATION_STATUS_PASSED = "passed"
 VALIDATION_STATUS_WARNING = "warning"
 VALIDATION_STATUS_FAILED = "failed"
@@ -1727,6 +1761,21 @@ class ComponentCatalogDomainService:
             "fetched_at": str(row["fetched_at"] or ""),
         }
 
+    def _supply_sources(self, conn: Any, component_id: str) -> list[dict[str, Any]]:
+        rows = conn.execute(
+            """
+            SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
+                   MIN(inventory_status) AS inventory_status,
+                   MIN(fetch_status) AS fetch_status, MAX(fetched_at) AS fetched_at
+            FROM inventory_levels
+            WHERE component_id = %s
+            GROUP BY source
+            ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END, source
+            """,
+            (component_id,),
+        ).fetchall()
+        return [_supply_source_payload(dict(row)) for row in rows]
+
     def _load_previews_for_assets(self, conn: Any, asset_ids: list[str]) -> list[dict[str, Any]]:
         if not asset_ids:
             return []
@@ -2045,6 +2094,7 @@ class ComponentCatalogDomainService:
             and _release_allows_remote(str(revision_row["release_status"]))
         )
         local_inventory = self._local_inventory(conn, str(component_row["id"]))
+        supply_sources = self._supply_sources(conn, str(component_row["id"]))
         validation_summary = self._component_validation_summary(
             conn,
             str(revision_row["id"]),
@@ -2114,6 +2164,7 @@ class ComponentCatalogDomainService:
             "stock_quantity": float(local_inventory["quantity"]) if local_inventory else 0.0,
             "stock_uom": str(local_inventory["uom"]) if local_inventory else "",
             "inventory_status": str(local_inventory["inventory_status"]) if local_inventory else "",
+            "supply": {"sources": supply_sources},
             "serial_number": "",
             "lot_number": "",
             "pedigree": "",
@@ -4047,18 +4098,12 @@ class ComponentCatalogDomainService:
                     "place_enabled": has_symbol and has_footprint and str(row.get("identity_kind") or IDENTITY_KIND_MPN) == IDENTITY_KIND_MPN,
                     "release_status": "released",
                     "workflow_stage": "released",
-                    "stock_quantity": float(row["stock_quantity"]),
-                    "stock_uom": str(row["stock_uom"]),
-                    "inventory_status": str(row["inventory_status"]),
-                    "stock_known": bool(row.get("stock_known")),
-                    "local_inventory": (
-                        {
-                            "quantity": float(row["stock_quantity"]),
-                            "uom": str(row["stock_uom"]),
-                            "inventory_status": str(row["inventory_status"]),
-                        }
-                        if bool(row.get("stock_known")) else None
-                    ),
+                    "supply": {
+                        "sources": [
+                            _supply_source_payload(source)
+                            for source in _json_loads(row.get("inventory_sources"), [])
+                        ]
+                    },
                     "default_representation_id": str(row.get("default_representation_id") or ""),
                     "representation_count": int(row.get("representation_count") or 0),
                     "symbol_variant_count": int(row.get("symbol_variant_count") or 0),

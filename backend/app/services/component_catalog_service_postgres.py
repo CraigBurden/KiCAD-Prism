@@ -23,8 +23,8 @@ CATALOG_SCHEMA_EPOCH = "2"
 # stay outside the migration ladder, which records a migration as run once.
 POSTGRES_SEARCH_VERSION = "catalog-search-v2"
 POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v4"
-POSTGRES_HEAD_PROJECTION_VERSION = "catalog-component-heads-v3"
-POSTGRES_REMOTE_HEAD_PROJECTION_VERSION = "catalog-remote-heads-v2"
+POSTGRES_HEAD_PROJECTION_VERSION = "catalog-component-heads-v5"
+POSTGRES_REMOTE_HEAD_PROJECTION_VERSION = "catalog-remote-heads-v4"
 
 def _postgres_dsn(value: str) -> str:
     """Accept both native and SQLAlchemy-style psycopg URLs."""
@@ -274,9 +274,14 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 default_representation_id TEXT NOT NULL DEFAULT '',
                 representation_count INTEGER NOT NULL DEFAULT 0,
                 symbol_variant_count INTEGER NOT NULL DEFAULT 0,
-                footprint_variant_count INTEGER NOT NULL DEFAULT 0
+                footprint_variant_count INTEGER NOT NULL DEFAULT 0,
+                inventory_sources TEXT NOT NULL DEFAULT '[]'
             )
             """
+        )
+        conn.execute(
+            "ALTER TABLE component_heads ADD COLUMN IF NOT EXISTS inventory_sources "
+            "TEXT NOT NULL DEFAULT '[]'"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_component_heads_active_updated "
@@ -312,7 +317,8 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     sap_code, summary, extra_fields, search_document, created_by, revision_created_at,
                     updated_at, has_symbol, has_footprint, symbol_library, symbol_name,
                     footprint_library, footprint_name, default_representation_id,
-                    representation_count, symbol_variant_count, footprint_variant_count
+                    representation_count, symbol_variant_count, footprint_variant_count,
+                    inventory_sources
                 )
                 SELECT
                     component.id, revision.id, component.slug, component.source, component.is_active,
@@ -332,7 +338,8 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     COALESCE(symbol.target_library, ''), COALESCE(symbol.target_name, ''),
                     COALESCE(footprint.target_library, ''), COALESCE(footprint.target_name, ''),
                     COALESCE(representation.id, ''), COALESCE(counts.representation_count, 0),
-                    COALESCE(counts.symbol_variant_count, 0), COALESCE(counts.footprint_variant_count, 0)
+                    COALESCE(counts.symbol_variant_count, 0), COALESCE(counts.footprint_variant_count, 0),
+                    COALESCE(inventory_all.sources_json, '[]')
                 FROM components component
                 JOIN component_revisions revision ON revision.id = component.current_revision_id
                 LEFT JOIN revision_representations representation
@@ -353,6 +360,26 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END
                     LIMIT 1
                 ) inventory ON true
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(
+                        json_agg(json_build_object(
+                            'source', agg.source,
+                            'quantity', agg.quantity,
+                            'uom', agg.uom,
+                            'inventory_status', agg.inventory_status,
+                            'fetch_status', agg.fetch_status,
+                            'fetched_at', agg.fetched_at
+                        ) ORDER BY CASE agg.source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END,
+                                  agg.source)::text, '[]') AS sources_json
+                    FROM (
+                        SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
+                               MIN(inventory_status) AS inventory_status,
+                               MIN(fetch_status) AS fetch_status,
+                               MAX(fetched_at) AS fetched_at
+                        FROM inventory_levels WHERE component_id = component.id
+                        GROUP BY source
+                    ) agg
+                ) inventory_all ON true
                 WHERE component.id = target_component_id AND component.current_revision_id <> '';
             END;
             $$
@@ -471,9 +498,14 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 default_representation_id TEXT NOT NULL DEFAULT '',
                 representation_count INTEGER NOT NULL DEFAULT 0,
                 symbol_variant_count INTEGER NOT NULL DEFAULT 0,
-                footprint_variant_count INTEGER NOT NULL DEFAULT 0
+                footprint_variant_count INTEGER NOT NULL DEFAULT 0,
+                inventory_sources TEXT NOT NULL DEFAULT '[]'
             )
             """
+        )
+        conn.execute(
+            "ALTER TABLE remote_component_heads ADD COLUMN IF NOT EXISTS inventory_sources "
+            "TEXT NOT NULL DEFAULT '[]'"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_remote_component_heads_updated "
@@ -508,7 +540,8 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     symbol_library, symbol_name, symbol_preview_id,
                     footprint_preview_id, footprint_library, footprint_name,
                     default_representation_id, representation_count,
-                    symbol_variant_count, footprint_variant_count
+                    symbol_variant_count, footprint_variant_count,
+                    inventory_sources
                 )
                 SELECT
                     component.id, revision.id, component.slug, component.source,
@@ -529,7 +562,8 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     COALESCE(footprint_preview.preview_id, ''),
                     COALESCE(footprint.target_library, ''), COALESCE(footprint.target_name, ''),
                     COALESCE(representation.id, ''), COALESCE(counts.representation_count, 0),
-                    COALESCE(counts.symbol_variant_count, 0), COALESCE(counts.footprint_variant_count, 0)
+                    COALESCE(counts.symbol_variant_count, 0), COALESCE(counts.footprint_variant_count, 0),
+                    COALESCE(inventory_all.sources_json, '[]')
                 FROM components component
                 JOIN component_revisions revision
                   ON revision.id = component.released_revision_id
@@ -551,6 +585,26 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END
                     LIMIT 1
                 ) inventory ON true
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(
+                        json_agg(json_build_object(
+                            'source', agg.source,
+                            'quantity', agg.quantity,
+                            'uom', agg.uom,
+                            'inventory_status', agg.inventory_status,
+                            'fetch_status', agg.fetch_status,
+                            'fetched_at', agg.fetched_at
+                        ) ORDER BY CASE agg.source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END,
+                                  agg.source)::text, '[]') AS sources_json
+                    FROM (
+                        SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
+                               MIN(inventory_status) AS inventory_status,
+                               MIN(fetch_status) AS fetch_status,
+                               MAX(fetched_at) AS fetched_at
+                        FROM inventory_levels WHERE component_id = component.id
+                        GROUP BY source
+                    ) agg
+                ) inventory_all ON true
                 LEFT JOIN LATERAL (
                     SELECT preview.id AS preview_id
                     FROM revision_preview_outputs link

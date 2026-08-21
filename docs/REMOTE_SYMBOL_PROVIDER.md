@@ -96,6 +96,44 @@ the component detail, part manifest, inline bundle, and signed asset download
 flows. Unknown and incomplete IDs are rejected rather than silently falling
 back.
 
+## Parts payload contract (parts_v1)
+
+Clients must read `provider_version` from the discovery metadata before
+assuming payload fields. Version `0.3.0` is a breaking change to the parts
+payload:
+
+Removed in `0.3.0` — the flat inventory fields
+`stock_known`, `stock_quantity`, `stock_uom`, `inventory_status`,
+`local_inventory`.
+
+Added in `0.3.0` — one availability structure carried identically by search
+results, list payloads, and component detail:
+
+```json
+"supply": {
+  "sources": [
+    {
+      "kind": "vendor",
+      "id": "csv",
+      "display_name": "InvenTree",
+      "stock": 0.0,
+      "uom": "pcs",
+      "stock_status": "available",
+      "fetch_status": "ok",
+      "fetched_at": "2026-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+- Every source is `"kind": "local"` today; distributor adapters will add
+  vendor rows with optional pricing fields (`unit_price`, `currency`,
+  `price_break_qty`, `price_breaks`, `product_url`) in a later version.
+- Clients must treat unknown kinds, extra fields, and absent optional fields
+  as non-fatal.
+- The admin API (`GET /api/catalog/components/{id}`) keeps the legacy flat
+  fields for existing internal consumers and additionally returns `supply`.
+
 ## What users can see
 
 The provider reads the released catalog projection. Components are absent when

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Minus, Plus, RotateCcw } from "lucide-react";
+import { Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
 
 import { Button } from "@/components/ui/button";
@@ -13,15 +13,23 @@ const previewUrl = (previewId: string) => `/api/catalog/previews/${encodeURIComp
  * Shared pan/zoom frame for every catalog preview. Keeping this separate from
  * the preview selector lets revision comparison use the exact same viewport
  * mechanics as the catalog quick view and Assets tab.
+ *
+ * `wheelZoom` opts out of wheel handling so a scrolling page (e.g. the narrow
+ * remote-provider panel) keeps its scroll; zoom is then available through the
+ * buttons, pinch, and an expanded lightbox where wheel zoom re-enables.
  */
 export function LibraryPreviewViewport({
   viewportKey,
   children,
   className,
+  wheelZoom = true,
+  onExpand,
 }: {
   viewportKey: string;
   children: ReactNode;
   className?: string;
+  wheelZoom?: boolean;
+  onExpand?: () => void;
 }) {
   return (
     <div className={cn("relative overflow-hidden border bg-preview-surface", className)}>
@@ -33,7 +41,7 @@ export function LibraryPreviewViewport({
         centerOnInit
         centerZoomedOut
         smooth
-        wheel={{ step: 0.12, smoothStep: 0.006 }}
+        wheel={wheelZoom ? { step: 0.12, smoothStep: 0.006 } : { disabled: true }}
         // Interactive controls supplied inside a preview must not start a
         // pan gesture in the transformed canvas beneath them.
         panning={{ velocityDisabled: false, excluded: ["prism-preview-interaction"] }}
@@ -48,6 +56,9 @@ export function LibraryPreviewViewport({
               <Button size="icon-sm" variant="ghost" aria-label="Zoom out preview" onClick={() => zoomOut(0.3)}><Minus className="h-3.5 w-3.5" /></Button>
               <Button size="icon-sm" variant="ghost" aria-label="Zoom in preview" onClick={() => zoomIn(0.3)}><Plus className="h-3.5 w-3.5" /></Button>
               <Button size="icon-sm" variant="ghost" aria-label="Reset preview view" onClick={() => resetTransform()}><RotateCcw className="h-3.5 w-3.5" /></Button>
+              {onExpand ? (
+                <Button size="icon-sm" variant="ghost" aria-label="Expand preview" onClick={onExpand}><Maximize2 className="h-3.5 w-3.5" /></Button>
+              ) : null}
             </div>
             <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-full !w-full">
               {children}

@@ -10,6 +10,7 @@ import {
   getCategories,
   searchComponents,
   isAuthError,
+  primaryLocalSource,
 } from "@/panel/lib/panel-api";
 
 import type { FinderViewState } from "@/panel/lib/view-state";
@@ -213,7 +214,7 @@ export function SymbolFinderScreen({
                     {comp.manufacturer || "Unknown"} · {comp.mpn || "—"} · {comp.package_name || "—"}
                   </span>
                 </span>
-                <StockDot quantity={comp.stock_quantity} known={comp.stock_known} />
+                <StockDot quantity={primaryLocalSource(comp)?.stock ?? 0} known={primaryLocalSource(comp) !== null} />
                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
               </button>
             ))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -82,11 +83,7 @@ def _component_payload(component: dict, origin: str, representation_id: str = ""
         "place_enabled": component["place_enabled"],
         "release_status": component.get("release_status", ""),
         "workflow_stage": component.get("workflow_stage", component.get("release_status", "")),
-        "stock_quantity": component["stock_quantity"],
-        "stock_uom": component["stock_uom"],
-        "inventory_status": component["inventory_status"],
-        "local_inventory": component.get("local_inventory"),
-        "stock_known": bool(component.get("stock_known")),
+        "supply": component.get("supply") or {"sources": []},
         "preview_status": preview_status,
         "symbol_preview_url": symbol.get("preview_url", "") if symbol else preview_map.get("symbol", ""),
         "footprint_preview_url": footprint.get("preview_url", "") if footprint else preview_map.get("footprint", ""),
@@ -119,7 +116,7 @@ async def provider_metadata(request: Request):
     auth_metadata = {"type": "none"}
     metadata = {
         "provider_name": "KiCAD Prism Remote Symbols",
-        "provider_version": "0.2.0",
+        "provider_version": "0.3.0",
         "api_base_url": base_url,
         "panel_url": f"{base_url}/remote-provider/panel",
         "auth": auth_metadata,
@@ -153,16 +150,50 @@ async def provider_metadata(request: Request):
     return metadata
 
 
+# Vite emits content-hashed names for everything except the panel entry
+# bundle, whose fixed filenames carry a `?v=<digest>` query baked into the
+# HTML. Both URL shapes are content-addressed and safe to cache long-lived;
+# anything else must revalidate against an ETag on every open.
+_VITE_HASH_SUFFIX = re.compile(r"-[0-9a-zA-Z_-]{8}$")
+
+_asset_versions: dict[str, tuple[float, str]] = {}
+
+
+def _asset_version(asset_name: str) -> str:
+    path = STATIC_DIR / asset_name
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return "0"
+    cached = _asset_versions.get(asset_name)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    _asset_versions[asset_name] = (mtime, digest)
+    return digest
+
+
+def _panel_html(html_path: Path) -> HTMLResponse:
+    html = html_path.read_text(encoding="utf-8")
+    for asset_name in ("panel.js", "panel.css"):
+        if asset_name in html:
+            html = html.replace(
+                f"assets/{asset_name}",
+                f"assets/{asset_name}?v={_asset_version(asset_name)}",
+            )
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/remote-provider/panel", response_class=HTMLResponse, include_in_schema=False)
 async def provider_panel():
     html_path = STATIC_DIR / "panel.html"
     if not html_path.is_file():
         html_path = STATIC_DIR / "index.html"
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    return _panel_html(html_path)
 
 
 @router.get("/remote-provider/assets/{asset_name:path}", include_in_schema=False)
-async def provider_static_asset(asset_name: str):
+async def provider_static_asset(asset_name: str, request: Request):
     asset_path = (STATIC_DIR / asset_name).resolve()
     try:
         asset_path.relative_to(STATIC_DIR.resolve())
@@ -182,10 +213,28 @@ async def provider_static_asset(asset_name: str):
     }
     suffix = asset_path.suffix.lower()
     media_type = mime_map.get(suffix, "application/octet-stream")
+    # Starlette's FileResponse never answers conditional requests itself, so
+    # handle If-None-Match here: content-addressed URLs cache long-lived,
+    # everything else gets a cheap 304 revalidation path instead of no-cache.
+    digest = _asset_version(asset_name)
+    etag = f'"{digest}"'
+    content_addressed = (
+        request.query_params.get("v") == digest
+        or bool(_VITE_HASH_SUFFIX.search(asset_path.stem))
+    )
+    if content_addressed:
+        cache_control = "public, max-age=31536000, immutable"
+    else:
+        cache_control = "no-cache"
+        if request.headers.get("if-none-match") == etag:
+            return Response(
+                status_code=304,
+                headers={"ETag": etag, "Cache-Control": cache_control},
+            )
     return FileResponse(
         asset_path,
         media_type=media_type,
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={"Cache-Control": cache_control, "ETag": etag},
     )
 
 
