@@ -6094,7 +6094,10 @@ class ComponentCatalogDomainService:
             isolated_footprint = isolated_library / f"{_sanitize_name(target_name, footprint_source.stem)}.kicad_mod"
             shutil.copy2(footprint_source, isolated_footprint)
             success, error = self._run_kicad_cli(
-                ["fp", "export", "svg", "--output", tmp_dir, "--footprint", target_name, str(isolated_library)]
+                [
+                    "fp", "export", "svg", "--output", tmp_dir,
+                    "--footprint", isolated_footprint.stem, str(isolated_library),
+                ]
             )
             if not success:
                 return PREVIEW_STATUS_FAILED, error
