@@ -27,7 +27,7 @@ _discover_footprint_name_in_text: Any = None
 _sanitize_name: Any = None
 _utc_now_iso: Any = None
 _slugify: Any = None
-REVISION_MANIFEST_A2 = "prism.revision_manifest_a2"
+REVISION_MANIFEST_A3 = "prism.revision_manifest_a3"
 MAX_REPORTED_ERRORS = 100
 
 
@@ -86,6 +86,7 @@ class FootprintAsset:
 @dataclass
 class ImportRowPlan:
     table: str
+    rowid: int
     part_number: str
     import_name: str
     metadata: dict[str, Any]
@@ -94,6 +95,37 @@ class ImportRowPlan:
     footprint_asset: FootprintAsset | None
     symbol_error: str = ""
     footprint_error: str = ""
+
+    @property
+    def stable_order(self) -> tuple[str, int, str]:
+        return (self.table, self.rowid, self.part_number.casefold())
+
+    @property
+    def is_alternate(self) -> bool:
+        return "[alt]" in self.part_number.casefold() or "[alt]" in self.import_name.casefold()
+
+
+@dataclass
+class RepresentationPlan:
+    label: str
+    symbol_library: SymbolLibrary | None
+    symbol_name: str
+    footprint_asset: FootprintAsset | None
+    source_ipns: list[str]
+    provenance: list[dict[str, Any]]
+    stable_order: tuple[str, int, str]
+    is_default: bool = False
+
+
+@dataclass
+class ComponentGroupPlan:
+    key: tuple[str, str, str]
+    identity_kind: str
+    identity_source: str
+    metadata: dict[str, Any]
+    rows: list[ImportRowPlan]
+    representations: list[RepresentationPlan]
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -117,12 +149,18 @@ class ImportStats:
     errors: list[str] = field(default_factory=list)
     mpn_recovered: int = 0
     mpn_fallback: int = 0
+    component_groups: int = 0
+    representation_groups: int = 0
+    provisional_groups: int = 0
+    hard_conflicts: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 # Actor recorded on revisions this importer creates. Downstream tooling uses it
 # to tell components that came from a database library apart from components
 # that merely share a name with one.
 DATABASE_LIBRARY_IMPORT_ACTOR = "system:import_database_library"
+CERN_EXTERNAL_SOURCE = "cern-database-library"
 
 # The database library carries the real manufacturer part number in its own
 # column; the "Part Number" column is the library's internal part number. Older
@@ -142,7 +180,7 @@ MPN_SOURCE_FIELD_LABEL = "MPN Source"
 # rows whose `mpn` is really an internal number and would burn distributor
 # quota on a guaranteed miss.
 MPN_SOURCE_DATABASE = "database"
-MPN_SOURCE_FALLBACK = "fallback_ipn"
+MPN_SOURCE_PROVISIONAL = "provisional_ipn"
 
 # Database-library columns with no first-class catalog column that are still
 # worth keeping. Anything the importer maps onto a real column (Value, Comment,
@@ -210,6 +248,8 @@ CATALOG_TRUNCATE_TABLES = (
     "asset_preview_versions",
     "asset_previews",
     "revision_assets",
+    "revision_representations",
+    "inventory_levels",
     "component_release_records",
     "component_review_decisions",
     "catalog_audit_events",
@@ -366,6 +406,22 @@ def _link_asset_fast(conn: Any, revision_id: str, asset: dict[str, Any], *, requ
         """,
         (revision_id, asset["asset_type"], asset["id"], 1 if required else 0, now, now),
     )
+    if asset["asset_type"] in {"symbol", "footprint"}:
+        conn.execute(
+            """
+            INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
+            SELECT %s, latest.asset_id, latest.kind, latest.id, %s
+            FROM (
+                SELECT DISTINCT ON (asset_id, kind) id, asset_id, kind
+                FROM asset_preview_versions
+                WHERE asset_id = %s AND status = 'ready'
+                ORDER BY asset_id, kind, created_at DESC, id DESC
+            ) latest
+            ON CONFLICT (revision_id, asset_id, kind)
+            DO UPDATE SET preview_id = EXCLUDED.preview_id, generated_at = EXCLUDED.generated_at
+            """,
+            (revision_id, now, asset["id"]),
+        )
 
 
 def _release_component_fast(
@@ -389,6 +445,56 @@ def _release_component_fast(
         "UPDATE components SET released_revision_id = %s, updated_at = %s WHERE id = %s",
         (revision_id, now, component_id),
     )
+    conn.execute(
+        """
+        INSERT INTO component_release_records (
+            id, component_id, revision_id, release_label, manifest_hash, released_by,
+            approval_decision_id, validation_json, policy_json, created_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, '', '{}', %s, %s)
+        ON CONFLICT(component_id, revision_id, manifest_hash) DO NOTHING
+        """,
+        (
+            str(uuid.uuid4()), component_id, revision_id, "database-library-import",
+            manifest_hash, DATABASE_LIBRARY_IMPORT_ACTOR,
+            json.dumps({"trusted_import": True}, sort_keys=True, separators=(",", ":")), now,
+        ),
+    )
+    service._append_audit_event(  # type: ignore[attr-defined]
+        conn,
+        component_id=component_id,
+        revision_id=revision_id,
+        event_type="component.released",
+        actor=DATABASE_LIBRARY_IMPORT_ACTOR,
+        details={"manifest_hash": manifest_hash, "trusted_import": True},
+    )
+
+
+def _finalize_import_component_fast(
+    service: Any,
+    conn: Any,
+    *,
+    component_id: str,
+    revision_id: str,
+    now: str,
+) -> str:
+    manifest_hash = service._revision_manifest_hash(conn, revision_id)  # type: ignore[attr-defined]
+    conn.execute(
+        "UPDATE component_revisions SET manifest_hash = %s, updated_at = %s WHERE id = %s",
+        (manifest_hash, now, revision_id),
+    )
+    service._append_audit_event(  # type: ignore[attr-defined]
+        conn,
+        component_id=component_id,
+        revision_id=revision_id,
+        event_type="component.created",
+        actor=DATABASE_LIBRARY_IMPORT_ACTOR,
+        details={
+            "change_kind": "import",
+            "change_summary": "Imported grouped database-library component",
+            "manifest_hash": manifest_hash,
+        },
+    )
+    return manifest_hash
 
 
 def _insert_import_component(
@@ -404,26 +510,39 @@ def _insert_import_component(
     conn.execute(
         """
         INSERT INTO components (
-            id, slug, source, external_source, external_id, stock_quantity, stock_uom, inventory_status,
-            serial_number, lot_number, pedigree, last_synced_at, is_active, current_revision_id,
+            id, slug, identity_kind, identity_source, normalized_manufacturer,
+            normalized_part_number, source, external_source, external_id, is_active, current_revision_id,
             released_revision_id, created_at, updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, 0, '', '', '', '', '', NULL, 1, %s, '', %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, 'import', %s, %s, 1, %s, '', %s, %s)
         """,
-        (component_id, slug, "import", "", "", revision_id, now, now),
+        (
+            component_id,
+            slug,
+            metadata["identity_kind"],
+            metadata["identity_source"] if metadata["identity_kind"] == "provisional_ipn" else "",
+            metadata["normalized_manufacturer"] if metadata["identity_kind"] == "mpn" else "",
+            metadata["normalized_part_number"],
+            CERN_EXTERNAL_SOURCE,
+            metadata["import_source_namespace"],
+            revision_id,
+            now,
+            now,
+        ),
     )
     conn.execute(
         """
         INSERT INTO component_revisions (
             id, component_id, version, parent_revision_id, change_kind, change_summary, created_by,
             manifest_hash, manifest_schema, release_status, name, value, description, datasheet_url,
-            manufacturer, mpn, category, package_name, vendor, vendor_part_number, mass_g,
+            manufacturer, mpn, normalized_manufacturer, normalized_mpn, mpn_source,
+            category, package_name, vendor, vendor_part_number, mass_g,
             rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate, sap_code,
             summary, keywords, extra_fields, search_document, created_at, updated_at
         )
         VALUES (
             %s, %s, 1, '', 'import', 'Imported from database library', %s,
-            '', %s, 'open', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            '', %s, 'open', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s
         )
         """,
@@ -431,13 +550,16 @@ def _insert_import_component(
             revision_id,
             component_id,
             DATABASE_LIBRARY_IMPORT_ACTOR,
-            REVISION_MANIFEST_A2,
+            REVISION_MANIFEST_A3,
             metadata["name"],
             metadata["value"],
             metadata["description"],
             metadata["datasheet_url"],
             metadata["manufacturer"],
             metadata["mpn"],
+            metadata["normalized_manufacturer"],
+            metadata["normalized_mpn"],
+            metadata["mpn_source"],
             metadata["category"],
             metadata["package_name"],
             metadata["vendor"],
@@ -471,13 +593,15 @@ def _collect_import_plans(
     stats: ImportStats,
     allow_missing_assets: bool,
     limit: int,
+    source_namespace: str,
 ) -> list[ImportRowPlan]:
     column_maps = _table_column_maps(source_conn, tables)
-    part_occurrences: dict[str, int] = {}
     plans: list[ImportRowPlan] = []
 
     for table in tables:
-        rows = source_conn.execute(f'SELECT * FROM "{table}"')
+        rows = source_conn.execute(
+            f'SELECT rowid AS __prism_rowid__, * FROM "{table}" ORDER BY rowid'
+        )
         column_map = column_maps[table]
         for row in rows:
             stats.database_rows_seen += 1
@@ -492,11 +616,7 @@ def _collect_import_plans(
                 _record_error(stats, f"{table}: row without Part Number")
                 continue
 
-            occurrence = part_occurrences.get(part_number, 0) + 1
-            part_occurrences[part_number] = occurrence
-            import_name = part_number if occurrence == 1 else f"{part_number}__ALT{occurrence:03d}"
-            if occurrence > 1:
-                stats.duplicate_part_numbers += 1
+            import_name = part_number
 
             symbol_library_ref, symbol_name_ref = _split_library_ref(symbol_ref)
             footprint_library_ref, footprint_name_ref = _split_library_ref(footprint_ref)
@@ -532,8 +652,14 @@ def _collect_import_plans(
 
             stats.rows_selected += 1
             metadata = service._normalize_metadata(  # type: ignore[attr-defined]
-                _metadata_from_row_cached(row, table, import_name, column_map)
+                _metadata_from_row_cached(
+                    row, table, import_name, column_map, source_namespace
+                )
             )
+            # _normalize_metadata intentionally returns only catalog revision
+            # fields. Keep import origin alongside that normalized payload so
+            # every identity kind receives the component-level provenance tag.
+            metadata["import_source_namespace"] = source_namespace
             if metadata["extra_fields"].get(MPN_SOURCE_FIELD_LABEL) == MPN_SOURCE_DATABASE:
                 stats.mpn_recovered += 1
             else:
@@ -541,6 +667,7 @@ def _collect_import_plans(
             plans.append(
                 ImportRowPlan(
                     table=table,
+                    rowid=int(row["__prism_rowid__"]),
                     part_number=part_number,
                     import_name=import_name,
                     metadata=metadata,
@@ -554,11 +681,154 @@ def _collect_import_plans(
     return plans
 
 
+def _asset_pair_key(plan: ImportRowPlan) -> tuple[str, str, str, str]:
+    symbol_library = plan.symbol_library.target_library if plan.symbol_library else ""
+    footprint_library = plan.footprint_asset.target_library if plan.footprint_asset else ""
+    footprint_name = plan.footprint_asset.target_name if plan.footprint_asset else ""
+    return (symbol_library, plan.symbol_name, footprint_library, footprint_name)
+
+
+def _group_import_plans(
+    plans: list[ImportRowPlan], *, stats: ImportStats
+) -> list[ComponentGroupPlan]:
+    grouped: dict[tuple[str, str, str], list[ImportRowPlan]] = {}
+    for plan in sorted(plans, key=lambda item: item.stable_order):
+        metadata = plan.metadata
+        if metadata["identity_kind"] == "mpn":
+            key = (
+                "mpn",
+                str(metadata["manufacturer"]).strip().casefold(),
+                str(metadata["mpn"]).strip().casefold(),
+            )
+        else:
+            key = (
+                "provisional_ipn",
+                str(metadata["identity_source"]).strip().casefold(),
+                plan.part_number.strip().casefold(),
+            )
+        grouped.setdefault(key, []).append(plan)
+
+    result: list[ComponentGroupPlan] = []
+    for key in sorted(grouped):
+        rows = sorted(grouped[key], key=lambda item: item.stable_order)
+        canonical = next((row for row in rows if not row.is_alternate), rows[0])
+        metadata = dict(canonical.metadata)
+        metadata["name"] = canonical.part_number
+        metadata["extra_fields"] = dict(metadata.get("extra_fields") or {})
+        all_ipns = list(dict.fromkeys(row.part_number for row in rows))
+        metadata["extra_fields"][IPN_FIELD_LABEL] = canonical.part_number
+        metadata["extra_fields"]["Alternate Internal Part Numbers"] = ", ".join(
+            ipn for ipn in all_ipns if ipn != canonical.part_number
+        )
+
+        warnings: list[str] = []
+        for field_name in ("description", "value", "datasheet_url", "category"):
+            values = sorted(
+                {
+                    str(row.metadata.get(field_name) or "").strip()
+                    for row in rows
+                    if str(row.metadata.get(field_name) or "").strip()
+                },
+                key=str.casefold,
+            )
+            if len(values) > 1:
+                warnings.append(f"{field_name} differs across {len(values)} source values")
+        stats.warnings.extend(f"{key}: {warning}" for warning in warnings)
+
+        pair_groups: dict[tuple[str, str, str, str], list[ImportRowPlan]] = {}
+        for row in rows:
+            pair_groups.setdefault(_asset_pair_key(row), []).append(row)
+        representations: list[RepresentationPlan] = []
+        for pair_rows in pair_groups.values():
+            pair_rows.sort(key=lambda item: item.stable_order)
+            representative = pair_rows[0]
+            packages_by_ipn: dict[str, set[str]] = {}
+            for row in pair_rows:
+                package_name = str(row.metadata.get("package_name") or "").strip()
+                if package_name:
+                    packages_by_ipn.setdefault(row.part_number.casefold(), set()).add(package_name)
+            for source_ipn, package_names in packages_by_ipn.items():
+                if len(package_names) > 1:
+                    stats.hard_conflicts.append(
+                        f"{key} pair {_asset_pair_key(representative)} source IPN {source_ipn!r}: "
+                        f"conflicting package names: {', '.join(sorted(package_names, key=str.casefold))}"
+                    )
+            source_ipns = list(dict.fromkeys(row.part_number for row in pair_rows))
+            provenance = [
+                {
+                    "table": row.table,
+                    "rowid": row.rowid,
+                    "internal_part_number": row.part_number,
+                    "category": row.metadata.get("category", ""),
+                    "datasheet_url": row.metadata.get("datasheet_url", ""),
+                    "package_name": row.metadata.get("package_name", ""),
+                }
+                for row in pair_rows
+            ]
+            label_parts = [
+                representative.symbol_name,
+                representative.footprint_asset.target_name if representative.footprint_asset else "",
+            ]
+            representations.append(
+                RepresentationPlan(
+                    label=" / ".join(part for part in label_parts if part) or representative.part_number,
+                    symbol_library=representative.symbol_library,
+                    symbol_name=representative.symbol_name,
+                    footprint_asset=representative.footprint_asset,
+                    source_ipns=source_ipns,
+                    provenance=provenance,
+                    stable_order=representative.stable_order,
+                )
+            )
+        representation_packages = sorted(
+            {
+                str(row.metadata.get("package_name") or "").strip()
+                for row in rows
+                if str(row.metadata.get("package_name") or "").strip()
+            },
+            key=str.casefold,
+        )
+        if len(representation_packages) > 1:
+            warning = (
+                f"package_name differs across {len(representation_packages)} source values"
+            )
+            warnings.append(warning)
+            stats.warnings.append(f"{key}: {warning}")
+        representations.sort(
+            key=lambda item: (
+                all("[alt]" in ipn.casefold() for ipn in item.source_ipns),
+                item.stable_order,
+            )
+        )
+        if representations:
+            representations[0].is_default = True
+        result.append(
+            ComponentGroupPlan(
+                key=key,
+                identity_kind=str(metadata["identity_kind"]),
+                identity_source=str(metadata["identity_source"]),
+                metadata=metadata,
+                rows=rows,
+                representations=representations,
+                warnings=warnings,
+            )
+        )
+
+    stats.component_groups = len(result)
+    stats.representation_groups = sum(len(group.representations) for group in result)
+    stats.provisional_groups = sum(
+        group.identity_kind == "provisional_ipn" for group in result
+    )
+    stats.duplicate_part_numbers = len(plans) - len(result)
+    return result
+
+
 def _metadata_from_row_cached(
     row: sqlite3.Row,
     table: str,
     import_name: str,
     column_map: dict[str, str],
+    source_namespace: str,
 ) -> dict[str, str]:
     value = _row_get_cached(row, column_map, "Value", "Comment") or import_name
     description = _row_get_cached(row, column_map, "Part Description", "Description", "Comment") or import_name
@@ -573,6 +843,7 @@ def _metadata_from_row_cached(
         import_name=import_name,
         mpn_source=mpn_source,
     )
+    identity_kind = "mpn" if mpn else "provisional_ipn"
     return {
         "name": import_name,
         "value": value,
@@ -580,6 +851,9 @@ def _metadata_from_row_cached(
         "datasheet_url": datasheet,
         "manufacturer": manufacturer,
         "mpn": mpn,
+        "identity_kind": identity_kind,
+        "identity_source": source_namespace if identity_kind == "provisional_ipn" else "manufacturer_mpn",
+        "import_source_namespace": source_namespace,
         "category": category,
         "package_name": _row_get_cached(row, column_map, "PackageDescription", "Case"),
         "vendor": "",
@@ -597,17 +871,12 @@ def _metadata_from_row_cached(
 
 
 def _resolve_mpn(database_mpn: str, import_name: str) -> tuple[str, str]:
-    """Pick the manufacturer part number and record where it came from.
-
-    `mpn` is required downstream, so a row whose source column is blank still
-    has to carry something. Falling back to the internal part number keeps the
-    component importable; the recorded source is what stops the supply sync
-    from spending distributor quota on it.
-    """
+    """Return a real MPN or mark the row provisional without contaminating MPN."""
     cleaned = database_mpn.strip()
     if cleaned:
         return cleaned, MPN_SOURCE_DATABASE
-    return import_name, MPN_SOURCE_FALLBACK
+    _ = import_name
+    return "", MPN_SOURCE_PROVISIONAL
 
 
 def _extra_fields_from_row(
@@ -724,8 +993,8 @@ def _register_planned_assets(
     _commit_asset_batch("Asset registration complete")
 
 
-def _import_plans(
-    plans: list[ImportRowPlan],
+def _import_groups(
+    groups: list[ComponentGroupPlan],
     *,
     service: Any,
     target_conn: Any,
@@ -766,8 +1035,8 @@ def _import_plans(
     # keys in the extra-fields blob.
     discovered_keys = {
         key
-        for plan in plans
-        for key in plan.metadata.get("extra_fields", {})
+        for group in groups
+        for key in group.metadata.get("extra_fields", {})
     }
     if discovered_keys:
         service._ensure_extra_field_definitions(  # type: ignore[attr-defined]
@@ -776,43 +1045,87 @@ def _import_plans(
             actor=DATABASE_LIBRARY_IMPORT_ACTOR,
         )
 
-    for plan in plans:
+    for group in groups:
         try:
             now = _utc_now_iso()
-            # Slug from the internal part number, which is unique per row. The
-            # manufacturer part number is not: footprint variants and repeated
-            # database rows share one, and slugging on it would suffix thousands
-            # of components with -2, -3, ...
             slug = _unique_slug_local(
                 used_slugs,
-                plan.import_name or plan.metadata["mpn"] or plan.metadata["value"],
+                group.metadata["mpn"]
+                or group.metadata["name"]
+                or group.metadata["value"],
             )
             component_id, revision_id = _insert_import_component(
                 service,
                 target_conn,
-                metadata=plan.metadata,
+                metadata=group.metadata,
                 slug=slug,
                 now=now,
             )
             stats.components_created += 1
 
-            linked_symbol = False
-            linked_footprint = False
-            if plan.symbol_library and plan.symbol_name:
-                asset = symbol_asset_cache[(plan.symbol_library.target_library, plan.symbol_name)]
-                _link_asset_fast(target_conn, revision_id, asset, required=True, now=now)
-                stats.symbol_links_created += 1
-                linked_symbol = True
+            default_complete = False
+            for display_order, representation in enumerate(group.representations):
+                symbol_asset = None
+                footprint_asset = None
+                if representation.symbol_library and representation.symbol_name:
+                    symbol_asset = symbol_asset_cache[
+                        (representation.symbol_library.target_library, representation.symbol_name)
+                    ]
+                    _link_asset_fast(target_conn, revision_id, symbol_asset, required=True, now=now)
+                    stats.symbol_links_created += 1
+                if representation.footprint_asset:
+                    footprint_asset = footprint_asset_cache[
+                        (
+                            representation.footprint_asset.target_library,
+                            representation.footprint_asset.target_name,
+                        )
+                    ]
+                    _link_asset_fast(target_conn, revision_id, footprint_asset, required=True, now=now)
+                    stats.footprint_links_created += 1
+                target_conn.execute(
+                    """
+                    INSERT INTO revision_representations (
+                        id, revision_id, label, symbol_asset_id, footprint_asset_id, is_default,
+                        display_order, source_internal_part_number, provenance_json, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        revision_id,
+                        representation.label,
+                        symbol_asset["id"] if symbol_asset else None,
+                        footprint_asset["id"] if footprint_asset else None,
+                        1 if representation.is_default else 0,
+                        display_order,
+                        representation.source_ipns[0] if representation.source_ipns else "",
+                        json.dumps(
+                            {
+                                "source_ipns": representation.source_ipns,
+                                "rows": representation.provenance,
+                            },
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        now,
+                        now,
+                    ),
+                )
+                if representation.is_default:
+                    default_complete = bool(symbol_asset and footprint_asset)
 
-            if plan.footprint_asset:
-                asset = footprint_asset_cache[
-                    (plan.footprint_asset.target_library, plan.footprint_asset.target_name)
-                ]
-                _link_asset_fast(target_conn, revision_id, asset, required=True, now=now)
-                stats.footprint_links_created += 1
-                linked_footprint = True
+            _finalize_import_component_fast(
+                service,
+                target_conn,
+                component_id=component_id,
+                revision_id=revision_id,
+                now=now,
+            )
 
-            if release_imported and linked_symbol and linked_footprint:
+            if (
+                release_imported
+                and group.identity_kind == "mpn"
+                and default_complete
+            ):
                 _release_component_fast(
                     service,
                     target_conn,
@@ -826,7 +1139,7 @@ def _import_plans(
             _commit_import_batch()
         except Exception as exc:  # noqa: BLE001
             stats.skipped_rows += 1
-            _record_error(stats, f"{plan.table}:{plan.part_number}: {exc}")
+            _record_error(stats, f"{group.key}: {exc}")
             _recover_import_transaction()
 
     _commit_import_batch(force=True)
@@ -1005,13 +1318,19 @@ def _resolve_footprint(
     return None, "ambiguous" if ambiguous else "missing_footprint"
 
 
-def _metadata_from_row(row: sqlite3.Row, table: str, import_name: str) -> dict[str, str]:
+def _metadata_from_row(
+    row: sqlite3.Row,
+    table: str,
+    import_name: str,
+    source_namespace: str = "database-library",
+) -> dict[str, str]:
     value = _row_get(row, "Value", "Comment") or import_name
     description = _row_get(row, "Part Description", "Description", "Comment") or import_name
     manufacturer = _row_get(row, "Manufacturer") or "TBD"
     datasheet = _row_get(row, "Datasheet", "HelpURL") or "TBD"
     category = _row_get(row, "Database Table Name") or table
     mpn, mpn_source = _resolve_mpn(_row_get(row, *MPN_COLUMNS), import_name)
+    identity_kind = "mpn" if mpn else "provisional_ipn"
     return {
         "name": import_name,
         "value": value,
@@ -1019,6 +1338,9 @@ def _metadata_from_row(row: sqlite3.Row, table: str, import_name: str) -> dict[s
         "datasheet_url": datasheet,
         "manufacturer": manufacturer,
         "mpn": mpn,
+        "identity_kind": identity_kind,
+        "identity_source": source_namespace if identity_kind == "provisional_ipn" else "manufacturer_mpn",
+        "import_source_namespace": source_namespace,
         "category": category,
         "package_name": _row_get(row, "PackageDescription", "Case"),
         "vendor": "",
@@ -1172,15 +1494,18 @@ def main() -> int:
         stats=stats,
         allow_missing_assets=args.allow_missing_assets,
         limit=args.limit,
+        source_namespace=f"cern:{database_path.stem}",
     )
+    groups = _group_import_plans(plans, stats=stats)
     print(
-        f"Prepared {len(plans)} import rows "
-        f"({stats.skipped_rows} skipped during scan, {stats.duplicate_part_numbers} duplicate part number variants)",
+        f"Prepared {len(plans)} source rows as {len(groups)} components and "
+        f"{stats.representation_groups} representations "
+        f"({stats.skipped_rows} skipped during scan)",
         flush=True,
     )
     print(
         f"Manufacturer part numbers: {stats.mpn_recovered} from the source database, "
-        f"{stats.mpn_fallback} falling back to the internal part number",
+        f"{stats.mpn_fallback} provisional by source internal part number",
         flush=True,
     )
 
@@ -1192,7 +1517,11 @@ def main() -> int:
     target_conn_context = None
     target_conn = None
     try:
-        if not args.dry_run:
+        if stats.hard_conflicts:
+            fatal_error = True
+            for conflict in stats.hard_conflicts:
+                _record_error(stats, conflict)
+        elif not args.dry_run:
             service.initialize()
             target_conn_context = service._connect()  # type: ignore[attr-defined]
             target_conn = target_conn_context.__enter__()
@@ -1219,8 +1548,8 @@ def main() -> int:
             )
 
             print("Importing component metadata and release records ...", flush=True)
-            _import_plans(
-                plans,
+            _import_groups(
+                groups,
                 service=service,
                 target_conn=target_conn,
                 stats=stats,
@@ -1229,6 +1558,12 @@ def main() -> int:
                 release_imported=not args.no_release,
                 commit_batch=max(50, args.commit_batch),
             )
+            if stats.components_created != len(groups):
+                fatal_error = True
+                _record_error(
+                    stats,
+                    f"Component import incomplete: created {stats.components_created} of {len(groups)} groups",
+                )
     except Exception as exc:  # noqa: BLE001
         fatal_error = True
         if target_conn is not None:
@@ -1240,6 +1575,36 @@ def main() -> int:
             target_conn_context.__exit__(None, None, None)
 
     report = asdict(stats)
+    report["groups"] = [
+        {
+            "key": list(group.key),
+            "identity_kind": group.identity_kind,
+            "canonical_internal_part_number": group.metadata["name"],
+            "manufacturer": group.metadata["manufacturer"],
+            "mpn": group.metadata["mpn"],
+            "source_internal_part_numbers": [row.part_number for row in group.rows],
+            "representations": [
+                {
+                    "label": representation.label,
+                    "symbol": (
+                        f"{representation.symbol_library.target_library}:{representation.symbol_name}"
+                        if representation.symbol_library and representation.symbol_name
+                        else ""
+                    ),
+                    "footprint": (
+                        f"{representation.footprint_asset.target_library}:{representation.footprint_asset.target_name}"
+                        if representation.footprint_asset
+                        else ""
+                    ),
+                    "source_internal_part_numbers": representation.source_ipns,
+                    "default": representation.is_default,
+                }
+                for representation in group.representations
+            ],
+            "warnings": group.warnings,
+        }
+        for group in groups
+    ]
     report.update(
         {
             "source_root": str(source_root),
@@ -1259,7 +1624,20 @@ def main() -> int:
         args.report_json.parent.mkdir(parents=True, exist_ok=True)
         args.report_json.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-    print(json.dumps(report, indent=2))
+    if args.report_json:
+        print(
+            json.dumps(
+                {
+                    key: value
+                    for key, value in report.items()
+                    if key != "groups"
+                },
+                indent=2,
+            )
+        )
+        print(f"Detailed group report written to {args.report_json}")
+    else:
+        print(json.dumps(report, indent=2))
     return 1 if fatal_error or (args.strict and (stats.errors or stats.skipped_rows)) else 0
 
 

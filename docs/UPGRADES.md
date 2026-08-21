@@ -276,6 +276,49 @@ open a database a newer V3 build has touched. That preserves the catalog
 rollback convention; it does not make a V2 SQLite installation or arbitrary
 alpha API changes backwards-compatible.
 
+## Catalog epoch 2 cutover
+
+The component-as-part catalog is an intentional destructive catalog boundary.
+The backend refuses a populated pre-epoch-2 catalog and leaves every
+non-catalog PostgreSQL schema untouched. Use this rollout order:
+
+1. Create and verify a Prism backup, then rotate any exposed InvenTree token.
+2. Stop the backend and catalog workers.
+3. Run `import_database_library.py --dry-run --report-json …` and archive the report.
+4. Run the catalog-only reset below.
+5. Start the new backend once to create epoch 2.
+6. Re-import with preview generation.
+7. Rebuild project usage if the deployment requires it.
+8. Run catalog acceptance queries and default/non-default KiCad placement smoke tests before reopening access.
+
+The reset command is:
+
+```bash
+python3 scripts/reset_prism_catalog.py \
+  --confirm RESET-PRISM-CATALOG-EPOCH-2
+```
+
+After an epoch-2 CERN import, later refreshes can remove only components carrying
+the importer's explicit CERN origin marker. Non-CERN components and assets still
+referenced by them are preserved:
+
+```bash
+python3 scripts/reset_prism_catalog.py \
+  --cern-only \
+  --confirm RESET-PRISM-CERN-IMPORTS
+```
+
+Add `--dry-run` to preview the CERN-scoped component and orphan-asset counts.
+Stop the backend and catalog workers before executing the non-dry-run form; the
+reset temporarily disables named catalog immutability triggers inside its locked
+transaction and restores them before commit.
+
+The command removes only the `catalog` schema and catalog component,
+preview, KLC-validation, and DBL artifact roots. Project repositories, database
+volumes, environment files, other PostgreSQL schemas, and unrelated derived data
+are preserved. Rolling a populated epoch-2 catalog back to a pre-epoch-2 backend
+is unsupported; restore the backup instead.
+
 ---
 
 # Reference

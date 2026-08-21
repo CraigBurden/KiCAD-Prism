@@ -12,6 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import type { PanelComponent } from "@/panel/lib/panel-api";
 import { getComponent } from "@/panel/lib/panel-api";
@@ -64,6 +71,7 @@ export function PartDetailScreen({
   const [showAllParams, setShowAllParams] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [placingInline, setPlacingInline] = useState(false);
+  const [representationId, setRepresentationId] = useState("");
 
   // Fetch full component details. List screens pass a slim payload, so detail
   // refreshes the component before previews/assets are shown.
@@ -73,6 +81,7 @@ export function PartDetailScreen({
       .then((c) => {
         if (!controller.signal.aborted) {
           setComponent(c);
+          setRepresentationId(c.default_representation_id || c.representations[0]?.id || "");
           setLoading(false);
         }
       })
@@ -94,7 +103,7 @@ export function PartDetailScreen({
     }
     setPlacing(true);
     try {
-      const manifest = await getPartManifest(component.id);
+      const manifest = await getPartManifest(component.id, representationId);
       await retry(async () => {
         await sendRpcCommand(
           "PLACE_COMPONENT",
@@ -118,7 +127,7 @@ export function PartDetailScreen({
     }
     setPlacingInline(true);
     try {
-      const bundle = (await getInlineBundle(component.id)) as Record<
+      const bundle = (await getInlineBundle(component.id, representationId)) as Record<
         string,
         unknown
       >;
@@ -165,6 +174,13 @@ export function PartDetailScreen({
   const visibleParams = showAllParams
     ? PARAMETER_ORDER
     : PARAMETER_ORDER.slice(0, 5);
+  const selectedRepresentation = component.representations.find(
+    (representation) => representation.id === representationId
+  ) || component.representations.find((representation) => representation.is_default) || null;
+  const selectedComplete = Boolean(
+    selectedRepresentation?.symbol && selectedRepresentation?.footprint
+  );
+  const canPlace = component.place_enabled && selectedComplete && component.identity_kind === "mpn";
 
   return (
     <div className="flex flex-col gap-3">
@@ -187,7 +203,7 @@ export function PartDetailScreen({
               variant="outline"
               className="shrink-0 text-[10px] text-muted-foreground border-border/50 bg-secondary/20 font-medium"
             >
-              Stock N/A
+              {component.stock_known ? `${component.stock_quantity} ${component.stock_uom}`.trim() : "Stock unknown"}
             </Badge>
           </div>
         </div>
@@ -226,17 +242,17 @@ export function PartDetailScreen({
           size="sm"
           className="flex-1"
           onClick={handlePlace}
-          disabled={!component.place_enabled || placing}
+          disabled={!canPlace || placing}
         >
           {placing ? (
             <Loader2 className="h-3 w-3 animate-spin" />
           ) : (
             <Download data-icon="inline-start" className="h-3 w-3" />
           )}
-          {component.place_enabled ? "Place" : "Unavailable"}
+          {canPlace ? "Place" : "Unavailable"}
         </Button>
       </div>
-      {component.place_enabled && (
+      {canPlace && (
         <div className="px-1">
           <Button
             variant="outline"
@@ -250,6 +266,38 @@ export function PartDetailScreen({
             ) : null}
             Inline Fallback
           </Button>
+        </div>
+      )}
+
+      <Separator />
+
+      {component.representations.length > 0 && (
+        <div className="px-1">
+          <p className="pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Representation
+          </p>
+          <Select value={representationId} onValueChange={setRepresentationId}>
+            <SelectTrigger className="h-8 text-xs" aria-label="Representation">
+              <SelectValue placeholder="Select a representation" />
+            </SelectTrigger>
+            <SelectContent>
+              {component.representations.map((representation) => (
+                <SelectItem
+                  key={representation.id}
+                  value={representation.id}
+                  disabled={!representation.symbol || !representation.footprint}
+                >
+                  {representation.label}{representation.is_default ? " (Default)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {component.identity_kind === "provisional_ipn" && (
+        <div className="mx-1 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+          Provisional part: add a real manufacturer and MPN before release or placement.
         </div>
       )}
 
@@ -312,18 +360,18 @@ export function PartDetailScreen({
         {/* Symbol preview */}
         <PreviewCard
           label="Symbol"
-          status={component.preview_status?.symbol?.status}
-          url={component.symbol_preview_url}
-          meta={`${component.library_name}:${component.symbol_name}`}
+          status={selectedRepresentation?.symbol?.preview_url ? "ready" : component.preview_status?.symbol?.status}
+          url={selectedRepresentation?.symbol?.preview_url || component.symbol_preview_url}
+          meta={selectedRepresentation?.symbol ? `${selectedRepresentation.symbol.target_library}:${selectedRepresentation.symbol.target_name}` : `${component.library_name}:${component.symbol_name}`}
           version={component.version}
         />
 
         {/* Footprint preview */}
         <PreviewCard
           label="Footprint"
-          status={component.preview_status?.footprint?.status}
-          url={component.footprint_preview_url}
-          meta={component.package_name || "—"}
+          status={selectedRepresentation?.footprint?.preview_url ? "ready" : component.preview_status?.footprint?.status}
+          url={selectedRepresentation?.footprint?.preview_url || component.footprint_preview_url}
+          meta={selectedRepresentation?.footprint?.target_name || component.package_name || "—"}
         />
       </div>
 
@@ -374,12 +422,12 @@ export function PartDetailScreen({
         </p>
         <div className="flex gap-2">
           <Badge
-            variant={component.stock_quantity > 0 ? "default" : "destructive"}
+            variant={!component.stock_known ? "secondary" : component.stock_quantity > 0 ? "default" : "destructive"}
             className={`text-[10px] ${
               component.stock_quantity > 0 ? "bg-emerald-600/90 text-white" : ""
             }`}
           >
-            {component.stock_quantity > 0 ? "In Stock" : "Out of Stock"}
+            {!component.stock_known ? "Stock unknown" : component.stock_quantity > 0 ? "In Stock" : "Out of Stock"}
           </Badge>
           {component.stock_quantity > 0 && (
             <Badge variant="secondary" className="text-[10px]">

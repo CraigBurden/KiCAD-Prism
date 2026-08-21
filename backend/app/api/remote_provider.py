@@ -22,7 +22,7 @@ def _provider_origin(request: Request) -> str:
     return resolve_public_base_url(request)
 
 
-def _component_payload(component: dict, origin: str) -> dict:
+def _component_payload(component: dict, origin: str, representation_id: str = "") -> dict:
     preview_map = {
         preview["kind"]: f"{origin}/api/remote-provider/previews/{preview['id']}"
         for preview in component["previews"]
@@ -35,10 +35,34 @@ def _component_payload(component: dict, origin: str) -> dict:
         }
         for preview in component["previews"]
     }
+    representations = []
+    for representation in component.get("representations", []):
+        item = dict(representation)
+        for key in ("symbol", "footprint"):
+            asset = dict(item[key]) if item.get(key) else None
+            if asset:
+                preview_id = str(asset.get("preview_id") or "")
+                asset["preview_url"] = (
+                    f"{origin}/api/remote-provider/previews/{preview_id}" if preview_id else ""
+                )
+            item[key] = asset
+        representations.append(item)
+    effective = None
+    if representation_id:
+        effective = next((item for item in representations if item["id"] == representation_id), None)
+        if not effective:
+            raise ValueError("Representation was not found on this revision")
+    else:
+        effective = next((item for item in representations if item.get("is_default")), None)
+    if effective and (not effective.get("symbol") or not effective.get("footprint")):
+        raise ValueError("Selected representation is incomplete")
+    symbol = effective.get("symbol") if effective else None
+    footprint = effective.get("footprint") if effective else None
     return {
         "id": component["id"],
         "slug": component["slug"],
         "name": component["name"],
+        "identity_kind": component.get("identity_kind", "mpn"),
         "manufacturer": component["manufacturer"],
         "mpn": component["mpn"],
         "description": component["description"],
@@ -47,8 +71,11 @@ def _component_payload(component: dict, origin: str) -> dict:
         "datasheet_url": component["datasheet_url"],
         "summary": component["summary"],
         "version": component["version"],
-        "library_name": component["library_name"],
-        "symbol_name": component["symbol_name"],
+        "library_name": symbol.get("target_library", "") if symbol else component["library_name"],
+        "symbol_name": symbol.get("target_name", "") if symbol else component["symbol_name"],
+        "representations": representations,
+        "default_representation_id": component.get("default_representation_id", ""),
+        "effective_representation_id": effective.get("id", "") if effective else "",
         "assets": component["assets"],
         "availability_state": component["availability_state"],
         "missing_assets": component["missing_assets"],
@@ -58,11 +85,19 @@ def _component_payload(component: dict, origin: str) -> dict:
         "stock_quantity": component["stock_quantity"],
         "stock_uom": component["stock_uom"],
         "inventory_status": component["inventory_status"],
+        "local_inventory": component.get("local_inventory"),
+        "stock_known": bool(component.get("stock_known")),
         "preview_status": preview_status,
-        "symbol_preview_url": preview_map.get("symbol", ""),
-        "footprint_preview_url": preview_map.get("footprint", ""),
-        "manifest_url": f"{origin}/api/remote-provider/parts/{component['id']}",
-        "inline_url": f"{origin}/api/remote-provider/components/{component['id']}/inline",
+        "symbol_preview_url": symbol.get("preview_url", "") if symbol else preview_map.get("symbol", ""),
+        "footprint_preview_url": footprint.get("preview_url", "") if footprint else preview_map.get("footprint", ""),
+        "manifest_url": (
+            f"{origin}/api/remote-provider/parts/{component['id']}"
+            + (f"?representation={effective['id']}" if effective else "")
+        ),
+        "inline_url": (
+            f"{origin}/api/remote-provider/components/{component['id']}/inline"
+            + (f"?representation={effective['id']}" if effective else "")
+        ),
     }
 
 
@@ -84,7 +119,7 @@ async def provider_metadata(request: Request):
     auth_metadata = {"type": "none"}
     metadata = {
         "provider_name": "KiCAD Prism Remote Symbols",
-        "provider_version": "0.1.0",
+        "provider_version": "0.2.0",
         "api_base_url": base_url,
         "panel_url": f"{base_url}/remote-provider/panel",
         "auth": auth_metadata,
@@ -93,6 +128,7 @@ async def provider_metadata(request: Request):
             "parts_v1": True,
             "direct_downloads_v1": True,
             "inline_payloads_v1": True,
+            "representations_v1": True,
         },
         "parts": {
             "endpoint_template": "/api/remote-provider/parts/{part_id}",
@@ -249,6 +285,7 @@ async def components_by_category(
 async def get_component(
     component_id: str,
     request: Request,
+    representation: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
@@ -260,20 +297,26 @@ async def get_component(
     )
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
-    return _component_payload(component, _provider_origin(request))
+    try:
+        return _component_payload(component, _provider_origin(request), representation)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/api/remote-provider/parts/{part_id}")
 async def get_part_manifest(
     part_id: str,
     request: Request,
+    representation: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
     try:
-        manifest = await asyncio.to_thread(catalog_service.build_manifest, part_id, _provider_origin(request))
+        manifest = await asyncio.to_thread(
+            catalog_service.build_manifest, part_id, _provider_origin(request), representation
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not manifest:
         raise HTTPException(status_code=404, detail="Component not found")
     return JSONResponse(manifest)
@@ -282,24 +325,38 @@ async def get_part_manifest(
 @router.get("/api/remote-provider/components/{component_id}/inline")
 async def get_inline_component(
     component_id: str,
+    representation: str = Query(default=""),
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
     try:
-        bundle = await asyncio.to_thread(catalog_service.build_inline_bundle, component_id)
+        bundle = await asyncio.to_thread(
+            catalog_service.build_inline_bundle, component_id, representation
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not bundle:
         raise HTTPException(status_code=404, detail="Component not found")
     return JSONResponse(bundle)
 
 
 @router.get("/api/remote-provider/assets/{asset_id}")
-async def download_asset(asset_id: str, rev: str = Query(...), exp: int = Query(...), sig: str = Query(...)):
-    if not catalog_service.validate_asset_signature(asset_id, rev, exp, sig):
+async def download_asset(
+    asset_id: str,
+    rev: str = Query(...),
+    representation: str = Query(default=""),
+    exp: int = Query(...),
+    sig: str = Query(...),
+):
+    if not catalog_service.validate_asset_signature(asset_id, rev, exp, sig, representation):
         raise HTTPException(status_code=403, detail="Invalid or expired asset signature")
 
-    asset = await asyncio.to_thread(catalog_service.get_asset_by_id, asset_id, revision_id=rev)
+    asset = await asyncio.to_thread(
+        catalog_service.get_asset_by_id,
+        asset_id,
+        revision_id=rev,
+        representation_id=representation,
+    )
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 

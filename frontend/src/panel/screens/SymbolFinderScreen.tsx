@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader2, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -48,10 +48,15 @@ export function SymbolFinderScreen({
   appendLog,
 }: SymbolFinderScreenProps) {
   const { query, searchResults } = viewState;
-  const setQuery = (value: string) =>
-    onViewStateChange((prev) => ({ ...prev, query: value }));
-  const setSearchResults = (items: PanelComponent[]) =>
-    onViewStateChange((prev) => ({ ...prev, searchResults: items }));
+  const setQuery = useCallback(
+    (value: string) => onViewStateChange((prev) => ({ ...prev, query: value })),
+    [onViewStateChange],
+  );
+  const setSearchResults = useCallback(
+    (items: PanelComponent[]) =>
+      onViewStateChange((prev) => ({ ...prev, searchResults: items })),
+    [onViewStateChange],
+  );
   const [categories, setCategories] = useState<PanelCategory[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -118,7 +123,7 @@ export function SymbolFinderScreen({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, appendLog, onAuthRequired]);
+  }, [query, appendLog, onAuthRequired, setSearchResults]);
 
   const isSearching = query.trim().length > 0;
 
@@ -208,7 +213,7 @@ export function SymbolFinderScreen({
                     {comp.manufacturer || "Unknown"} · {comp.mpn || "—"} · {comp.package_name || "—"}
                   </span>
                 </span>
-                <StockDot quantity={comp.stock_quantity} />
+                <StockDot quantity={comp.stock_quantity} known={comp.stock_known} />
                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
               </button>
             ))
@@ -219,12 +224,12 @@ export function SymbolFinderScreen({
   );
 }
 
-function StockDot({ quantity }: { quantity: number }) {
+function StockDot({ quantity, known }: { quantity: number; known: boolean }) {
   const inStock = quantity > 0;
   return (
     <span
-      className={`h-2 w-2 shrink-0 rounded-full ${inStock ? "bg-emerald-500" : "bg-red-500"}`}
-      title={inStock ? `In stock (${quantity})` : "Out of stock"}
+      className={`h-2 w-2 shrink-0 rounded-full ${!known ? "bg-muted-foreground/40" : inStock ? "bg-emerald-500" : "bg-red-500"}`}
+      title={!known ? "Stock unknown" : inStock ? `In stock (${quantity})` : "Out of stock"}
     />
   );
 }

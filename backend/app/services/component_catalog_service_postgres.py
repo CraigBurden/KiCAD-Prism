@@ -16,14 +16,15 @@ logger = logging.getLogger(__name__)
 # Written on every startup so an older Prism, which treats this row as a hard
 # precondition, can still open a database this build has touched. Schema changes
 # belong in app.services.catalog_schema_migrations, not here.
-POSTGRES_SCHEMA_VERSION = "catalog-postgres-v6"
+POSTGRES_SCHEMA_VERSION = "catalog-postgres-v7"
+CATALOG_SCHEMA_EPOCH = "2"
 
 # Derived state. Each is rebuilt when its version changes, so these deliberately
 # stay outside the migration ladder, which records a migration as run once.
 POSTGRES_SEARCH_VERSION = "catalog-search-v2"
-POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v3"
-POSTGRES_HEAD_PROJECTION_VERSION = "catalog-component-heads-v2"
-POSTGRES_REMOTE_HEAD_PROJECTION_VERSION = "catalog-remote-heads-v1"
+POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v4"
+POSTGRES_HEAD_PROJECTION_VERSION = "catalog-component-heads-v3"
+POSTGRES_REMOTE_HEAD_PROJECTION_VERSION = "catalog-remote-heads-v2"
 
 def _postgres_dsn(value: str) -> str:
     """Accept both native and SQLAlchemy-style psycopg URLs."""
@@ -143,6 +144,31 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 ).fetchone()
                 conn.execute("CREATE SCHEMA IF NOT EXISTS catalog")
                 conn.execute("SET search_path TO catalog, public")
+                existing_catalog = conn.execute(
+                    "SELECT to_regclass('catalog.components') AS relation"
+                ).fetchone()
+                if existing_catalog and existing_catalog["relation"]:
+                    epoch_table = conn.execute(
+                        "SELECT to_regclass('catalog.catalog_meta') AS relation"
+                    ).fetchone()
+                    epoch = None
+                    if epoch_table and epoch_table["relation"]:
+                        epoch = conn.execute(
+                            "SELECT value FROM catalog_meta WHERE key = %s",
+                            ("catalog_schema_epoch",),
+                        ).fetchone()
+                    if not epoch or str(epoch["value"]) != CATALOG_SCHEMA_EPOCH:
+                        populated = conn.execute(
+                            "SELECT EXISTS (SELECT 1 FROM components LIMIT 1) AS populated"
+                        ).fetchone()
+                        if populated and populated["populated"]:
+                            raise RuntimeError(
+                                "Catalog schema epoch 2 is required. Back up Prism, run the "
+                                "catalog-only reset, then restart before importing components."
+                            )
+                        conn.execute("DROP SCHEMA catalog CASCADE")
+                        conn.execute("CREATE SCHEMA catalog")
+                        conn.execute("SET search_path TO catalog, public")
                 # Every statement below is CREATE ... IF NOT EXISTS, so running
                 # this on an existing database adds whatever a new release
                 # introduced and leaves everything else untouched. An older
@@ -150,6 +176,11 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 # row it insists on, which is what keeps a rollback from
                 # needing a data restore.
                 self._create_schema(conn)
+                conn.execute(
+                    "INSERT INTO catalog_meta(key, value) VALUES (%s, %s) "
+                    "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+                    ("catalog_schema_epoch", CATALOG_SCHEMA_EPOCH),
+                )
                 conn.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_component_sequence "
                     "ON catalog_audit_events(component_id, sequence)"
@@ -203,6 +234,8 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 slug TEXT NOT NULL,
                 source TEXT NOT NULL,
                 is_active INTEGER NOT NULL,
+                identity_kind TEXT NOT NULL,
+                stock_known INTEGER NOT NULL DEFAULT 0,
                 stock_quantity DOUBLE PRECISION NOT NULL,
                 stock_uom TEXT NOT NULL,
                 inventory_status TEXT NOT NULL,
@@ -235,7 +268,13 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 has_symbol INTEGER NOT NULL DEFAULT 0,
                 has_footprint INTEGER NOT NULL DEFAULT 0,
                 symbol_library TEXT NOT NULL DEFAULT '',
-                symbol_name TEXT NOT NULL DEFAULT ''
+                symbol_name TEXT NOT NULL DEFAULT '',
+                footprint_library TEXT NOT NULL DEFAULT '',
+                footprint_name TEXT NOT NULL DEFAULT '',
+                default_representation_id TEXT NOT NULL DEFAULT '',
+                representation_count INTEGER NOT NULL DEFAULT 0,
+                symbol_variant_count INTEGER NOT NULL DEFAULT 0,
+                footprint_variant_count INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -265,16 +304,21 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
             BEGIN
                 DELETE FROM component_heads WHERE component_id = target_component_id;
                 INSERT INTO component_heads (
-                    component_id, revision_id, slug, source, is_active, stock_quantity, stock_uom,
+                    component_id, revision_id, slug, source, is_active, identity_kind, stock_known,
+                    stock_quantity, stock_uom,
                     inventory_status, version, workflow_stage, name, value, description, datasheet_url,
                     manufacturer, mpn, category, package_name, vendor, vendor_part_number, mass_g,
                     rqjc_c_w, rqjc_top_c_w, temp_max_c, temp_min_c, power_dissipation_w, rate,
                     sap_code, summary, extra_fields, search_document, created_by, revision_created_at,
-                    updated_at, has_symbol, has_footprint, symbol_library, symbol_name
+                    updated_at, has_symbol, has_footprint, symbol_library, symbol_name,
+                    footprint_library, footprint_name, default_representation_id,
+                    representation_count, symbol_variant_count, footprint_variant_count
                 )
                 SELECT
                     component.id, revision.id, component.slug, component.source, component.is_active,
-                    component.stock_quantity, component.stock_uom, component.inventory_status,
+                    component.identity_kind, CASE WHEN inventory.source IS NULL THEN 0 ELSE 1 END,
+                    COALESCE(inventory.quantity, 0), COALESCE(inventory.uom, ''),
+                    COALESCE(inventory.inventory_status, ''),
                     revision.version, revision.release_status, revision.name, revision.value,
                     revision.description, revision.datasheet_url, revision.manufacturer, revision.mpn,
                     revision.category, revision.package_name, revision.vendor,
@@ -283,23 +327,32 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     revision.power_dissipation_w, revision.rate, revision.sap_code, revision.summary,
                     revision.extra_fields, revision.search_document, revision.created_by,
                     revision.created_at, revision.updated_at,
-                    CASE WHEN symbol.asset_id IS NULL THEN 0 ELSE 1 END,
-                    CASE WHEN footprint.asset_id IS NULL THEN 0 ELSE 1 END,
-                    COALESCE(symbol.target_library, ''), COALESCE(symbol.target_name, '')
+                    CASE WHEN symbol.id IS NULL THEN 0 ELSE 1 END,
+                    CASE WHEN footprint.id IS NULL THEN 0 ELSE 1 END,
+                    COALESCE(symbol.target_library, ''), COALESCE(symbol.target_name, ''),
+                    COALESCE(footprint.target_library, ''), COALESCE(footprint.target_name, ''),
+                    COALESCE(representation.id, ''), COALESCE(counts.representation_count, 0),
+                    COALESCE(counts.symbol_variant_count, 0), COALESCE(counts.footprint_variant_count, 0)
                 FROM components component
                 JOIN component_revisions revision ON revision.id = component.current_revision_id
+                LEFT JOIN revision_representations representation
+                  ON representation.revision_id = revision.id AND representation.is_default = 1
+                LEFT JOIN assets symbol ON symbol.id = representation.symbol_asset_id
+                LEFT JOIN assets footprint ON footprint.id = representation.footprint_asset_id
                 LEFT JOIN LATERAL (
-                    SELECT link.asset_id, asset.target_library, asset.target_name
-                    FROM revision_assets link JOIN assets asset ON asset.id = link.asset_id
-                    WHERE link.revision_id = revision.id AND link.asset_type = 'symbol'
-                    ORDER BY asset.id LIMIT 1
-                ) symbol ON true
+                    SELECT COUNT(*)::integer AS representation_count,
+                           COUNT(DISTINCT symbol_asset_id)::integer AS symbol_variant_count,
+                           COUNT(DISTINCT footprint_asset_id)::integer AS footprint_variant_count
+                    FROM revision_representations WHERE revision_id = revision.id
+                ) counts ON true
                 LEFT JOIN LATERAL (
-                    SELECT link.asset_id
-                    FROM revision_assets link
-                    WHERE link.revision_id = revision.id AND link.asset_type = 'footprint'
-                    ORDER BY link.asset_id LIMIT 1
-                ) footprint ON true
+                    SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
+                           MIN(inventory_status) AS inventory_status
+                    FROM inventory_levels WHERE component_id = component.id
+                    GROUP BY source
+                    ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END
+                    LIMIT 1
+                ) inventory ON true
                 WHERE component.id = target_component_id AND component.current_revision_id <> '';
             END;
             $$
@@ -337,9 +390,13 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 target_revision_id TEXT;
                 target_component_id TEXT;
             BEGIN
-                target_revision_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.revision_id ELSE NEW.revision_id END;
-                SELECT component_id INTO target_component_id
-                FROM component_revisions WHERE id = target_revision_id;
+                IF TG_TABLE_NAME = 'inventory_levels' THEN
+                    target_component_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.component_id ELSE NEW.component_id END;
+                ELSE
+                    target_revision_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.revision_id ELSE NEW.revision_id END;
+                    SELECT component_id INTO target_component_id
+                    FROM component_revisions WHERE id = target_revision_id;
+                END IF;
                 IF target_component_id IS NOT NULL THEN
                     PERFORM catalog.prism_refresh_component_head(target_component_id);
                 END IF;
@@ -352,6 +409,8 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
             ("trg_component_heads_components", "components", "INSERT OR UPDATE", "prism_refresh_component_head_trigger"),
             ("trg_component_heads_revisions", "component_revisions", "INSERT OR UPDATE", "prism_refresh_component_head_trigger"),
             ("trg_component_heads_assets", "revision_assets", "INSERT OR UPDATE OR DELETE", "prism_refresh_component_head_asset_trigger"),
+            ("trg_component_heads_representations", "revision_representations", "INSERT OR UPDATE OR DELETE", "prism_refresh_component_head_asset_trigger"),
+            ("trg_component_heads_inventory", "inventory_levels", "INSERT OR UPDATE OR DELETE", "prism_refresh_component_head_asset_trigger"),
         ):
             conn.execute(f"DROP TRIGGER IF EXISTS {trigger_name} ON {table}")
             conn.execute(
@@ -384,6 +443,8 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 slug TEXT NOT NULL,
                 source TEXT NOT NULL,
                 is_active INTEGER NOT NULL,
+                identity_kind TEXT NOT NULL,
+                stock_known INTEGER NOT NULL DEFAULT 0,
                 stock_quantity DOUBLE PRECISION NOT NULL,
                 stock_uom TEXT NOT NULL,
                 inventory_status TEXT NOT NULL,
@@ -404,7 +465,13 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 symbol_library TEXT NOT NULL DEFAULT '',
                 symbol_name TEXT NOT NULL DEFAULT '',
                 symbol_preview_id TEXT NOT NULL DEFAULT '',
-                footprint_preview_id TEXT NOT NULL DEFAULT ''
+                footprint_preview_id TEXT NOT NULL DEFAULT '',
+                footprint_library TEXT NOT NULL DEFAULT '',
+                footprint_name TEXT NOT NULL DEFAULT '',
+                default_representation_id TEXT NOT NULL DEFAULT '',
+                representation_count INTEGER NOT NULL DEFAULT 0,
+                symbol_variant_count INTEGER NOT NULL DEFAULT 0,
+                footprint_variant_count INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -433,55 +500,64 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 DELETE FROM remote_component_heads
                 WHERE component_id = target_component_id;
                 INSERT INTO remote_component_heads (
-                    component_id, revision_id, slug, source, is_active,
+                    component_id, revision_id, slug, source, is_active, identity_kind, stock_known,
                     stock_quantity, stock_uom, inventory_status, version,
                     name, description, datasheet_url, manufacturer, mpn,
                     category, package_name, summary, extra_fields,
                     search_document, updated_at, has_symbol, has_footprint,
                     symbol_library, symbol_name, symbol_preview_id,
-                    footprint_preview_id
+                    footprint_preview_id, footprint_library, footprint_name,
+                    default_representation_id, representation_count,
+                    symbol_variant_count, footprint_variant_count
                 )
                 SELECT
                     component.id, revision.id, component.slug, component.source,
-                    component.is_active, component.stock_quantity,
-                    component.stock_uom, component.inventory_status,
+                    component.is_active, component.identity_kind,
+                    CASE WHEN inventory.source IS NULL THEN 0 ELSE 1 END,
+                    COALESCE(inventory.quantity, 0), COALESCE(inventory.uom, ''),
+                    COALESCE(inventory.inventory_status, ''),
                     revision.version, revision.name, revision.description,
                     revision.datasheet_url, revision.manufacturer, revision.mpn,
                     revision.category, revision.package_name, revision.summary,
                     revision.extra_fields, revision.search_document,
                     revision.updated_at,
-                    CASE WHEN symbol.asset_id IS NULL THEN 0 ELSE 1 END,
-                    CASE WHEN footprint.asset_id IS NULL THEN 0 ELSE 1 END,
+                    CASE WHEN symbol.id IS NULL THEN 0 ELSE 1 END,
+                    CASE WHEN footprint.id IS NULL THEN 0 ELSE 1 END,
                     COALESCE(symbol.target_library, ''),
                     COALESCE(symbol.target_name, ''),
                     COALESCE(symbol_preview.preview_id, ''),
-                    COALESCE(footprint_preview.preview_id, '')
+                    COALESCE(footprint_preview.preview_id, ''),
+                    COALESCE(footprint.target_library, ''), COALESCE(footprint.target_name, ''),
+                    COALESCE(representation.id, ''), COALESCE(counts.representation_count, 0),
+                    COALESCE(counts.symbol_variant_count, 0), COALESCE(counts.footprint_variant_count, 0)
                 FROM components component
                 JOIN component_revisions revision
                   ON revision.id = component.released_revision_id
+                LEFT JOIN revision_representations representation
+                  ON representation.revision_id = revision.id AND representation.is_default = 1
+                LEFT JOIN assets symbol ON symbol.id = representation.symbol_asset_id
+                LEFT JOIN assets footprint ON footprint.id = representation.footprint_asset_id
                 LEFT JOIN LATERAL (
-                    SELECT link.asset_id, asset.target_library, asset.target_name
-                    FROM revision_assets link
-                    JOIN assets asset ON asset.id = link.asset_id
-                    WHERE link.revision_id = revision.id
-                      AND link.asset_type = 'symbol'
-                    ORDER BY asset.id
-                    LIMIT 1
-                ) symbol ON true
+                    SELECT COUNT(*)::integer AS representation_count,
+                           COUNT(DISTINCT symbol_asset_id)::integer AS symbol_variant_count,
+                           COUNT(DISTINCT footprint_asset_id)::integer AS footprint_variant_count
+                    FROM revision_representations WHERE revision_id = revision.id
+                ) counts ON true
                 LEFT JOIN LATERAL (
-                    SELECT link.asset_id
-                    FROM revision_assets link
-                    WHERE link.revision_id = revision.id
-                      AND link.asset_type = 'footprint'
-                    ORDER BY link.asset_id
+                    SELECT source, SUM(quantity) AS quantity, MIN(uom) AS uom,
+                           MIN(inventory_status) AS inventory_status
+                    FROM inventory_levels WHERE component_id = component.id
+                    GROUP BY source
+                    ORDER BY CASE source WHEN 'inventree' THEN 1 WHEN 'csv' THEN 2 ELSE 99 END
                     LIMIT 1
-                ) footprint ON true
+                ) inventory ON true
                 LEFT JOIN LATERAL (
                     SELECT preview.id AS preview_id
-                    FROM revision_previews link
+                    FROM revision_preview_outputs link
                     JOIN asset_preview_versions preview
                       ON preview.id = link.preview_id
                     WHERE link.revision_id = revision.id
+                      AND link.asset_id = representation.symbol_asset_id
                       AND link.kind = 'symbol'
                       AND preview.status = 'ready'
                       AND preview.file_path <> ''
@@ -490,10 +566,11 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 ) symbol_preview ON true
                 LEFT JOIN LATERAL (
                     SELECT preview.id AS preview_id
-                    FROM revision_previews link
+                    FROM revision_preview_outputs link
                     JOIN asset_preview_versions preview
                       ON preview.id = link.preview_id
                     WHERE link.revision_id = revision.id
+                      AND link.asset_id = representation.footprint_asset_id
                       AND link.kind = 'footprint'
                       AND preview.status = 'ready'
                       AND preview.file_path <> ''
@@ -532,6 +609,10 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     target_component_id :=
                         CASE WHEN TG_OP = 'DELETE'
                              THEN OLD.component_id ELSE NEW.component_id END;
+                ELSIF TG_TABLE_NAME = 'inventory_levels' THEN
+                    target_component_id :=
+                        CASE WHEN TG_OP = 'DELETE'
+                             THEN OLD.component_id ELSE NEW.component_id END;
                 ELSE
                     target_revision_id :=
                         CASE WHEN TG_OP = 'DELETE'
@@ -567,8 +648,18 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 "INSERT OR UPDATE OR DELETE",
             ),
             (
+                "trg_remote_heads_representations",
+                "revision_representations",
+                "INSERT OR UPDATE OR DELETE",
+            ),
+            (
+                "trg_remote_heads_inventory",
+                "inventory_levels",
+                "INSERT OR UPDATE OR DELETE",
+            ),
+            (
                 "trg_remote_heads_previews",
-                "revision_previews",
+                "revision_preview_outputs",
                 "INSERT OR UPDATE OR DELETE",
             ),
         ):
@@ -777,6 +868,81 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 $$
                 """
             )
+            conn.execute(
+                """
+                CREATE OR REPLACE FUNCTION prism_validate_revision_asset_type()
+                RETURNS trigger
+                LANGUAGE plpgsql
+                AS $$
+                DECLARE actual_type TEXT;
+                BEGIN
+                    SELECT asset_type INTO actual_type FROM assets WHERE id = NEW.asset_id;
+                    IF actual_type IS DISTINCT FROM NEW.asset_type THEN
+                        RAISE EXCEPTION 'revision asset type does not match asset';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$
+                """
+            )
+            conn.execute(
+                """
+                CREATE OR REPLACE FUNCTION prism_validate_representation_assets()
+                RETURNS trigger
+                LANGUAGE plpgsql
+                AS $$
+                BEGIN
+                    IF NEW.symbol_asset_id IS NOT NULL AND NOT EXISTS (
+                        SELECT 1 FROM revision_assets link JOIN assets asset ON asset.id = link.asset_id
+                        WHERE link.revision_id = NEW.revision_id AND link.asset_id = NEW.symbol_asset_id
+                          AND link.asset_type = 'symbol' AND asset.asset_type = 'symbol'
+                    ) THEN
+                        RAISE EXCEPTION 'representation symbol is not attached to the revision';
+                    END IF;
+                    IF NEW.footprint_asset_id IS NOT NULL AND NOT EXISTS (
+                        SELECT 1 FROM revision_assets link JOIN assets asset ON asset.id = link.asset_id
+                        WHERE link.revision_id = NEW.revision_id AND link.asset_id = NEW.footprint_asset_id
+                          AND link.asset_type = 'footprint' AND asset.asset_type = 'footprint'
+                    ) THEN
+                        RAISE EXCEPTION 'representation footprint is not attached to the revision';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$
+                """
+            )
+            conn.execute(
+                """
+                CREATE OR REPLACE FUNCTION prism_validate_revision_release()
+                RETURNS trigger
+                LANGUAGE plpgsql
+                AS $$
+                DECLARE
+                    component_identity_kind TEXT;
+                    complete_defaults INTEGER;
+                BEGIN
+                    IF NEW.release_status NOT IN ('done', 'released') THEN
+                        RETURN NEW;
+                    END IF;
+                    SELECT identity_kind INTO component_identity_kind
+                    FROM components WHERE id = NEW.component_id;
+                    IF component_identity_kind = 'provisional_ipn' THEN
+                        RAISE EXCEPTION 'provisional components cannot reach done or released';
+                    END IF;
+                    IF NEW.release_status = 'released' THEN
+                        SELECT COUNT(*) INTO complete_defaults
+                        FROM revision_representations
+                        WHERE revision_id = NEW.id AND is_default = 1
+                          AND symbol_asset_id IS NOT NULL AND footprint_asset_id IS NOT NULL;
+                    END IF;
+                    IF NEW.release_status = 'released' AND complete_defaults <> 1 THEN
+                        RAISE EXCEPTION 'released revisions require exactly one complete default representation';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$
+                """
+            )
             asset_update_trigger = conn.execute(
                 """
                 SELECT 1 AS present
@@ -835,6 +1001,37 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     "CREATE TRIGGER trg_revision_assets_finalized "
                     "BEFORE INSERT OR UPDATE OR DELETE ON revision_assets "
                     "FOR EACH ROW EXECUTE FUNCTION prism_guard_revision_preview_mutation()"
+                )
+            for trigger_name, table, operations, function_name in (
+                (
+                    "trg_revision_assets_type",
+                    "revision_assets",
+                    "INSERT OR UPDATE",
+                    "prism_validate_revision_asset_type",
+                ),
+                (
+                    "trg_revision_representations_finalized",
+                    "revision_representations",
+                    "INSERT OR UPDATE OR DELETE",
+                    "prism_guard_revision_preview_mutation",
+                ),
+                (
+                    "trg_revision_representations_assets",
+                    "revision_representations",
+                    "INSERT OR UPDATE",
+                    "prism_validate_representation_assets",
+                ),
+                (
+                    "trg_component_revisions_release",
+                    "component_revisions",
+                    "INSERT OR UPDATE OF release_status",
+                    "prism_validate_revision_release",
+                ),
+            ):
+                conn.execute(f"DROP TRIGGER IF EXISTS {trigger_name} ON {table}")
+                conn.execute(
+                    f"CREATE TRIGGER {trigger_name} BEFORE {operations} ON {table} "
+                    f"FOR EACH ROW EXECUTE FUNCTION {function_name}()"
                 )
             conn.execute(
                 """
