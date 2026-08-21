@@ -123,12 +123,14 @@ async def provider_metadata(request: Request):
         "api_base_url": base_url,
         "panel_url": f"{base_url}/remote-provider/panel",
         "auth": auth_metadata,
+        # KiCad's v1 metadata schema rejects unknown capability names. The web
+        # panel carries representation IDs in manifest/inline URLs, so existing
+        # clients get default placement without a non-standard v1 capability.
         "capabilities": {
             "web_ui_v1": True,
             "parts_v1": True,
             "direct_downloads_v1": True,
             "inline_payloads_v1": True,
-            "representations_v1": True,
         },
         "parts": {
             "endpoint_template": "/api/remote-provider/parts/{part_id}",
