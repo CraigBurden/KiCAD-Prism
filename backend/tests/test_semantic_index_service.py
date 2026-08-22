@@ -191,6 +191,49 @@ class SemanticIndexServiceTests(unittest.TestCase):
         self.assertIsNone(design._pcb)
         self.assertIsNone(design.pcb_path)
 
+    def test_upstream_fallback_keeps_an_injected_board(self) -> None:
+        # If a caller both injects an already-parsed board and asks for a
+        # schematic-only build, the detach must not throw the injected board
+        # away: the caller paid to parse it.
+        injected = object()
+
+        class UpstreamDesign:
+            def __init__(self):
+                self._pcb = None
+                self.pcb_path = "/somewhere/board.kicad_pcb"
+
+            def to_netlist(self):
+                return SimpleNamespace(components=[], nets=[])
+
+            @property
+            def pcb(self):
+                return self._pcb
+
+            def to_json(self, include_indexes=True, **kwargs):
+                if "include_pcb" in kwargs:
+                    raise TypeError("to_json() got an unexpected keyword argument 'include_pcb'")
+                return {"components": [], "nets": []}
+
+        design = UpstreamDesign()
+
+        class FakeKiCadDesign:
+            @staticmethod
+            def from_project_file(_path):
+                return design
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            sys.modules,
+            {"kicad_monkey": SimpleNamespace(KiCadDesign=FakeKiCadDesign)},
+        ):
+            semantic_index_service.build_semantic_index(
+                Path(temporary) / "board.kicad_pro",
+                source_revision_key="revision-a",
+                include_pcb=False,
+                pcb=injected,
+            )
+
+        self.assertIs(design._pcb, injected)
+
     def test_full_bundle_overlay_commits_bundle_json_last(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
