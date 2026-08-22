@@ -1612,6 +1612,13 @@ export function index_snapshot(root) {
     if (cached !== null) {
         return {
             ...cached,
+            // per-document parseMs is a write-time measurement; on a hit nothing
+            // was parsed, so clear it rather than replay a stale figure that the
+            // "run-specific fields stay live" contract says should not persist.
+            documents: (cached.documents ?? []).map((document) => ({
+                ...document,
+                parseMs: null,
+            })),
             timings: {
                 readMs: 0,
                 parserMs: 0,
