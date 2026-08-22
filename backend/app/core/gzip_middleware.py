@@ -78,7 +78,9 @@ class _GzipResponder:
         headers = _Headers(self.start_message)
         body = bytes(self.body)
 
-        if len(body) < self.minimum_size:
+        if len(body) < self.minimum_size or not _is_compressible(
+            self.start_message.get("status", 200), headers
+        ):
             await self._passthrough(body)
             return
 
@@ -96,6 +98,25 @@ class _GzipResponder:
         await self._send(
             {"type": "http.response.body", "body": body, "more_body": False}
         )
+
+
+def _is_compressible(status: int, headers: "_Headers") -> bool:
+    """Whether this response is safe to gzip.
+
+    A ``206 Partial Content`` carries a byte range whose ``Content-Range``
+    describes identity bytes; gzipping the body would leave the range header
+    describing a length the body no longer has, so a ranged or resumed download
+    reassembles garbage. A response that already set ``Content-Encoding`` (or is
+    a range response) is left exactly as the application produced it.
+    """
+
+    if status == 206:
+        return False
+    if headers.get(b"content-range") is not None:
+        return False
+    if headers.get(b"content-encoding") is not None:
+        return False
+    return True
 
 
 def _accept_encoding(scope: Scope) -> str:
