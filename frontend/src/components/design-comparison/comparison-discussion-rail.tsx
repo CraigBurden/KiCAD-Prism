@@ -74,42 +74,49 @@ export function ComparisonDiscussionRail({
     };
 
     const resolveThread = async (comment: Comment) => {
-        const response = await fetchApi(`/api/projects/${projectId}/comments/${comment.id}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-                status: comment.status === "RESOLVED" ? "OPEN" : "RESOLVED",
-            }),
-        });
-        if (!response.ok) {
-            setError(await readApiError(response, "Failed to update discussion"));
-            return;
+        try {
+            const response = await fetchApi(`/api/projects/${projectId}/comments/${comment.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({
+                    status: comment.status === "RESOLVED" ? "OPEN" : "RESOLVED",
+                }),
+            });
+            if (!response.ok) {
+                setError(await readApiError(response, "Failed to update discussion"));
+                return;
+            }
+            const updated = (await response.json()) as Comment;
+            onCommentsChange(comments.map((item) => item.id === updated.id ? updated : item));
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : "Failed to update discussion");
         }
-        const updated = (await response.json()) as Comment;
-        onCommentsChange(comments.map((item) => item.id === updated.id ? updated : item));
     };
 
     const addReply = async (comment: Comment) => {
         if (!reply.trim()) return;
         setBusy(true);
-        const response = await fetchApi(
-            `/api/projects/${projectId}/comments/${comment.id}/replies`,
-            {
-                method: "POST",
-                body: JSON.stringify({ content: reply.trim() }),
-            },
-        );
-        if (!response.ok) {
-            setError(await readApiError(response, "Failed to add reply"));
+        try {
+            const response = await fetchApi(
+                `/api/projects/${projectId}/comments/${comment.id}/replies`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ content: reply.trim() }),
+                },
+            );
+            if (!response.ok) {
+                throw new Error(await readApiError(response, "Failed to add reply"));
+            }
+            const payload = (await response.json()) as { comment: Comment };
+            onCommentsChange(
+                comments.map((item) => item.id === payload.comment.id ? payload.comment : item),
+            );
+            setReply("");
+            setReplyingTo(null);
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : "Failed to add reply");
+        } finally {
             setBusy(false);
-            return;
         }
-        const payload = (await response.json()) as { comment: Comment };
-        onCommentsChange(
-            comments.map((item) => item.id === payload.comment.id ? payload.comment : item),
-        );
-        setReply("");
-        setReplyingTo(null);
-        setBusy(false);
     };
 
     return (
@@ -176,8 +183,8 @@ export function ComparisonDiscussionRail({
                         <p className="mt-2 whitespace-pre-wrap leading-relaxed">{comment.content}</p>
                         {!!comment.replies.length && (
                             <div className="mt-2 space-y-2 border-l pl-2">
-                                {comment.replies.map((item, index) => (
-                                    <div key={`${item.timestamp}-${index}`}>
+                                {comment.replies.map((item) => (
+                                    <div key={`${item.timestamp}-${item.author}-${item.content}`}>
                                         <span className="font-medium">{item.author}: </span>
                                         {item.content}
                                     </div>

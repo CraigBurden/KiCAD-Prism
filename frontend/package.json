@@ -10,6 +10,7 @@
     "build:panel": "vite build --config vite.config.panel.ts",
     "lint": "eslint .",
     "test": "vitest run",
+    "scan": "react-doctor . --no-telemetry",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -53,6 +54,7 @@
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^15.15.0",
     "jsdom": "^26.1.0",
+    "react-doctor": "^0.9.12",
     "typescript": "~5.7.3",
     "typescript-eslint": "^8.24.1",
     "vite": "^6.2.0",
