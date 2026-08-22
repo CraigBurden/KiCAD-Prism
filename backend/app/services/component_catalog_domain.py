@@ -34,6 +34,10 @@ DEFAULT_STORE_DIRNAME = ".kicad-prism"
 DBL_EXPORT_DIRNAME = "kicad-dbl"
 KLC_VALIDATION_DIRNAME = "klc"
 
+# The asset browser reuses one sorted directory walk per asset type for this
+# long, so repeated dialog opens do not rescan the whole store.
+_ASSET_BROWSE_CACHE_TTL_SECONDS = 30.0
+
 PREVIEW_KIND_SYMBOL = "symbol"
 PREVIEW_KIND_FOOTPRINT = "footprint"
 PREVIEW_STATUS_READY = "ready"
@@ -512,6 +516,8 @@ class ComponentCatalogDomainService:
         self._category_cache_ts: float = 0.0
         self._CATEGORY_CACHE_TTL: float = 60.0
         self._fts_available = False
+        self._browse_cache: dict[str, tuple[float, list[str]]] = {}
+        self._browse_cache_lock = threading.Lock()
 
     def _database_path(self, database_url: str | None) -> Path:
         _ = database_url
@@ -5766,18 +5772,42 @@ class ComponentCatalogDomainService:
             conn.commit()
         return {"updated": updated, "not_found": not_found, "errors": errors}
 
-    def browse_library_assets(self, asset_type: str) -> list[str]:
+    def browse_library_assets(
+        self,
+        asset_type: str,
+        q: str = "",
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """List stored asset files without walking the store on every request.
+
+        The recursive walk over the symbol/footprint trees is expensive once
+        libraries hold thousands of files, so the sorted listing is cached per
+        asset type and reused across requests. ``q`` filters the cached listing
+        and ``limit`` bounds the response so the picker never renders the whole
+        store.
+        """
         self.initialize()
         root = self._asset_root(asset_type)
-        if asset_type == "symbol":
-            paths = root.rglob("*.kicad_sym")
-        elif asset_type == "footprint":
-            paths = root.rglob("*.kicad_mod")
-        elif asset_type == "3dmodel":
-            paths = [*root.rglob("*.step"), *root.rglob("*.stp")]
-        else:
-            paths = root.rglob("*")
-        return sorted(path.relative_to(root).as_posix() for path in paths if path.is_file())
+        now = time.monotonic()
+        with self._browse_cache_lock:
+            cached = self._browse_cache.get(asset_type)
+            if cached is None or now - cached[0] > _ASSET_BROWSE_CACHE_TTL_SECONDS:
+                if asset_type == "symbol":
+                    paths = root.rglob("*.kicad_sym")
+                elif asset_type == "footprint":
+                    paths = root.rglob("*.kicad_mod")
+                elif asset_type == "3dmodel":
+                    paths = [*root.rglob("*.step"), *root.rglob("*.stp")]
+                else:
+                    paths = root.rglob("*")
+                files = sorted(path.relative_to(root).as_posix() for path in paths if path.is_file())
+                self._browse_cache[asset_type] = (now, files)
+                all_files = files
+            else:
+                all_files = cached[1]
+        needle = q.strip().lower()
+        matches = [path for path in all_files if needle in path.lower()] if needle else list(all_files)
+        return {"files": matches[: max(1, limit)], "total": len(matches)}
 
     def _attach_asset_revision(
         self,

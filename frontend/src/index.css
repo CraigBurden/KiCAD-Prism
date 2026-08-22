@@ -112,3 +112,26 @@
     background: hsl(var(--muted-foreground) / 0.5);
   }
 }
+
+@layer base {
+  :root {
+    /* Height claimed by full-width app chrome above the routes (today: the
+       session-expired banner). Zero unless the shell sets it. */
+    --app-chrome-offset: 0px;
+  }
+}
+
+@layer utilities {
+  /* Viewport-height helpers that stay correct while that chrome is showing.
+     Route layouts sized in raw 100vh would otherwise overflow by exactly the
+     banner height and push their own footers off-screen. */
+  .h-app-viewport {
+    height: calc(100vh - var(--app-chrome-offset));
+  }
+  .min-h-app-viewport {
+    min-height: calc(100vh - var(--app-chrome-offset));
+  }
+  .h-app-main {
+    height: calc(100vh - 4rem - var(--app-chrome-offset));
+  }
+}

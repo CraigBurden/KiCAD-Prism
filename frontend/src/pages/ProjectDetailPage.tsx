@@ -341,11 +341,11 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     }, [currentCommit, projectId, selectedBranchRef]);
 
     if (loading) {
-        return <div className="flex items-center justify-center h-screen">Loading...</div>;
+        return <div className="flex items-center justify-center h-app-viewport">Loading...</div>;
     }
 
     if (!project) {
-        return <div className="flex items-center justify-center h-screen">Project not found</div>;
+        return <div className="flex items-center justify-center h-app-viewport">Project not found</div>;
     }
 
     const navItems = [
@@ -374,7 +374,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     };
 
     return (
-        <div className="h-screen flex flex-col bg-background">
+        <div className="h-app-viewport flex flex-col bg-background">
             <header className="border-b px-4 md:px-6 py-4 flex items-center gap-4">
                 {/* Mobile Menu */}
                 <Sheet>
