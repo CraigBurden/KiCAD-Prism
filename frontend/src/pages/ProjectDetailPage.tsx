@@ -794,6 +794,14 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
         }
     };
 
+    // Log lines arrive as whole-array snapshots from the job poller; position
+    // is their only stable identity, and the array is replaced (not appended)
+    // on every update, so index-based reconciliation is exact here.
+    const logRows = logs.map((log, i) => (
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key
+        <div key={i} className="break-all whitespace-pre-wrap">{log}</div>
+    ));
+
     return (
         <div className="max-w-5xl">
             <h2 className="text-2xl font-bold mb-6">Workflows</h2>
@@ -831,9 +839,7 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
                         {status === 'failed' && <span className="text-destructive">Failed</span>}
                     </div>
                     <div className="space-y-1">
-                        {logs.map((log, i) => (
-                            <div key={i} className="break-all whitespace-pre-wrap">{log}</div>
-                        ))}
+                        {logRows}
                         {logs.length === 0 && <span className="text-zinc-600">Initializing...</span>}
                     </div>
                 </div>

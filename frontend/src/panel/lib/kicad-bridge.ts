@@ -187,7 +187,7 @@ export async function sendRpcCommand(
     session_id: sessionId,
     message_id: ++messageCounter,
     command,
-    parameters: JSON.parse(JSON.stringify(parameters)),
+    parameters: structuredClone(parameters),
     data,
   };
   postToKiCad(JSON.stringify(envelope));

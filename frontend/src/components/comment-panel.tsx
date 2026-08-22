@@ -273,8 +273,8 @@ function PanelCommentCard({
                                 {comment.replies.length} replies
                             </div>
                             {expanded &&
-                                comment.replies.map((reply, idx) => (
-                                    <div key={idx} className="relative border-l-2 border-muted pl-2 text-sm">
+                                comment.replies.map((reply) => (
+                                    <div key={`${reply.timestamp}-${reply.author}-${reply.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
                                         <div className="mb-1 flex items-center justify-between">
                                             <span className="text-xs font-medium">{reply.author}</span>
                                             <span className="text-[10px] text-muted-foreground">
