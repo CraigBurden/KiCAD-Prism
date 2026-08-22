@@ -1,4 +1,10 @@
-fastapi
+# Floors, not decoration: below these, starlette's GZipMiddleware compresses
+# 206 Partial Content responses (corrupting ranged downloads), compresses
+# already-compressed media, and blocks the event loop on large bodies. The image
+# resolves this at build time from an unpinned spec, so without a floor which
+# behaviour ships depends on the day the image was built.
+fastapi>=0.141
+starlette>=1.0
 bcrypt>=4.2,<5
 uvicorn
 gitpython
