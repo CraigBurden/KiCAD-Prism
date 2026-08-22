@@ -134,6 +134,13 @@ export function useDesignCompareJob(
                     if (cancelled) return;
                     resultVersionRef.current = resultVersion;
                     setResult(hydrated);
+                    // A new result version means the job just advanced a stage,
+                    // so the next publish is likely close behind. Reset the
+                    // backoff to catch it quickly: by the time the first
+                    // (progressive) result lands the interval has already reached
+                    // the ceiling, so without this the final publish is polled at
+                    // the old flat rate.
+                    pollDelay = POLL_MIN_MS;
                 }
                 if (next.status === "failed") {
                     setError(next.message || "Semantic comparison failed");
