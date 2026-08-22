@@ -1,15 +1,19 @@
-"""Regression tests for the response compression middleware.
+"""Regression tests for response compression.
 
-The correct behaviour here is entirely a function of a few conditions the
-installed starlette version does not enforce on its own, so each is pinned:
+The compressor itself is starlette's; these tests are a contract on it, because
+older starlette releases get several of these wrong and `fastapi` resolves at
+image-build time. If a downgrade slips past the floors in requirements.txt,
+these fail loudly instead of silently corrupting ranged downloads.
 
 * small responses stay uncompressed with their Content-Length intact (this only
   works because the middleware is registered innermost, so it sees the real
-  buffered body rather than an already-streamed one);
+  response rather than an already-wrapped streaming body);
 * 206 Partial Content is never compressed, or ranged downloads reassemble
   garbage;
 * already-compressed media types are skipped;
-* the compression level is the cheaper 6, not the blocking 9.
+* the compression level is the cheaper 6, not the blocking 9;
+* a streamed body is passed through chunk by chunk rather than buffered, so a
+  35 MB board download does not become a 35 MB spike in a worker's heap.
 """
 
 from __future__ import annotations
@@ -22,7 +26,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.gzip_middleware import GzipMiddleware  # noqa: E402
+from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+
+from app.core.gzip_config import GZIP_EXCLUDED_CONTENT_TYPES  # noqa: E402
 
 
 def _run(
@@ -53,8 +59,11 @@ def _run(
         return {"type": "http.request"}
 
     request_headers = [(b"accept-encoding", b"gzip")] if accept_gzip else []
-    middleware = GzipMiddleware(
-        application, minimum_size=minimum_size, compresslevel=compresslevel
+    middleware = GZipMiddleware(
+        application,
+        minimum_size=minimum_size,
+        compresslevel=compresslevel,
+        exclude_content_types=GZIP_EXCLUDED_CONTENT_TYPES,
     )
     asyncio.run(
         middleware({"type": "http", "headers": request_headers}, receive, send)
@@ -156,6 +165,64 @@ class GzipMiddlewareTests(unittest.TestCase):
         self.assertEqual(len(body6), len(expected))
 
 
+class StreamingResponseTests(unittest.TestCase):
+    def test_a_streamed_body_is_not_buffered_whole(self) -> None:
+        """FileResponse and StreamingResponse arrive in chunks, and must leave in
+        chunks. Buffering them turns a constant-memory download into a spike the
+        size of the file, which is how a 35 MB board became ~97 MB of heap in a
+        hand-rolled version of this middleware."""
+
+        chunk = b"(segment (start 1 2) (end 3 4))\n" * 1000
+
+        async def streaming_application(scope, receive, send):
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/csv; charset=utf-8")],
+                }
+            )
+            for _ in range(20):
+                await send(
+                    {"type": "http.response.body", "body": chunk, "more_body": True}
+                )
+            await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+        sent: list[dict] = []
+
+        async def send(message):
+            sent.append(message)
+
+        async def receive():
+            return {"type": "http.request"}
+
+        middleware = GZipMiddleware(
+            streaming_application,
+            minimum_size=1024,
+            compresslevel=6,
+            exclude_content_types=GZIP_EXCLUDED_CONTENT_TYPES,
+        )
+        asyncio.run(
+            middleware(
+                {"type": "http", "headers": [(b"accept-encoding", b"gzip")]},
+                receive,
+                send,
+            )
+        )
+
+        body_messages = [m for m in sent if m["type"] == "http.response.body"]
+        self.assertGreater(
+            len(body_messages),
+            1,
+            "the whole body was collapsed into one message, so it was buffered",
+        )
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        headers = {k.lower(): v for k, v in start["headers"]}
+        self.assertEqual(headers.get(b"content-encoding"), b"gzip")
+        # A streamed response cannot carry a Content-Length it no longer knows.
+        self.assertNotIn(b"content-length", headers)
+
+
 class MiddlewareRegistrationOrderTests(unittest.TestCase):
     def test_gzip_is_registered_inside_security_headers(self) -> None:
         # The whole small-response fix depends on gzip sitting innermost, so pin
@@ -163,12 +230,12 @@ class MiddlewareRegistrationOrderTests(unittest.TestCase):
         source = (
             Path(__file__).resolve().parents[1] / "app" / "main.py"
         ).read_text(encoding="utf-8")
-        gzip_at = source.index("add_middleware(GzipMiddleware")
+        gzip_at = source.index("GZipMiddleware,")
         security_at = source.index('middleware("http")(apply_security_headers)')
         self.assertLess(
             gzip_at,
             security_at,
-            "GzipMiddleware must be registered before apply_security_headers so it "
+            "GZipMiddleware must be registered before apply_security_headers so it "
             "ends up innermost; otherwise minimum_size never applies.",
         )
 
