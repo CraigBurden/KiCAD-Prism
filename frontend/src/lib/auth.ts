@@ -126,6 +126,17 @@ export function stashLoginNext(): void {
   if (next) window.sessionStorage.setItem(LOGIN_NEXT_KEY, next);
 }
 
+/**
+ * Remember exactly where the user was when a mid-session 401 hit, so the
+ * post-login redirect returns them to the same workspace, tab, and dialog.
+ */
+export function stashCurrentLocation(): void {
+  const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next && !next.startsWith("/auth/callback")) {
+    window.sessionStorage.setItem(LOGIN_NEXT_KEY, next);
+  }
+}
+
 export function consumeStashedLoginNext(): string | null {
   const stored = window.sessionStorage.getItem(LOGIN_NEXT_KEY);
   if (stored) window.sessionStorage.removeItem(LOGIN_NEXT_KEY);

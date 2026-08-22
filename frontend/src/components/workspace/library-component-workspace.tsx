@@ -4,7 +4,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Boxes,
+  Check,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   CircleDashed,
@@ -48,8 +50,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { AsyncSearchPicker } from "./async-search-picker";
 import {
   Select,
   SelectContent,
@@ -545,7 +549,6 @@ function AssetsPanel({
   canMutate,
   busyAction,
   onAttach,
-  onDetach,
   onDetachAsset,
   onDownload,
   onRegeneratePreviews,
@@ -556,7 +559,6 @@ function AssetsPanel({
   canMutate: boolean;
   busyAction: string;
   onAttach: (assetType: AssetType) => void;
-  onDetach: (assetType: AssetType) => void;
   onDetachAsset: (asset: CatalogAsset) => void;
   onDownload: (asset: CatalogAsset) => void;
   onRegeneratePreviews: () => void;
@@ -613,13 +615,13 @@ function AssetsPanel({
                       <div className="flex shrink-0 items-center gap-1">
                         {asset.required ? <Badge>Required</Badge> : <Badge variant="secondary">Optional</Badge>}
                         <Button size="icon-sm" variant="ghost" aria-label={`Download ${asset.name}`} title={downloadsAvailable ? "Download released asset" : "Downloads are available from the released revision"} disabled={!downloadsAvailable} onClick={() => onDownload(asset)}><Download className="h-3.5 w-3.5" /></Button>
-                        {canMutate && (type === "symbol" || type === "footprint") ? <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Detach ${asset.name}`} onClick={() => onDetachAsset(asset)}><XCircle className="h-3.5 w-3.5" /></Button> : null}
+                        {canMutate ? <Button size="icon-sm" variant="ghost" className="text-destructive" aria-label={`Detach ${asset.name}`} onClick={() => onDetachAsset(asset)}><XCircle className="h-3.5 w-3.5" /></Button> : null}
                       </div>
                     </div>
-                    <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                      <span>{asset.content_type || "Unknown content type"}</span>
+                    <div className="grid min-w-0 gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                      <span className="min-w-0 truncate">{asset.content_type || "Unknown content type"}</span>
                       <span>{formatBytes(asset.size_bytes)}</span>
-                      <span className="truncate font-mono sm:col-span-2" title={asset.sha256}>{asset.sha256 ? `SHA-256 ${asset.sha256}` : `Asset ${asset.id}`}</span>
+                      <span className="min-w-0 truncate font-mono sm:col-span-2" title={asset.sha256}>{asset.sha256 ? `SHA-256 ${asset.sha256}` : `Asset ${asset.id}`}</span>
                     </div>
                   </div>
                 ))}
@@ -627,11 +629,6 @@ function AssetsPanel({
             ) : (
               <EmptyState icon={CircleDashed} title={`No ${humanize(type)} asset`} detail={type === "symbol" || type === "footprint" ? "This required asset blocks place readiness." : "This optional asset has not been provided."} />
             )}
-            {canMutate && assets.length && (type === "3dmodel" || type === "spice") ? (
-              <div className="mt-3 border-t pt-3">
-                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={Boolean(busyAction)} onClick={() => onDetach(type)}>Detach all {ASSET_LABELS[type].toLowerCase()} files</Button>
-              </div>
-            ) : null}
           </PanelCard>
         ))}
       </div>
@@ -897,16 +894,14 @@ function RevisionsPanel({
             const isCurrent = revision.id === currentRevisionId;
             return (
               <div key={revision.id} className={cn("border p-3", isActive && "border-primary bg-primary/5")}>
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-medium">v{revision.version}</p>
-                    <p className="text-xs text-muted-foreground">{formatDate(revision.created_at)}</p>
-                  </div>
-                  <div className="flex gap-1">
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <p className="truncate text-sm font-medium">v{revision.version}</p>
+                  <div className="flex shrink-0 gap-1">
                     {isCurrent ? <Badge>Current</Badge> : null}
                     <Badge variant="outline">{WORKFLOW_LABELS[revision.release_status]}</Badge>
                   </div>
                 </div>
+                <p className="mt-1 text-xs text-muted-foreground">{formatDate(revision.created_at)}</p>
                 <p className="mt-2 text-xs">{revision.change_summary || humanize(revision.change_kind)}</p>
                 <p className="mt-1 truncate text-xs text-muted-foreground">{revision.created_by || "Unknown actor"}</p>
                 <div className="mt-3 flex gap-2">
@@ -1360,6 +1355,65 @@ function useEvidenceLoadState() {
   return { state, stateRef, update };
 }
 
+/**
+ * Load one tab's evidence once per component generation.
+ *
+ * Each tab used to carry its own copy of this. The parts that look incidental
+ * are not: the `idle` check is what stops a re-render re-requesting, `settled`
+ * distinguishes "aborted before it answered" (reset to idle so the next visit
+ * retries) from "answered" (leave the outcome alone), and the generation string
+ * ties a response to the component revision it was asked for.
+ */
+function useEvidenceResource<T>({
+  enabled,
+  generation,
+  retryKey,
+  load,
+  loadState,
+  onLoaded,
+}: {
+  enabled: boolean;
+  generation: string;
+  retryKey: number;
+  load: (signal: AbortSignal) => Promise<T>;
+  loadState: ReturnType<typeof useEvidenceLoadState>;
+  onLoaded: (value: T) => void;
+}) {
+  const { stateRef, update } = loadState;
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
+
+  useEffect(() => {
+    if (!enabled || stateRef.current.status !== "idle") return;
+    const controller = new AbortController();
+    let settled = false;
+    update({ status: "loading", error: "", generation });
+    void loadRef
+      .current(controller.signal)
+      .then((value) => {
+        settled = true;
+        if (controller.signal.aborted) return;
+        onLoadedRef.current(value);
+        update({ status: "loaded", error: "", generation });
+      })
+      .catch((reason: unknown) => {
+        settled = true;
+        if (controller.signal.aborted) return;
+        update({
+          status: "error",
+          error: reason instanceof Error ? reason.message : String(reason),
+          generation,
+        });
+      });
+    return () => {
+      controller.abort();
+      if (!settled) update(IDLE_EVIDENCE);
+    };
+  }, [enabled, generation, retryKey, stateRef, update]);
+}
+
 function combinedEvidenceState(states: EvidenceLoadState[]): EvidenceLoadState {
   const failed = states.find((state) => state.status === "error");
   if (failed) return failed;
@@ -1466,6 +1520,71 @@ function MetadataEditDialog({
   );
 }
 
+const STORED_FILE_RESULT_LIMIT = 50;
+
+/** Pick a file already sitting in Prism storage, including ones never registered as an asset. */
+function StoredFilePicker({
+  id,
+  assetType,
+  value,
+  onChange,
+}: {
+  id: string;
+  assetType: AssetType;
+  value: string;
+  onChange: (path: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const kind = ASSET_LABELS[assetType].toLowerCase();
+
+  return (
+    <AsyncSearchPicker<string>
+      id={id}
+      open={open}
+      onOpenChange={setOpen}
+      // Portalled out of the attach dialog, so it needs its own modal layer.
+      modal
+      contentClassName="w-[var(--radix-popover-trigger-width)]"
+      fetchKey={assetType}
+      trigger={
+        <button
+          type="button"
+          id={id}
+          aria-expanded={open}
+          className="border-input dark:bg-input/30 dark:hover:bg-input/50 flex h-9 w-full min-w-0 items-center justify-between gap-1.5 border px-3 py-2 text-left text-xs leading-none transition-colors outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-1"
+        >
+          <span className={cn("min-w-0 truncate", value ? "text-foreground" : "text-muted-foreground")}>{value || "Select a stored file"}</span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </button>
+      }
+      fetchPage={(query, signal) =>
+        fetchJson<{ files: string[]; total?: number }>(
+          `/api/catalog/assets/browse?asset_type=${encodeURIComponent(assetType)}&limit=${STORED_FILE_RESULT_LIMIT}&q=${encodeURIComponent(query)}`,
+          { signal },
+          "Stored assets could not be listed.",
+        ).then((response) => ({ items: response.files, total: response.total }))
+      }
+      getKey={(path) => path}
+      isSelected={(path) => path === value}
+      onSelect={onChange}
+      searchPlaceholder={`Search stored ${kind} files`}
+      listLabel={`Stored ${kind} files`}
+      emptyMessage={`No stored ${kind} files match.`}
+      renderItem={(path) => (
+        <>
+          <Check className={cn("h-3.5 w-3.5 shrink-0", path === value ? "text-primary" : "invisible")} />
+          <span className="min-w-0 flex-1 truncate">{path}</span>
+        </>
+      )}
+      renderFooter={({ shown, total }) =>
+        total > shown ? (
+          <p className="border-t px-2.5 py-1.5 text-[11px] text-muted-foreground">Showing {shown} of {total} stored files — refine the search to narrow.</p>
+        ) : null
+      }
+    />
+  );
+}
+
 function AssetAttachDialog({
   assetType,
   mode,
@@ -1474,11 +1593,9 @@ function AssetAttachDialog({
   targetName,
   counterpartAssets,
   counterpartAssetId,
-  links,
   selectedLink,
   selection,
   submitting,
-  linksLoading,
   onOpenChange,
   onModeChange,
   onFileChange,
@@ -1497,11 +1614,9 @@ function AssetAttachDialog({
   targetName: string;
   counterpartAssets: CatalogAsset[];
   counterpartAssetId: string;
-  links: string[];
   selectedLink: string;
   selection: AssetImportSelection | null;
   submitting: boolean;
-  linksLoading: boolean;
   onOpenChange: (open: boolean) => void;
   onModeChange: (mode: AssetAttachMode) => void;
   onFileChange: (file: File | null) => void;
@@ -1514,9 +1629,13 @@ function AssetAttachDialog({
   onLink: () => void;
 }) {
   const label = assetType ? ASSET_LABELS[assetType] : "asset";
+  const sourceTabs: Array<{ id: AssetAttachMode; label: string; icon: typeof Upload }> = [
+    { id: "upload", label: "Upload file", icon: Upload },
+    { id: "link", label: "Link existing", icon: Link2 },
+  ];
   return (
     <Dialog open={assetType !== null} onOpenChange={(next) => { if (!submitting) onOpenChange(next); }}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Add {label.toLowerCase()}</DialogTitle>
           <DialogDescription>Upload a file or link one already present in Prism storage. Attaching it creates a new immutable component revision.</DialogDescription>
@@ -1538,27 +1657,53 @@ function AssetAttachDialog({
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-1 border bg-muted/20 p-1" role="group" aria-label="Asset source">
-              <Button size="sm" variant={mode === "upload" ? "secondary" : "ghost"} aria-pressed={mode === "upload"} onClick={() => onModeChange("upload")}><Upload className="h-3.5 w-3.5" /> Upload file</Button>
-              <Button size="sm" variant={mode === "link" ? "secondary" : "ghost"} aria-pressed={mode === "link"} onClick={() => onModeChange("link")}><Link2 className="h-3.5 w-3.5" /> Link existing</Button>
+            <div className="inline-flex items-center gap-1 border bg-muted/30 p-1" role="tablist" aria-label="Asset source">
+              {sourceTabs.map(({ id, label: tabLabel, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === id}
+                  disabled={submitting}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1.5 border border-transparent px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                    mode === id
+                      ? "border-border bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  onClick={() => onModeChange(id)}
+                >
+                  <Icon className="h-3.5 w-3.5" />{tabLabel}
+                </button>
+              ))}
             </div>
             <div className="space-y-4">
               {mode === "upload" ? (
                 <div className="space-y-2">
                   <Label htmlFor="component-asset-file">{label} file</Label>
-                  <Input id="component-asset-file" type="file" accept={assetType ? ASSET_ACCEPT[assetType] : undefined} onChange={(event) => onFileChange(event.target.files?.[0] || null)} />
-                  {file ? <p className="text-xs text-muted-foreground">{file.name} · {formatBytes(file.size)}</p> : null}
+                  <FileInput
+                    id="component-asset-file"
+                    accept={assetType ? ASSET_ACCEPT[assetType] : undefined}
+                    value={file}
+                    onValueChange={onFileChange}
+                    disabled={submitting}
+                  />
+                  {file ? <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p> : null}
                 </div>
               ) : (
                 <div className="space-y-2">
                   <Label htmlFor="component-existing-asset">Existing file</Label>
-                  <Select value={selectedLink} onValueChange={onSelectedLinkChange} disabled={linksLoading || links.length === 0}>
-                    <SelectTrigger id="component-existing-asset"><SelectValue placeholder={linksLoading ? "Loading storage…" : links.length ? "Select a stored file" : "No compatible stored files"} /></SelectTrigger>
-                    <SelectContent>{links.map((path) => <SelectItem key={path} value={path}>{path}</SelectItem>)}</SelectContent>
-                  </Select>
+                  {assetType ? (
+                    <StoredFilePicker
+                      id="component-existing-asset"
+                      assetType={assetType}
+                      value={selectedLink}
+                      onChange={onSelectedLinkChange}
+                    />
+                  ) : null}
                 </div>
               )}
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className={cn("grid gap-4", mode === "link" && "sm:grid-cols-2")}>
                 <div className="space-y-2"><Label htmlFor="component-asset-library">Target library</Label><Input id="component-asset-library" value={targetLibrary} onChange={(event) => onTargetLibraryChange(event.target.value)} placeholder="Prism library" /></div>
                 {mode === "link" ? <div className="space-y-2"><Label htmlFor="component-asset-name">Target item name</Label><Input id="component-asset-name" value={targetName} onChange={(event) => onTargetNameChange(event.target.value)} placeholder="Auto-detect" /></div> : null}
               </div>
@@ -1566,7 +1711,7 @@ function AssetAttachDialog({
                 <div className="space-y-2">
                   <Label htmlFor="component-counterpart-asset">Pair with {assetType === "symbol" ? "footprint" : "symbol"}</Label>
                   <Select value={counterpartAssetId} onValueChange={onCounterpartAssetChange}>
-                    <SelectTrigger id="component-counterpart-asset"><SelectValue placeholder="Select the counterpart asset" /></SelectTrigger>
+                    <SelectTrigger id="component-counterpart-asset" className="w-full"><SelectValue placeholder="Select the counterpart asset" /></SelectTrigger>
                     <SelectContent>{counterpartAssets.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.target_library ? `${asset.target_library}:` : ""}{asset.target_name}</SelectItem>)}</SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">The current default counterpart is preselected. You can edit the resulting pair in Representations.</p>
@@ -1620,11 +1765,18 @@ export function LibraryComponentWorkspace({
   const [historicalError, setHistoricalError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [evidenceRetryKey, setEvidenceRetryKey] = useState(0);
-  const { state: revisionsLoadState, stateRef: revisionsLoadRef, update: setRevisionsLoad } = useEvidenceLoadState();
-  const { state: reviewsLoadState, stateRef: reviewsLoadRef, update: setReviewsLoad } = useEvidenceLoadState();
-  const { state: releasesLoadState, stateRef: releasesLoadRef, update: setReleasesLoad } = useEvidenceLoadState();
-  const { state: usageLoadState, stateRef: usageLoadRef, update: setUsageLoad } = useEvidenceLoadState();
-  const { state: auditLoadState, stateRef: auditLoadRef, update: setAuditLoad } = useEvidenceLoadState();
+  // Kept whole so each can be handed to useEvidenceResource; the destructured
+  // aliases below are what the render and retry paths read.
+  const revisionsLoad = useEvidenceLoadState();
+  const reviewsLoad = useEvidenceLoadState();
+  const releasesLoad = useEvidenceLoadState();
+  const usageLoad = useEvidenceLoadState();
+  const auditLoad = useEvidenceLoadState();
+  const { state: revisionsLoadState, stateRef: revisionsLoadRef, update: setRevisionsLoad } = revisionsLoad;
+  const { state: reviewsLoadState, stateRef: reviewsLoadRef, update: setReviewsLoad } = reviewsLoad;
+  const { state: releasesLoadState, stateRef: releasesLoadRef, update: setReleasesLoad } = releasesLoad;
+  const { state: usageLoadState, stateRef: usageLoadRef, update: setUsageLoad } = usageLoad;
+  const { state: auditLoadState, stateRef: auditLoadRef, update: setAuditLoad } = auditLoad;
   const { state: diffLoadState, stateRef: diffLoadRef, update: setDiffLoad } = useEvidenceLoadState();
   const diffCacheRef = useRef(new Map<string, CatalogRevisionDiff>());
   const [transitionTarget, setTransitionTarget] = useState<WorkflowStage | null>(null);
@@ -1639,11 +1791,8 @@ export function LibraryComponentWorkspace({
   const [attachTargetLibrary, setAttachTargetLibrary] = useState("");
   const [attachTargetName, setAttachTargetName] = useState("");
   const [attachCounterpartId, setAttachCounterpartId] = useState("");
-  const [availableLinks, setAvailableLinks] = useState<string[]>([]);
   const [selectedLink, setSelectedLink] = useState("");
-  const [linksLoading, setLinksLoading] = useState(false);
   const [importSelection, setImportSelection] = useState<AssetImportSelection | null>(null);
-  const [detachAssetType, setDetachAssetType] = useState<AssetType | null>(null);
   const [detachAsset, setDetachAsset] = useState<CatalogAsset | null>(null);
   const [busyAction, setBusyAction] = useState("");
 
@@ -1735,119 +1884,61 @@ export function LibraryComponentWorkspace({
     return () => controller.abort();
   }, [componentId, currentComponent, requestedRevisionId]);
 
-  useEffect(() => {
-    if (!componentReady || !needsRevisions || revisionsLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setRevisionsLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void fetchJson<{ items: CatalogRevisionSummary[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/revisions`, { signal: controller.signal })
-      .then((response) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setRevisions(response.items);
-        setRevisionsLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setRevisionsLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setRevisionsLoad(IDLE_EVIDENCE);
-    };
-  }, [componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsRevisions, revisionsLoadRef, setRevisionsLoad]);
+  const componentPath = `/api/catalog/components/${encodeURIComponent(componentId)}`;
 
-  useEffect(() => {
-    if (!componentReady || !needsReviews || reviewsLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setReviewsLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void fetchJson<{ items: CatalogReviewDecision[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/reviews`, { signal: controller.signal })
-      .then((response) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setReviews(response.items);
-        setReviewsLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setReviewsLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setReviewsLoad(IDLE_EVIDENCE);
-    };
-  }, [componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsReviews, reviewsLoadRef, setReviewsLoad]);
+  useEvidenceResource({
+    enabled: componentReady && needsRevisions,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: revisionsLoad,
+    load: (signal) => fetchJson<{ items: CatalogRevisionSummary[] }>(`${componentPath}/revisions`, { signal }),
+    onLoaded: (response) => setRevisions(response.items),
+  });
 
-  useEffect(() => {
-    if (!componentReady || !needsReleases || releasesLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setReleasesLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void fetchJson<{ items: CatalogReleaseRecord[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/releases`, { signal: controller.signal })
-      .then((response) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setReleases(response.items);
-        setReleasesLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setReleasesLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setReleasesLoad(IDLE_EVIDENCE);
-    };
-  }, [componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsReleases, releasesLoadRef, setReleasesLoad]);
+  useEvidenceResource({
+    enabled: componentReady && needsReviews,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: reviewsLoad,
+    load: (signal) => fetchJson<{ items: CatalogReviewDecision[] }>(`${componentPath}/reviews`, { signal }),
+    onLoaded: (response) => setReviews(response.items),
+  });
 
-  useEffect(() => {
-    if (!componentReady || !needsUsage || usageLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setUsageLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void fetchJson<{ items: CatalogComponentUsage[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/usage`, { signal: controller.signal })
-      .then((response) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setUsage(response.items);
-        setUsageLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setUsageLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setUsageLoad(IDLE_EVIDENCE);
-    };
-  }, [componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsUsage, setUsageLoad, usageLoadRef]);
+  useEvidenceResource({
+    enabled: componentReady && needsReleases,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: releasesLoad,
+    load: (signal) => fetchJson<{ items: CatalogReleaseRecord[] }>(`${componentPath}/releases`, { signal }),
+    onLoaded: (response) => setReleases(response.items),
+  });
 
-  useEffect(() => {
-    if (!componentReady || !needsAudit || auditLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setAuditLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void Promise.all([
-      fetchJson<{ items: CatalogAuditEvent[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/audit`, { signal: controller.signal }),
-      fetchJson<CatalogAuditVerification>(`/api/catalog/components/${encodeURIComponent(componentId)}/audit/verify`, { signal: controller.signal }),
-    ])
-      .then(([eventList, auditVerification]) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setEvents(eventList.items);
-        setVerification(auditVerification);
-        setAuditLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setAuditLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setAuditLoad(IDLE_EVIDENCE);
-    };
-  }, [auditLoadRef, componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsAudit, setAuditLoad]);
+  useEvidenceResource({
+    enabled: componentReady && needsUsage,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: usageLoad,
+    load: (signal) => fetchJson<{ items: CatalogComponentUsage[] }>(`${componentPath}/usage`, { signal }),
+    onLoaded: (response) => setUsage(response.items),
+  });
+
+  useEvidenceResource({
+    enabled: componentReady && needsAudit,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: auditLoad,
+    // The chain and its verification are one piece of evidence: a verified
+    // chain shown against a half-loaded event list would be misleading.
+    load: (signal) =>
+      Promise.all([
+        fetchJson<{ items: CatalogAuditEvent[] }>(`${componentPath}/audit`, { signal }),
+        fetchJson<CatalogAuditVerification>(`${componentPath}/audit/verify`, { signal }),
+      ]),
+    onLoaded: ([eventList, auditVerification]) => {
+      setEvents(eventList.items);
+      setVerification(auditVerification);
+    },
+  });
 
   const diffPair = useMemo(() => {
     if (!activeComponent) return null;
@@ -2007,13 +2098,14 @@ export function LibraryComponentWorkspace({
     setAttachTargetLibrary("");
     setAttachTargetName("");
     setAttachCounterpartId("");
-    setAvailableLinks([]);
     setSelectedLink("");
     setImportSelection(null);
   };
 
-  const openAttachDialog = async (assetType: AssetType) => {
+  const openAttachDialog = (assetType: AssetType) => {
     if (!currentComponent || !canMutate) return;
+    // The dialog opens instantly in upload mode. Stored files are only listed
+    // when the user actually opens the "Link existing" picker.
     setAttachAssetType(assetType);
     setAttachMode("upload");
     setAttachFile(null);
@@ -2029,16 +2121,6 @@ export function LibraryComponentWorkspace({
     );
     setSelectedLink("");
     setImportSelection(null);
-    setLinksLoading(true);
-    try {
-      const response = await fetchJson<{ files: string[] }>(`/api/catalog/assets/browse?asset_type=${encodeURIComponent(assetType)}`);
-      setAvailableLinks(response.files);
-    } catch (reason) {
-      setAvailableLinks([]);
-      toast.error(reason instanceof Error ? reason.message : "Stored assets could not be listed.");
-    } finally {
-      setLinksLoading(false);
-    }
   };
 
   const handleAssetUpload = async () => {
@@ -2091,22 +2173,6 @@ export function LibraryComponentWorkspace({
       });
       toast.success(`${ASSET_LABELS[attachAssetType]} linked as a new revision.`);
       resetAttachDialog();
-      updateParams({ revision: null, compare: null });
-      setRefreshKey((value) => value + 1);
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setBusyAction("");
-    }
-  };
-
-  const handleAssetDetach = async () => {
-    if (!detachAssetType || !canMutate) return;
-    setBusyAction("detach");
-    try {
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(componentId)}/assets/${encodeURIComponent(detachAssetType)}`, { method: "DELETE" });
-      toast.success(`${ASSET_LABELS[detachAssetType]} detached in a new revision.`);
-      setDetachAssetType(null);
       updateParams({ revision: null, compare: null });
       setRefreshKey((value) => value + 1);
     } catch (reason) {
@@ -2297,8 +2363,7 @@ export function LibraryComponentWorkspace({
               component={activeComponent}
               canMutate={canMutate}
               busyAction={busyAction}
-              onAttach={(assetType) => void openAttachDialog(assetType)}
-              onDetach={setDetachAssetType}
+              onAttach={openAttachDialog}
               onDetachAsset={setDetachAsset}
               onDownload={(asset) => void handleDownloadAsset(asset)}
               onRegeneratePreviews={() => void handleRegeneratePreviews()}
@@ -2399,11 +2464,9 @@ export function LibraryComponentWorkspace({
         targetName={attachTargetName}
         counterpartAssets={currentComponent.assets.filter((asset) => attachAssetType === "symbol" ? asset.asset_type === "footprint" : attachAssetType === "footprint" ? asset.asset_type === "symbol" : false)}
         counterpartAssetId={attachCounterpartId}
-        links={availableLinks}
         selectedLink={selectedLink}
         selection={importSelection}
         submitting={busyAction === "asset"}
-        linksLoading={linksLoading}
         onOpenChange={(open) => { if (!open) resetAttachDialog(); }}
         onModeChange={setAttachMode}
         onFileChange={setAttachFile}
@@ -2416,25 +2479,11 @@ export function LibraryComponentWorkspace({
         onLink={() => void handleAssetLink()}
       />
 
-      <Dialog open={detachAssetType !== null} onOpenChange={(open) => { if (!open && busyAction !== "detach") setDetachAssetType(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Detach {detachAssetType ? ASSET_LABELS[detachAssetType].toLowerCase() : "asset"}</DialogTitle>
-            <DialogDescription>This creates a new revision without the selected asset type. Canonical files and prior revisions remain intact.</DialogDescription>
-          </DialogHeader>
-          {detachAssetType === "3dmodel" || detachAssetType === "spice" ? <p className="text-sm text-muted-foreground">All attached {detachAssetType === "3dmodel" ? "3D model" : "SPICE model"} files will be detached from the new revision.</p> : null}
-          <DialogFooter>
-            <Button variant="outline" disabled={busyAction === "detach"} onClick={() => setDetachAssetType(null)}>Cancel</Button>
-            <Button variant="destructive" disabled={busyAction === "detach"} onClick={() => void handleAssetDetach()}>{busyAction === "detach" ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Detach asset</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={detachAsset !== null} onOpenChange={(open) => { if (!open && busyAction !== "detach-id") setDetachAsset(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Detach {detachAsset?.name || "asset"}</DialogTitle>
-            <DialogDescription>The asset can only be detached when no representation references it. Prior revisions and canonical files remain intact.</DialogDescription>
+            <DialogDescription>This creates a new revision without this file. A symbol or footprint that a representation still references must be reassigned first. Prior revisions and canonical files remain intact.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" disabled={busyAction === "detach-id"} onClick={() => setDetachAsset(null)}>Cancel</Button>

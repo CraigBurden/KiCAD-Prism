@@ -34,6 +34,10 @@ DEFAULT_STORE_DIRNAME = ".kicad-prism"
 DBL_EXPORT_DIRNAME = "kicad-dbl"
 KLC_VALIDATION_DIRNAME = "klc"
 
+# The asset browser reuses one sorted directory walk per asset type for this
+# long, so repeated dialog opens do not rescan the whole store.
+_ASSET_BROWSE_CACHE_TTL_SECONDS = 30.0
+
 PREVIEW_KIND_SYMBOL = "symbol"
 PREVIEW_KIND_FOOTPRINT = "footprint"
 PREVIEW_STATUS_READY = "ready"
@@ -512,6 +516,16 @@ class ComponentCatalogDomainService:
         self._category_cache_ts: float = 0.0
         self._CATEGORY_CACHE_TTL: float = 60.0
         self._fts_available = False
+        self._browse_cache: dict[str, tuple[float, list[str]]] = {}
+        # One lock per asset type. Walking the footprint tree takes seconds on a
+        # large store, and a shared lock would make that block a symbol browse
+        # that could have been answered from cache. Serializing within a type is
+        # still wanted: it collapses a burst of concurrent misses into one walk.
+        self._browse_cache_locks: dict[str, threading.Lock] = {}
+        self._browse_cache_lock = threading.Lock()
+        # Bumped on every store write so a walk that started before it does not
+        # reinstate the listing it took.
+        self._browse_cache_generation = 0
 
     def _database_path(self, database_url: str | None) -> Path:
         _ = database_url
@@ -2870,6 +2884,14 @@ class ComponentCatalogDomainService:
         `revision_assets` is a join table onto content-addressed `assets`, so linking
         an existing row is a genuine reference: one 0603 footprint is shared by every
         component that uses it rather than duplicated per import.
+
+        Ordering by usage means the counts have to exist before LIMIT can apply, which
+        costs an aggregate over every matching asset. That is affordable once a search
+        term has narrowed the set, but not for the empty query the picker fires the
+        moment it opens: on a store of ~17k assets that aggregate reads the whole
+        revision_assets join and took ~500ms. The unfiltered listing therefore orders
+        by the columns idx_assets_kind already covers and counts usage only for the
+        page it returns.
         """
         self.initialize()
         normalized_type = str(asset_type or "").strip().lower()
@@ -2880,36 +2902,50 @@ class ComponentCatalogDomainService:
         like = f"%{term.lower()}%"
         bounded_limit = max(1, min(int(limit or 25), 100))
 
+        usage_count_lateral = """
+            LEFT JOIN LATERAL (
+                SELECT COUNT(DISTINCT c.id) AS usage_count
+                FROM revision_assets ra
+                JOIN component_revisions r ON r.id = ra.revision_id
+                JOIN components c ON c.id = r.component_id AND c.is_active = 1
+                WHERE ra.asset_id = a.id
+            ) usage_stats ON true
+        """
+
         with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT
-                    a.id,
-                    a.asset_type,
-                    a.name,
-                    a.target_library,
-                    a.target_name,
-                    a.sha256,
-                    a.size_bytes,
-                    COUNT(DISTINCT c.id) AS usage_count
-                FROM assets a
-                LEFT JOIN revision_assets ra ON ra.asset_id = a.id
-                LEFT JOIN component_revisions r ON r.id = ra.revision_id
-                LEFT JOIN components c ON c.id = r.component_id AND c.is_active = 1
-                WHERE a.asset_type = %s
-                  AND (
-                    %s = ''
-                    OR lower(a.name) LIKE %s
-                    OR lower(a.target_name) LIKE %s
-                    OR lower(a.target_library) LIKE %s
-                  )
-                GROUP BY a.id, a.asset_type, a.name, a.target_library, a.target_name,
-                         a.sha256, a.size_bytes
-                ORDER BY usage_count DESC, lower(a.target_name), a.name
-                LIMIT %s
-                """,
-                (normalized_type, term.lower(), like, like, like, bounded_limit),
-            ).fetchall()
+            if term:
+                rows = conn.execute(
+                    f"""
+                    SELECT
+                        a.id, a.asset_type, a.name, a.target_library, a.target_name,
+                        a.sha256, a.size_bytes, usage_stats.usage_count
+                    FROM assets a
+                    {usage_count_lateral}
+                    WHERE a.asset_type = %s
+                      AND (
+                        lower(a.name) LIKE %s
+                        OR lower(a.target_name) LIKE %s
+                        OR lower(a.target_library) LIKE %s
+                      )
+                    ORDER BY usage_stats.usage_count DESC, lower(a.target_name), a.name
+                    LIMIT %s
+                    """,
+                    (normalized_type, like, like, like, bounded_limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    f"""
+                    SELECT
+                        a.id, a.asset_type, a.name, a.target_library, a.target_name,
+                        a.sha256, a.size_bytes, usage_stats.usage_count
+                    FROM assets a
+                    {usage_count_lateral}
+                    WHERE a.asset_type = %s
+                    ORDER BY a.target_library, a.target_name, a.name
+                    LIMIT %s
+                    """,
+                    (normalized_type, bounded_limit),
+                ).fetchall()
 
         return [
             {
@@ -5766,18 +5802,68 @@ class ComponentCatalogDomainService:
             conn.commit()
         return {"updated": updated, "not_found": not_found, "errors": errors}
 
-    def browse_library_assets(self, asset_type: str) -> list[str]:
+    def _browse_cache_lock_for(self, asset_type: str) -> threading.Lock:
+        with self._browse_cache_lock:
+            return self._browse_cache_locks.setdefault(asset_type, threading.Lock())
+
+    def _invalidate_browse_cache(self) -> None:
+        """Drop the stored-file listings after the store on disk changes.
+
+        Called from the one place bytes land in the store, so the asset picker
+        never offers a file that has just been rewritten elsewhere, nor hides
+        one that has just arrived. Clearing every type is deliberate: the
+        listings are rebuilt lazily on the next browse, and a write does not
+        reliably tell us which tree it touched.
+        """
+        with self._browse_cache_lock:
+            self._browse_cache.clear()
+            self._browse_cache_generation += 1
+
+    def browse_library_assets(
+        self,
+        asset_type: str,
+        q: str = "",
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """List stored asset files without walking the store on every request.
+
+        The recursive walk over the symbol/footprint trees is expensive once
+        libraries hold thousands of files, so the sorted listing is cached per
+        asset type and reused across requests. ``q`` filters the cached listing
+        and ``limit`` bounds the response so the picker never renders the whole
+        store. Writes into the store drop the cache, so the TTL is a backstop
+        for changes made outside this process rather than the freshness bound.
+        """
         self.initialize()
         root = self._asset_root(asset_type)
-        if asset_type == "symbol":
-            paths = root.rglob("*.kicad_sym")
-        elif asset_type == "footprint":
-            paths = root.rglob("*.kicad_mod")
-        elif asset_type == "3dmodel":
-            paths = [*root.rglob("*.step"), *root.rglob("*.stp")]
-        else:
-            paths = root.rglob("*")
-        return sorted(path.relative_to(root).as_posix() for path in paths if path.is_file())
+        now = time.monotonic()
+        with self._browse_cache_lock_for(asset_type):
+            with self._browse_cache_lock:
+                cached = self._browse_cache.get(asset_type)
+                generation = self._browse_cache_generation
+            if cached is None or now - cached[0] > _ASSET_BROWSE_CACHE_TTL_SECONDS:
+                if asset_type == "symbol":
+                    paths = root.rglob("*.kicad_sym")
+                elif asset_type == "footprint":
+                    paths = root.rglob("*.kicad_mod")
+                elif asset_type == "3dmodel":
+                    paths = [*root.rglob("*.step"), *root.rglob("*.stp")]
+                else:
+                    paths = root.rglob("*")
+                files = sorted(path.relative_to(root).as_posix() for path in paths if path.is_file())
+                with self._browse_cache_lock:
+                    # A write that landed while this walk was running already
+                    # cleared the cache. Storing the result now would reinstate a
+                    # listing taken before that write and hide it for a full TTL,
+                    # so leave the cache empty and let the next browse rebuild it.
+                    if self._browse_cache_generation == generation:
+                        self._browse_cache[asset_type] = (now, files)
+                all_files = files
+            else:
+                all_files = cached[1]
+        needle = q.strip().lower()
+        matches = [path for path in all_files if needle in path.lower()] if needle else list(all_files)
+        return {"files": matches[: max(1, limit)], "total": len(matches)}
 
     def _attach_asset_revision(
         self,
@@ -5947,8 +6033,10 @@ class ComponentCatalogDomainService:
                     raise ValueError(f"Immutable asset hash collision at {immutable_destination}")
                 return immutable_destination
             immutable_destination.write_bytes(payload)
+            self._invalidate_browse_cache()
             return immutable_destination
         destination.write_bytes(payload)
+        self._invalidate_browse_cache()
         return destination
 
     def _symbol_destination(self, target_library: str, target_name: str) -> Path:

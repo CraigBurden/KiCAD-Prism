@@ -1533,12 +1533,14 @@ async def import_inventory_csv(
 @router.get("/assets/browse")
 def browse_library_assets(
     asset_type: str = Query(...),
+    q: str = Query("", max_length=200),
+    limit: int = Query(50, ge=1, le=500),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
     try:
-        files = catalog_service.browse_library_assets(asset_type)
-        return {"files": files}
+        result = catalog_service.browse_library_assets(asset_type, q=q, limit=limit)
+        return {"files": result["files"], "total": result["total"]}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
