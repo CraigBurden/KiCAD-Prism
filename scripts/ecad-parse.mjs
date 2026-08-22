@@ -25,7 +25,7 @@
 
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, join, relative, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { BoardParser, SchematicParser } from "./vendor/kicad-sexpr-parser.mjs";
@@ -1863,7 +1863,12 @@ function main(argv) {
     // monotone within one, so the reported ceiling is the worst case.
     const snapshots = [];
     let report;
-    for (const root of positional) {
+    for (const rawRoot of positional) {
+        // Resolve to absolute so the cache file lands beside the snapshot dir,
+        // not in the caller's cwd. A relative root (`ecad-parse.mjs snapshot`
+        // from the repo root) otherwise dropped a multi-MB *.index-cache.json
+        // into the working tree.
+        const root = resolve(rawRoot);
         const runs = [];
         for (let index = 0; index < repeat; index += 1) {
             report = index_snapshot(root);
