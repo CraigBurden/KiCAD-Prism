@@ -72,10 +72,13 @@ function _index_cache_enabled() {
     return value !== "0" && value !== "false";
 }
 
-/** A cheap fingerprint of the files index_snapshot would read: their relative
- * path, byte size and mtime. Any edit to the snapshot changes it, so a match
- * means the parse result is still valid. Kept separate from the parse so a hit
- * never touches the parser. */
+/** A fingerprint of the files index_snapshot would read: their relative path
+ * and content. Content rather than mtime because snapshots are materialized with
+ * `git archive | tar`, which stamps every file with the commit timestamp, so
+ * mtime carries no entropy and the key would degrade to (path, size). Reading
+ * the bytes here costs a few tens of milliseconds, against the ~1.2 s parse a
+ * hit avoids, and the miss path reads them again to parse. Kept separate from
+ * the parse so a hit never touches the parser. */
 function _snapshot_signature(root, documentPaths) {
     const hash = createHash("sha256");
     hash.update(INDEX_CACHE_SCHEMA);
@@ -84,9 +87,9 @@ function _snapshot_signature(root, documentPaths) {
     hash.update("\0");
     hash.update(_PARSER_SOURCE_HASH);
     for (const path of documentPaths) {
-        const stat = statSync(path);
         const rel = relative(root, path).split(sep).join("/");
-        hash.update(`\0${rel}\0${stat.size}\0${Math.round(stat.mtimeMs)}`);
+        hash.update(`\0${rel}\0`);
+        hash.update(readFileSync(path));
     }
     return hash.digest("hex");
 }
