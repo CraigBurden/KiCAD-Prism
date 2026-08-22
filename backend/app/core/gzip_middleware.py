@@ -106,14 +106,38 @@ class _GzipResponder:
         )
 
 
+# Media that is already compressed. Gzipping it spends CPU to make it slightly
+# bigger, so it is skipped. Everything else (text, json, xml, svg, wasm, the
+# board's application/octet-stream) is worth compressing.
+_INCOMPRESSIBLE_TYPE_PREFIXES = (
+    "image/",
+    "video/",
+    "audio/",
+    "application/zip",
+    "application/gzip",
+    "application/x-gzip",
+    "application/x-bzip2",
+    "application/x-7z-compressed",
+    "application/x-rar-compressed",
+    "application/pdf",
+    "font/woff",
+    "application/font-woff",
+)
+
+# image/svg+xml is text and compresses well, so it is kept despite the image/
+# prefix above.
+_COMPRESSIBLE_TYPE_EXCEPTIONS = ("image/svg",)
+
+
 def _is_compressible(status: int, headers: "_Headers") -> bool:
-    """Whether this response is safe to gzip.
+    """Whether this response is safe and worth gzipping.
 
     A ``206 Partial Content`` carries a byte range whose ``Content-Range``
     describes identity bytes; gzipping the body would leave the range header
     describing a length the body no longer has, so a ranged or resumed download
     reassembles garbage. A response that already set ``Content-Encoding`` (or is
-    a range response) is left exactly as the application produced it.
+    a range response) is left exactly as the application produced it. Already
+    compressed media types are skipped because gzip only makes them bigger.
     """
 
     if status == 206:
@@ -122,6 +146,13 @@ def _is_compressible(status: int, headers: "_Headers") -> bool:
         return False
     if headers.get(b"content-encoding") is not None:
         return False
+    content_type = headers.get(b"content-type")
+    if content_type is not None:
+        media = content_type.decode("latin-1").split(";", 1)[0].strip().lower()
+        if media.startswith(_COMPRESSIBLE_TYPE_EXCEPTIONS):
+            return True
+        if media.startswith(_INCOMPRESSIBLE_TYPE_PREFIXES):
+            return False
     return True
 
 
