@@ -183,8 +183,8 @@ export function ComparisonDiscussionRail({
                         <p className="mt-2 whitespace-pre-wrap leading-relaxed">{comment.content}</p>
                         {!!comment.replies.length && (
                             <div className="mt-2 space-y-2 border-l pl-2">
-                                {comment.replies.map((item, index) => (
-                                    <div key={`${item.timestamp}-${index}`}>
+                                {comment.replies.map((item) => (
+                                    <div key={`${item.timestamp}-${item.author}-${item.content}`}>
                                         <span className="font-medium">{item.author}: </span>
                                         {item.content}
                                     </div>
