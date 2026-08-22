@@ -33,9 +33,12 @@ class GzipMiddleware:
     and ``Content-Length`` intact.
     """
 
-    def __init__(self, app: ASGIApp, *, minimum_size: int = 1024) -> None:
+    def __init__(
+        self, app: ASGIApp, *, minimum_size: int = 1024, compresslevel: int = 6
+    ) -> None:
         self.app = app
         self.minimum_size = minimum_size
+        self.compresslevel = compresslevel
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -44,13 +47,16 @@ class GzipMiddleware:
         if "gzip" not in _accept_encoding(scope):
             await self.app(scope, receive, send)
             return
-        await _GzipResponder(self.app, self.minimum_size)(scope, receive, send)
+        await _GzipResponder(self.app, self.minimum_size, self.compresslevel)(
+            scope, receive, send
+        )
 
 
 class _GzipResponder:
-    def __init__(self, app: ASGIApp, minimum_size: int) -> None:
+    def __init__(self, app: ASGIApp, minimum_size: int, compresslevel: int) -> None:
         self.app = app
         self.minimum_size = minimum_size
+        self.compresslevel = compresslevel
         self.start_message: Message | None = None
         self.body = bytearray()
 
@@ -84,7 +90,7 @@ class _GzipResponder:
             await self._passthrough(body)
             return
 
-        compressed = _gzip_bytes(body)
+        compressed = _gzip_bytes(body, self.compresslevel)
         headers.set(b"content-encoding", b"gzip")
         headers.set(b"content-length", str(len(compressed)).encode("latin-1"))
         headers.add_vary_accept_encoding()
@@ -126,9 +132,16 @@ def _accept_encoding(scope: Scope) -> str:
     return ""
 
 
-def _gzip_bytes(body: bytes) -> bytes:
+def _gzip_bytes(body: bytes, compresslevel: int) -> bytes:
+    # Level 6 is the sensible middle: on a 35 MB board it produces within ~1% of
+    # level 9's size for a third of the CPU, and this runs inline on the event
+    # loop (no thread offload on the starlette versions in play), so a cheaper
+    # level keeps a board fetch from blocking the loop for hundreds of ms while
+    # the status poll waits behind it.
     buffer = io.BytesIO()
-    with gzip.GzipFile(mode="wb", fileobj=buffer) as handle:
+    with gzip.GzipFile(
+        mode="wb", fileobj=buffer, compresslevel=compresslevel
+    ) as handle:
         handle.write(body)
     return buffer.getvalue()
 

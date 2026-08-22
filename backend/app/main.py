@@ -198,7 +198,7 @@ app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
 # streaming body where the check is dead. KiCad source blobs are the heaviest
 # thing the app serves (a 9MB .kicad_pcb the comparison viewer fetches once per
 # side) and gzip several times over.
-app.add_middleware(GzipMiddleware, minimum_size=1024)
+app.add_middleware(GzipMiddleware, minimum_size=1024, compresslevel=6)
 
 app.middleware("http")(apply_security_headers)
 
