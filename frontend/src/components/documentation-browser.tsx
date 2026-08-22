@@ -121,24 +121,35 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
         return `${url}${url.includes("?") ? "&" : "?"}commit=${encodeURIComponent(commit)}`;
     }, [commit]);
 
+    // Fetch carries the AbortController signal and setters are guarded by
+    // `signal.aborted`; the rule cannot see those guards from outside.
+    // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
     useEffect(() => {
+        const controller = new AbortController();
+        const { signal } = controller;
+
         const fetchFiles = async () => {
             setLoading(true);
             setViewingDoc(null);
             try {
-                const response = await fetch(appendCommit(`/api/projects/${projectId}/docs`));
+                const response = await fetch(appendCommit(`/api/projects/${projectId}/docs`), { signal });
                 if (response.ok) {
                     const data = await response.json();
-                    setFiles(data);
+                    if (!signal.aborted) setFiles(data);
                 }
             } catch (err) {
+                if (err instanceof DOMException && err.name === "AbortError") return;
                 console.error("Failed to fetch docs", err);
             } finally {
-                setLoading(false);
+                // The abort guard is required: an unconditional reset would let
+                // the stale, aborted effect clear the replacement effect's spinner.
+                // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally
+                if (!signal.aborted) setLoading(false);
             }
         };
 
-        fetchFiles();
+        void fetchFiles();
+        return () => controller.abort();
     }, [projectId, appendCommit]);
 
     const handleView = async (path: string, name: string) => {
