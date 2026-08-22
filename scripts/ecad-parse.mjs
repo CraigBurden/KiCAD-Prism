@@ -32,9 +32,35 @@ import { BoardParser, SchematicParser } from "./vendor/kicad-sexpr-parser.mjs";
 
 export const SCHEMA = "prism.ecad_object_index_v1";
 
-// Bump when the shape of a cached index (below) or the parser's output changes,
-// so a stale cache is never rehydrated across a code change.
+// Bump when the shape of a cached index (below) changes in a way the automatic
+// source hash below cannot see. The source hash already invalidates the cache
+// whenever this file or the vendored parser changes, so this is only for
+// deliberate cache-format breaks.
 const INDEX_CACHE_SCHEMA = "prism.ecad_object_index_cache_v1";
+
+// A hash of the code that produces an index: this module and the vendored
+// parser it calls. Folding it into every cache signature means a change to
+// either one invalidates existing caches automatically, so a fix to
+// index_board / index_schematic (or to the parser) is never masked by a stale
+// entry that shares the same commit dir and file stats. Computed once at load.
+const _PARSER_SOURCE_HASH = (() => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const sources = [
+        fileURLToPath(import.meta.url),
+        join(here, "vendor", "kicad-sexpr-parser.mjs"),
+    ];
+    const hash = createHash("sha256");
+    for (const file of sources) {
+        try {
+            hash.update(readFileSync(file));
+        } catch {
+            // A missing source file should not silently weaken the key; mark it
+            // so the hash still changes if the file appears or moves later.
+            hash.update(`\0missing:${file}\0`);
+        }
+    }
+    return hash.digest("hex").slice(0, 16);
+})();
 
 // Parsing a snapshot is ~1.2s per board; rehydrating its cached index is ~0.15s
 // (an 8x win). A snapshot lives under an immutable per-commit cache directory,
@@ -55,6 +81,8 @@ function _snapshot_signature(root, documentPaths) {
     hash.update(INDEX_CACHE_SCHEMA);
     hash.update("\0");
     hash.update(SCHEMA);
+    hash.update("\0");
+    hash.update(_PARSER_SOURCE_HASH);
     for (const path of documentPaths) {
         const stat = statSync(path);
         const rel = relative(root, path).split(sep).join("/");

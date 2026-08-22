@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -558,6 +558,26 @@ test("editing a snapshot invalidates its cached index", () => {
     const reparsed = index_snapshot(root);
     assert.equal(reparsed.timings.cacheHit, false);
     assert.equal(reparsed.counts.total, 2);
+});
+
+test("a changed parser source invalidates the cache", () => {
+    // The signature folds in a hash of the parser sources, so a cache written by
+    // one version of the parser must not be rehydrated by another. Simulate a
+    // parser change by rewriting the stored signature: a read must then miss and
+    // re-parse rather than serve the old objects, the exact stale-fix scenario.
+    const board = mkdtempSync(join(tmpdir(), "ecad-snap-"));
+    const root = join(board, "snapshot");
+    mkdirSync(root);
+    writeFileSync(join(root, "a.kicad_sch"), '(kicad_sch (junction (at 0 0)))');
+    index_snapshot(root); // writes the cache
+
+    const cachePath = join(board, "snapshot.index-cache.json");
+    const cached = JSON.parse(readFileSync(cachePath, "utf8"));
+    cached.signature = "stale-from-an-older-parser";
+    writeFileSync(cachePath, JSON.stringify(cached));
+
+    const reparsed = index_snapshot(root);
+    assert.equal(reparsed.timings.cacheHit, false);
 });
 
 test("ECAD_INDEX_CACHE=0 disables the cache", () => {
