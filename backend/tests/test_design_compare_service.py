@@ -869,6 +869,28 @@ class FabricationDomainTests(unittest.TestCase):
         self.assertFalse(result["present"])
         self.assertEqual(result["warnings"], ["cached fabrication output was removed"])
 
+    def test_revision_cache_prune_evicts_oldest_over_the_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            entries = []
+            for index, project in enumerate(("pA", "pA", "pB")):
+                commit_dir = root / project / f"commit{index}" / "tag"
+                commit_dir.mkdir(parents=True)
+                (commit_dir / "index.json").write_bytes(b"x" * 1000)
+                stamp = 1_000 + index  # commit0 oldest
+                os.utime(root / project / f"commit{index}", (stamp, stamp))
+                entries.append(root / project / f"commit{index}")
+
+            with mock.patch.object(design_compare_service, "_CACHE_ROOT", root):
+                # Cap below the total forces one eviction, oldest first.
+                design_compare_service._prune_revision_cache(max_bytes=2500)
+                self.assertFalse(entries[0].exists())
+                self.assertTrue(entries[1].exists())
+                self.assertTrue(entries[2].exists())
+                # A zero cap disables the prune.
+                design_compare_service._prune_revision_cache(max_bytes=0)
+                self.assertTrue(entries[1].exists())
+
 
 if __name__ == "__main__":
     unittest.main()

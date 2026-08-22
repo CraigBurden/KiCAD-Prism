@@ -262,6 +262,62 @@ def _cache_lock(project_id: str, commit: str) -> threading.Lock:
         return _CACHE_LOCKS.setdefault(key, threading.Lock())
 
 
+# The revision cache never rolled over: a snapshot plus its ~21 MB ecad object
+# index is kept per commit, forever, on a persistent volume. Cap the total and
+# evict least-recently-used commit directories so it cannot grow without bound.
+# 0 disables the cap.
+_CACHE_MAX_BYTES = int(os.environ.get("PRISM_DESIGN_COMPARE_CACHE_MAX_BYTES", str(20 * 1024**3)))
+
+
+def _dir_size(path: Path) -> int:
+    total = 0
+    for child in path.rglob("*"):
+        try:
+            if child.is_file():
+                total += child.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _prune_revision_cache(max_bytes: int = _CACHE_MAX_BYTES) -> None:
+    """Keep the revision cache under a size cap, evicting oldest commits first.
+
+    Each ``project/commit`` directory is one cache entry. When the total exceeds
+    the cap, whole entries are removed in least-recently-used order (by directory
+    mtime, which the build touches) until it fits. Best-effort: any error here is
+    logged and swallowed, because a comparison result is already published and a
+    full disk is a worse failure than a slightly oversized cache.
+    """
+
+    if max_bytes <= 0 or not _CACHE_ROOT.exists():
+        return
+    try:
+        entries: list[tuple[float, Path, int]] = []
+        for project_dir in _CACHE_ROOT.iterdir():
+            if not project_dir.is_dir():
+                continue
+            for commit_dir in project_dir.iterdir():
+                if not commit_dir.is_dir():
+                    continue
+                try:
+                    mtime = commit_dir.stat().st_mtime
+                except OSError:
+                    continue
+                entries.append((mtime, commit_dir, _dir_size(commit_dir)))
+        total = sum(size for _, _, size in entries)
+        if total <= max_bytes:
+            return
+        for _mtime, commit_dir, size in sorted(entries, key=lambda item: item[0]):
+            if total <= max_bytes:
+                break
+            shutil.rmtree(commit_dir, ignore_errors=True)
+            total -= size
+            logger.info("Evicted design-compare cache entry %s (%d bytes)", commit_dir, size)
+    except Exception:
+        logger.exception("Design-compare cache prune failed")
+
+
 def _read_revision_cache(
     marker: Path,
     *,
@@ -2016,6 +2072,7 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
             result,
             artifact_key=artifact_key,
         )
+        _prune_revision_cache()
         return JobResult(
             message="Design comparison ready",
             artifact=complete,
