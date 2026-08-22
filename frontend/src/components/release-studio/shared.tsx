@@ -126,7 +126,9 @@ export function MemberViewer({
                 }
                 created = url;
                 if (kind === "text") {
-                    const body = await (await fetch(url)).text();
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`Preview unavailable (${response.status})`);
+                    const body = await response.text();
                     if (!revoked) setText(body);
                 } else {
                     setObjectUrl(url);

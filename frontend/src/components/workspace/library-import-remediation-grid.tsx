@@ -17,6 +17,7 @@ import type {
   BulkAcceptResult, ImportProposalDraft, ProjectComponentImportProposal,
 } from "@/types/catalog";
 import { LibraryAssetLinkPicker } from "./library-asset-link-picker";
+import { useEditHistory } from "./use-edit-history";
 
 interface LibraryImportRemediationGridProps {
   sessionId: string;
@@ -215,11 +216,11 @@ export function LibraryImportRemediationGrid({
   canWrite,
   onRefresh,
 }: LibraryImportRemediationGridProps) {
-  const [edits, setEdits] = useState<RowEdits>({});
   // Every cell edit, fill-down, and link change pushes the previous state here so a
-  // mis-aimed fill-down across 300 rows is one keystroke to undo.
-  const [undoStack, setUndoStack] = useState<RowEdits[]>([]);
-  const [redoStack, setRedoStack] = useState<RowEdits[]>([]);
+  // mis-aimed fill-down across 300 rows is one keystroke to undo. The three
+  // pieces move through one pure reducer (useEditHistory) so history can never
+  // duplicate or desync.
+  const { edits, undoStack, redoStack, commitEdits, replaceEdits, resetHistory, undo, redo } = useEditHistory();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [accepting, setAccepting] = useState(false);
@@ -283,40 +284,6 @@ export function LibraryImportRemediationGrid({
   }, [groups]);
 
   /** Apply an edit through the history so it can be undone. */
-  const commitEdits = useCallback((update: (current: RowEdits) => RowEdits) => {
-    setEdits((current) => {
-      const next = update(current);
-      if (next === current) return current;
-      setUndoStack((stack) => [...stack.slice(-49), current]);
-      setRedoStack([]);
-      return next;
-    });
-  }, []);
-
-  const undo = useCallback(() => {
-    setUndoStack((stack) => {
-      if (stack.length === 0) return stack;
-      const previous = stack[stack.length - 1];
-      setEdits((current) => {
-        setRedoStack((redo) => [...redo, current]);
-        return previous;
-      });
-      return stack.slice(0, -1);
-    });
-  }, []);
-
-  const redo = useCallback(() => {
-    setRedoStack((stack) => {
-      if (stack.length === 0) return stack;
-      const next = stack[stack.length - 1];
-      setEdits((current) => {
-        setUndoStack((undoEntries) => [...undoEntries, current]);
-        return next;
-      });
-      return stack.slice(0, -1);
-    });
-  }, []);
-
   /** A grouped row stands for one component, so an edit applies to every member. */
   const setCell = useCallback(
     (group: ProposalGroup, field: EditableField, value: string) => {
@@ -396,9 +363,7 @@ export function LibraryImportRemediationGrid({
         { method: "PUT", body: JSON.stringify({ drafts: buildDrafts() }) },
         "Failed to save import edits"
       );
-      setEdits({});
-      setUndoStack([]);
-      setRedoStack([]);
+      resetHistory();
       // Saved edits are no longer pending, so a stale selection would leave the
       // "Import selected" count disagreeing with the checkboxes.
       setSelected(new Set());
@@ -409,7 +374,7 @@ export function LibraryImportRemediationGrid({
     } finally {
       setSaving(false);
     }
-  }, [buildDrafts, dirtyCount, onRefresh, sessionId]);
+  }, [buildDrafts, dirtyCount, onRefresh, resetHistory, sessionId]);
 
   const acceptRows = useCallback(
     async (rows: ProposalGroup[]) => {
@@ -439,7 +404,7 @@ export function LibraryImportRemediationGrid({
           "Failed to accept import rows"
         );
 
-        setEdits((current) => {
+        replaceEdits((current) => {
           const next = { ...current };
           for (const entry of result.results) {
             if (entry.status === "accepted") delete next[entry.proposal_id];
@@ -477,7 +442,7 @@ export function LibraryImportRemediationGrid({
         setAccepting(false);
       }
     },
-    [edits, onRefresh, sessionId]
+    [edits, onRefresh, replaceEdits, sessionId]
   );
 
   const exportCsv = useCallback(() => {
@@ -497,7 +462,7 @@ export function LibraryImportRemediationGrid({
         );
         if (!response.ok) throw new Error(await readApiError(response, "Failed to import CSV"));
         const result = (await response.json()) as { saved: number; skipped_unknown_rows: number };
-        setEdits({});
+        replaceEdits(() => ({}));
         await onRefresh();
         toast.success(
           `Applied ${result.saved} rows` +
@@ -510,7 +475,7 @@ export function LibraryImportRemediationGrid({
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [onRefresh, sessionId]
+    [onRefresh, replaceEdits, sessionId]
   );
 
   // Undo, redo, and save stay live while a cell is focused — the whole point is

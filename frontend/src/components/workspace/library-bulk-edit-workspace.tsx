@@ -359,8 +359,14 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const visibleRows = items.slice(firstVisibleRow, lastVisibleRow);
 
   const commitStaged = useCallback((next: StagedRows) => {
-    setStaged((current) => { undoStack.current.push(cloneStaged(current)); if (undoStack.current.length > 100) undoStack.current.shift(); redoStack.current = []; return next; });
-  }, []);
+    // History bookkeeping lives here, not inside a state updater: React may
+    // invoke an updater more than once, which would duplicate undo entries.
+    if (next === staged) return;
+    undoStack.current.push(cloneStaged(staged));
+    if (undoStack.current.length > 100) undoStack.current.shift();
+    redoStack.current = [];
+    setStaged(next);
+  }, [staged]);
   const undo = () => { const previous = undoStack.current.pop(); if (!previous) return; redoStack.current.push(cloneStaged(staged)); setStaged(previous); };
   const redo = () => { const next = redoStack.current.pop(); if (!next) return; undoStack.current.push(cloneStaged(staged)); setStaged(next); };
 

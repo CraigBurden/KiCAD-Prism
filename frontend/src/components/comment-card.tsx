@@ -114,8 +114,8 @@ export function CommentCard({
 
             {comment.replies.length > 0 && (
                 <div className="space-y-2 border-t bg-muted/30 px-3 py-2">
-                    {comment.replies.slice(-3).map((reply, index) => (
-                        <div key={`${reply.timestamp}-${index}`} className="text-xs">
+                    {comment.replies.slice(-3).map((reply) => (
+                        <div key={`${reply.timestamp}-${reply.author}-${reply.content}`} className="text-xs">
                             <span className="font-medium">{reply.author}</span>
                             <span className="text-muted-foreground"> · {reply.content}</span>
                         </div>

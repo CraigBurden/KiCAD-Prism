@@ -93,6 +93,9 @@ export function useDesignCompareJob(
         return () => controller.abort();
     }, [projectId, base, head]);
 
+    // The pending timeout is cleared in this effect's cleanup; the assignment
+    // happens inside the async poll loop, where the rule cannot see it.
+    // react-doctor-disable-next-line react-doctor/effect-needs-cleanup
     useEffect(() => {
         if (!jobId) return;
         const controller = new AbortController();
