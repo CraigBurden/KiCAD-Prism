@@ -248,12 +248,35 @@ def _snapshot_commit(repo_path: Path, commit: str, destination: Path, relative_p
 
 
 def _cache_dir(project_id: str, commit: str) -> Path:
+    _touch_cache_entry(project_id, commit)
     return (
         _CACHE_ROOT
         / project_id
         / commit
         / semantic_index_service.generator_cache_tag()
     )
+
+
+def _touch_cache_entry(project_id: str, commit: str) -> None:
+    """Stamp a cache entry as used, so eviction can rank by last use.
+
+    Eviction ranks whole ``project/commit`` entries by that directory's mtime.
+    Writing a snapshot does not update it: a directory's mtime changes when its
+    own entries change, not when something deeper down does, so the build only
+    ever touches ``commit/<tag>/snapshot``. Left alone the entry's mtime is its
+    creation time, which makes eviction FIFO -- and the commit everyone diffs
+    against is usually the oldest, so it would be evicted first and every
+    comparison against it would pay the cold path. Stamping here, at the single
+    choke point every reader and writer goes through, makes it a real LRU.
+    """
+
+    entry = _CACHE_ROOT / project_id / commit
+    try:
+        if entry.is_dir():
+            os.utime(entry, None)
+    except OSError:
+        # Losing a timestamp only degrades eviction order; never fail a compare.
+        pass
 
 
 def _cache_lock(project_id: str, commit: str) -> threading.Lock:
@@ -268,6 +291,13 @@ def _cache_lock(project_id: str, commit: str) -> threading.Lock:
 # 0 disables the cap.
 _CACHE_MAX_BYTES = int(os.environ.get("PRISM_DESIGN_COMPARE_CACHE_MAX_BYTES", str(20 * 1024**3)))
 
+# Never evict an entry used within this window. `_prune_revision_cache` runs in
+# one worker while three others may be mid-build, and the per-process
+# `_CACHE_LOCKS` cannot coordinate across them, so a plain size check could
+# delete a snapshot a live job is still reading. An entry is stamped on every
+# use, so a recent stamp means "someone may still be in here".
+_CACHE_MIN_AGE_SECONDS = float(os.environ.get("PRISM_DESIGN_COMPARE_CACHE_MIN_AGE", "900"))
+
 
 def _dir_size(path: Path) -> int:
     total = 0
@@ -280,12 +310,18 @@ def _dir_size(path: Path) -> int:
     return total
 
 
-def _prune_revision_cache(max_bytes: int = _CACHE_MAX_BYTES) -> None:
-    """Keep the revision cache under a size cap, evicting oldest commits first.
+def _prune_revision_cache(
+    max_bytes: int = _CACHE_MAX_BYTES,
+    *,
+    min_age_seconds: float = _CACHE_MIN_AGE_SECONDS,
+) -> None:
+    """Keep the revision cache under a size cap, evicting least-recently-used first.
 
-    Each ``project/commit`` directory is one cache entry. When the total exceeds
-    the cap, whole entries are removed in least-recently-used order (by directory
-    mtime, which the build touches) until it fits. Best-effort: any error here is
+    Each ``project/commit`` directory is one cache entry, stamped by
+    `_touch_cache_entry` every time a comparison resolves it. When the total
+    exceeds the cap, whole entries are removed oldest-stamp-first until it fits.
+    Entries stamped within ``min_age_seconds`` are never evicted, because a
+    concurrent worker may still be reading one. Best-effort: any error here is
     logged and swallowed, because a comparison result is already published and a
     full disk is a worse failure than a slightly oversized cache.
     """
@@ -293,7 +329,9 @@ def _prune_revision_cache(max_bytes: int = _CACHE_MAX_BYTES) -> None:
     if max_bytes <= 0 or not _CACHE_ROOT.exists():
         return
     try:
+        now = time.time()
         entries: list[tuple[float, Path, int]] = []
+        total = 0
         for project_dir in _CACHE_ROOT.iterdir():
             if not project_dir.is_dir():
                 continue
@@ -304,8 +342,12 @@ def _prune_revision_cache(max_bytes: int = _CACHE_MAX_BYTES) -> None:
                     mtime = commit_dir.stat().st_mtime
                 except OSError:
                     continue
-                entries.append((mtime, commit_dir, _dir_size(commit_dir)))
-        total = sum(size for _, _, size in entries)
+                size = _dir_size(commit_dir)
+                total += size
+                # In-use entries still count toward the total; they are just not
+                # candidates, so the cap is respected as soon as they age out.
+                if now - mtime >= min_age_seconds:
+                    entries.append((mtime, commit_dir, size))
         if total <= max_bytes:
             return
         for _mtime, commit_dir, size in sorted(entries, key=lambda item: item[0]):
@@ -314,6 +356,14 @@ def _prune_revision_cache(max_bytes: int = _CACHE_MAX_BYTES) -> None:
             shutil.rmtree(commit_dir, ignore_errors=True)
             total -= size
             logger.info("Evicted design-compare cache entry %s (%d bytes)", commit_dir, size)
+        if total > max_bytes:
+            logger.warning(
+                "Design-compare cache still %d bytes over the %d byte cap; "
+                "the remaining entries were used within the last %.0fs",
+                total - max_bytes,
+                max_bytes,
+                min_age_seconds,
+            )
     except Exception:
         logger.exception("Design-compare cache prune failed")
 
