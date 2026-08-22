@@ -765,6 +765,10 @@ export function ComparisonPresentationShell({
                 // Old/New reuses one retained viewport and swaps its prepared
                 // revision scene. Reapply the camera captured before the swap
                 // so switching revisions never performs an implicit zoom-fit.
+                // Imperative command to a live custom element, not data
+                // mutation: the element must not be cloned or replaced, and
+                // the camera change must not trigger a render.
+                // react-doctor-disable-next-line react-doctor/no-direct-state-mutation
                 primaryViewer.camera = retainedOldNewCamera;
             }
             setPreparation(session.preparation);
@@ -1108,6 +1112,9 @@ export function ComparisonPresentationShell({
         sessionPhase,
     ]);
 
+    // Every listener registered below is removed in the returned cleanup; the
+    // rule cannot match the removal loop across its multiline form.
+    // react-doctor-disable-next-line react-doctor/effect-needs-cleanup
     useEffect(() => {
         if (domain !== "pcb") {
             setPcbLayers([]);

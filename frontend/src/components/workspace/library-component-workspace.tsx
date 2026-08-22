@@ -697,6 +697,14 @@ function OverlayDifference({
             event.currentTarget.releasePointerCapture(event.pointerId);
             draggingRef.current = false;
           }}
+          onPointerCancel={() => {
+            // Capture is already released by the browser on cancel; dragging
+            // must stop or the divider tracks a pointer that no longer exists.
+            draggingRef.current = false;
+          }}
+          onLostPointerCapture={() => {
+            draggingRef.current = false;
+          }}
           onKeyDown={(event) => {
             if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
               event.preventDefault();

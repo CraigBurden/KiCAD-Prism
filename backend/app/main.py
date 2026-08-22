@@ -1,6 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.gzip_middleware import GzipMiddleware
+from starlette.middleware.gzip import GZipMiddleware
+from app.core.gzip_config import (
+    GZIP_COMPRESS_LEVEL,
+    GZIP_EXCLUDED_CONTENT_TYPES,
+    GZIP_MINIMUM_SIZE,
+)
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.comments import router as comments_router
@@ -198,7 +203,12 @@ app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
 # streaming body where the check is dead. KiCad source blobs are the heaviest
 # thing the app serves (a 9MB .kicad_pcb the comparison viewer fetches once per
 # side) and gzip several times over.
-app.add_middleware(GzipMiddleware, minimum_size=1024, compresslevel=6)
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=GZIP_MINIMUM_SIZE,
+    compresslevel=GZIP_COMPRESS_LEVEL,
+    exclude_content_types=GZIP_EXCLUDED_CONTENT_TYPES,
+)
 
 app.middleware("http")(apply_security_headers)
 

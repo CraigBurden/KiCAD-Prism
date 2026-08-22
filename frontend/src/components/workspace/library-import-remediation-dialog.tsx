@@ -113,7 +113,7 @@ export function LibraryImportRemediationDialog({ proposal, open, submitting, onO
             </div>
           </section>
 
-          {proposal.findings.length > 0 && <section><h3 className="text-sm font-semibold">Import findings</h3><div className="mt-2 space-y-2">{proposal.findings.map((finding, index) => <div key={`${finding.code}-${index}`} className="flex gap-2 border p-2.5 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><span>{finding.message}</span></div>)}</div></section>}
+          {proposal.findings.length > 0 && <section><h3 className="text-sm font-semibold">Import findings</h3><div className="mt-2 space-y-2">{proposal.findings.map((finding) => <div key={`${finding.code}-${finding.message}`} className="flex gap-2 border p-2.5 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><span>{finding.message}</span></div>)}</div></section>}
           <div className="space-y-1.5"><Label htmlFor="import-summary">Revision summary</Label><Input id="import-summary" value={changeSummary} onChange={(event) => setChangeSummary(event.target.value)} /></div>
         </div>}
 
