@@ -1861,6 +1861,14 @@ function main(argv) {
     // input, which is most of the difference between hitting M1's target and
     // missing it. Repeats also share the process on purpose: peak RSS is
     // monotone within one, so the reported ceiling is the worst case.
+    // --repeat measures JIT warm-up across genuine re-parses, so the cache must
+    // be off for it: otherwise runs 2..N are rehydrations and median/min describe
+    // cache reads, a phantom win against the numbers in the m1 parse doc. Honour
+    // an explicit ECAD_INDEX_CACHE=1 only for a single run.
+    if (repeat > 1) {
+        process.env.ECAD_INDEX_CACHE = "0";
+    }
+
     const snapshots = [];
     let report;
     for (const rawRoot of positional) {
