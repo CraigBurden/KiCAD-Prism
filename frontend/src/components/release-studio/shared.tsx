@@ -72,6 +72,9 @@ export function DocumentSheetPreview({
                         title={sheet.key}
                         src={url}
                         className="absolute inset-0 h-full w-full border-0 bg-preview-surface"
+                        // Blob URLs of build artifacts (PDFs/images): scripts
+                        // stay disabled, the browser's viewer keeps working.
+                        sandbox="allow-same-origin allow-downloads"
                     />
                 )}
             </div>
@@ -179,7 +182,8 @@ export function MemberViewer({
                 <p className="text-sm text-muted-foreground">No preview. Download to inspect.</p>
             )}
             {!failure && kind === "pdf" && objectUrl && (
-                <iframe title={member.path} src={objectUrl} className="h-[70vh] w-full border" />
+                // Same artifact-blob sandbox as the sheet preview above.
+                <iframe title={member.path} src={objectUrl} className="h-[70vh] w-full border" sandbox="allow-same-origin allow-downloads" />
             )}
             {!failure && kind === "image" && objectUrl && (
                 <img alt={member.path} src={objectUrl} className="max-h-[70vh] w-full border bg-preview-surface object-contain" />
