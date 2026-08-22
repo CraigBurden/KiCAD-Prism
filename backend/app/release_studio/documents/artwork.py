@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 import os
 import re
 import subprocess
@@ -117,6 +118,11 @@ class AcquiredArtwork:
     #: which case the PDF composite is skipped rather than placed wrongly.
     page_offset_x: float | None = None
     page_offset_y: float | None = None
+    #: True when the PDF page *is* the artwork viewport (a Cruncher view
+    #: rendered by :func:`render_pdf_page`): the whole page is the drawing,
+    #: and its declared size is intentional -- never a stray frame that
+    #: ``content_view`` should second-guess.
+    page_is_viewport: bool = False
 
     @property
     def body(self) -> str:
@@ -654,7 +660,9 @@ def _read_assembly_view(workdir: Path, label: str, view: str) -> AcquiredArtwork
     if not found:
         raise ArtworkError(f"kicad-cruncher produced no {view}")
 
-    svg_text = found[0].read_text(encoding="utf-8")
+    # Cruncher's A0-style canvas carries wide margins and hidden white
+    # markers; crop to the drawn board so the shared package scale fits.
+    svg_text = crop_viewport_to_ink(found[0].read_text(encoding="utf-8"))
     x, y, width, height = extents(svg_text)
     return AcquiredArtwork(
         layers=(f"Cruncher.{label}",),
@@ -669,6 +677,7 @@ def _read_assembly_view(workdir: Path, label: str, view: str) -> AcquiredArtwork
         # viewport, so the artwork's top-left is the page's top-left.
         page_offset_x=0.0,
         page_offset_y=0.0,
+        page_is_viewport=True,
     )
 
 
@@ -1019,6 +1028,13 @@ def content_view(
     )
     if not page_like and not oversized:
         return art
+    # A Cruncher view's canvas is the drawing itself (render_pdf_page makes
+    # the PDF page exactly this viewport).  Its margins are deliberate; the
+    # ink box of a transformed, partially-clipped document is not a better
+    # frame, and trusting one desynchronises the PDF composite from the page
+    # it stamps.
+    if art.page_is_viewport:
+        return art
 
     ink = ink_extent(art.svg_text)
     if ink is not None:
@@ -1056,6 +1072,203 @@ def content_view(
             view_height=board_height,
         )
     return art
+
+
+def _fmt_mm(value: float) -> str:
+    """Compact millimetre figure matching the rest of the document engine."""
+
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def crop_viewport_to_ink(svg_text: str, margin_mm: float = 5.0) -> str:
+    """Shrink *svg_text*\'s viewport to its drawn content plus ``margin_mm``.
+
+    Cruncher\'s explicit A0-style views emit a canvas much larger than the
+    board -- sized for on-screen panning, not for placement.  A canvas bigger
+    than the board breaks the sheet set: the shared package scale is chosen
+    against the board, so an oversized canvas overruns the artwork window and
+    the released PDF shows only a clipped slice of the drawing.
+
+    The crop rewrites only the ``viewBox``/``width``/``height`` attributes;
+    every element keeps its own coordinates.  Ink is measured with ancestor
+    transforms applied, because Cruncher nests rotated designators inside
+    per-component groups whose local coordinates say nothing about where the
+    ink lands.  Content outside the declared viewport is already invisible to
+    any renderer, so the measured box is intersected with it.
+    """
+
+    import xml.etree.ElementTree as ET
+
+    opened = _SVG_OPEN.search(svg_text)
+    if opened is None:
+        return svg_text
+    header = opened.group(0)
+    box = _VIEWBOX.search(header)
+    size_w = _WIDTH.search(header)
+    size_h = _HEIGHT.search(header)
+    if box is None or size_w is None or size_h is None:
+        return svg_text
+
+    try:
+        vx, vy, vw, vh = (float(p) for p in box.group(1).replace(",", " ").split())
+        width_mm = float(size_w.group(1)) * _UNIT_TO_MM.get(size_w.group(2).lower(), 1.0)
+        height_mm = float(size_h.group(1)) * _UNIT_TO_MM.get(size_h.group(2).lower(), 1.0)
+        if vw <= 0 or vh <= 0 or width_mm <= 0 or height_mm <= 0:
+            return svg_text
+    except ValueError:
+        return svg_text
+
+    units = vw / width_mm  # user units per millimetre
+
+    widths = [float(m.group(1)) for m in _STROKE_WIDTH.finditer(svg_text)]
+    pad_user = (max(widths) / 2.0) if widths else 0.0
+
+    xs: list[float] = []
+    ys: list[float] = []
+
+    def note(x: float, y: float, radius: float) -> None:
+        xs.extend((x - radius - pad_user, x + radius + pad_user))
+        ys.extend((y - radius - pad_user, y + radius + pad_user))
+
+    def matrix_for(element: ET.Element) -> list[float]:
+        tf = element.get("transform")
+        m = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+        if not tf:
+            return m
+        for name, args in re.findall(r"(\w+)\s*\(([^)]*)\)", tf):
+            v = [float(p) for p in re.split(r"[\s,]+", args.strip()) if p]
+            if name == "translate":
+                t = (1.0, 0.0, 0.0, 1.0, v[0], v[1] if len(v) > 1 else 0.0)
+            elif name == "scale":
+                sx = v[0]
+                sy = v[1] if len(v) > 1 else v[0]
+                t = (sx, 0.0, 0.0, sy, 0.0, 0.0)
+            elif name == "rotate":
+                angle = math.radians(v[0])
+                cos_a, sin_a = math.cos(angle), math.sin(angle)
+                if len(v) == 3:
+                    cx, cy = v[1], v[2]
+                    t = (
+                        cos_a, sin_a, -sin_a, cos_a,
+                        cx - (cos_a * cx - sin_a * cy),
+                        cy - (sin_a * cx + cos_a * cy),
+                    )
+                else:
+                    t = (cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0)
+            elif name == "matrix" and len(v) == 6:
+                t = tuple(v)
+            else:
+                continue
+            m = [
+                m[0] * t[0] + m[1] * t[2], m[0] * t[1] + m[1] * t[3],
+                m[2] * t[0] + m[3] * t[2], m[2] * t[1] + m[3] * t[3],
+                m[4] * t[0] + m[5] * t[2] + t[4],
+                m[4] * t[1] + m[5] * t[3] + t[5],
+            ]
+        return m
+
+    try:
+        root = ET.fromstring(svg_text)
+    except ET.ParseError:
+        return svg_text
+
+    _INVISIBLE = {"none", "", "white", "#fff", "#ffffff"}
+
+    def resolve_paint(element: ET.Element, inherited: tuple[str, str]) -> tuple[str, str]:
+        style = {}
+        raw_style = element.get("style")
+        if raw_style:
+            style = dict(
+                (k.strip().lower(), v.strip())
+                for k, v in (
+                    part.split(":", 1) for part in raw_style.split(";") if ":" in part
+                )
+            )
+        fill = element.get("fill") or style.get("fill") or inherited[0] or "black"
+        stroke = element.get("stroke") or style.get("stroke") or inherited[1] or "none"
+        return fill.lower(), stroke.lower()
+
+    def paints(fill: str, stroke: str) -> bool:
+        """True when this shape shows anything on a white sheet."""
+
+        return (fill not in _INVISIBLE) or (stroke not in _INVISIBLE)
+
+    def walk(element: ET.Element, matrix: list[float], paint: tuple[str, str]) -> None:
+        local = matrix_for(element)
+        m = [
+            matrix[0] * local[0] + matrix[1] * local[2],
+            matrix[0] * local[1] + matrix[1] * local[3],
+            matrix[2] * local[0] + matrix[3] * local[2],
+            matrix[2] * local[1] + matrix[3] * local[3],
+            matrix[4] * local[0] + matrix[5] * local[2] + local[4],
+            matrix[4] * local[1] + matrix[5] * local[3] + local[5],
+        ]
+        ink_paint = resolve_paint(element, paint)
+
+        def apply(x: float, y: float) -> tuple[float, float]:
+            return (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+
+        stretch = max(math.hypot(m[0], m[1]), math.hypot(m[2], m[3]))
+
+        tag = element.tag.rsplit("}", 1)[-1]
+        if paints(*ink_paint):
+            if tag == "circle":
+                cx = float(element.get("cx", "0"))
+                cy = float(element.get("cy", "0"))
+                r = float(element.get("r", "0"))
+                X, Y = apply(cx, cy)
+                note(X, Y, r * stretch)
+            elif tag == "path":
+                for x_pt, y_pt, radius in _path_points(element.get("d", "")):
+                    X, Y = apply(x_pt, y_pt)
+                    note(X, Y, radius * stretch)
+            elif tag == "polygon":
+                pairs = re.findall(
+                    r"(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)",
+                    element.get("points", ""),
+                )
+                for px, py in pairs:
+                    X, Y = apply(float(px), float(py))
+                    note(X, Y, 0.0)
+            elif tag == "text":
+                X, Y = apply(
+                    float(element.get("x", "0")), float(element.get("y", "0"))
+                )
+                probe = element.get("font-size") or element.get("style", "")
+                font = re.search(r"([0-9.]+)", probe)
+                note(X, Y, (float(font.group(1)) if font else 1.6) * 0.7 * stretch)
+
+        for child in element:
+            walk(child, m, ink_paint)
+
+    walk(root, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], ("black", "none"))
+    if not xs:
+        return svg_text
+
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+
+    margin_user = margin_mm * units
+    new_x = max(vx, left - margin_user)
+    new_y = max(vy, top - margin_user)
+    new_right = min(vx + vw, right + margin_user)
+    new_bottom = min(vy + vh, bottom + margin_user)
+    if new_right - new_x < vw * 0.05 or new_bottom - new_y < vh * 0.05:
+        # Degenerate measurement: keep the original viewport rather than
+        # cropping to something unusable.
+        return svg_text
+
+    new_vw = new_right - new_x
+    new_vh = new_bottom - new_y
+
+    new_header = _VIEWBOX.sub(
+        f'viewBox="{_fmt_mm(new_x)} {_fmt_mm(new_y)} {_fmt_mm(new_vw)} {_fmt_mm(new_vh)}"',
+        header,
+    )
+    new_header = _WIDTH.sub(f'width="{_fmt_mm(new_vw / units)}mm"', new_header, count=1)
+    new_header = _HEIGHT.sub(f'height="{_fmt_mm(new_vh / units)}mm"', new_header, count=1)
+    return svg_text[: opened.start()] + new_header + svg_text[opened.end():]
 
 
 def user_units_per_mm(svg_text: str) -> float:
@@ -1196,11 +1409,21 @@ def composite_pdf(
         source_x0 = float(source_box[0])
         source_y1 = float(source_box[3])
 
-        # The artwork's top-left on the overlay page, expressed in that page's
-        # own PDF coordinates (origin bottom-left).
-        art_x_pt = source_x0 + art.page_offset_x * MM_TO_PT
-        art_top_pt = source_y1 - art.page_offset_y * MM_TO_PT
-        art_bottom_pt = art_top_pt - art.view_height * MM_TO_PT
+        if art.page_is_viewport:
+            # The overlay page *is* the artwork viewport: stamp the whole
+            # page, exactly where the SVG backend draws the same document.
+            # Anchoring by `view_*` here would desynchronise the two backends
+            # whenever a caller narrowed the view (content_view) without
+            # changing the physical page.
+            art_x_pt = source_x0
+            art_top_pt = source_y1
+            art_bottom_pt = float(source_box[1])
+        else:
+            # The artwork's top-left on the overlay page, expressed in that
+            # page's own PDF coordinates (origin bottom-left).
+            art_x_pt = source_x0 + art.page_offset_x * MM_TO_PT
+            art_top_pt = source_y1 - art.page_offset_y * MM_TO_PT
+            art_bottom_pt = art_top_pt - art.view_height * MM_TO_PT
 
         # Target: the same artwork corner, on the sheet, at the stated ratio.
         target_x_pt = left * MM_TO_PT
