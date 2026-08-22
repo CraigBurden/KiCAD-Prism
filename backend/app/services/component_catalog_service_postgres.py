@@ -21,7 +21,7 @@ CATALOG_SCHEMA_EPOCH = "2"
 
 # Derived state. Each is rebuilt when its version changes, so these deliberately
 # stay outside the migration ladder, which records a migration as run once.
-POSTGRES_SEARCH_VERSION = "catalog-search-v2"
+POSTGRES_SEARCH_VERSION = "catalog-search-v3"
 POSTGRES_INTEGRITY_GUARDS_VERSION = "catalog-integrity-guards-v4"
 POSTGRES_HEAD_PROJECTION_VERSION = "catalog-component-heads-v5"
 POSTGRES_REMOTE_HEAD_PROJECTION_VERSION = "catalog-remote-heads-v4"
@@ -772,6 +772,27 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                     "CREATE INDEX IF NOT EXISTS idx_remote_heads_mpn_trgm "
                     "ON remote_component_heads USING GIN (lower(mpn) gin_trgm_ops)"
                 )
+                # The asset link picker searches with leading wildcards, which no
+                # btree index can serve, so without these it sequentially scans
+                # every asset on each keystroke.
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_assets_name_trgm "
+                    "ON assets USING GIN (lower(name) gin_trgm_ops)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_assets_target_name_trgm "
+                    "ON assets USING GIN (lower(target_name) gin_trgm_ops)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_assets_target_library_trgm "
+                    "ON assets USING GIN (lower(target_library) gin_trgm_ops)"
+                )
+                # A new index is invisible to the planner until the table has
+                # statistics that justify it: measured on ~17k assets, the search
+                # kept seq scanning until this ran, then dropped from 27ms to
+                # under 1ms. Waiting for autovacuum would leave every deploy slow
+                # for as long as that takes to come around.
+                conn.execute("ANALYZE assets")
                 conn.execute(
                     """
                     INSERT INTO catalog_meta (key, value) VALUES (%s, %s)

@@ -27,7 +27,6 @@ import {
   PackageCheck,
   RefreshCw,
   RotateCcw,
-  Search,
   SearchCheck,
   ShieldCheck,
   ShieldX,
@@ -53,8 +52,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { FileInput } from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { AsyncSearchPicker } from "./async-search-picker";
 import {
   Select,
   SelectContent,
@@ -1356,6 +1355,65 @@ function useEvidenceLoadState() {
   return { state, stateRef, update };
 }
 
+/**
+ * Load one tab's evidence once per component generation.
+ *
+ * Each tab used to carry its own copy of this. The parts that look incidental
+ * are not: the `idle` check is what stops a re-render re-requesting, `settled`
+ * distinguishes "aborted before it answered" (reset to idle so the next visit
+ * retries) from "answered" (leave the outcome alone), and the generation string
+ * ties a response to the component revision it was asked for.
+ */
+function useEvidenceResource<T>({
+  enabled,
+  generation,
+  retryKey,
+  load,
+  loadState,
+  onLoaded,
+}: {
+  enabled: boolean;
+  generation: string;
+  retryKey: number;
+  load: (signal: AbortSignal) => Promise<T>;
+  loadState: ReturnType<typeof useEvidenceLoadState>;
+  onLoaded: (value: T) => void;
+}) {
+  const { stateRef, update } = loadState;
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
+
+  useEffect(() => {
+    if (!enabled || stateRef.current.status !== "idle") return;
+    const controller = new AbortController();
+    let settled = false;
+    update({ status: "loading", error: "", generation });
+    void loadRef
+      .current(controller.signal)
+      .then((value) => {
+        settled = true;
+        if (controller.signal.aborted) return;
+        onLoadedRef.current(value);
+        update({ status: "loaded", error: "", generation });
+      })
+      .catch((reason: unknown) => {
+        settled = true;
+        if (controller.signal.aborted) return;
+        update({
+          status: "error",
+          error: reason instanceof Error ? reason.message : String(reason),
+          generation,
+        });
+      });
+    return () => {
+      controller.abort();
+      if (!settled) update(IDLE_EVIDENCE);
+    };
+  }, [enabled, generation, retryKey, stateRef, update]);
+}
+
 function combinedEvidenceState(states: EvidenceLoadState[]): EvidenceLoadState {
   const failed = states.find((state) => state.status === "error");
   if (failed) return failed;
@@ -1464,6 +1522,7 @@ function MetadataEditDialog({
 
 const STORED_FILE_RESULT_LIMIT = 50;
 
+/** Pick a file already sitting in Prism storage, including ones never registered as an asset. */
 function StoredFilePicker({
   id,
   assetType,
@@ -1476,101 +1535,18 @@ function StoredFilePicker({
   onChange: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [files, setFiles] = useState<string[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  // Highlighted row for keyboard use. The search box keeps DOM focus and points
-  // at this row through aria-activedescendant, so ↑/↓ never leave the field.
-  const [activeIndex, setActiveIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const listId = `${id}-listbox`;
-  const optionId = (index: number) => `${id}-option-${index}`;
-  // Read inside the fetch effect without making a re-selection refetch.
-  const valueRef = useRef(value);
-  valueRef.current = value;
-
-  useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      setLoading(true);
-      setError("");
-      void fetchJson<{ files: string[]; total?: number }>(
-        `/api/catalog/assets/browse?asset_type=${encodeURIComponent(assetType)}&limit=${STORED_FILE_RESULT_LIMIT}&q=${encodeURIComponent(query.trim())}`,
-        { signal: controller.signal },
-        "Stored assets could not be listed.",
-      )
-        .then((response) => {
-          if (!controller.signal.aborted) {
-            setFiles(response.files);
-            setTotal(response.total ?? response.files.length);
-            // Land on the already-linked file when it survived the filter.
-            const selected = response.files.indexOf(valueRef.current);
-            setActiveIndex(selected >= 0 ? selected : 0);
-          }
-        })
-        .catch((reason: unknown) => {
-          if (controller.signal.aborted) return;
-          setFiles([]);
-          setTotal(0);
-          setError(reason instanceof Error ? reason.message : String(reason));
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setLoading(false);
-        });
-    }, 180);
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-  }, [assetType, open, query]);
-
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
-
-  // Keep the keyboard-highlighted row inside the scroll viewport.
-  useEffect(() => {
-    if (!open) return;
-    listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
-  }, [activeIndex, open]);
-
-  const commit = (path: string) => {
-    onChange(path);
-    setOpen(false);
-    setQuery("");
-  };
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!files.length) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveIndex((index) => (index + 1) % files.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveIndex((index) => (index - 1 + files.length) % files.length);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      setActiveIndex(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      setActiveIndex(files.length - 1);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const path = files[activeIndex];
-      if (path) commit(path);
-    }
-  };
+  const kind = ASSET_LABELS[assetType].toLowerCase();
 
   return (
-    // modal: the picker portals outside the dialog's scroll lock, so without it
-    // Radix blocks wheel/touchmove over the file list. As the topmost modal
-    // layer, scrolling inside the list is allowed and everything else stays put.
-    <Popover open={open} onOpenChange={setOpen} modal>
-      <PopoverTrigger asChild>
+    <AsyncSearchPicker<string>
+      id={id}
+      open={open}
+      onOpenChange={setOpen}
+      // Portalled out of the attach dialog, so it needs its own modal layer.
+      modal
+      contentClassName="w-[var(--radix-popover-trigger-width)]"
+      fetchKey={assetType}
+      trigger={
         <button
           type="button"
           id={id}
@@ -1580,69 +1556,32 @@ function StoredFilePicker({
           <span className={cn("min-w-0 truncate", value ? "text-foreground" : "text-muted-foreground")}>{value || "Select a stored file"}</span>
           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
         </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
-        <div className="flex items-center gap-2 border-b px-2.5 py-2">
-          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={handleKeyDown}
-            role="combobox"
-            aria-expanded={open}
-            aria-controls={listId}
-            aria-autocomplete="list"
-            aria-activedescendant={files[activeIndex] ? optionId(activeIndex) : undefined}
-            placeholder={`Search stored ${ASSET_LABELS[assetType].toLowerCase()} files`}
-            className="h-7 border-0 px-0 text-xs shadow-none focus-visible:ring-0"
-          />
-          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
-        </div>
-        <div
-          ref={listRef}
-          id={listId}
-          role="listbox"
-          aria-label={`Stored ${ASSET_LABELS[assetType].toLowerCase()} files`}
-          className="max-h-64 overflow-y-auto"
-        >
-          {error ? (
-            <p className="px-3 py-4 text-center text-xs text-destructive">{error}</p>
-          ) : !loading && files.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-muted-foreground">
-              No stored {ASSET_LABELS[assetType].toLowerCase()} files match.
-            </p>
-          ) : (
-            files.map((path, index) => (
-              <div
-                key={path}
-                id={optionId(index)}
-                role="option"
-                aria-selected={index === activeIndex}
-                data-active={index === activeIndex}
-                // Options are divs, not buttons: focus stays in the search box
-                // so aria-activedescendant stays authoritative and Tab does not
-                // walk 50 rows. Pointer selection keeps the same focus.
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => commit(path)}
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-2 border-b border-border/60 px-2.5 py-2 text-left text-xs last:border-b-0",
-                  index === activeIndex && "bg-muted/60",
-                  path === value && "font-medium"
-                )}
-              >
-                <Check className={cn("h-3.5 w-3.5 shrink-0", path === value ? "text-primary" : "invisible")} />
-                <span className="min-w-0 flex-1 truncate">{path}</span>
-              </div>
-            ))
-          )}
-        </div>
-        {!error && total > files.length ? (
-          <p className="border-t px-2.5 py-1.5 text-[11px] text-muted-foreground">Showing {files.length} of {total} stored files — refine the search to narrow.</p>
-        ) : null}
-      </PopoverContent>
-    </Popover>
+      }
+      fetchPage={(query, signal) =>
+        fetchJson<{ files: string[]; total?: number }>(
+          `/api/catalog/assets/browse?asset_type=${encodeURIComponent(assetType)}&limit=${STORED_FILE_RESULT_LIMIT}&q=${encodeURIComponent(query)}`,
+          { signal },
+          "Stored assets could not be listed.",
+        ).then((response) => ({ items: response.files, total: response.total }))
+      }
+      getKey={(path) => path}
+      isSelected={(path) => path === value}
+      onSelect={onChange}
+      searchPlaceholder={`Search stored ${kind} files`}
+      listLabel={`Stored ${kind} files`}
+      emptyMessage={`No stored ${kind} files match.`}
+      renderItem={(path) => (
+        <>
+          <Check className={cn("h-3.5 w-3.5 shrink-0", path === value ? "text-primary" : "invisible")} />
+          <span className="min-w-0 flex-1 truncate">{path}</span>
+        </>
+      )}
+      renderFooter={({ shown, total }) =>
+        total > shown ? (
+          <p className="border-t px-2.5 py-1.5 text-[11px] text-muted-foreground">Showing {shown} of {total} stored files — refine the search to narrow.</p>
+        ) : null
+      }
+    />
   );
 }
 
@@ -1826,11 +1765,18 @@ export function LibraryComponentWorkspace({
   const [historicalError, setHistoricalError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [evidenceRetryKey, setEvidenceRetryKey] = useState(0);
-  const { state: revisionsLoadState, stateRef: revisionsLoadRef, update: setRevisionsLoad } = useEvidenceLoadState();
-  const { state: reviewsLoadState, stateRef: reviewsLoadRef, update: setReviewsLoad } = useEvidenceLoadState();
-  const { state: releasesLoadState, stateRef: releasesLoadRef, update: setReleasesLoad } = useEvidenceLoadState();
-  const { state: usageLoadState, stateRef: usageLoadRef, update: setUsageLoad } = useEvidenceLoadState();
-  const { state: auditLoadState, stateRef: auditLoadRef, update: setAuditLoad } = useEvidenceLoadState();
+  // Kept whole so each can be handed to useEvidenceResource; the destructured
+  // aliases below are what the render and retry paths read.
+  const revisionsLoad = useEvidenceLoadState();
+  const reviewsLoad = useEvidenceLoadState();
+  const releasesLoad = useEvidenceLoadState();
+  const usageLoad = useEvidenceLoadState();
+  const auditLoad = useEvidenceLoadState();
+  const { state: revisionsLoadState, stateRef: revisionsLoadRef, update: setRevisionsLoad } = revisionsLoad;
+  const { state: reviewsLoadState, stateRef: reviewsLoadRef, update: setReviewsLoad } = reviewsLoad;
+  const { state: releasesLoadState, stateRef: releasesLoadRef, update: setReleasesLoad } = releasesLoad;
+  const { state: usageLoadState, stateRef: usageLoadRef, update: setUsageLoad } = usageLoad;
+  const { state: auditLoadState, stateRef: auditLoadRef, update: setAuditLoad } = auditLoad;
   const { state: diffLoadState, stateRef: diffLoadRef, update: setDiffLoad } = useEvidenceLoadState();
   const diffCacheRef = useRef(new Map<string, CatalogRevisionDiff>());
   const [transitionTarget, setTransitionTarget] = useState<WorkflowStage | null>(null);
@@ -1938,119 +1884,61 @@ export function LibraryComponentWorkspace({
     return () => controller.abort();
   }, [componentId, currentComponent, requestedRevisionId]);
 
-  useEffect(() => {
-    if (!componentReady || !needsRevisions || revisionsLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setRevisionsLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void fetchJson<{ items: CatalogRevisionSummary[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/revisions`, { signal: controller.signal })
-      .then((response) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setRevisions(response.items);
-        setRevisionsLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setRevisionsLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setRevisionsLoad(IDLE_EVIDENCE);
-    };
-  }, [componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsRevisions, revisionsLoadRef, setRevisionsLoad]);
+  const componentPath = `/api/catalog/components/${encodeURIComponent(componentId)}`;
 
-  useEffect(() => {
-    if (!componentReady || !needsReviews || reviewsLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setReviewsLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void fetchJson<{ items: CatalogReviewDecision[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/reviews`, { signal: controller.signal })
-      .then((response) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setReviews(response.items);
-        setReviewsLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setReviewsLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setReviewsLoad(IDLE_EVIDENCE);
-    };
-  }, [componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsReviews, reviewsLoadRef, setReviewsLoad]);
+  useEvidenceResource({
+    enabled: componentReady && needsRevisions,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: revisionsLoad,
+    load: (signal) => fetchJson<{ items: CatalogRevisionSummary[] }>(`${componentPath}/revisions`, { signal }),
+    onLoaded: (response) => setRevisions(response.items),
+  });
 
-  useEffect(() => {
-    if (!componentReady || !needsReleases || releasesLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setReleasesLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void fetchJson<{ items: CatalogReleaseRecord[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/releases`, { signal: controller.signal })
-      .then((response) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setReleases(response.items);
-        setReleasesLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setReleasesLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setReleasesLoad(IDLE_EVIDENCE);
-    };
-  }, [componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsReleases, releasesLoadRef, setReleasesLoad]);
+  useEvidenceResource({
+    enabled: componentReady && needsReviews,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: reviewsLoad,
+    load: (signal) => fetchJson<{ items: CatalogReviewDecision[] }>(`${componentPath}/reviews`, { signal }),
+    onLoaded: (response) => setReviews(response.items),
+  });
 
-  useEffect(() => {
-    if (!componentReady || !needsUsage || usageLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setUsageLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void fetchJson<{ items: CatalogComponentUsage[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/usage`, { signal: controller.signal })
-      .then((response) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setUsage(response.items);
-        setUsageLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setUsageLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setUsageLoad(IDLE_EVIDENCE);
-    };
-  }, [componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsUsage, setUsageLoad, usageLoadRef]);
+  useEvidenceResource({
+    enabled: componentReady && needsReleases,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: releasesLoad,
+    load: (signal) => fetchJson<{ items: CatalogReleaseRecord[] }>(`${componentPath}/releases`, { signal }),
+    onLoaded: (response) => setReleases(response.items),
+  });
 
-  useEffect(() => {
-    if (!componentReady || !needsAudit || auditLoadRef.current.status !== "idle") return;
-    const controller = new AbortController();
-    let settled = false;
-    setAuditLoad({ status: "loading", error: "", generation: evidenceGeneration });
-    void Promise.all([
-      fetchJson<{ items: CatalogAuditEvent[] }>(`/api/catalog/components/${encodeURIComponent(componentId)}/audit`, { signal: controller.signal }),
-      fetchJson<CatalogAuditVerification>(`/api/catalog/components/${encodeURIComponent(componentId)}/audit/verify`, { signal: controller.signal }),
-    ])
-      .then(([eventList, auditVerification]) => {
-        settled = true;
-        if (controller.signal.aborted) return;
-        setEvents(eventList.items);
-        setVerification(auditVerification);
-        setAuditLoad({ status: "loaded", error: "", generation: evidenceGeneration });
-      })
-      .catch((reason: unknown) => {
-        settled = true;
-        if (!controller.signal.aborted) setAuditLoad({ status: "error", error: reason instanceof Error ? reason.message : String(reason), generation: evidenceGeneration });
-      });
-    return () => {
-      controller.abort();
-      if (!settled) setAuditLoad(IDLE_EVIDENCE);
-    };
-  }, [auditLoadRef, componentId, componentReady, evidenceGeneration, evidenceRetryKey, needsAudit, setAuditLoad]);
+  useEvidenceResource({
+    enabled: componentReady && needsUsage,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: usageLoad,
+    load: (signal) => fetchJson<{ items: CatalogComponentUsage[] }>(`${componentPath}/usage`, { signal }),
+    onLoaded: (response) => setUsage(response.items),
+  });
+
+  useEvidenceResource({
+    enabled: componentReady && needsAudit,
+    generation: evidenceGeneration,
+    retryKey: evidenceRetryKey,
+    loadState: auditLoad,
+    // The chain and its verification are one piece of evidence: a verified
+    // chain shown against a half-loaded event list would be misleading.
+    load: (signal) =>
+      Promise.all([
+        fetchJson<{ items: CatalogAuditEvent[] }>(`${componentPath}/audit`, { signal }),
+        fetchJson<CatalogAuditVerification>(`${componentPath}/audit/verify`, { signal }),
+      ]),
+    onLoaded: ([eventList, auditVerification]) => {
+      setEvents(eventList.items);
+      setVerification(auditVerification);
+    },
+  });
 
   const diffPair = useMemo(() => {
     if (!activeComponent) return null;

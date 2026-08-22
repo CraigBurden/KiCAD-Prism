@@ -38,3 +38,16 @@ configure({ asyncUtilTimeout: 5_000 });
  * reason — there are no vitest globals here.
  */
 afterEach(cleanup);
+
+/**
+ * jsdom implements no layout, so it ships no `Element.scrollIntoView`.
+ *
+ * Any component that keeps a keyboard-highlighted row in view calls it and
+ * would otherwise throw during a passive effect — a failure in the component
+ * under test that says nothing about the component. Stubbed centrally rather
+ * than guarded at each call site, so production code is not shaped around a
+ * gap in the test environment.
+ */
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
