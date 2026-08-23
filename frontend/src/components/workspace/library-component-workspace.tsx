@@ -1363,6 +1363,26 @@ type EvidenceLoadState = {
 
 const IDLE_EVIDENCE: EvidenceLoadState = { status: "idle", error: "" };
 
+type EvidenceValues = {
+  revisions: CatalogRevisionSummary[];
+  events: CatalogAuditEvent[];
+  verification: CatalogAuditVerification | null;
+  usage: CatalogComponentUsage[];
+  reviews: CatalogReviewDecision[];
+  releases: CatalogReleaseRecord[];
+};
+
+type EvidenceBundle = EvidenceValues & { generation: string };
+
+const EMPTY_EVIDENCE: EvidenceValues = {
+  revisions: [],
+  events: [],
+  verification: null,
+  usage: [],
+  reviews: [],
+  releases: [],
+};
+
 function useEvidenceLoadState() {
   const [state, setState] = useState<EvidenceLoadState>(IDLE_EVIDENCE);
   const stateRef = useRef<EvidenceLoadState>(IDLE_EVIDENCE);
@@ -1402,7 +1422,14 @@ function useEvidenceResource<T>({
   const onLoadedRef = useCommittedRef(onLoaded);
 
   useEffect(() => {
-    if (!enabled || stateRef.current.status !== "idle") return;
+    // A result belonging to an earlier generation is not a result: it is the
+    // previous component's, and counts as nothing loaded. Without this the
+    // status stays "loaded" across a component change and the guard below
+    // refuses to fetch the new one -- which is why the workspace used to reset
+    // every load state by hand.
+    const settledElsewhere = stateRef.current.generation !== undefined
+      && stateRef.current.generation !== generation;
+    if (!enabled || (!settledElsewhere && stateRef.current.status !== "idle")) return;
     const controller = new AbortController();
     let settled = false;
     update({ status: "loading", error: "", generation });
@@ -1771,12 +1798,12 @@ export function LibraryComponentWorkspace({
   const returnLabel = returnView === "releases" ? "Release Queue" : returnView === "imports" ? "Import Center" : "Catalog";
   const [currentComponent, setCurrentComponent] = useState<CatalogComponent | null>(null);
   const [activeComponent, setActiveComponent] = useState<CatalogComponent | null>(null);
-  const [revisions, setRevisions] = useState<CatalogRevisionSummary[]>([]);
-  const [events, setEvents] = useState<CatalogAuditEvent[]>([]);
-  const [verification, setVerification] = useState<CatalogAuditVerification | null>(null);
-  const [usage, setUsage] = useState<CatalogComponentUsage[]>([]);
-  const [reviews, setReviews] = useState<CatalogReviewDecision[]>([]);
-  const [releases, setReleases] = useState<CatalogReleaseRecord[]>([]);
+  // Every tab's evidence belongs to one component generation, so it is stored
+  // as one value carrying that generation. Reading it back through the guard
+  // below is what used to be an effect blanking six pieces of state.
+  const [evidenceStore, setEvidenceStore] = useState<EvidenceBundle>(
+    () => ({ generation: "", ...EMPTY_EVIDENCE }),
+  );
   const [diff, setDiff] = useState<CatalogRevisionDiff | null>(null);
   const [componentLoading, setComponentLoading] = useState(true);
   const [componentError, setComponentError] = useState("");
@@ -1798,7 +1825,11 @@ export function LibraryComponentWorkspace({
   const { state: usageLoadState, stateRef: usageLoadRef, update: setUsageLoad } = usageLoad;
   const { state: auditLoadState, stateRef: auditLoadRef, update: setAuditLoad } = auditLoad;
   const { state: diffLoadState, stateRef: diffLoadRef, update: setDiffLoad } = useEvidenceLoadState();
-  const diffCacheRef = useRef(new Map<string, CatalogRevisionDiff>());
+  // Diffs are cached per revision pair. The cache carries the generation it was
+  // filled for so it can be dropped when the component changes, which the reset
+  // effect used to do; keys already include componentId, so this is about not
+  // holding another component's payloads, not about correctness.
+  const diffCacheRef = useRef({ generation: "", entries: new Map<string, CatalogRevisionDiff>() });
   const [transitionTarget, setTransitionTarget] = useState<WorkflowStage | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
@@ -1829,6 +1860,17 @@ export function LibraryComponentWorkspace({
   }, [setSearchParams]);
 
   const evidenceGeneration = `${componentId}:${refreshKey}`;
+  const { revisions, events, verification, usage, reviews, releases } =
+    evidenceStore.generation === evidenceGeneration ? evidenceStore : EMPTY_EVIDENCE;
+  const publishEvidence = useCallback(
+    <K extends keyof EvidenceValues>(key: K, value: EvidenceValues[K]) =>
+      setEvidenceStore((current) => ({
+        ...(current.generation === evidenceGeneration ? current : EMPTY_EVIDENCE),
+        generation: evidenceGeneration,
+        [key]: value,
+      })),
+    [evidenceGeneration],
+  );
   const needsRevisions = activeTab === "revisions" || activeTab === "review";
   const needsReviews = activeTab === "review" || activeTab === "audit";
   const needsReleases = activeTab === "review" || activeTab === "audit";
@@ -1836,32 +1878,6 @@ export function LibraryComponentWorkspace({
   const needsAudit = activeTab === "audit";
   const currentRevisionKey = currentComponent?.revision_id || "";
   const componentReady = Boolean(currentRevisionKey && componentGeneration === evidenceGeneration);
-
-  useEffect(() => {
-    setRevisions([]);
-    setEvents([]);
-    setVerification(null);
-    setUsage([]);
-    setReviews([]);
-    setReleases([]);
-    setDiff(null);
-    diffCacheRef.current.clear();
-    setRevisionsLoad(IDLE_EVIDENCE);
-    setReviewsLoad(IDLE_EVIDENCE);
-    setReleasesLoad(IDLE_EVIDENCE);
-    setUsageLoad(IDLE_EVIDENCE);
-    setAuditLoad(IDLE_EVIDENCE);
-    setDiffLoad(IDLE_EVIDENCE);
-  }, [
-    componentId,
-    refreshKey,
-    setRevisionsLoad,
-    setReviewsLoad,
-    setReleasesLoad,
-    setUsageLoad,
-    setAuditLoad,
-    setDiffLoad,
-  ]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1912,7 +1928,7 @@ export function LibraryComponentWorkspace({
     retryKey: evidenceRetryKey,
     loadState: revisionsLoad,
     load: (signal) => fetchJson<{ items: CatalogRevisionSummary[] }>(`${componentPath}/revisions`, { signal }),
-    onLoaded: (response) => setRevisions(response.items),
+    onLoaded: (response) => publishEvidence("revisions", response.items),
   });
 
   useEvidenceResource({
@@ -1921,7 +1937,7 @@ export function LibraryComponentWorkspace({
     retryKey: evidenceRetryKey,
     loadState: reviewsLoad,
     load: (signal) => fetchJson<{ items: CatalogReviewDecision[] }>(`${componentPath}/reviews`, { signal }),
-    onLoaded: (response) => setReviews(response.items),
+    onLoaded: (response) => publishEvidence("reviews", response.items),
   });
 
   useEvidenceResource({
@@ -1930,7 +1946,7 @@ export function LibraryComponentWorkspace({
     retryKey: evidenceRetryKey,
     loadState: releasesLoad,
     load: (signal) => fetchJson<{ items: CatalogReleaseRecord[] }>(`${componentPath}/releases`, { signal }),
-    onLoaded: (response) => setReleases(response.items),
+    onLoaded: (response) => publishEvidence("releases", response.items),
   });
 
   useEvidenceResource({
@@ -1939,7 +1955,7 @@ export function LibraryComponentWorkspace({
     retryKey: evidenceRetryKey,
     loadState: usageLoad,
     load: (signal) => fetchJson<{ items: CatalogComponentUsage[] }>(`${componentPath}/usage`, { signal }),
-    onLoaded: (response) => setUsage(response.items),
+    onLoaded: (response) => publishEvidence("usage", response.items),
   });
 
   useEvidenceResource({
@@ -1955,8 +1971,8 @@ export function LibraryComponentWorkspace({
         fetchJson<CatalogAuditVerification>(`${componentPath}/audit/verify`, { signal }),
       ]),
     onLoaded: ([eventList, auditVerification]) => {
-      setEvents(eventList.items);
-      setVerification(auditVerification);
+      publishEvidence("events", eventList.items);
+      publishEvidence("verification", auditVerification);
     },
   });
 
@@ -1975,8 +1991,11 @@ export function LibraryComponentWorkspace({
       setDiffLoad({ status: "loaded", error: "", generation: evidenceGeneration });
       return;
     }
+    if (diffCacheRef.current.generation !== evidenceGeneration) {
+      diffCacheRef.current = { generation: evidenceGeneration, entries: new Map() };
+    }
     const cacheKey = `${componentId}:${diffPair.before}:${diffPair.after}`;
-    const cached = diffCacheRef.current.get(cacheKey);
+    const cached = diffCacheRef.current.entries.get(cacheKey);
     if (cached) {
       setDiff(cached);
       setDiffLoad({ status: "loaded", error: "", generation: cacheKey });
@@ -1992,7 +2011,7 @@ export function LibraryComponentWorkspace({
       .then((value) => {
         settled = true;
         if (controller.signal.aborted) return;
-        diffCacheRef.current.set(cacheKey, value);
+        diffCacheRef.current.entries.set(cacheKey, value);
         setDiff(value);
         setDiffLoad({ status: "loaded", error: "", generation: cacheKey });
       })
