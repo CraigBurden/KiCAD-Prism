@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     CheckCircle,
     ChevronDown,
@@ -148,6 +148,12 @@ function PanelCommentCard({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [expanded, setExpanded] = useState(true);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const replyRef = useRef<HTMLTextAreaElement>(null);
+
+    // Revealing the reply box is a deliberate request to type in it.
+    useEffect(() => {
+        if (isReplying && canModify) replyRef.current?.focus();
+    }, [isReplying, canModify]);
     const isResolved = comment.status === "RESOLVED";
 
     const handleReply = async () => {
@@ -168,12 +174,11 @@ function PanelCommentCard({
                 isResolved ? "opacity-70" : ""
             } ${highlighted ? "ring-2 ring-primary" : ""}`}
         >
-            <div
-                className="cursor-pointer rounded-t-lg p-3 hover:bg-muted/50"
-                onClick={(e) => {
-                    if ((e.target as HTMLElement).closest("button")) return;
-                    onClick();
-                }}
+            <button
+                type="button"
+                className="block w-full cursor-pointer rounded-t-lg p-3 pb-0 text-left hover:bg-muted/50"
+                onClick={onClick}
+                aria-label={`Open comment from ${comment.author}`}
             >
                 <div className="mb-2 flex items-start justify-between">
                     <div className="flex items-center gap-2">
@@ -206,64 +211,64 @@ function PanelCommentCard({
                     </div>
                 )}
 
-                <div className="flex items-center justify-between">
-                    {canModify ? (
-                        <>
-                            <div className="flex gap-1">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2 text-xs"
-                                    onClick={() => setIsReplying(!isReplying)}
-                                >
-                                    <ReplyIcon className="mr-1 h-3 w-3" />
-                                    Reply
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setConfirmDelete(true);
-                                    }}
-                                >
-                                    <Trash2 className="mr-1 h-3 w-3" />
-                                    Delete
-                                </Button>
-                            </div>
+            </button>
+
+            <div className="flex items-center justify-between px-3 pb-3 pt-2">
+                {canModify ? (
+                    <>
+                        <div className="flex gap-1">
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className={`h-6 px-2 text-xs ${isResolved ? "text-success" : "text-muted-foreground"}`}
-                                onClick={() => onResolve(comment.id, !isResolved)}
+                                className="h-6 px-2 text-xs"
+                                onClick={() => setIsReplying(!isReplying)}
                             >
-                                {isResolved ? (
-                                    <>
-                                        <CheckCircle className="mr-1 h-3 w-3" />
-                                        Resolved
-                                    </>
-                                ) : (
-                                    <>
-                                        <Circle className="mr-1 h-3 w-3" />
-                                        Resolve
-                                    </>
-                                )}
+                                <ReplyIcon className="mr-1 h-3 w-3" />
+                                Reply
                             </Button>
-                        </>
-                    ) : (
-                        <div className="text-xs text-muted-foreground">Read-only</div>
-                    )}
-                </div>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => setConfirmDelete(true)}
+                            >
+                                <Trash2 className="mr-1 h-3 w-3" />
+                                Delete
+                            </Button>
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className={`h-6 px-2 text-xs ${isResolved ? "text-success" : "text-muted-foreground"}`}
+                            onClick={() => onResolve(comment.id, !isResolved)}
+                        >
+                            {isResolved ? (
+                                <>
+                                    <CheckCircle className="mr-1 h-3 w-3" />
+                                    Resolved
+                                </>
+                            ) : (
+                                <>
+                                    <Circle className="mr-1 h-3 w-3" />
+                                    Resolve
+                                </>
+                            )}
+                        </Button>
+                    </>
+                ) : (
+                    <div className="text-xs text-muted-foreground">Read-only</div>
+                )}
             </div>
 
             {(comment.replies.length > 0 || (isReplying && canModify)) && (
                 <div className="space-y-3 border-t bg-muted/20 p-3">
                     {comment.replies.length > 0 && (
                         <div className="space-y-3">
-                            <div
-                                className="flex cursor-pointer select-none items-center gap-1 text-xs text-muted-foreground"
+                            <button
+                                type="button"
+                                className="flex select-none items-center gap-1 text-xs text-muted-foreground"
                                 onClick={() => setExpanded(!expanded)}
+                                aria-expanded={expanded}
                             >
                                 {expanded ? (
                                     <ChevronDown className="h-3 w-3" />
@@ -271,7 +276,7 @@ function PanelCommentCard({
                                     <ChevronRight className="h-3 w-3" />
                                 )}
                                 {comment.replies.length} replies
-                            </div>
+                            </button>
                             {expanded &&
                                 comment.replies.map((reply) => (
                                     <div key={`${reply.timestamp}-${reply.author}-${reply.content}`} className="relative border-l-2 border-muted pl-2 text-sm">
@@ -289,24 +294,28 @@ function PanelCommentCard({
 
                     {isReplying && canModify && (
                         <div className="mt-2 flex items-end gap-2 pt-2">
-                            <textarea
-                                value={replyContent}
-                                onChange={(e) => setReplyContent(e.target.value)}
-                                placeholder="Write a reply..."
-                                className="min-h-[60px] flex-1 resize-none rounded border bg-background p-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                autoFocus
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                                        e.preventDefault();
-                                        void handleReply();
-                                    }
-                                }}
-                            />
+                            <label className="flex-1 space-y-1 text-xs font-medium">
+                                <span>Reply</span>
+                                <textarea
+                                    ref={replyRef}
+                                    value={replyContent}
+                                    onChange={(e) => setReplyContent(e.target.value)}
+                                    placeholder="Write a reply..."
+                                    className="min-h-[60px] w-full resize-none rounded border bg-background p-2 text-sm font-normal text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                                            e.preventDefault();
+                                            void handleReply();
+                                        }
+                                    }}
+                                />
+                            </label>
                             <Button
                                 size="icon"
                                 className="mb-0.5 h-8 w-8"
                                 disabled={isSubmitting || !replyContent.trim()}
                                 onClick={() => void handleReply()}
+                                aria-label="Send reply"
                             >
                                 <Send className="h-4 w-4" />
                             </Button>

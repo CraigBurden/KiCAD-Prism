@@ -34,6 +34,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type {
     ECadViewerElement,
     EcadPcbLayerState,
@@ -72,8 +73,7 @@ export function EcadViewerControls({
     const [resizing, setResizing] = useState(false);
     const railRef = useRef<HTMLElement | null>(null);
     const handleRef = useRef<HTMLDivElement | null>(null);
-    const openRef = useRef(open);
-    openRef.current = open;
+    const openRef = useCommittedRef(open);
     const [section, setSection] = useState<"layers" | "objects">("layers");
     const [pcbState, setPcbState] = useState<EcadPcbViewState | null>(null);
 
@@ -134,7 +134,7 @@ export function EcadViewerControls({
             observer?.disconnect();
             onVisibleWidthChange(0);
         };
-    }, [onVisibleWidthChange]);
+    }, [onVisibleWidthChange, openRef]);
 
     useLayoutEffect(() => {
         if (!onVisibleWidthChange) return;

@@ -2,6 +2,33 @@
 
 React Doctor v0.9.12, full scan of `frontend/`, run 2026-08-22. This document is the findings breakdown only; the remediation plan is separate.
 
+## Current remediation status (2026-08-23)
+
+A fresh complete React Doctor v0.9.12 scan analyzed all 244 frontend files with
+no skipped checks. The dependency refresh baseline was 260 findings: 14 errors
+and 246 warnings across 77 files. The first remediation batch now reports:
+
+| | Before | Current | Change |
+| --- | ---: | ---: | ---: |
+| Errors | 14 | **0** | -14 |
+| Warnings | 246 | **217** | -29 |
+| Total findings | 260 | **217** | -43 |
+| Affected files | 77 | **68** | -9 |
+
+The current report contains no accessibility or security findings. It also has
+no render-time ref mutations and no unguarded state writes after an `await` in
+an effect. The remaining report is warning-only: 85 bug-pattern warnings, 76
+performance warnings, and 56 maintainability warnings. Its largest structural
+groups are prop-driven state adjustment (60), combined array iterations (30),
+linear collection lookups (19), large components (18), and mixed component/non-
+component exports (17).
+
+This batch deliberately addressed correctness and accessibility before broad
+component decomposition or mechanical performance rewrites. The detailed
+2026-08-22 baseline below remains useful as the issue inventory; line numbers
+and counts in that baseline are historical unless the current status above says
+otherwise.
+
 ## How it was run
 
 ```bash

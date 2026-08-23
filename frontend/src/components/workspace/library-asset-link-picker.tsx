@@ -68,7 +68,8 @@ export function LibraryAssetLinkPicker({
   };
 
   return (
-    <AsyncSearchPicker<CatalogAssetSummary>
+    <div className="flex w-full min-w-0">
+      <AsyncSearchPicker<CatalogAssetSummary>
       id={`asset-link-${assetType}-${value || "none"}`}
       open={open}
       onOpenChange={disabled ? () => undefined : setOpen}
@@ -80,7 +81,7 @@ export function LibraryAssetLinkPicker({
           type="button"
           disabled={disabled}
           className={cn(
-            "flex h-9 w-full min-w-0 items-center gap-1.5 border-r px-2 text-left text-xs outline-none",
+            "flex h-9 min-w-0 flex-1 items-center gap-1.5 border-r px-2 text-left text-xs outline-none",
             "focus:ring-1 focus:ring-inset focus:ring-ring disabled:cursor-default",
             value ? "text-foreground" : "text-muted-foreground"
           )}
@@ -88,17 +89,6 @@ export function LibraryAssetLinkPicker({
         >
           {value ? <Link2 className="h-3 w-3 shrink-0 text-primary" /> : null}
           <span className="truncate">{label}</span>
-          {value ? (
-            <span
-              role="button"
-              tabIndex={-1}
-              aria-label="Remove link"
-              onClick={clear}
-              className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-3 w-3" />
-            </span>
-          ) : null}
         </button>
       }
       fetchPage={(query, signal) =>
@@ -156,6 +146,18 @@ export function LibraryAssetLinkPicker({
           </div>
         ) : null
       }
-    />
+      />
+      {value ? (
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={`Remove ${assetType} link`}
+          onClick={clear}
+          className="flex h-9 shrink-0 items-center border-r px-2 text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-inset focus:ring-ring disabled:cursor-default"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      ) : null}
+    </div>
   );
 }

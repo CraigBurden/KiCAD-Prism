@@ -143,10 +143,6 @@ function sendNewSessionResponse(request: KiCadResponse) {
 
 // ─── Public API ───────────────────────────────────────────────────────
 
-export function getSessionId(): string | null {
-  return sessionId;
-}
-
 export function hasSession(): boolean {
   return sessionId !== null;
 }

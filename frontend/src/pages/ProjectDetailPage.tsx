@@ -92,6 +92,22 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
     return "overview";
 }
 
+// Fixed navigation table, no closure over props: build it once.
+const NAV_ITEMS = [
+    { id: "overview" as ProjectSection, label: "Overview", icon: FileText },
+    { id: "history" as ProjectSection, label: "History", icon: History },
+    { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
+    { id: "workflows" as ProjectSection, label: "Workflows", icon: PlayCircle },
+    { id: "release-studio" as ProjectSection, label: "Release Studio", icon: ShieldCheck },
+    { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
+    { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
+];
+
+// Closes over nothing in the component.
+const getDisplayName = (project: Project) => {
+    return project.display_name || project.name;
+};
+
 export function ProjectDetailPage({ user }: { user: User | null }) {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
@@ -114,10 +130,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const canMutateProject = user?.role === "admin" || user?.role === "designer";
 
     // Helper function to get display name
-    const getDisplayName = (project: Project) => {
-        return project.display_name || project.name;
-    };
-
     const selectedBranchRef = searchParams.get('branch');
     const currentCommit = searchParams.get('commit');
     const selectedBranch = useMemo(
@@ -227,6 +239,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
 
         const controller = new AbortController();
+        let cancelled = false;
         setBranchesLoading(true);
         setBranchError(null);
 
@@ -237,23 +250,26 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     { signal: controller.signal },
                     "Failed to load branches"
                 );
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setBranches(data.branches || []);
                 }
             } catch (err) {
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setBranches([]);
                     setBranchError(err instanceof Error ? err.message : "Failed to load branches");
                 }
             } finally {
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setBranchesLoading(false);
                 }
             }
         };
 
         void fetchBranches();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [projectId, refreshKey]);
 
     useEffect(() => {
@@ -263,6 +279,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
 
         const controller = new AbortController();
+        let cancelled = false;
         setLoading(true);
 
         const fetchProjectData = async () => {
@@ -276,28 +293,31 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     "Failed to fetch project overview"
                 );
 
-                if (controller.signal.aborted) {
+                if (cancelled) {
                     return;
                 }
 
                 setProject(overview.project);
                 setReadme(overview.readme ?? "");
             } catch (err) {
-                if (controller.signal.aborted) {
+                if (cancelled) {
                     return;
                 }
                 console.error("Failed to fetch project details", err);
                 setProject(null);
                 setReadme("");
             } finally {
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setLoading(false);
                 }
             }
         };
 
         void fetchProjectData();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [projectId, activeCommit, refreshKey]);
 
     // Calculate commits behind when viewing specific commit
@@ -348,16 +368,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         return <div className="flex items-center justify-center h-app-viewport">Project not found</div>;
     }
 
-    const navItems = [
-        { id: "overview" as ProjectSection, label: "Overview", icon: FileText },
-        { id: "history" as ProjectSection, label: "History", icon: History },
-        { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
-        { id: "workflows" as ProjectSection, label: "Workflows", icon: PlayCircle },
-        { id: "release-studio" as ProjectSection, label: "Release Studio", icon: ShieldCheck },
-        { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
-        { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
-    ];
-
     const handleBackNavigation = () => {
         if (project.folder_id) {
             navigate(`/?folder=${encodeURIComponent(project.folder_id)}`);
@@ -387,7 +397,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         <div className="py-4">
                             <h2 className="px-4 text-lg font-semibold tracking-tight mb-2">Project Navigation</h2>
                             <nav className="space-y-1 p-2">
-                                {navItems.map((item) => {
+                                {NAV_ITEMS.map((item) => {
                                     const Icon = item.icon;
                                     return (
                                         <button
@@ -573,7 +583,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </div>
 
                     <nav className="space-y-1 mt-8">
-                        {navItems.map((item) => {
+                        {NAV_ITEMS.map((item) => {
                             const Icon = item.icon;
                             const isExpanded = !sidebarCollapsed || sidebarHovered;
                             return (
@@ -861,7 +871,7 @@ function WorkflowCard({ title, desc, icon: Icon, onClick, disabled }: WorkflowCa
         <button
             onClick={onClick}
             disabled={disabled}
-            className="flex flex-col items-start p-6 rounded-lg border bg-card text-card-foreground shadow-sm hover:border-primary/50 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex flex-col items-start p-6 rounded-lg border bg-card text-card-foreground shadow-sm hover:border-primary/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
         >
             <div className="p-2 bg-primary/10 rounded-md mb-4 text-primary">
                 <Icon className="h-6 w-6" />

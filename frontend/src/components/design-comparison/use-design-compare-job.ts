@@ -54,6 +54,7 @@ export function useDesignCompareJob(
 
     useEffect(() => {
         const controller = new AbortController();
+        let cancelled = false;
         setResult(null);
         setStatus(null);
         setError(null);
@@ -72,6 +73,7 @@ export function useDesignCompareJob(
                         signal: controller.signal,
                     },
                 );
+                if (cancelled) return;
                 if (!response.ok) {
                     throw new Error(await readApiError(
                         response,
@@ -79,18 +81,24 @@ export function useDesignCompareJob(
                     ));
                 }
                 const data = (await response.json()) as { job_id: string };
+                if (cancelled) return;
                 jobIdRef.current = data.job_id;
                 setJobId(data.job_id);
             } catch (caught) {
                 if (caught instanceof DOMException && caught.name === "AbortError") {
                     return;
                 }
-                setError(caught instanceof Error
-                    ? caught.message
-                    : "Failed to start semantic comparison");
+                if (!cancelled) {
+                    setError(caught instanceof Error
+                        ? caught.message
+                        : "Failed to start semantic comparison");
+                }
             }
         })();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [projectId, base, head]);
 
     // The pending timeout is cleared in this effect's cleanup; the assignment

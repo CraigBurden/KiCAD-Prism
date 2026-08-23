@@ -40,7 +40,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -49,6 +49,12 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Hold the react-doctor backlog
+        # react-doctor exits 0 whatever it finds, so the gate compares the
+        # count against react-doctor-baseline.json. Errors always fail; the
+        # warning backlog may shrink but never grow.
+        run: npm run scan:gate
 
       - name: Test
         run: npm test
@@ -100,9 +106,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: requirements/runtime.lock
 
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
@@ -142,22 +148,22 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: kicad-prism-viewer/package-lock.json
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
           cache: pip
-          cache-dependency-path: kicad-prism-viewer/requirements-runtime.txt
+          cache-dependency-path: requirements/runtime.lock
 
       - name: Install dependencies
         run: |
           npm ci
-          # The pinned kicad-monkey release, so the compiler is tested against
-          # the same geometry conventions the default image ships with.
+          # The shared Python lock is the same graph used by the backend and
+          # production image, including the coordinated Monkey/Cruncher pair.
           python -m pip install -r requirements-runtime.txt
 
       - name: Test glTF conversion
@@ -264,6 +270,48 @@ jobs:
             echo "  $scheme: compose configuration is valid"
           done
 
+  dependency-identity:
+    name: Dependency identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: .python-version
+
+      - name: Install uv
+        # Read the image's own pin rather than adding a second uv version that
+        # has to be kept in step by hand.
+        run: |
+          version="$(sed -n 's/^ARG UV_VERSION=//p' backend/Dockerfile | head -n 1)"
+          test -n "$version"
+          python -m pip install --disable-pip-version-check "uv==${version}"
+
+      - name: Reproduce the locked Python runtime
+        # `pip install` only adds; the drift this gate exists to catch is a
+        # runtime carrying something the lock does not name, so sync into a
+        # fresh environment exactly the way the image does.
+        run: |
+          uv venv .identity-venv --python "$(cat .python-version)"
+          uv pip sync --python .identity-venv/bin/python requirements/runtime.lock
+
+      - name: Verify runtime identity
+        # Both halves run here. The image can only check Python -- it has no
+        # JavaScript manifests on disk -- so this is the only place a drifted
+        # Node, npm, or package set fails a gate instead of surfacing later as
+        # an unreproducible bug report.
+        run: .identity-venv/bin/python scripts/verify_dependency_identity.py
+
   kicad-live:
     name: Release Studio live KiCad
     # Rebuilds the Prism backend image (FROM pinned kicad/kicad). That proves
@@ -317,6 +365,7 @@ jobs:
       - backend
       - semantic-viewer
       - deployment-config
+      - dependency-identity
       - kicad-live
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -328,12 +377,14 @@ jobs:
           BACKEND_RESULT: ${{ needs.backend.result }}
           VIEWER_RESULT: ${{ needs.semantic-viewer.result }}
           DEPLOYMENT_RESULT: ${{ needs.deployment-config.result }}
+          IDENTITY_RESULT: ${{ needs.dependency-identity.result }}
           KICAD_LIVE_RESULT: ${{ needs.kicad-live.result }}
         run: |
           test "$FRONTEND_RESULT" = "success"
           test "$BACKEND_RESULT" = "success"
           test "$VIEWER_RESULT" = "success"
           test "$DEPLOYMENT_RESULT" = "success"
+          test "$IDENTITY_RESULT" = "success"
           case "$KICAD_LIVE_RESULT" in
             success|skipped) ;;
             *)

@@ -668,10 +668,14 @@ function AvailabilityCard({ source }: { source: PanelSupplySource }) {
   );
 }
 
+// Constructing an Intl formatter is the expensive part; the runtime locale
+// cannot change mid-session, so build it once.
+const QUANTITY_FORMAT = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+
 function formatQuantity(value: number): string {
   if (value >= 10000) {
     const k = value / 1000;
     return `${k >= 100 ? Math.round(k) : Math.round(k * 10) / 10}k`;
   }
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
+  return QUANTITY_FORMAT.format(value);
 }

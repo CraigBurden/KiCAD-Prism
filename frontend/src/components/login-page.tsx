@@ -33,6 +33,12 @@ function continueAfterLogin(user: User, onLoginSuccess?: (user: User) => void) {
   onLoginSuccess?.(user);
 }
 
+// Closes over nothing in the component.
+const handleDevBypass = () => {
+window.history.replaceState(null, "", "/");
+window.location.reload();
+};
+
 export function LoginPage({
   authConfig,
   devMode = false,
@@ -160,11 +166,6 @@ export function LoginPage({
     } finally {
       setPasswordSubmitting(false);
     }
-  };
-
-  const handleDevBypass = () => {
-    window.history.replaceState(null, "", "/");
-    window.location.reload();
   };
 
   return (

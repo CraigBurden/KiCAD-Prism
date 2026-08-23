@@ -741,11 +741,13 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
             <div className="rounded-lg border p-4 space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_auto] gap-2">
                     <Input
+                        aria-label="User email address"
                         placeholder="user@example.com"
                         value={newEmail}
                         onChange={(event) => setNewEmail(event.target.value)}
                     />
                     <select
+                        aria-label="Role for new assignment"
                         className="h-10 rounded-md border bg-background px-3 text-sm"
                         value={newRole}
                         onChange={(event) => setNewRole(event.target.value as UserRole)}
@@ -782,6 +784,7 @@ function AccessControlSettings({ isAdmin }: { isAdmin: boolean }) {
                             >
                                 <div className="truncate text-sm">{assignment.email}</div>
                                 <select
+                                    aria-label={`Role for ${assignment.email}`}
                                     className="h-8 rounded-md border bg-background px-2 text-sm"
                                     value={assignment.role}
                                     disabled={isBootstrap}

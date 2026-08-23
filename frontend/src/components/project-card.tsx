@@ -41,6 +41,11 @@ function highlightMatch(text: string, query: string): React.ReactNode {
     );
 }
 
+// Closes over nothing in the component.
+const getDisplayName = (project: Project) => {
+    return project.display_name || project.name;
+};
+
 export function ProjectCard({
     project,
     compact,
@@ -58,10 +63,6 @@ export function ProjectCard({
     const thumbnailUrl = project.thumbnail_url ? project.thumbnail_url : null;
 
     // Helper function to get display name
-    const getDisplayName = (project: Project) => {
-        return project.display_name || project.name;
-    };
-
     const handleClick = () => {
         if (onClick) {
             onClick();

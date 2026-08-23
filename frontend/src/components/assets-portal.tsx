@@ -59,6 +59,7 @@ function TreeNodeComponent({
                     <button
                         onClick={() => setExpanded(!expanded)}
                         className="p-0 hover:bg-transparent"
+                        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.name}`}
                     >
                         {expanded ? (
                             <ChevronDown className="h-4 w-4 text-muted-foreground" />

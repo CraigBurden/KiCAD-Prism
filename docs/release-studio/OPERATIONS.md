@@ -8,6 +8,13 @@ Release execution is pinned to the KiCad executor image declared in
 same value through `PRISM_RELEASE_EXECUTOR_IMAGE`. The live contract requires
 a lowercase SHA-256 image digest and KiCad `10.0.4`.
 
+The image, CI, and host tools all install `requirements/runtime.lock`. The lock
+contains the coordinated published `kicad-monkey` and `kicad-cruncher` pair;
+`scripts/verify_dependency_identity.py` rejects a runtime whose Python or
+toolchain versions differ. The optional local image replaces both packages
+from one modern upstream monorepo checkout and never overlays a lone local
+Monkey on an unrelated published Cruncher.
+
 The live release suite runs `kicad-cli` with argument vectors, not shell
 interpolation. The required quality gate on the core merge paths builds the
 pinned AMD64 image and fails on zero tests, skips, failures, or errors.

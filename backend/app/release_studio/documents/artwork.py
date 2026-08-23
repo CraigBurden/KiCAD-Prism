@@ -19,6 +19,7 @@ import io
 import os
 import re
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -483,6 +484,10 @@ def acquire_testpoint_views(
             + ("; ".join(detail) or "designator sets differ")
         )
 
+    # Cruncher owns and may clean its output directory. Resolve the viewport
+    # while the staged board still exists rather than reading a file that the
+    # renderer is allowed to remove.
+    viewport = _cruncher_board_viewport(staged_board, PCB_SVG_TESTPOINT_CONFIG)
     _run_pcb_svg(
         cruncher_path, staged_board, views, workdir,
         config_path=PCB_SVG_TESTPOINT_CONFIG,
@@ -490,7 +495,6 @@ def acquire_testpoint_views(
         runner=runner,
         timeout_seconds=timeout_seconds,
     )
-    viewport = _cruncher_board_viewport(staged_board, PCB_SVG_TESTPOINT_CONFIG)
     return {
         f"testpoint-{side}": _read_assembly_view(
             workdir, f"testpoint-{side}", TESTPOINT_VIEWS[side], viewport
@@ -926,12 +930,46 @@ def render_pdf_page(svg_text: str) -> bytes:
     sheet does.
     """
 
+    _configure_cairo_library_path()
     import cairosvg
 
     try:
         return cairosvg.svg2pdf(bytestring=svg_text.encode("utf-8"))
     except Exception as exc:  # noqa: BLE001 - any cairo failure is one failure here
         raise ArtworkError(f"the assembly view could not be rendered to PDF: {exc}") from exc
+
+
+def _configure_cairo_library_path() -> None:
+    """Make Homebrew Cairo visible to uv's portable macOS Python.
+
+    Framework Python happens to search Homebrew's library directory, while the
+    standalone interpreter managed by uv does not. Without this explicit path,
+    an otherwise identical locked venv can build SVG documents but fails only
+    when Release Studio asks CairoSVG for the matching PDF page.
+    """
+
+    if sys.platform != "darwin":
+        return
+    candidates = [
+        os.environ.get("PRISM_CAIRO_LIBRARY_DIR", ""),
+        "/opt/homebrew/lib",
+        "/usr/local/lib",
+    ]
+    library_dir = next(
+        (
+            Path(candidate)
+            for candidate in candidates
+            if candidate and (Path(candidate) / "libcairo.2.dylib").is_file()
+        ),
+        None,
+    )
+    if library_dir is None:
+        return
+    variable = "DYLD_FALLBACK_LIBRARY_PATH"
+    current = os.environ.get(variable, "")
+    entries = [entry for entry in current.split(os.pathsep) if entry]
+    if str(library_dir) not in entries:
+        os.environ[variable] = os.pathsep.join([str(library_dir), *entries])
 
 
 def acquire_drill_map(

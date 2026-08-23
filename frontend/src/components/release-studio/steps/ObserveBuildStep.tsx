@@ -12,12 +12,14 @@ import type {
     PipelineStepStatus,
 } from "../types";
 
+const NO_LIVE_LOGS: string[] = [];
+
 export function ObserveBuildStep({
     pipeline,
     jobStatus,
     message,
     percent,
-    liveLogs = [],
+    liveLogs = NO_LIVE_LOGS,
     canCancel = false,
     cancelling = false,
     onCancel,
@@ -40,13 +42,13 @@ export function ObserveBuildStep({
     errorMessage?: string;
 }) {
     const jobs = useMemo(() => pipeline?.jobs ?? [], [pipeline]);
-    const [selectedId, setSelectedId] = useState(
+    const [selectedId, setSelectedId] = useState(() =>
         jobs.find((job) => job.status === "failure" || job.status === "in_progress")?.id
             ?? jobs[0]?.id
             ?? "",
     );
     const selected = jobs.find((job) => job.id === selectedId) ?? jobs[0];
-    const [openStep, setOpenStep] = useState<string | null>(
+    const [openStep, setOpenStep] = useState<string | null>(() =>
         selected?.steps.find((step) => step.status === "failure" || step.status === "in_progress")?.id ?? null,
     );
     const logRef = useRef<HTMLPreElement>(null);

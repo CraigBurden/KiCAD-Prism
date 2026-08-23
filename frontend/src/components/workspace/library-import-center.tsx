@@ -90,6 +90,13 @@ async function uploadSnapshotFiles(
   }
 }
 
+// The non-standard directory attributes React does not type. Constant, so
+// it is declared once rather than rebuilt on every render.
+const DIRECTORY_INPUT_PROPS: InputHTMLAttributes<HTMLInputElement> & {
+  webkitdirectory: string;
+  directory: string;
+} = { webkitdirectory: "", directory: "" };
+
 export function LibraryImportCenter({ projects, user, initialSessionId }: LibraryImportCenterProps) {
   const [sessions, setSessions] = useState<ProjectComponentImportSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState(initialSessionId || "");
@@ -117,11 +124,6 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
   const canWrite = canWriteCatalog(user?.role);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const directoryInputProps: InputHTMLAttributes<HTMLInputElement> & {
-    webkitdirectory: string;
-    directory: string;
-  } = { webkitdirectory: "", directory: "" };
-
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId),
     [selectedSessionId, sessions]
@@ -423,7 +425,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
               type="file"
               multiple
               className="hidden"
-              {...directoryInputProps}
+              {...DIRECTORY_INPUT_PROPS}
               onChange={(event) => void uploadFolder(event.currentTarget.files)}
             />
             <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={!canWrite || creating}>

@@ -53,6 +53,9 @@ interface WorkspaceProps {
   user: User | null;
 }
 
+// Closes over nothing in the component.
+const getProjectDisplayName = (project: Project) => project.display_name || project.name;
+
 export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -90,7 +93,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const canOpenSettings = user?.role === "admin";
   const canOpenLibrary = canOpenLibraryManager(user?.role);
 
-  const getProjectDisplayName = (project: Project) => project.display_name || project.name;
   const folderFromUrl = searchParams.get("folder");
   const currentFolderId = folderFromUrl && folderById.has(folderFromUrl) ? folderFromUrl : null;
 

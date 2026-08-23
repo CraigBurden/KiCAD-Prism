@@ -1895,6 +1895,45 @@ class TestpointStagingTests(unittest.TestCase):
                     designators=("D1", "TP1"),
                 )
 
+    def test_testpoint_viewport_is_resolved_before_cruncher_owns_the_output(self) -> None:
+        from unittest.mock import patch
+
+        calls = []
+        staged = Path("out/board.testpoints.kicad_pcb")
+
+        def viewport(board, config):
+            calls.append(("viewport", board, config))
+            return None
+
+        def render(*args, **kwargs):
+            calls.append(("render", args[1], kwargs["config_path"]))
+
+        with (
+            patch.object(
+                artwork_module,
+                "_stage_testpoint_board",
+                return_value=(staged, ("TP1",)),
+            ),
+            patch.object(artwork_module, "_cruncher_board_viewport", side_effect=viewport),
+            patch.object(artwork_module, "_run_pcb_svg", side_effect=render),
+            patch.object(
+                artwork_module,
+                "_read_assembly_view",
+                return_value=object(),
+            ),
+        ):
+            artwork_module.acquire_testpoint_views(
+                "kicad-cruncher",
+                Path("board.kicad_pcb"),
+                Path("out"),
+                designators=("TP1",),
+                sides=("top",),
+            )
+
+        self.assertEqual([call[0] for call in calls], ["viewport", "render"])
+        self.assertEqual(calls[0][1], staged)
+        self.assertEqual(calls[1][1], staged)
+
 
 class RendererVersionTests(unittest.TestCase):
     """A rendering change must be a deliberate, versioned change.

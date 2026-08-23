@@ -44,6 +44,19 @@ review, rollback, and alpha stabilization safer.
 
 ## Development setup
 
+Prism uses the exact runtimes in `.python-version` and `.node-version`. Install
+`uv`, select the declared Node version, and reproduce both dependency trees
+from the repository locks:
+
+```bash
+python scripts/sync_dependencies.py
+```
+
+The command recreates `backend/venv` from `requirements/runtime.lock` and runs
+`npm ci` for both JavaScript workspaces. Use `--python-only` or `--node-only`
+when working on one side. See [Dependency identity](docs/DEPENDENCIES.md) before
+adding or updating a package.
+
 ### Frontend
 
 ```bash
@@ -64,11 +77,7 @@ npm run build:panel
 ### Backend
 
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-python -m pip install -r requirements.txt
-python -m unittest discover -s tests -p 'test_*.py'
+backend/venv/bin/python -m unittest discover -s backend/tests -p 'test_*.py'
 ```
 
 PostgreSQL integration tests use `TEST_POSTGRES_URL`. Use a disposable test

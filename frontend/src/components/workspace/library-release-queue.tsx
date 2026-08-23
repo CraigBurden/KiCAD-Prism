@@ -51,12 +51,17 @@ const EMPTY_SUMMARY: CatalogReleaseQueueResponse["summary"] = {
   blocked: 0,
 };
 
+// Constructing an Intl formatter is the expensive part; the runtime locale
+// cannot change mid-session, so build it once.
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
 const formatDate = (value?: string) => {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return Number.isNaN(date.getTime()) ? value : DATE_TIME_FORMAT.format(date);
 };
 
 function QueueMetric({ label, value, detail }: { label: string; value: number; detail: string }) {

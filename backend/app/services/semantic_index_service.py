@@ -157,16 +157,20 @@ def _lock(project_id: str, source_revision_key: str) -> threading.Lock:
 
 
 def _add_kicad_monkey_import_paths() -> None:
+    """Apply only an explicit development override.
+
+    Production, CI, and ordinary host development import the distribution from
+    the locked environment. Walking parent directories for a sibling checkout
+    silently replaced that distribution while version metadata still reported
+    the installed wheel, poisoning both cache identity and acceptance evidence.
+    """
+
     explicit = os.environ.get("KICAD_MONKEY_PYTHONPATH", "").strip()
-    candidates = [Path(explicit).expanduser()] if explicit else []
-    for parent in Path(__file__).resolve().parents:
-        candidates.extend(
-            (
-                parent / "kicad-monkey" / "src" / "py",
-                parent / "kicad_monkey" / "src" / "py",
-            )
-        )
-    candidates.extend((Path("/opt/kicad-monkey/src/py"), Path("/opt/kicad_monkey/src/py")))
+    candidates = [
+        Path(entry).expanduser()
+        for entry in explicit.split(os.pathsep)
+        if entry.strip()
+    ]
     for candidate in candidates:
         if candidate.is_dir() and str(candidate.resolve()) not in sys.path:
             sys.path.insert(0, str(candidate.resolve()))

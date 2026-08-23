@@ -66,6 +66,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/api";
 import { allowedWorkflowTransitions, canWriteCatalog, workflowStage } from "@/lib/roles";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type { User } from "@/types/auth";
 import type {
   AvailabilityState,
@@ -208,12 +209,17 @@ const FIELD_LABELS: Record<string, string> = {
 
 const shortHash = (value: string, length = 10) => (value ? value.slice(0, length) : "—");
 
+// Constructing an Intl formatter is the expensive part; the runtime locale
+// cannot change mid-session, so build it once.
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
 const formatDate = (value: string) => {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return Number.isNaN(date.getTime()) ? value : DATE_TIME_FORMAT.format(date);
 };
 
 const humanize = (value: string) =>
@@ -1388,10 +1394,8 @@ function useEvidenceResource<T>({
   onLoaded: (value: T) => void;
 }) {
   const { stateRef, update } = loadState;
-  const loadRef = useRef(load);
-  loadRef.current = load;
-  const onLoadedRef = useRef(onLoaded);
-  onLoadedRef.current = onLoaded;
+  const loadRef = useCommittedRef(load);
+  const onLoadedRef = useCommittedRef(onLoaded);
 
   useEffect(() => {
     if (!enabled || stateRef.current.status !== "idle") return;
@@ -1419,7 +1423,7 @@ function useEvidenceResource<T>({
       controller.abort();
       if (!settled) update(IDLE_EVIDENCE);
     };
-  }, [enabled, generation, retryKey, stateRef, update]);
+  }, [enabled, generation, loadRef, onLoadedRef, retryKey, stateRef, update]);
 }
 
 function combinedEvidenceState(states: EvidenceLoadState[]): EvidenceLoadState {
@@ -1474,24 +1478,6 @@ function MetadataEditDialog({
   if (!form) return null;
   const setField = (field: keyof MetadataForm, value: string) => onChange({ ...form, [field]: value });
   const requiredComplete = Boolean(form.value.trim() && form.manufacturer.trim() && form.mpn.trim() && form.description.trim() && form.datasheetUrl.trim() && form.changeSummary.trim());
-  const fields: Array<{ field: keyof MetadataForm; label: string; type?: string; placeholder?: string }> = [
-    { field: "value", label: "Value", placeholder: "10 kΩ, TPS55289…" },
-    { field: "manufacturer", label: "Manufacturer" },
-    { field: "mpn", label: "Manufacturer part number" },
-    { field: "datasheetUrl", label: "Datasheet URL", type: "url" },
-    { field: "category", label: "Category" },
-    { field: "packageName", label: "Package" },
-    { field: "vendor", label: "Vendor" },
-    { field: "vendorPartNumber", label: "Vendor part number" },
-    { field: "massG", label: "Mass (g)" },
-    { field: "rqjcCW", label: "RθJC (°C/W)" },
-    { field: "rqjcTopCW", label: "RθJC top (°C/W)" },
-    { field: "tempMaxC", label: "Maximum temperature (°C)" },
-    { field: "tempMinC", label: "Minimum temperature (°C)" },
-    { field: "powerDissipationW", label: "Power dissipation (W)" },
-    { field: "rate", label: "Rate" },
-    { field: "sapCode", label: "SAP code" },
-  ];
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!submitting) onOpenChange(next); }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
@@ -1500,7 +1486,7 @@ function MetadataEditDialog({
           <DialogDescription>Saving creates a new immutable revision. The current revision ID is checked to prevent overwriting concurrent work.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
-          {fields.map(({ field, label, type, placeholder }) => (
+          {METADATA_FIELDS.map(({ field, label, type, placeholder }) => (
             <div key={field} className="space-y-2">
               <Label htmlFor={`component-edit-${field}`}>{label}{["value", "manufacturer", "mpn", "datasheetUrl"].includes(field) ? " *" : ""}</Label>
               <Input id={`component-edit-${field}`} type={type} required={["value", "manufacturer", "mpn", "datasheetUrl"].includes(field)} value={form[field]} placeholder={placeholder} onChange={(event) => setField(field, event.target.value)} />
@@ -1637,10 +1623,6 @@ function AssetAttachDialog({
   onLink: () => void;
 }) {
   const label = assetType ? ASSET_LABELS[assetType] : "asset";
-  const sourceTabs: Array<{ id: AssetAttachMode; label: string; icon: typeof Upload }> = [
-    { id: "upload", label: "Upload file", icon: Upload },
-    { id: "link", label: "Link existing", icon: Link2 },
-  ];
   return (
     <Dialog open={assetType !== null} onOpenChange={(next) => { if (!submitting) onOpenChange(next); }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
@@ -1666,7 +1648,7 @@ function AssetAttachDialog({
         ) : (
           <>
             <div className="inline-flex items-center gap-1 border bg-muted/30 p-1" role="tablist" aria-label="Asset source">
-              {sourceTabs.map(({ id, label: tabLabel, icon: Icon }) => (
+              {ASSET_SOURCE_TABS.map(({ id, label: tabLabel, icon: Icon }) => (
                 <button
                   key={id}
                   type="button"
@@ -1738,6 +1720,32 @@ function AssetAttachDialog({
     </Dialog>
   );
 }
+
+// Fixed table, no closure over props: build it once.
+const METADATA_FIELDS: Array<{ field: keyof MetadataForm; label: string; type?: string; placeholder?: string }> = [
+  { field: "value", label: "Value", placeholder: "10 kΩ, TPS55289…" },
+  { field: "manufacturer", label: "Manufacturer" },
+  { field: "mpn", label: "Manufacturer part number" },
+  { field: "datasheetUrl", label: "Datasheet URL", type: "url" },
+  { field: "category", label: "Category" },
+  { field: "packageName", label: "Package" },
+  { field: "vendor", label: "Vendor" },
+  { field: "vendorPartNumber", label: "Vendor part number" },
+  { field: "massG", label: "Mass (g)" },
+  { field: "rqjcCW", label: "RθJC (°C/W)" },
+  { field: "rqjcTopCW", label: "RθJC top (°C/W)" },
+  { field: "tempMaxC", label: "Maximum temperature (°C)" },
+  { field: "tempMinC", label: "Minimum temperature (°C)" },
+  { field: "powerDissipationW", label: "Power dissipation (W)" },
+  { field: "rate", label: "Rate" },
+  { field: "sapCode", label: "SAP code" },
+];
+
+// Fixed table, no closure over props: build it once.
+const ASSET_SOURCE_TABS: Array<{ id: AssetAttachMode; label: string; icon: typeof Upload }> = [
+  { id: "upload", label: "Upload file", icon: Upload },
+  { id: "link", label: "Link existing", icon: Link2 },
+];
 
 export function LibraryComponentWorkspace({
   componentId,
