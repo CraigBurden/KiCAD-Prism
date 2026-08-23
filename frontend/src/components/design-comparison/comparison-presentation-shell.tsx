@@ -266,9 +266,18 @@ export function ComparisonPresentationShell({
         useState<{ scope: string; message: string } | null>(null);
     const [rightRailInset, setRightRailInset] = useState(0);
     const [pcbLayers, setPcbLayers] = useState<EcadPcbLayerState[]>([]);
-    useEffect(() => {
-        onPcbLayersChange?.(pcbLayers);
-    }, [onPcbLayersChange, pcbLayers]);
+    // The layers belong to this shell; the workspace only needs to know when
+    // they move. Publishing at the point of change notifies the parent in the
+    // same commit as the local update, instead of one render later through an
+    // effect. Wired only for the pcb-domain shell, so a schematic shell can
+    // never report its cleared layers over a live pcb view.
+    const publishPcbLayers = useCallback(
+        (layers: EcadPcbLayerState[]) => {
+            setPcbLayers(layers);
+            onPcbLayersChange?.(layers);
+        },
+        [onPcbLayersChange],
+    );
     // Which route the reviewer took manual control on. Storing the route
     // rather than a bare flag is what "for as long as this route stays
     // selected" means, and it expires without an effect to expire it.
@@ -516,9 +525,11 @@ export function ComparisonPresentationShell({
     const showLayers = rightRailTab === "layers";
     const changedDocuments = useMemo(
         () => new Set(
-            documentDiff.project.documents
-                .filter((document) => document.changes.length > 0)
-                .map((document) => document.path.split("/").at(-1) ?? document.path),
+            documentDiff.project.documents.flatMap((document) => (
+                document.changes.length > 0
+                    ? [document.path.split("/").at(-1) ?? document.path]
+                    : []
+            )),
         ),
         [documentDiff],
     );
@@ -850,9 +861,9 @@ export function ComparisonPresentationShell({
         }
         // A pane whose revision does not carry this document has nothing to
         // paint the selection onto.
-        const viewers = panes
-            .filter((pane) => pane.hasDocument)
-            .map((pane) => pane.viewer);
+        const viewers = panes.flatMap((pane) => (
+            pane.hasDocument ? [pane.viewer] : []
+        ));
         // The panes are part of the key, not just the selection.
         //
         // In side-by-side the two viewers do not attach on the same frame. Keyed
@@ -1078,8 +1089,9 @@ export function ComparisonPresentationShell({
             if (!preFocusLayersRef.current) {
                 preFocusLayersRef.current =
                     (viewers[0]?.getPcbViewState?.()?.layers ?? [])
-                        .filter((layer) => layer.visible)
-                        .map((layer) => layer.name);
+                        .flatMap((layer) => (
+                            layer.visible ? [layer.name] : []
+                        ));
             }
             for (const pane of panes) {
                 applyVisibility(
@@ -1087,7 +1099,7 @@ export function ComparisonPresentationShell({
                     new Set(focusVisibleLayers(routeFocus, pane.side)),
                 );
             }
-            setPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+            publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
             logComparisonDebug("session.layers.focus", {
                 net: routeFocus.net,
                 viaOnly: routeFocus.viaOnly,
@@ -1103,7 +1115,7 @@ export function ComparisonPresentationShell({
         preFocusLayersRef.current = null;
         const visible = new Set(restore);
         for (const viewer of viewers) applyVisibility(viewer, visible);
-        setPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+        publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
         logComparisonDebug("session.layers.focus.restore", {
             presentationMode,
             layers: restore,
@@ -1115,6 +1127,7 @@ export function ComparisonPresentationShell({
         layerFocusActive,
         presentationMode,
         presentationSwitching,
+        publishPcbLayers,
         routeFocus,
         sessionPhase,
     ]);
@@ -1124,7 +1137,7 @@ export function ComparisonPresentationShell({
     // react-doctor-disable-next-line react-doctor/effect-needs-cleanup
     useEffect(() => {
         if (domain !== "pcb") {
-            setPcbLayers([]);
+            publishPcbLayers([]);
             return;
         }
         const viewers = activeLayerViewers;
@@ -1149,7 +1162,7 @@ export function ComparisonPresentationShell({
             }
         }
         const refresh = () =>
-            setPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+            publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
         refresh();
         for (const viewer of viewers) {
             viewer.addEventListener("ecad-viewer:view-state-change", refresh);
@@ -1168,6 +1181,7 @@ export function ComparisonPresentationShell({
         initialVisibleLayers,
         layerFocusActive,
         presentationSwitching,
+        publishPcbLayers,
         sessionPhase,
     ]);
 
@@ -1189,9 +1203,11 @@ export function ComparisonPresentationShell({
         const next = pcbLayers.map((layer) =>
             layer.name === name ? { ...layer, visible } : layer,
         );
-        setPcbLayers(next);
+        publishPcbLayers(next);
         onVisibleLayersChange(
-            next.filter((layer) => layer.visible).map((layer) => layer.name),
+            next.flatMap((layer) => (
+                layer.visible ? [layer.name] : []
+            )),
         );
     };
     const applyPreset = (
@@ -1205,9 +1221,11 @@ export function ComparisonPresentationShell({
             viewer.applyPcbLayerPreset?.(preset);
         }
         const next = viewers[0]?.getPcbViewState?.()?.layers ?? [];
-        setPcbLayers(next);
+        publishPcbLayers(next);
         onVisibleLayersChange(
-            next.filter((layer) => layer.visible).map((layer) => layer.name),
+            next.flatMap((layer) => (
+                layer.visible ? [layer.name] : []
+            )),
         );
     };
     const highlightLayer = (name: string | null) => {
