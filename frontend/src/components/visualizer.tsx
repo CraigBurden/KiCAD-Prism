@@ -1483,8 +1483,10 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 </div>
             </div>
 
-            <CommentForm
-                isOpen={showCommentForm}
+            {showCommentForm && pendingLocation && <CommentForm
+                // Each pin is its own draft, so each is its own component.
+                key={`${pendingLocation.x}:${pendingLocation.y}`}
+                isOpen
                 onClose={() => {
                     setShowCommentForm(false);
                     setPendingLocation(null);
@@ -1496,7 +1498,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 context={pendingContext ?? "SCH"}
                 isSubmitting={isSubmittingComment}
                 mentionCandidates={mentionCandidates}
-            />
+            />}
 
             {selectedComment && (
                 <CommentCard
