@@ -179,13 +179,13 @@ export function AssetsPortal({ projectId, commit }: AssetsPortalProps) {
 
     const handleDownload = (path: string, type: string) => {
         const url = appendCommit(`/api/projects/${projectId}/download?path=${encodeURIComponent(path)}&type=${type}`);
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
     };
 
     const handlePreview = (path: string, type: string) => {
         // Open in new tab with inline=true to force browser display
         const url = appendCommit(`/api/projects/${projectId}/download?path=${encodeURIComponent(path)}&type=${type}&inline=true`);
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
     };
 
     const designTree = useMemo(() => buildFileTree(designFiles), [designFiles]);

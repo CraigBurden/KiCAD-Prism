@@ -167,7 +167,7 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
 
     const handleDownload = (path: string) => {
         const url = appendCommit(`/api/projects/${projectId}/asset/docs/${path}`);
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
     };
 
     const tree = useMemo(() => buildFileTree(files), [files]);
