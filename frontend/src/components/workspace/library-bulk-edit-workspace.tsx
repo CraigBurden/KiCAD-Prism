@@ -98,6 +98,7 @@ function MetadataCell({
       className={cn("flex h-9 min-w-0 items-center border-r px-2 text-xs outline-none focus:ring-1 focus:ring-inset focus:ring-ring", pinnedClass)}
       style={pinnedStyle}
       role="gridcell"
+      aria-colindex={columnIndex + 2}
       aria-label={`${field.label}: ${display}`}
       data-cell={`${rowIndex}:${columnIndex}`}
       tabIndex={0}
@@ -115,12 +116,12 @@ function MetadataCell({
   }
 
   if (field.type === "boolean") {
-    return <div className={cn("flex h-9 items-center justify-center border-r px-2", pinnedClass)} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`}>
+    return <div role="gridcell" aria-colindex={columnIndex + 2} className={cn("flex h-9 items-center justify-center border-r px-2", pinnedClass)} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`}>
       <Checkbox aria-label={field.label} ref={editorRef as React.Ref<HTMLButtonElement>} checked={["true", "1", "yes"].includes(value.toLocaleLowerCase())} onCheckedChange={(checked) => onCommit(checked ? "true" : "false")} />
     </div>;
   }
   if (field.type === "enum") {
-    return <div className={cn("h-9 border-r p-1", pinnedClass)} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`}>
+    return <div role="gridcell" aria-colindex={columnIndex + 2} className={cn("h-9 border-r p-1", pinnedClass)} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`}>
       <select
         aria-label={field.label}
         ref={editorRef as React.Ref<HTMLSelectElement>}
@@ -133,7 +134,7 @@ function MetadataCell({
       </select>
     </div>;
   }
-  return <div className={cn("h-9 border-r p-1", pinnedClass, error && "bg-destructive/10")} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`} title={error || field.description}>
+  return <div role="gridcell" aria-colindex={columnIndex + 2} className={cn("h-9 border-r p-1", pinnedClass, error && "bg-destructive/10")} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`} title={error || field.description}>
     <input
       aria-label={field.label}
       ref={editorRef as React.Ref<HTMLInputElement>}
@@ -536,41 +537,41 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
       <main className="flex min-w-0 flex-1 flex-col p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading components…" : `${items.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${Math.min(page * PAGE_SIZE, total)} of ${total.toLocaleString()}`}</span><span>{visibleFields.length} visible fields · {Object.keys(staged).length} staged components</span></div>
         <div ref={gridViewport.viewportRef} className={cn("min-h-0 flex-1 overflow-auto border", loading && "opacity-60")} onScroll={gridViewport.onScroll} onPaste={handleGridPaste} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); } if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "y") { event.preventDefault(); redo(); } }}>
-          <div className="min-w-max" style={{ width: IDENTITY_WIDTH + visibleFields.reduce((sum, field) => sum + (preferences.widths[field.key] || DEFAULT_WIDTH), 0) }}>
-            <div className="sticky top-0 z-20 grid h-10 border-b bg-muted text-xs font-medium" style={{ gridTemplateColumns: gridTemplate }}>
-              <div className="sticky left-0 z-30 flex items-center border-r bg-muted px-3">Component</div>
-              {visibleFields.map((field) => <div key={field.key} className={cn("group relative flex items-center gap-1 border-r bg-muted px-2", pinnedOffsets.has(field.key) && "sticky z-20")} style={pinnedOffsets.has(field.key) ? { left: pinnedOffsets.get(field.key) } : undefined}><span className="truncate">{field.label}</span>{field.unit ? <span className="text-muted-foreground">({field.unit})</span> : null}{field.required ? <span className="text-destructive">*</span> : null}<button type="button" aria-label={`Resize ${field.label}`} className="absolute inset-y-0 right-0 w-2 cursor-col-resize opacity-0 hover:bg-primary/20 group-hover:opacity-100" onPointerDown={(event) => { event.preventDefault(); resizeColumn(field.key, event.clientX, preferences.widths[field.key] || DEFAULT_WIDTH); }} /></div>)}
+          <div role="grid" aria-label="Component metadata" aria-rowcount={items.length + 1} aria-colcount={visibleFields.length + 1} className="min-w-max" style={{ width: IDENTITY_WIDTH + visibleFields.reduce((sum, field) => sum + (preferences.widths[field.key] || DEFAULT_WIDTH), 0) }}>
+            <div role="row" aria-rowindex={1} className="sticky top-0 z-20 grid h-10 border-b bg-muted text-xs font-medium" style={{ gridTemplateColumns: gridTemplate }}>
+              <div role="columnheader" aria-colindex={1} className="sticky left-0 z-30 flex items-center border-r bg-muted px-3">Component</div>
+              {visibleFields.map((field, columnIndex) => <div key={field.key} role="columnheader" aria-colindex={columnIndex + 2} className={cn("group relative flex items-center gap-1 border-r bg-muted px-2", pinnedOffsets.has(field.key) && "sticky z-20")} style={pinnedOffsets.has(field.key) ? { left: pinnedOffsets.get(field.key) } : undefined}><span className="truncate">{field.label}</span>{field.unit ? <span className="text-muted-foreground">({field.unit})</span> : null}{field.required ? <span className="text-destructive">*</span> : null}<button type="button" aria-label={`Resize ${field.label}`} className="absolute inset-y-0 right-0 w-2 cursor-col-resize opacity-0 hover:bg-primary/20 group-hover:opacity-100" onPointerDown={(event) => { event.preventDefault(); resizeColumn(field.key, event.clientX, preferences.widths[field.key] || DEFAULT_WIDTH); }} /></div>)}
             </div>
             {firstVisibleRow ? <div aria-hidden="true" style={{ height: firstVisibleRow * GRID_ROW_HEIGHT }} /> : null}
-            {visibleRows.map((component, visibleRowIndex) => { const rowIndex = firstVisibleRow + visibleRowIndex; return <div key={component.id} className={cn("grid border-b last:border-b-0", staged[component.id] && "bg-primary/5")} style={{ gridTemplateColumns: gridTemplate }}>
-              <div className="sticky left-0 z-10 flex h-9 min-w-0 items-center gap-2 border-r bg-background px-3"><span className="min-w-0 flex-1 truncate text-xs font-medium" title={component.name}>{component.mpn || component.name}</span><Badge variant={component.workflow_stage === "qa_review" ? "warning" : "outline"} className="shrink-0" title="Read-only workflow stage">{WORKFLOW_LABELS[component.workflow_stage]}</Badge><Badge variant="outline" className="shrink-0" title="Read-only revision">v{component.revision}</Badge></div>
+            {visibleRows.map((component, visibleRowIndex) => { const rowIndex = firstVisibleRow + visibleRowIndex; return <div key={component.id} role="row" aria-rowindex={rowIndex + 2} className={cn("grid border-b last:border-b-0", staged[component.id] && "bg-primary/5")} style={{ gridTemplateColumns: gridTemplate }}>
+              <div role="rowheader" aria-colindex={1} className="sticky left-0 z-10 flex h-9 min-w-0 items-center gap-2 border-r bg-background px-3"><span className="min-w-0 flex-1 truncate text-xs font-medium" title={component.name}>{component.mpn || component.name}</span><Badge variant={component.workflow_stage === "qa_review" ? "warning" : "outline"} className="shrink-0" title="Read-only workflow stage">{WORKFLOW_LABELS[component.workflow_stage]}</Badge><Badge variant="outline" className="shrink-0" title="Read-only revision">v{component.revision}</Badge></div>
               {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} readOnly={!canEdit} active={activeCell?.row === rowIndex && activeCell.column === columnIndex} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCellValue(component, field, value)} onActivate={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
             </div>; })}
             {lastVisibleRow < items.length ? <div aria-hidden="true" style={{ height: (items.length - lastVisibleRow) * GRID_ROW_HEIGHT }} /> : null}
-            {!loading && !items.length ? (
-              <div className="sticky left-0 flex h-64 flex-col items-center justify-center gap-2 p-8 text-center">
-                <FilePenLine className="h-8 w-8 text-muted-foreground" />
-                <p className="text-sm font-medium">
-                  {bulkEditIsFiltered ? "No components match the current filters" : "There is nothing to bulk edit yet"}
-                </p>
-                <p className="max-w-md text-xs text-muted-foreground">
-                  {bulkEditIsFiltered
-                    ? "Search and filters run on the server. Clear them to edit the whole catalog."
-                    : "Import components from a KiCad project or library folder, then return here to edit their metadata as a spreadsheet."}
-                </p>
-                {bulkEditIsFiltered ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-1"
-                    onClick={() => { setQuery(""); setCategory("all"); setShowArchived(false); setPage(1); }}
-                  >
-                    <FilterX className="h-3.5 w-3.5" /> Clear search and filters
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
           </div>
+          {!loading && !items.length ? (
+            <div className="sticky left-0 flex h-64 flex-col items-center justify-center gap-2 p-8 text-center">
+              <FilePenLine className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm font-medium">
+                {bulkEditIsFiltered ? "No components match the current filters" : "There is nothing to bulk edit yet"}
+              </p>
+              <p className="max-w-md text-xs text-muted-foreground">
+                {bulkEditIsFiltered
+                  ? "Search and filters run on the server. Clear them to edit the whole catalog."
+                  : "Import components from a KiCad project or library folder, then return here to edit their metadata as a spreadsheet."}
+              </p>
+              {bulkEditIsFiltered ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-1"
+                  onClick={() => { setQuery(""); setCategory("all"); setShowArchived(false); setPage(1); }}
+                >
+                  <FilterX className="h-3.5 w-3.5" /> Clear search and filters
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <div className="mt-2 flex items-center justify-between"><span className="text-xs text-muted-foreground">Page {page} of {pages}</span><div className="flex gap-1"><Button size="sm" variant="outline" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft className="h-3.5 w-3.5" /> Previous</Button><Button size="sm" variant="outline" disabled={page >= pages || loading} onClick={() => setPage((value) => Math.min(pages, value + 1))}>Next <ChevronRight className="h-3.5 w-3.5" /></Button></div></div>
       </main>

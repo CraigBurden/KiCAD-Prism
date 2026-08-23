@@ -74,6 +74,10 @@ export function CommentForm({
             setSeverity(DEFAULT_COMMENT_SEVERITY);
             setMentionQuery(null);
             setMentionIndex(0);
+            // The form is a bare fixed overlay, not a Radix dialog, so nothing
+            // moves focus for us. Replaces the autoFocus attribute rather than
+            // dropping the behaviour with it.
+            textareaRef.current?.focus();
         }
     }, [isOpen, location?.x, location?.y]);
 

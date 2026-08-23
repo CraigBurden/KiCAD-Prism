@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     CheckCircle,
     ChevronDown,
@@ -148,6 +148,12 @@ function PanelCommentCard({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [expanded, setExpanded] = useState(true);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const replyRef = useRef<HTMLTextAreaElement>(null);
+
+    // Revealing the reply box is a deliberate request to type in it.
+    useEffect(() => {
+        if (isReplying && canModify) replyRef.current?.focus();
+    }, [isReplying, canModify]);
     const isResolved = comment.status === "RESOLVED";
 
     const handleReply = async () => {
@@ -291,6 +297,7 @@ function PanelCommentCard({
                             <label className="flex-1 space-y-1 text-xs font-medium">
                                 <span>Reply</span>
                                 <textarea
+                                    ref={replyRef}
                                     value={replyContent}
                                     onChange={(e) => setReplyContent(e.target.value)}
                                     placeholder="Write a reply..."

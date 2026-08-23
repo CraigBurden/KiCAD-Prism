@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
     CheckCircle,
     Circle,
@@ -39,7 +39,15 @@ export function CommentCard({
     const [replyContent, setReplyContent] = useState("");
     const [busy, setBusy] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const replyRef = useRef<HTMLTextAreaElement>(null);
     const isResolved = comment.status === "RESOLVED";
+
+    // Opening the reply box is a deliberate request to type in it, so focus
+    // follows the reveal. The card is a non-modal dialog and never takes focus
+    // on its own.
+    useEffect(() => {
+        if (replyOpen) replyRef.current?.focus();
+    }, [replyOpen]);
 
     const style: CSSProperties = screenPosition
         ? {
@@ -129,6 +137,7 @@ export function CommentCard({
                         Reply
                     </label>
                     <textarea
+                        ref={replyRef}
                         id={`comment-card-reply-${comment.id}`}
                         value={replyContent}
                         onChange={(e) => setReplyContent(e.target.value)}
