@@ -702,6 +702,9 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                 <ErrorBoundary label="the visualizer" resetKeys={[projectId, activeCommit]}>
                                     <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading visualizers...</div>}>
                                         <Visualizer
+                                            // The identity the ErrorBoundary
+                                            // beside it already resets on.
+                                            key={`${projectId}:${activeCommit ?? ""}`}
                                             projectId={projectId}
                                             user={user}
                                             commit={activeCommit}
