@@ -139,6 +139,10 @@ export function EcadViewerControls({
     useLayoutEffect(() => {
         if (!onVisibleWidthChange) return;
         const target = open ? railRef.current : handleRef.current;
+        // The rail's width is a layout fact, measured after layout and reported
+        // to the host that has to leave room for it. There is no earlier event
+        // carrying it: laying out at this width *is* the event.
+        // react-doctor-disable-next-line react-doctor/no-prop-callback-in-effect
         onVisibleWidthChange(target?.getBoundingClientRect().width ?? 0);
     }, [onVisibleWidthChange, open, railWidth]);
 

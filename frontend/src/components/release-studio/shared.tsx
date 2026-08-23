@@ -118,12 +118,16 @@ export function MemberViewer({
     const [failure, setFailure] = useState("");
     const kind = previewKind(member.media_type, member.path);
 
+    // Keyed on the build member by InspectOutputsStep, so a different artifact
+    // is a different viewer and starts blank without being blanked.
+    //
+    // The fetch stays here. react-doctor wants a data-fetching layer, and the
+    // project has none: this is one request for one blob, owned by the view
+    // that shows it and revoked when that view goes away.
+    // react-doctor-disable-next-line react-doctor/no-fetch-in-effect
     useEffect(() => {
         let revoked = false;
         let created = "";
-        setObjectUrl("");
-        setText("");
-        setFailure("");
         if (kind === "none") return undefined;
         void api
             .memberObjectUrl(projectId, buildId, member.path)

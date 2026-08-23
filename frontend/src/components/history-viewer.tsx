@@ -594,12 +594,6 @@ export function HistoryViewer({
     }, []);
 
     useEffect(() => {
-        setCommitsPage(0);
-        setReleasesPage(0);
-        setBranchTipSha(null);
-    }, [projectId, branchRef]);
-
-    useEffect(() => {
         const controller = new AbortController();
         setLoading(true);
         setError(null);

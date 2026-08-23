@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -41,29 +41,20 @@ export function LibraryAssetLinkPicker({
   onChange,
 }: LibraryAssetLinkPickerProps) {
   const [open, setOpen] = useState(false);
-  const [results, setResults] = useState<CatalogAssetSummary[]>([]);
+  // The last summary we have seen for the linked id, so a restored draft that
+  // carries only an id can still show a name. Resolved in the search response
+  // that produces it rather than in an effect watching for it afterwards, and
+  // read only when it still matches `value`, so it cannot mislabel a stale id.
   const [linked, setLinked] = useState<CatalogAssetSummary | null>(null);
-
-  // Keep the label meaningful when a draft is restored and we only know the id.
-  useEffect(() => {
-    if (!value) {
-      setLinked(null);
-      return;
-    }
-    if (linked?.id === value) return;
-    const known = results.find((item) => item.id === value);
-    if (known) setLinked(known);
-  }, [linked, results, value]);
 
   const label = useMemo(() => {
     if (!value) return placeholder || "Not linked";
-    if (linked) return linked.target_name || linked.name;
+    if (linked?.id === value) return linked.target_name || linked.name;
     return "Linked asset";
   }, [linked, placeholder, value]);
 
   const clear = (event: React.MouseEvent) => {
     event.stopPropagation();
-    setLinked(null);
     onChange("", null);
   };
 
@@ -98,7 +89,8 @@ export function LibraryAssetLinkPicker({
           { signal },
           "Failed to search catalog assets"
         ).then((response) => {
-          setResults(response.items);
+          const known = response.items.find((item) => item.id === value);
+          if (known) setLinked(known);
           return { items: response.items };
         })
       }

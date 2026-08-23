@@ -325,6 +325,7 @@ export function PartDetailScreen({
           </Select>
 
           <ZoomablePreview
+            key={symbolPreviewUrl}
             label="Symbol"
             url={symbolPreviewUrl}
             status={selectedRepresentation.symbol?.preview_url ? "ready" : component.preview_status?.symbol?.status}
@@ -333,6 +334,7 @@ export function PartDetailScreen({
             onExpand={symbolPreviewUrl ? () => setLightbox("symbol") : undefined}
           />
           <ZoomablePreview
+            key={footprintPreviewUrl}
             label="Footprint"
             url={footprintPreviewUrl}
             status={
@@ -511,13 +513,11 @@ function ZoomablePreview({
   version?: string;
   onExpand?: () => void;
 }) {
+  // Keyed on the url by both call sites, so a new image is a new card and
+  // starts in its own loading state.
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
     "loading"
   );
-
-  useEffect(() => {
-    setLoadState("loading");
-  }, [url]);
 
   const isReady = Boolean(url) && status !== "failed";
 

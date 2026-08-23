@@ -205,6 +205,7 @@ export function InspectOutputsStep({
                         </div>
                         {member && (
                             <MemberViewer
+                                key={`${detail.build.id}:${member.path}`}
                                 projectId={projectId}
                                 buildId={detail.build.id}
                                 member={member}

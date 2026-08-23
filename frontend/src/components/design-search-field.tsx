@@ -70,12 +70,16 @@ export function DesignSearchField({
     const [slot, setSlot] = useState<HTMLElement | null>(null);
     const [query, setQuery] = useState("");
     const [open, setOpen] = useState(false);
-    const [activeIndex, setActiveIndex] = useState(0);
+    const [rawActiveIndex, setActiveIndex] = useState(0);
 
     const hits = useMemo(
         () => searchDesignEntities(semanticIndex, query, { currentPage }),
         [currentPage, query, semanticIndex],
     );
+    // A hit list that has shrunk past the highlight takes the highlight back to
+    // the top during render, rather than after a commit that showed the wrong
+    // row. Typing resets it outright, in the handler that changes the query.
+    const activeIndex = rawActiveIndex < hits.length ? rawActiveIndex : 0;
     const activeHit = hits[activeIndex];
     const activeOptionId = activeHit ? `${listId}-opt-${activeIndex}` : undefined;
 
@@ -114,10 +118,6 @@ export function DesignSearchField({
         document.addEventListener("pointerdown", onPointerDown);
         return () => document.removeEventListener("pointerdown", onPointerDown);
     }, [open]);
-
-    useEffect(() => {
-        setActiveIndex(0);
-    }, [hits]);
 
     useLayoutEffect(() => {
         if (!open) return;
@@ -177,6 +177,7 @@ export function DesignSearchField({
             }
             if (query) {
                 setQuery("");
+                setActiveIndex(0);
                 return;
             }
             inputRef.current?.blur();
@@ -219,6 +220,7 @@ export function DesignSearchField({
                     )}
                     onChange={(event) => {
                         setQuery(event.target.value);
+                        setActiveIndex(0);
                         setOpen(true);
                     }}
                     onFocus={() => setOpen(true)}

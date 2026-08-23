@@ -667,33 +667,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         };
     }, [pcbContentLoaded, projectId, appendCommit]);
 
-    // Reset lazy loading flags when project changes
-    useEffect(() => {
-        setSchematicContentLoaded(false);
-        setPcbContentLoaded(false);
-        setSchematicContent(null);
-        setSubsheets([]);
-        setViewerSupportFiles([]);
-        setPcbContent(null);
-        setIbomUrl(null);
-        setSemanticIndex(null);
-        setSemanticIndexLoading(true);
-        setSemanticIndexError(null);
-        setRightRailTab(null);
-        setThreeDActivated(false);
-        setPcbActivated(false);
-        clearGlobalSelection();
-        setComments([]);
-        setMentionCandidates([]);
-        setCommentMode(false);
-        setShowCommentForm(false);
-        setPendingLocation(null);
-        setPendingContext(null);
-        setPendingElement(null);
-        setSelectedCommentId(null);
-        setCommentCardScreenPosition(null);
-        lastSelectionRef.current = null;
-    }, [clearGlobalSelection, commit, projectId]);
+    // A different project or commit is a different visualizer, not this one
+    // with twenty-three values put back. ProjectDetailPage keys this component
+    // on that pair, so React discards the whole tree -- state, refs, and the
+    // cross-probe hook's own selection, which lives here too -- and there is no
+    // render where the previous board's state is still on screen.
 
     useEffect(() => {
         if (activeTab === "3d" || activeTab === "stackup") setThreeDActivated(true);
@@ -1505,8 +1483,10 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 </div>
             </div>
 
-            <CommentForm
-                isOpen={showCommentForm}
+            {showCommentForm && pendingLocation && <CommentForm
+                // Each pin is its own draft, so each is its own component.
+                key={`${pendingLocation.x}:${pendingLocation.y}`}
+                isOpen
                 onClose={() => {
                     setShowCommentForm(false);
                     setPendingLocation(null);
@@ -1518,7 +1498,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 context={pendingContext ?? "SCH"}
                 isSubmitting={isSubmittingComment}
                 mentionCandidates={mentionCandidates}
-            />
+            />}
 
             {selectedComment && (
                 <CommentCard

@@ -69,19 +69,13 @@ export function CommentForm({
     const [mentionIndex, setMentionIndex] = useState(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+    // Visualizer mounts this per open, keyed on the pinned location, so the
+    // initial state above is the reset. Focus still needs asking for: the form
+    // is a bare fixed overlay, not a Radix dialog, so nothing moves focus for
+    // us and the autoFocus attribute is what react-doctor objects to.
     useEffect(() => {
-        if (isOpen) {
-            setContent("");
-            setCommentClass(DEFAULT_COMMENT_CLASS);
-            setSeverity(DEFAULT_COMMENT_SEVERITY);
-            setMentionQuery(null);
-            setMentionIndex(0);
-            // The form is a bare fixed overlay, not a Radix dialog, so nothing
-            // moves focus for us. Replaces the autoFocus attribute rather than
-            // dropping the behaviour with it.
-            textareaRef.current?.focus();
-        }
-    }, [isOpen, location?.x, location?.y]);
+        textareaRef.current?.focus();
+    }, []);
 
     const mentionMatches = useMemo(() => {
         if (mentionQuery === null) return [];
