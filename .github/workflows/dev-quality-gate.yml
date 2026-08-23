@@ -50,6 +50,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Hold the react-doctor backlog
+        # react-doctor exits 0 whatever it finds, so the gate compares the
+        # count against react-doctor-baseline.json. Errors always fail; the
+        # warning backlog may shrink but never grow.
+        run: npm run scan:gate
+
       - name: Test
         run: npm test
 
