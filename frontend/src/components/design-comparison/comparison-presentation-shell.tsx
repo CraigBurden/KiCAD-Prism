@@ -43,9 +43,9 @@ import {
 import { ComparisonViewerHost } from "./comparison-viewer-host";
 import {
     focusVisibleLayers,
-    routeFocusForChanges,
-    type RouteFocusSide,
-} from "./comparison-route-focus";
+    layerFocusForChanges,
+    type LayerFocusSide,
+} from "./comparison-layer-focus";
 import {
     resolveSelectedDocument,
     revisionSourceKey,
@@ -490,11 +490,11 @@ export function ComparisonPresentationShell({
      */
     const panes = useMemo((): Array<{
         viewer: ECadViewerElement;
-        side: RouteFocusSide;
+        side: LayerFocusSide;
         hasDocument: boolean;
     }> => {
         if (presentationMode === "side-by-side") {
-            const slots: Array<[ECadViewerElement | null, RouteFocusSide, boolean]> = [
+            const slots: Array<[ECadViewerElement | null, LayerFocusSide, boolean]> = [
                 [primaryViewer, "reference", baseHasDocument],
                 [secondaryViewer, "comparison", compareHasDocument],
             ];
@@ -1065,22 +1065,22 @@ export function ComparisonPresentationShell({
         cameraSyncSuppressedRef,
     );
 
-    const routeFocus = useMemo(
-        () => (domain === "pcb" ? routeFocusForChanges(allChanges) : null),
+    const layerFocus = useMemo(
+        () => (domain === "pcb" ? layerFocusForChanges(allChanges) : null),
         [allChanges, domain],
     );
-    const routeFocusKey = routeFocus
+    const layerFocusKey = layerFocus
         ? [
-            routeFocus.net ?? "",
-            routeFocus.reference.join(","),
-            routeFocus.comparison.join(","),
+            layerFocus.net ?? "",
+            layerFocus.reference.join(","),
+            layerFocus.comparison.join(","),
         ].join("|")
         : null;
     // A new route is a new focus: the reviewer's earlier manual override does
     // not carry across to a different net's evidence.
     const layerFocusOverridden = layerFocusReleasedFor !== null
-        && layerFocusReleasedFor === routeFocusKey;
-    const layerFocusActive = Boolean(routeFocus) && !layerFocusOverridden;
+        && layerFocusReleasedFor === layerFocusKey;
+    const layerFocusActive = Boolean(layerFocus) && !layerFocusOverridden;
 
     useEffect(() => {
         if (domain !== "pcb" || sessionPhase !== "ready" || presentationSwitching) {
@@ -1100,7 +1100,7 @@ export function ComparisonPresentationShell({
             }
         };
 
-        if (routeFocus && layerFocusActive) {
+        if (layerFocus && layerFocusActive) {
             // Capture once. Re-capturing on a presentation switch or a second
             // route would save the focused state as if the reviewer chose it.
             if (!preFocusLayersRef.current) {
@@ -1113,18 +1113,18 @@ export function ComparisonPresentationShell({
             for (const pane of panes) {
                 applyVisibility(
                     pane.viewer,
-                    new Set(focusVisibleLayers(routeFocus, pane.side)),
+                    new Set(focusVisibleLayers(layerFocus, pane.side)),
                 );
             }
 // react-doctor-disable-next-line no-pass-data-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
 // react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
             publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
             logComparisonDebug("session.layers.focus", {
-                net: routeFocus.net,
-                viaOnly: routeFocus.viaOnly,
+                net: layerFocus.net,
+                viaOnly: layerFocus.viaOnly,
                 presentationMode,
-                reference: routeFocus.reference,
-                comparison: routeFocus.comparison,
+                reference: layerFocus.reference,
+                comparison: layerFocus.comparison,
             });
             return;
         }
@@ -1149,7 +1149,7 @@ export function ComparisonPresentationShell({
         presentationMode,
         presentationSwitching,
         publishPcbLayers,
-        routeFocus,
+        layerFocus,
         sessionPhase,
     ]);
 
@@ -1214,7 +1214,7 @@ export function ComparisonPresentationShell({
      */
     const releaseLayerFocus = () => {
         preFocusLayersRef.current = null;
-        setLayerFocusReleasedFor(routeFocusKey);
+        setLayerFocusReleasedFor(layerFocusKey);
     };
 
     const toggleLayer = (name: string, visible: boolean) => {

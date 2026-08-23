@@ -1630,7 +1630,11 @@ describe("ComparisonPresentationShell", () => {
         });
     });
 
-    it("leaves layer visibility alone for a non-routing selection", async () => {
+    it("isolates the side a selected part is mounted on", async () => {
+        // A part is copper on one side of the board, so selecting one isolates
+        // that side the way selecting a route isolates the layers it runs on.
+        // This used to leave the whole stack visible, which meant a change on
+        // the back was read through the front artwork drawn over it.
         const change: ChangeItem = {
             id: "pcb-changed-footprint",
             kind: "changed",
@@ -1652,6 +1656,41 @@ describe("ComparisonPresentationShell", () => {
                 files={pcbFiles}
                 selection={{ kind: "group", id: "component-u1" }}
                 reviewGroups={[{ id: "component-u1", changes: [change] }]}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(FakeEcadViewer.instances.length).toBeGreaterThan(1);
+        });
+        await waitFor(() => {
+            expect(visibleLayers(0)).toEqual(["F.Cu", "Edge.Cuts"]);
+        });
+    });
+
+    it("leaves layer visibility alone for a selection that is not copper", async () => {
+        // Silkscreen names a layer but is not copper the reviewer is
+        // isolating, so the board stays as they left it.
+        const change: ChangeItem = {
+            id: "pcb-changed-silk",
+            kind: "changed",
+            domain: "pcb",
+            category: "graphics",
+            label: "U1 designator",
+            object_kind: "footprint_text",
+            reference: "U1",
+            reasons: ["moved"],
+            base_item: { source_id: "s1", layers: ["F.SilkS"] },
+            compare_item: { source_id: "s1", layers: ["F.SilkS"] },
+        };
+        render(
+            <ComparisonPresentationShell
+                {...shellProps}
+                domain="pcb"
+                presentationMode="side-by-side"
+                documentDiff={pcbDocumentDiff}
+                files={pcbFiles}
+                selection={{ kind: "group", id: "silk-u1" }}
+                reviewGroups={[{ id: "silk-u1", changes: [change] }]}
             />,
         );
 
