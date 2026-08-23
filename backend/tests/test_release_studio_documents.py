@@ -1389,6 +1389,7 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
     def test_acquire_assembly_view_binds_kiprjmod_to_the_board_directory(self) -> None:
         import tempfile
         from pathlib import Path
+        from unittest.mock import patch
 
         captured: dict[str, object] = {}
 
@@ -1411,13 +1412,16 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
             board = root / "project" / "board.kicad_pcb"
             board.parent.mkdir(parents=True)
             board.write_text("(kicad_pcb)\n", encoding="utf-8")
-            artwork_module.acquire_assembly_view(
-                "kicad-cruncher",
-                board,
-                "top",
-                root / "out",
-                runner=runner,
-            )
+            with patch.object(
+                artwork_module, "_cruncher_board_viewport", return_value=None
+            ):
+                artwork_module.acquire_assembly_view(
+                    "kicad-cruncher",
+                    board,
+                    "top",
+                    root / "out",
+                    runner=runner,
+                )
         self.assertIsInstance(captured.get("env"), dict)
         self.assertEqual(captured["env"]["KIPRJMOD"], str(board.parent.resolve()))
 
@@ -1817,7 +1821,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d20",
+            "release-studio-documents/d21",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 
@@ -1850,114 +1854,99 @@ if __name__ == "__main__":  # pragma: no cover
 
 
 class CruncherViewportTests(unittest.TestCase):
-    """Cruncher canvases are cropped to ink, and never re-cropped by content_view.
-
-    Regression for the Cynthion assembly/testpoint sheets: Cruncher's explicit
-    A0-style canvas carries wide margins around a small board.  content_view's
-    oversized heuristic shrank the *declared* view to the board while
-    composite_pdf kept stamping the full-size page from its top-left, so the
-    released PDF showed a clipped vertical sliver of the drawing.
-    """
+    """Cruncher canvas policy is applied from Monkey bounds, not SVG ink."""
 
     CANVAS_W, CANVAS_H = 151.15578, 107.282993
 
     def _canvas_svg(self) -> str:
-        # A big canvas; the board sits centred with margins, one designator is
-        # drawn inside a rotated group (transformed local coordinates), and
-        # white-on-white markers sit far outside the board as paint-noise.
+        # Keep stroke-width ahead of width in the root tag: the old regex
+        # accidentally read that CSS property as the viewport width.
         return (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.CANVAS_W}mm" '
-            f'height="{self.CANVAS_H}mm" viewBox="0 0 {self.CANVAS_W} {self.CANVAS_H}">'
-            '<path d="M 51 25 L 107 25 L 107 81 L 51 81 Z" fill="none" '
-            'stroke="#000000" stroke-width="0.15" data-feature="board-outline"/>'
-            '<g transform="translate(60 40) rotate(90)">'
-            '<circle cx="3" cy="-6" r="1.2" fill="#000000" stroke="none"/>'
-            "</g>"
-            '<g fill="#FFFFFF" stroke="#FFFFFF">'
-            '<circle cx="48.6" cy="-97.5" r="0.46" stroke-width="0"/>'
-            "<circle cx=\"-34.6\" cy=\"104.3\" r=\"0.4\" stroke-width=\"0\"/>"
-            "</g>"
+            f'<svg xmlns="http://www.w3.org/2000/svg" style="stroke-width:99" '
+            f'width="{self.CANVAS_W}mm" height="{self.CANVAS_H}mm" '
+            f'viewBox="0 0 {self.CANVAS_W} {self.CANVAS_H}">'
+            '<path d="M 51 25 L 107 25 L 107 81 L 51 81 Z" '
+            'fill="none" stroke="#000000" stroke-width="0.15"/>'
             "</svg>"
         )
 
-    def _acquired(self) -> artwork_module.AcquiredArtwork:
-        svg = self._canvas_svg()
-        x, y, w, h = artwork_module.extents(svg)
-        return artwork_module.AcquiredArtwork(
+    def _viewport(self) -> artwork_module._CruncherViewport:
+        return artwork_module._CruncherViewport(
+            x_mm=49.96788206559665,
+            y_mm=24.05880952380952,
+            width_mm=58.0,
+            height_mm=58.0,
+            canvas_width_mm=self.CANVAS_W,
+            canvas_height_mm=self.CANVAS_H,
+        )
+
+    def test_applies_exact_board_outline_plus_configured_margin(self) -> None:
+        cropped = artwork_module._apply_cruncher_viewport(
+            self._canvas_svg(), self._viewport()
+        )
+        x, y, width, height = artwork_module.extents(cropped)
+        self.assertAlmostEqual(x, 49.967882, places=6)
+        self.assertAlmostEqual(y, 24.05881, places=6)
+        self.assertEqual(width, 58.0)
+        self.assertEqual(height, 58.0)
+        self.assertIn('width="58mm"', cropped)
+        self.assertIn('height="58mm"', cropped)
+
+    def test_all_geometry_policy_leaves_upstream_view_unchanged(self) -> None:
+        original = self._canvas_svg()
+        self.assertEqual(
+            artwork_module._apply_cruncher_viewport(original, None), original
+        )
+
+    def test_normalized_artwork_needs_no_content_or_pdf_special_case(self) -> None:
+        svg = artwork_module._apply_cruncher_viewport(
+            self._canvas_svg(), self._viewport()
+        )
+        x, y, width, height = artwork_module.extents(svg)
+        art = artwork_module.AcquiredArtwork(
             layers=("Cruncher.assembly-top",),
             svg_text=svg,
-            pdf_bytes=artwork_module.render_pdf_page(svg),
+            pdf_bytes=b"",
             view_x=x,
             view_y=y,
-            view_width=w,
-            view_height=h,
+            view_width=width,
+            view_height=height,
             digest="d" * 64,
             page_offset_x=0.0,
             page_offset_y=0.0,
-            page_is_viewport=True,
         )
+        self.assertIs(artwork_module.content_view(art, 56.0, 56.0), art)
 
-    def test_crop_shrinks_canvas_to_board_plus_margin(self) -> None:
-        cropped = artwork_module.crop_viewport_to_ink(self._canvas_svg())
-        _x, _y, w, h = artwork_module.extents(cropped)
-        self.assertLess(w, self.CANVAS_W)
-        self.assertLess(h, self.CANVAS_H)
-        # Board outline is 56x56 plus the rotated designator and margin.
-        self.assertGreaterEqual(w, 56.0)
-        self.assertGreaterEqual(h, 56.0)
+    def test_configured_margin_is_read_from_the_checked_in_policy(self) -> None:
+        import json
+        from unittest.mock import patch
 
-    def test_crop_ignores_white_paint_outside_the_viewport(self) -> None:
-        # The white markers sit at negative / beyond-height coordinates; if the
-        # crop trusted them it would keep (or exceed) the original canvas.
-        cropped = artwork_module.crop_viewport_to_ink(self._canvas_svg())
-        _x, _y, w, h = artwork_module.extents(cropped)
-        self.assertLess(w, self.CANVAS_W - 1.0)
-        self.assertLess(h, self.CANVAS_H - 1.0)
+        class Box:
+            def __init__(self, min_x, min_y, max_x, max_y):
+                self.min_x = min_x
+                self.min_y = min_y
+                self.max_x = max_x
+                self.max_y = max_y
+                self.width = max_x - min_x
+                self.height = max_y - min_y
 
-    def test_content_view_leaves_viewport_backed_artwork_alone(self) -> None:
-        art = self._acquired()
-        placed = artwork_module.content_view(art, 56.0, 56.0)
-        self.assertIs(placed, art)
-
-    def test_composite_stamps_the_whole_page_for_viewport_artwork(self) -> None:
-        from app.release_studio.documents.layout import Rect
-
-        art = self._acquired()
-        window = Rect(14.0, 16.0, 149.0, 142.0)
-        scale = 2.0
-        base = render_pdf(sheet_templates.assembly_sheet(CONTEXT, "top", art, [])[0])
-        composed = artwork_module.composite_pdf(base, art, window, scale)
-
-        import pikepdf
-
-        with pikepdf.open(io.BytesIO(base)) as document:
-            _x0, _y0, _x1, sheet_y1 = [
-                float(v) for v in document.pages[0].mediabox
-            ]
-        with pikepdf.open(io.BytesIO(composed)) as document:
-            stream = pikepdf.parse_content_stream(document.pages[0])
-
-        stamp = None
-        previous: list[float] | None = None
-        for operands, operator in stream:
-            if str(operator) == "Do" and any(
-                "PrismArtwork" in str(o) for o in operands
-            ):
-                stamp = previous
-            if str(operator) == "cm":
-                previous = [float(v) for v in operands]
-        self.assertTrue(stamp, "expected the artwork form to be stamped")
-        self.assertEqual(stamp[:4], [scale, 0.0, 0.0, scale])
-
-        # The page *is* the viewport, so its top-left lands exactly where the
-        # SVG backend draws that corner: the drawn box (canvas x scale) is
-        # centred in the artwork window.
-        drawn_w = self.CANVAS_W * scale
-        drawn_h = self.CANVAS_H * scale
-        left = window.x + (window.width - drawn_w) / 2.0
-        top = window.y + (window.height - drawn_h) / 2.0
-        mm_to_pt = 72.0 / 25.4
-        self.assertAlmostEqual(stamp[4], left * mm_to_pt, places=1)
-        # PDF y grows upward: the page top sits `drawn_h` above its bottom.
-        self.assertAlmostEqual(stamp[5], sheet_y1 - (top + drawn_h) * mm_to_pt, places=1)
+        pcb = object()
+        boxes = [
+            Box(53.0321179344, 38.9411904762, 204.1878978487, 146.2241835311),
+            Box(104.0, 64.0, 160.0, 120.0),
+        ]
+        with patch("kicad_monkey.kicad_pcb.KiCadPcb.from_file", return_value=pcb), patch(
+            "kicad_monkey.kicad_pcb_bounds.compute_pcb_svg_bounding_box",
+            side_effect=boxes,
+        ):
+            viewport = artwork_module._cruncher_board_viewport(
+                Path("board.kicad_pcb"), artwork_module.PCB_SVG_CONFIG
+            )
+        self.assertIsNotNone(viewport)
+        policy = json.loads(
+            artwork_module.PCB_SVG_CONFIG.read_text(encoding="utf-8")
+        )
+        margin = float(policy["global"]["canvas"]["margin_mm"])
+        self.assertEqual(viewport.width_mm, 56.0 + 2.0 * margin)
+        self.assertEqual(viewport.height_mm, 56.0 + 2.0 * margin)
