@@ -211,7 +211,20 @@ function App() {
 
     // User is authenticated or auth is disabled - show app
     return (
-        <BrowserRouter>
+        /*
+         * Location updates render at normal priority, not as a transition.
+         *
+         * The router's default wraps them in `startTransition`, which makes
+         * them interruptible. That is fine while the URL only records where
+         * you are, but the comparison keeps its tab, selection and layer
+         * visibility there, so a click on a tab *is* a location update. With
+         * a change selected the board viewer is busy applying route focus and
+         * republishing layers, and those normal-priority updates restarted the
+         * pending transition on every pass: the address bar moved to the new
+         * tab, the screen never did, and only an unrelated plain state update
+         * -- Escape clearing the selection -- let it through.
+         */
+        <BrowserRouter useTransitions={false}>
             {/* The banner sits in normal flow and route layouts subtract its
                 height through --app-chrome-offset, so it never covers the
                 sticky header underneath it. */}

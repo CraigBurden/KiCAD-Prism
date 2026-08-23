@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { CHANGE_KIND_LABEL, ChangeStatusDot } from "./change-status";
 import type { ComparisonSelection } from "./comparison-selection-bridge";
+import { referenceFor } from "./comparison-change-facts";
 import { connectionEntries } from "./comparison-property-model";
 import type { ChangeGroup } from "./comparison-review-groups";
 import {
@@ -144,6 +145,24 @@ function SheetPicker({
     );
 }
 
+/**
+ * The change a designator chip stands for.
+ *
+ * `group.references` is built with `referenceFor`, which reads through to the
+ * compared item, the base item and the visual targets when the change itself
+ * carries no reference -- a routing change on a net names its parts that way.
+ * Matching on the bare `change.reference` missed exactly those, and missed
+ * silently: every chip fell back to the group's first change, so clicking R57
+ * selected whichever part happened to sort first and the viewer highlighted
+ * something the reviewer had not asked for. Building the list and matching it
+ * now go through the same accessor.
+ */
+function changeForReference(group: ChangeGroup, reference: string): ChangeItem {
+    return group.changes.find(
+        (candidate) => referenceFor(candidate) === reference,
+    ) ?? group.changes[0]!;
+}
+
 /** One review item: a single line, with its evidence one disclosure away. */
 function QueueRow({
     group,
@@ -195,9 +214,7 @@ function QueueRow({
         : group.references.map((reference) => ({
             id: `${group.id}:${reference}`,
             label: reference,
-            change: group.changes.find(
-                (candidate) => candidate.reference === reference,
-            ) ?? group.changes[0]!,
+            change: changeForReference(group, reference),
         }));
     const expandable = members.length > 1;
     // A fallback per-designator group already says the reference in its label;
@@ -255,9 +272,7 @@ function QueueRow({
                 {showChips && (
                     <span className="flex shrink-0 items-center gap-1">
                         {group.references.slice(0, 4).map((reference) => {
-                            const change = group.changes.find(
-                                (candidate) => candidate.reference === reference,
-                            ) ?? group.changes[0]!;
+                            const change = changeForReference(group, reference);
                             return (
                                 <button
                                     key={reference}
