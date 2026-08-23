@@ -11,6 +11,8 @@
 backend/**/*.pyc
 backend/.env
 backend/venv/
+# Scratch environment the dependency-identity gate builds.
+.identity-venv/
 backend/app/static/remote_provider/
 
 # Frontend
