@@ -931,3 +931,32 @@ npx react-doctor . -y --no-telemetry --verbose
 ```
 
 For a machine-readable report: add `--json --json-out report.json`, then check `projects[0].skippedChecks` is empty before reading the diagnostics.
+
+## Zero-findings pass (2026-08-23)
+
+The comparison-url branch cleared every remaining live finding. 64 were
+fixed in code: the URL state hook now owns the comparison state (no mirror
+effects), the comparison shell publishes pcb layers at the point of change,
+scope-carrying values replaced three reset effects, filter/map chains were
+folded into single passes, includes-in-loop lookups became Set lookups, five
+write-only useStates became refs, and dead exports (`categorise`,
+`categoryFor`) were deleted.
+
+The remaining 28 are recorded inline at their anchors with
+`react-doctor-disable-next-line` comments:
+
+- **no-giant-component (18)** — the components' state and rendering are
+  mutually coupled; splitting them is a per-component task, not this pass.
+- **no-pass-live-state/data-to-parent (5)** — the shell publishes device
+  state owned by the ecad viewer; the effect only registers listeners and
+  snapshots the initial state.
+- **no-adjust-state-on-prop-change (1)** — the cross-domain selection
+  re-anchor; remapping the selection to the counterpart on tab change is
+  the effect's entire job.
+- **js-set-map-lookups (1)** — the receiver is a joined string haystack;
+  a Set would break substring matching.
+- **prefer-useReducer (3)** — the state groups belong to separate concerns
+  (form draft, fetch results, busy flags); one reducer would couple them.
+
+`react-doctor-baseline.json` is now `{ errors: 0, warnings: 0 }`, so the CI
+gate fails on any new finding.
