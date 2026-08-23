@@ -6,9 +6,7 @@ import {
     clearComparisonParams,
     readComparisonUrlState,
 } from "./comparison-url";
-import {
-    readInitialUrlState,
-} from "./design-comparison-workspace";
+import { readComparisonUrlView } from "./use-comparison-url-state";
 import { groupChanges } from "./comparison-review-groups";
 import { resolveNativeSelection } from "./comparison-selection-bridge";
 import {
@@ -86,26 +84,26 @@ describe("semantic comparison state", () => {
     });
 
     it("hydrates the shareable semantic URL state", () => {
-        expect(readInitialUrlState(
+        expect(readComparisonUrlView(
             "?diff=pcb&item=track-1&secondary=1&layers=F.Cu,B.Cu",
         )).toEqual({
             activeTab: "pcb",
             presentationOverride: null,
             selectedChangeId: "track-1",
             showSecondary: true,
-            layers: ["F.Cu", "B.Cu"],
+            visibleLayers: ["F.Cu", "B.Cu"],
         });
     });
 
     it("hydrates side-by-side presentation from the URL", () => {
-        expect(readInitialUrlState(
+        expect(readComparisonUrlView(
             "?diff=sch&presentation=side-by-side&item=wire-1",
         )).toEqual({
             activeTab: "sch",
             presentationOverride: "side-by-side",
             selectedChangeId: "wire-1",
             showSecondary: false,
-            layers: [],
+            visibleLayers: [],
         });
     });
 
@@ -136,7 +134,7 @@ describe("semantic comparison state", () => {
                     visibleLayers: [],
                 },
             );
-            expect(readInitialUrlState(params).selectedChangeId).toBe(expected.id);
+            expect(readComparisonUrlView(params).selectedChangeId).toBe(expected.id);
             expect(selectedChanges({ kind: "item", id: expected.id }, groups))
                 .toEqual([expected]);
         }
