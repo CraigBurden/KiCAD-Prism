@@ -1,5 +1,8 @@
 # Backend Dockerfile
 ARG KICAD_MONKEY_VARIANT=kicad-monkey-upstream
+ARG NODE_VERSION=22.23.2
+ARG PYTHON_VERSION=3.12.13
+ARG UV_VERSION=0.12.5
 
 # KiCad CLI runtime. Release/source defaults are reproducible and AMD64-only.
 # Compose supplies the platform from its environment file. Select a different
@@ -8,17 +11,20 @@ ARG KICAD_MONKEY_VARIANT=kicad-monkey-upstream
 ARG KICAD_BASE_PLATFORM=linux/amd64
 ARG KICAD_BASE_IMAGE=kicad/kicad:10.0.4@sha256:ee71e88396f8563168eb1ef282cda9ff2670fe86a677c63dd78b35e3d464454c
 
-FROM --platform=${KICAD_BASE_PLATFORM} node:22-bookworm-slim AS remote-provider-panel
+FROM --platform=${KICAD_BASE_PLATFORM} node:${NODE_VERSION}-bookworm-slim AS remote-provider-panel
 WORKDIR /panel
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ .
 RUN npm run build:panel
 
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
+
 FROM --platform=${KICAD_BASE_PLATFORM} ${KICAD_BASE_IMAGE} AS prism-runtime
 # Redeclare so the value that satisfied FROM is available in this stage and can
 # be baked into the image as the Release Studio executor identity.
 ARG KICAD_BASE_IMAGE
+ARG PYTHON_VERSION
 ARG KICAD_LIBRARY_UTILS_REF=7124a92887b2280f85cfe2d5abb216062978d5e1
 LABEL prism.release.kicad_base_image="${KICAD_BASE_IMAGE}"
 
@@ -44,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.5.18 /uv /uvx /usr/local/bin/
+COPY --from=uv-bin /uv /uvx /usr/local/bin/
 
 # Reuse the pinned Node runtime for the isolated WebGPU asset compiler.
 COPY --from=remote-provider-panel /usr/local/bin/node /usr/local/bin/node
@@ -66,26 +72,28 @@ ENV UV_NO_CACHE=1
 # The KiCad 10.0.4 base ships 3.13; Prism's dependency set -- kicad-monkey and
 # kicad-cruncher in particular -- is validated on 3.12, so the venv selects it
 # explicitly and a base-image Python bump cannot silently move it.
-RUN uv python install 3.12 \
-    && uv venv /app/venv --python 3.12
+RUN uv python install ${PYTHON_VERSION} \
+    && uv venv /app/venv --python ${PYTHON_VERSION}
 ENV PATH="/app/venv/bin:$PATH"
 ENV PRISM_SEMANTIC_VIEWER_REPO=/opt/kicad-prism-viewer
 ENV PYTHONPATH=/opt/kicad-prism-viewer
 ENV PRISM_CLIPPER2_LIBRARY=/usr/local/lib/libprism_clipper2.so
 
-COPY backend/requirements.txt .
-RUN uv pip install --no-cache-dir -r requirements.txt
-
-# Install generator dependencies independently from the API requirements.
-COPY kicad-prism-viewer/requirements-runtime.txt /opt/kicad-prism-viewer/
-RUN uv pip install --no-cache-dir -r /opt/kicad-prism-viewer/requirements-runtime.txt
+# API, workers, Release Studio, and the semantic viewer share one fully resolved
+# runtime. Installing two independently resolved files into this venv was the
+# source of Monkey/Cruncher drift between CI, hosts, and images.
+COPY requirements/runtime.lock /app/requirements/runtime.lock
+COPY .python-version .node-version /app/
+COPY scripts/verify_dependency_identity.py /app/scripts/verify_dependency_identity.py
+RUN uv pip sync --python /app/venv/bin/python /app/requirements/runtime.lock \
+    && python /app/scripts/verify_dependency_identity.py
 
 COPY kicad-prism-viewer/package*.json /opt/kicad-prism-viewer/
-# package-lock optional deps may pin the wrong CPU arch when the image platform changes.
-RUN cd /opt/kicad-prism-viewer && npm ci --include=optional \
-    && ARCH="$(uname -m)" \
-    && case "$ARCH" in aarch64|arm64) SHARP_CPU=arm64 ;; *) SHARP_CPU=x64 ;; esac \
-    && npm install --include=optional --os=linux --cpu="${SHARP_CPU}" sharp
+# The universal lock carries Sharp's optional binaries for every supported
+# platform; npm selects the image architecture during the clean install.
+# A second unversioned `npm install sharp` used to move the image beyond the
+# reviewed lock and is deliberately forbidden.
+RUN cd /opt/kicad-prism-viewer && npm ci --include=optional
 
 COPY kicad-prism-viewer /opt/kicad-prism-viewer
 COPY scripts/build-prism-clipper2.sh /app/scripts/build-prism-clipper2.sh
@@ -112,7 +120,7 @@ EXPOSE 8000
 # Run the application. Keep workers configurable because each worker runs startup hooks.
 CMD ["sh", "-c", "/app/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-4}"]
 
-# The default image keeps the release pins from requirements-runtime.txt.
+# The default image keeps the release pair from requirements/runtime.lock.
 FROM prism-runtime AS kicad-monkey-upstream
 ENV PRISM_KICAD_MONKEY_SOURCE=pypi-release
 
@@ -120,35 +128,25 @@ ENV PRISM_KICAD_MONKEY_SOURCE=pypi-release
 # docker-compose.local-kicad-monkey.yml, so normal deployments do not need a
 # sibling kicad-monkey checkout.
 FROM prism-runtime AS kicad-monkey-local
-# Install kicad-cruncher first, then put the working tree in last. Installing
-# it the other way round quietly undid the whole point of this target:
-# `--upgrade` re-resolved kicad-cruncher's dependency on kicad-monkey and
-# pulled the newest release from PyPI straight over the local install, so the
-# image ran published code while reporting
-# PRISM_KICAD_MONKEY_SOURCE=local-working-tree.
-#
-# kicad-cruncher is deliberately unpinned. The two packages share a date-based
-# scheme but not a release cadence — kicad-monkey 2026.7.28 shipped with no
-# matching cruncher — so asking for the working tree's own version resolves to
-# nothing and fails the build. cruncher depends on `kicad-monkey>=`, and the
-# `uv pip check` below is what actually proves the mounted tree satisfies it.
-#
-# The final assertion fails the build rather than shipping an image whose
-# kicad-monkey is not the one that was mounted.
-RUN --mount=from=kicad_monkey,source=/,target=/tmp/kicad-monkey,ro \
-    uv pip install --no-cache-dir --upgrade kicad-cruncher \
-    && uv pip install --no-cache-dir --no-deps --reinstall /tmp/kicad-monkey \
-    && uv pip check \
+# Modern upstream owns Monkey and Cruncher in one monorepo. A local development
+# image replaces both together from that checkout; mixing a local Monkey with
+# whichever Cruncher happened to be newest on PyPI is forbidden.
+RUN --mount=from=kicad_toolchain,source=/,target=/tmp/kicad-toolchain,ro \
+    test -f /tmp/kicad-toolchain/packages/kicad_cruncher/pyproject.toml \
+    && uv pip install --no-cache-dir --no-deps --reinstall \
+        /tmp/kicad-toolchain \
+        /tmp/kicad-toolchain/packages/kicad_cruncher \
+    && uv pip check --python /app/venv/bin/python \
     && python - <<'PY'
 import pathlib, sys, kicad_monkey
 installed = pathlib.Path(kicad_monkey.__file__).parent
-mounted = pathlib.Path("/tmp/kicad-monkey/src/py/kicad_monkey")
+mounted = pathlib.Path("/tmp/kicad-toolchain/src/py/kicad_monkey")
 for name in sorted(p.name for p in mounted.glob("*.py")):
     if not (installed / name).exists():
         sys.exit(f"local working tree not installed: {name} is missing from {installed}")
 print(f"kicad-monkey {kicad_monkey.__version__} installed from the mounted working tree")
 PY
-ENV PRISM_KICAD_MONKEY_SOURCE=local-working-tree
+ENV PRISM_KICAD_MONKEY_SOURCE=local-monorepo
 
 FROM ${KICAD_MONKEY_VARIANT} AS final
 ARG PRISM_RELEASE=development

@@ -37,19 +37,10 @@ def find_viewer_repo_root() -> Path:
 
 
 def reference_paths(viewer_root: Path) -> list[Path]:
-    # We only include the viewer root. Pinned libraries (kicad-monkey, kicad-cruncher)
-    # are installed natively in the python environment.
-    paths = [viewer_root]
-    
-    # Optional local fallback lookup for legacy active development checkouts
-    dev_ref_monkey = viewer_root / "references" / "kicad_monkey" / "src" / "py"
-    dev_ref_cruncher = viewer_root / "references" / "kicad_cruncher" / "src" / "py"
-    if dev_ref_monkey.exists():
-        paths.append(dev_ref_monkey)
-    if dev_ref_cruncher.exists():
-        paths.append(dev_ref_cruncher)
-        
-    return paths
+    # Only the compiler itself belongs on PYTHONPATH. Monkey and Cruncher come
+    # from the locked Python environment; local source is opt-in through
+    # KICAD_MONKEY_PYTHONPATH at the import owner, never auto-discovered here.
+    return [viewer_root]
 
 
 def pythonpath(viewer_root: Path, current: str | None = None) -> str:
