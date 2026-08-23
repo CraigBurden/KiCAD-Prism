@@ -264,7 +264,8 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           }),
         }
       );
-      const approved = refreshedDiscovery.components.filter((component) => componentIds.includes(component.id));
+      const componentIdSet = new Set(componentIds);
+      const approved = refreshedDiscovery.components.filter((component) => componentIdSet.has(component.id));
       const requiredPaths = new Set<string>();
       for (const component of approved) {
         requiredPaths.add(component.symbol.relative_path);
@@ -273,10 +274,11 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           if (model.status === "resolved" && model.candidates[0]) requiredPaths.add(model.candidates[0].relative_path);
         }
       }
-      const filesToUpload = [...requiredPaths]
-        .filter((path) => !pendingFolder.uploadedPaths.has(path.toLocaleLowerCase()))
-        .map((path) => pendingFolder.filesByPath.get(path.toLocaleLowerCase()) || pendingFolder.manualFiles.get(path))
-        .filter((file): file is File => Boolean(file));
+      const filesToUpload = [...requiredPaths].flatMap((path) => {
+        if (pendingFolder.uploadedPaths.has(path.toLocaleLowerCase())) return [];
+        const file = pendingFolder.filesByPath.get(path.toLocaleLowerCase()) || pendingFolder.manualFiles.get(path);
+        return file ? [file] : [];
+      });
       const missing = [...requiredPaths].filter((path) =>
         !pendingFolder.uploadedPaths.has(path.toLocaleLowerCase())
         && !pendingFolder.filesByPath.has(path.toLocaleLowerCase())

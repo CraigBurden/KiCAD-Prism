@@ -480,13 +480,15 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         {/* The default option above already represents the
                             current branch by name, so skip it here rather than
                             listing it a second time with a "(current)" suffix. */}
-                        {branches
-                            .filter((branch) => !branch.is_current)
-                            .map((branch) => (
-                                <option key={branch.ref} value={branch.ref}>
-                                    {branch.source === "remote" ? branch.ref : branch.name}
-                                </option>
-                            ))}
+                        {branches.flatMap((branch) => (
+                            !branch.is_current
+                                ? [
+                                    <option key={branch.ref} value={branch.ref}>
+                                        {branch.source === "remote" ? branch.ref : branch.name}
+                                    </option>,
+                                ]
+                                : []
+                        ))}
                     </select>
                 </div>
 

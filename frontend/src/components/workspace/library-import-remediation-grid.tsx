@@ -384,7 +384,7 @@ export function LibraryImportRemediationGrid({
         // Every member is submitted. They carry identical metadata, so the backend
         // resolves them to one component and records each reference as a usage
         // rather than creating a duplicate or an extra revision.
-        const items = rows.flatMap((group) => group.members).map((proposal) => {
+        const items = rows.flatMap((group) => group.members.map((proposal) => {
           const metadata_overrides: Record<string, string> = {};
           for (const column of COLUMNS) {
             metadata_overrides[column.key] = effectiveValue(proposal, column.key, edits);
@@ -396,7 +396,7 @@ export function LibraryImportRemediationGrid({
             asset_links: footprintAssetId ? { footprint: footprintAssetId } : {},
             change_summary: `Import ${proposal.reference || "component"} from Prism project`,
           };
-        });
+        }));
 
         const result = await fetchJson<BulkAcceptResult>(
           `/api/catalog/import-sessions/${sessionId}/proposals/bulk-accept`,
@@ -417,9 +417,11 @@ export function LibraryImportRemediationGrid({
         // result.accepted counts proposals; a grouped row submits one per reference
         // but yields a single component, so report distinct components instead.
         const componentCount = new Set(
-          result.results
-            .filter((entry) => entry.status === "accepted" && entry.component_id)
-            .map((entry) => entry.component_id)
+          result.results.flatMap((entry) => (
+            entry.status === "accepted" && entry.component_id
+              ? [entry.component_id]
+              : []
+          ))
         ).size;
 
         if (result.failed === 0) {
