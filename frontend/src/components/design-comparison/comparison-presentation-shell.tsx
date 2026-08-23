@@ -261,15 +261,24 @@ export function ComparisonPresentationShell({
     const [selectionDiagnostic, setSelectionDiagnostic] =
         useState<string | null>(null);
     const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
-    const [dismissedBanner, setDismissedBanner] = useState<string | null>(null);
+    // Same shape: a dismissal applies to the sheet it was made on.
+    const [dismissedBanner, setDismissedBanner] =
+        useState<{ scope: string; message: string } | null>(null);
     const [rightRailInset, setRightRailInset] = useState(0);
     const [pcbLayers, setPcbLayers] = useState<EcadPcbLayerState[]>([]);
     useEffect(() => {
         onPcbLayersChange?.(pcbLayers);
     }, [onPcbLayersChange, pcbLayers]);
-    const [layerFocusOverridden, setLayerFocusOverridden] = useState(false);
+    // Which route the reviewer took manual control on. Storing the route
+    // rather than a bare flag is what "for as long as this route stays
+    // selected" means, and it expires without an effect to expire it.
+    const [layerFocusReleasedFor, setLayerFocusReleasedFor] =
+        useState<string | null>(null);
+    // A manual page choice belongs to the selection and revision pair it was
+    // made in. Carrying that scope on the value makes it self-expiring, which
+    // is what the reset effects used to do a render late.
     const [manualPageOverride, setManualPageOverride] =
-        useState<ComparisonSchematicPage | null>(null);
+        useState<{ scope: string; page: ComparisonSchematicPage } | null>(null);
     const [schematicNavigatorOpen, setSchematicNavigatorOpen] = useState(false);
     const [schematicCatalogs, setSchematicCatalogs] = useState<{
         pairKey: string;
@@ -350,8 +359,15 @@ export function ComparisonPresentationShell({
             : [],
         [comparisonPairKey, schematicCatalogs],
     );
+    const pageOverrideScope = [
+        base, compare, domain,
+        selection?.kind ?? "", selection?.id ?? "", selection?.documentPath ?? "",
+    ].join("|");
+    const activePageOverride = manualPageOverride?.scope === pageOverrideScope
+        ? manualPageOverride.page
+        : null;
     const selectedCatalogPage = useMemo(() => {
-        if (manualPageOverride) return manualPageOverride;
+        if (activePageOverride) return activePageOverride;
         if (!selectedDocumentPath) return undefined;
         return unionPages.find((page) =>
             (page.reference
@@ -359,7 +375,7 @@ export function ComparisonPresentationShell({
             || (page.comparison
                 && sameDocument(page.comparison.filename, selectedDocumentPath))
         );
-    }, [manualPageOverride, selectedDocumentPath, unionPages]);
+    }, [activePageOverride, selectedDocumentPath, unionPages]);
     const documentPath = selectedCatalogPage
         ? comparisonPageDocumentPath(
             selectedCatalogPage,
@@ -369,7 +385,7 @@ export function ComparisonPresentationShell({
     useEffect(() => {
         selectedCatalogPageRef.current = selectedCatalogPage ?? null;
     }, [selectedCatalogPage]);
-    const selectedSheetIdentity = manualPageOverride?.navigatorKey
+    const selectedSheetIdentity = activePageOverride?.navigatorKey
         ?? `document:${normalizedPath(documentPath ?? "unknown")}`;
     const selectedNavigatorIdentity = selectedCatalogPage?.navigatorKey
         ?? selectedSheetIdentity;
@@ -407,6 +423,7 @@ export function ComparisonPresentationShell({
     const baseRevisionKey = revisionSourceKey(projectId, base, domain);
     const compareRevisionKey = revisionSourceKey(projectId, compare, domain);
     const comparisonKey = `${comparisonPairKey}:sheet:${selectedSheetIdentity}`;
+    const bannerScope = `${comparisonKey}|${documentPath ?? ""}`;
     const primaryHostKey = `${comparisonPairKey}:primary`;
     const secondaryHostKey = `${comparisonPairKey}:secondary`;
     /**
@@ -519,19 +536,6 @@ export function ComparisonPresentationShell({
         setSecondaryViewer(viewer);
         setSecondaryLayoutReady(false);
     }, []);
-
-    useEffect(() => {
-        setManualPageOverride(null);
-    }, [selection?.documentPath, selection?.id, selection?.kind]);
-
-    useEffect(() => {
-        setManualPageOverride(null);
-        setSchematicCatalogs(null);
-    }, [base, compare, domain]);
-
-    useEffect(() => {
-        setDismissedBanner(null);
-    }, [comparisonKey, documentPath]);
 
     useEffect(() => {
         const cleanups: Array<() => void> = [];
@@ -1044,13 +1048,11 @@ export function ComparisonPresentationShell({
             routeFocus.comparison.join(","),
         ].join("|")
         : null;
-    const layerFocusActive = Boolean(routeFocus) && !layerFocusOverridden;
-
     // A new route is a new focus: the reviewer's earlier manual override does
     // not carry across to a different net's evidence.
-    useEffect(() => {
-        setLayerFocusOverridden(false);
-    }, [routeFocusKey]);
+    const layerFocusOverridden = layerFocusReleasedFor !== null
+        && layerFocusReleasedFor === routeFocusKey;
+    const layerFocusActive = Boolean(routeFocus) && !layerFocusOverridden;
 
     useEffect(() => {
         if (domain !== "pcb" || sessionPhase !== "ready" || presentationSwitching) {
@@ -1176,7 +1178,7 @@ export function ComparisonPresentationShell({
      */
     const releaseLayerFocus = () => {
         preFocusLayersRef.current = null;
-        setLayerFocusOverridden(true);
+        setLayerFocusReleasedFor(routeFocusKey);
     };
 
     const toggleLayer = (name: string, visible: boolean) => {
@@ -1218,7 +1220,9 @@ export function ComparisonPresentationShell({
     const activeError = sourceError ?? sessionError ?? selectionDiagnostic;
     const bannerMessage = activeError ?? selectionNotice ?? oneSidedSheetNotice;
     const showBanner =
-        Boolean(bannerMessage) && bannerMessage !== dismissedBanner;
+        Boolean(bannerMessage)
+        && !(dismissedBanner?.scope === bannerScope
+            && dismissedBanner.message === bannerMessage);
     const loading =
         baseSources.loading
         || compareSources.loading
@@ -1334,9 +1338,10 @@ export function ComparisonPresentationShell({
                                     page.filename.split("/").at(-1) ?? page.filename,
                                 )}
                                 onNavigate={(page) => {
-                                    setManualPageOverride(
-                                        page as ComparisonSchematicPage,
-                                    );
+                                    setManualPageOverride({
+                                        scope: pageOverrideScope,
+                                        page: page as ComparisonSchematicPage,
+                                    });
                                     setSchematicNavigatorOpen(false);
                                 }}
                             />
@@ -1460,7 +1465,10 @@ export function ComparisonPresentationShell({
                             type="button"
                             className="shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
                             aria-label="Dismiss warning"
-                            onClick={() => setDismissedBanner(bannerMessage)}
+                            onClick={() => setDismissedBanner({
+                                scope: bannerScope,
+                                message: bannerMessage,
+                            })}
                         >
                             <X className="h-3.5 w-3.5" />
                         </button>
