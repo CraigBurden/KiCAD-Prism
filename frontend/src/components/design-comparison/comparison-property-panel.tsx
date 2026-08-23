@@ -149,8 +149,12 @@ function bomRowFor(
     bom: BomDiff | null,
     references: readonly string[],
 ): BomChangeRow | undefined {
+    if (!bom) return undefined;
+    const byReference = new Map(
+        bom.changes.map((change) => [change.ref, change]),
+    );
     for (const reference of references) {
-        const row = bom?.changes.find((candidate) => candidate.ref === reference);
+        const row = byReference.get(reference);
         if (row) return row;
     }
     return undefined;

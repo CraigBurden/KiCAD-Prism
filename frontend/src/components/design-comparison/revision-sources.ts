@@ -92,9 +92,9 @@ export function useRevisionSources(
                 const extension =
                     domain === "pcb" ? ".kicad_pcb" : ".kicad_sch";
                 const sourcePaths = [...new Set(
-                    files
-                        .map((file) => file.path)
-                        .filter((path) => path.endsWith(extension)),
+                    files.flatMap((file) => (
+                        file.path.endsWith(extension) ? [file.path] : []
+                    )),
                 )];
                 if (!sourcePaths.includes(rootName)) {
                     sourcePaths.unshift(rootName);
@@ -178,9 +178,9 @@ export function selectedChanges(
             groups.find((group) => group.id === selection.id)?.changes ?? []
         );
     }
-    return groups
-        .flatMap((group) => group.changes)
-        .filter((change) => change.id === selection.id);
+    return groups.flatMap((group) => (
+        group.changes.filter((change) => change.id === selection.id)
+    ));
 }
 
 export function resolveSelectedDocument(

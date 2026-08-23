@@ -412,9 +412,11 @@ export function DifferencesPane({
             if (existing) existing.push(group);
             else buckets.set(section, [group]);
         }
-        return QUEUE_SECTION_ORDER
-            .filter((section) => buckets.has(section))
-            .map((section) => ({ section, groups: buckets.get(section)! }));
+        return QUEUE_SECTION_ORDER.flatMap((section) => (
+            buckets.has(section)
+                ? [{ section, groups: buckets.get(section)! }]
+                : []
+        ));
     }, [groups]);
 
     const filtered = groups.length !== totalGroups;

@@ -428,10 +428,11 @@ export function recommendPresentationForChanges(
         );
     }
     const schematicReferences = new Set(
-        changes
-            .filter((change) => change.domain === "schematic")
-            .map((change) => change.reference)
-            .filter(Boolean),
+        changes.flatMap((change) => (
+            change.domain === "schematic" && change.reference
+                ? [change.reference]
+                : []
+        )),
     );
     const pages = new Set(changes.flatMap((change) => [
         change.page,
