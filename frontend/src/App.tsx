@@ -222,6 +222,7 @@ function App() {
             >
             {sessionExpired ? (
                 <SessionExpiredBanner
+                    key={user.email}
                     authConfig={authConfig}
                     email={user.email}
                     onReauthenticated={(restored) => { setUser(restored); setSessionExpired(false); }}

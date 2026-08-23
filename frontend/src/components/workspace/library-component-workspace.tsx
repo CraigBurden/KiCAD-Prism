@@ -432,6 +432,10 @@ function RepresentationRow({
 }) {
   const symbols = component.assets.filter((asset) => asset.asset_type === "symbol");
   const footprints = component.assets.filter((asset) => asset.asset_type === "footprint");
+  // An edit buffer, not a mirror: it is meant to diverge from the prop as soon
+  // as the field is typed in, so it cannot be computed inline. The row is keyed
+  // on representation.id, so a different representation gets a different form.
+  // react-doctor-disable-next-line react-doctor/no-derived-useState
   const [label, setLabel] = useState(representation.label);
   const [symbolId, setSymbolId] = useState(representation.symbol?.id || "");
   const [footprintId, setFootprintId] = useState(representation.footprint?.id || "");
@@ -769,14 +773,14 @@ function AssetRevisionVisualDiff({
   const beforePreviews = diffPreviewEvidence(before);
   const afterPreviews = diffPreviewEvidence(after);
   const units = Array.from(new Set([...beforePreviews, ...afterPreviews].map((preview) => preview.unit))).sort((a, b) => a - b);
-  const [activeUnit, setActiveUnit] = useState(units[0] || 1);
+  const [requestedUnit, setActiveUnit] = useState(units[0] || 1);
+  // Unlike the inspector's, this one is load-bearing: nothing here falls back,
+  // so a unit that has left the set blanks both previews. Resolving it during
+  // render removes the frame where that was on screen.
+  const activeUnit = units.includes(requestedUnit) ? requestedUnit : (units[0] || 1);
   const beforePreview = beforePreviews.find((preview) => preview.unit === activeUnit);
   const afterPreview = afterPreviews.find((preview) => preview.unit === activeUnit);
   const unitLabel = beforePreview?.unitLabel || afterPreview?.unitLabel || `Unit ${activeUnit}`;
-
-  useEffect(() => {
-    if (!units.includes(activeUnit)) setActiveUnit(units[0] || 1);
-  }, [activeUnit, units]);
 
   return (
     <div className="space-y-2">

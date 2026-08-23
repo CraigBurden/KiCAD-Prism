@@ -239,6 +239,10 @@ function GitSettings({ user }: { user: User | null }) {
             console.error("Failed to fetch Git access settings", err);
             toast.error("Failed to load Git access settings");
         } finally {
+            // The reset is in `finally` and covers the rejection path. The rule
+            // is reading the abort guard as a success-only branch; an aborted
+            // load has a successor already in flight that owns the flag.
+            // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally
             if (!signal?.aborted) {
                 setLoading(false);
             }

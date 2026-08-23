@@ -263,6 +263,9 @@ export function ReleaseStudioPanel({
         }
         // Do not render the preceding run while this run's detail is loading.
         // The id guard below is a second line of defence for batched updates.
+        // Nothing here reaches a parent: setDetail, setError and refreshDetail
+        // are all this component's own, so there is no extra render to save.
+        // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
         setDetail(null);
         void refreshDetail(selectedBuildId).catch((cause: unknown) => {
             setError(cause instanceof Error ? cause.message : String(cause));

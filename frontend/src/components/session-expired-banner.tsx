@@ -50,6 +50,9 @@ export function SessionExpiredBanner({
 }: SessionExpiredBannerProps) {
     const passwordAuth = Boolean(authConfig.password_auth_enabled);
     const [dialogOpen, setDialogOpen] = useState(false);
+    // The same: a sign-in field the user may correct. App.tsx keys the banner
+    // on the account it is for, so a different account gets a different form.
+    // react-doctor-disable-next-line react-doctor/no-derived-useState
     const [emailValue, setEmailValue] = useState(email);
     const [password, setPassword] = useState("");
     const [submitting, setSubmitting] = useState(false);

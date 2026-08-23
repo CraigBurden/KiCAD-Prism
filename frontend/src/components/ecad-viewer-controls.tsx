@@ -134,6 +134,10 @@ export function EcadViewerControls({
             observer?.disconnect();
             onVisibleWidthChange(0);
         };
+        // The rail's width is a layout fact, read after layout and reported to
+        // the host that has to leave room for it. There is no earlier event
+        // carrying it: the observer firing *is* the event.
+        // react-doctor-disable-next-line react-doctor/no-prop-callback-in-effect
     }, [onVisibleWidthChange, openRef]);
 
     useLayoutEffect(() => {
