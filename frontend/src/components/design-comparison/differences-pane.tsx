@@ -365,8 +365,16 @@ export function DifferencesPane({
 }: DifferencesPaneProps) {
     const paneRef = useRef<HTMLDivElement | null>(null);
     const [searchOpen, setSearchOpen] = useState(Boolean(search));
-    const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(
-        () => new Set(),
+    // The group holding the selection is open unless the reviewer closed it;
+    // any other group is closed unless they opened it. Storing the choices they
+    // actually made, rather than the resulting open set, means the default can
+    // follow the selection during render instead of an effect forcing it open
+    // afterwards. One behaviour change falls out: a group that was open only
+    // because it held the selection now closes when the selection moves on,
+    // which leaves the queue showing the group being reviewed rather than every
+    // group visited on the way to it.
+    const [groupOpenChoices, setGroupOpenChoices] = useState<Map<string, boolean>>(
+        () => new Map(),
     );
     // Layout and documentation is the scope a release review does not normally
     // sign off, so it starts closed even when the reviewer has opted to see it.
@@ -378,15 +386,8 @@ export function DifferencesPane({
         group.id === selectedGroupId
         || group.changes.some((change) => change.id === selectedChangeId)
     );
-    useEffect(() => {
-        if (!selectedGroup) return;
-        setExpandedGroupIds((current) => {
-            if (current.has(selectedGroup.id)) return current;
-            const next = new Set(current);
-            next.add(selectedGroup.id);
-            return next;
-        });
-    }, [selectedGroup]);
+    const isGroupExpanded = (groupId: string) =>
+        groupOpenChoices.get(groupId) ?? groupId === selectedGroup?.id;
     useEffect(() => {
         if (!selectedChangeId && !selectedGroupId) return;
         const frame = requestAnimationFrame(() => {
@@ -566,11 +567,10 @@ export function DifferencesPane({
                                     <QueueRow
                                         key={group.id}
                                         group={group}
-                                        expanded={expandedGroupIds.has(group.id)}
-                                        onToggleExpanded={() => setExpandedGroupIds((current) => {
-                                            const next = new Set(current);
-                                            if (next.has(group.id)) next.delete(group.id);
-                                            else next.add(group.id);
+                                        expanded={isGroupExpanded(group.id)}
+                                        onToggleExpanded={() => setGroupOpenChoices((current) => {
+                                            const next = new Map(current);
+                                            next.set(group.id, !isGroupExpanded(group.id));
                                             return next;
                                         })}
                                         selected={selectedGroup?.id === group.id}

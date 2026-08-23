@@ -599,6 +599,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         </section>
       </div>
       <LibraryImportRemediationDialog
+        key={remediationProposal?.id ?? "none"}
         proposal={remediationProposal}
         open={remediationProposal !== null}
         submitting={proposalActionId === remediationProposal?.id}

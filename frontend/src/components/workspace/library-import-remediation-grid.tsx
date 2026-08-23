@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, ArrowDownToLine, Check, CheckCheck, Combine, Download, Loader2, Redo2, Save,
   Undo2, Upload,
@@ -221,7 +221,7 @@ export function LibraryImportRemediationGrid({
   // pieces move through one pure reducer (useEditHistory) so history can never
   // duplicate or desync.
   const { edits, undoStack, redoStack, commitEdits, replaceEdits, resetHistory, undo, redo } = useEditHistory();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [rawSelected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [filter, setFilter] = useState("");
@@ -273,15 +273,15 @@ export function LibraryImportRemediationGrid({
 
   const dirtyCount = Object.keys(edits).length;
 
-  useEffect(() => {
-    // Group keys change when rows merge or a refresh removes accepted rows, so drop
-    // selections that no longer name a live row.
-    setSelected((current) => {
-      const live = new Set(groups.map((group) => group.key));
-      const next = new Set([...current].filter((key) => live.has(key)));
-      return next.size === current.size ? current : next;
-    });
-  }, [groups]);
+  // Group keys change when rows merge or a refresh removes accepted rows. A
+  // selection is only ever read against the live rows -- the copy-down, the
+  // ready count, and the header checkbox all intersect with them -- so it is
+  // narrowed during render rather than pruned a commit later.
+  const selected = useMemo(() => {
+    const live = new Set<string>();
+    for (const group of groups) if (rawSelected.has(group.key)) live.add(group.key);
+    return live;
+  }, [groups, rawSelected]);
 
   /** Apply an edit through the history so it can be undone. */
   /** A grouped row stands for one component, so an edit applies to every member. */
