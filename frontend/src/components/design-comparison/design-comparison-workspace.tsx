@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import {
     AlertCircle,
     Cpu,
@@ -34,10 +33,9 @@ import {
     logComparisonDebug,
     startComparisonDebugSession,
 } from "./comparison-debug-log";
-import {
-    readComparisonUrlState,
-    type ComparisonPresentationMode,
-    type ComparisonUrlTab,
+import type {
+    ComparisonPresentationMode,
+    ComparisonUrlTab,
 } from "./comparison-url";
 import { comparisonDomainStatus } from "./comparison-readiness";
 import { BomPanel } from "./bom-panel";
@@ -75,6 +73,9 @@ import type {
 type WorkspaceTab = ComparisonUrlTab;
 export type PresentationMode = ComparisonPresentationMode;
 
+/** The impact filter when no tab owns one: empty, and never mutated. */
+const EMPTY_IMPACTS: Set<ReviewImpact> = new Set();
+
 interface DesignComparisonWorkspaceProps {
     projectId: string;
     base: string;
@@ -90,20 +91,6 @@ interface SemanticFocus {
     net?: string | null;
 }
 
-export function readInitialUrlState(
-    search: string | URLSearchParams = window.location.search,
-) {
-    const state = readComparisonUrlState(search);
-    return {
-        activeTab: state.diff,
-        presentationOverride: state.presentationOverride,
-        selectedChangeId: state.item,
-        showSecondary: state.showSecondary,
-        layers: state.layers,
-    };
-}
-
-
 export function DesignComparisonWorkspace({
     projectId,
     base,
@@ -112,7 +99,6 @@ export function DesignComparisonWorkspace({
     canComment,
     onClose,
 }: DesignComparisonWorkspaceProps) {
-    const [searchParams] = useSearchParams();
     const { result, status: jobStatus, error } = useDesignCompareJob(
         projectId,
         base,
@@ -123,54 +109,65 @@ export function DesignComparisonWorkspace({
         base,
         head,
     );
-    const initial = useMemo(
-        () => readInitialUrlState(searchParams),
-        [searchParams],
-    );
-    const [activeTab, setActiveTab] = useState<WorkspaceTab>(initial.activeTab);
     /**
-     * A reviewer's explicit presentation choice for the change they are looking
-     * at right now, or null to follow the policy's recommendation.
-     *
-     * Auto is not a mode to select, it is what happens when nothing has been
-     * selected. An override answers "show me *this* change differently" and is
-     * discarded when the reviewer moves to another change, so the workspace
-     * never carries a stale choice into evidence it was not made for.
+     * Tab, presentation, focused change, secondary filter and layer visibility
+     * are read straight out of the address bar rather than copied into state,
+     * so a pasted link and a click take the same path. Everything below this is
+     * ordinary local state: it is not part of what a reviewer shares.
      */
-    const [presentationOverride, setPresentationOverride] =
-        useState<PresentationMode | null>(initial.presentationOverride);
+    const {
+        activeTab,
+        presentationOverride,
+        selectedChangeId,
+        showSecondary,
+        visibleLayers,
+        setActiveTab,
+        setPresentationOverride,
+        setSelectedChangeId,
+        setShowSecondary,
+        setVisibleLayers,
+    } = useComparisonUrlState({ base, compare: head });
     const [statuses, setStatuses] = useState<Set<ChangeKind>>(
         () => new Set(["added", "changed", "removed"]),
     );
     // Empty means "no owner filter". Six owners would otherwise need five
     // clicks to isolate one, so these chips narrow rather than exclude.
-    const [impacts, setImpacts] = useState<Set<ReviewImpact>>(() => new Set());
+    const [impactsFor, setImpactsFor] = useState<{
+        tab: ComparisonUrlTab;
+        values: Set<ReviewImpact>;
+    } | null>(null);
+    // The owner of an impact filter is the tab it was set on: "PCB
+    // fabrication" has no meaning in the schematic queue, so a filter carried
+    // across tabs would silently empty it. Carrying the tab on the value makes
+    // the filter expire by comparison during render, with no effect to reset
+    // it after the fact.
+    const impacts = impactsFor?.tab === activeTab
+        ? impactsFor.values
+        : EMPTY_IMPACTS;
     const [search, setSearch] = useState("");
-    const [showSecondary, setShowSecondary] = useState(initial.showSecondary);
-    const [selectedChangeId, setSelectedChangeId] = useState<string | null>(
-        initial.selectedChangeId,
-    );
     const [reviewSelection, setReviewSelection] = useState<ComparisonSelection>(
-        initial.selectedChangeId
-            ? { kind: "item", id: initial.selectedChangeId }
-            : null,
+        () => (selectedChangeId ? { kind: "item", id: selectedChangeId } : null),
     );
-    const [visibleLayers, setVisibleLayers] = useState<string[]>(initial.layers);
     // Board layer state, lifted so the property panel can draw a selected net's
     // layers with the same swatches the layer panel uses.
     const [pcbLayers, setPcbLayers] = useState<EcadPcbLayerState[]>([]);
-    // Closed by default; the user opens it deliberately from the rail.
-    const [comparisonRightRailTab, setComparisonRightRailTab] =
-        useState<"layers" | null>(null);
+    // Closed by default; the user opens it deliberately from the rail. The
+    // layers panel only means anything for the pcb tab, so the state carries
+    // the tab it was opened on and reads as closed everywhere else — it
+    // expires by comparison during render instead of being closed by an
+    // effect after the tab change.
+    const [rightRailFor, setRightRailFor] = useState<{
+        tab: "layers";
+        forTab: ComparisonUrlTab;
+    } | null>(null);
+    const comparisonRightRailTab =
+        rightRailFor?.forTab === activeTab ? rightRailFor.tab : null;
+    const setComparisonRightRailTab = (tab: "layers" | null) => {
+        setRightRailFor(tab ? { tab, forTab: activeTab } : null);
+    };
     const [previewSelection, setPreviewSelection] =
         useState<ComparisonSelection>(null);
     const semanticFocusRef = useRef<SemanticFocus | null>(null);
-
-    useEffect(() => {
-        if (activeTab !== "pcb" && comparisonRightRailTab === "layers") {
-            setComparisonRightRailTab(null);
-        }
-    }, [activeTab, comparisonRightRailTab]);
 
     useEffect(() => {
         startComparisonDebugSession({ projectId, base, compare: head });
@@ -269,9 +266,9 @@ export function DesignComparisonWorkspace({
     );
     const groups = useMemo(
         () => groupChanges(statusFilteredChanges, comments, grouping)
-            .filter((group) => groupMatchesSearch(group, search))
             .filter((group) => (
-                !impacts.size || impacts.has(reviewImpactForGroup(group))
+                groupMatchesSearch(group, search)
+                && (!impacts.size || impacts.has(reviewImpactForGroup(group)))
             )),
         [comments, grouping, impacts, search, statusFilteredChanges],
     );
@@ -320,11 +317,7 @@ export function DesignComparisonWorkspace({
     if (activeTab === "sch") visitedDomainsRef.current.add("schematic");
     if (activeTab === "pcb") visitedDomainsRef.current.add("pcb");
 
-    // Owners are domain-specific: "PCB fabrication" has no meaning in the
-    // schematic queue, so a filter carried across tabs would silently empty it.
-    useEffect(() => {
-        setImpacts(new Set());
-    }, [activeTab]);
+    // Impacts reset by scope, not by effect: see the `impactsFor` state above.
 
     const selectedChange = useMemo(
         () => domainChanges.find((change) => change.id === selectedChangeId) ?? null,
@@ -378,25 +371,6 @@ export function DesignComparisonWorkspace({
         selectedChangeId,
     ]);
 
-    useComparisonUrlState(
-        {
-            base,
-            compare: head,
-            activeTab,
-            presentationOverride,
-            selectedChangeId,
-            showSecondary,
-            visibleLayers,
-        },
-        {
-            setActiveTab,
-            setPresentationOverride,
-            setSelectedChangeId,
-            setShowSecondary,
-            setVisibleLayers,
-        },
-    );
-
     // An override belongs to one change. Selecting a different one hands the
     // decision back to the policy. The ref makes the first render a no-op so a
     // deep link carrying `presentation` survives arriving at its own item.
@@ -409,7 +383,7 @@ export function DesignComparisonWorkspace({
         }
         lastPresentationSelectionRef.current = presentationSelectionKey;
         setPresentationOverride(null);
-    }, [presentationSelectionKey]);
+    }, [presentationSelectionKey, setPresentationOverride]);
 
     const selectChange = (change: ChangeItem, documentPath?: string) => {
         logComparisonDebug("difference.click", {
@@ -519,7 +493,16 @@ export function DesignComparisonWorkspace({
             setSelectedChangeId(null);
             setReviewSelection(null);
         }
-    }, [activeTab, domainChanges, navigationGroups, result, reviewSelection, selectedChangeId]);
+    }, [
+        activeTab,
+        domainChanges,
+        navigationGroups,
+        result,
+        reviewSelection,
+        selectedChangeId,
+        setReviewSelection,
+        setSelectedChangeId,
+    ]);
 
     const navigate = (direction: -1 | 1) => {
         if (!groups.length) return;
@@ -691,7 +674,9 @@ export function DesignComparisonWorkspace({
                     toolbarContent={isActive ? presentationSwitcher : null}
                     initialVisibleLayers={visibleLayers}
                     onVisibleLayersChange={setVisibleLayers}
-                    onPcbLayersChange={isActive ? setPcbLayers : undefined}
+                    onPcbLayersChange={
+                        shellDomain === "pcb" ? setPcbLayers : undefined
+                    }
                     rightRailTab={comparisonRightRailTab}
                     onRightRailTabChange={setComparisonRightRailTab}
                 />
@@ -830,11 +815,15 @@ export function DesignComparisonWorkspace({
                                             impactCounts={impactCounts}
                                             impacts={impacts}
                                             onToggleImpact={(impact) => {
-                                                setImpacts((current) => {
-                                                    const next = new Set(current);
-                                                    if (next.has(impact)) next.delete(impact);
-                                                    else next.add(impact);
-                                                    return next;
+                                                const values = new Set(impacts);
+                                                if (values.has(impact)) {
+                                                    values.delete(impact);
+                                                } else {
+                                                    values.add(impact);
+                                                }
+                                                setImpactsFor({
+                                                    tab: activeTab,
+                                                    values,
                                                 });
                                             }}
                                             onExport={exportReviewQueue}
