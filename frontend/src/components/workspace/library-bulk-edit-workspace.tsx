@@ -97,6 +97,8 @@ function MetadataCell({
     return <div
       className={cn("flex h-9 min-w-0 items-center border-r px-2 text-xs outline-none focus:ring-1 focus:ring-inset focus:ring-ring", pinnedClass)}
       style={pinnedStyle}
+      role="gridcell"
+      aria-label={`${field.label}: ${display}`}
       data-cell={`${rowIndex}:${columnIndex}`}
       tabIndex={0}
       title={field.description || display}
@@ -114,12 +116,13 @@ function MetadataCell({
 
   if (field.type === "boolean") {
     return <div className={cn("flex h-9 items-center justify-center border-r px-2", pinnedClass)} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`}>
-      <Checkbox ref={editorRef as React.Ref<HTMLButtonElement>} checked={["true", "1", "yes"].includes(value.toLocaleLowerCase())} onCheckedChange={(checked) => onCommit(checked ? "true" : "false")} />
+      <Checkbox aria-label={field.label} ref={editorRef as React.Ref<HTMLButtonElement>} checked={["true", "1", "yes"].includes(value.toLocaleLowerCase())} onCheckedChange={(checked) => onCommit(checked ? "true" : "false")} />
     </div>;
   }
   if (field.type === "enum") {
     return <div className={cn("h-9 border-r p-1", pinnedClass)} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`}>
       <select
+        aria-label={field.label}
         ref={editorRef as React.Ref<HTMLSelectElement>}
         className="h-full w-full border-0 bg-transparent px-1 text-xs outline-none focus:ring-1 focus:ring-ring"
         value={value}
@@ -132,6 +135,7 @@ function MetadataCell({
   }
   return <div className={cn("h-9 border-r p-1", pinnedClass, error && "bg-destructive/10")} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`} title={error || field.description}>
     <input
+      aria-label={field.label}
       ref={editorRef as React.Ref<HTMLInputElement>}
       className="h-full w-full border-0 bg-transparent px-1 text-xs outline-none focus:bg-background focus:ring-1 focus:ring-ring disabled:cursor-default"
       type={field.type === "number" ? "text" : field.type === "url" ? "url" : "text"}

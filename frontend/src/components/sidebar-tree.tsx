@@ -24,10 +24,11 @@ export function SidebarTree({
               Projects ({projects.length})
             </div>
             {projects.map((project) => (
-              <div
+              <button
+                type="button"
                 key={project.id}
                 className={cn(
-                  "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-accent/50 transition-colors group",
+                  "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/50 transition-colors",
                   selectedProjectId === project.id && "bg-accent"
                 )}
                 onClick={() => onSelectProject(project)}
@@ -44,7 +45,7 @@ export function SidebarTree({
                     </div>
                   )}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         ) : (

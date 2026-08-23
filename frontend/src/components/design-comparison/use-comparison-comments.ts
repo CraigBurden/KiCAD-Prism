@@ -17,6 +17,7 @@ export function useComparisonComments(
 
     useEffect(() => {
         const controller = new AbortController();
+        let cancelled = false;
         void (async () => {
             try {
                 const params = new URLSearchParams({ base, compare });
@@ -24,9 +25,10 @@ export function useComparisonComments(
                     `/api/projects/${projectId}/comparison-comments?${params}`,
                     { signal: controller.signal },
                 );
+                if (cancelled) return;
                 if (!response.ok) return;
                 const payload = (await response.json()) as CommentsFile;
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setComments(payload.comments ?? []);
                 }
             } catch (caught) {
@@ -39,7 +41,10 @@ export function useComparisonComments(
                 throw caught;
             }
         })();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [projectId, base, compare]);
 
     return [comments, setComments];

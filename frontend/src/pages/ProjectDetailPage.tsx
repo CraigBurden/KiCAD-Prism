@@ -227,6 +227,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
 
         const controller = new AbortController();
+        let cancelled = false;
         setBranchesLoading(true);
         setBranchError(null);
 
@@ -237,23 +238,26 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     { signal: controller.signal },
                     "Failed to load branches"
                 );
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setBranches(data.branches || []);
                 }
             } catch (err) {
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setBranches([]);
                     setBranchError(err instanceof Error ? err.message : "Failed to load branches");
                 }
             } finally {
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setBranchesLoading(false);
                 }
             }
         };
 
         void fetchBranches();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [projectId, refreshKey]);
 
     useEffect(() => {
@@ -263,6 +267,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
 
         const controller = new AbortController();
+        let cancelled = false;
         setLoading(true);
 
         const fetchProjectData = async () => {
@@ -276,28 +281,31 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     "Failed to fetch project overview"
                 );
 
-                if (controller.signal.aborted) {
+                if (cancelled) {
                     return;
                 }
 
                 setProject(overview.project);
                 setReadme(overview.readme ?? "");
             } catch (err) {
-                if (controller.signal.aborted) {
+                if (cancelled) {
                     return;
                 }
                 console.error("Failed to fetch project details", err);
                 setProject(null);
                 setReadme("");
             } finally {
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setLoading(false);
                 }
             }
         };
 
         void fetchProjectData();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [projectId, activeCommit, refreshKey]);
 
     // Calculate commits behind when viewing specific commit

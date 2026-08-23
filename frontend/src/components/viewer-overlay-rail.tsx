@@ -12,6 +12,7 @@ import {
     type UseResizableWidthOptions,
 } from "@/components/ui/resizable-panel";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 
 export type ViewerOverlayRailTab<T extends string> = {
     id: T;
@@ -104,8 +105,7 @@ function ViewerOverlayRailFrame<T extends string>({
 }) {
     const internalRef = useRef<HTMLElement | null>(null);
     const railRef = railRefProp ?? internalRef;
-    const activeTabRef = useRef(activeTab);
-    activeTabRef.current = activeTab;
+    const activeTabRef = useCommittedRef(activeTab);
 
     useLayoutEffect(() => {
         const rail = railRef.current;
@@ -124,7 +124,7 @@ function ViewerOverlayRailFrame<T extends string>({
             observer?.disconnect();
             onVisibleWidthChange(0);
         };
-    }, [onVisibleWidthChange, railRef]);
+    }, [activeTabRef, onVisibleWidthChange, railRef]);
 
     useLayoutEffect(() => {
         if (!onVisibleWidthChange) return;

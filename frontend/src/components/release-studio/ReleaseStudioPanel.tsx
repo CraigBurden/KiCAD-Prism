@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { cancelPrismJob, jobPipeline, throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type { UserRole } from "@/types/auth";
 
 import * as api from "./api";
@@ -85,7 +86,9 @@ export function ReleaseStudioPanel({
     const [stage, setStage] = useState<RunStage>("source");
     // Set when the user opens a specific run, so a newer build does not pull
     // the view out from under someone reading an older release's evidence.
-    const pinnedRef = useRef(false);
+    const pinnedRef = useRef(
+        typeof window !== "undefined" && Boolean(new URLSearchParams(window.location.search).get("build")),
+    );
     // "New release" opens the Source stage so a revision and configuration can
     // be chosen. Building immediately took that choice away and made the button
     // fire an expensive job on a single click.
@@ -93,8 +96,7 @@ export function ReleaseStudioPanel({
         if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("build")) return false;
         return true;
     });
-    const draftingRef = useRef(false);
-    draftingRef.current = drafting;
+    const draftingRef = useCommittedRef(drafting);
     const [commits, setCommits] = useState<ProjectCommit[]>([]);
     const [commitsLoading, setCommitsLoading] = useState(true);
     const [commitSha, setCommitSha] = useState(defaultCommit);
@@ -126,12 +128,9 @@ export function ReleaseStudioPanel({
     // about, not on whatever happens to be newest.
     const [selectedBuildId, setSelectedBuildId] = useState<string | null>(() => {
         if (typeof window === "undefined") return null;
-        const fromUrl = new URLSearchParams(window.location.search).get("build");
-        if (fromUrl) pinnedRef.current = true;
-        return fromUrl;
+        return new URLSearchParams(window.location.search).get("build");
     });
-    const selectedBuildIdRef = useRef<string | null>(selectedBuildId);
-    selectedBuildIdRef.current = selectedBuildId;
+    const selectedBuildIdRef = useCommittedRef(selectedBuildId);
     const detailRequestRef = useRef(0);
     const [detail, setDetail] = useState<BuildDetail | null>(null);
     const [busy, setBusy] = useState("");
@@ -142,8 +141,7 @@ export function ReleaseStudioPanel({
     const [jobPercent, setJobPercent] = useState(0);
     const [liveLogs, setLiveLogs] = useState<string[]>([]);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
-    const activeJobIdRef = useRef<string | null>(activeJobId);
-    activeJobIdRef.current = activeJobId;
+    const activeJobIdRef = useCommittedRef(activeJobId);
     const [currentBuildId, setCurrentBuildId] = useState<string | null>(null);
     // Never let a retained response drive a different selected run.
     const selectedDetail = detail?.build.id === selectedBuildId ? detail : null;
@@ -172,7 +170,7 @@ export function ReleaseStudioPanel({
             }
             return null;
         }
-    }, [projectId]);
+    }, [projectId, selectedBuildIdRef]);
 
     const refresh = useCallback(async (preferredJobId?: string) => {
         try {
@@ -205,7 +203,7 @@ export function ReleaseStudioPanel({
             setError(cause instanceof Error ? cause.message : String(cause));
             return null;
         }
-    }, [projectId]);
+    }, [draftingRef, projectId]);
 
     useEffect(() => {
         void refresh();
@@ -303,7 +301,7 @@ export function ReleaseStudioPanel({
             setError(cause instanceof Error ? cause.message : String(cause));
         });
         return () => controller.abort();
-    }, [refresh, refreshDetail, selectedDetail?.build.id, selectedDetail?.build.job_id, selectedDetail?.build.status]);
+    }, [activeJobIdRef, refresh, refreshDetail, selectedDetail?.build.id, selectedDetail?.build.job_id, selectedDetail?.build.status]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -355,7 +353,7 @@ export function ReleaseStudioPanel({
                 setBusy("");
             }
         },
-        [refresh, refreshDetail],
+        [refresh, refreshDetail, selectedBuildIdRef],
     );
 
     const handleBuild = () => {

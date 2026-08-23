@@ -62,9 +62,14 @@ export function useRevisionSources(
         [domain, files],
     );
 
+    // Every await boundary checks `cancelled`, and cleanup flips it before
+    // aborting the fetches. Promise.allSettled obscures that guard from the
+    // scanner, but no stale request can reach a setter.
+    // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
     useEffect(() => {
         const controller = new AbortController();
         const { signal } = controller;
+        let cancelled = false;
         setResolvedKey(null);
         setSources([]);
         setLoading(true);
@@ -83,6 +88,7 @@ export function useRevisionSources(
                           files?: ViewerBlobSource[];
                       }).files ?? []
                     : [];
+                if (cancelled) return;
                 const extension =
                     domain === "pcb" ? ".kicad_pcb" : ".kicad_sch";
                 const sourcePaths = [...new Set(
@@ -110,6 +116,7 @@ export function useRevisionSources(
                         };
                     }),
                 );
+                if (cancelled) return;
                 const collected = settled.flatMap((item) =>
                     item.status === "fulfilled" ? [item.value] : []
                 );
@@ -118,18 +125,12 @@ export function useRevisionSources(
                 );
                 // Missing-doc revisions are an explicit empty state for the host,
                 // not a hard failure — the other side may still paint.
-                if (!hasRoot) {
-                    collected.push(...support);
-                    if (!signal.aborted) {
-                        setSources(collected);
-                        setError(null);
-                    }
-                    return;
-                }
                 collected.push(...support);
-                if (!signal.aborted) setSources(collected);
+                if (cancelled) return;
+                setSources(collected);
+                if (!hasRoot) setError(null);
             } catch (caught) {
-                if (!signal.aborted && !isAbortError(caught)) {
+                if (!cancelled && !isAbortError(caught)) {
                     setError(
                         caught instanceof Error
                             ? caught.message
@@ -137,13 +138,16 @@ export function useRevisionSources(
                     );
                 }
             } finally {
-                if (!signal.aborted) {
+                if (!cancelled) {
                     setResolvedKey(requestKey);
                     setLoading(false);
                 }
             }
         })();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
         // `files` is intentionally NOT a dependency. For a fixed commit the source
         // list is fixed, but the parent re-creates the `files` array on most
         // renders, giving it a new identity each time. Including it re-ran this

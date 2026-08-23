@@ -65,13 +65,13 @@ export function CommentCard({
     };
 
     return (
-        <div
+        <dialog
+            open
             className={cn(
-                "fixed z-[110] w-72 rounded-md border bg-background shadow-lg",
+                "fixed z-[110] m-0 w-72 rounded-md border bg-background p-0 text-foreground shadow-lg",
                 isResolved && "opacity-80",
             )}
             style={style}
-            role="dialog"
             aria-label="Comment details"
         >
             <div className="flex items-start justify-between gap-2 border-b px-3 py-2">
@@ -125,8 +125,11 @@ export function CommentCard({
 
             {replyOpen && canModify && (
                 <div className="border-t px-3 py-2">
+                    <label htmlFor={`comment-card-reply-${comment.id}`} className="mb-1 block text-xs font-medium">
+                        Reply
+                    </label>
                     <textarea
-                        autoFocus
+                        id={`comment-card-reply-${comment.id}`}
                         value={replyContent}
                         onChange={(e) => setReplyContent(e.target.value)}
                         placeholder="Write a reply…"
@@ -206,6 +209,6 @@ export function CommentCard({
                     void onDelete(comment.id);
                 }}
             />
-        </div>
+        </dialog>
     );
 }

@@ -334,7 +334,6 @@ export function CommandPalette({ open, onOpenChange, user, onShowShortcuts, onLo
         <div className="flex items-center gap-2 border-b px-3">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
-            autoFocus
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);

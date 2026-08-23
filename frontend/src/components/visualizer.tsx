@@ -436,6 +436,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     useEffect(() => {
         const controller = new AbortController();
         const signal = controller.signal;
+        let cancelled = false;
 
         const fetchData = async () => {
             const baseUrl = `/api/projects/${projectId}`;
@@ -447,6 +448,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     fetchApi(`${baseUrl}/comments`, { signal }),
                     fetchApi(`${baseUrl}/comments/mention-candidates`, { signal }),
                 ]);
+                if (cancelled) return;
 
                 if (ibomRes.ok) {
                     setIbomUrl(appendCommit(`${baseUrl}/ibom`));
@@ -455,25 +457,28 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 }
                 if (supportRes.ok) {
                     const payload = await supportRes.json() as { files?: ViewerBlobSource[] };
+                    if (cancelled) return;
                     setViewerSupportFiles(payload.files ?? []);
                 } else {
                     setViewerSupportFiles([]);
                 }
                 if (commentsRes.ok) {
                     const payload = await commentsRes.json() as CommentsFile;
+                    if (cancelled) return;
                     setComments((payload.comments ?? []).map(normalizeComment));
                 } else {
                     setComments([]);
                 }
                 if (mentionsRes.ok) {
                     const candidates = await mentionsRes.json() as MentionCandidate[];
+                    if (cancelled) return;
                     setMentionCandidates(candidates);
                 } else {
                     setMentionCandidates([]);
                 }
 
             } catch (err) {
-                if (!isAbortError(err)) {
+                if (!cancelled && !isAbortError(err)) {
                     console.error("Error loading visualizer data", err);
                 }
             } finally {
@@ -482,7 +487,10 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         };
 
         void fetchData();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [projectId, appendCommit]);
 
     useEffect(() => {
@@ -545,6 +553,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         if (activeTab === "sch" && !schematicContentLoaded) {
             const controller = new AbortController();
             const signal = controller.signal;
+            let cancelled = false;
 
             const loadSchematic = async () => {
                 try {
@@ -554,11 +563,12 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         fetch(appendCommit(`${baseUrl}/schematic`), { signal }),
                         fetch(appendCommit(`${baseUrl}/schematic/subsheets`), { signal })
                     ]);
+                    if (cancelled) return;
 
                     // Handle Schematic
                     if (schRes.status === "fulfilled" && schRes.value.ok) {
                         const schematicText = await schRes.value.text();
-                        if (signal.aborted) return;
+                        if (cancelled) return;
                         setSchematicContent(schematicText);
                     } else {
                         console.error("Schematic not found");
@@ -568,7 +578,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     // Handle Subsheets
                     if (subsheetsRes.status === "fulfilled" && subsheetsRes.value.ok) {
                         const data = await subsheetsRes.value.json();
-                        if (signal.aborted) return;
+                        if (cancelled) return;
                         if (data.files?.length) {
                             const subsheetResults = await Promise.allSettled(data.files.map(async (f: any) => {
                                 const cRes = await fetch(f.url, { signal });
@@ -581,7 +591,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 return { filename, content: await cRes.text() };
                             }));
 
-                            if (signal.aborted) return;
+                            if (cancelled) return;
 
                             const loadedSubsheets = subsheetResults
                                 .filter((result): result is PromiseFulfilledResult<{ filename: string; content: string }> => result.status === "fulfilled")
@@ -598,18 +608,21 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         setSubsheets([]);
                     }
                 } catch (err) {
-                    if (!isAbortError(err)) {
+                    if (!cancelled && !isAbortError(err)) {
                         console.error("Error loading schematic content", err);
                     }
                 } finally {
-                    if (!signal.aborted) {
+                    if (!cancelled) {
                         setSchematicContentLoaded(true);
                     }
                 }
             };
 
             void loadSchematic();
-            return () => controller.abort();
+            return () => {
+                cancelled = true;
+                controller.abort();
+            };
         }
     }, [activeTab, schematicContentLoaded, projectId, appendCommit]);
 
@@ -620,33 +633,38 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         if (pcbContentLoaded) return;
         const controller = new AbortController();
         const signal = controller.signal;
+        let cancelled = false;
 
         const loadPcb = async () => {
             try {
                 const baseUrl = `/api/projects/${projectId}`;
                 const pcbRes = await fetch(appendCommit(`${baseUrl}/pcb`), { signal });
+                if (cancelled) return;
 
                 if (pcbRes.ok) {
                     const pcbText = await pcbRes.text();
-                    if (signal.aborted) return;
+                    if (cancelled) return;
                     setPcbContent(pcbText);
                 } else {
                     console.error("PCB not found");
                     setPcbContent(null);
                 }
             } catch (err) {
-                if (!isAbortError(err)) {
+                if (!cancelled && !isAbortError(err)) {
                     console.error("Error loading PCB content", err);
                 }
             } finally {
-                if (!signal.aborted) {
+                if (!cancelled) {
                     setPcbContentLoaded(true);
                 }
             }
         };
 
         void loadPcb();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [pcbContentLoaded, projectId, appendCommit]);
 
     // Reset lazy loading flags when project changes

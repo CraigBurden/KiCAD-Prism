@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type { User } from "@/types/auth";
 import type { PrismSelection } from "@/types/prism-selection";
 import type {
@@ -115,11 +116,10 @@ export function WebGpu3dTab({
     onClearSelection,
 }: WebGpu3dTabProps) {
     const viewerRef = useRef<PrismSemanticViewerElement | null>(null);
-    const selectionRef = useRef(selection);
+    const selectionRef = useCommittedRef(selection);
     const generationStartedAt = useRef<number | null>(null);
     const readinessRevisionRef = useRef<string | null>(null);
     const tabLoadStartedAt = useRef(performance.now());
-    selectionRef.current = selection;
     const [viewerElement, setViewerElement] = useState<PrismSemanticViewerElement | null>(null);
     const [status, setStatus] = useState<WebGpu3dStatus | null>(null);
     const [loading, setLoading] = useState(true);
@@ -256,7 +256,7 @@ export function WebGpu3dTab({
             viewer?.setSelection(selectionForRenderer(selectionRef.current));
         });
         return () => window.cancelAnimationFrame(frame);
-    }, [active, viewerReady]);
+    }, [active, selectionRef, viewerReady]);
 
     const attachViewer = useCallback((node: PrismSemanticViewerElement | null) => {
         viewerRef.current = node;
@@ -314,7 +314,7 @@ export function WebGpu3dTab({
             node.removeEventListener("prism-semantic-viewer:selectionchange", handleSelection);
             node.removeEventListener("prism-semantic-viewer:error", handleError);
         };
-    }, [onClearSelection, onSelection, projectId, status?.sourceRevisionKey, viewerElement]);
+    }, [onClearSelection, onSelection, projectId, selectionRef, status?.sourceRevisionKey, viewerElement]);
 
     const readiness = job?.readiness ?? status?.readiness;
     const readinessStage = readiness?.stage || (status?.status === "ready" ? "semantic-ready" : "generating");

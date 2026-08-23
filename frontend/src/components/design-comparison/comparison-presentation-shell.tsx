@@ -2,6 +2,7 @@ import {
     useCallback,
     useEffect,
     useMemo,
+    useReducer,
     useRef,
     useState,
     type ReactNode,
@@ -290,12 +291,16 @@ export function ComparisonPresentationShell({
     const cameraSyncSuppressedRef = useRef(false);
     /** Layer visibility owned by the reviewer, captured when a focus takes over. */
     const preFocusLayersRef = useRef<string[] | null>(null);
-    const mountedSecondaryRef = useRef(false);
+    const [hasMountedSecondary, markSecondaryMounted] = useReducer(
+        () => true,
+        presentationMode === "side-by-side",
+    );
     const sessionRef = useRef<EcadComparisonSession | null>(null);
     const selectedCatalogPageRef = useRef<ComparisonSchematicPage | null>(null);
-    if (presentationMode === "side-by-side") {
-        mountedSecondaryRef.current = true;
-    }
+    useEffect(() => {
+        if (presentationMode === "side-by-side") markSecondaryMounted();
+    }, [presentationMode]);
+    const mountSecondary = hasMountedSecondary || presentationMode === "side-by-side";
 
     const allChanges = useMemo(
         () => selectedChanges(selection, reviewGroups),
@@ -1392,7 +1397,7 @@ export function ComparisonPresentationShell({
                         </div>
                     </div>
 
-                    {mountedSecondaryRef.current && (
+                    {mountSecondary && (
                         <div
                             className={cn(
                                 "relative min-h-0 min-w-0 flex-col",

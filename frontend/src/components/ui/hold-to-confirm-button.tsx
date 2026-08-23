@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 
 const DEFAULT_HOLD_MS = 900;
 
@@ -56,8 +57,7 @@ const HoldToConfirmButton = React.forwardRef<HTMLButtonElement, HoldToConfirmBut
     const [holding, setHolding] = React.useState(false);
     const frameRef = React.useRef<number | null>(null);
     const startedAtRef = React.useRef(0);
-    const confirmRef = React.useRef(onConfirm);
-    confirmRef.current = onConfirm;
+    const confirmRef = useCommittedRef(onConfirm);
 
     const stop = React.useCallback(() => {
       if (frameRef.current !== null) {
@@ -89,7 +89,7 @@ const HoldToConfirmButton = React.forwardRef<HTMLButtonElement, HoldToConfirmBut
         frameRef.current = requestAnimationFrame(tick);
       };
       frameRef.current = requestAnimationFrame(tick);
-    }, [disabled, holdDurationMs]);
+    }, [confirmRef, disabled, holdDurationMs]);
 
     // Space and Enter are the keyboard equivalents of a press. Browsers repeat
     // keydown while a key is held, so the repeats are dropped and the release

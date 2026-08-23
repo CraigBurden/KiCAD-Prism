@@ -5,6 +5,7 @@ import { Loader2, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 
 /** Results plus the unfiltered match count, when the source can report one. */
 export interface AsyncSearchPage<T> {
@@ -84,10 +85,8 @@ export function AsyncSearchPicker<T>({
   const effectiveQuery = query || (open ? suggestQuery : "");
 
   // `isSelected` is usually an inline arrow, so it must not gate the fetch.
-  const selectedRef = useRef(isSelected);
-  selectedRef.current = isSelected;
-  const fetchRef = useRef(fetchPage);
-  fetchRef.current = fetchPage;
+  const selectedRef = useCommittedRef(isSelected);
+  const fetchRef = useCommittedRef(fetchPage);
 
   useEffect(() => {
     if (!open) return;
@@ -120,7 +119,7 @@ export function AsyncSearchPicker<T>({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [effectiveQuery, fetchKey, open]);
+  }, [effectiveQuery, fetchKey, fetchRef, open, selectedRef]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();

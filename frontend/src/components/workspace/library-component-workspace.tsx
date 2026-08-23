@@ -66,6 +66,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/api";
 import { allowedWorkflowTransitions, canWriteCatalog, workflowStage } from "@/lib/roles";
 import { cn } from "@/lib/utils";
+import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type { User } from "@/types/auth";
 import type {
   AvailabilityState,
@@ -1388,10 +1389,8 @@ function useEvidenceResource<T>({
   onLoaded: (value: T) => void;
 }) {
   const { stateRef, update } = loadState;
-  const loadRef = useRef(load);
-  loadRef.current = load;
-  const onLoadedRef = useRef(onLoaded);
-  onLoadedRef.current = onLoaded;
+  const loadRef = useCommittedRef(load);
+  const onLoadedRef = useCommittedRef(onLoaded);
 
   useEffect(() => {
     if (!enabled || stateRef.current.status !== "idle") return;
@@ -1419,7 +1418,7 @@ function useEvidenceResource<T>({
       controller.abort();
       if (!settled) update(IDLE_EVIDENCE);
     };
-  }, [enabled, generation, retryKey, stateRef, update]);
+  }, [enabled, generation, loadRef, onLoadedRef, retryKey, stateRef, update]);
 }
 
 function combinedEvidenceState(states: EvidenceLoadState[]): EvidenceLoadState {

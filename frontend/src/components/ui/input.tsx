@@ -4,9 +4,10 @@ import { cn } from "@/lib/utils"
 
 // Typed inputs only. File pickers use `FileInput`, which composes a real button
 // segment instead of trying to dress up the native ::file-selector-button.
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
-  return (
+const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
+  ({ className, type, ...props }, ref) => (
     <input
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(
@@ -16,6 +17,8 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       {...props}
     />
   )
-}
+)
+
+Input.displayName = "Input"
 
 export { Input }

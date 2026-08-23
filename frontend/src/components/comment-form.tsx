@@ -233,9 +233,12 @@ export function CommentForm({
 
                 <form onSubmit={handleSubmit} className="p-4">
                     <div className="relative">
+                        <label htmlFor="new-comment-content" className="mb-1 block text-xs font-medium">
+                            Comment
+                        </label>
                         <textarea
+                            id="new-comment-content"
                             ref={textareaRef}
-                            autoFocus
                             value={content}
                             onChange={(e) => {
                                 const value = e.target.value;
