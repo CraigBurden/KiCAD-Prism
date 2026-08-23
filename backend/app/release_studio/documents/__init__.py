@@ -57,6 +57,8 @@ def renderer_resource_digest() -> str:
 #: reproducibility claim the key exists to make. The golden-digest tests in
 #: `test_release_studio_documents.py` fail on any rendering change, so the bump
 #: cannot be skipped silently.
+#: d21 -- Cruncher views honor the checked-in board-outline canvas policy via
+#: Monkey's public bounding boxes, keeping SVG and PDF placement identical.
 #: d20 -- bordered schedule cells inset from the grid on both sides so
 #: wrapping text cannot sit on the rule.
 #: d19 -- manufacturing/IPC/finish callouts are cover tables, not title-block
@@ -102,7 +104,7 @@ def renderer_resource_digest() -> str:
 #: d7 -- the default frame/title block is emitted by Monkey's public KiCad
 #: worksheet API and visible technical text uses Monkey's pinned NewStroke
 #: geometry. A deterministic hidden PDF text layer preserves search/copy.
-RENDERER_VERSION = "release-studio-documents/d20"
+RENDERER_VERSION = "release-studio-documents/d21"
 
 __all__ = [
     "ASSEMBLY_SIDES",

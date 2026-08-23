@@ -77,8 +77,8 @@ def sanitize_artwork(svg_text: str) -> str:
     cleaned = _KICAD_TITLE.sub("", svg_text)
     return _DATED_COMMENT.sub("", cleaned)
 _VIEWBOX = re.compile(r'viewBox\s*=\s*"([^"]+)"', re.IGNORECASE)
-_WIDTH = re.compile(r'\bwidth\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
-_HEIGHT = re.compile(r'\bheight\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
+_WIDTH = re.compile(r'(?<![-\w])width\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
+_HEIGHT = re.compile(r'(?<![-\w])height\s*=\s*"([0-9.]+)([a-z]*)"', re.IGNORECASE)
 
 # `kicad-cli pcb export svg` writes user units per millimetre; anything else
 # would make the scale contract below wrong, so it is asserted, not assumed.
@@ -491,9 +491,10 @@ def acquire_testpoint_views(
         cruncher_path, board, views, workdir,
         config_path=config, runner=runner, timeout_seconds=timeout_seconds,
     )
+    viewport = _cruncher_board_viewport(board, config)
     return {
         f"testpoint-{side}": _read_assembly_view(
-            workdir, f"testpoint-{side}", TESTPOINT_VIEWS[side]
+            workdir, f"testpoint-{side}", TESTPOINT_VIEWS[side], viewport
         )
         for side in sides
     }
@@ -543,8 +544,9 @@ def acquire_board_views(
         runner=runner,
         timeout_seconds=timeout_seconds,
     )
+    viewport = _cruncher_board_viewport(board, config_path or PCB_SVG_CONFIG)
     return {
-        key: _read_assembly_view(workdir, key, view)
+        key: _read_assembly_view(workdir, key, view, viewport)
         for key, view in wanted.items()
     }
 
@@ -593,7 +595,8 @@ def acquire_assembly_view(
         runner=runner,
         timeout_seconds=timeout_seconds,
     )
-    return _read_assembly_view(workdir, side, view)
+    viewport = _cruncher_board_viewport(board, config_path or PCB_SVG_CONFIG)
+    return _read_assembly_view(workdir, side, view, viewport)
 
 
 def _run_pcb_svg(
@@ -643,7 +646,173 @@ def _run_pcb_svg(
         raise ArtworkError(f"kicad-cruncher pcb-svg failed for {named}: {detail[:400]}")
 
 
-def _read_assembly_view(workdir: Path, label: str, view: str) -> AcquiredArtwork:
+@dataclass(frozen=True, slots=True)
+class _CruncherViewport:
+    """Configured board viewport relative to Cruncher's all-geometry canvas."""
+
+    x_mm: float
+    y_mm: float
+    width_mm: float
+    height_mm: float
+    canvas_width_mm: float
+    canvas_height_mm: float
+
+
+def _cruncher_board_viewport(
+    board: Path, config_path: Path
+) -> _CruncherViewport | None:
+    """Resolve Cruncher's declared canvas policy through public Monkey bounds.
+
+    Published Cruncher 2026.8.x parses ``global.canvas`` but does not apply it
+    when it creates the root SVG; every view instead inherits Monkey's
+    all-geometry canvas. Prism's configurations request ``board_outline``, so
+    use the same public Monkey bounding-box API that Cruncher uses and express
+    that policy as a viewport relative to the emitted canvas. No SVG geometry
+    is parsed or reinterpreted here.
+    """
+
+    try:
+        try:
+            from kicad_cruncher.config_json import load_json_config
+        except ModuleNotFoundError:
+            # The generic API/backend image does not install Cruncher; only
+            # the release worker does. Prism's bundled configs are strict JSON,
+            # so unit tests and non-worker imports retain a standard-library
+            # path without growing another config parser.
+            import json
+
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        else:
+            # The worker accepts Cruncher's full JSON/JSONC configuration
+            # contract through the released loader.
+            config = load_json_config(config_path)
+
+        canvas_policy = (config.get("global") or {}).get("canvas") or {}
+        bounds_mode = str(
+            canvas_policy.get("bounds") or "board_outline"
+        ).strip().lower()
+        bounds_mode = {
+            "board": "board_outline",
+            "outline": "board_outline",
+            "board_profile": "board_outline",
+        }.get(bounds_mode, bounds_mode)
+        if bounds_mode == "all_geometry":
+            return None
+        if bounds_mode != "board_outline":
+            raise ValueError(f"unsupported bounds mode {bounds_mode!r}")
+        margin_mm = float(canvas_policy.get("margin_mm", 1.0))
+        if not (0.0 <= margin_mm < float("inf")):
+            raise ValueError("margin_mm must be a finite non-negative number")
+
+        from kicad_monkey.kicad_pcb import KiCadPcb
+        from kicad_monkey.kicad_pcb_bounds import compute_pcb_svg_bounding_box
+
+        pcb = KiCadPcb.from_file(board)
+        canvas = compute_pcb_svg_bounding_box(pcb, None)
+        outline = compute_pcb_svg_bounding_box(pcb, ["Edge.Cuts"])
+        values = (
+            float(canvas.min_x),
+            float(canvas.min_y),
+            float(canvas.width),
+            float(canvas.height),
+            float(outline.min_x),
+            float(outline.min_y),
+            float(outline.width),
+            float(outline.height),
+        )
+        if not all(
+            value == value and abs(value) < float("inf") for value in values
+        ):
+            raise ValueError("Monkey returned non-finite bounds")
+        if (
+            canvas.width <= 0
+            or canvas.height <= 0
+            or outline.width <= 0
+            or outline.height <= 0
+        ):
+            raise ValueError("Monkey returned an empty canvas or board outline")
+    except Exception as exc:  # noqa: BLE001 - normalize all acquisition failures
+        raise ArtworkError(f"could not resolve Cruncher board viewport: {exc}") from exc
+
+    return _CruncherViewport(
+        x_mm=float(outline.min_x - canvas.min_x) - margin_mm,
+        y_mm=float(outline.min_y - canvas.min_y) - margin_mm,
+        width_mm=float(outline.width) + 2.0 * margin_mm,
+        height_mm=float(outline.height) + 2.0 * margin_mm,
+        canvas_width_mm=float(canvas.width),
+        canvas_height_mm=float(canvas.height),
+    )
+
+
+def _fmt_svg_number(value: float) -> str:
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _apply_cruncher_viewport(svg_text: str, viewport: _CruncherViewport | None) -> str:
+    """Apply a resolved canvas policy by changing only root SVG attributes."""
+
+    if viewport is None:
+        return svg_text
+    opened = _SVG_OPEN.search(svg_text)
+    if opened is None:
+        raise ArtworkError("kicad-cruncher output is not an SVG document")
+    header = opened.group(0)
+    box = _VIEWBOX.search(header)
+    width = _WIDTH.search(header)
+    height = _HEIGHT.search(header)
+    if box is None or width is None or height is None:
+        raise ArtworkError("kicad-cruncher SVG has no explicit root viewport")
+    try:
+        vx, vy, vw, vh = (float(part) for part in box.group(1).replace(",", " ").split())
+        physical_width = float(width.group(1))
+        physical_height = float(height.group(1))
+    except (TypeError, ValueError) as exc:
+        raise ArtworkError("kicad-cruncher SVG has an invalid root viewport") from exc
+    if min(vw, vh, physical_width, physical_height) <= 0:
+        raise ArtworkError("kicad-cruncher SVG has an empty root viewport")
+
+    scale_x = vw / viewport.canvas_width_mm
+    scale_y = vh / viewport.canvas_height_mm
+    new_x = vx + viewport.x_mm * scale_x
+    new_y = vy + viewport.y_mm * scale_y
+    new_width = viewport.width_mm * scale_x
+    new_height = viewport.height_mm * scale_y
+    physical_view_width = (
+        physical_width * viewport.width_mm / viewport.canvas_width_mm
+    )
+    physical_view_height = (
+        physical_height * viewport.height_mm / viewport.canvas_height_mm
+    )
+    new_header = _VIEWBOX.sub(
+        'viewBox="{} {} {} {}"'.format(
+            _fmt_svg_number(new_x),
+            _fmt_svg_number(new_y),
+            _fmt_svg_number(new_width),
+            _fmt_svg_number(new_height),
+        ),
+        header,
+        count=1,
+    )
+    new_header = _WIDTH.sub(
+        f'width="{_fmt_svg_number(physical_view_width)}{width.group(2)}"',
+        new_header,
+        count=1,
+    )
+    new_header = _HEIGHT.sub(
+        f'height="{_fmt_svg_number(physical_view_height)}{height.group(2)}"',
+        new_header,
+        count=1,
+    )
+    return svg_text[:opened.start()] + new_header + svg_text[opened.end():]
+
+
+def _read_assembly_view(
+    workdir: Path,
+    label: str,
+    view: str,
+    viewport: _CruncherViewport | None,
+) -> AcquiredArtwork:
     """Turn one written Cruncher view into placeable artwork.
 
     ``label`` names the view on the sheet (``assembly-top``, ``testpoint-top``,
@@ -654,7 +823,9 @@ def _read_assembly_view(workdir: Path, label: str, view: str) -> AcquiredArtwork
     if not found:
         raise ArtworkError(f"kicad-cruncher produced no {view}")
 
-    svg_text = found[0].read_text(encoding="utf-8")
+    svg_text = _apply_cruncher_viewport(
+        found[0].read_text(encoding="utf-8"), viewport
+    )
     x, y, width, height = extents(svg_text)
     return AcquiredArtwork(
         layers=(f"Cruncher.{label}",),

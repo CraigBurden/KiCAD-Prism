@@ -1389,6 +1389,7 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
     def test_acquire_assembly_view_binds_kiprjmod_to_the_board_directory(self) -> None:
         import tempfile
         from pathlib import Path
+        from unittest.mock import patch
 
         captured: dict[str, object] = {}
 
@@ -1411,13 +1412,16 @@ class AssemblyProjectionWarningTests(unittest.TestCase):
             board = root / "project" / "board.kicad_pcb"
             board.parent.mkdir(parents=True)
             board.write_text("(kicad_pcb)\n", encoding="utf-8")
-            artwork_module.acquire_assembly_view(
-                "kicad-cruncher",
-                board,
-                "top",
-                root / "out",
-                runner=runner,
-            )
+            with patch.object(
+                artwork_module, "_cruncher_board_viewport", return_value=None
+            ):
+                artwork_module.acquire_assembly_view(
+                    "kicad-cruncher",
+                    board,
+                    "top",
+                    root / "out",
+                    runner=runner,
+                )
         self.assertIsInstance(captured.get("env"), dict)
         self.assertEqual(captured["env"]["KIPRJMOD"], str(board.parent.resolve()))
 
@@ -1817,7 +1821,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d20",
+            "release-studio-documents/d21",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 
@@ -1847,3 +1851,108 @@ class RendererVersionTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class CruncherViewportTests(unittest.TestCase):
+    """Cruncher canvas policy is applied from Monkey bounds, not SVG ink."""
+
+    CANVAS_W, CANVAS_H = 151.15578, 107.282993
+
+    def _canvas_svg(self) -> str:
+        # Keep stroke-width ahead of width in the root tag: the old regex
+        # accidentally read that CSS property as the viewport width.
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<svg xmlns="http://www.w3.org/2000/svg" style="stroke-width:99" '
+            f'width="{self.CANVAS_W}mm" height="{self.CANVAS_H}mm" '
+            f'viewBox="0 0 {self.CANVAS_W} {self.CANVAS_H}">'
+            '<path d="M 51 25 L 107 25 L 107 81 L 51 81 Z" '
+            'fill="none" stroke="#000000" stroke-width="0.15"/>'
+            "</svg>"
+        )
+
+    def _viewport(self) -> artwork_module._CruncherViewport:
+        return artwork_module._CruncherViewport(
+            x_mm=49.96788206559665,
+            y_mm=24.05880952380952,
+            width_mm=58.0,
+            height_mm=58.0,
+            canvas_width_mm=self.CANVAS_W,
+            canvas_height_mm=self.CANVAS_H,
+        )
+
+    def test_applies_exact_board_outline_plus_configured_margin(self) -> None:
+        cropped = artwork_module._apply_cruncher_viewport(
+            self._canvas_svg(), self._viewport()
+        )
+        x, y, width, height = artwork_module.extents(cropped)
+        self.assertAlmostEqual(x, 49.967882, places=6)
+        self.assertAlmostEqual(y, 24.05881, places=6)
+        self.assertEqual(width, 58.0)
+        self.assertEqual(height, 58.0)
+        self.assertIn('width="58mm"', cropped)
+        self.assertIn('height="58mm"', cropped)
+
+    def test_all_geometry_policy_leaves_upstream_view_unchanged(self) -> None:
+        original = self._canvas_svg()
+        self.assertEqual(
+            artwork_module._apply_cruncher_viewport(original, None), original
+        )
+
+    def test_normalized_artwork_needs_no_content_or_pdf_special_case(self) -> None:
+        svg = artwork_module._apply_cruncher_viewport(
+            self._canvas_svg(), self._viewport()
+        )
+        x, y, width, height = artwork_module.extents(svg)
+        art = artwork_module.AcquiredArtwork(
+            layers=("Cruncher.assembly-top",),
+            svg_text=svg,
+            pdf_bytes=b"",
+            view_x=x,
+            view_y=y,
+            view_width=width,
+            view_height=height,
+            digest="d" * 64,
+            page_offset_x=0.0,
+            page_offset_y=0.0,
+        )
+        self.assertIs(artwork_module.content_view(art, 56.0, 56.0), art)
+
+    def test_configured_margin_is_read_from_the_checked_in_policy(self) -> None:
+        import json
+        from unittest.mock import patch
+
+        class Box:
+            def __init__(self, min_x, min_y, max_x, max_y):
+                self.min_x = min_x
+                self.min_y = min_y
+                self.max_x = max_x
+                self.max_y = max_y
+                self.width = max_x - min_x
+                self.height = max_y - min_y
+
+        pcb = object()
+        boxes = [
+            Box(53.0321179344, 38.9411904762, 204.1878978487, 146.2241835311),
+            Box(104.0, 64.0, 160.0, 120.0),
+        ]
+        without_cruncher = {
+            "kicad_cruncher": None,
+            "kicad_cruncher.config_json": None,
+        }
+        with patch.dict(sys.modules, without_cruncher), patch(
+            "kicad_monkey.kicad_pcb.KiCadPcb.from_file", return_value=pcb
+        ), patch(
+            "kicad_monkey.kicad_pcb_bounds.compute_pcb_svg_bounding_box",
+            side_effect=boxes,
+        ):
+            viewport = artwork_module._cruncher_board_viewport(
+                Path("board.kicad_pcb"), artwork_module.PCB_SVG_CONFIG
+            )
+        self.assertIsNotNone(viewport)
+        policy = json.loads(
+            artwork_module.PCB_SVG_CONFIG.read_text(encoding="utf-8")
+        )
+        margin = float(policy["global"]["canvas"]["margin_mm"])
+        self.assertEqual(viewport.width_mm, 56.0 + 2.0 * margin)
+        self.assertEqual(viewport.height_mm, 56.0 + 2.0 * margin)
