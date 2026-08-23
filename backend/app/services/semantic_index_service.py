@@ -795,6 +795,10 @@ def build_semantic_index(
         ) from exc
 
     design = timed("load-project", lambda: KiCadDesign.from_project_file(project_file))
+    # Whether the caller handed us an already-parsed board. Captured before `pcb`
+    # is reassigned below, so the detach on the upstream fallback can tell an
+    # injected board (keep it) from one it would otherwise lazily parse (drop it).
+    board_was_injected = pcb is not None
     if pcb is not None:
         # The Release Studio projections already parsed this board. Re-parsing
         # it here is the single largest avoidable cost on a large `.kicad_pcb`.
@@ -815,10 +819,22 @@ def build_semantic_index(
         except TypeError as exc:
             # Compatibility with an older installed kicad-monkey. The local
             # optimized tree supports include_pcb=False; upstream releases
-            # without it remain functional, although they cannot defer PCB
-            # parsing during Stage 1.
+            # without it remain functional.
             if "include_pcb" not in str(exc):
                 raise
+            if not include_pcb and not board_was_injected:
+                # The upstream to_json has no include_pcb switch, so its PnP
+                # projection would lazily parse the whole `.kicad_pcb` even
+                # though this caller does not want board data. That board parse
+                # is the single largest cost of a schematic-only build (~25s on
+                # a 9MB board). Detach the board so the projection skips it; the
+                # PCB is parsed once, separately, by the stages that need it.
+                # An already-injected board is left in place: the caller paid to
+                # parse it, so dropping it here (and clearing pcb_path, which
+                # makes design.pcb return None instead of re-parsing) would throw
+                # that work away.
+                design._pcb = None
+                design.pcb_path = None
             return design.to_json(include_indexes=True)
 
     design_payload = timed(

@@ -109,7 +109,11 @@ export function revokeOtherSessions() {
 
 const LOGIN_NEXT_KEY = "kicad_prism_login_next";
 
+// `?next` only ever drives post-login in-app navigation, and both this stash
+// path and consumeStashedLoginNext() independently enforce same-origin — no
+// privileged action is reachable from a crafted link.
 export function sameOriginNextPath(): string | null {
+  // react-doctor-disable-next-line react-doctor/url-prefilled-privileged-action
   const raw = new URLSearchParams(window.location.search).get("next");
   if (!raw) return null;
   try {
