@@ -155,6 +155,7 @@ const groupMatchesQuery = (group: BomGroup, query: string): boolean => {
         if (term.field === "ref" || term.field === "reference") {
             return references.some((reference) => reference === term.value);
         }
+// react-doctor-disable-next-line js-set-map-lookups - the receiver is a string haystack, not an array; a Set would break substring matching
         if (term.field) return (fieldValues.get(term.field) ?? "").includes(term.value);
         const referenceLike = /^[a-z]+\d+[a-z0-9._-]*$/.test(term.value);
         if (referenceLike) {

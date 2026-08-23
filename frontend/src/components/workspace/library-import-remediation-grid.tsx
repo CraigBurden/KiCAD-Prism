@@ -210,6 +210,7 @@ export function rowProblems(
   return problems;
 }
 
+// react-doctor-disable-next-line no-giant-component - grouped grid with per-row edit state and bulk accept flow
 export function LibraryImportRemediationGrid({
   sessionId,
   proposals,

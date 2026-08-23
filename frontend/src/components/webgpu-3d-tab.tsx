@@ -105,6 +105,7 @@ const selectionForRenderer = (selection: PrismSelection | null): PrismRendererSe
     };
 };
 
+// react-doctor-disable-next-line no-giant-component - WebGPU render loop lifecycle cannot be split without lifting GPU handles
 export function WebGpu3dTab({
     projectId,
     commit,

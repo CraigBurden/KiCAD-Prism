@@ -471,6 +471,7 @@ function CommitItem({
     );
 }
 
+// react-doctor-disable-next-line no-giant-component - virtualized list with inline filter and preview wiring
 export function HistoryViewer({
     projectId,
     branchRef,

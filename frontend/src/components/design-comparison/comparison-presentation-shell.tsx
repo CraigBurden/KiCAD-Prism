@@ -225,6 +225,7 @@ function MissingRevisionPane({
     );
 }
 
+// react-doctor-disable-next-line no-giant-component - the remainder is tightly coupled viewer/session orchestration; extraction would move state into prop-drilled fragments
 export function ComparisonPresentationShell({
     projectId,
     domain,
@@ -1099,6 +1100,8 @@ export function ComparisonPresentationShell({
                     new Set(focusVisibleLayers(routeFocus, pane.side)),
                 );
             }
+// react-doctor-disable-next-line no-pass-data-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
+// react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
             publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
             logComparisonDebug("session.layers.focus", {
                 net: routeFocus.net,
@@ -1115,6 +1118,8 @@ export function ComparisonPresentationShell({
         preFocusLayersRef.current = null;
         const visible = new Set(restore);
         for (const viewer of viewers) applyVisibility(viewer, visible);
+// react-doctor-disable-next-line no-pass-data-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
+// react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
         publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
         logComparisonDebug("session.layers.focus.restore", {
             presentationMode,
@@ -1163,6 +1168,7 @@ export function ComparisonPresentationShell({
         }
         const refresh = () =>
             publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+// react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
         refresh();
         for (const viewer of viewers) {
             viewer.addEventListener("ecad-viewer:view-state-change", refresh);

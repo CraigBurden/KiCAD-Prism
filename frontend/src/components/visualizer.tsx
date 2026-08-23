@@ -286,6 +286,7 @@ function EcadViewerHost({
     );
 }
 
+// react-doctor-disable-next-line no-giant-component - viewer event orchestration and the comment system share the viewer refs
 export function Visualizer({ projectId, user, commit, active: viewerActive = true }: VisualizerProps) {
     const [schematicViewerElement, setSchematicViewerElement] = useState<ECadViewerElement | null>(null);
     const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);

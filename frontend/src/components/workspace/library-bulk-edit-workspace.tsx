@@ -276,6 +276,7 @@ function BatchReviewDialog({
   </Dialog>;
 }
 
+// react-doctor-disable-next-line no-giant-component - spreadsheet grid, field preferences, and batch lifecycle share one page state
 export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const [items, setItems] = useState<CatalogComponent[]>([]);
   const [fields, setFields] = useState<CatalogMetadataField[]>([]);

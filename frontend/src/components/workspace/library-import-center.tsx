@@ -97,6 +97,7 @@ const DIRECTORY_INPUT_PROPS: InputHTMLAttributes<HTMLInputElement> & {
   directory: string;
 } = { webkitdirectory: "", directory: "" };
 
+// react-doctor-disable-next-line no-giant-component - multi-step import flow with one session state machine
 export function LibraryImportCenter({ projects, user, initialSessionId }: LibraryImportCenterProps) {
   const [sessions, setSessions] = useState<ProjectComponentImportSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState(initialSessionId || "");

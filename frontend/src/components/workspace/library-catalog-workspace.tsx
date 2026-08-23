@@ -278,6 +278,7 @@ function CreateComponentDialog({
   );
 }
 
+// react-doctor-disable-next-line no-giant-component - query params, grid, and facet state are one page
 export function LibraryCatalogWorkspace({
   user,
   onOpenComponent,

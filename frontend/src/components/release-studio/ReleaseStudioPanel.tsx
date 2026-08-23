@@ -73,11 +73,13 @@ function resolveCommitSelection(value: string, commits: ProjectCommit[]): string
     return commits.find((commit) => commit.full_hash === revision || commit.hash === revision)?.full_hash ?? revision;
 }
 
+// react-doctor-disable-next-line no-giant-component - build lifecycle orchestration: polling, stages, uploads, and logs share one state machine
 export function ReleaseStudioPanel({
     projectId,
     canMutate,
     userRole,
     defaultCommit = "HEAD",
+// react-doctor-disable-next-line prefer-useReducer - the states belong to separate concerns: build lifecycle, detail cache, upload fields
 }: Props) {
     const [view, setView] = useState<StudioView>(() => {
         if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("build")) return "history";

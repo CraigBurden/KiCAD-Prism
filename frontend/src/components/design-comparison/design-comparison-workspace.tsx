@@ -91,6 +91,7 @@ interface SemanticFocus {
     net?: string | null;
 }
 
+// react-doctor-disable-next-line no-giant-component - presentation switcher and domain shells are already extracted; what remains couples five tabs worth of selection state
 export function DesignComparisonWorkspace({
     projectId,
     base,
@@ -491,6 +492,7 @@ export function DesignComparisonWorkspace({
             setReviewSelection({ kind: "item", id: counterpart.id });
         } else {
             setSelectedChangeId(null);
+// react-doctor-disable-next-line no-adjust-state-on-prop-change - cross-domain re-anchor: remapping the selection to the counterpart when the tab changes is this effect’s entire job
             setReviewSelection(null);
         }
     }, [

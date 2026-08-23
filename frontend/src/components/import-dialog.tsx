@@ -140,6 +140,7 @@ try {
 }
 };
 
+// react-doctor-disable-next-line no-giant-component - one multi-step wizard whose analyzing/review phases share the polling lifecycle
 export function ImportDialog({
   open,
   onOpenChange,

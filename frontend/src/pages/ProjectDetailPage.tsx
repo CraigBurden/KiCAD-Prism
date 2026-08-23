@@ -108,6 +108,7 @@ const getDisplayName = (project: Project) => {
     return project.display_name || project.name;
 };
 
+// react-doctor-disable-next-line no-giant-component - page aggregating tabs, builds, and branch state for one project
 export function ProjectDetailPage({ user }: { user: User | null }) {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
