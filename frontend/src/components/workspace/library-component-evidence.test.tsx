@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -64,9 +64,10 @@ function install(...ids: string[]) {
     });
 }
 
-function Harness({ componentId }: { componentId: string }) {
+function Harness({ componentId, revision }: { componentId: string; revision?: string }) {
+    const query = `/?section=library-manager&componentTab=revisions${revision ? `&revision=${revision}` : ""}`;
     return (
-        <MemoryRouter initialEntries={["/?section=library-manager&componentTab=revisions"]}>
+        <MemoryRouter initialEntries={[query]}>
             <LibraryComponentWorkspace
                 componentId={componentId}
                 user={{ id: "u1", email: "a@b.c", role: "admin" } as never}
@@ -91,4 +92,29 @@ describe("component evidence across generations", () => {
     });
 
 
+
+    // Arriving with a `?revision=` that belongs to a different component. Every
+    // in-app path clears that param and the API scopes the lookup and 404s, so
+    // the reachable version of this is a shared or bookmarked link -- and today
+    // that 404s too. What is being pinned is the boundary: a 200 whose body is
+    // not a component must not become the active component. It used to, and the
+    // header dereferences `validation.status`, so the workspace went white.
+    it("refuses a revision response that is not a component", async () => {
+        vi.mocked(fetchJson).mockImplementation(async (input) => {
+            const url = String(input);
+            if (url === "/api/catalog/components/comp-a") return component("comp-a") as never;
+            // The shape a paginated collection would have, standing in for any
+            // 200 that is not the component this screen asked for.
+            return { items: [] } as never;
+        });
+
+        render(<Harness componentId="comp-a" revision="comp-b-rev1" />);
+
+        expect(
+            await screen.findByText("That revision could not be loaded for this component."),
+        ).toBeInTheDocument();
+        // Still the component's own header, and still a way back.
+        await waitFor(() => expect(screen.getByText("COMP-A")).toBeInTheDocument());
+        expect(screen.getByRole("button", { name: /return to current/i })).toBeInTheDocument();
+    });
 });

@@ -237,6 +237,31 @@ const formatBytes = (value?: number) => {
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
+/**
+ * Is this response actually a component?
+ *
+ * The revision endpoint is asked for `?revision=`, which survives in the URL
+ * independently of the component being viewed. Every in-app path that opens a
+ * component clears it, and the API scopes the lookup and 404s a revision
+ * belonging to somewhere else -- so the only way here is a link arriving with a
+ * mismatched pair, and today that still 404s. The guard is for the case where
+ * it does not: a 200 carrying anything else was being installed as the active
+ * component, and the header dereferences `validation.status` on it without a
+ * guard, so the whole workspace went white rather than showing the error banner
+ * that already exists for this.
+ *
+ * It checks the fields the header commits to, not the whole shape, because
+ * those are what the crash was about.
+ */
+function isCatalogComponent(value: unknown): value is CatalogComponent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<CatalogComponent>;
+  return typeof candidate.id === "string"
+    && typeof candidate.revision_id === "string"
+    && typeof candidate.validation === "object"
+    && candidate.validation !== null;
+}
+
 const metadataFormFromComponent = (component: CatalogComponent): MetadataForm => ({
   value: component.value,
   description: component.description,
@@ -1912,7 +1937,14 @@ export function LibraryComponentWorkspace({
     const controller = new AbortController();
     setHistoricalLoading(true);
     void fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(componentId)}/revisions/${encodeURIComponent(requestedRevisionId)}`, { signal: controller.signal })
-      .then((component) => { if (!controller.signal.aborted) setActiveComponent(component); })
+      .then((component) => {
+        if (controller.signal.aborted) return;
+        if (!isCatalogComponent(component)) {
+          setHistoricalError("That revision could not be loaded for this component.");
+          return;
+        }
+        setActiveComponent(component);
+      })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setHistoricalError(reason instanceof Error ? reason.message : String(reason));
       })
