@@ -76,6 +76,15 @@ export type PresentationMode = ComparisonPresentationMode;
 /** The impact filter when no tab owns one: empty, and never mutated. */
 const EMPTY_IMPACTS: Set<ReviewImpact> = new Set();
 
+/**
+ * The review for a tab that has no semantic changes of its own.
+ *
+ * Shared rather than built inline: `domainChanges` is in the dependency list
+ * of the selection re-anchor effect, and a fresh empty array per render put
+ * that effect back in the queue on every pass.
+ */
+const EMPTY_DOMAIN_REVIEW = { changes: [] as ChangeItem[], suppressedCount: 0 };
+
 interface DesignComparisonWorkspaceProps {
     projectId: string;
     base: string;
@@ -217,7 +226,7 @@ export function DesignComparisonWorkspace({
     );
     const domainReview = activeTab === "sch"
         ? schematicReview
-        : activeTab === "pcb" ? pcbReview : { changes: [], suppressedCount: 0 };
+        : activeTab === "pcb" ? pcbReview : EMPTY_DOMAIN_REVIEW;
     const domainChanges = domainReview.changes;
     /**
      * Built once per domain and shared by every grouping below.
