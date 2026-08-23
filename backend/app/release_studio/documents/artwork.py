@@ -672,9 +672,21 @@ def _cruncher_board_viewport(
     """
 
     try:
-        from kicad_cruncher.config_json import load_json_config
+        try:
+            from kicad_cruncher.config_json import load_json_config
+        except ModuleNotFoundError:
+            # The generic API/backend image does not install Cruncher; only
+            # the release worker does. Prism's bundled configs are strict JSON,
+            # so unit tests and non-worker imports retain a standard-library
+            # path without growing another config parser.
+            import json
 
-        config = load_json_config(config_path)
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        else:
+            # The worker accepts Cruncher's full JSON/JSONC configuration
+            # contract through the released loader.
+            config = load_json_config(config_path)
+
         canvas_policy = (config.get("global") or {}).get("canvas") or {}
         bounds_mode = str(
             canvas_policy.get("bounds") or "board_outline"

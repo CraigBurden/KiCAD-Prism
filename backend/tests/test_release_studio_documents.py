@@ -1936,7 +1936,13 @@ class CruncherViewportTests(unittest.TestCase):
             Box(53.0321179344, 38.9411904762, 204.1878978487, 146.2241835311),
             Box(104.0, 64.0, 160.0, 120.0),
         ]
-        with patch("kicad_monkey.kicad_pcb.KiCadPcb.from_file", return_value=pcb), patch(
+        without_cruncher = {
+            "kicad_cruncher": None,
+            "kicad_cruncher.config_json": None,
+        }
+        with patch.dict(sys.modules, without_cruncher), patch(
+            "kicad_monkey.kicad_pcb.KiCadPcb.from_file", return_value=pcb
+        ), patch(
             "kicad_monkey.kicad_pcb_bounds.compute_pcb_svg_bounding_box",
             side_effect=boxes,
         ):
