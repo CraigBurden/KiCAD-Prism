@@ -59,6 +59,26 @@ class ToolchainPinTests(unittest.TestCase):
         self.assertNotIn("backend/requirements.txt", dockerfile)
         self.assertNotIn("requirements-runtime.txt", dockerfile)
 
+    def test_the_image_verifies_only_the_python_half(self) -> None:
+        """The image has no JavaScript manifests where the checker looks for them.
+
+        ``verify_dependency_identity.py`` resolves its root from its own
+        location, so inside the image it reads ``/app/frontend/package.json``
+        and ``/app/kicad-prism-viewer/package.json``. Neither path is ever
+        populated -- the viewer manifests land in ``/opt`` and the frontend is
+        only ever built in a separate stage -- so an unscoped invocation raises
+        FileNotFoundError and fails the build after a clean ``uv pip sync``.
+        """
+        dockerfile = _DOCKERFILE.read_text(encoding="utf-8")
+        invocations = [
+            line.strip()
+            for line in dockerfile.splitlines()
+            if "verify_dependency_identity.py" in line and "COPY" not in line
+        ]
+        self.assertTrue(invocations)
+        for invocation in invocations:
+            self.assertIn("--python-only", invocation)
+
     def test_local_image_replaces_monkey_and_cruncher_together(self) -> None:
         dockerfile = _DOCKERFILE.read_text(encoding="utf-8")
         local_stage = dockerfile.split("AS kicad-monkey-local", maxsplit=1)[1]

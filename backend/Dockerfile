@@ -86,7 +86,7 @@ COPY requirements/runtime.lock /app/requirements/runtime.lock
 COPY .python-version .node-version /app/
 COPY scripts/verify_dependency_identity.py /app/scripts/verify_dependency_identity.py
 RUN uv pip sync --python /app/venv/bin/python /app/requirements/runtime.lock \
-    && python /app/scripts/verify_dependency_identity.py
+    && python /app/scripts/verify_dependency_identity.py --python-only
 
 COPY kicad-prism-viewer/package*.json /opt/kicad-prism-viewer/
 # The universal lock carries Sharp's optional binaries for every supported
