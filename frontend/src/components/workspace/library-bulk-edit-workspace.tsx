@@ -77,16 +77,8 @@ function MetadataCell({
   onActivate: () => void;
   onNavigate: (rowDelta: number, columnDelta: number) => void;
 }) {
-  const [draft, setDraft] = useState(value);
-  const cancelCommit = useRef(false);
   const editorRef = useRef<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(null);
-  useEffect(() => setDraft(value), [value]);
   useEffect(() => { if (active) editorRef.current?.focus(); }, [active]);
-  const error = validateCell(field, draft);
-  const commit = () => {
-    if (cancelCommit.current) { cancelCommit.current = false; return; }
-    if (!readOnly && !error && draft !== value) onCommit(draft);
-  };
   const pinnedClass = pinnedOffset === undefined ? "" : "sticky z-10 bg-background";
   const pinnedStyle = pinnedOffset === undefined ? undefined : { left: pinnedOffset };
 
@@ -134,10 +126,49 @@ function MetadataCell({
       </select>
     </div>;
   }
+  // Rendered only while the cell is active, so mounting *is* the start of an
+  // edit session and the draft seeds itself from the committed value. Keying
+  // on `value` instead would remount after the blur that commits it and pull
+  // focus back into the cell the user just left.
+  return <CellTextEditor
+    value={value}
+    field={field}
+    rowIndex={rowIndex}
+    columnIndex={columnIndex}
+    pinnedClass={pinnedClass}
+    pinnedStyle={pinnedStyle}
+    inputRef={editorRef as React.Ref<HTMLInputElement>}
+    readOnly={readOnly}
+    onCommit={onCommit}
+    onNavigate={onNavigate}
+  />;
+}
+
+function CellTextEditor({
+  value, field, rowIndex, columnIndex, pinnedClass, pinnedStyle, inputRef, readOnly, onCommit, onNavigate,
+}: {
+  value: string;
+  field: CatalogMetadataField;
+  rowIndex: number;
+  columnIndex: number;
+  pinnedClass: string;
+  pinnedStyle?: { left: number };
+  inputRef: React.Ref<HTMLInputElement>;
+  readOnly: boolean;
+  onCommit: (value: string) => void;
+  onNavigate: (rowDelta: number, columnDelta: number) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const cancelCommit = useRef(false);
+  const error = validateCell(field, draft);
+  const commit = () => {
+    if (cancelCommit.current) { cancelCommit.current = false; return; }
+    if (!readOnly && !error && draft !== value) onCommit(draft);
+  };
   return <div role="gridcell" aria-colindex={columnIndex + 2} className={cn("h-9 border-r p-1", pinnedClass, error && "bg-destructive/10")} style={pinnedStyle} data-cell={`${rowIndex}:${columnIndex}`} title={error || field.description}>
     <input
       aria-label={field.label}
-      ref={editorRef as React.Ref<HTMLInputElement>}
+      ref={inputRef}
       className="h-full w-full border-0 bg-transparent px-1 text-xs outline-none focus:bg-background focus:ring-1 focus:ring-ring disabled:cursor-default"
       type={field.type === "number" ? "text" : field.type === "url" ? "url" : "text"}
       inputMode={field.type === "number" ? "decimal" : undefined}

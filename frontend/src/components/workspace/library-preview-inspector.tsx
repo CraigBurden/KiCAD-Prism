@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
@@ -94,11 +94,10 @@ export function LibraryPreviewInspector({
     return [...perUnit.values()].sort((a, b) => a.unit - b.unit);
   }, [kind, previews]);
   const [activeUnit, setActiveUnit] = useState(ready[0]?.unit || 1);
+  // A unit that disappears from `ready` needs no correcting: the fallback
+  // below already selects the first, and the tablist marks the active tab by
+  // `active.id`, never by this value.
   const active = ready.find((preview) => preview.unit === activeUnit) || ready[0];
-
-  useEffect(() => {
-    if (!ready.some((preview) => preview.unit === activeUnit)) setActiveUnit(ready[0]?.unit || 1);
-  }, [activeUnit, ready]);
 
   if (!active) {
     return <div className={cn("flex items-center justify-center border border-dashed text-xs text-muted-foreground", compact ? "h-48" : "h-80")}>No {kind} preview</div>;
