@@ -2,7 +2,6 @@ import type {
     PrismComponentSelection,
     PrismNetSelection,
     PrismSelection,
-    PrismSelectionContext,
     PrismSemanticIndex,
     PrismTerminalSelection,
     SemanticComponent,
@@ -183,11 +182,6 @@ export function selectionLabel(selection: PrismSelection): string {
     if (selection.kind === "component") return selection.reference;
     if (selection.kind === "terminal") return `${selection.reference}.${selection.pin}`;
     return selection.netName || selection.netUid || selection.uuid || "Unresolved net";
-}
-
-export function contextLabel(context: PrismSelectionContext): string {
-    if (context === "3D") return "3D";
-    return context;
 }
 
 const semanticNetForSelection = (

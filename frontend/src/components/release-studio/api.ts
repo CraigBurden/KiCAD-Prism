@@ -43,6 +43,10 @@ export async function sheetObjectUrl(
             + `/sheets/${encodeURIComponent(sheetKey)}.pdf`,
     );
     if (!response.ok) throw new Error(`Could not load ${sheetKey} (${response.status})`);
+    // The URL is the return value: ownership passes to the caller, and
+    // DocumentSheetPreview/MemberViewer in shared.tsx revoke it on unmount.
+    // Revoking here would blank the preview it was created for.
+    // react-doctor-disable-next-line react-doctor/no-create-object-url-without-revoke
     return URL.createObjectURL(await response.blob());
 }
 
@@ -240,6 +244,10 @@ export async function memberObjectUrl(
         throw new Error(detail);
     }
     const blob = await response.blob();
+    // The URL is the return value: ownership passes to the caller, and
+    // DocumentSheetPreview/MemberViewer in shared.tsx revoke it on unmount.
+    // Revoking here would blank the preview it was created for.
+    // react-doctor-disable-next-line react-doctor/no-create-object-url-without-revoke
     return { url: URL.createObjectURL(blob), mediaType: blob.type };
 }
 

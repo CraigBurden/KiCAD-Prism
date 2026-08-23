@@ -1,10 +1,6 @@
 import type {
     EcadDocumentComparisonPreparation,
 } from "@/types/ecad-viewer";
-import {
-    resolveSideBySideFocus,
-    type SideBySideFocusTarget,
-} from "./revision-sources";
 import type {
     ChangeItem,
     KiCadProjectDiffBundle,
@@ -46,10 +42,4 @@ export function resolveNativeSelection(
     }
 
     return { kind: "change", id: ids[0]! };
-}
-
-export function resolveComparisonFocus(
-    changes: ChangeItem[],
-): SideBySideFocusTarget | null {
-    return resolveSideBySideFocus(changes);
 }

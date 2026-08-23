@@ -592,7 +592,7 @@ export function ImportDialog({
               {state.status ? (
                 <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-primary transition-all duration-300"
+                    className="h-full bg-primary transition-[width] duration-300"
                     style={{ width: `${state.status.percent || 0}%` }}
                   />
                 </div>
@@ -783,7 +783,7 @@ export function ImportDialog({
             <div className="space-y-4 py-4">
               <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-primary transition-all duration-300"
+                  className="h-full bg-primary transition-[width] duration-300"
                   style={{ width: `${state.status.percent}%` }}
                 />
               </div>

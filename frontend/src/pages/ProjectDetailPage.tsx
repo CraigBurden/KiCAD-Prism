@@ -869,7 +869,7 @@ function WorkflowCard({ title, desc, icon: Icon, onClick, disabled }: WorkflowCa
         <button
             onClick={onClick}
             disabled={disabled}
-            className="flex flex-col items-start p-6 rounded-lg border bg-card text-card-foreground shadow-sm hover:border-primary/50 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex flex-col items-start p-6 rounded-lg border bg-card text-card-foreground shadow-sm hover:border-primary/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
         >
             <div className="p-2 bg-primary/10 rounded-md mb-4 text-primary">
                 <Icon className="h-6 w-6" />
