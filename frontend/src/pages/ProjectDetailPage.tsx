@@ -677,7 +677,9 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                 <ErrorBoundary label="the history viewer" resetKeys={[projectId, selectedBranchRef, refreshKey]}>
                                     <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
                                         <HistoryViewer
-                                            key={refreshKey}
+                                            // The identity the ErrorBoundary
+                                            // above already resets on.
+                                            key={`${projectId}:${selectedBranchRef}:${refreshKey}`}
                                             projectId={projectId}
                                             branchRef={selectedBranchRef}
                                             onViewCommit={handleViewCommit}

@@ -74,7 +74,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [bulkSelectedProjectIds, setBulkSelectedProjectIds] = useState<Set<string>>(() => new Set());
+  const [rawBulkSelection, setBulkSelectedProjectIds] = useState<Set<string>>(() => new Set());
 
   const [folderToRename, setFolderToRename] = useState<FolderTreeItem | null>(null);
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
@@ -88,7 +88,9 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
 
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  // Paging belongs to the list being paged. Carrying that scope on the value
+  // replaces both a reset effect and the clamp effect chained behind it.
+  const [pageState, setPageState] = useState({ scope: "", page: 1 });
   const canManageProjects = roleCanManageProjects(user?.role);
   const canOpenSettings = user?.role === "admin";
   const canOpenLibrary = canOpenLibraryManager(user?.role);
@@ -174,9 +176,29 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const listFolders = isSearching ? [] : visibleFolders;
   const allListProjects = isSearching ? searchResults : visibleProjects;
   const totalPages = Math.max(1, Math.ceil(allListProjects.length / WORKSPACE_PAGE_SIZE));
+  const pageScope = [currentFolderId ?? "", searchQuery, viewMode, section].join("|");
+  const currentPage = Math.min(
+    pageState.scope === pageScope ? pageState.page : 1,
+    totalPages,
+  );
+  const setCurrentPage = (next: number | ((page: number) => number)) =>
+    setPageState({
+      scope: pageScope,
+      page: typeof next === "function" ? next(currentPage) : next,
+    });
   const pageStart = (currentPage - 1) * WORKSPACE_PAGE_SIZE;
   const listProjects = allListProjects.slice(pageStart, pageStart + WORKSPACE_PAGE_SIZE);
-  const visibleProjectIdsKey = listProjects.map((project) => project.id).join("\u0000");
+  // A selection is only ever read against the page it was made on: the bulk
+  // actions already intersect with `listProjects`, and both views only draw
+  // checkboxes for rows they render. Narrowing here during render says that
+  // once, instead of an effect pruning the stored set a commit later.
+  const bulkSelectedProjectIds = useMemo(() => {
+    const onThisPage = new Set<string>();
+    for (const project of listProjects) {
+      if (rawBulkSelection.has(project.id)) onThisPage.add(project.id);
+    }
+    return onThisPage;
+  }, [listProjects, rawBulkSelection]);
   const selectedVisibleProjects = listProjects.filter((project) => bulkSelectedProjectIds.has(project.id));
   const allVisibleProjectsSelected =
     listProjects.length > 0 && selectedVisibleProjects.length === listProjects.length;
@@ -184,25 +206,6 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     allListProjects.length === 0
       ? "0 projects"
       : `${pageStart + 1}-${Math.min(pageStart + WORKSPACE_PAGE_SIZE, allListProjects.length)} / ${allListProjects.length}`;
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [currentFolderId, searchQuery, viewMode, section]);
-
-  useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
-
-  useEffect(() => {
-    const visibleIds = new Set(visibleProjectIdsKey ? visibleProjectIdsKey.split("\u0000") : []);
-    setBulkSelectedProjectIds((current) => {
-      const retained = new Set([...current].filter((projectId) => visibleIds.has(projectId)));
-      if (retained.size === current.size && [...retained].every((projectId) => current.has(projectId))) {
-        return current;
-      }
-      return retained;
-    });
-  }, [visibleProjectIdsKey]);
 
   const toggleProjectSelection = (projectId: string, selected: boolean) => {
     setBulkSelectedProjectIds((current) => {
