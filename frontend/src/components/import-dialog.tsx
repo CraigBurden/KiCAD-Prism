@@ -148,8 +148,9 @@ export function ImportDialog({
   const [state, setState] = useState<ImportState>({ step: "input" });
   const [url, setUrl] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
-  // Empty means "whatever the remote's HEAD points at".
-  const [ref, setRef] = useState("");
+  // Empty means "whatever the remote's HEAD points at". The value feeds the
+  // next analysis request but never the screen, so it is not state.
+  const refRef = useRef("");
   const pollTimeoutRef = useRef<number | null>(null);
   const pollControllerRef = useRef<AbortController | null>(null);
   const pollingTokenRef = useRef(0);
@@ -187,7 +188,7 @@ export function ImportDialog({
     setState({ step: "input" });
     setUrl("");
     setSelectedPaths(new Set());
-    setRef("");
+    refRef.current = "";
   };
 
   const handleClose = () => {
@@ -201,7 +202,7 @@ export function ImportDialog({
     const target = (urlOverride ?? url).trim();
     if (!target) return;
 
-    const branch = branchOverride ?? ref;
+    const branch = branchOverride ?? refRef.current;
     stopPolling();
     setState({ step: "analyzing", url: target });
 
@@ -268,7 +269,7 @@ export function ImportDialog({
             setSelectedPaths(new Set());
           }
           if (result.ref) {
-            setRef(result.ref);
+            refRef.current = result.ref;
           }
 
           setState({ step: "review", url: repoUrl, analysis: result });
@@ -652,7 +653,7 @@ export function ImportDialog({
                   className="h-9 flex-1 rounded-md border bg-background px-2 text-sm"
                   value={state.analysis.ref ?? ""}
                   onChange={(event) => {
-                    setRef(event.target.value);
+                    refRef.current = event.target.value;
                     // Re-analyse: a different branch can hold different boards.
                     void analyzeRepo(event.target.value);
                   }}

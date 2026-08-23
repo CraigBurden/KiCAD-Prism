@@ -120,7 +120,8 @@ export function ReleaseStudioPanel({
     });
     const [impedanceCsv, setImpedanceCsv] = useState("");
     const [stackupName, setStackupName] = useState("");
-    const [stackupB64, setStackupB64] = useState("");
+    // The stackup upload is read only when a build starts, never on screen.
+    const stackupB64Ref = useRef("");
     const [profiles, setProfiles] = useState<VendorProfile[]>([]);
     const [candidates, setCandidates] = useState<ReleaseCandidate[]>([]);
     // The run lives in the URL so it survives a reload and can be shared --
@@ -142,7 +143,8 @@ export function ReleaseStudioPanel({
     const [liveLogs, setLiveLogs] = useState<string[]>([]);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const activeJobIdRef = useCommittedRef(activeJobId);
-    const [currentBuildId, setCurrentBuildId] = useState<string | null>(null);
+    // Read only by the select-build handler; not part of the rendered state.
+    const currentBuildIdRef = useRef<string | null>(null);
     // Never let a retained response drive a different selected run.
     const selectedDetail = detail?.build.id === selectedBuildId ? detail : null;
     // A full 40-character SHA is the whole requirement. Membership of the
@@ -197,7 +199,7 @@ export function ReleaseStudioPanel({
                 if (pinnedRef.current && current) return current;
                 return current;
             });
-            if (preferredBuild) setCurrentBuildId(preferredBuild.id);
+            if (preferredBuild) currentBuildIdRef.current = preferredBuild.id;
             return preferredBuild?.id ?? null;
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : String(cause));
@@ -284,7 +286,7 @@ export function ReleaseStudioPanel({
         const jobId = selectedDetail?.build.job_id;
         if (!jobId || selectedDetail.build.status !== "running" || activeJobIdRef.current === jobId) return;
         const controller = new AbortController();
-        setCurrentBuildId(selectedDetail.build.id);
+        currentBuildIdRef.current = selectedDetail.build.id;
         void watchPrismJob(jobId, {
             signal: controller.signal,
             includeLogs: true,
@@ -390,7 +392,7 @@ export function ReleaseStudioPanel({
                 identity,
                 manufacturing,
                 impedance_csv: impedanceCsv,
-                stackup_pdf_b64: stackupB64,
+                stackup_pdf_b64: stackupB64Ref.current,
             });
             setActiveJobId(job.job_id);
             const finished = await watchPrismJob(job.job_id, {
@@ -409,7 +411,7 @@ export function ReleaseStudioPanel({
             const builtId = await refresh(job.job_id);
             if (builtId) {
                 pinnedRef.current = true;
-                setCurrentBuildId(builtId);
+                currentBuildIdRef.current = builtId;
                 setSelectedBuildId(builtId);
             }
             setActiveJobId(null);
@@ -509,7 +511,7 @@ export function ReleaseStudioPanel({
                                 }
                                 setDrafting(false);
                                 if (id === "current") {
-                                    setSelectedBuildId(currentBuildId);
+                                    setSelectedBuildId(currentBuildIdRef.current);
                                     setStage(activeJobId ? "build" : "outputs");
                                 } else if (id === "history") {
                                     pinnedRef.current = false;
@@ -666,13 +668,13 @@ export function ReleaseStudioPanel({
                                             onStackup={(file) => {
                                                 if (!file) {
                                                     setStackupName("");
-                                                    setStackupB64("");
+                                                    stackupB64Ref.current = "";
                                                     setError("");
                                                     return;
                                                 }
                                                 if (file.size > MAX_STACKUP_BYTES) {
                                                     setStackupName("");
-                                                    setStackupB64("");
+                                                    stackupB64Ref.current = "";
                                                     setError(
                                                         `${file.name} is ${(file.size / 1_000_000).toFixed(1)} MB. `
                                                         + `The stackup PDF must be under ${MAX_STACKUP_BYTES / 1_000_000} MB.`,
@@ -682,7 +684,7 @@ export function ReleaseStudioPanel({
                                                 setStackupName(file.name);
                                                 setError("");
                                                 void file.arrayBuffer().then((buffer) => {
-                                                    setStackupB64(base64FromBytes(new Uint8Array(buffer)));
+                                                    stackupB64Ref.current = base64FromBytes(new Uint8Array(buffer));
                                                 });
                                             }}
                                             onBuild={() => void handleBuild()}

@@ -362,7 +362,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const [showCommentForm, setShowCommentForm] = useState(false);
     const [pendingLocation, setPendingLocation] = useState<CommentLocation | null>(null);
     const [pendingContext, setPendingContext] = useState<CommentContext | null>(null);
-    const [pendingElement, setPendingElement] = useState<PendingCommentElement | null>(null);
+    // The pending comment element is read only when the comment submits,
+    // never on screen.
+    const pendingElementRef = useRef<PendingCommentElement | null>(null);
     const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
     const [commentCardScreenPosition, setCommentCardScreenPosition] = useState<{ x: number; y: number } | null>(null);
     const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -998,7 +1000,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             page: detail.page,
             bounds: detail.bounds,
         });
-        setPendingElement(null);
+        pendingElementRef.current = null;
         setShowCommentForm(true);
     }, []);
 
@@ -1031,9 +1033,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     location: pendingLocation,
                     content: payload.content,
                     author: user?.name,
-                    elementId: pendingElement?.elementId,
-                    elementRef: pendingElement?.elementRef,
-                    elementType: pendingElement?.elementType,
+                    elementId: pendingElementRef.current?.elementId,
+                    elementRef: pendingElementRef.current?.elementRef,
+                    elementType: pendingElementRef.current?.elementType,
                     commentClass: payload.commentClass,
                     severity: payload.severity,
                     mentions: payload.mentions,
@@ -1045,13 +1047,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             setShowCommentForm(false);
             setPendingLocation(null);
             setPendingContext(null);
-            setPendingElement(null);
+            pendingElementRef.current = null;
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to post comment");
         } finally {
             setIsSubmittingComment(false);
         }
-    }, [pendingContext, pendingElement, pendingLocation, projectId, user?.name]);
+    }, [pendingContext, pendingLocation, projectId, user?.name]);
 
     const resolveComment = useCallback(async (commentId: string, resolved: boolean) => {
         try {
@@ -1162,11 +1164,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         // Element comments use marker-at-center only; do not
                         // treat the selected item bbox as an area comment.
                     });
-                    setPendingElement({
+                    pendingElementRef.current = {
                         elementId: selection.uuid,
                         elementRef: selection.reference,
                         elementType: selection.itemType,
-                    });
+                    };
                     setShowCommentForm(true);
                 } else {
                     // No selection: C toggles commenting mode, so pressing it
@@ -1496,7 +1498,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     setShowCommentForm(false);
                     setPendingLocation(null);
                     setPendingContext(null);
-                    setPendingElement(null);
+                    pendingElementRef.current = null;
                 }}
                 onSubmit={(payload) => void submitComment(payload)}
                 location={pendingLocation}
