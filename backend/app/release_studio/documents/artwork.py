@@ -22,7 +22,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from app.release_studio.documents.layout import Artwork, Rect
 
@@ -261,8 +261,9 @@ def _coordinate_pairs(svg_text: str, limit: int = 64) -> list[tuple[float, float
 #: input closure, and the closure digest would then depend on the build.
 PCB_SVG_CONFIG = Path(__file__).with_name("pcb-svg.config.json")
 
-#: The testpoint views, which need a per-board component map (see its own
-#: ``_prism`` note for why it cannot share the assembly configuration).
+#: Testpoint-only views. They use a derived staging board so Cruncher receives
+#: only TP footprints; see the config's ``_prism`` note for the compatibility
+#: contract with legacy KiCad boards.
 PCB_SVG_TESTPOINT_CONFIG = Path(__file__).with_name("pcb-svg.testpoints.config.json")
 
 #: Cruncher view name per assembly side.
@@ -277,10 +278,10 @@ TESTPOINT_VIEWS: dict[str, str] = {
     "bottom": "testpoint_bottom_view",
 }
 
-#: Every view kind Prism's checked-in Cruncher configuration declares.
+#: Views safe to render directly from the source board. Testpoints are
+#: deliberately absent: they must pass through :func:`_stage_testpoint_board`.
 VIEW_KINDS: dict[str, dict[str, str]] = {
     "assembly": ASSEMBLY_VIEWS,
-    "testpoint": TESTPOINT_VIEWS,
 }
 
 #: What Cruncher *actually* drew each component from.
@@ -428,42 +429,6 @@ def acquire_board_render(
     )
 
 
-def testpoint_config(
-    designators: Sequence[str],
-    workdir: Path,
-    *,
-    prefix: str = "TP",
-    base: Path | None = None,
-) -> Path:
-    """Write the testpoint configuration for one board, and return its path.
-
-    Cruncher draws a component's outline unless that component says otherwise,
-    and it has no wildcard for saying so -- ``components`` is keyed by exact
-    designator.  So "only the testpoints" is written as every other designator
-    switched off.  The map is a pure function of the board's sorted designator
-    list, which keeps two builds of one board byte-identical here.
-    """
-
-    import json
-
-    source = base or PCB_SVG_TESTPOINT_CONFIG
-    if not source.is_file():
-        raise ArtworkError(f"the Prism testpoint configuration is missing: {source}")
-    config = json.loads(source.read_text(encoding="utf-8"))
-    marker = prefix.strip().upper()
-    config["components"] = {
-        designator: {"assembly_hlr": {"enabled": False}}
-        for designator in sorted({str(d).strip() for d in designators if str(d).strip()})
-        if not designator.strip().upper().startswith(marker)
-    }
-    workdir.mkdir(parents=True, exist_ok=True)
-    written = workdir / "pcb-svg.testpoints.generated.json"
-    written.write_text(
-        json.dumps(config, indent=2, sort_keys=False) + "\n", encoding="utf-8"
-    )
-    return written
-
-
 def acquire_testpoint_views(
     cruncher_path: str,
     board: Path,
@@ -474,7 +439,16 @@ def acquire_testpoint_views(
     runner=subprocess.run,
     timeout_seconds: int = 900,
 ) -> dict[str, AcquiredArtwork]:
-    """Render the testpoint views, keyed ``"testpoint-<side>"``."""
+    """Render the testpoint views, keyed ``"testpoint-<side>"``.
+
+    Cruncher 2026.8.x resolves a footprint designator from the modern
+    ``Reference`` property and otherwise falls back to its library link. Older
+    KiCad boards store the reference in ``fp_text reference`` instead, which
+    makes both the ``TP*`` label selector and component filtering miss. Rather
+    than interpret either the board file or Cruncher's SVG, derive a staging
+    board through Monkey's public object model: retain only testpoint
+    footprints and promote each legacy reference to the modern property.
+    """
 
     views = []
     for side in sides:
@@ -485,19 +459,115 @@ def acquire_testpoint_views(
     if not views:
         return {}
 
-    workdir.mkdir(parents=True, exist_ok=True)
-    config = testpoint_config(designators, workdir)
-    _run_pcb_svg(
-        cruncher_path, board, views, workdir,
-        config_path=config, runner=runner, timeout_seconds=timeout_seconds,
+    source_board = Path(board).resolve()
+    staged_board, staged_designators = _stage_testpoint_board(source_board, workdir)
+    expected = tuple(
+        sorted(
+            {
+                str(reference).strip()
+                for reference in designators
+                if str(reference).strip().upper().startswith("TP")
+            }
+        )
     )
-    viewport = _cruncher_board_viewport(board, config)
+    if designators and expected != staged_designators:
+        missing = sorted(set(expected) - set(staged_designators))
+        unexpected = sorted(set(staged_designators) - set(expected))
+        detail = []
+        if missing:
+            detail.append(f"missing {', '.join(missing)}")
+        if unexpected:
+            detail.append(f"unexpected {', '.join(unexpected)}")
+        raise ArtworkError(
+            "testpoint drawing and board projection disagree: "
+            + ("; ".join(detail) or "designator sets differ")
+        )
+
+    _run_pcb_svg(
+        cruncher_path, staged_board, views, workdir,
+        config_path=PCB_SVG_TESTPOINT_CONFIG,
+        project_dir=source_board.parent,
+        runner=runner,
+        timeout_seconds=timeout_seconds,
+    )
+    viewport = _cruncher_board_viewport(staged_board, PCB_SVG_TESTPOINT_CONFIG)
     return {
         f"testpoint-{side}": _read_assembly_view(
             workdir, f"testpoint-{side}", TESTPOINT_VIEWS[side], viewport
         )
         for side in sides
     }
+
+
+def _stage_testpoint_board(
+    board: Path,
+    workdir: Path,
+    *,
+    prefix: str = "TP",
+    pcb_loader: Callable[[Path], Any] | None = None,
+) -> tuple[Path, tuple[str, ...]]:
+    """Write a testpoint-only Monkey board into *workdir*.
+
+    The input board is never edited. Legacy ``fp_text reference`` values are
+    copied into ``property \"Reference\"`` on the retained staging footprints
+    because that is the public designator contract consumed by released
+    Cruncher 2026.8.x.
+    """
+
+    source = Path(board).resolve()
+    destination_dir = Path(workdir).resolve()
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    if pcb_loader is None:
+        try:
+            from kicad_monkey.kicad_pcb import KiCadPcb
+        except Exception as exc:  # noqa: BLE001 - normalize worker dependency failures
+            raise ArtworkError(f"could not load Monkey for testpoint staging: {exc}") from exc
+        pcb_loader = KiCadPcb.from_file
+
+    try:
+        pcb = pcb_loader(source)
+    except Exception as exc:  # noqa: BLE001 - normalize board parse failures
+        raise ArtworkError(f"could not parse board for testpoint staging: {exc}") from exc
+
+    marker = prefix.strip().upper()
+    if not marker:
+        raise ArtworkError("testpoint prefix cannot be empty")
+
+    retained = []
+    designators: set[str] = set()
+    for footprint in getattr(pcb, "footprints", ()) or ():
+        reference = ""
+        get_property = getattr(footprint, "get_property_value", None)
+        if callable(get_property):
+            reference = str(get_property("Reference", "") or "").strip()
+        if not reference:
+            for fp_text in getattr(footprint, "fp_texts", ()) or ():
+                if str(getattr(fp_text, "text_type", "") or "").lower() == "reference":
+                    reference = str(getattr(fp_text, "text", "") or "").strip()
+                    if reference:
+                        break
+        if not reference.upper().startswith(marker):
+            continue
+        if reference in designators:
+            raise ArtworkError(f"duplicate testpoint designator: {reference}")
+        upsert_property = getattr(footprint, "upsert_property", None)
+        if not callable(upsert_property):
+            raise ArtworkError(
+                f"Monkey footprint {reference} cannot set its Reference property"
+            )
+        upsert_property("Reference", reference)
+        designators.add(reference)
+        retained.append(footprint)
+
+    pcb.footprints = retained
+    destination = destination_dir / f"{source.stem}.testpoints.kicad_pcb"
+    try:
+        pcb.save(destination)
+    except Exception as exc:  # noqa: BLE001 - normalize staging write failures
+        raise ArtworkError(f"could not save testpoint staging board: {exc}") from exc
+    if not destination.is_file():
+        raise ArtworkError("Monkey did not write the testpoint staging board")
+    return destination, tuple(sorted(designators))
 
 
 def acquire_board_views(
@@ -516,9 +586,9 @@ def acquire_board_views(
     Keyed ``"<kind>-<side>"``.
 
     Loading the board dominates: on a 35 MB ``.kicad_pcb`` it is ~70 s against
-    a couple of seconds to render one more view off the same load.  So every
-    view Prism wants is declared in the one checked-in configuration and asked
-    for together -- the testpoint views cost the render, not another load.
+    a couple of seconds to render one more assembly view off the same load, so
+    the source-board assembly views are asked for together. Testpoint views are
+    intentionally acquired separately from a normalized TP-only staging board.
     """
 
     wanted: dict[str, str] = {}
@@ -606,6 +676,7 @@ def _run_pcb_svg(
     workdir: Path,
     *,
     config_path: Path | None,
+    project_dir: Path | None = None,
     runner,
     timeout_seconds: int,
 ) -> None:
@@ -626,7 +697,10 @@ def _run_pcb_svg(
     # directory that contains the board.  Without this binding Geometer cannot
     # open STEPs that are already present in the closed tree.
     env = os.environ.copy()
-    env["KIPRJMOD"] = str(Path(board).resolve().parent)
+    env["KIPRJMOD"] = str(
+        (Path(project_dir) if project_dir is not None else Path(board).resolve().parent)
+        .resolve()
+    )
     try:
         result = runner(
             argv, capture_output=True, text=True, timeout=timeout_seconds, env=env
