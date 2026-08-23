@@ -4,16 +4,16 @@
     "Prism's testpoint view configuration: the board with only its testpoints.",
     "Checked in and hashed into resource_bundle_digest -> toolchain_digest,",
     "like the assembly configuration beside it.",
-    "This is a second file, and a second Cruncher invocation, for one reason:",
-    "designator styles accept `TP*` selectors but component HLR styles do not,",
-    "and `components` is keyed by exact designator and applies to every view in",
-    "a configuration. Drawing testpoint outlines and nothing else therefore",
-    "needs a components map naming every part to suppress -- which would",
-    "suppress them on the assembly views too if it lived in the same file.",
-    "The map is generated per board at build time from the board's own",
-    "designators, written into the build's staging directory, and never placed",
-    "beside the board: a config the build created inside the closure would make",
-    "the closure digest depend on the build."
+    "This is a second file and Cruncher invocation because its input is a",
+    "derived staging board containing only TP footprints. Released Cruncher",
+    "2026.8.x reads designators from property Reference, while legacy KiCad",
+    "boards may store them only in fp_text reference. Prism uses Monkey's",
+    "public object model to retain the TP footprints and promote those legacy",
+    "references before rendering, so both outlines and TP* labels are correct.",
+    "The derived board is written only into build staging and the source board",
+    "is never edited: putting generated input beside the board would make the",
+    "closure digest depend on the build. Components stays empty because the",
+    "staging board itself is the complete testpoint selection."
   ],
   "global": {
     "canvas": {

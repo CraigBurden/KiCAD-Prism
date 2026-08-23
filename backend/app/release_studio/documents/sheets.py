@@ -914,12 +914,10 @@ def testpoint_sheet(
 ) -> tuple[Sheet, float, list]:
     """One side of the board with only its testpoints labelled.
 
-    The same Cruncher render as the assembly view with every non-``TP``
-    designator switched off and the component outlines omitted, so a probe
-    target is not competing with 900 other labels for the reader's attention.
-    The schedule beside it gives each testpoint's position from the position
-    file, which is what makes the sheet usable at a bench rather than only
-    pretty.
+    Cruncher receives a derived board containing only ``TP`` footprints, so a
+    probe target is not competing with hundreds of assembly outlines or
+    labels. The schedule beside it gives each testpoint's board position, which
+    is what makes the sheet usable at a bench rather than only pretty.
     """
 
     label = "TOP" if side == "top" else "BOTTOM"

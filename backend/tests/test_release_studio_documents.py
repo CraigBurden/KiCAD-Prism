@@ -1751,6 +1751,151 @@ class SheetSetConsistencyTests(unittest.TestCase):
         self.assertNotIn("The files listed above are the released bytes", note)
 
 
+class TestpointStagingTests(unittest.TestCase):
+    """Legacy and modern boards reach Cruncher through one Monkey contract."""
+
+    class Text:
+        def __init__(self, text_type: str, text: str):
+            self.text_type = text_type
+            self.text = text
+
+    class Footprint:
+        def __init__(self, reference: str = "", *, legacy_reference: str = ""):
+            self.properties = {"Reference": reference} if reference else {}
+            self.fp_texts = (
+                [TestpointStagingTests.Text("reference", legacy_reference)]
+                if legacy_reference
+                else []
+            )
+
+        def get_property_value(self, name: str, default: str = "") -> str:
+            return self.properties.get(name, default)
+
+        def upsert_property(self, name: str, value: str) -> None:
+            self.properties[name] = value
+
+    class Board:
+        def __init__(self, footprints):
+            self.footprints = list(footprints)
+            self.saved_to = None
+
+        def save(self, path: Path) -> None:
+            self.saved_to = path
+            path.write_text("(kicad_pcb)\n", encoding="utf-8")
+
+    def test_stages_only_testpoints_and_promotes_legacy_references(self) -> None:
+        import tempfile
+
+        modern = self.Footprint("TP2")
+        legacy = self.Footprint(legacy_reference="TP49")
+        ordinary = self.Footprint(legacy_reference="D14")
+        parsed = self.Board([ordinary, legacy, modern])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source" / "board.kicad_pcb"
+            source.parent.mkdir()
+            source.write_text("original board\n", encoding="utf-8")
+            staged, designators = artwork_module._stage_testpoint_board(
+                source,
+                root / "staging",
+                pcb_loader=lambda path: parsed,
+            )
+
+            self.assertEqual(source.read_text(encoding="utf-8"), "original board\n")
+            self.assertEqual(staged.parent, (root / "staging").resolve())
+            self.assertTrue(staged.is_file())
+
+        self.assertEqual(designators, ("TP2", "TP49"))
+        self.assertEqual(parsed.footprints, [legacy, modern])
+        self.assertEqual(legacy.properties["Reference"], "TP49")
+        self.assertEqual(modern.properties["Reference"], "TP2")
+        self.assertNotIn(ordinary, parsed.footprints)
+
+    def test_duplicate_testpoint_designators_are_rejected(self) -> None:
+        import tempfile
+
+        parsed = self.Board(
+            [self.Footprint("TP1"), self.Footprint(legacy_reference="TP1")]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "board.kicad_pcb"
+            source.write_text("original board\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                artwork_module.ArtworkError, "duplicate testpoint designator: TP1"
+            ):
+                artwork_module._stage_testpoint_board(
+                    source,
+                    root / "staging",
+                    pcb_loader=lambda path: parsed,
+                )
+
+    def test_staged_board_keeps_the_source_project_model_root(self) -> None:
+        import tempfile
+
+        captured = {}
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        def runner(argv, **kwargs):
+            captured["env"] = kwargs["env"]
+            return Result()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staged = root / "staging" / "board.testpoints.kicad_pcb"
+            staged.parent.mkdir()
+            staged.write_text("(kicad_pcb)\n", encoding="utf-8")
+            project_dir = root / "source-project"
+            artwork_module._run_pcb_svg(
+                "kicad-cruncher",
+                staged,
+                ["testpoint_top_view"],
+                root / "out",
+                config_path=artwork_module.PCB_SVG_TESTPOINT_CONFIG,
+                project_dir=project_dir,
+                runner=runner,
+                timeout_seconds=1,
+            )
+
+        self.assertEqual(captured["env"]["KIPRJMOD"], str(project_dir.resolve()))
+
+    def test_testpoint_views_cannot_bypass_the_staging_board(self) -> None:
+        with self.assertRaisesRegex(
+            artwork_module.ArtworkError, "unknown view kind: 'testpoint'"
+        ):
+            artwork_module.acquire_board_views(
+                "kicad-cruncher",
+                Path("board.kicad_pcb"),
+                Path("out"),
+                kinds=("testpoint",),
+                sides=("top",),
+            )
+
+    def test_projection_and_staged_board_must_select_the_same_testpoints(self) -> None:
+        from unittest.mock import patch
+
+        with patch.object(
+            artwork_module,
+            "_stage_testpoint_board",
+            return_value=(Path("staging/board.testpoints.kicad_pcb"), ("TP2",)),
+        ):
+            with self.assertRaisesRegex(
+                artwork_module.ArtworkError,
+                "testpoint drawing and board projection disagree: missing TP1; unexpected TP2",
+            ):
+                artwork_module.acquire_testpoint_views(
+                    "kicad-cruncher",
+                    Path("board.kicad_pcb"),
+                    Path("out"),
+                    designators=("D1", "TP1"),
+                )
+
+
 class RendererVersionTests(unittest.TestCase):
     """A rendering change must be a deliberate, versioned change.
 
@@ -1761,7 +1906,7 @@ class RendererVersionTests(unittest.TestCase):
     in the same commit.
     """
 
-    #: Recorded for RENDERER_VERSION d20 under the pinned kicad-monkey /
+    #: Recorded for RENDERER_VERSION d22 under the pinned kicad-monkey /
     #: kicad-cruncher toolchain, and verified stable across two runs.
     #: The version and these digests move together, never one without the other.
     GOLDEN = {
@@ -1821,7 +1966,7 @@ class RendererVersionTests(unittest.TestCase):
 
         self.assertEqual(
             RENDERER_VERSION,
-            "release-studio-documents/d21",
+            "release-studio-documents/d22",
             "RENDERER_VERSION changed: re-record GOLDEN in the same commit",
         )
 

@@ -120,9 +120,8 @@ DRILL_ARTWORK_KEY = "drill"
 #: into each component's own bounds over a hidden-line-removed outline.
 ASSEMBLY_SIDES: tuple[str, ...] = ("top", "bottom")
 
-#: The testpoint views are the same render with only `TP*` labelled.  They are
-#: extra *views* in the one Cruncher configuration rather than a second
-#: invocation, because loading the board is what costs and the render is cheap.
+#: Testpoint views use a derived board containing only TP footprints, with
+#: legacy references normalized through Monkey before Cruncher renders them.
 TESTPOINT_SIDES: tuple[str, ...] = ("top", "bottom")
 
 #: Key the concurrent acquisition uses for the one job that returns every
@@ -254,8 +253,8 @@ def compose(
     members: Sequence[Mapping[str, Any]],
     testpoints: Mapping[str, Any] | None = None,
     population: Mapping[str, Any] | None = None,
-    #: Every reference designator on the board, for the testpoint view's
-    #: component map.  A build input, not a released projection.
+    #: Every reference designator on the board, used to assert that the staged
+    #: testpoint drawing and its released schedule select the same parts.
     designators: Sequence[str] = (),
     board: Path | None = None,
     cli_path: str | None = None,
@@ -368,11 +367,12 @@ def compose(
             else:
                 assembly[side] = drawing
 
-    # Testpoints are a second full board load: a per-board component map that
-    # hid every non-TP outline would poison the assembly views if the two
-    # shared a configuration.  They run *after* the plot pool (and after the
-    # assembly Cruncher, when that was overlapped with catalogue wave A) so
-    # they cannot steal an acquisition slot from a layer plot.
+    # Testpoints are a second board load from a derived TP-only staging board.
+    # That keeps the assembly input untouched and lets legacy fp_text
+    # references be normalized to Cruncher's property-based designator API.
+    # They run *after* the plot pool (and after the assembly Cruncher, when that
+    # was overlapped with catalogue wave A) so they cannot steal an acquisition
+    # slot from a layer plot.
     #
     # Measured rather than assumed: pooling them alongside the layer plots on
     # JTYU-OBC moved compose from 213.3s to 217.5s. Cruncher is CPU bound, so
