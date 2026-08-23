@@ -119,7 +119,7 @@ export function WebGpu3dTab({
     const selectionRef = useCommittedRef(selection);
     const generationStartedAt = useRef<number | null>(null);
     const readinessRevisionRef = useRef<string | null>(null);
-    const tabLoadStartedAt = useRef(performance.now());
+    const [tabLoadStartedAt] = useState(() => performance.now());
     const [viewerElement, setViewerElement] = useState<PrismSemanticViewerElement | null>(null);
     const [status, setStatus] = useState<WebGpu3dStatus | null>(null);
     const [loading, setLoading] = useState(true);
@@ -277,7 +277,7 @@ export function WebGpu3dTab({
                 generation_to_visible_ms: generationStartedAt.current === null
                     ? null
                     : performance.now() - generationStartedAt.current,
-                tab_load_to_visible_ms: performance.now() - tabLoadStartedAt.current,
+                tab_load_to_visible_ms: performance.now() - tabLoadStartedAt,
                 viewer: detail,
             };
             console.info("[prism-3d-cold-start]", browserMilestone);
@@ -314,7 +314,7 @@ export function WebGpu3dTab({
             node.removeEventListener("prism-semantic-viewer:selectionchange", handleSelection);
             node.removeEventListener("prism-semantic-viewer:error", handleError);
         };
-    }, [onClearSelection, onSelection, projectId, selectionRef, status?.sourceRevisionKey, viewerElement]);
+    }, [onClearSelection, onSelection, projectId, selectionRef, status?.sourceRevisionKey, tabLoadStartedAt, viewerElement]);
 
     const readiness = job?.readiness ?? status?.readiness;
     const readinessStage = readiness?.stage || (status?.status === "ready" ? "semantic-ready" : "generating");

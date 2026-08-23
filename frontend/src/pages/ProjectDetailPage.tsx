@@ -92,6 +92,22 @@ function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection 
     return "overview";
 }
 
+// Fixed navigation table, no closure over props: build it once.
+const NAV_ITEMS = [
+    { id: "overview" as ProjectSection, label: "Overview", icon: FileText },
+    { id: "history" as ProjectSection, label: "History", icon: History },
+    { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
+    { id: "workflows" as ProjectSection, label: "Workflows", icon: PlayCircle },
+    { id: "release-studio" as ProjectSection, label: "Release Studio", icon: ShieldCheck },
+    { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
+    { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
+];
+
+// Closes over nothing in the component.
+const getDisplayName = (project: Project) => {
+    return project.display_name || project.name;
+};
+
 export function ProjectDetailPage({ user }: { user: User | null }) {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
@@ -114,10 +130,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const canMutateProject = user?.role === "admin" || user?.role === "designer";
 
     // Helper function to get display name
-    const getDisplayName = (project: Project) => {
-        return project.display_name || project.name;
-    };
-
     const selectedBranchRef = searchParams.get('branch');
     const currentCommit = searchParams.get('commit');
     const selectedBranch = useMemo(
@@ -356,16 +368,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         return <div className="flex items-center justify-center h-app-viewport">Project not found</div>;
     }
 
-    const navItems = [
-        { id: "overview" as ProjectSection, label: "Overview", icon: FileText },
-        { id: "history" as ProjectSection, label: "History", icon: History },
-        { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
-        { id: "workflows" as ProjectSection, label: "Workflows", icon: PlayCircle },
-        { id: "release-studio" as ProjectSection, label: "Release Studio", icon: ShieldCheck },
-        { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
-        { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
-    ];
-
     const handleBackNavigation = () => {
         if (project.folder_id) {
             navigate(`/?folder=${encodeURIComponent(project.folder_id)}`);
@@ -395,7 +397,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         <div className="py-4">
                             <h2 className="px-4 text-lg font-semibold tracking-tight mb-2">Project Navigation</h2>
                             <nav className="space-y-1 p-2">
-                                {navItems.map((item) => {
+                                {NAV_ITEMS.map((item) => {
                                     const Icon = item.icon;
                                     return (
                                         <button
@@ -581,7 +583,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </div>
 
                     <nav className="space-y-1 mt-8">
-                        {navItems.map((item) => {
+                        {NAV_ITEMS.map((item) => {
                             const Icon = item.icon;
                             const isExpanded = !sidebarCollapsed || sidebarHovered;
                             return (

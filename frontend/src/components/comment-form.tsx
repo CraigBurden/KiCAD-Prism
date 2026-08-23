@@ -51,6 +51,8 @@ function extractMentions(content: string, candidates: MentionCandidate[]): strin
  * Modal dialog for adding a new design review comment.
  * Cmd/Ctrl+Enter submits; Escape closes; @ opens mention suggestions.
  */
+const NO_MENTION_CANDIDATES: MentionCandidate[] = [];
+
 export function CommentForm({
     isOpen,
     onClose,
@@ -58,7 +60,7 @@ export function CommentForm({
     location,
     context,
     isSubmitting = false,
-    mentionCandidates = [],
+    mentionCandidates = NO_MENTION_CANDIDATES,
 }: CommentFormProps) {
     const [content, setContent] = useState("");
     const [commentClass, setCommentClass] = useState<CommentClass>(DEFAULT_COMMENT_CLASS);

@@ -182,7 +182,7 @@ function EcadViewerHost({
     viewportInsets,
 }: EcadViewerHostProps) {
     const hostRef = useRef<ECadViewerElement | null>(null);
-    const replaceReadyRef = useRef<Promise<void>>(Promise.resolve());
+    const replaceReadyRef = useRef<Promise<void> | null>(null);
     const rootSource = sources[0];
     const appendedSources = useMemo(() => sources.slice(1), [sources]);
     const viewportLeft = viewportInsets.left ?? 0;

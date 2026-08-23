@@ -125,12 +125,14 @@ const VALIDATION_LABELS: Record<CatalogValidationStatus, string> = {
   not_run: "Not run",
 };
 
+// Constructing an Intl formatter is the expensive part; the runtime locale
+// cannot change mid-session, so build it once.
+const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+
 const formatDate = (value?: string) => {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
+  return Number.isNaN(date.getTime()) ? value : DATE_FORMAT.format(date);
 };
 
 function SortControl({

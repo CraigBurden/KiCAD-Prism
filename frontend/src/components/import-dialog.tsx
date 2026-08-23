@@ -124,6 +124,22 @@ type ImportState =
       retryUrl?: string;
     };
 
+// Closes over nothing in the component.
+const loadAccessHelp = async (repoUrl: string): Promise<AccessHelp | undefined> => {
+try {
+  const res = await fetch("/api/projects/access-help", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: repoUrl }),
+  });
+  if (!res.ok) return undefined;
+  return (await res.json()) as AccessHelp;
+} catch {
+  // The failure message still stands on its own; the guided fix is a bonus.
+  return undefined;
+}
+};
+
 export function ImportDialog({
   open,
   onOpenChange,
@@ -434,21 +450,6 @@ export function ImportDialog({
     };
 
     void poll();
-  };
-
-  const loadAccessHelp = async (repoUrl: string): Promise<AccessHelp | undefined> => {
-    try {
-      const res = await fetch("/api/projects/access-help", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: repoUrl }),
-      });
-      if (!res.ok) return undefined;
-      return (await res.json()) as AccessHelp;
-    } catch {
-      // The failure message still stands on its own; the guided fix is a bonus.
-      return undefined;
-    }
   };
 
   const retryAnalysis = (repoUrl: string) => {
