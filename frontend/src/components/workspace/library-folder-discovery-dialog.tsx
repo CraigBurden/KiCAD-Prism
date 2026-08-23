@@ -24,8 +24,11 @@ interface LibraryFolderDiscoveryDialogProps {
 export function LibraryFolderDiscoveryDialog({ discovery, open, submitting, onOpenChange, onApprove, onAttachFootprint, onAttachModel }: LibraryFolderDiscoveryDialogProps) {
   const importableIds = useMemo(() => new Set(
     (discovery?.components || [])
-      .filter((component) => component.footprint.status === "resolved" && !component.existing_component)
-      .map((component) => component.id)
+      .flatMap((component) => (
+        component.footprint.status === "resolved" && !component.existing_component
+          ? [component.id]
+          : []
+      ))
   ), [discovery]);
   // Everything importable is selected unless the reviewer said otherwise, so
   // the state to keep is the opt-outs. Re-running discovery -- which is what

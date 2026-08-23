@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   Dialog,
   DialogContent,
@@ -487,11 +487,19 @@ export function ImportDialog({
     });
   };
 
+  const importedPathSet = useMemo(
+      () => new Set(
+          state.step === "review"
+              ? (state.analysis.imported_paths ?? [])
+              : [],
+      ),
+      [state],
+  );
   const importablePaths =
     state.step === "review"
-      ? state.analysis.projects
-          .map((p) => p.relative_path)
-          .filter((path) => !(state.analysis.imported_paths ?? []).includes(path))
+      ? state.analysis.projects.flatMap((p) => (
+          importedPathSet.has(p.relative_path) ? [] : [p.relative_path]
+        ))
       : [];
   const importableCount = importablePaths.length;
 
@@ -685,8 +693,7 @@ export function ImportDialog({
             <div className="max-h-64 overflow-y-auto border rounded-md">
               {state.analysis.projects.map((project) => {
                 const alreadyImported =
-                  state.analysis.imported_paths?.includes(project.relative_path) ??
-                  false;
+                  importedPathSet.has(project.relative_path);
                 return (
                 <div
                   key={project.relative_path}

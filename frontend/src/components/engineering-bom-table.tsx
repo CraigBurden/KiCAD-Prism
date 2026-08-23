@@ -143,11 +143,19 @@ const groupMatchesQuery = (group: BomGroup, query: string): boolean => {
     if (!terms.length) return true;
     const references = group.components.map((component) => component.reference.toLocaleLowerCase());
     const haystack = [...references, ...Object.values(group.fields)].join(" ").toLocaleLowerCase();
+    // Each field search builds the same alias string per term; resolve it once
+    // per field so repeated terms share the lookup.
+    const fieldValues = new Map<string, string>();
+    for (const term of terms) {
+        if (term.field && !fieldValues.has(term.field)) {
+            fieldValues.set(term.field, searchableField(group, term.field));
+        }
+    }
     return terms.every((term, index) => {
         if (term.field === "ref" || term.field === "reference") {
             return references.some((reference) => reference === term.value);
         }
-        if (term.field) return searchableField(group, term.field).includes(term.value);
+        if (term.field) return (fieldValues.get(term.field) ?? "").includes(term.value);
         const referenceLike = /^[a-z]+\d+[a-z0-9._-]*$/.test(term.value);
         if (referenceLike) {
             const exact = term.quoted || (lockLastReference && index === terms.length - 1);

@@ -593,16 +593,21 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
                             if (cancelled) return;
 
-                            const loadedSubsheets = subsheetResults
-                                .filter((result): result is PromiseFulfilledResult<{ filename: string; content: string }> => result.status === "fulfilled")
-                                .map((result) => result.value);
+                            const loadedSubsheets: Array<{
+                                filename: string;
+                                content: string;
+                            }> = [];
+                            for (const result of subsheetResults) {
+                                if (result.status === "fulfilled") {
+                                    loadedSubsheets.push(result.value);
+                                } else {
+                                    console.warn(
+                                        "Failed to load one subsheet",
+                                        result.reason,
+                                    );
+                                }
+                            }
                             setSubsheets(loadedSubsheets);
-
-                            subsheetResults
-                                .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-                                .forEach((result) => {
-                                    console.warn("Failed to load one subsheet", result.reason);
-                                });
                         }
                     } else {
                         setSubsheets([]);
