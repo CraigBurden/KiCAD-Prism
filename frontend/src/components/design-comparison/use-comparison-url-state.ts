@@ -74,9 +74,26 @@ export function useComparisonUrlState(
 ): ComparisonUrlState {
     const { base, compare } = identity;
     const [searchParams, setSearchParams] = useSearchParams();
-    const view = useMemo(
+    const parsed = useMemo(
         () => readComparisonUrlView(searchParams),
         [searchParams],
+    );
+    /**
+     * Layer visibility is the one value read back as an array, and a fresh
+     * array on every unrelated URL change is not free: the pcb shell keeps
+     * `initialVisibleLayers` in the dep array of the effect that registers its
+     * viewer listeners and re-applies saved visibility, so a new identity
+     * makes selecting a change tear that down and rebuild it. Keyed on the raw
+     * parameter, the identity changes only when the layers actually do.
+     */
+    const layersParam = searchParams.get("layers") ?? "";
+    const visibleLayers = useMemo(
+        () => layersParam.split(",").filter(Boolean),
+        [layersParam],
+    );
+    const view = useMemo(
+        () => ({ ...parsed, visibleLayers }),
+        [parsed, visibleLayers],
     );
 
     /**
@@ -99,28 +116,33 @@ export function useComparisonUrlState(
 
     const update = useCallback(
         (change: (current: ComparisonUrlView) => Partial<ComparisonUrlView>) => {
-            setSearchParams(
-                (fromRender) => {
-                    const current = pendingRef.current ?? fromRender;
-                    const currentView = readComparisonUrlView(current);
-                    const next = applyWorkspaceComparisonParams(current, {
-                        base,
-                        compare,
-                        ...currentView,
-                        ...change(currentView),
-                    });
-                    pendingRef.current = next;
-                    // Replacing rather than pushing so the back button leaves
-                    // the comparison instead of walking every selection made
-                    // inside it.
-                    return next.toString() === fromRender.toString()
-                        ? fromRender
-                        : next;
-                },
-                { replace: true },
-            );
+            const current = pendingRef.current ?? searchParams;
+            const currentView = readComparisonUrlView(current);
+            const next = applyWorkspaceComparisonParams(current, {
+                base,
+                compare,
+                ...currentView,
+                ...change(currentView),
+            });
+            /**
+             * A write that would not change the address bar must not navigate.
+             *
+             * `setSearchParams` navigates whatever it is handed, and every
+             * navigation is a new location object and so a new render. Callers
+             * legitimately write a value that is already set -- the selection
+             * re-anchor clears an already-empty selection on every pass -- and
+             * with an unmemoised value in its dependency list that effect runs
+             * on each of those renders, so the pair span forever. The same
+             * write against `useState` was a bail-out and cost nothing; this
+             * keeps that property.
+             */
+            if (next.toString() === current.toString()) return;
+            pendingRef.current = next;
+            // Replacing rather than pushing so the back button leaves the
+            // comparison instead of walking every selection made inside it.
+            setSearchParams(next, { replace: true });
         },
-        [base, compare, setSearchParams],
+        [base, compare, searchParams, setSearchParams],
     );
 
     const setters = useMemo(() => {
