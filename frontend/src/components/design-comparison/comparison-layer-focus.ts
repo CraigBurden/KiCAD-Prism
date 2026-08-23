@@ -127,6 +127,56 @@ export function layerFocusForChanges(
 }
 
 /**
+ * Expand KiCad's layer wildcards against the layers a board actually has.
+ *
+ * A through-hole pad does not sit on a side, so KiCad does not name one: its
+ * layer is `*.Cu`, meaning every copper layer, and `F&B.Cu` means the two
+ * outer ones. Those are patterns, not layers. A viewer asked to show `*.Cu`
+ * matches nothing, which is why selecting a through-hole part used to leave
+ * the board showing its outline and nothing else.
+ *
+ * Anything already naming a real layer passes through, so a caller can hand
+ * this a mix of patterns and names -- restoring a reviewer's saved layers goes
+ * through the same path.
+ */
+export function resolveLayerPatterns(
+    patterns: readonly string[],
+    boardLayers: readonly string[],
+): string[] {
+    const resolved = new Set<string>();
+    for (const pattern of patterns) {
+        if (!pattern.includes("*") && !pattern.includes("&")) {
+            resolved.add(pattern);
+            continue;
+        }
+        const [prefix, suffix] = splitPattern(pattern);
+        for (const layer of boardLayers) {
+            if (!layer.toLocaleLowerCase().endsWith(suffix)) continue;
+            // `F&B.Cu` is the two outer layers, not every layer of that type.
+            if (prefix && !prefix.includes(outerSideOf(layer))) continue;
+            resolved.add(layer);
+        }
+    }
+    return [...resolved];
+}
+
+/** `*.Cu` -> ["", ".cu"]; `F&B.Cu` -> ["f&b", ".cu"]. */
+function splitPattern(pattern: string): [string, string] {
+    const dot = pattern.lastIndexOf(".");
+    if (dot < 0) return ["", pattern.toLocaleLowerCase()];
+    const head = pattern.slice(0, dot).toLocaleLowerCase();
+    return [head === "*" ? "" : head, pattern.slice(dot).toLocaleLowerCase()];
+}
+
+/** "f" for a front layer, "b" for a back one, "" for anything inner. */
+function outerSideOf(layer: string): string {
+    const lower = layer.toLocaleLowerCase();
+    if (lower.startsWith("f.")) return "f";
+    if (lower.startsWith("b.")) return "b";
+    return "\u0000";
+}
+
+/**
  * Layers a pane should show while the focus is active. Everything else on the
  * board is hidden: the focus owns visibility for as long as the selection
  * stands.

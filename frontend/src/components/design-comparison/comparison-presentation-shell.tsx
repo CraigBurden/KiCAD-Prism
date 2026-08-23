@@ -44,6 +44,7 @@ import { ComparisonViewerHost } from "./comparison-viewer-host";
 import {
     focusVisibleLayers,
     layerFocusForChanges,
+    resolveLayerPatterns,
     type LayerFocusSide,
 } from "./comparison-layer-focus";
 import {
@@ -1088,11 +1089,17 @@ export function ComparisonPresentationShell({
         }
         const viewers = activeLayerViewers;
         if (!viewers.length) return;
+        // Patterns rather than names: a through-hole pad's layer is `*.Cu`,
+        // and only the viewer knows what copper this board actually has.
         const applyVisibility = (
             viewer: ECadViewerElement,
-            visible: Set<string>,
+            patterns: readonly string[],
         ) => {
-            for (const layer of viewer.getPcbViewState?.()?.layers ?? []) {
+            const layers = viewer.getPcbViewState?.()?.layers ?? [];
+            const visible = new Set(
+                resolveLayerPatterns(patterns, layers.map((layer) => layer.name)),
+            );
+            for (const layer of layers) {
                 viewer.setPcbLayerVisibility?.(
                     layer.name,
                     visible.has(layer.name),
@@ -1113,7 +1120,7 @@ export function ComparisonPresentationShell({
             for (const pane of panes) {
                 applyVisibility(
                     pane.viewer,
-                    new Set(focusVisibleLayers(layerFocus, pane.side)),
+                    focusVisibleLayers(layerFocus, pane.side),
                 );
             }
 // react-doctor-disable-next-line no-pass-data-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
@@ -1132,8 +1139,7 @@ export function ComparisonPresentationShell({
         const restore = preFocusLayersRef.current;
         if (!restore) return;
         preFocusLayersRef.current = null;
-        const visible = new Set(restore);
-        for (const viewer of viewers) applyVisibility(viewer, visible);
+        for (const viewer of viewers) applyVisibility(viewer, restore);
 // react-doctor-disable-next-line no-pass-data-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
 // react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
         publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     focusVisibleLayers,
     layerFocusForChanges,
+    resolveLayerPatterns,
 } from "./comparison-layer-focus";
 import type { ChangeItem } from "./types";
 
@@ -254,5 +255,35 @@ describe("comparison layer focus", () => {
         expect(focus.comparison).toEqual(["B.Cu", "F.Cu"]);
         expect(focusVisibleLayers(focus, "comparison"))
             .toEqual(["B.Cu", "F.Cu", "Edge.Cuts"]);
+    });
+});
+
+describe("layer pattern resolution", () => {
+    const board = ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu", "Edge.Cuts", "F.SilkS", "B.Mask"];
+
+    it("expands a through-hole pad's copper to every copper layer", () => {
+        // KiCad does not give a through-hole pad a side. Handed straight to a
+        // viewer, `*.Cu` matches no layer and the board goes dark.
+        expect(resolveLayerPatterns(["*.Cu"], board))
+            .toEqual(["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]);
+    });
+
+    it("expands an outer-only pattern to just the outer layers", () => {
+        expect(resolveLayerPatterns(["F&B.Cu"], board)).toEqual(["F.Cu", "B.Cu"]);
+    });
+
+    it("expands a non-copper wildcard against its own layer type", () => {
+        expect(resolveLayerPatterns(["*.Mask"], board)).toEqual(["B.Mask"]);
+    });
+
+    it("passes real layer names through, so a mixed list resolves once", () => {
+        expect(resolveLayerPatterns(["B.Cu", "Edge.Cuts"], board))
+            .toEqual(["B.Cu", "Edge.Cuts"]);
+        expect(resolveLayerPatterns(["*.Cu", "Edge.Cuts"], board))
+            .toEqual(["F.Cu", "In1.Cu", "In2.Cu", "B.Cu", "Edge.Cuts"]);
+    });
+
+    it("resolves nothing for a pattern this board has no layers for", () => {
+        expect(resolveLayerPatterns(["*.Paste"], board)).toEqual([]);
     });
 });
