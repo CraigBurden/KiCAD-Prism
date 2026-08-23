@@ -942,7 +942,7 @@ folded into single passes, includes-in-loop lookups became Set lookups, five
 write-only useStates became refs, and dead exports (`categorise`,
 `categoryFor`) were deleted.
 
-The remaining 28 are recorded inline at their anchors with
+The remaining 29 are recorded inline at their anchors with
 `react-doctor-disable-next-line` comments:
 
 - **no-giant-component (18)** — the components' state and rendering are
@@ -955,8 +955,10 @@ The remaining 28 are recorded inline at their anchors with
   the effect's entire job.
 - **js-set-map-lookups (1)** — the receiver is a joined string haystack;
   a Set would break substring matching.
-- **prefer-useReducer (3)** — the state groups belong to separate concerns
-  (form draft, fetch results, busy flags); one reducer would couple them.
+- **prefer-useReducer (4)** — the state groups belong to separate concerns
+  (form draft, fetch results, busy flags; and in the comparison shell the
+  viewer handles, session lifecycle, selection reporting and rail geometry);
+  one reducer would couple them.
 
 `react-doctor-baseline.json` is now `{ errors: 0, warnings: 0 }`, so the CI
 gate fails on any new finding.

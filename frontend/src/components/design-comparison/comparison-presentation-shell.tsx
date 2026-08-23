@@ -243,6 +243,7 @@ export function ComparisonPresentationShell({
     rightRailTab = null,
     onRightRailTabChange = ignoreRightRailChange,
     toolbarContent = null,
+// react-doctor-disable-next-line prefer-useReducer - separate concerns: viewer handles, session lifecycle, selection reporting and rail geometry do not change together
 }: ComparisonPresentationShellProps) {
     const [primaryViewer, setPrimaryViewer] =
         useState<ECadViewerElement | null>(null);
@@ -302,7 +303,21 @@ export function ComparisonPresentationShell({
 
     const sessionGenerationRef = useRef(0);
     const presentationGenerationRef = useRef(0);
-    const presentationReadyKeyRef = useRef<string | null>(null);
+    /**
+     * Which presentation the panes are actually showing, once its transition
+     * has settled.
+     *
+     * State rather than a ref because the selection effect gates on it. A ref
+     * is invisible to React, so the effect only ever saw the value that
+     * happened to be there on a run something else triggered: when a switch
+     * settled a moment after that run, nothing re-ran the effect and the
+     * selection was never painted onto the new panes. Selecting a change lets
+     * the policy pick a presentation, so a reviewer changing it afterwards hit
+     * exactly that ordering, and the change they were looking at came back
+     * unhighlighted until they clicked it again.
+     */
+    const [presentationReadyKey, setPresentationReadyKey] =
+        useState<string | null>(null);
     const selectionGenerationRef = useRef(0);
     const lastSelectionKeyRef = useRef<string | null>(null);
     /** Selection that produced no native target, so its notice fires once. */
@@ -602,7 +617,7 @@ export function ComparisonPresentationShell({
         setPreparation(null);
         setSessionError(null);
         setSessionPhase("loading");
-        presentationReadyKeyRef.current = null;
+        setPresentationReadyKey(null);
         lastSelectionKeyRef.current = null;
         unresolvedSelectionKeyRef.current = null;
         const requestedCatalogPage = selectedCatalogPageRef.current;
@@ -760,7 +775,7 @@ export function ComparisonPresentationShell({
         // visible to the selection effect. Without it, Auto can change the
         // presentation and the selected diff is painted onto the outgoing
         // scene, then considered consumed before the new panes are ready.
-        presentationReadyKeyRef.current = null;
+        setPresentationReadyKey(null);
         lastSelectionKeyRef.current = null;
         unresolvedSelectionKeyRef.current = null;
         setPresentationSwitching(true);
@@ -793,7 +808,7 @@ export function ComparisonPresentationShell({
                 primaryViewer.camera = retainedOldNewCamera;
             }
             setPreparation(session.preparation);
-            presentationReadyKeyRef.current = presentationKey;
+            setPresentationReadyKey(presentationKey);
             setPresentationSwitching(false);
             logComparisonDebug("session.presentation.ready", {
                 generation,
@@ -856,7 +871,7 @@ export function ComparisonPresentationShell({
             || sessionPhase !== "ready"
             || presentationSwitching
             || !primaryViewer
-            || presentationReadyKeyRef.current !== presentationKey
+            || presentationReadyKey !== presentationKey
         ) {
             return;
         }
@@ -992,6 +1007,7 @@ export function ComparisonPresentationShell({
         documentPath,
         oldNewSide,
         presentationMode,
+        presentationReadyKey,
         presentationSwitching,
         primaryViewer,
         secondaryViewer,

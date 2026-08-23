@@ -577,6 +577,66 @@ describe("ComparisonPresentationShell", () => {
         });
     });
 
+    it("reapplies the selection when a presentation is returned to", async () => {
+        // Selecting a change lets the policy pick the presentation, so a
+        // reviewer who then asks for a different one is switching *away* from
+        // a mode the selection was already applied in -- and switching back is
+        // the common next step. The application key is built from the mode,
+        // the side, the document, the selection and the pane set, none of
+        // which distinguish a freshly prepared session from the one that
+        // consumed the key the first time round, so the second visit to a mode
+        // used to be skipped and the board came up with nothing highlighted.
+        const selectedChange: ChangeItem = {
+            id: "changed-r5-returning",
+            kind: "changed",
+            domain: "schematic",
+            category: "components",
+            label: "R5",
+            page: "main.kicad_sch",
+        };
+        const diff: KiCadProjectDiffBundle = {
+            ...documentDiff,
+            navigation: {
+                [selectedChange.id]: {
+                    documentPath: "main.kicad_sch",
+                    changeId: "/r5",
+                    changeIds: ["/r5"],
+                },
+            },
+        };
+        const props = {
+            ...shellProps,
+            documentDiff: diff,
+            selection: { kind: "item" as const, id: selectedChange.id },
+            reviewGroups: [{ id: "component-r5", changes: [selectedChange] }],
+        };
+        const view = render(
+            <ComparisonPresentationShell {...props} presentationMode="composite" />,
+        );
+        await waitFor(() => {
+            expect(FakeEcadViewer.instances[0]?.selectDocumentDiff)
+                .toHaveBeenCalledWith({ kind: "change", id: "/r5" });
+        });
+
+        view.rerender(
+            <ComparisonPresentationShell {...props} presentationMode="side-by-side" />,
+        );
+        await waitFor(() => {
+            expect(FakeEcadViewer.instances[1]?.selectDocumentDiff)
+                .toHaveBeenCalledWith({ kind: "change", id: "/r5" });
+        });
+
+        FakeEcadViewer.instances[0]!.selectDocumentDiff.mockClear();
+        view.rerender(
+            <ComparisonPresentationShell {...props} presentationMode="composite" />,
+        );
+
+        await waitFor(() => {
+            expect(FakeEcadViewer.instances[0]?.selectDocumentDiff)
+                .toHaveBeenCalledWith({ kind: "change", id: "/r5" });
+        });
+    });
+
     it("frames the pane that cannot resolve the change on the one that can", async () => {
         // A removed route exists only in the base revision, so the compare
         // pane reports "missing" and never moves its own camera. Proving an
