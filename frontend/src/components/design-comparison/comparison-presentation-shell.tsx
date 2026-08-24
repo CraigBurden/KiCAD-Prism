@@ -150,22 +150,6 @@ function viewerState(viewer: ECadViewerElement | null) {
 }
 
 /**
- * Push a preview overlay to a viewer, tolerating one that has already gone.
- *
- * `useEffect` cleanups are passive: on unmount React detaches the DOM first and
- * flushes the destroy functions afterwards, so by the time this runs on close
- * the `<ecad-viewer>` element has had its `disconnectedCallback` and released
- * its renderer. Asking it to clear an overlay then throws `Uninitialized` from
- * deep inside the viewer, and a throw in a cleanup propagates to the nearest
- * error boundary — which is why closing the comparison took the panel down with
- * it rather than just closing.
- *
- * A detached viewer has no overlay left to clear, so skipping it is the correct
- * outcome and not merely a way to silence the error. The catch covers the same
- * race in the other direction (disposal landing mid-call) and records it rather
- * than swallowing it, since a failure here is never worth a visible crash.
- */
-/**
  * How long the pointer has to rest on a row before its layers are shown.
  * Short enough to feel like a response to the hover, long enough that a
  * pointer travelling down the list does not drag the board through every
@@ -183,6 +167,22 @@ function layerFocusKeyOf(focus: ComparisonLayerFocus | null): string | null {
     ].join("|");
 }
 
+/**
+ * Push a preview overlay to a viewer, tolerating one that has already gone.
+ *
+ * `useEffect` cleanups are passive: on unmount React detaches the DOM first and
+ * flushes the destroy functions afterwards, so by the time this runs on close
+ * the `<ecad-viewer>` element has had its `disconnectedCallback` and released
+ * its renderer. Asking it to clear an overlay then throws `Uninitialized` from
+ * deep inside the viewer, and a throw in a cleanup propagates to the nearest
+ * error boundary — which is why closing the comparison took the panel down with
+ * it rather than just closing.
+ *
+ * A detached viewer has no overlay left to clear, so skipping it is the correct
+ * outcome and not merely a way to silence the error. The catch covers the same
+ * race in the other direction (disposal landing mid-call) and records it rather
+ * than swallowing it, since a failure here is never worth a visible crash.
+ */
 function setPreviewOverlay(
     viewer: ECadViewerElement,
     selection: EcadDocumentComparisonSelection | null,
