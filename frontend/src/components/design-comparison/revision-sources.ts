@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { referenceFor } from "./comparison-change-facts";
+import type { ComparisonSelection } from "./comparison-selection-bridge";
 import type {
     ChangeItem,
     KiCadDocumentDiff,
@@ -169,13 +171,15 @@ export function useRevisionSources(
 }
 
 export function selectedChanges(
-    selection: { kind: "item" | "group"; id: string } | null,
+    selection: ComparisonSelection,
     groups: Array<{ id: string; changes: ChangeItem[] }>,
 ): ChangeItem[] {
     if (!selection) return [];
-    if (selection.kind === "group") {
-        return (
-            groups.find((group) => group.id === selection.id)?.changes ?? []
+    const selectedGroup = groups.find((group) => group.id === selection.id);
+    if (selection.kind === "group") return selectedGroup?.changes ?? [];
+    if (selection.kind === "instance") {
+        return (selectedGroup?.changes ?? []).filter(
+            (change) => referenceFor(change) === selection.reference,
         );
     }
     return groups.flatMap((group) => (

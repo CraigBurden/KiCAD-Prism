@@ -123,6 +123,21 @@ describe("comparison layer focus", () => {
         expect(focus?.reference).toEqual(["F.Cu", "F.Mask"]);
     });
 
+    it("keeps the relevant outer copper as orientation context", () => {
+        const focus = layerFocusForChanges([
+            routingChange({
+                object_kind: "graphic",
+                base_item: { source_id: "a", layers: ["F.SilkS"] },
+                compare_item: { source_id: "a", layers: ["B.Fab"] },
+            }),
+        ])!;
+
+        expect(focusVisibleLayers(focus, "reference"))
+            .toEqual(["F.Cu", "F.SilkS", "Edge.Cuts"]);
+        expect(focusVisibleLayers(focus, "comparison"))
+            .toEqual(["B.Cu", "B.Fab", "Edge.Cuts"]);
+    });
+
     // The listing a reviewer actually clicks is the part group, and the
     // backend puts the part's fab text in it next to the copper. Requiring
     // every selected object to be copper meant that group isolated nothing:

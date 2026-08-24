@@ -928,10 +928,10 @@ export function HistoryViewer({
                     <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
                     <div className="min-w-0 flex-1 text-xs">
                         <span className="text-muted-foreground">Base: </span>
-                        <span className="font-medium">{baseRevision?.label ?? "Choose revision"}</span>
+                        <span className="font-medium">{baseRevision?.label ?? "Choose Base below"}</span>
                         <span className="mx-2 text-muted-foreground">→</span>
                         <span className="text-muted-foreground">Compare: </span>
-                        <span className="font-medium">{compareRevision?.label ?? "Choose revision"}</span>
+                        <span className="font-medium">{compareRevision?.label ?? "Choose Compare below"}</span>
                     </div>
                     <Button
                         variant="outline"
@@ -954,7 +954,7 @@ export function HistoryViewer({
                             }
                         }}
                     >
-                        Compare
+                        Open comparison
                     </Button>
                     <Button
                         variant="ghost"

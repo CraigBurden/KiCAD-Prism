@@ -13,6 +13,7 @@ import {
     type ComparisonPresentationMode,
     type ComparisonUrlTab,
 } from "./comparison-url";
+import type { ComparisonSelection } from "./comparison-selection-bridge";
 
 /**
  * The five pieces of comparison state that live in the address bar.
@@ -35,7 +36,7 @@ import {
 export type ComparisonUrlView = {
     activeTab: ComparisonUrlTab;
     presentationOverride: ComparisonPresentationMode | null;
-    selectedChangeId: string | null;
+    selection: ComparisonSelection;
     showSecondary: boolean;
     visibleLayers: string[];
 };
@@ -45,7 +46,7 @@ export type ComparisonUrlState = ComparisonUrlView & {
     setPresentationOverride: Dispatch<
         SetStateAction<ComparisonPresentationMode | null>
     >;
-    setSelectedChangeId: Dispatch<SetStateAction<string | null>>;
+    setSelection: Dispatch<SetStateAction<ComparisonSelection>>;
     setShowSecondary: Dispatch<SetStateAction<boolean>>;
     setVisibleLayers: Dispatch<SetStateAction<string[]>>;
 };
@@ -63,7 +64,26 @@ export function readComparisonUrlView(
     return {
         activeTab: state.diff,
         presentationOverride: state.presentationOverride,
-        selectedChangeId: state.item,
+        selection: state.group
+            ? state.reference
+                ? {
+                    kind: "instance",
+                    id: state.group,
+                    reference: state.reference,
+                    ...(state.documentPath ? { documentPath: state.documentPath } : {}),
+                }
+                : {
+                    kind: "group",
+                    id: state.group,
+                    ...(state.documentPath ? { documentPath: state.documentPath } : {}),
+                }
+            : state.item
+                ? {
+                    kind: "item",
+                    id: state.item,
+                    ...(state.documentPath ? { documentPath: state.documentPath } : {}),
+                }
+                : null,
         showSecondary: state.showSecondary,
         visibleLayers: state.layers,
     };
@@ -161,7 +181,7 @@ export function useComparisonUrlState(
         return {
             setActiveTab: setter("activeTab"),
             setPresentationOverride: setter("presentationOverride"),
-            setSelectedChangeId: setter("selectedChangeId"),
+            setSelection: setter("selection"),
             setShowSecondary: setter("showSecondary"),
             setVisibleLayers: setter("visibleLayers"),
         };

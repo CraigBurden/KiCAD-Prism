@@ -8,6 +8,13 @@ import type {
 
 export type ComparisonSelection =
     | { kind: "item" | "group"; id: string; documentPath?: string }
+    | {
+        kind: "instance";
+        /** The authored-decision group this designator belongs to. */
+        id: string;
+        reference: string;
+        documentPath?: string;
+    }
     | null;
 
 export function resolveNativeSelection(

@@ -145,19 +145,24 @@ function DeltaBlock({ delta }: { delta: PropertyDelta }) {
     );
 }
 
-function bomRowFor(
+function bomRowsFor(
     bom: BomDiff | null,
     references: readonly string[],
-): BomChangeRow | undefined {
-    if (!bom) return undefined;
+): Array<{ references: string[]; row: BomChangeRow }> {
+    if (!bom) return [];
     const byReference = new Map(
         bom.changes.map((change) => [change.ref, change]),
     );
+    const grouped = new Map<string, { references: string[]; row: BomChangeRow }>();
     for (const reference of references) {
         const row = byReference.get(reference);
-        if (row) return row;
+        if (!row) continue;
+        const key = JSON.stringify([row.status, row.old, row.new, row.diffs]);
+        const existing = grouped.get(key);
+        if (existing) existing.references.push(reference);
+        else grouped.set(key, { references: [reference], row });
     }
-    return undefined;
+    return [...grouped.values()];
 }
 
 /** Splits a part transition label so the departing part can be marked. */
@@ -191,7 +196,7 @@ export function ComparisonPropertyPanel({
 
     const { before, after } = titleParts(group.label);
     const impact = reviewImpactForGroup(group);
-    const row = bomRowFor(bom, group.references);
+    const bomRows = bomRowsFor(bom, group.references);
     const deltas = [
         ...routeMetricRows(group.changes, routeMetrics),
         ...propertyDeltas(group.changes),
@@ -214,15 +219,23 @@ export function ComparisonPropertyPanel({
 
     // Field names the property sheet already states, so the change list below
     // does not repeat them under a verb heading.
-    const fieldNames = row ? componentFieldNames(row.old, row.new) : [];
+    const fieldNames = [...new Set(
+        bomRows.flatMap(({ row }) => componentFieldNames(row.old, row.new)),
+    )];
     const covered = new Set(fieldNames.map((name) => name.toLocaleLowerCase()));
     const uncoveredDeltas = deltas.filter(
         (delta) => !covered.has(delta.label.toLocaleLowerCase()),
     );
 
-    const dnp = isTruthyFlag(row?.new?.["kicad_dnp"]);
-    const notInBom = row?.new?.["kicad_in_bom"] !== undefined
-        && !isTruthyFlag(row.new["kicad_in_bom"]);
+    const dnpReferences = bomRows.flatMap(({ references, row }) => (
+        isTruthyFlag(row.new?.["kicad_dnp"]) ? references : []
+    ));
+    const notInBomReferences = bomRows.flatMap(({ references, row }) => (
+        row.new?.["kicad_in_bom"] !== undefined
+        && !isTruthyFlag(row.new["kicad_in_bom"])
+            ? references
+            : []
+    ));
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -254,16 +267,16 @@ export function ComparisonPropertyPanel({
                         </>
                     )}
                 </div>
-                {(dnp || notInBom) && (
+                {(dnpReferences.length > 0 || notInBomReferences.length > 0) && (
                     <div className="mt-2 flex flex-wrap gap-1.5 pl-4">
-                        {dnp && (
+                        {dnpReferences.length > 0 && (
                             <Badge variant="destructive" className="text-[10px]">
-                                DNP
+                                {`DNP: ${dnpReferences.join(", ")}`}
                             </Badge>
                         )}
-                        {notInBom && (
+                        {notInBomReferences.length > 0 && (
                             <Badge variant="outline" className="text-[10px]">
-                                Not in BOM
+                                {`Not in BOM: ${notInBomReferences.join(", ")}`}
                             </Badge>
                         )}
                     </div>
@@ -281,22 +294,36 @@ export function ComparisonPropertyPanel({
             </header>
 
             <ScrollArea className="min-h-0 flex-1">
-                {row && fieldNames.length > 0 && (
+                {bomRows.length > 0 && fieldNames.length > 0 && (
                     <Section title="Properties">
-                        <dl>
-                            {fieldNames.map((name) => {
-                                const diff = row.diffs?.[name];
+                        <div className="space-y-3">
+                            {bomRows.map(({ references, row }) => {
+                                const rowFieldNames = componentFieldNames(row.old, row.new);
                                 return (
-                                    <PropertyRow key={name} label={name}>
-                                        <ValuePair
-                                            oldValue={diff ? diff.old : row.old?.[name]}
-                                            newValue={diff ? diff.new : row.new?.[name]}
-                                            changed={Boolean(diff)}
-                                        />
-                                    </PropertyRow>
+                                    <div key={references.join("|")}>
+                                        {group.references.length > 1 && (
+                                            <p className="mb-1 font-mono text-[10px] font-semibold text-muted-foreground">
+                                                {references.join(", ")}
+                                            </p>
+                                        )}
+                                        <dl>
+                                            {rowFieldNames.map((name) => {
+                                                const diff = row.diffs?.[name];
+                                                return (
+                                                    <PropertyRow key={name} label={name}>
+                                                        <ValuePair
+                                                            oldValue={diff ? diff.old : row.old?.[name]}
+                                                            newValue={diff ? diff.new : row.new?.[name]}
+                                                            changed={Boolean(diff) || row.status !== "changed"}
+                                                        />
+                                                    </PropertyRow>
+                                                );
+                                            })}
+                                        </dl>
+                                    </div>
                                 );
                             })}
-                        </dl>
+                        </div>
                     </Section>
                 )}
 

@@ -120,6 +120,32 @@ describe("comparison property panel", () => {
         expect(screen.getByText("R33, R34")).toBeTruthy();
     });
 
+    it("does not present the first designator's BOM fields as the whole group", () => {
+        const differing: BomDiff = {
+            ...bom,
+            changes: [
+                bom.changes[0]!,
+                {
+                    ...bom.changes[0]!,
+                    ref: "R34",
+                    old: { ...bom.changes[0]!.old, Vendor: "Vendor A" },
+                    new: { ...bom.changes[0]!.new, Vendor: "Vendor B" },
+                    diffs: {
+                        ...bom.changes[0]!.diffs,
+                        Vendor: { old: "Vendor A", new: "Vendor B" },
+                    },
+                },
+            ],
+        };
+
+        render(<ComparisonPropertyPanel group={group()} bom={differing} />);
+
+        expect(screen.getByText("R33")).toBeTruthy();
+        expect(screen.getByText("R34")).toBeTruthy();
+        expect(screen.getByText("Vendor A")).toBeTruthy();
+        expect(screen.getByText("Vendor B")).toBeTruthy();
+    });
+
     it("heads a non-BOM delta with the verb that explains it", () => {
         const relayered = group({
             label: "GND",

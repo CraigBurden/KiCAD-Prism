@@ -89,7 +89,7 @@ describe("semantic comparison state", () => {
         )).toEqual({
             activeTab: "pcb",
             presentationOverride: null,
-            selectedChangeId: "track-1",
+            selection: { kind: "item", id: "track-1" },
             showSecondary: true,
             visibleLayers: ["F.Cu", "B.Cu"],
         });
@@ -101,7 +101,7 @@ describe("semantic comparison state", () => {
         )).toEqual({
             activeTab: "sch",
             presentationOverride: "side-by-side",
-            selectedChangeId: "wire-1",
+            selection: { kind: "item", id: "wire-1" },
             showSecondary: false,
             visibleLayers: [],
         });
@@ -129,12 +129,13 @@ describe("semantic comparison state", () => {
                     compare: "compare-sha",
                     activeTab: expected.domain === "schematic" ? "sch" : "pcb",
                     presentationOverride: null,
-                    selectedChangeId: expected.id,
+                    selection: { kind: "item", id: expected.id },
                     showSecondary: false,
                     visibleLayers: [],
                 },
             );
-            expect(readComparisonUrlView(params).selectedChangeId).toBe(expected.id);
+            expect(readComparisonUrlView(params).selection)
+                .toEqual({ kind: "item", id: expected.id });
             expect(selectedChanges({ kind: "item", id: expected.id }, groups))
                 .toEqual([expected]);
         }
@@ -160,7 +161,7 @@ describe("semantic comparison state", () => {
                 compare: "bbb",
                 activeTab: "pcb",
                 presentationOverride: null,
-                selectedChangeId: "via-1",
+                selection: { kind: "item", id: "via-1" },
                 showSecondary: false,
                 visibleLayers: [],
             },
@@ -174,7 +175,7 @@ describe("semantic comparison state", () => {
                 compare: "bbb",
                 activeTab: "pcb",
                 presentationOverride: "composite",
-                selectedChangeId: "via-1",
+                selection: { kind: "item", id: "via-1" },
                 showSecondary: false,
                 visibleLayers: [],
             },
@@ -233,6 +234,31 @@ describe("semantic comparison state", () => {
             .toEqual([second]);
         expect(selectedChanges({ kind: "group", id: "group" }, groups))
             .toEqual([first, second]);
+    });
+
+    it("expands an instance selection to every change for that designator", () => {
+        const r52Footprint = {
+            ...change("r52-footprint", "changed", "r52"),
+            reference: "R52",
+        };
+        const r52Text = {
+            ...change("r52-text", "changed", "r52-text"),
+            reference: "R52",
+        };
+        const r53 = {
+            ...change("r53-footprint", "changed", "r53"),
+            reference: "R53",
+        };
+        const groups = [{
+            id: "part-transition",
+            changes: [r52Footprint, r52Text, r53],
+        }];
+
+        expect(selectedChanges({
+            kind: "instance",
+            id: "part-transition",
+            reference: "R52",
+        }, groups)).toEqual([r52Footprint, r52Text]);
     });
 
     it("deduplicates members into one stable semantic group and counts open threads", () => {

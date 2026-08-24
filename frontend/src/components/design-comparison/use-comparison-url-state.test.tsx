@@ -34,7 +34,7 @@ describe("useComparisonUrlState", () => {
         // No `act`, no waitFor: nothing has to settle, because nothing was
         // copied. A mirror would still be holding the defaults here.
         expect(result.current.activeTab).toBe("pcb");
-        expect(result.current.selectedChangeId).toBe("track-1");
+        expect(result.current.selection).toEqual({ kind: "item", id: "track-1" });
         expect(result.current.showSecondary).toBe(true);
         expect(result.current.visibleLayers).toEqual(["F.Cu", "B.Cu"]);
         expect(result.current.presentationOverride).toBe("side-by-side");
@@ -44,7 +44,7 @@ describe("useComparisonUrlState", () => {
         const { result } = renderUrlState("/?section=history");
 
         expect(result.current.activeTab).toBe("sch");
-        expect(result.current.selectedChangeId).toBeNull();
+        expect(result.current.selection).toBeNull();
         expect(result.current.showSecondary).toBe(false);
         expect(result.current.visibleLayers).toEqual([]);
         expect(result.current.presentationOverride).toBeNull();
@@ -58,7 +58,7 @@ describe("useComparisonUrlState", () => {
         expect(result.current.activeTab).toBe("pcb");
         // The pair identifies the comparison, so every write restates it, and
         // unrelated keys survive.
-        expect(result.current.selectedChangeId).toBeNull();
+        expect(result.current.selection).toBeNull();
     });
 
     it("accepts a functional update against the value in the URL", () => {
@@ -80,11 +80,11 @@ describe("useComparisonUrlState", () => {
 
         act(() => {
             result.current.setActiveTab("pcb");
-            result.current.setSelectedChangeId("track-1");
+            result.current.setSelection({ kind: "item", id: "track-1" });
         });
 
         expect(result.current.activeTab).toBe("pcb");
-        expect(result.current.selectedChangeId).toBe("track-1");
+        expect(result.current.selection).toEqual({ kind: "item", id: "track-1" });
     });
 
     it("puts the whole shareable state into the address bar", () => {
@@ -110,5 +110,23 @@ describe("useComparisonUrlState", () => {
         expect(search.get("base")).toBe("base-sha");
         expect(search.get("compare")).toBe("compare-sha");
         expect(search.get("section")).toBe("history");
+    });
+
+    it("round-trips decision and instance scope instead of collapsing to one item", () => {
+        const { result } = renderUrlState("/?section=history");
+
+        act(() => result.current.setSelection({
+            kind: "instance",
+            id: "pcb:components:part>26k>29k",
+            reference: "R52",
+            documentPath: "board.kicad_pcb",
+        }));
+
+        expect(result.current.selection).toEqual({
+            kind: "instance",
+            id: "pcb:components:part>26k>29k",
+            reference: "R52",
+            documentPath: "board.kicad_pcb",
+        });
     });
 });

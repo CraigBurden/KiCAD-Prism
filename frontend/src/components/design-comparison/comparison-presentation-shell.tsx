@@ -149,14 +149,6 @@ function viewerState(viewer: ECadViewerElement | null) {
     };
 }
 
-/**
- * How long the pointer has to rest on a row before its layers are shown.
- * Short enough to feel like a response to the hover, long enough that a
- * pointer travelling down the list does not drag the board through every
- * layer set on the way.
- */
-const LAYER_FOCUS_HOVER_DWELL_MS = 140;
-
 /** Identity of a focus, for deciding whether a manual override still applies. */
 function layerFocusKeyOf(focus: ComparisonLayerFocus | null): string | null {
     if (!focus) return null;
@@ -280,6 +272,10 @@ export function ComparisonPresentationShell({
         useState<EcadDocumentComparisonPreparation | null>(null);
     const [oldNewSide, setOldNewSide] = useState<OldNewSide>("compare");
     const [selectionPending, setSelectionPending] = useState(false);
+    // Native selection may repaint viewer-owned PCB state as it settles. This
+    // counter gives layer focus a deterministic post-selection pass even when
+    // React batches the pending=true and pending=false updates together.
+    const [selectionSettleVersion, setSelectionSettleVersion] = useState(0);
     const [selectionDiagnostic, setSelectionDiagnostic] =
         useState<string | null>(null);
     const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
@@ -792,7 +788,7 @@ export function ComparisonPresentationShell({
                 ? primaryViewer.camera
                 : null;
         // This ref closes the same-commit gap before the state update below is
-        // visible to the selection effect. Without it, Auto can change the
+        // visible to the selection effect. Without it, the policy can change the
         // presentation and the selected diff is painted onto the outgoing
         // scene, then considered consumed before the new panes are ready.
         setPresentationReadyKey(null);
@@ -1015,6 +1011,7 @@ export function ComparisonPresentationShell({
             if (generation !== selectionGenerationRef.current) return;
             cameraSyncSuppressedRef.current = false;
             setSelectionPending(false);
+            setSelectionSettleVersion((version) => version + 1);
         });
     }, [
         allChanges,
@@ -1089,27 +1086,10 @@ export function ComparisonPresentationShell({
         () => (domain === "pcb" ? layerFocusForChanges(allChanges) : null),
         [allChanges, domain],
     );
-    const hoverLayerFocus = useMemo(
-        () => (domain === "pcb" ? layerFocusForChanges(previewChanges) : null),
-        [domain, previewChanges],
-    );
-    // Hovering a row shows the layers clicking it would commit to, so the
-    // reviewer never has to click to find out what they are looking at. The
-    // dwell is what makes that affordable: dragging the pointer down a list of
-    // thirty rows must not repaint the board thirty times, and a row the
-    // pointer merely crosses was never the one being asked about.
-    const [hoverFocusArmed, setHoverFocusArmed] = useState(false);
-    useEffect(() => {
-        setHoverFocusArmed(false);
-        if (!previewSelection) return;
-        const timer = window.setTimeout(
-            () => setHoverFocusArmed(true),
-            LAYER_FOCUS_HOVER_DWELL_MS,
-        );
-        return () => window.clearTimeout(timer);
-    }, [previewSelection]);
-
-    const layerFocus = (hoverFocusArmed && hoverLayerFocus) || selectionLayerFocus;
+    // Hover previews native evidence only. Layer visibility is review state and
+    // changes only after an explicit selection, never because the pointer
+    // happened to rest over a queue row.
+    const layerFocus = selectionLayerFocus;
     const layerFocusKey = layerFocusKeyOf(layerFocus);
     // A new route is a new focus: the reviewer's earlier manual override does
     // not carry across to a different net's evidence.
@@ -1118,7 +1098,12 @@ export function ComparisonPresentationShell({
     const layerFocusActive = Boolean(layerFocus) && !layerFocusOverridden;
 
     useEffect(() => {
-        if (domain !== "pcb" || sessionPhase !== "ready" || presentationSwitching) {
+        if (
+            domain !== "pcb"
+            || sessionPhase !== "ready"
+            || presentationSwitching
+            || selectionPending
+        ) {
             return;
         }
         const viewers = activeLayerViewers;
@@ -1188,8 +1173,16 @@ export function ComparisonPresentationShell({
         layerFocusActive,
         presentationMode,
         presentationSwitching,
+        // Clearing the native hover overlay restores the layer snapshot the
+        // viewer captured when hover began. If a click focused the selected
+        // listing while that hover was active, the snapshot is stale (usually
+        // every layer visible), so pointer leave must re-assert the persistent
+        // selection focus.
+        previewSelection,
         publishPcbLayers,
         layerFocus,
+        selectionPending,
+        selectionSettleVersion,
         sessionPhase,
     ]);
 

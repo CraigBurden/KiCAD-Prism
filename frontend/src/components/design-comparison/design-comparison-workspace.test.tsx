@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -31,6 +31,29 @@ const { JOB } = vi.hoisted(() => {
         net: null,
         semantic_id: `sem-${id}`,
     });
+    const pcbChanges = [
+        change("p1", "pcb"),
+        {
+            ...change("gnd-added", "pcb"),
+            kind: "added",
+            category: "nets",
+            label: "GND",
+            reference: null,
+            object_kind: "track",
+            net: "GND",
+            semantic_id: null,
+        },
+        {
+            ...change("gnd-removed", "pcb"),
+            kind: "removed",
+            category: "nets",
+            label: "GND",
+            reference: null,
+            object_kind: "track",
+            net: "GND",
+            semantic_id: null,
+        },
+    ];
     return {
         JOB: {
             result: {
@@ -46,7 +69,7 @@ const { JOB } = vi.hoisted(() => {
                 },
                 files: [{ path: "root.kicad_sch", status: "modified" }],
                 schematic: { changes: [change("s1", "schematic")] },
-                pcb: { changes: [change("p1", "pcb")], route_metrics: {} },
+                pcb: { changes: pcbChanges, route_metrics: {} },
                 bom: { summary: {}, changes: [], fields: [] },
                 stackup: { layers: [] },
                 fabrication: {},
@@ -64,7 +87,11 @@ vi.mock("./use-comparison-comments", () => ({
 // The shell hosts a custom element jsdom cannot instantiate, and has its own
 // suite. What is under test here is the workspace around it.
 vi.mock("./comparison-presentation-shell", () => ({
-    ComparisonPresentationShell: () => <div data-testid="shell" />,
+    ComparisonPresentationShell: ({
+        toolbarContent,
+    }: {
+        toolbarContent?: React.ReactNode;
+    }) => <div data-testid="shell">{toolbarContent}</div>,
 }));
 
 import { DesignComparisonWorkspace } from "./design-comparison-workspace";
@@ -156,5 +183,47 @@ describe("design comparison workspace", () => {
         // "PCB" plus a number.
         const pcbTab = (await screen.findAllByRole("button", { name: /pcb/i }))[0];
         expect(pcbTab).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("filters authored decisions without reclassifying their parser events", async () => {
+        mountOn("pcb");
+        fireEvent.click(await screen.findByRole("button", { name: "Filter changes" }));
+        fireEvent.click(screen.getByRole("button", { name: "Modified Modified (2)" }));
+        fireEvent.click(screen.getByRole("button", { name: "Removed Removed (0)" }));
+
+        // The added and removed GND primitives form one Modified routing
+        // decision. Added-only must not split that decision and relabel half of
+        // it as an Added row.
+        expect(screen.getByRole("button", { name: "Added Added (0)" }))
+            .toHaveTextContent("Added (0)");
+        expect(screen.getByText("No differences match these filters.")).toBeTruthy();
+    });
+
+    it("highlights the shown mode and resets an override on the next listing", async () => {
+        mountOn("pcb");
+
+        expect(screen.queryByRole("button", { name: "Auto" })).toBeNull();
+        expect(await screen.findByRole("button", { name: "Composite" }))
+            .toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByRole("button", { name: "Side by side" }))
+            .toHaveAttribute("aria-pressed", "false");
+
+        fireEvent.click(screen.getByRole("button", {
+            name: "Single revision presentation mode",
+        }));
+        expect(screen.getByRole("button", {
+            name: "Single revision presentation mode",
+        })).toHaveAttribute("aria-pressed", "true");
+
+        fireEvent.click(screen.getByRole("button", {
+            name: "Modified Modified P1",
+        }));
+        await waitFor(() => {
+            expect(screen.getByRole("button", { name: "Side by side" }))
+                .toHaveAttribute("aria-pressed", "true");
+        });
+        expect(screen.getByRole("button", {
+            name: "Single revision presentation mode",
+        })).toHaveAttribute("aria-pressed", "false");
     });
 });

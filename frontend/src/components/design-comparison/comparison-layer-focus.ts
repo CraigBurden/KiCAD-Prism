@@ -191,8 +191,23 @@ export function focusVisibleLayers(
     focus: ComparisonLayerFocus,
     side: LayerFocusSide,
 ): string[] {
-    const copper = side === "both"
+    const evidence = side === "both"
         ? [...new Set([...focus.reference, ...focus.comparison])].sort()
         : focus[side];
-    return [...copper, ...LAYER_FOCUS_CONTEXT_LAYERS];
+    const orientationCopper = new Set<string>();
+    for (const layer of evidence) {
+        const lower = layer.toLocaleLowerCase();
+        if (lower.endsWith(".cu") || lower === "edge.cuts") continue;
+        if (lower.startsWith("f.")) orientationCopper.add("F.Cu");
+        else if (lower.startsWith("b.")) orientationCopper.add("B.Cu");
+        else if (lower.startsWith("f&b.") || lower.startsWith("*.")) {
+            orientationCopper.add("F.Cu");
+            orientationCopper.add("B.Cu");
+        }
+    }
+    return [
+        ...new Set([...evidence, ...orientationCopper]).values(),
+    ].sort().concat(
+        LAYER_FOCUS_CONTEXT_LAYERS.filter((layer) => !evidence.includes(layer)),
+    );
 }
