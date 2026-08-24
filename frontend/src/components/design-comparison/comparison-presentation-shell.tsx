@@ -1113,17 +1113,22 @@ export function ComparisonPresentationShell({
         const applyVisibility = (
             viewer: ECadViewerElement,
             patterns: readonly string[],
-        ) => {
+        ): boolean => {
             const layers = viewer.getPcbViewState?.()?.layers ?? [];
             const visible = new Set(
                 resolveFocusLayers(patterns, layers.map((layer) => layer.name)),
             );
+            let changed = false;
             for (const layer of layers) {
+                const nextVisible = visible.has(layer.name);
+                if (layer.visible === nextVisible) continue;
+                changed = true;
                 viewer.setPcbLayerVisibility?.(
                     layer.name,
-                    visible.has(layer.name),
+                    nextVisible,
                 );
             }
+            return changed;
         };
 
         if (layerFocus && layerFocusActive) {
@@ -1136,15 +1141,18 @@ export function ComparisonPresentationShell({
                             layer.visible ? [layer.name] : []
                         ));
             }
+            let visibilityChanged = false;
             for (const pane of panes) {
-                applyVisibility(
+                visibilityChanged = applyVisibility(
                     pane.viewer,
                     focusVisibleLayers(layerFocus, pane.side),
-                );
+                ) || visibilityChanged;
             }
+            if (visibilityChanged) {
 // react-doctor-disable-next-line no-pass-data-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
 // react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
-            publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+                publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+            }
             logComparisonDebug("session.layers.focus", {
                 net: layerFocus.net,
                 viaOnly: layerFocus.viaOnly,
@@ -1158,10 +1166,16 @@ export function ComparisonPresentationShell({
         const restore = preFocusLayersRef.current;
         if (!restore) return;
         preFocusLayersRef.current = null;
-        for (const viewer of viewers) applyVisibility(viewer, restore);
+        let visibilityChanged = false;
+        for (const viewer of viewers) {
+            visibilityChanged = applyVisibility(viewer, restore)
+                || visibilityChanged;
+        }
+        if (visibilityChanged) {
 // react-doctor-disable-next-line no-pass-data-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
 // react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
-        publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+            publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+        }
         logComparisonDebug("session.layers.focus.restore", {
             presentationMode,
             layers: restore,

@@ -1943,6 +1943,91 @@ describe("ComparisonPresentationShell", () => {
         });
     });
 
+    it("does not rewrite focused layers when hover leaves visibility unchanged", async () => {
+        const selected: ChangeItem = {
+            id: "pcb-changed-q15",
+            kind: "changed",
+            domain: "pcb",
+            category: "components",
+            label: "Q15",
+            object_kind: "footprint",
+            reference: "Q15",
+            reasons: ["rotated"],
+            base_item: { source_id: "q15", layers: ["B.Cu"] },
+            compare_item: { source_id: "q15", layers: ["B.Cu"] },
+        };
+        const hovered: ChangeItem = {
+            ...selected,
+            id: "pcb-changed-r52",
+            label: "R52",
+            reference: "R52",
+            base_item: { source_id: "r52", layers: ["B.Cu"] },
+            compare_item: { source_id: "r52", layers: ["B.Cu"] },
+        };
+        const selectablePcbDiff: KiCadProjectDiffBundle = {
+            ...pcbDocumentDiff,
+            navigation: {
+                [selected.id]: {
+                    documentPath: "board.kicad_pcb",
+                    changeId: "/footprint-q15",
+                },
+                [hovered.id]: {
+                    documentPath: "board.kicad_pcb",
+                    changeId: "/footprint-r52",
+                },
+            },
+        };
+        const reviewGroups = [
+            { id: "component-q15", changes: [selected] },
+            { id: "component-r52", changes: [hovered] },
+        ];
+        const view = render(
+            <ComparisonPresentationShell
+                {...shellProps}
+                domain="pcb"
+                presentationMode="side-by-side"
+                documentDiff={selectablePcbDiff}
+                files={pcbFiles}
+                selection={{ kind: "group", id: "component-q15" }}
+                previewSelection={null}
+                reviewGroups={reviewGroups}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(visibleLayers(0)).toEqual(["B.Cu", "Edge.Cuts"]);
+        });
+        const referenceWrites = FakeEcadViewer.instances[0]!
+            .setPcbLayerVisibility.mock.calls.length;
+        const comparisonWrites = FakeEcadViewer.instances[1]!
+            .setPcbLayerVisibility.mock.calls.length;
+
+        view.rerender(
+            <ComparisonPresentationShell
+                {...shellProps}
+                domain="pcb"
+                presentationMode="side-by-side"
+                documentDiff={selectablePcbDiff}
+                files={pcbFiles}
+                selection={{ kind: "group", id: "component-q15" }}
+                previewSelection={{ kind: "group", id: "component-r52" }}
+                reviewGroups={reviewGroups}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(FakeEcadViewer.instances[0]?.previewDocumentDiff)
+                .toHaveBeenLastCalledWith({
+                    kind: "changes",
+                    ids: ["/footprint-r52"],
+                });
+        });
+        expect(FakeEcadViewer.instances[0]?.setPcbLayerVisibility)
+            .toHaveBeenCalledTimes(referenceWrites);
+        expect(FakeEcadViewer.instances[1]?.setPcbLayerVisibility)
+            .toHaveBeenCalledTimes(comparisonWrites);
+    });
+
     it("hands layer control back to the reviewer after a manual toggle", async () => {
         const change: ChangeItem = {
             id: "pcb-changed-route",

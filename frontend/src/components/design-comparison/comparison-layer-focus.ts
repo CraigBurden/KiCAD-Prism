@@ -200,6 +200,9 @@ export function focusVisibleLayers(
         if (lower.endsWith(".cu") || lower === "edge.cuts") continue;
         if (lower.startsWith("f.")) orientationCopper.add("F.Cu");
         else if (lower.startsWith("b.")) orientationCopper.add("B.Cu");
+        // Copper patterns already pass through as evidence and resolve below.
+        // This branch supplies orientation copper for two-sided non-copper
+        // patterns such as F&B.Mask or *.SilkS.
         else if (lower.startsWith("f&b.") || lower.startsWith("*.")) {
             orientationCopper.add("F.Cu");
             orientationCopper.add("B.Cu");

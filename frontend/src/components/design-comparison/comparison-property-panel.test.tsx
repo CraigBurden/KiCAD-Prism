@@ -146,6 +146,33 @@ describe("comparison property panel", () => {
         expect(screen.getByText("Vendor B")).toBeTruthy();
     });
 
+    it("groups identical BOM rows regardless of object key order", () => {
+        const first = bom.changes[0]!;
+        const reverseKeys = <T extends Record<string, unknown>>(value: T): T =>
+            Object.fromEntries(Object.entries(value).reverse()) as T;
+        const reordered: BomDiff = {
+            ...bom,
+            changes: [
+                first,
+                {
+                    ...first,
+                    ref: "R34",
+                    old: reverseKeys(first.old ?? {}),
+                    new: reverseKeys(first.new ?? {}),
+                    diffs: reverseKeys(first.diffs ?? {}),
+                },
+            ],
+        };
+
+        render(<ComparisonPropertyPanel group={group()} bom={reordered} />);
+
+        const properties = screen.getByRole("button", { name: "Properties" })
+            .closest("section")!;
+        expect(within(properties).getByText("R33, R34")).toBeTruthy();
+        expect(within(properties).queryByText("R33")).toBeNull();
+        expect(within(properties).queryByText("R34")).toBeNull();
+    });
+
     it("heads a non-BOM delta with the verb that explains it", () => {
         const relayered = group({
             label: "GND",

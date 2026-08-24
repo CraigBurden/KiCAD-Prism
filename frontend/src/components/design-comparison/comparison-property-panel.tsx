@@ -157,12 +157,27 @@ function bomRowsFor(
     for (const reference of references) {
         const row = byReference.get(reference);
         if (!row) continue;
-        const key = JSON.stringify([row.status, row.old, row.new, row.diffs]);
+        const key = stableJsonKey([row.status, row.old, row.new, row.diffs]);
         const existing = grouped.get(key);
         if (existing) existing.references.push(reference);
         else grouped.set(key, { references: [reference], row });
     }
     return [...grouped.values()];
+}
+
+/** JSON-equivalent identity that does not depend on backend object key order. */
+function stableJsonKey(value: unknown): string {
+    const canonicalize = (candidate: unknown): unknown => {
+        if (Array.isArray(candidate)) return candidate.map(canonicalize);
+        if (!candidate || typeof candidate !== "object") return candidate;
+        const record = candidate as Record<string, unknown>;
+        return Object.fromEntries(
+            Object.keys(record)
+                .sort()
+                .map((key) => [key, canonicalize(record[key])]),
+        );
+    };
+    return JSON.stringify(canonicalize(value));
 }
 
 /** Splits a part transition label so the departing part can be marked. */
