@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     focusVisibleLayers,
     layerFocusForChanges,
-    resolveLayerPatterns,
+    resolveFocusLayers,
 } from "./comparison-layer-focus";
 import type { ChangeItem } from "./types";
 
@@ -112,7 +112,7 @@ describe("comparison layer focus", () => {
         expect(focus?.comparison).toEqual(["B.Cu"]);
     });
 
-    it("keeps non-copper layers out of the focus", () => {
+    it("shows every layer the selection occupies, copper or not", () => {
         const focus = layerFocusForChanges([
             routingChange({
                 base_item: { source_id: "a", layers: ["F.Cu", "F.Mask"] },
@@ -120,29 +120,72 @@ describe("comparison layer focus", () => {
             }),
         ]);
 
-        expect(focus?.reference).toEqual(["F.Cu"]);
+        expect(focus?.reference).toEqual(["F.Cu", "F.Mask"]);
     });
 
-    it("does not focus a selection holding anything that is not copper", () => {
+    // The listing a reviewer actually clicks is the part group, and the
+    // backend puts the part's fab text in it next to the copper. Requiring
+    // every selected object to be copper meant that group isolated nothing:
+    // the feature only worked if you opened the group and clicked the copper
+    // row inside it.
+    it("focuses a part group carrying a non-copper annotation with it", () => {
+        const focus = layerFocusForChanges([
+            routingChange({
+                category: "components",
+                object_kind: "footprint",
+                net: undefined,
+                base_item: { source_id: "r52", layers: ["B.Cu"] },
+                compare_item: { source_id: "r52", layers: ["B.Cu"] },
+            }),
+            routingChange({
+                id: "text",
+                category: "components",
+                object_kind: "footprint_text",
+                net: undefined,
+                base_item: { source_id: "r52t", layers: ["B.Fab"] },
+                compare_item: { source_id: "r52t", layers: ["B.Fab"] },
+            }),
+        ]);
+
+        expect(focus?.reference).toEqual(["B.Cu", "B.Fab"]);
+        expect(focusVisibleLayers(focus!, "both"))
+            .toEqual(["B.Cu", "B.Fab", "Edge.Cuts"]);
+    });
+
+    it("does not focus a selection that sits on no layer at all", () => {
         expect(layerFocusForChanges([])).toBeNull();
-        // Silkscreen, courtyard and fabrication items name a layer but are not
-        // copper the reviewer is isolating, and a rule change names none.
+        // A design rule has no layer, so there is nothing to isolate to.
         expect(
             layerFocusForChanges([
-                routingChange({ object_kind: "footprint_text" }),
+                routingChange({
+                    category: "rules",
+                    object_kind: "rule",
+                    base_item: { source_id: "r" },
+                    compare_item: { source_id: "r" },
+                }),
             ]),
         ).toBeNull();
-        expect(
-            layerFocusForChanges([
-                routingChange(),
-                routingChange({ id: "g", object_kind: "graphic" }),
-            ]),
-        ).toBeNull();
+        // Layer visibility is a PCB idea; a schematic selection never touches it.
         expect(
             layerFocusForChanges([
                 routingChange({ domain: "schematic", object_kind: "track" }),
             ]),
         ).toBeNull();
+    });
+
+    it("lets the layered members of a mixed selection define the focus", () => {
+        const focus = layerFocusForChanges([
+            routingChange(),
+            routingChange({
+                id: "rule",
+                category: "rules",
+                object_kind: "rule",
+                base_item: { source_id: "r" },
+                compare_item: { source_id: "r" },
+            }),
+        ]);
+
+        expect(focus?.reference).toEqual(["F.Cu"]);
     });
 
     // Reviewing a part on the back of the board means seeing the back of the
@@ -199,7 +242,7 @@ describe("comparison layer focus", () => {
         expect(focus?.reference).toEqual(["B.Cu", "F.Cu"]);
     });
 
-    it("does not focus when no copper layer could be resolved", () => {
+    it("does not focus when no layer could be resolved", () => {
         expect(
             layerFocusForChanges([
                 routingChange({ base_item: null, compare_item: null }),
@@ -258,32 +301,40 @@ describe("comparison layer focus", () => {
     });
 });
 
-describe("layer pattern resolution", () => {
+describe("focus layer resolution", () => {
     const board = ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu", "Edge.Cuts", "F.SilkS", "B.Mask"];
 
-    it("expands a through-hole pad's copper to every copper layer", () => {
-        // KiCad does not give a through-hole pad a side. Handed straight to a
-        // viewer, `*.Cu` matches no layer and the board goes dark.
-        expect(resolveLayerPatterns(["*.Cu"], board))
-            .toEqual(["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]);
+    it("shows a through-hole pad on the outer copper only", () => {
+        // KiCad does not give a through-hole pad a side, and `*.Cu` handed
+        // straight to a viewer matches no layer, so the board went dark. It
+        // resolves to the outside rather than to all copper: a pad is legible
+        // where it is a pad, and opening the inner planes buries it.
+        expect(resolveFocusLayers(["*.Cu"], board)).toEqual(["F.Cu", "B.Cu"]);
     });
 
-    it("expands an outer-only pattern to just the outer layers", () => {
-        expect(resolveLayerPatterns(["F&B.Cu"], board)).toEqual(["F.Cu", "B.Cu"]);
+    it("treats the outer-pair pattern the same way", () => {
+        expect(resolveFocusLayers(["F&B.Cu"], board)).toEqual(["F.Cu", "B.Cu"]);
     });
 
-    it("expands a non-copper wildcard against its own layer type", () => {
-        expect(resolveLayerPatterns(["*.Mask"], board)).toEqual(["B.Mask"]);
+    it("honours a pattern naming one side", () => {
+        expect(resolveFocusLayers(["F.*"], board)).toEqual([]);
+        expect(resolveFocusLayers(["*.Mask"], board)).toEqual(["B.Mask"]);
     });
 
     it("passes real layer names through, so a mixed list resolves once", () => {
-        expect(resolveLayerPatterns(["B.Cu", "Edge.Cuts"], board))
+        expect(resolveFocusLayers(["B.Cu", "Edge.Cuts"], board))
             .toEqual(["B.Cu", "Edge.Cuts"]);
-        expect(resolveLayerPatterns(["*.Cu", "Edge.Cuts"], board))
-            .toEqual(["F.Cu", "In1.Cu", "In2.Cu", "B.Cu", "Edge.Cuts"]);
+        expect(resolveFocusLayers(["*.Cu", "Edge.Cuts"], board))
+            .toEqual(["F.Cu", "B.Cu", "Edge.Cuts"]);
+    });
+
+    it("keeps an inner layer that a change names outright", () => {
+        // A zone or track really on In2.Cu still focuses there; only wildcards
+        // are narrowed to the outside.
+        expect(resolveFocusLayers(["In2.Cu"], board)).toEqual(["In2.Cu"]);
     });
 
     it("resolves nothing for a pattern this board has no layers for", () => {
-        expect(resolveLayerPatterns(["*.Paste"], board)).toEqual([]);
+        expect(resolveFocusLayers(["*.Paste"], board)).toEqual([]);
     });
 });

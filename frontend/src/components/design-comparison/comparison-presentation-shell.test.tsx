@@ -1667,9 +1667,10 @@ describe("ComparisonPresentationShell", () => {
         });
     });
 
-    it("leaves layer visibility alone for a selection that is not copper", async () => {
-        // Silkscreen names a layer but is not copper the reviewer is
-        // isolating, so the board stays as they left it.
+    it("isolates a non-copper selection on its own layer", async () => {
+        // Silkscreen is evidence like any other: isolating it is the same
+        // question as isolating copper, and reading a moved designator through
+        // the artwork stacked over it is what the focus exists to stop.
         const change: ChangeItem = {
             id: "pcb-changed-silk",
             kind: "changed",
@@ -1697,13 +1698,127 @@ describe("ComparisonPresentationShell", () => {
         await waitFor(() => {
             expect(FakeEcadViewer.instances.length).toBeGreaterThan(1);
         });
-        expect(visibleLayers(0)).toEqual([
-            "F.Cu",
-            "In1.Cu",
-            "B.Cu",
-            "Edge.Cuts",
-            "F.SilkS",
-        ]);
+        await waitFor(() => {
+            expect(visibleLayers(0)).toEqual(["Edge.Cuts", "F.SilkS"]);
+        });
+    });
+
+    // The row a reviewer clicks is the part group, and the backend files the
+    // part's fab text in it beside the copper. While a single non-copper
+    // member vetoed the whole focus, that group -- the most ordinary selection
+    // in the tool -- isolated nothing at all.
+    it("isolates a part group that carries a fab annotation with it", async () => {
+        const footprint: ChangeItem = {
+            id: "pcb-changed-r52",
+            kind: "changed",
+            domain: "pcb",
+            category: "components",
+            label: "R52",
+            object_kind: "footprint",
+            reference: "R52",
+            reasons: ["properties-changed"],
+            base_item: { source_id: "r52", layers: ["B.Cu"] },
+            compare_item: { source_id: "r52", layers: ["B.Cu"] },
+        };
+        const fabText: ChangeItem = {
+            ...footprint,
+            id: "pcb-changed-r52-text",
+            object_kind: "footprint_text",
+            base_item: { source_id: "r52t", layers: ["B.Fab"] },
+            compare_item: { source_id: "r52t", layers: ["B.Fab"] },
+        };
+        render(
+            <ComparisonPresentationShell
+                {...shellProps}
+                domain="pcb"
+                presentationMode="side-by-side"
+                documentDiff={pcbDocumentDiff}
+                files={pcbFiles}
+                selection={{ kind: "group", id: "component-r52" }}
+                reviewGroups={[{
+                    id: "component-r52",
+                    changes: [footprint, fabText],
+                }]}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(FakeEcadViewer.instances.length).toBeGreaterThan(1);
+        });
+        await waitFor(() => {
+            expect(visibleLayers(0)).toEqual(["B.Cu", "Edge.Cuts"]);
+        });
+    });
+
+    // Hovering a row and clicking it used to answer different questions: the
+    // hover highlighted the object on a board still showing every layer, the
+    // click isolated it. The reviewer had to commit to a selection to find out
+    // what they were looking at.
+    it("previews a hovered row on the same layers clicking it would show", async () => {
+        const change: ChangeItem = {
+            id: "pcb-changed-r52",
+            kind: "changed",
+            domain: "pcb",
+            category: "components",
+            label: "R52",
+            object_kind: "footprint",
+            reference: "R52",
+            reasons: ["properties-changed"],
+            base_item: { source_id: "r52", layers: ["B.Cu"] },
+            compare_item: { source_id: "r52", layers: ["B.Cu"] },
+        };
+        const { rerender } = render(
+            <ComparisonPresentationShell
+                {...shellProps}
+                domain="pcb"
+                presentationMode="side-by-side"
+                documentDiff={pcbDocumentDiff}
+                files={pcbFiles}
+                selection={null}
+                reviewGroups={[{ id: "component-r52", changes: [change] }]}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(FakeEcadViewer.instances.length).toBeGreaterThan(1);
+        });
+        const untouched = visibleLayers(0);
+        expect(untouched).toContain("F.Cu");
+
+        rerender(
+            <ComparisonPresentationShell
+                {...shellProps}
+                domain="pcb"
+                presentationMode="side-by-side"
+                documentDiff={pcbDocumentDiff}
+                files={pcbFiles}
+                selection={null}
+                previewSelection={{ kind: "group", id: "component-r52" }}
+                reviewGroups={[{ id: "component-r52", changes: [change] }]}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(visibleLayers(0)).toEqual(["B.Cu", "Edge.Cuts"]);
+        });
+
+        // Leaving the row puts the board back the way the reviewer had it.
+        rerender(
+            <ComparisonPresentationShell
+                {...shellProps}
+                domain="pcb"
+                presentationMode="side-by-side"
+                documentDiff={pcbDocumentDiff}
+                files={pcbFiles}
+                selection={null}
+                previewSelection={null}
+                reviewGroups={[{ id: "component-r52", changes: [change] }]}
+            />,
+        );
+
+        await waitFor(() => {
+            expect(visibleLayers(0)).toEqual(untouched);
+        });
     });
 
     it("hands layer control back to the reviewer after a manual toggle", async () => {

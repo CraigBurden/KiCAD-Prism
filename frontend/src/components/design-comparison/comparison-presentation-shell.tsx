@@ -44,7 +44,8 @@ import { ComparisonViewerHost } from "./comparison-viewer-host";
 import {
     focusVisibleLayers,
     layerFocusForChanges,
-    resolveLayerPatterns,
+    resolveFocusLayers,
+    type ComparisonLayerFocus,
     type LayerFocusSide,
 } from "./comparison-layer-focus";
 import {
@@ -164,6 +165,24 @@ function viewerState(viewer: ECadViewerElement | null) {
  * race in the other direction (disposal landing mid-call) and records it rather
  * than swallowing it, since a failure here is never worth a visible crash.
  */
+/**
+ * How long the pointer has to rest on a row before its layers are shown.
+ * Short enough to feel like a response to the hover, long enough that a
+ * pointer travelling down the list does not drag the board through every
+ * layer set on the way.
+ */
+const LAYER_FOCUS_HOVER_DWELL_MS = 140;
+
+/** Identity of a focus, for deciding whether a manual override still applies. */
+function layerFocusKeyOf(focus: ComparisonLayerFocus | null): string | null {
+    if (!focus) return null;
+    return [
+        focus.net ?? "",
+        focus.reference.join(","),
+        focus.comparison.join(","),
+    ].join("|");
+}
+
 function setPreviewOverlay(
     viewer: ECadViewerElement,
     selection: EcadDocumentComparisonSelection | null,
@@ -1066,17 +1085,32 @@ export function ComparisonPresentationShell({
         cameraSyncSuppressedRef,
     );
 
-    const layerFocus = useMemo(
+    const selectionLayerFocus = useMemo(
         () => (domain === "pcb" ? layerFocusForChanges(allChanges) : null),
         [allChanges, domain],
     );
-    const layerFocusKey = layerFocus
-        ? [
-            layerFocus.net ?? "",
-            layerFocus.reference.join(","),
-            layerFocus.comparison.join(","),
-        ].join("|")
-        : null;
+    const hoverLayerFocus = useMemo(
+        () => (domain === "pcb" ? layerFocusForChanges(previewChanges) : null),
+        [domain, previewChanges],
+    );
+    // Hovering a row shows the layers clicking it would commit to, so the
+    // reviewer never has to click to find out what they are looking at. The
+    // dwell is what makes that affordable: dragging the pointer down a list of
+    // thirty rows must not repaint the board thirty times, and a row the
+    // pointer merely crosses was never the one being asked about.
+    const [hoverFocusArmed, setHoverFocusArmed] = useState(false);
+    useEffect(() => {
+        setHoverFocusArmed(false);
+        if (!previewSelection) return;
+        const timer = window.setTimeout(
+            () => setHoverFocusArmed(true),
+            LAYER_FOCUS_HOVER_DWELL_MS,
+        );
+        return () => window.clearTimeout(timer);
+    }, [previewSelection]);
+
+    const layerFocus = (hoverFocusArmed && hoverLayerFocus) || selectionLayerFocus;
+    const layerFocusKey = layerFocusKeyOf(layerFocus);
     // A new route is a new focus: the reviewer's earlier manual override does
     // not carry across to a different net's evidence.
     const layerFocusOverridden = layerFocusReleasedFor !== null
@@ -1097,7 +1131,7 @@ export function ComparisonPresentationShell({
         ) => {
             const layers = viewer.getPcbViewState?.()?.layers ?? [];
             const visible = new Set(
-                resolveLayerPatterns(patterns, layers.map((layer) => layer.name)),
+                resolveFocusLayers(patterns, layers.map((layer) => layer.name)),
             );
             for (const layer of layers) {
                 viewer.setPcbLayerVisibility?.(
