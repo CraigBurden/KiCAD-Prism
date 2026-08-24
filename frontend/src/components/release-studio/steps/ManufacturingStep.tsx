@@ -93,6 +93,7 @@ export function ManufacturingStep({
     onBuild: () => void;
     identityComplete?: boolean;
 }) {
+    const activeVendors = new Set(manufacturing.vendors);
     return (
         <div className="space-y-5">
             <h3 className="text-lg font-semibold">Manufacturing and assembly</h3>
@@ -144,7 +145,7 @@ export function ManufacturingStep({
                     <Label>Manufacturer packs</Label>
                     <div className="flex flex-wrap gap-2">
                         {profiles.map((profile) => {
-                            const active = manufacturing.vendors.includes(profile.id);
+                            const active = activeVendors.has(profile.id);
                             return (
                                 <button
                                     key={profile.id}
@@ -225,7 +226,7 @@ function IpcSelect({
     placeholder?: string;
     otherPlaceholder?: string;
 }) {
-    const known = new Set(options.filter((item) => item.value !== OTHER).map((item) => item.value));
+    const known = new Set(options.flatMap((item) => (item.value !== OTHER ? [item.value] : [])));
     const isOther = Boolean(value) && !known.has(value);
     const [custom, setCustom] = useState(isOther && value !== OTHER ? value : "");
     // Choosing Other is a statement about the *control*, not yet a value. It

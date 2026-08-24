@@ -140,7 +140,12 @@ function componentEngine(index: PrismSemanticIndex): Fuse<ComponentRecord> {
     if (cached) return cached;
     const engine = new Fuse(
         index.components.map((component) => {
-            const fields = Object.values(component.fields ?? {}).map(fieldText).filter(Boolean);
+            const fields = Object.values(component.fields ?? {}).flatMap(
+                (value) => {
+                    const text = fieldText(value);
+                    return text ? [text] : [];
+                },
+            );
             return {
                 component,
                 reference: component.reference,
@@ -231,15 +236,22 @@ function netAliases(net: SemanticNet): string[] {
 
 function compactSearchText(...parts: Array<string | undefined>): string {
     return parts
-        .map((part) => (part ?? "").toLowerCase().replace(/[^a-z0-9]+/g, ""))
-        .filter(Boolean)
+        .flatMap((part) => {
+            const text = (part ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+            return text ? [text] : [];
+        })
         .join(" ");
 }
 
 function tokenSearchText(...parts: Array<string | undefined>): string {
     return parts
-        .map((part) => (part ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim())
-        .filter(Boolean)
+        .flatMap((part) => {
+            const text = (part ?? "")
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, " ")
+                .trim();
+            return text ? [text] : [];
+        })
         .join(" ");
 }
 

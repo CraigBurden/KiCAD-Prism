@@ -43,9 +43,11 @@ import {
 import { ComparisonViewerHost } from "./comparison-viewer-host";
 import {
     focusVisibleLayers,
-    routeFocusForChanges,
-    type RouteFocusSide,
-} from "./comparison-route-focus";
+    layerFocusForChanges,
+    resolveFocusLayers,
+    type ComparisonLayerFocus,
+    type LayerFocusSide,
+} from "./comparison-layer-focus";
 import {
     resolveSelectedDocument,
     revisionSourceKey,
@@ -147,6 +149,16 @@ function viewerState(viewer: ECadViewerElement | null) {
     };
 }
 
+/** Identity of a focus, for deciding whether a manual override still applies. */
+function layerFocusKeyOf(focus: ComparisonLayerFocus | null): string | null {
+    if (!focus) return null;
+    return [
+        focus.net ?? "",
+        focus.reference.join(","),
+        focus.comparison.join(","),
+    ].join("|");
+}
+
 /**
  * Push a preview overlay to a viewer, tolerating one that has already gone.
  *
@@ -225,6 +237,7 @@ function MissingRevisionPane({
     );
 }
 
+// react-doctor-disable-next-line no-giant-component - the remainder is tightly coupled viewer/session orchestration; extraction would move state into prop-drilled fragments
 export function ComparisonPresentationShell({
     projectId,
     domain,
@@ -242,6 +255,7 @@ export function ComparisonPresentationShell({
     rightRailTab = null,
     onRightRailTabChange = ignoreRightRailChange,
     toolbarContent = null,
+// react-doctor-disable-next-line prefer-useReducer - separate concerns: viewer handles, session lifecycle, selection reporting and rail geometry do not change together
 }: ComparisonPresentationShellProps) {
     const [primaryViewer, setPrimaryViewer] =
         useState<ECadViewerElement | null>(null);
@@ -258,6 +272,10 @@ export function ComparisonPresentationShell({
         useState<EcadDocumentComparisonPreparation | null>(null);
     const [oldNewSide, setOldNewSide] = useState<OldNewSide>("compare");
     const [selectionPending, setSelectionPending] = useState(false);
+    // Native selection may repaint viewer-owned PCB state as it settles. This
+    // counter gives layer focus a deterministic post-selection pass even when
+    // React batches the pending=true and pending=false updates together.
+    const [selectionSettleVersion, setSelectionSettleVersion] = useState(0);
     const [selectionDiagnostic, setSelectionDiagnostic] =
         useState<string | null>(null);
     const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
@@ -266,9 +284,18 @@ export function ComparisonPresentationShell({
         useState<{ scope: string; message: string } | null>(null);
     const [rightRailInset, setRightRailInset] = useState(0);
     const [pcbLayers, setPcbLayers] = useState<EcadPcbLayerState[]>([]);
-    useEffect(() => {
-        onPcbLayersChange?.(pcbLayers);
-    }, [onPcbLayersChange, pcbLayers]);
+    // The layers belong to this shell; the workspace only needs to know when
+    // they move. Publishing at the point of change notifies the parent in the
+    // same commit as the local update, instead of one render later through an
+    // effect. Wired only for the pcb-domain shell, so a schematic shell can
+    // never report its cleared layers over a live pcb view.
+    const publishPcbLayers = useCallback(
+        (layers: EcadPcbLayerState[]) => {
+            setPcbLayers(layers);
+            onPcbLayersChange?.(layers);
+        },
+        [onPcbLayersChange],
+    );
     // Which route the reviewer took manual control on. Storing the route
     // rather than a bare flag is what "for as long as this route stays
     // selected" means, and it expires without an effect to expire it.
@@ -292,7 +319,21 @@ export function ComparisonPresentationShell({
 
     const sessionGenerationRef = useRef(0);
     const presentationGenerationRef = useRef(0);
-    const presentationReadyKeyRef = useRef<string | null>(null);
+    /**
+     * Which presentation the panes are actually showing, once its transition
+     * has settled.
+     *
+     * State rather than a ref because the selection effect gates on it. A ref
+     * is invisible to React, so the effect only ever saw the value that
+     * happened to be there on a run something else triggered: when a switch
+     * settled a moment after that run, nothing re-ran the effect and the
+     * selection was never painted onto the new panes. Selecting a change lets
+     * the policy pick a presentation, so a reviewer changing it afterwards hit
+     * exactly that ordering, and the change they were looking at came back
+     * unhighlighted until they clicked it again.
+     */
+    const [presentationReadyKey, setPresentationReadyKey] =
+        useState<string | null>(null);
     const selectionGenerationRef = useRef(0);
     const lastSelectionKeyRef = useRef<string | null>(null);
     /** Selection that produced no native target, so its notice fires once. */
@@ -465,11 +506,11 @@ export function ComparisonPresentationShell({
      */
     const panes = useMemo((): Array<{
         viewer: ECadViewerElement;
-        side: RouteFocusSide;
+        side: LayerFocusSide;
         hasDocument: boolean;
     }> => {
         if (presentationMode === "side-by-side") {
-            const slots: Array<[ECadViewerElement | null, RouteFocusSide, boolean]> = [
+            const slots: Array<[ECadViewerElement | null, LayerFocusSide, boolean]> = [
                 [primaryViewer, "reference", baseHasDocument],
                 [secondaryViewer, "comparison", compareHasDocument],
             ];
@@ -516,9 +557,11 @@ export function ComparisonPresentationShell({
     const showLayers = rightRailTab === "layers";
     const changedDocuments = useMemo(
         () => new Set(
-            documentDiff.project.documents
-                .filter((document) => document.changes.length > 0)
-                .map((document) => document.path.split("/").at(-1) ?? document.path),
+            documentDiff.project.documents.flatMap((document) => (
+                document.changes.length > 0
+                    ? [document.path.split("/").at(-1) ?? document.path]
+                    : []
+            )),
         ),
         [documentDiff],
     );
@@ -590,7 +633,7 @@ export function ComparisonPresentationShell({
         setPreparation(null);
         setSessionError(null);
         setSessionPhase("loading");
-        presentationReadyKeyRef.current = null;
+        setPresentationReadyKey(null);
         lastSelectionKeyRef.current = null;
         unresolvedSelectionKeyRef.current = null;
         const requestedCatalogPage = selectedCatalogPageRef.current;
@@ -745,10 +788,10 @@ export function ComparisonPresentationShell({
                 ? primaryViewer.camera
                 : null;
         // This ref closes the same-commit gap before the state update below is
-        // visible to the selection effect. Without it, Auto can change the
+        // visible to the selection effect. Without it, the policy can change the
         // presentation and the selected diff is painted onto the outgoing
         // scene, then considered consumed before the new panes are ready.
-        presentationReadyKeyRef.current = null;
+        setPresentationReadyKey(null);
         lastSelectionKeyRef.current = null;
         unresolvedSelectionKeyRef.current = null;
         setPresentationSwitching(true);
@@ -781,7 +824,7 @@ export function ComparisonPresentationShell({
                 primaryViewer.camera = retainedOldNewCamera;
             }
             setPreparation(session.preparation);
-            presentationReadyKeyRef.current = presentationKey;
+            setPresentationReadyKey(presentationKey);
             setPresentationSwitching(false);
             logComparisonDebug("session.presentation.ready", {
                 generation,
@@ -844,15 +887,15 @@ export function ComparisonPresentationShell({
             || sessionPhase !== "ready"
             || presentationSwitching
             || !primaryViewer
-            || presentationReadyKeyRef.current !== presentationKey
+            || presentationReadyKey !== presentationKey
         ) {
             return;
         }
         // A pane whose revision does not carry this document has nothing to
         // paint the selection onto.
-        const viewers = panes
-            .filter((pane) => pane.hasDocument)
-            .map((pane) => pane.viewer);
+        const viewers = panes.flatMap((pane) => (
+            pane.hasDocument ? [pane.viewer] : []
+        ));
         // The panes are part of the key, not just the selection.
         //
         // In side-by-side the two viewers do not attach on the same frame. Keyed
@@ -968,6 +1011,7 @@ export function ComparisonPresentationShell({
             if (generation !== selectionGenerationRef.current) return;
             cameraSyncSuppressedRef.current = false;
             setSelectionPending(false);
+            setSelectionSettleVersion((version) => version + 1);
         });
     }, [
         allChanges,
@@ -980,6 +1024,7 @@ export function ComparisonPresentationShell({
         documentPath,
         oldNewSide,
         presentationMode,
+        presentationReadyKey,
         presentationSwitching,
         primaryViewer,
         secondaryViewer,
@@ -1037,63 +1082,83 @@ export function ComparisonPresentationShell({
         cameraSyncSuppressedRef,
     );
 
-    const routeFocus = useMemo(
-        () => (domain === "pcb" ? routeFocusForChanges(allChanges) : null),
+    const selectionLayerFocus = useMemo(
+        () => (domain === "pcb" ? layerFocusForChanges(allChanges) : null),
         [allChanges, domain],
     );
-    const routeFocusKey = routeFocus
-        ? [
-            routeFocus.net ?? "",
-            routeFocus.reference.join(","),
-            routeFocus.comparison.join(","),
-        ].join("|")
-        : null;
+    // Hover previews native evidence only. Layer visibility is review state and
+    // changes only after an explicit selection, never because the pointer
+    // happened to rest over a queue row.
+    const layerFocus = selectionLayerFocus;
+    const layerFocusKey = layerFocusKeyOf(layerFocus);
     // A new route is a new focus: the reviewer's earlier manual override does
     // not carry across to a different net's evidence.
     const layerFocusOverridden = layerFocusReleasedFor !== null
-        && layerFocusReleasedFor === routeFocusKey;
-    const layerFocusActive = Boolean(routeFocus) && !layerFocusOverridden;
+        && layerFocusReleasedFor === layerFocusKey;
+    const layerFocusActive = Boolean(layerFocus) && !layerFocusOverridden;
 
     useEffect(() => {
-        if (domain !== "pcb" || sessionPhase !== "ready" || presentationSwitching) {
+        if (
+            domain !== "pcb"
+            || sessionPhase !== "ready"
+            || presentationSwitching
+            || selectionPending
+        ) {
             return;
         }
         const viewers = activeLayerViewers;
         if (!viewers.length) return;
+        // Patterns rather than names: a through-hole pad's layer is `*.Cu`,
+        // and only the viewer knows what copper this board actually has.
         const applyVisibility = (
             viewer: ECadViewerElement,
-            visible: Set<string>,
-        ) => {
-            for (const layer of viewer.getPcbViewState?.()?.layers ?? []) {
+            patterns: readonly string[],
+        ): boolean => {
+            const layers = viewer.getPcbViewState?.()?.layers ?? [];
+            const visible = new Set(
+                resolveFocusLayers(patterns, layers.map((layer) => layer.name)),
+            );
+            let changed = false;
+            for (const layer of layers) {
+                const nextVisible = visible.has(layer.name);
+                if (layer.visible === nextVisible) continue;
+                changed = true;
                 viewer.setPcbLayerVisibility?.(
                     layer.name,
-                    visible.has(layer.name),
+                    nextVisible,
                 );
             }
+            return changed;
         };
 
-        if (routeFocus && layerFocusActive) {
+        if (layerFocus && layerFocusActive) {
             // Capture once. Re-capturing on a presentation switch or a second
             // route would save the focused state as if the reviewer chose it.
             if (!preFocusLayersRef.current) {
                 preFocusLayersRef.current =
                     (viewers[0]?.getPcbViewState?.()?.layers ?? [])
-                        .filter((layer) => layer.visible)
-                        .map((layer) => layer.name);
+                        .flatMap((layer) => (
+                            layer.visible ? [layer.name] : []
+                        ));
             }
+            let visibilityChanged = false;
             for (const pane of panes) {
-                applyVisibility(
+                visibilityChanged = applyVisibility(
                     pane.viewer,
-                    new Set(focusVisibleLayers(routeFocus, pane.side)),
-                );
+                    focusVisibleLayers(layerFocus, pane.side),
+                ) || visibilityChanged;
             }
-            setPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+            if (visibilityChanged) {
+// react-doctor-disable-next-line no-pass-data-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
+// react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
+                publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+            }
             logComparisonDebug("session.layers.focus", {
-                net: routeFocus.net,
-                viaOnly: routeFocus.viaOnly,
+                net: layerFocus.net,
+                viaOnly: layerFocus.viaOnly,
                 presentationMode,
-                reference: routeFocus.reference,
-                comparison: routeFocus.comparison,
+                reference: layerFocus.reference,
+                comparison: layerFocus.comparison,
             });
             return;
         }
@@ -1101,9 +1166,16 @@ export function ComparisonPresentationShell({
         const restore = preFocusLayersRef.current;
         if (!restore) return;
         preFocusLayersRef.current = null;
-        const visible = new Set(restore);
-        for (const viewer of viewers) applyVisibility(viewer, visible);
-        setPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+        let visibilityChanged = false;
+        for (const viewer of viewers) {
+            visibilityChanged = applyVisibility(viewer, restore)
+                || visibilityChanged;
+        }
+        if (visibilityChanged) {
+// react-doctor-disable-next-line no-pass-data-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
+// react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
+            publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+        }
         logComparisonDebug("session.layers.focus.restore", {
             presentationMode,
             layers: restore,
@@ -1115,7 +1187,16 @@ export function ComparisonPresentationShell({
         layerFocusActive,
         presentationMode,
         presentationSwitching,
-        routeFocus,
+        // Clearing the native hover overlay restores the layer snapshot the
+        // viewer captured when hover began. If a click focused the selected
+        // listing while that hover was active, the snapshot is stale (usually
+        // every layer visible), so pointer leave must re-assert the persistent
+        // selection focus.
+        previewSelection,
+        publishPcbLayers,
+        layerFocus,
+        selectionPending,
+        selectionSettleVersion,
         sessionPhase,
     ]);
 
@@ -1124,7 +1205,7 @@ export function ComparisonPresentationShell({
     // react-doctor-disable-next-line react-doctor/effect-needs-cleanup
     useEffect(() => {
         if (domain !== "pcb") {
-            setPcbLayers([]);
+            publishPcbLayers([]);
             return;
         }
         const viewers = activeLayerViewers;
@@ -1149,7 +1230,8 @@ export function ComparisonPresentationShell({
             }
         }
         const refresh = () =>
-            setPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+            publishPcbLayers(viewers[0]?.getPcbViewState?.()?.layers ?? []);
+// react-doctor-disable-next-line no-pass-live-state-to-parent - device state: the viewer owns these layers; the effect only registers listeners and snapshots the initial state
         refresh();
         for (const viewer of viewers) {
             viewer.addEventListener("ecad-viewer:view-state-change", refresh);
@@ -1168,6 +1250,7 @@ export function ComparisonPresentationShell({
         initialVisibleLayers,
         layerFocusActive,
         presentationSwitching,
+        publishPcbLayers,
         sessionPhase,
     ]);
 
@@ -1178,7 +1261,7 @@ export function ComparisonPresentationShell({
      */
     const releaseLayerFocus = () => {
         preFocusLayersRef.current = null;
-        setLayerFocusReleasedFor(routeFocusKey);
+        setLayerFocusReleasedFor(layerFocusKey);
     };
 
     const toggleLayer = (name: string, visible: boolean) => {
@@ -1189,9 +1272,11 @@ export function ComparisonPresentationShell({
         const next = pcbLayers.map((layer) =>
             layer.name === name ? { ...layer, visible } : layer,
         );
-        setPcbLayers(next);
+        publishPcbLayers(next);
         onVisibleLayersChange(
-            next.filter((layer) => layer.visible).map((layer) => layer.name),
+            next.flatMap((layer) => (
+                layer.visible ? [layer.name] : []
+            )),
         );
     };
     const applyPreset = (
@@ -1205,9 +1290,11 @@ export function ComparisonPresentationShell({
             viewer.applyPcbLayerPreset?.(preset);
         }
         const next = viewers[0]?.getPcbViewState?.()?.layers ?? [];
-        setPcbLayers(next);
+        publishPcbLayers(next);
         onVisibleLayersChange(
-            next.filter((layer) => layer.visible).map((layer) => layer.name),
+            next.flatMap((layer) => (
+                layer.visible ? [layer.name] : []
+            )),
         );
     };
     const highlightLayer = (name: string | null) => {

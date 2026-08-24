@@ -1803,6 +1803,7 @@ const ASSET_SOURCE_TABS: Array<{ id: AssetAttachMode; label: string; icon: typeo
   { id: "link", label: "Link existing", icon: Link2 },
 ];
 
+// react-doctor-disable-next-line no-giant-component - tabs, evidence, and release queue share one component resource
 export function LibraryComponentWorkspace({
   componentId,
   user,
@@ -1813,6 +1814,7 @@ export function LibraryComponentWorkspace({
   user: User | null;
   projects: Project[];
   onBack: () => void;
+// react-doctor-disable-next-line prefer-useReducer - the states belong to separate concerns: tabs, evidence, queue
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("componentTab") as ComponentTab | null;

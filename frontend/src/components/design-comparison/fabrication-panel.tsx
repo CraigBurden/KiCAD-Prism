@@ -256,6 +256,7 @@ function LayerImage({ url, alt }: { url: string | null; alt: string }) {
     );
 }
 
+// react-doctor-disable-next-line no-giant-component - tabular render of stacked data with tight column coupling
 export function FabricationPanel({
     fabrication,
     sidecarUrls,

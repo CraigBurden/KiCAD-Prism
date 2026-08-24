@@ -210,6 +210,7 @@ interface AccessCheckResult {
     deploy_key_url?: string | null;
 }
 
+// react-doctor-disable-next-line no-giant-component - settings form and connection test flow are mutually coupled
 function GitSettings({ user }: { user: User | null }) {
     const [access, setAccess] = useState<GitAccessState | null>(null);
     const [loading, setLoading] = useState(false);

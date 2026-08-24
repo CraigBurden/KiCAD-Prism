@@ -464,11 +464,17 @@ export function SelectionInspector({
                                         label="BOM"
                                         value={<FlagValue value={component.fields?.["In BOM"]} goodWhenYes={true} />}
                                     />
-                                    {Object.entries(component.fields || {})
-                                        .filter(([key, value]) => key !== "DNP" && key !== "In BOM" && isDisplayableField(key, String(value)))
-                                        .map(([key, value]) => (
-                                            <PropertyRow key={key} label={key} value={renderFieldValue(key, String(value))} />
-                                        ))}
+                                    {Object.entries(component.fields || {}).flatMap(([key, value]) => (
+                                        key !== "DNP" && key !== "In BOM" && isDisplayableField(key, String(value))
+                                            ? [
+                                                <PropertyRow
+                                                    key={key}
+                                                    label={key}
+                                                    value={renderFieldValue(key, String(value))}
+                                                />,
+                                            ]
+                                            : []
+                                    ))}
                                 </dl>
                             </CollapsibleSection>
                         </>

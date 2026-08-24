@@ -143,11 +143,20 @@ const groupMatchesQuery = (group: BomGroup, query: string): boolean => {
     if (!terms.length) return true;
     const references = group.components.map((component) => component.reference.toLocaleLowerCase());
     const haystack = [...references, ...Object.values(group.fields)].join(" ").toLocaleLowerCase();
+    // Each field search builds the same alias string per term; resolve it once
+    // per field so repeated terms share the lookup.
+    const fieldValues = new Map<string, string>();
+    for (const term of terms) {
+        if (term.field && !fieldValues.has(term.field)) {
+            fieldValues.set(term.field, searchableField(group, term.field));
+        }
+    }
     return terms.every((term, index) => {
         if (term.field === "ref" || term.field === "reference") {
             return references.some((reference) => reference === term.value);
         }
-        if (term.field) return searchableField(group, term.field).includes(term.value);
+// react-doctor-disable-next-line js-set-map-lookups - the receiver is a string haystack, not an array; a Set would break substring matching
+        if (term.field) return (fieldValues.get(term.field) ?? "").includes(term.value);
         const referenceLike = /^[a-z]+\d+[a-z0-9._-]*$/.test(term.value);
         if (referenceLike) {
             const exact = term.quoted || (lockLastReference && index === terms.length - 1);
@@ -273,11 +282,14 @@ export function EngineeringBomTable({
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder="Search references and fields…"
                         aria-label="Filter bill of materials"
+                        // The syntax this accepts -- prefix matching, a
+                        // trailing space to lock an exact reference, and the
+                        // `ref:`/`value:`/`mfr:`/`mpn:`/`vendor:`/`footprint:`
+                        // filters -- is documented on the field itself rather
+                        // than in a paragraph under it.
+                        title="Prefixes match while typing; add a trailing space to lock an exact reference. Filters: ref:, value:, mfr:, mpn:, vendor:, footprint:"
                         className="h-8 max-w-xl"
                     />
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        Reference prefixes match while typing; add a trailing space to lock an exact reference. Filters: ref:, value:, mfr:, mpn:, vendor:, footprint:.
-                    </p>
                 </div>
                 <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
                     <span>{semanticIndex.components.length} components</span>
@@ -342,25 +354,45 @@ export function EngineeringBomTable({
                                         let content: React.ReactNode;
                                         if (column === "Reference") {
                                             content = (
+                                                /* Rows are grouped by value, so a single row can carry
+                                                   a dozen designators and each one selects a different
+                                                   part. Ghost styling left them reading as plain text
+                                                   until the pointer was already on one; a resting
+                                                   outline says "these are separate things you can
+                                                   pick" before anyone hovers, and the accent tint on
+                                                   hover confirms it. */
                                                 <div className="flex max-w-md flex-wrap gap-1">
-                                                    {group.components.map((component) => (
-                                                        <Button
-                                                            key={component.reference}
-                                                            type="button"
-                                                            size="sm"
-                                                            variant={selectedReference === component.reference ? "default" : "ghost"}
-                                                            className="h-6 px-1.5 font-mono text-xs"
-                                                            onClick={() => onSelection({
-                                                                kind: "component",
-                                                                sourceContext: "BOM",
-                                                                sourceRevisionKey: semanticIndex.sourceRevisionKey,
-                                                                reference: component.reference,
-                                                                componentUid: component.componentUid,
-                                                            })}
-                                                        >
-                                                            {component.reference}
-                                                        </Button>
-                                                    ))}
+                                                    {group.components.map((component) => {
+                                                        const isSelected =
+                                                            selectedReference === component.reference;
+                                                        return (
+                                                            <Button
+                                                                key={component.reference}
+                                                                type="button"
+                                                                size="sm"
+                                                                variant={isSelected ? "default" : "ghost"}
+                                                                aria-pressed={isSelected}
+                                                                title={`Select ${component.reference}`}
+                                                                className={cn(
+                                                                    "h-6 cursor-pointer px-1.5 font-mono text-xs transition-colors",
+                                                                    !isSelected && [
+                                                                        "border-border/70 bg-muted/40 text-muted-foreground",
+                                                                        "hover:border-primary/60 hover:bg-primary/10",
+                                                                        "hover:text-foreground",
+                                                                    ],
+                                                                )}
+                                                                onClick={() => onSelection({
+                                                                    kind: "component",
+                                                                    sourceContext: "BOM",
+                                                                    sourceRevisionKey: semanticIndex.sourceRevisionKey,
+                                                                    reference: component.reference,
+                                                                    componentUid: component.componentUid,
+                                                                })}
+                                                            >
+                                                                {component.reference}
+                                                            </Button>
+                                                        );
+                                                    })}
                                                 </div>
                                             );
                                         } else if (column === "Qty") {

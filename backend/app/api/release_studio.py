@@ -76,6 +76,7 @@ class ReviewDecisionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Vendor profiles and source discovery
 # ---------------------------------------------------------------------------
+@router.get("/{project_id}/release-studio/vendor-profiles")
 async def list_vendor_profiles(
     project_id: str, user: AuthenticatedUser = Depends(require_viewer)
 ):

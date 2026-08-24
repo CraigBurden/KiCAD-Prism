@@ -56,6 +56,7 @@ interface WorkspaceProps {
 // Closes over nothing in the component.
 const getProjectDisplayName = (project: Project) => project.display_name || project.name;
 
+// react-doctor-disable-next-line no-giant-component - multi-surface shell whose modals and tabs share session state
 export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();

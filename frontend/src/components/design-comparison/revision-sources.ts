@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { referenceFor } from "./comparison-change-facts";
+import type { ComparisonSelection } from "./comparison-selection-bridge";
 import type {
     ChangeItem,
     KiCadDocumentDiff,
@@ -92,9 +94,9 @@ export function useRevisionSources(
                 const extension =
                     domain === "pcb" ? ".kicad_pcb" : ".kicad_sch";
                 const sourcePaths = [...new Set(
-                    files
-                        .map((file) => file.path)
-                        .filter((path) => path.endsWith(extension)),
+                    files.flatMap((file) => (
+                        file.path.endsWith(extension) ? [file.path] : []
+                    )),
                 )];
                 if (!sourcePaths.includes(rootName)) {
                     sourcePaths.unshift(rootName);
@@ -169,18 +171,20 @@ export function useRevisionSources(
 }
 
 export function selectedChanges(
-    selection: { kind: "item" | "group"; id: string } | null,
+    selection: ComparisonSelection,
     groups: Array<{ id: string; changes: ChangeItem[] }>,
 ): ChangeItem[] {
     if (!selection) return [];
-    if (selection.kind === "group") {
-        return (
-            groups.find((group) => group.id === selection.id)?.changes ?? []
+    const selectedGroup = groups.find((group) => group.id === selection.id);
+    if (selection.kind === "group") return selectedGroup?.changes ?? [];
+    if (selection.kind === "instance") {
+        return (selectedGroup?.changes ?? []).filter(
+            (change) => referenceFor(change) === selection.reference,
         );
     }
-    return groups
-        .flatMap((group) => group.changes)
-        .filter((change) => change.id === selection.id);
+    return groups.flatMap((group) => (
+        group.changes.filter((change) => change.id === selection.id)
+    ));
 }
 
 export function resolveSelectedDocument(

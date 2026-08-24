@@ -8,6 +8,13 @@ import type {
 
 export type ComparisonSelection =
     | { kind: "item" | "group"; id: string; documentPath?: string }
+    | {
+        kind: "instance";
+        /** The authored-decision group this designator belongs to. */
+        id: string;
+        reference: string;
+        documentPath?: string;
+    }
     | null;
 
 export function resolveNativeSelection(
@@ -23,16 +30,15 @@ export function resolveNativeSelection(
         const entry = documentDiff.navigation[change.id];
         if (!entry) return [];
         const documents = entry.documents ?? [entry];
-        return documents
-            .filter(
-                (document) =>
-                    document.documentPath === preparation.document.path,
-            )
-            // A semantic item owns every native object it resolved: a net is
-            // all of its wires, labels and junctions, a route is all of its
-            // segments. `changeId` is only the first of those, so selecting on
-            // it alone highlights one fragment of the wire the reviewer picked.
-            .flatMap((document) => document.changeIds ?? [document.changeId]);
+        // A semantic item owns every native object it resolved: a net is
+        // all of its wires, labels and junctions, a route is all of its
+        // segments. `changeId` is only the first of those, so selecting on
+        // it alone highlights one fragment of the wire the reviewer picked.
+        return documents.flatMap((document) => (
+            document.documentPath === preparation.document.path
+                ? (document.changeIds ?? [document.changeId])
+                : []
+        ));
     });
 
     const ids = [...new Set(changeIds.filter(Boolean))];

@@ -173,6 +173,39 @@ type EcadViewerHostProps = {
     viewportInsets: EcadViewportInsets;
 };
 
+/**
+ * Load the root sheet, and give a failed paint one more go.
+ *
+ * The viewer paints as soon as sources land and throws "Image not ready" when
+ * a bitmap on the sheet has not finished decoding, which rejects
+ * `replaceSources`. Nothing here used to catch that, so a transient decode
+ * race ended the whole load: `ecadReadyRevision` stayed empty, `onReady` never
+ * fired, and the sheet sat half-painted -- component bodies drawn, everything
+ * after the failing layer missing -- with no way back short of a reload.
+ *
+ * A decode that lost one race has almost always finished by the next frame, so
+ * the retry is a frame later rather than an interval. Two attempts, because a
+ * third would be saying the failure is something other than a race, and if it
+ * is then the caller should hear about it.
+ */
+async function loadRootSource(
+    viewer: ECadViewerElement,
+    payload: Parameters<ECadViewerElement["replaceSources"]>[0],
+    isStale: () => boolean,
+): Promise<void> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            await viewer.replaceSources(payload);
+            return;
+        } catch (cause) {
+            if (isStale()) return;
+            if (attempt === 1) throw cause;
+            await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+            if (isStale()) return;
+        }
+    }
+}
+
 function EcadViewerHost({
     viewerKey,
     sources,
@@ -205,10 +238,11 @@ function EcadViewerHost({
             await customElements.whenDefined("ecad-viewer");
             if (cancelled || !hostRef.current) return;
             hostRef.current.dataset.ecadReadyRevision = "";
-            await hostRef.current.replaceSources({
-                revisionKey: viewerKey,
-                sources: [rootSource],
-            });
+            await loadRootSource(
+                hostRef.current,
+                { revisionKey: viewerKey, sources: [rootSource] },
+                () => cancelled || !hostRef.current,
+            );
             if (cancelled || !hostRef.current) return;
             // Wait for project load. Do not gate on host.isReady — the custom
             // element exposes `ready` (Promise), not a boolean isReady flag.
@@ -222,7 +256,17 @@ function EcadViewerHost({
             }
         };
 
-        replaceReadyRef.current = replaceRoot();
+        replaceReadyRef.current = replaceRoot().catch((cause) => {
+            if (cancelled) return;
+            // Left unhandled this surfaced only as an uncaught rejection in the
+            // console, with the sheet stuck half-drawn and no hint why.
+            console.error("[Visualizer] Could not load the sheet", cause);
+            toast.error(
+                cause instanceof Error && cause.message
+                    ? `Could not draw this sheet: ${cause.message}`
+                    : "Could not draw this sheet.",
+            );
+        });
 
         return () => {
             cancelled = true;
@@ -246,7 +290,13 @@ function EcadViewerHost({
             hostRef.current.dataset.ecadReadyRevision = viewerKey;
             onReady();
         };
-        void appendRemainingSources();
+        void appendRemainingSources().catch((cause) => {
+            if (cancelled) return;
+            // Same shape as the root load: an unhandled rejection here left
+            // the extra sheets missing and the viewer never marked ready.
+            console.error("[Visualizer] Could not load the remaining sheets", cause);
+            toast.error("Some sheets in this design could not be drawn.");
+        });
         return () => { cancelled = true; };
     }, [appendedSources, onReady, viewerKey]);
 
@@ -286,6 +336,7 @@ function EcadViewerHost({
     );
 }
 
+// react-doctor-disable-next-line no-giant-component - viewer event orchestration and the comment system share the viewer refs
 export function Visualizer({ projectId, user, commit, active: viewerActive = true }: VisualizerProps) {
     const [schematicViewerElement, setSchematicViewerElement] = useState<ECadViewerElement | null>(null);
     const [pcbViewerElement, setPcbViewerElement] = useState<ECadViewerElement | null>(null);
@@ -362,7 +413,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const [showCommentForm, setShowCommentForm] = useState(false);
     const [pendingLocation, setPendingLocation] = useState<CommentLocation | null>(null);
     const [pendingContext, setPendingContext] = useState<CommentContext | null>(null);
-    const [pendingElement, setPendingElement] = useState<PendingCommentElement | null>(null);
+    // The pending comment element is read only when the comment submits,
+    // never on screen.
+    const pendingElementRef = useRef<PendingCommentElement | null>(null);
     const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
     const [commentCardScreenPosition, setCommentCardScreenPosition] = useState<{ x: number; y: number } | null>(null);
     const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -593,16 +646,21 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
                             if (cancelled) return;
 
-                            const loadedSubsheets = subsheetResults
-                                .filter((result): result is PromiseFulfilledResult<{ filename: string; content: string }> => result.status === "fulfilled")
-                                .map((result) => result.value);
+                            const loadedSubsheets: Array<{
+                                filename: string;
+                                content: string;
+                            }> = [];
+                            for (const result of subsheetResults) {
+                                if (result.status === "fulfilled") {
+                                    loadedSubsheets.push(result.value);
+                                } else {
+                                    console.warn(
+                                        "Failed to load one subsheet",
+                                        result.reason,
+                                    );
+                                }
+                            }
                             setSubsheets(loadedSubsheets);
-
-                            subsheetResults
-                                .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-                                .forEach((result) => {
-                                    console.warn("Failed to load one subsheet", result.reason);
-                                });
                         }
                     } else {
                         setSubsheets([]);
@@ -993,7 +1051,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             page: detail.page,
             bounds: detail.bounds,
         });
-        setPendingElement(null);
+        pendingElementRef.current = null;
         setShowCommentForm(true);
     }, []);
 
@@ -1026,9 +1084,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     location: pendingLocation,
                     content: payload.content,
                     author: user?.name,
-                    elementId: pendingElement?.elementId,
-                    elementRef: pendingElement?.elementRef,
-                    elementType: pendingElement?.elementType,
+                    elementId: pendingElementRef.current?.elementId,
+                    elementRef: pendingElementRef.current?.elementRef,
+                    elementType: pendingElementRef.current?.elementType,
                     commentClass: payload.commentClass,
                     severity: payload.severity,
                     mentions: payload.mentions,
@@ -1040,13 +1098,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             setShowCommentForm(false);
             setPendingLocation(null);
             setPendingContext(null);
-            setPendingElement(null);
+            pendingElementRef.current = null;
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to post comment");
         } finally {
             setIsSubmittingComment(false);
         }
-    }, [pendingContext, pendingElement, pendingLocation, projectId, user?.name]);
+    }, [pendingContext, pendingLocation, projectId, user?.name]);
 
     const resolveComment = useCallback(async (commentId: string, resolved: boolean) => {
         try {
@@ -1157,11 +1215,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         // Element comments use marker-at-center only; do not
                         // treat the selected item bbox as an area comment.
                     });
-                    setPendingElement({
+                    pendingElementRef.current = {
                         elementId: selection.uuid,
                         elementRef: selection.reference,
                         elementType: selection.itemType,
-                    });
+                    };
                     setShowCommentForm(true);
                 } else {
                     // No selection: C toggles commenting mode, so pressing it
@@ -1491,7 +1549,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     setShowCommentForm(false);
                     setPendingLocation(null);
                     setPendingContext(null);
-                    setPendingElement(null);
+                    pendingElementRef.current = null;
                 }}
                 onSubmit={(payload) => void submitComment(payload)}
                 location={pendingLocation}

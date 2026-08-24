@@ -105,6 +105,7 @@ const selectionForRenderer = (selection: PrismSelection | null): PrismRendererSe
     };
 };
 
+// react-doctor-disable-next-line no-giant-component - WebGPU render loop lifecycle cannot be split without lifting GPU handles
 export function WebGpu3dTab({
     projectId,
     commit,
@@ -421,25 +422,46 @@ export function WebGpu3dTab({
     }
 
     return (
-        <div className="relative h-full min-h-0 overflow-hidden bg-muted/20">
+        /*
+         * The theme bridge sits on this wrapper, not on the viewer element.
+         *
+         * The viewer's own `:host` rule defines `--primary`, `--foreground`,
+         * `--muted`, `--border` and `--primary-foreground` in terms of the
+         * `--prism-*` values it is handed. Declaring the bridge on the host
+         * itself therefore made each of those read its own output --
+         * `--prism-primary: hsl(var(--primary))` resolving against a
+         * `--primary` that is `var(--prism-primary, ...)`. CSS treats a custom
+         * property cycle as invalid at computed-value time, so both sides came
+         * out empty and every rule spending them was dropped: the stackup's
+         * dimension lines lost their stroke on hover instead of picking up the
+         * accent, and layer names rendered against no colour at all. Only
+         * `--muted-foreground`, `--background`, `--card`, `--secondary` and
+         * `--accent` escaped, because the viewer does not define those names.
+         *
+         * One element out, the same `var()` lookups resolve against the app's
+         * own tokens, and the results inherit into the shadow tree.
+         */
+        <div
+            className="relative h-full min-h-0 overflow-hidden bg-muted/20"
+            style={{
+                "--prism-shell": "hsl(var(--background))",
+                "--prism-panel": "hsl(var(--card))",
+                "--prism-panel-raised": "hsl(var(--muted))",
+                "--prism-control": "hsl(var(--secondary))",
+                "--prism-control-hover": "hsl(var(--accent))",
+                "--prism-foreground": "hsl(var(--foreground))",
+                "--prism-muted": "hsl(var(--muted-foreground))",
+                "--prism-border": "hsl(var(--border))",
+                "--prism-primary": "hsl(var(--primary))",
+                "--prism-primary-foreground": "hsl(var(--primary-foreground))",
+            } as CSSProperties}
+        >
             <prism-semantic-viewer
                 key={`${status?.sourceRevisionKey ?? job?.sourceRevisionKey ?? projectId}-${status?.generator?.build ?? "build"}-${readiness?.revision || viewerRevision}`}
                 ref={attachViewer}
                 bundle-url={bundleUrl}
                 workspace={workspace}
                 active={active && !isStackup ? "true" : undefined}
-                style={{
-                    "--prism-shell": "hsl(var(--background))",
-                    "--prism-panel": "hsl(var(--card))",
-                    "--prism-panel-raised": "hsl(var(--muted))",
-                    "--prism-control": "hsl(var(--secondary))",
-                    "--prism-control-hover": "hsl(var(--accent))",
-                    "--prism-foreground": "hsl(var(--foreground))",
-                    "--prism-muted": "hsl(var(--muted-foreground))",
-                    "--prism-border": "hsl(var(--border))",
-                    "--prism-primary": "hsl(var(--primary))",
-                    "--prism-primary-foreground": "hsl(var(--primary-foreground))",
-                } as CSSProperties}
                 className="block h-full min-h-0 w-full"
             />
             <div className={cn(

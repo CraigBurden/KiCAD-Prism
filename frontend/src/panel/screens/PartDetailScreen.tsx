@@ -79,6 +79,7 @@ function formatPrice(value: number, currency?: string): string {
   return `${currency ? currency + " " : ""}${value.toFixed(value < 1 ? 3 : 2)}`;
 }
 
+// react-doctor-disable-next-line no-giant-component - detail panel whose sections share one part resource
 export function PartDetailScreen({
   componentId,
   prefetched,

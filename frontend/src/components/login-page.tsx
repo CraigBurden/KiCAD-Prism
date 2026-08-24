@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Binary, Loader2 } from "lucide-react";
 
 import prismLogoHorizontal from "@/assets/branding/kicad-prism/kicad-prism-logo-horizontal.svg";
@@ -58,7 +58,8 @@ export function LoginPage({
   const [mustChange, setMustChange] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [pendingUser, setPendingUser] = useState<User | null>(null);
+  // Written on sign-in and read by the password-change submit; never shown.
+  const pendingUserRef = useRef<User | null>(null);
 
   const showOidc = authConfig.oidc_enabled ?? !authConfig.password_auth_enabled;
   const showPassword = Boolean(authConfig.password_auth_enabled);
@@ -138,7 +139,7 @@ export function LoginPage({
         role: result.role,
       };
       if (result.must_change_password) {
-        setPendingUser(user);
+        pendingUserRef.current = user;
         setMustChange(true);
       } else {
         continueAfterLogin(user, onLoginSuccess);
@@ -160,6 +161,7 @@ export function LoginPage({
     setError(null);
     try {
       await changeOwnPassword(password, newPassword);
+      const pendingUser = pendingUserRef.current;
       if (pendingUser) continueAfterLogin(pendingUser, onLoginSuccess);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to set a new password");
