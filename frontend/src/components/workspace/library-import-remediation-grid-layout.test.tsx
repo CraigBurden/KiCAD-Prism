@@ -68,5 +68,7 @@ describe("LibraryImportRemediationGrid layout", () => {
       "top-0",
       "bg-muted",
     );
+    expect(screen.queryByText(/Each row is one catalog component/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Showing one row per placed reference/)).not.toBeInTheDocument();
   });
 });

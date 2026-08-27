@@ -774,11 +774,6 @@ export function LibraryImportRemediationGrid({
         <Badge variant="outline">{visibleRows.length} shown</Badge>
         <Badge variant="outline">{readyRows.length} ready</Badge>
         <Badge variant="outline">{groups.length - readyRows.length} need attention</Badge>
-        <span>
-          {groupByMpn
-            ? "Each row is one catalog component. Linking a footprint reuses an existing asset instead of importing a duplicate."
-            : "Showing one row per placed reference. Linking a footprint reuses an existing asset instead of importing a duplicate."}
-        </span>
       </div>
     </div>
   );

@@ -109,7 +109,7 @@ function QueueEmpty({ filtered }: { filtered: boolean }) {
     <div className="flex min-h-64 flex-col items-center justify-center gap-2 border border-dashed p-6 text-center">
       <ClipboardCheck className="h-7 w-7 text-muted-foreground" />
       <p className="text-sm font-medium">{filtered ? "No matching release work" : "Release queue is clear"}</p>
-      <p className="max-w-xl text-xs text-muted-foreground">{filtered ? "Try a different search or stage filter." : "Components submitted for QA or approved for release will appear here automatically."}</p>
+      {filtered ? <p className="max-w-xl text-xs text-muted-foreground">Try a different search or stage filter.</p> : null}
     </div>
   );
 }
