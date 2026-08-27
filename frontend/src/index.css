@@ -86,6 +86,26 @@
   }
 }
 
+@layer components {
+  /* The workspace sidebar changes this region's width without changing the
+     viewport breakpoint. Size the import cards from their own container so
+     the project controls keep a single row in either shell state. */
+  .import-sources-container {
+    container: import-sources / inline-size;
+  }
+
+  @container import-sources (min-width: 72rem) {
+    .import-source-groups--split {
+      grid-template-columns: minmax(23rem, 1fr) minmax(0, 2fr);
+    }
+
+    .import-source-card,
+    .import-source-controls {
+      flex-wrap: nowrap;
+    }
+  }
+}
+
 @layer utilities {
   .bg-preview-surface {
     background-color: hsl(var(--preview-surface));
