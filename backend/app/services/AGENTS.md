@@ -1,38 +1,28 @@
 # Backend services
 
-56 modules. Most are self-explanatory from their name and reasonably sized. This
-file covers the catalog subsystem, which is neither. Read `AGENTS.md` at the
-repository root first.
+This map focuses on the catalog subsystem, whose public surface spans several
+large modules. Read `AGENTS.md` at the repository root first.
 
 ## Catalog layering
 
 Three files, and the names do not tell you which to use:
 
-| File | Lines | What it actually is |
-| --- | --- | --- |
-| `component_catalog_service.py` | 5 | A re-export shim. Not a service. |
-| `component_catalog_service_postgres.py` | 1,156 | Persistence. SQL, transactions, row mapping. |
-| `component_catalog_domain.py` | 8,200 | Everything else. |
-
-`component_catalog_domain.py` is one class, `ComponentCatalogDomainService`,
-with 194 methods. It performs archive handling, `kicad-cli` subprocess
-invocation, XML parsing, CSV export, SHA-256 hashing, MIME detection, symbol and
-footprint payload rewriting, and threading. **You will not fit it in context.**
-
-Navigate it by method prefix rather than reading it:
-
-| Prefix | Concern |
+| File | Role |
 | --- | --- |
-| `_klc_*` | KLC validation and release gating |
-| `_preview_*` | Preview rendering and preview identity |
-| `_import_*` | Ingest from projects and folders |
-| `_export_*` | DBL export and CSV output |
-| `_store_*`, `_asset_*`, `_write_*` | Asset object storage |
-| `_symbol_*`, `_footprint_*` | KiCad payload rewriting |
-| `list_*`, `get_*`, `search_*` | Read queries |
+| `component_catalog_service.py` | Compatibility import and runtime singleton. |
+| `component_catalog_service_postgres.py` | Concrete PostgreSQL connection, schema initialization, and database-specific overrides. |
+| `component_catalog_domain.py` | Inherited catalog API and behavior, including SQL through the connection abstraction and file-backed assets. |
 
-Decomposition along these prefixes is planned. Do not add a method that
-straddles two of them.
+`ComponentCatalogPostgresService` inherits the large
+`ComponentCatalogDomainService`; the latter is not storage-neutral despite its
+name. Navigate it with symbol search rather than loading the file wholesale.
+Useful search terms are `project_import`, `folder_import`, `metadata_batch`,
+`validation`, `_klc_`, `preview`, `asset`, `representation`, `release`, and
+`dbl`. Public reads generally begin with `list_`, `get_`, or `search_`.
+
+Do not extend the inheritance split casually. When adding a cohesive capability,
+first consider a narrow collaborator with a public API that both workers and
+HTTP handlers can use; avoid creating another caller of private catalog methods.
 
 ## Catalog jobs
 
@@ -42,9 +32,10 @@ equivalent of `job_handlers.py`:
 `catalog_validation`, `catalog_preview_generation`, `project_component_import`,
 `folder_library_import`, `artifact_maintenance`, `catalog_metadata_batch`.
 
-Catalog jobs are checkpointed. A handler receives its prior checkpoint and
-accumulated result and must tolerate resumption — a handler that assumes a cold
-start will redo or duplicate work when a lease is reclaimed.
+The catalog wrapper restores `catalog_checkpoint` and `catalog_result` into the
+legacy handler envelope and persists updates reported through `progress`.
+Handlers that report checkpoints must therefore tolerate resumption and must
+not duplicate completed work after a lease is reclaimed.
 
 ## Rules that live here
 

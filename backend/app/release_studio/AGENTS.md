@@ -1,15 +1,16 @@
 # Release Studio
 
 Turns a project revision into a reproducible, auditable release: fabrication
-outputs, assembly data, generated documents, and a signed dossier. Roughly
-19,000 lines. Read `AGENTS.md` at the repository root first.
+outputs, assembly data, generated documents, and a signed dossier. Read
+`AGENTS.md` at the repository root first.
 
 ## The determinism contract
 
-Release Studio's value is that two builds of the same revision produce the same
-bytes. Almost every rule here follows from that. **Anything you add that varies
-between runs will break a release diff, and it will not fail loudly — it shows
-up as a spurious change in a customer's release comparison.**
+Release Studio's value is that two builds from the same closed inputs,
+configuration, and pinned toolchain produce the same technical bytes and
+digests. Almost every rule here follows from that. **Anything you add that
+varies between equivalent runs will break a release diff, and it may appear only
+as a spurious change in a customer's release comparison.**
 
 - Nothing time-varying, host-varying, or run-varying may be hashed into a
   digest. `dossier.py` enumerates keys that must never appear anywhere in the
@@ -20,9 +21,9 @@ up as a spurious change in a customer's release comparison.**
 - New configuration keys must be explicitly classified in `config/digests.py`.
   The sets are deliberately explicit; an unclassified key is a silent
   determinism hole.
-- `canonical/` defines byte-level serialization. Change it and every previously
-  published digest becomes unreproducible. Treat it as frozen unless the change
-  is the entire point of the PR.
+- `canonical/` defines byte-level serialization. A behavior change can move
+  released byte identities; require an explicit compatibility/versioning plan
+  rather than silently updating expected output.
 
 ## Layout
 
@@ -47,8 +48,9 @@ Entry point is `backend/app/services/release_studio_build_service.py`
 
 ## Traps
 
-- **The executor is pinned and must never become hermetic by default**
-  (`jobset.py`). Changing this changes output bytes.
+- **Unknown KiCad job types must never default to hermetic** (`jobset.py`). The
+  typed registry is pinned to the KiCad 10.0.4 executor; classify a new type
+  from the pinned source and its input behavior.
 - **Steps do not overlap.** They used to; `steps.py` documents why they no
   longer do. Do not reintroduce concurrency across `kicad-cli` processes.
 - **A missing view degrades one sheet, never the document set**
@@ -62,7 +64,6 @@ Entry point is `backend/app/services/release_studio_build_service.py`
 `backend/tests/test_release_studio_documents.py`,
 `backend/tests/test_release_studio_schema_migration.py`,
 `backend/tests/test_release_studio_canonicalization.py`, and
-`backend/tests/test_release_studio_closure.py` are the load-bearing suites —
-together about 5,000 lines. The canonicalization suite is the determinism guard;
-if it fails, do not adjust the expectation to match your output until you
-understand why the bytes moved.
+`backend/tests/test_release_studio_closure.py` are load-bearing suites. The
+canonicalization suite is the determinism guard; if it fails, do not adjust the
+expectation to match your output until you understand why the bytes moved.

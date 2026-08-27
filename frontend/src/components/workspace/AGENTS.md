@@ -13,18 +13,15 @@ The split is by filename prefix, not by folder:
 
 ## This directory is where the state rule matters most
 
-`library-component-workspace.tsx` is 2,569 lines with **44 `useState` calls** —
-the largest concentration of local state in the codebase, and the reason the
-state hierarchy rule exists.
+`library-component-workspace.tsx` coordinates many independent forms and
+workflows. Treat it as an orchestration hotspot, not a pattern for adding more
+local state.
 
 Before adding state here, check whether the value is already available from the
-URL, the loaded component record, or the current selection. It usually is. React
-Doctor reports 60 prop-driven state adjustments across the frontend and a
-disproportionate share are in this directory.
+URL, the loaded component record, or the current selection. If it is, derive it.
 
-The exception for imperative external systems (see root `AGENTS.md`) rarely
-applies here. These are forms and grids over server data, not viewer bridges.
-Server data is query state, not an external system.
+The imperative-system case described in the root map is uncommon here. Most of
+these modules are forms and grids over server data rather than viewer bridges.
 
 ## Modules
 

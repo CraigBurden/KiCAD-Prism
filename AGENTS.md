@@ -1,15 +1,16 @@
 # AGENTS.md
 
-Navigation and hard rules for agents working in KiCAD Prism. Deliberately
-complementary: it does not restate anything documented elsewhere. Paths are
-repo-root relative and CI-verified by `scripts/check_agent_docs.py`.
+Canonical, model-neutral navigation and hard rules for coding agents working in
+KiCAD Prism. Keep this file short: supported product behavior belongs in public
+documentation, and task procedures belong in the focused skills below. Paths
+are repo-root relative and CI-verified by `scripts/check_agent_docs.py`.
 
 **Read these before acting, not after:**
 
 - Service topology, storage domains, PostgreSQL schemas, trust boundaries —
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Read before changing any service
   boundary, job class, or persistence path.
-- Setup, the four check suites, branch prefixes, dependency policy —
+- Setup, check suites, branch prefixes, dependency policy —
   [CONTRIBUTING.md](CONTRIBUTING.md). Read before your first command in a fresh
   checkout, and before adding any dependency.
 
@@ -23,25 +24,39 @@ change:
 | Design comparison | `frontend/src/components/design-comparison/AGENTS.md` |
 | Library workspace | `frontend/src/components/workspace/AGENTS.md` |
 
+## Task skills
+
+These are model-neutral playbooks. Agents that do not discover repository
+skills automatically should open the relevant linked playbook directly.
+
+| Task | Skill |
+| --- | --- |
+| Select and report verification checks | `.agents/skills/prism-quality-gate/SKILL.md` |
+| Add or change an API endpoint | `.agents/skills/prism-api-endpoint/SKILL.md` |
+| Extend design-comparison semantics | `.agents/skills/prism-comparison-change-kind/SKILL.md` |
+| Rebuild the vendored ECAD viewer/parser | `.agents/skills/prism-viewer-rebuild/SKILL.md` |
+
 ## How work reaches a worker
 
-Every long-running operation is a job. `backend/app/services/job_handlers.py`
-holds the single dispatch table mapping job kind to handler function — start
-there when tracing any async behavior. Jobs are claimed from PostgreSQL with
-leases and fencing (`backend/app/services/job_service.py`,
+Long-running operations use the job system. Start at
+`backend/app/services/job_handlers.py`, which builds the worker registry;
+catalog job kinds are delegated through the `HANDLERS` registry in
+`backend/app/services/catalog_worker_tasks.py`. Jobs are claimed from PostgreSQL
+with leases and fencing (`backend/app/services/job_service.py`,
 `backend/app/services/job_runtime.py`) and executed by
 `backend/app/prism_worker.py` or the catalog worker. The browser polls job
-state; it is never pushed to.
+state.
 
-The frontend has exactly two routes, both in `frontend/src/App.tsx`. The root
-route mounts `frontend/src/components/workspace.tsx`; the project route mounts
-`frontend/src/pages/ProjectDetailPage.tsx`, which lazy-loads every feature tab.
-Any screen you are looking for is in one of those two trees.
+The authenticated application has two main routes plus a catch-all, all in
+`frontend/src/App.tsx`. The root route mounts
+`frontend/src/components/workspace.tsx`; the project route mounts
+`frontend/src/pages/ProjectDetailPage.tsx`, which lazy-loads feature tabs. Login
+and the authentication callback are rendered before this router.
 
 ## Feature traces
 
-Files in execution order. Touching one hop usually means touching its tests in
-the same commit.
+These are trace anchors, not exhaustive call graphs. Touching a contract at one
+hop usually requires checking its consumers and tests.
 
 **Import a project from Git**
 `backend/app/api/projects.py` · `backend/app/api/folders.py` →
@@ -71,8 +86,9 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 
 **Author and release a component**
 `backend/app/api/catalog_admin.py` →
-`backend/app/services/component_catalog_domain.py` →
-`backend/app/services/component_catalog_service_postgres.py` →
+`backend/app/services/component_catalog_service.py` (runtime alias) →
+`backend/app/services/component_catalog_service_postgres.py` and inherited
+`backend/app/services/component_catalog_domain.py` behavior →
 `backend/app/services/catalog_worker_tasks.py` (catalog worker) →
 `frontend/src/components/workspace/library-component-workspace.tsx` ·
 `frontend/src/components/workspace/library-release-queue.tsx`
@@ -97,26 +113,20 @@ These are settled. Do not relitigate them in a PR.
 ### State hierarchy (frontend)
 
 Source of truth, in order: **URL → server/query state → selection → local UI
-state.** A value available from a higher tier is computed at the point of use.
-It is never copied into `useState` and resynchronized with `useEffect`.
+state.** When a value already exists at a higher tier, derive it at the point of
+use instead of mirroring it into `useState` and resynchronizing it with an
+effect.
 
-This is the most common defect in this codebase's history. Six commits exist
-solely to undo it — `3e1761a`, `a132c2f`, `1ca704b`, `644a72d`, `4ba295d`,
-`596d8c2` — and React Doctor still reports 60 prop-driven state adjustments.
-Adding another is a regression, not a style preference.
-
-**The one exception:** synchronizing with an imperative system React does not
-own — the ECAD viewer custom element, a WebGPU canvas, the history API. Those
-expose their own lifecycles (the viewer exposes `ready` as a Promise, not a
-boolean) and an effect is the correct tool. Nothing else qualifies. Server data
-is not an external system; it is query state.
-
-An exception must carry a one-line reason, matching the
-`react-doctor-disable-next-line <rule> - <reason>` convention already used at
-`frontend/src/components/visualizer.tsx` line 339 and
-`frontend/src/components/design-comparison/comparison-presentation-shell.tsx`
-line 240. An unexplained effect that writes state reads as the defect and will
-be removed.
+Effects remain appropriate for external or imperative lifecycles such as the
+ECAD viewer, browser history, and timers. They may also initiate and cancel an
+asynchronous request when no query abstraction owns that lifecycle; local state
+may then hold that request's status and result, but must not mirror a loaded
+record or prop that is already available. A reconciliation effect, such as
+cross-domain selection re-anchoring, must name the triggering transition and
+carry regression coverage. Keep dependency and cleanup contracts explicit. If
+React Doctor needs a suppression, use the existing
+`react-doctor-disable-next-line <rule> - <reason>` convention and explain the
+invariant, not the tool workaround.
 
 ### Access control
 
@@ -139,15 +149,35 @@ a behavior change — `CONTRIBUTING.md` requires separate branches, and mixing
 them makes rollback during alpha stabilization unsafe. If you notice unrelated
 work, report it; do not do it.
 
-## Known structural debt
+## Context hotspots
 
-Accurate as of this file's last update. Do not treat these as models to copy.
+Do not treat these large modules as patterns for new work. Search by symbol and
+load the relevant ranges rather than reading them end to end.
 
-- `backend/app/services/component_catalog_domain.py` — 8,200 lines, one class,
-  194 methods, spanning archive handling, subprocess invocation, XML parsing,
-  CSV export, and hashing. Decomposition is planned along its `klc_*`,
-  `preview_*`, `import_*`, and `export_*` method prefixes.
-- `frontend/src/components/workspace/library-component-workspace.tsx` — 2,569
-  lines, 44 `useState` calls. Prime target for the state hierarchy rule above.
-- `frontend/src/components/` has 43 files loose at its top level while four
-  features are properly foldered. New components go in a feature folder.
+- `backend/app/services/component_catalog_domain.py` spans catalog workflow,
+  imports, assets, validation, previews, and exports. Put new cohesive behavior
+  behind a narrower service or helper when its boundary is clear.
+- `frontend/src/components/workspace/library-component-workspace.tsx` combines
+  component authoring, evidence, and release state. Prefer a sibling module for
+  behavior that does not need its shared orchestration state.
+- `frontend/src/components/design-comparison/comparison-presentation-shell.tsx`
+  and `frontend/src/components/visualizer.tsx` coordinate imperative viewers.
+  Extract pure shaping logic before splitting the orchestration blindly.
+- New feature components belong in a feature directory, not loose at
+  `frontend/src/components/`.
+
+## Generated and vendored boundaries
+
+Do not load minified bundles into context or edit them by hand when source is
+available.
+
+- `frontend/public/ecad-viewer.js`, `frontend/public/parser.worker.js`, and the
+  parser under `scripts/vendor/` come from the sibling `ecad-viewer` checkout.
+  Use `.agents/skills/prism-viewer-rebuild/SKILL.md`.
+- `kicad-prism-viewer/` is Prism's semantic viewer source. Its build writes
+  `kicad-prism-viewer/dist/prism-semantic-viewer.js` and synchronizes the served
+  `frontend/public/prism-semantic-viewer.js` plus its digest cache key. CI fails
+  when the tracked served files were not regenerated from current source.
+- `frontend/public/three/` is a vendored module tree used through the import map
+  in `frontend/index.html` and imports in `frontend/public/3d-viewer.js`. Do not
+  classify files there as dead from first-party import search alone.

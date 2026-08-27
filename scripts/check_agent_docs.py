@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Fail when an AGENTS.md names a repository path that no longer exists.
+"""Fail when agent guidance names a repository path that no longer exists.
 
-The agent navigation maps trace features across files. A rename silently turns a
-trace into a lie, and a lie is worse than no map: an agent acts on it. This
-check catches the dominant decay mode mechanically.
+The navigation maps and task skills trace features across files. A rename can
+silently turn a trace into a lie, so this check catches that decay mode
+mechanically.
 
-It verifies paths only. It cannot tell whether a trace is still semantically
-correct -- that stays a human judgement.
+It verifies paths and model-specific discovery shims. It cannot tell whether a
+trace is still semantically correct -- that stays a human judgement.
 
 Usage:
     python3 scripts/check_agent_docs.py
@@ -29,17 +29,29 @@ LINK_TARGET = re.compile(r"\[[^\]]*\]\(([^)#\s]+)")
 # spaces or glob characters.
 SOURCE_SUFFIXES = {".py", ".ts", ".tsx", ".md", ".yml", ".yaml", ".json", ".conf", ".sh"}
 SKIP_PREFIXES = ("http://", "https://", "mailto:", "#")
+CANONICAL_SKILLS = REPO / ".agents" / "skills"
+CLAUDE_SKILLS = REPO / ".claude" / "skills"
 
 
-def agent_docs() -> list[Path]:
+def agent_guidance() -> list[Path]:
     out = subprocess.run(
-        ["git", "ls-files", "*AGENTS.md", "*CLAUDE.md"],
+        [
+            "git",
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "*AGENTS.md",
+            "*CLAUDE.md",
+            "*SKILL.md",
+        ],
         cwd=REPO,
         capture_output=True,
         text=True,
         check=True,
-    ).stdout.split()
-    return [REPO / p for p in out]
+    ).stdout.split("\0")
+    return [REPO / p for p in out if p]
 
 
 def candidates(text: str) -> set[str]:
@@ -81,11 +93,78 @@ def resolve(doc: Path, token: str) -> Path | None:
     return None
 
 
+def skill_metadata(path: Path) -> dict[str, str]:
+    """Read the simple single-line fields used by repository skill frontmatter."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0] != "---":
+        return {}
+    metadata: dict[str, str] = {}
+    for line in lines[1:]:
+        if line == "---":
+            break
+        key, separator, value = line.partition(":")
+        if separator and key in {"name", "description"}:
+            metadata[key] = value.strip()
+    return metadata
+
+
+def skill_body(path: Path) -> str:
+    """Return normalized Markdown after a skill's frontmatter."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0] != "---":
+        return ""
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return ""
+    return "\n".join(lines[end + 1 :]).strip()
+
+
+def skill_shim_failures() -> tuple[list[str], int]:
+    """Keep Claude discovery shims aligned with model-neutral canonical skills."""
+    canonical = {
+        path.parent.name: path
+        for path in CANONICAL_SKILLS.glob("*/SKILL.md")
+    }
+    shims = {
+        path.parent.name: path
+        for path in CLAUDE_SKILLS.glob("*/SKILL.md")
+    }
+    failures: list[str] = []
+    for skill_name in sorted(set(canonical) | set(shims)):
+        canonical_path = canonical.get(skill_name)
+        shim_path = shims.get(skill_name)
+        if canonical_path is None:
+            failures.append(f"Claude skill has no canonical playbook -> {skill_name}")
+            continue
+        if shim_path is None:
+            failures.append(f"Canonical skill has no Claude discovery shim -> {skill_name}")
+            continue
+        canonical_meta = skill_metadata(canonical_path)
+        shim_meta = skill_metadata(shim_path)
+        for field in ("name", "description"):
+            if canonical_meta.get(field) != shim_meta.get(field):
+                failures.append(
+                    f"Claude skill {field} differs from canonical playbook -> {skill_name}"
+                )
+        expected_target = f".agents/skills/{skill_name}/SKILL.md"
+        expected_body = (
+            "# Claude discovery shim\n\n"
+            "Follow the canonical model-neutral playbook at the repository-root-relative\n"
+            f"path `{expected_target}`."
+        )
+        if skill_body(shim_path) != expected_body:
+            failures.append(
+                f"Claude skill body is not the canonical discovery shim -> {skill_name}"
+            )
+    return failures, len(canonical)
+
+
 def main() -> int:
     failures: list[str] = []
     checked = 0
 
-    for doc in agent_docs():
+    for doc in agent_guidance():
         text = doc.read_text(encoding="utf-8")
         rel_doc = doc.relative_to(REPO)
         for token in sorted(candidates(text)):
@@ -95,17 +174,22 @@ def main() -> int:
             if resolve(doc, token) is None:
                 failures.append(f"{rel_doc}: path does not exist -> {token}")
 
+    shim_failures, shim_count = skill_shim_failures()
+    failures.extend(shim_failures)
+
     if failures:
-        print(f"Stale agent documentation ({len(failures)} broken path(s)):\n")
+        print(f"Stale agent guidance ({len(failures)} issue(s)):\n")
         for failure in failures:
             print(f"  {failure}")
         print(
-            "\nUpdate the trace in the file above, or correct the path. "
-            "A trace that points at a moved file will mislead the next agent."
+            "\nUpdate the path, metadata, or discovery shim named above. "
+            "Agent guidance must not carry stale or model-specific forks."
         )
         return 1
 
-    print(f"Agent documentation paths OK ({checked} checked).")
+    print(
+        f"Agent guidance OK ({checked} paths, {shim_count} model-neutral skill shims)."
+    )
     return 0
 
 

@@ -11,6 +11,9 @@ behavior.
 - Report bugs with the repository issue form.
 - Discuss large features, schema changes, API breaks, or workflow redesigns
   before implementation.
+- If you use a coding agent, start it at [AGENTS.md](AGENTS.md). The scoped maps
+  and task playbooks reduce repository-wide context loading; this contributing
+  guide remains the authority for branch, test, and pull-request policy.
 - During an announced feature freeze, obtain maintainer approval before starting
   behavior, schema, API, or deployment-contract changes.
 - Never use a public issue for a vulnerability. Read [SECURITY.md](SECURITY.md).
