@@ -48,8 +48,30 @@ describe("LibraryImportCenter sources", () => {
     expect(screen.getByRole("button", { name: "Import From All Projects" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Import project" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Import Center" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("import-source-groups")).toHaveClass("gap-2", "xl:grid-cols-2");
+    expect(screen.getByTestId("import-source-groups")).toHaveClass("grid-cols-1", "gap-2");
+    expect(screen.getByTestId("import-source-groups")).not.toHaveClass("import-source-groups--split");
     expect(screen.getByRole("heading", { name: "KiCad libraries" }).closest("section")).toHaveClass("p-2");
     expect(screen.getByRole("heading", { name: "Project components" }).closest("section")).toHaveClass("p-2");
+  });
+
+  it("allocates more space to project imports when the cards share a row", async () => {
+    vi.mocked(fetchJson).mockImplementation(async <T,>(input: RequestInfo | URL) => {
+      const path = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (path === "/api/catalog/import-sessions") return { items: [] } as T;
+      if (path === "/api/catalog/import-sources/folder-roots") return { items: [] } as T;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(
+      <LibraryImportCenter
+        projects={[project]}
+        user={{ name: "Admin", email: "admin@example.com", role: "admin" }}
+      />,
+    );
+
+    expect(await screen.findByTestId("import-source-groups")).toHaveClass(
+      "grid-cols-1",
+      "import-source-groups--split",
+    );
   });
 });

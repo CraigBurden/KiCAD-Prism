@@ -409,7 +409,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="border-b p-3">
+      <header className="import-sources-container border-b p-3">
         <input
           ref={folderInputRef}
           type="file"
@@ -426,15 +426,21 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           allowedRoles={["designer", "admin"]}
           className="flex w-full max-w-none"
         >
-          <div className="grid w-full gap-2 xl:grid-cols-2" data-testid="import-source-groups">
-            <section aria-labelledby="library-import-source" className="flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
+          <div
+            className={cn(
+              "import-source-groups grid w-full grid-cols-1 gap-2",
+              serverRoots.length === 0 && "import-source-groups--split"
+            )}
+            data-testid="import-source-groups"
+          >
+            <section aria-labelledby="library-import-source" className="import-source-card flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
               <div className="flex shrink-0 items-center gap-2">
                 <div className="flex size-8 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
                   <FolderOpen className="h-4 w-4" />
                 </div>
                 <h3 id="library-import-source" className="whitespace-nowrap text-sm font-semibold">KiCad libraries</h3>
               </div>
-              <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+              <div className="import-source-controls ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
                 <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={!canWrite || creating}>
                   <FolderOpen className="mr-2 h-4 w-4" />Choose local folder
                 </Button>
@@ -454,14 +460,14 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
               </div>
             </section>
 
-            <section aria-labelledby="project-import-source" className="flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
+            <section aria-labelledby="project-import-source" className="import-source-card flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
               <div className="flex shrink-0 items-center gap-2">
                 <div className="flex size-8 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
                   <CircuitBoard className="h-4 w-4" />
                 </div>
                 <h3 id="project-import-source" className="whitespace-nowrap text-sm font-semibold">Project components</h3>
               </div>
-              <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+              <div className="import-source-controls ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
                 <Select value={projectId} onValueChange={setProjectId} disabled={!canWrite || creating}>
                   <SelectTrigger className="min-w-40 flex-1"><SelectValue placeholder="Select a project" /></SelectTrigger>
                   <SelectContent>
