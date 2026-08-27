@@ -357,6 +357,18 @@ jobs:
             release-studio-live-kicad:ci \
             -m tests.release_studio_live_runner
 
+  agent-docs:
+    name: Agent documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Verify every path named in an AGENTS.md still exists
+        run: python3 scripts/check_agent_docs.py
+
   quality-gate:
     name: Quality gate
     if: ${{ always() }}
@@ -367,6 +379,7 @@ jobs:
       - deployment-config
       - dependency-identity
       - kicad-live
+      - agent-docs
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -379,12 +392,14 @@ jobs:
           DEPLOYMENT_RESULT: ${{ needs.deployment-config.result }}
           IDENTITY_RESULT: ${{ needs.dependency-identity.result }}
           KICAD_LIVE_RESULT: ${{ needs.kicad-live.result }}
+          AGENT_DOCS_RESULT: ${{ needs.agent-docs.result }}
         run: |
           test "$FRONTEND_RESULT" = "success"
           test "$BACKEND_RESULT" = "success"
           test "$VIEWER_RESULT" = "success"
           test "$DEPLOYMENT_RESULT" = "success"
           test "$IDENTITY_RESULT" = "success"
+          test "$AGENT_DOCS_RESULT" = "success"
           case "$KICAD_LIVE_RESULT" in
             success|skipped) ;;
             *)
