@@ -517,8 +517,8 @@ export function LibraryImportRemediationGrid({
   const gridTemplate = `36px 40px 150px ${COLUMNS.map((column) => `${column.width}px`).join(" ")} 200px`;
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-3" data-testid="import-remediation-grid">
+      <div className="flex shrink-0 flex-wrap items-center gap-2" data-testid="import-remediation-controls">
         <Input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
@@ -638,10 +638,11 @@ export function LibraryImportRemediationGrid({
         </PermissionHint>
       </div>
 
-      <div className="overflow-x-auto border">
+      <div className="themed-scrollbar min-h-0 flex-1 overflow-auto border" data-testid="import-remediation-scroll-region">
         <div className="min-w-max">
           <div
-            className="sticky top-0 z-20 grid items-center border-b bg-muted/60 text-xs font-medium"
+            className="sticky top-0 z-20 grid items-center border-b bg-muted text-xs font-medium"
+            data-testid="import-remediation-column-headings"
             style={{ gridTemplateColumns: gridTemplate }}
           >
             <div className="flex h-9 items-center justify-center border-r">
@@ -769,7 +770,7 @@ export function LibraryImportRemediationGrid({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
         <Badge variant="outline">{visibleRows.length} shown</Badge>
         <Badge variant="outline">{readyRows.length} ready</Badge>
         <Badge variant="outline">{groups.length - readyRows.length} need attention</Badge>

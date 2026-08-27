@@ -550,7 +550,14 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           )}
         </aside>
 
-        <section className="min-h-0 overflow-y-auto p-4">
+        <section
+          className={cn(
+            "min-h-0 p-4",
+            selectedSession && proposals.length > 0 && reviewMode === "grid"
+              ? "overflow-hidden"
+              : "overflow-y-auto"
+          )}
+        >
           {!selectedSession ? (
             <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground"><FolderSearch className="mb-3 h-8 w-8" /><p>Select or create an import session.</p></div>
           ) : selectedSession.status === "failed" ? (
@@ -558,7 +565,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           ) : proposals.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{selectedSession.status === "staged" ? "No components were discovered." : selectedSession.scope === "folder" ? "Resolving symbols, footprints, and referenced 3D models…" : "Scanning captured project revisions…"}</div>
           ) : reviewMode === "grid" ? (
-            <div>
+            <div className="h-full min-h-0">
               <LibraryImportRemediationGrid
                 sessionId={selectedSession.id}
                 proposals={proposals}
