@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronRight, CircuitBoard, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Rows3, Table2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, CircuitBoard, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Table2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -409,19 +409,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="border-b p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Import Center</h2>
-          {folderProgress && (
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              <span>{folderProgress.label} {folderProgress.completed}/{folderProgress.total}</span>
-              <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
-                <div className="h-full bg-primary transition-[width]" style={{ width: `${(folderProgress.completed / folderProgress.total) * 100}%` }} />
-              </div>
-            </div>
-          )}
-        </div>
+      <header className="border-b p-3">
         <input
           ref={folderInputRef}
           type="file"
@@ -438,18 +426,15 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           allowedRoles={["designer", "admin"]}
           className="flex w-full max-w-none"
         >
-          <div className="mt-4 grid w-full gap-3 xl:grid-cols-2" data-testid="import-source-groups">
-            <section aria-labelledby="library-import-source" className="min-w-0 border bg-card p-3">
-              <div className="flex items-center gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
+          <div className="grid w-full gap-2 xl:grid-cols-2" data-testid="import-source-groups">
+            <section aria-labelledby="library-import-source" className="flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
+              <div className="flex shrink-0 items-center gap-2">
+                <div className="flex size-8 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
                   <FolderOpen className="h-4 w-4" />
                 </div>
-                <div className="min-w-0">
-                  <h3 id="library-import-source" className="text-sm font-semibold">KiCad libraries</h3>
-                  <p className="text-xs text-muted-foreground">Symbols, footprints, and 3D models</p>
-                </div>
+                <h3 id="library-import-source" className="whitespace-nowrap text-sm font-semibold">KiCad libraries</h3>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
                 <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={!canWrite || creating}>
                   <FolderOpen className="mr-2 h-4 w-4" />Choose local folder
                 </Button>
@@ -469,19 +454,16 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
               </div>
             </section>
 
-            <section aria-labelledby="project-import-source" className="min-w-0 border bg-card p-3">
-              <div className="flex items-center gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
+            <section aria-labelledby="project-import-source" className="flex min-w-0 flex-wrap items-center gap-3 border bg-card p-2">
+              <div className="flex shrink-0 items-center gap-2">
+                <div className="flex size-8 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
                   <CircuitBoard className="h-4 w-4" />
                 </div>
-                <div className="min-w-0">
-                  <h3 id="project-import-source" className="text-sm font-semibold">Project components</h3>
-                  <p className="text-xs text-muted-foreground">Parts captured from project revisions</p>
-                </div>
+                <h3 id="project-import-source" className="whitespace-nowrap text-sm font-semibold">Project components</h3>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
                 <Select value={projectId} onValueChange={setProjectId} disabled={!canWrite || creating}>
-                  <SelectTrigger className="min-w-56 flex-1"><SelectValue placeholder="Select a project" /></SelectTrigger>
+                  <SelectTrigger className="min-w-40 flex-1"><SelectValue placeholder="Select a project" /></SelectTrigger>
                   <SelectContent>
                     {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.display_name || project.name}</SelectItem>)}
                   </SelectContent>
@@ -493,7 +475,13 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           </div>
         </PermissionHint>
         {folderProgress && (
-          <span className="sr-only" aria-live="polite">{folderProgress.label} {folderProgress.completed} of {folderProgress.total}</span>
+          <div className="mt-2 flex items-center justify-end gap-3 text-xs text-muted-foreground" role="status">
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            <span>{folderProgress.label} {folderProgress.completed}/{folderProgress.total}</span>
+            <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
+              <div className="h-full bg-primary transition-[width]" style={{ width: `${(folderProgress.completed / folderProgress.total) * 100}%` }} />
+            </div>
+          </div>
         )}
       </header>
 
@@ -564,19 +552,12 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
           ) : proposals.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{selectedSession.status === "staged" ? "No components were discovered." : selectedSession.scope === "folder" ? "Resolving symbols, footprints, and referenced 3D models…" : "Scanning captured project revisions…"}</div>
           ) : reviewMode === "grid" ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">
-                  Resolve missing metadata and footprints across every row, then import in bulk.
-                </p>
-                <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewMode("cards")}>
-                  <Rows3 className="mr-1.5 h-3.5 w-3.5" />Detail view
-                </Button>
-              </div>
+            <div>
               <LibraryImportRemediationGrid
                 sessionId={selectedSession.id}
                 proposals={proposals}
                 canWrite={canWrite}
+                onShowDetailView={() => setReviewMode("cards")}
                 onRefresh={async () => {
                   await Promise.all([loadSessions(), loadProposals(selectedSession.id)]);
                 }}

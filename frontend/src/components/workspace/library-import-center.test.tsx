@@ -47,6 +47,9 @@ describe("LibraryImportCenter sources", () => {
     expect(screen.getByRole("button", { name: "Import From Project" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import From All Projects" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Import project" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("import-source-groups")).toHaveClass("xl:grid-cols-2");
+    expect(screen.queryByRole("heading", { name: "Import Center" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("import-source-groups")).toHaveClass("gap-2", "xl:grid-cols-2");
+    expect(screen.getByRole("heading", { name: "KiCad libraries" }).closest("section")).toHaveClass("p-2");
+    expect(screen.getByRole("heading", { name: "Project components" }).closest("section")).toHaveClass("p-2");
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, ArrowDownToLine, Check, CheckCheck, Combine, Download, Loader2, Redo2, Save,
-  Undo2, Upload,
+  Rows3, Undo2, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -23,6 +23,7 @@ interface LibraryImportRemediationGridProps {
   sessionId: string;
   proposals: ProjectComponentImportProposal[];
   canWrite: boolean;
+  onShowDetailView: () => void;
   onRefresh: () => Promise<void> | void;
 }
 
@@ -215,6 +216,7 @@ export function LibraryImportRemediationGrid({
   sessionId,
   proposals,
   canWrite,
+  onShowDetailView,
   onRefresh,
 }: LibraryImportRemediationGridProps) {
   // Every cell edit, fill-down, and link change pushes the previous state here so a
@@ -543,34 +545,36 @@ export function LibraryImportRemediationGrid({
           Group by MPN
           {groupByMpn && mergedGroupCount > 0 ? ` (${mergedGroupCount} merged)` : ""}
         </Button>
+        <Button variant="outline" size="sm" className="ml-auto h-8 text-xs" onClick={onShowDetailView}>
+          <Rows3 className="mr-1.5 h-3.5 w-3.5" />Detail view
+        </Button>
 
         <PermissionHint
           blocked={!canWrite}
           action="edit or accept import proposals"
           allowedRoles={["designer", "admin"]}
-          className="ml-auto"
+          className="basis-full"
         >
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full basis-full flex-wrap items-center gap-2">
           <Button
             variant="outline"
-            size="sm"
-            className="h-8 text-xs"
+            size="icon-sm"
+            aria-label="Undo"
             title="Undo (⌘Z)"
             disabled={!canWrite || undoStack.length === 0}
             onClick={undo}
           >
-            <Undo2 className="mr-1.5 h-3.5 w-3.5" /> Undo
+            <Undo2 className="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="outline"
-            size="sm"
-            className="h-8 text-xs"
+            size="icon-sm"
+            aria-label="Redo"
             title="Redo (⇧⌘Z)"
             disabled={!canWrite || redoStack.length === 0}
             onClick={redo}
           >
             <Redo2 className="h-3.5 w-3.5" />
-            <span className="sr-only">Redo</span>
           </Button>
           <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportCsv}>
             <Download className="mr-1.5 h-3.5 w-3.5" /> Export CSV
@@ -605,29 +609,31 @@ export function LibraryImportRemediationGrid({
             )}
             Save edits{dirtyCount > 0 ? ` (${dirtyCount})` : ""}
           </Button>
-          <Button
-            size="sm"
-            className="h-8 text-xs"
-            disabled={!canWrite || accepting || selectedReady.length === 0}
-            onClick={() => void acceptRows(selectedReady)}
-          >
-            {accepting ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Check className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Import selected ({selectedReady.length})
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 text-xs"
-            disabled={!canWrite || accepting || readyRows.length === 0}
-            onClick={() => void acceptRows(readyRows)}
-          >
-            <CheckCheck className="mr-1.5 h-3.5 w-3.5" />
-            Import all ready ({readyRows.length})
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              disabled={!canWrite || accepting || selectedReady.length === 0}
+              onClick={() => void acceptRows(selectedReady)}
+            >
+              {accepting ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Import selected ({selectedReady.length})
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 text-xs"
+              disabled={!canWrite || accepting || readyRows.length === 0}
+              onClick={() => void acceptRows(readyRows)}
+            >
+              <CheckCheck className="mr-1.5 h-3.5 w-3.5" />
+              Import all ready ({readyRows.length})
+            </Button>
+          </div>
         </div>
         </PermissionHint>
       </div>
