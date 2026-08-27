@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -11,17 +11,40 @@ const indexPath = path.join(repositoryRoot, "frontend", "index.html");
 
 const bundle = await readFile(builtPath);
 const digest = createHash("sha256").update(bundle).digest("hex");
-const index = await readFile(indexPath, "utf8");
 const scriptPattern = /\/prism-semantic-viewer\.js\?v=[^"<]+/;
 
-if (!scriptPattern.test(index)) {
-  throw new Error(`Could not find the semantic viewer cache key in ${indexPath}`);
+const exists = async (candidate) => {
+  try {
+    await access(candidate);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const [servedExists, indexExists] = await Promise.all([
+  exists(servedPath),
+  exists(indexPath),
+]);
+
+if (servedExists !== indexExists) {
+  throw new Error(
+    `Incomplete frontend checkout: expected both ${servedPath} and ${indexPath}`,
+  );
 }
 
-await writeFile(servedPath, bundle);
-await writeFile(
-  indexPath,
-  index.replace(scriptPattern, `/prism-semantic-viewer.js?v=${digest}`),
-);
+if (servedExists) {
+  const index = await readFile(indexPath, "utf8");
+  if (!scriptPattern.test(index)) {
+    throw new Error(`Could not find the semantic viewer cache key in ${indexPath}`);
+  }
 
-console.log(`Synchronized served semantic viewer sha256:${digest}`);
+  await writeFile(servedPath, bundle);
+  await writeFile(
+    indexPath,
+    index.replace(scriptPattern, `/prism-semantic-viewer.js?v=${digest}`),
+  );
+  console.log(`Synchronized served semantic viewer sha256:${digest}`);
+} else {
+  console.log(`Built semantic viewer sha256:${digest}; frontend sync not available`);
+}
