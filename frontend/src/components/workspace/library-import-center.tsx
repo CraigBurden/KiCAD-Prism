@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronRight, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Rows3, Table2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, CircuitBoard, FolderOpen, FolderSearch, HardDrive, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Rows3, Table2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -410,61 +410,90 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b p-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold">Import Center</h2>
-          </div>
-          {/* One hint for the whole cluster: six identical tooltips on six
-              adjacent buttons is noise, and the reason is the same for all. */}
-          <PermissionHint
-            blocked={!canWrite}
-            action="import components into the catalog"
-            allowedRoles={["designer", "admin"]}
-            className="max-w-4xl"
-          >
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <input
-              ref={folderInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              {...DIRECTORY_INPUT_PROPS}
-              onChange={(event) => void uploadFolder(event.currentTarget.files)}
-            />
-            <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={!canWrite || creating}>
-              <FolderOpen className="mr-2 h-4 w-4" />Choose library folder
-            </Button>
-            {serverRoots.length > 0 && (
-              <>
-                <Select value={serverRoot} onValueChange={setServerRoot} disabled={!canWrite || creating}>
-                  <SelectTrigger className="w-44"><SelectValue placeholder="Server root" /></SelectTrigger>
-                  <SelectContent>{serverRoots.map((root) => <SelectItem key={root.name} value={root.name}>{root.name}</SelectItem>)}</SelectContent>
-                </Select>
-                <Input className="w-48" value={serverSubpath} onChange={(event) => setServerSubpath(event.target.value)} placeholder="Optional subfolder" disabled={creating} />
-                <Button variant="outline" onClick={() => void importServerFolder()} disabled={!canWrite || creating}>
-                  <HardDrive className="mr-2 h-4 w-4" />Import server folder
-                </Button>
-              </>
-            )}
-            <Select value={projectId} onValueChange={setProjectId} disabled={!canWrite || creating}>
-              <SelectTrigger className="w-64"><SelectValue placeholder="Select a project" /></SelectTrigger>
-              <SelectContent>
-                {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.display_name || project.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" onClick={() => void createSession("project")} disabled={!canWrite || !projectId || creating}>Import project</Button>
-            <Button onClick={() => void createSession("all-projects")} disabled={!canWrite || creating}>Import all projects</Button>
-          </div>
-          </PermissionHint>
-        </div>
-        {folderProgress && (
-          <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-            {folderProgress.label} {folderProgress.completed}/{folderProgress.total}
-            <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
-              <div className="h-full bg-primary transition-[width]" style={{ width: `${(folderProgress.completed / folderProgress.total) * 100}%` }} />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Import Center</h2>
+          {folderProgress && (
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              <span>{folderProgress.label} {folderProgress.completed}/{folderProgress.total}</span>
+              <div className="h-1.5 w-40 overflow-hidden rounded-full bg-muted">
+                <div className="h-full bg-primary transition-[width]" style={{ width: `${(folderProgress.completed / folderProgress.total) * 100}%` }} />
+              </div>
             </div>
+          )}
+        </div>
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          {...DIRECTORY_INPUT_PROPS}
+          onChange={(event) => void uploadFolder(event.currentTarget.files)}
+        />
+        {/* One hint for the whole cluster: the permission and allowed roles are
+            identical for every import source. */}
+        <PermissionHint
+          blocked={!canWrite}
+          action="import components into the catalog"
+          allowedRoles={["designer", "admin"]}
+          className="flex w-full max-w-none"
+        >
+          <div className="mt-4 grid w-full gap-3 xl:grid-cols-2" data-testid="import-source-groups">
+            <section aria-labelledby="library-import-source" className="min-w-0 border bg-card p-3">
+              <div className="flex items-center gap-3">
+                <div className="flex size-9 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
+                  <FolderOpen className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 id="library-import-source" className="text-sm font-semibold">KiCad libraries</h3>
+                  <p className="text-xs text-muted-foreground">Symbols, footprints, and 3D models</p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button variant="outline" onClick={() => folderInputRef.current?.click()} disabled={!canWrite || creating}>
+                  <FolderOpen className="mr-2 h-4 w-4" />Choose local folder
+                </Button>
+                {serverRoots.length > 0 && (
+                  <>
+                    <div className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
+                    <Select value={serverRoot} onValueChange={setServerRoot} disabled={!canWrite || creating}>
+                      <SelectTrigger className="min-w-32 flex-1"><SelectValue placeholder="Server root" /></SelectTrigger>
+                      <SelectContent>{serverRoots.map((root) => <SelectItem key={root.name} value={root.name}>{root.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Input className="min-w-40 flex-1" value={serverSubpath} onChange={(event) => setServerSubpath(event.target.value)} placeholder="Optional subfolder" disabled={creating} />
+                    <Button variant="outline" onClick={() => void importServerFolder()} disabled={!canWrite || creating}>
+                      <HardDrive className="mr-2 h-4 w-4" />Import server folder
+                    </Button>
+                  </>
+                )}
+              </div>
+            </section>
+
+            <section aria-labelledby="project-import-source" className="min-w-0 border bg-card p-3">
+              <div className="flex items-center gap-3">
+                <div className="flex size-9 shrink-0 items-center justify-center border bg-muted/40 text-muted-foreground">
+                  <CircuitBoard className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 id="project-import-source" className="text-sm font-semibold">Project components</h3>
+                  <p className="text-xs text-muted-foreground">Parts captured from project revisions</p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Select value={projectId} onValueChange={setProjectId} disabled={!canWrite || creating}>
+                  <SelectTrigger className="min-w-56 flex-1"><SelectValue placeholder="Select a project" /></SelectTrigger>
+                  <SelectContent>
+                    {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.display_name || project.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button variant="outline" onClick={() => void createSession("project")} disabled={!canWrite || !projectId || creating}>Import From Project</Button>
+                <Button onClick={() => void createSession("all-projects")} disabled={!canWrite || creating}>Import From All Projects</Button>
+              </div>
+            </section>
           </div>
+        </PermissionHint>
+        {folderProgress && (
+          <span className="sr-only" aria-live="polite">{folderProgress.label} {folderProgress.completed} of {folderProgress.total}</span>
         )}
       </header>
 
