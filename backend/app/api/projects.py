@@ -168,7 +168,7 @@ def _default_commit_path_config() -> PathConfig:
 
 def _path_config_from_commit(project: project_service.Project, commit: Optional[str]) -> PathConfig:
     if not commit:
-        return path_config_service.get_path_config(project.path)
+        return project_service.path_config_for(project)
 
     repo_path, sub_path = _repo_context(project)
     try:
@@ -406,7 +406,7 @@ def _load_project_readme_content(
                 return None
             raise
 
-    resolved = path_config_service.resolve_paths(project.path, config)
+    resolved = project_service.resolved_paths_for(project, config)
     readme_path = resolved.readme_path
     if not readme_path:
         return None
@@ -1128,8 +1128,9 @@ def _build_project_properties(project: project_service.Project) -> ProjectProper
     latest_commit = latest_commits[0] if latest_commits else None
     latest_tag = releases[0] if releases else None
 
-    schematic_path = project_service.find_schematic_file(project.path)
-    pcb_path = project_service.find_pcb_file(project.path)
+    anchor = project_service.project_anchor(project)
+    schematic_path = project_service.find_schematic_file(project.path, anchor)
+    pcb_path = project_service.find_pcb_file(project.path, anchor)
     schematic_metadata = project_properties_service.extract_schematic_metadata(project.path, schematic_path)
     pcb_metadata = project_properties_service.extract_pcb_metadata(project.path, pcb_path)
 
@@ -1633,7 +1634,9 @@ async def get_project_schematic(
         )
         return _commit_file_response(commit_file, inline=True)
     
-    path = project_service.find_schematic_file(project.path)
+    path = project_service.find_schematic_file(
+        project.path, project_service.project_anchor(project)
+    )
     if not path:
         raise HTTPException(status_code=404, detail="Schematic not found")
     return FileResponse(path)
@@ -1680,7 +1683,9 @@ async def get_project_subsheets(
         ]
         return {"files": subsheet_urls}
     
-    main_path = project_service.find_schematic_file(project.path)
+    main_path = project_service.find_schematic_file(
+        project.path, project_service.project_anchor(project)
+    )
     if not main_path:
         raise HTTPException(status_code=404, detail="Schematic not found")
         
@@ -1761,7 +1766,9 @@ async def get_project_viewer_support_files(
                 )
         return {"files": files}
 
-    project_file = semantic_visualizer_service.find_kicad_project(project.path)
+    project_file = semantic_visualizer_service.find_kicad_project(
+        project.path, project_service.project_anchor(project)
+    )
     files = [
         {
             "filename": project_file.name,
@@ -1818,7 +1825,9 @@ async def get_project_pcb(
         )
         return _commit_file_response(commit_file, inline=True)
     
-    path = project_service.find_pcb_file(project.path)
+    path = project_service.find_pcb_file(
+        project.path, project_service.project_anchor(project)
+    )
     if not path:
         raise HTTPException(status_code=404, detail="PCB not found")
     return FileResponse(path)
@@ -1878,9 +1887,10 @@ async def get_project_config(project_id: str, user: AuthenticatedUser = Depends(
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
-    config = path_config_service.get_path_config(project.path)
-    resolved = path_config_service.resolve_paths(project.path, config)
-    explicit_config = path_config_service._load_prism_config(project.path)
+    anchor = project_service.project_anchor(project)
+    config = project_service.path_config_for(project)
+    resolved = project_service.resolved_paths_for(project, config)
+    explicit_config = path_config_service._load_prism_config(project.path, anchor)
     effective_config = config.model_copy(deep=True)
     if not effective_config.project_name:
         effective_config.project_name = project.display_name
@@ -1934,14 +1944,14 @@ async def update_project_config(
     validation = path_config_service.validate_config(project.path, config)
     
     # Save the configuration
-    path_config_service.save_path_config(project.path, config)
-    
+    project_service.save_path_config_for(project, config)
+
     # Clear cache to ensure fresh resolution
     path_config_service.clear_config_cache(project.path)
     file_service.invalidate_file_listing_cache()
-    
+
     # Get resolved paths
-    resolved = path_config_service.resolve_paths(project.path, config)
+    resolved = project_service.resolved_paths_for(project, config)
     
     return {
         "config": config.model_dump(),
@@ -1988,13 +1998,13 @@ async def update_project_name(
         raise HTTPException(status_code=400, detail="Display name cannot be empty")
 
     # Get current config
-    config = path_config_service.get_path_config(project.path)
-    
+    config = project_service.path_config_for(project)
+
     # Update project name
     config.project_name = display_name
     
     # Save to .prism.json
-    path_config_service.save_path_config(project.path, config)
+    project_service.save_path_config_for(project, config)
     await asyncio.to_thread(workspace.update_project, project_id, display_name=display_name)
     
     return {
@@ -2035,9 +2045,9 @@ async def update_project_description(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Also persist to .prism.json for compatibility
-    config = path_config_service.get_path_config(project.path)
+    config = project_service.path_config_for(project)
     config.description = next_description
-    path_config_service.save_path_config(project.path, config)
+    project_service.save_path_config_for(project, config)
 
     return {
         "description": next_description,

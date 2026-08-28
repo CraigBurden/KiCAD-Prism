@@ -1782,6 +1782,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (17, "release_studio_terminal_and_identity_guards"),
                 (18, "release_studio_source_defaults"),
                 (19, "release_studio_project_signoff"),
+                (20, "project_file_anchor"),
             ],
         )
 

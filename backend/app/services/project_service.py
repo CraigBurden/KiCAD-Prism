@@ -33,6 +33,11 @@ class Project(BaseModel):
     # this to know which thumbnail actions to offer.
     thumbnail_source: Optional[str] = None
     sub_path: Optional[str] = None  # Relative path within parent repo
+    # This project's own file inside its directory (its .kicad_pro, or the board
+    # KiCad would regenerate one from). A directory can hold several KiCad
+    # projects, and this is what tells them apart. Empty for projects registered
+    # before Prism recorded it, which are the only project in their directory.
+    project_file: Optional[str] = None
     parent_repo: Optional[str] = None  # Parent monorepo name
     repo_url: Optional[str] = None  # Original Git URL
     import_type: Optional[str] = None  # "type1" or "type2_subproject"
@@ -95,6 +100,42 @@ def _save_project_registry(registry: Dict[str, dict]) -> None:
         invalidate_project_caches()
     except IOError as e:
         print(f"Warning: Failed to save project registry: {e}")
+
+
+# The project file that identifies one project inside a shared directory.
+# Accepts either a `Project` or a raw workspace row, because callers hold one or
+# the other depending on how deep in the stack they are.
+project_anchor = path_config_service.anchor_for_project
+
+
+def _project_path_of(project: Any) -> str:
+    if isinstance(project, dict):
+        return str(project.get("path") or "")
+    return str(getattr(project, "path", "") or "")
+
+
+def path_config_for(project: Any, use_cache: bool = True) -> path_config_service.PathConfig:
+    """Load a project's path configuration, honouring its anchor."""
+    return path_config_service.get_path_config(
+        _project_path_of(project), use_cache, anchor=project_anchor(project)
+    )
+
+
+def resolved_paths_for(
+    project: Any,
+    config: Optional[path_config_service.PathConfig] = None,
+) -> path_config_service.ResolvedPaths:
+    """Resolve a project's paths, honouring its anchor."""
+    return path_config_service.resolve_paths(
+        _project_path_of(project), config, anchor=project_anchor(project)
+    )
+
+
+def save_path_config_for(project: Any, config: path_config_service.PathConfig) -> None:
+    """Persist a project's path configuration under its own anchor."""
+    path_config_service.save_path_config(
+        _project_path_of(project), config, anchor=project_anchor(project)
+    )
 
 
 def invalidate_project_caches() -> None:
@@ -755,15 +796,19 @@ def run_kicad_workflow_job_v3(context: JobContext) -> JobResult:
     )
     context.check_cancelled()
 
-    pro_file = next(
-        (name for name in sorted(os.listdir(project.path)) if name.endswith(".kicad_pro")),
-        None,
-    )
+    # This project's own .kicad_pro, not whichever one sorts first: a directory
+    # holding two projects would otherwise build the wrong board.
+    pro_file = project_anchor(project)
+    if not pro_file or not pro_file.endswith(".kicad_pro"):
+        pro_file = next(
+            (name for name in sorted(os.listdir(project.path)) if name.endswith(".kicad_pro")),
+            None,
+        )
     if not pro_file:
         raise ValueError(".kicad_pro file not found in project root")
 
-    config = path_config_service.get_path_config(project.path)
-    resolved_paths = path_config_service.resolve_paths(project.path, config)
+    config = path_config_for(project)
+    resolved_paths = resolved_paths_for(project, config)
     jobset_path = resolved_paths.jobset_path
     configured_jobset = config.jobset or "Outputs.kicad_jobset"
     if not jobset_path:
@@ -802,8 +847,8 @@ def get_project_thumbnail_path(project_id: str) -> Optional[str]:
         return None
     
     # Use path config service to get thumbnail path
-    config = path_config_service.get_path_config(project.path)
-    resolved = path_config_service.resolve_paths(project.path, config)
+    config = path_config_for(project)
+    resolved = resolved_paths_for(project, config)
     thumbnail_path = resolved.thumbnail_dir
     
     print(f"[DEBUG] Project: {project.path}")
@@ -830,14 +875,14 @@ def get_project_thumbnail_path(project_id: str) -> Optional[str]:
     print(f"[DEBUG] No valid thumbnail found")
     return None
 
-def find_schematic_file(project_path: str) -> Optional[str]:
+def find_schematic_file(project_path: str, anchor: Optional[str] = None) -> Optional[str]:
     """Find the main .kicad_sch file using path config."""
-    resolved = path_config_service.resolve_paths(project_path)
+    resolved = path_config_service.resolve_paths(project_path, anchor=anchor)
     return resolved.schematic
 
-def find_pcb_file(project_path: str) -> Optional[str]:
+def find_pcb_file(project_path: str, anchor: Optional[str] = None) -> Optional[str]:
     """Find the main .kicad_pcb file using path config."""
-    resolved = path_config_service.resolve_paths(project_path)
+    resolved = path_config_service.resolve_paths(project_path, anchor=anchor)
     return resolved.pcb
 
 def find_3d_model(project_path: str) -> Optional[str]:
@@ -944,9 +989,9 @@ def update_project_description(project_id: str, description: str) -> bool:
     if not project:
         return False
 
-    config = path_config_service.get_path_config(project.path)
+    config = path_config_for(project)
     config.description = description
-    path_config_service.save_path_config(project.path, config)
+    save_path_config_for(project, config)
 
     # Keep registry mirrored for legacy fallback/search compatibility on older code paths.
     registry = _load_project_registry()

@@ -15,12 +15,65 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Check, AlertCircle } from "lucide-react";
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
 
-interface DiscoveredProject {
+export interface DiscoveredProject {
   name: string;
   relative_path: string;
+  /**
+   * Identifies one project. A directory can hold several KiCad projects, so the
+   * directory alone cannot: selecting by `relative_path` used to tick every
+   * project sharing a directory at once. Older backends do not send this.
+   */
+  project_key?: string;
+  /** The project's own .kicad_pro (or board) file within `relative_path`. */
+  project_file?: string;
   has_schematic: boolean;
   has_pcb: boolean;
   has_project_file?: boolean;
+}
+
+/** The key a project is selected by, falling back to pre-`project_key` behaviour. */
+export const projectKeyOf = (project: DiscoveredProject): string =>
+  project.project_key ?? project.relative_path;
+
+/** How many discovered projects share each directory. */
+export function projectsPerDirectory(
+  projects: DiscoveredProject[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const project of projects) {
+    counts.set(project.relative_path, (counts.get(project.relative_path) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function isProjectAlreadyImported(
+  project: DiscoveredProject,
+  importedPaths: Set<string>,
+  perDirectory: Map<string, number>,
+): boolean {
+  if (importedPaths.has(projectKeyOf(project))) {
+    return true;
+  }
+  // A project registered before Prism recorded project files reports its bare
+  // directory. It stands for that directory's one project, so it must not mark
+  // a sibling that shares the directory as imported.
+  return (
+    importedPaths.has(project.relative_path) &&
+    perDirectory.get(project.relative_path) === 1
+  );
+}
+
+/** The keys of the projects the user can still choose to import. */
+export function selectableProjectKeys(
+  projects: DiscoveredProject[],
+  importedPaths: Set<string>,
+): string[] {
+  const perDirectory = projectsPerDirectory(projects);
+  return projects.flatMap((project) =>
+    isProjectAlreadyImported(project, importedPaths, perDirectory)
+      ? []
+      : [projectKeyOf(project)],
+  );
 }
 
 interface AnalysisResult {
@@ -34,7 +87,7 @@ interface AnalysisResult {
   default_branch?: string | null;
   ref?: string | null;
   already_imported?: boolean;
-  /** Relative paths already registered, so they can be shown as done. */
+  /** Project keys already registered, so they can be shown as done. */
   imported_paths?: string[];
 }
 
@@ -263,7 +316,7 @@ export function ImportDialog({
 
           // Auto-select type1
           if (result.import_type === "type1" && result.projects.length === 1) {
-            setSelectedPaths(new Set([result.projects[0].relative_path]));
+            setSelectedPaths(new Set([projectKeyOf(result.projects[0])]));
           } else {
             // Adding to an existing repository: preselect nothing, so the user
             // picks only what they actually want on top of what is there.
@@ -477,17 +530,25 @@ export function ImportDialog({
     handleClose();
   };
 
-  const toggleProjectSelection = (relativePath: string) => {
+  const toggleProjectSelection = (projectKey: string) => {
     setSelectedPaths((prev) => {
       const next = new Set(prev);
-      if (next.has(relativePath)) {
-        next.delete(relativePath);
+      if (next.has(projectKey)) {
+        next.delete(projectKey);
       } else {
-        next.add(relativePath);
+        next.add(projectKey);
       }
       return next;
     });
   };
+
+  const perDirectory = useMemo(
+    () =>
+      projectsPerDirectory(
+        state.step === "review" ? state.analysis.projects : [],
+      ),
+    [state],
+  );
 
   const importedPathSet = useMemo(
       () => new Set(
@@ -497,11 +558,12 @@ export function ImportDialog({
       ),
       [state],
   );
+  const isAlreadyImported = (project: DiscoveredProject): boolean =>
+    isProjectAlreadyImported(project, importedPathSet, perDirectory);
+
   const importablePaths =
     state.step === "review"
-      ? state.analysis.projects.flatMap((p) => (
-          importedPathSet.has(p.relative_path) ? [] : [p.relative_path]
-        ))
+      ? selectableProjectKeys(state.analysis.projects, importedPathSet)
       : [];
   const importableCount = importablePaths.length;
 
@@ -694,27 +756,29 @@ export function ImportDialog({
 
             <div className="max-h-64 overflow-y-auto border rounded-md">
               {state.analysis.projects.map((project) => {
-                const alreadyImported =
-                  importedPathSet.has(project.relative_path);
+                const projectKey = projectKeyOf(project);
+                const alreadyImported = isAlreadyImported(project);
+                // Two projects in one directory would otherwise both read
+                // "Root directory", with nothing on screen telling them apart.
+                const sharesDirectory =
+                  (perDirectory.get(project.relative_path) ?? 0) > 1;
+                const location =
+                  project.relative_path === "." ? "Root directory" : project.relative_path;
                 return (
                 <div
-                  key={project.relative_path}
+                  key={projectKey}
                   className="flex items-center gap-3 p-3 border-b last:border-b-0 hover:bg-muted/50"
                 >
                   {state.analysis.import_type === "type2" && (
                     <Checkbox
-                      checked={
-                        alreadyImported || selectedPaths.has(project.relative_path)
-                      }
+                      checked={alreadyImported || selectedPaths.has(projectKey)}
                       disabled={alreadyImported}
                       aria-label={
                         alreadyImported
                           ? `${project.name} is already imported`
                           : `Select ${project.name}`
                       }
-                      onCheckedChange={() =>
-                        toggleProjectSelection(project.relative_path)
-                      }
+                      onCheckedChange={() => toggleProjectSelection(projectKey)}
                     />
                   )}
                   {state.analysis.import_type === "type1" && (
@@ -723,9 +787,9 @@ export function ImportDialog({
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{project.name}</p>
                     <p className="text-sm text-muted-foreground truncate">
-                      {project.relative_path === "."
-                        ? "Root directory"
-                        : project.relative_path}
+                      {sharesDirectory && project.project_file
+                        ? `${location} / ${project.project_file}`
+                        : location}
                     </p>
                   </div>
                   <div className="flex gap-2 text-xs text-muted-foreground">

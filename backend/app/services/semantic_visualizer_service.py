@@ -133,14 +133,42 @@ def semantic_tile_size_mm() -> str:
     return str(value) if 1.0 <= value <= 1000.0 else "auto"
 
 
-def find_kicad_project(project_path: str) -> Path:
+def find_kicad_project(project_path: str, anchor: Optional[str] = None) -> Path:
+    """Locate the .kicad_pro this project is.
+
+    This used to return whichever project file sorted first in the directory,
+    ignoring the schematic and PCB paths configured for the project. A repo with
+    two projects in one directory therefore always rendered the same board, and
+    correcting the paths in project settings changed nothing.
+    """
     root = Path(project_path)
-    config = path_config_service.get_path_config(project_path)
-    configured = getattr(config, "project", None) or getattr(config, "project_file", None)
-    if configured:
-      candidate = (root / str(configured)).resolve()
-      if candidate.is_file() and candidate.suffix == ".kicad_pro":
-          return candidate
+    config = path_config_service.get_path_config(project_path, anchor=anchor)
+
+    def _candidate(name: object) -> Optional[Path]:
+        if not name:
+            return None
+        candidate = (root / str(name)).resolve()
+        return candidate if candidate.is_file() and candidate.suffix == ".kicad_pro" else None
+
+    # The project's own anchor first, then an explicitly configured project file.
+    for configured in (
+        anchor,
+        getattr(config, "project", None),
+        getattr(config, "project_file", None),
+    ):
+        candidate = _candidate(configured)
+        if candidate is not None:
+            return candidate
+
+    # Then the project file belonging to the configured board or schematic, so
+    # pointing settings at a board actually moves the viewer to it.
+    for configured in (config.pcb, config.schematic):
+        if not configured or "*" in str(configured):
+            continue
+        candidate = _candidate(f"{Path(str(configured)).stem}.kicad_pro")
+        if candidate is not None:
+            return candidate
+
     direct = sorted(root.glob("*.kicad_pro"))
     if direct:
         return direct[0]
@@ -167,9 +195,10 @@ def source_fingerprint_for_root(
     for path in sorted(root.rglob("*")):
         if not path.is_file() or ".git" in path.parts:
             continue
-        if path.name == ".prism.json":
-            continue
-        if path.suffix.lower() not in SOURCE_SUFFIXES:
+        # `.prism.json` decides which board a project resolves to, so a bundle
+        # built before it changed is stale. Excluding it here was why editing the
+        # schematic or PCB path in project settings appeared to do nothing.
+        if path.name != ".prism.json" and path.suffix.lower() not in SOURCE_SUFFIXES:
             continue
         rel = path.relative_to(root).as_posix()
         stat = path.stat()
@@ -367,7 +396,9 @@ def get_status_for_source(
 def get_status_for_commit(project: Any, commit: str, project_rel: str | None = None) -> Dict[str, Any]:
     repo_root = _repo_root(Path(project.path))
     resolved_commit = _resolve_commit(repo_root, commit)
-    rel = project_rel or _project_relative_path(repo_root, Path(project.path))
+    rel = project_rel or _project_relative_path(
+        repo_root, Path(project.path), path_config_service.anchor_for_project(project)
+    )
     indexed = lookup_commit_source(project.id, resolved_commit, rel)
     if indexed:
         indexed_status = get_status_for_source(project, indexed["source_fingerprint"], commit=resolved_commit, project_rel=rel)
@@ -838,7 +869,7 @@ def build_visualizer_bundle(
     force: bool = False,
 ) -> Dict[str, Any]:
     total_started = time.perf_counter()
-    project_file = find_kicad_project(project.path)
+    project_file = find_kicad_project(project.path, path_config_service.anchor_for_project(project))
     source_hash = source_fingerprint_for_root(project_file.resolve().parent, _job_profiler(job, persist))
     status = build_visualizer_bundle_from_project_file(
         project,
@@ -863,7 +894,9 @@ def build_visualizer_bundle_for_commit(
     total_started = time.perf_counter()
     repo_root = _repo_root(Path(project.path))
     resolved_commit = _resolve_commit(repo_root, commit)
-    rel = _project_relative_path(repo_root, Path(project.path))
+    rel = _project_relative_path(
+        repo_root, Path(project.path), path_config_service.anchor_for_project(project)
+    )
     indexed = lookup_commit_source(project.id, resolved_commit, rel)
     if indexed and not force:
         status = get_status_for_source(
@@ -1139,8 +1172,10 @@ def _repo_root(project_path: Path) -> Path:
     return Path(result.stdout.strip()).resolve()
 
 
-def _project_relative_path(repo_root: Path, project_path: Path) -> str:
-    project_file = find_kicad_project(str(project_path))
+def _project_relative_path(
+    repo_root: Path, project_path: Path, anchor: Optional[str] = None
+) -> str:
+    project_file = find_kicad_project(str(project_path), anchor)
     return project_file.resolve().relative_to(repo_root).as_posix()
 
 

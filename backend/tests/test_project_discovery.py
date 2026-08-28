@@ -135,3 +135,82 @@ class KeepsExistingBehaviour(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SeveralProjectsInOneDirectory(unittest.TestCase):
+    """KiCad allows two projects to share a directory; Prism has to as well.
+
+    A fixture repository keeping its top and base plate side by side in the root
+    used to import as a single project: both were discovered, but both answered
+    to the same directory, so one checkbox ticked both, one row was registered,
+    and it was named after one board while the viewer rendered the other.
+    """
+
+    tree = [
+        "bed_of_nails_base.kicad_pro",
+        "bed_of_nails_base.kicad_pcb",
+        "bed_of_nails_base.kicad_sch",
+        "bed_of_nails_top.kicad_pro",
+        "bed_of_nails_top.kicad_pcb",
+        "bed_of_nails_top.kicad_sch",
+        "README.md",
+    ]
+
+    def test_both_projects_are_discovered(self) -> None:
+        projects = discover(self.tree)
+        self.assertEqual(
+            [p.name for p in projects], ["bed_of_nails_base", "bed_of_nails_top"]
+        )
+        self.assertEqual([p.relative_path for p in projects], [".", "."])
+
+    def test_each_project_records_its_own_file(self) -> None:
+        projects = discover(self.tree)
+        self.assertEqual(
+            [p.project_file for p in projects],
+            ["bed_of_nails_base.kicad_pro", "bed_of_nails_top.kicad_pro"],
+        )
+
+    def test_project_keys_are_distinct(self) -> None:
+        keys = [p.project_key for p in discover(self.tree)]
+        self.assertEqual(
+            keys,
+            [".::bed_of_nails_base.kicad_pro", ".::bed_of_nails_top.kicad_pro"],
+        )
+        self.assertEqual(len(set(keys)), 2)
+
+    def test_design_files_are_attributed_per_project(self) -> None:
+        # "Is there a board anywhere in this directory?" is the right question
+        # for one project per directory and the wrong one for two.
+        projects = discover(
+            [
+                "with_board.kicad_pro",
+                "with_board.kicad_pcb",
+                "sch_only.kicad_pro",
+                "sch_only.kicad_sch",
+            ]
+        )
+        by_name = {p.name: p for p in projects}
+        self.assertTrue(by_name["with_board"].has_pcb)
+        self.assertFalse(by_name["with_board"].has_schematic)
+        self.assertFalse(by_name["sch_only"].has_pcb)
+        self.assertTrue(by_name["sch_only"].has_schematic)
+
+    def test_two_root_projects_are_type2(self) -> None:
+        self.assertEqual(
+            project_import_service.classify_import_type(discover(self.tree)), "type2"
+        )
+
+
+class ProjectKeys(unittest.TestCase):
+    def test_a_lone_project_keeps_its_bare_directory_key(self) -> None:
+        # Single-project repositories are the overwhelming majority, and their
+        # keys have to keep the spelling already recorded against them.
+        projects = discover(["board.kicad_pro", "board.kicad_pcb"])
+        self.assertEqual(projects[0].project_key, ".::board.kicad_pro")
+
+    def test_a_project_without_a_project_file_is_anchored_on_its_board(self) -> None:
+        projects = discover(["board.kicad_pcb"])
+        self.assertEqual(projects[0].project_file, "board.kicad_pcb")
+
+    def test_a_row_without_an_anchor_keys_on_its_directory_alone(self) -> None:
+        self.assertEqual(project_import_service.make_project_key("hardware/a", ""), "hardware/a")

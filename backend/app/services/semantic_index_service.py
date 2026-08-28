@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Iterator
 
 from app.core.config import settings
-from app.services import semantic_visualizer_service
+from app.services import path_config_service, semantic_visualizer_service
 
 
 SCHEMA = "prism.semantic_index_a0"
@@ -198,13 +198,16 @@ def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | Non
     same question, because git's blob ids are content hashes already.
     """
 
+    anchor = path_config_service.anchor_for_project(project)
     if not commit:
-        project_file = semantic_visualizer_service.find_kicad_project(project.path)
+        project_file = semantic_visualizer_service.find_kicad_project(project.path, anchor)
         return _revision_key(_source_entries_on_disk(project_file.resolve().parent)), None
 
     repo_root = semantic_visualizer_service._repo_root(Path(project.path))
     resolved_commit = semantic_visualizer_service._resolve_commit(repo_root, commit)
-    project_rel = semantic_visualizer_service._project_relative_path(repo_root, Path(project.path))
+    project_rel = semantic_visualizer_service._project_relative_path(
+        repo_root, Path(project.path), anchor
+    )
     project_dir = PurePosixPath(project_rel).parent.as_posix()
     if project_dir == ".":
         project_dir = ""
@@ -214,13 +217,16 @@ def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | Non
 
 @contextlib.contextmanager
 def _project_file_for_revision(project: Any, commit: str | None) -> Iterator[tuple[Path, str | None]]:
+    anchor = path_config_service.anchor_for_project(project)
     if not commit:
-        yield semantic_visualizer_service.find_kicad_project(project.path), None
+        yield semantic_visualizer_service.find_kicad_project(project.path, anchor), None
         return
 
     repo_root = semantic_visualizer_service._repo_root(Path(project.path))
     resolved_commit = semantic_visualizer_service._resolve_commit(repo_root, commit)
-    project_rel = semantic_visualizer_service._project_relative_path(repo_root, Path(project.path))
+    project_rel = semantic_visualizer_service._project_relative_path(
+        repo_root, Path(project.path), anchor
+    )
     with tempfile.TemporaryDirectory(prefix="semantic-index-commit-") as tmp:
         checkout = Path(tmp) / "checkout"
         semantic_visualizer_service._archive_checkout(repo_root, resolved_commit, checkout)
