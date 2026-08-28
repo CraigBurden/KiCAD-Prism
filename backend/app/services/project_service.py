@@ -424,6 +424,12 @@ def _workspace_row_to_project(row: dict) -> Project:
         thumbnail_url=thumbnail_url_for_row(row),
         thumbnail_source=row.get("thumbnail_source") or "generated",
         sub_path=row.get("relative_path") if row.get("relative_path") != "." else None,
+        # Background jobs resolve their project through here, not through the
+        # API's converter. Dropping the anchor sent every WebGPU render,
+        # semantic index and KiCad workflow back to "the first .kicad_pro that
+        # sorts", so a directory holding two projects built the wrong one while
+        # the workspace, reading the other converter, showed the right one.
+        project_file=row.get("project_file_rel") or None,
         parent_repo=row.get("parent_repo"),
         repo_url=row.get("repo_url"),
         import_type=row.get("import_type"),

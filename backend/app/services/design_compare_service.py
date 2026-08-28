@@ -448,6 +448,20 @@ def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _project_anchor(project_id: str) -> Optional[str]:
+    """This project's own `.kicad_pro` name, for picking files out of a snapshot.
+
+    A comparison scans a checked-out revision, where nothing distinguishes two
+    co-located projects but their filenames. Without this the shallowest file
+    won, so a second project in a shared directory diffed its sibling's board.
+    """
+    try:
+        row = workspace.get_project_by_id(project_id)
+    except Exception:  # pragma: no cover - a comparison must not die on this
+        return None
+    return str((row or {}).get("project_file_rel") or "").strip() or None
+
+
 def _load_or_build_initial_revision(
     project_id: str,
     repo_path: Path,
@@ -529,7 +543,7 @@ def _load_or_build_initial_revision(
         else:
             logs.append(f"Snapshot ready for {commit[:7]}")
 
-        pro = _find_pro(snap)
+        pro = _find_pro(snap, _project_anchor(project_id))
         semantic_index: Dict[str, Any] = {
             "schema": semantic_index_service.SCHEMA,
             "components": [],
@@ -639,14 +653,15 @@ def _load_or_build_pcb_revision(
         semantic_index = copy.deepcopy(initial.get("semantic") or {})
 
         try:
-            stackup = timed("stackup", lambda: _extract_stackup(snap))
+            anchor = _project_anchor(project_id)
+            stackup = timed("stackup", lambda: _extract_stackup(snap, anchor))
         except Exception as exc:
             logs.append(f"Stackup extract failed for {commit[:7]}: {exc}")
             stackup = {"present": False, "layers": []}
 
         fabrication = timed(
             "fabrication-export",
-            lambda: _export_fabrication(cache, snap, commit, logs),
+            lambda: _export_fabrication(cache, snap, commit, logs, anchor),
         )
 
         payload = {
@@ -673,6 +688,7 @@ def _export_fabrication(
     snap: Path,
     commit: str,
     logs: List[str],
+    anchor: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Plot this revision's Gerber package once, beside its snapshot.
 
@@ -686,7 +702,7 @@ def _export_fabrication(
     treated as a successful export on the next compare.
     """
 
-    board = _find_pcb(snap)
+    board = _find_pcb(snap, anchor)
     if board is None:
         return {"present": False, "reason": "no board file in this revision"}
     output = cache / "fabrication"

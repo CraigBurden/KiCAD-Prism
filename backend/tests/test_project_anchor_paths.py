@@ -215,3 +215,175 @@ class NeverResolvesOntoASiblingProject(unittest.TestCase):
         )
         config = path_config_service.get_path_config(str(self.root), anchor="top.kicad_pro")
         self.assertEqual(config.pcb, "base.kicad_pcb")
+
+
+class BackgroundJobsKeepTheAnchor(unittest.TestCase):
+    """A job must build the project it was asked for, not the first sibling.
+
+    Jobs resolve their project through `project_service`'s own workspace-row
+    converter rather than the API's. That converter dropped the anchor, so
+    every WebGPU render, semantic index and KiCad workflow fell back to
+    whichever `.kicad_pro` sorted first -- producing artifacts for the wrong
+    project while the API, which uses a different converter, showed the right
+    one.
+    """
+
+    def test_the_converter_carries_the_anchor(self) -> None:
+        from app.services import project_service
+
+        row = {
+            "id": "prj_x",
+            "name": "top",
+            "description": "",
+            "path": "/tmp/shared",
+            "last_modified": "",
+            "relative_path": ".",
+            "project_file_rel": "top.kicad_pro",
+        }
+        project = project_service._workspace_row_to_project(row)
+        self.assertEqual(project.project_file, "top.kicad_pro")
+        self.assertEqual(project_service.project_anchor(project), "top.kicad_pro")
+
+    def test_a_row_without_an_anchor_still_converts(self) -> None:
+        from app.services import project_service
+
+        row = {
+            "id": "prj_y",
+            "name": "solo",
+            "description": "",
+            "path": "/tmp/solo",
+            "last_modified": "",
+            "relative_path": ".",
+            "project_file_rel": "",
+        }
+        project = project_service._workspace_row_to_project(row)
+        self.assertIsNone(project.project_file)
+        self.assertIsNone(project_service.project_anchor(project))
+
+    def test_both_converters_agree(self) -> None:
+        # The API and the job runner resolved the same row differently, which
+        # is why this went unnoticed: the workspace looked correct.
+        from app.api import _helpers
+        from app.services import project_service
+
+        row = {
+            "id": "prj_z",
+            "name": "base",
+            "description": "",
+            "path": "/tmp/shared",
+            "last_modified": "",
+            "relative_path": ".",
+            "project_file_rel": "base.kicad_pro",
+        }
+        self.assertEqual(
+            project_service._workspace_row_to_project(row).project_file,
+            _helpers._row_to_project(row).project_file,
+        )
+
+
+class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
+    """Reading a project's settings at a past commit is anchor-scoped too.
+
+    The live path resolver learned about ``projects.<anchor>``; the commit
+    reader kept flattening the file the old way, so a co-located sibling looked
+    correct on the working tree and showed the first project's board -- or the
+    defaults -- at a historical revision.
+    """
+
+    RAW = {
+        "paths": {"pcb": "shared.kicad_pcb"},
+        "schematic": "shared.kicad_sch",
+        "projects": {
+            "top.kicad_pro": {"paths": {"pcb": "top.kicad_pcb"}},
+            "base.kicad_pro": {"schematic": "base.kicad_sch"},
+        },
+    }
+
+    def test_an_anchor_overrides_the_shared_settings(self) -> None:
+        merged = path_config_service.config_for_anchor(self.RAW, "top.kicad_pro")
+        self.assertEqual(merged["pcb"], "top.kicad_pcb")
+        # Untouched keys still fall through to the shared block.
+        self.assertEqual(merged["schematic"], "shared.kicad_sch")
+
+    def test_each_anchor_gets_its_own_settings(self) -> None:
+        base = path_config_service.config_for_anchor(self.RAW, "base.kicad_pro")
+        self.assertEqual(base["schematic"], "base.kicad_sch")
+        self.assertEqual(base["pcb"], "shared.kicad_pcb")
+
+    def test_without_an_anchor_the_shared_settings_are_used(self) -> None:
+        merged = path_config_service.config_for_anchor(self.RAW, None)
+        self.assertEqual(merged["pcb"], "shared.kicad_pcb")
+        self.assertEqual(merged["schematic"], "shared.kicad_sch")
+        self.assertNotIn("projects", merged)
+
+    def test_an_unknown_anchor_falls_back_rather_than_failing(self) -> None:
+        merged = path_config_service.config_for_anchor(self.RAW, "absent.kicad_pro")
+        self.assertEqual(merged["pcb"], "shared.kicad_pcb")
+
+    def test_the_commit_reader_uses_the_same_merge(self) -> None:
+        # The live reader and the commit reader disagreeing is the bug; this
+        # holds them to one implementation.
+        from app.api import projects as projects_api
+
+        self.assertIs(
+            projects_api._merge_commit_config,
+            path_config_service.config_for_anchor,
+        )
+
+
+class DesignComparisonPicksTheAnchoredProject(unittest.TestCase):
+    """A comparison scans a checked-out revision, where only filenames identify
+    a project. Selecting the shallowest file meant a second co-located project
+    compared its sibling's board while looking correct live."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.snap = Path(self._tmp.name)
+        write_tree(
+            self.snap,
+            [
+                "base.kicad_pro",
+                "base.kicad_pcb",
+                "top.kicad_pro",
+                "top.kicad_pcb",
+            ],
+        )
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_the_anchor_selects_its_own_project_file(self) -> None:
+        from app.services import design_compare_sources as sources
+
+        self.assertEqual(
+            sources._find_pro(self.snap, "top.kicad_pro").name, "top.kicad_pro"
+        )
+        self.assertEqual(
+            sources._find_pro(self.snap, "base.kicad_pro").name, "base.kicad_pro"
+        )
+
+    def test_the_anchor_selects_its_own_board(self) -> None:
+        from app.services import design_compare_sources as sources
+
+        self.assertEqual(
+            sources._find_pcb(self.snap, "top.kicad_pro").name, "top.kicad_pcb"
+        )
+        self.assertEqual(
+            sources._find_pcb(self.snap, "base.kicad_pro").name, "base.kicad_pcb"
+        )
+
+    def test_without_an_anchor_the_old_rule_still_applies(self) -> None:
+        from app.services import design_compare_sources as sources
+
+        self.assertEqual(sources._find_pro(self.snap).name, "base.kicad_pro")
+        self.assertEqual(sources._find_pcb(self.snap).name, "base.kicad_pcb")
+
+    def test_a_revision_predating_the_project_still_compares(self) -> None:
+        # The anchored file may simply not exist at an older commit. Comparing
+        # the revision's one board beats reporting it as empty.
+        from app.services import design_compare_sources as sources
+
+        older = Path(self._tmp.name) / "older"
+        older.mkdir()
+        write_tree(older, ["base.kicad_pro", "base.kicad_pcb"])
+        self.assertEqual(
+            sources._find_pcb(older, "top.kicad_pro").name, "base.kicad_pcb"
+        )

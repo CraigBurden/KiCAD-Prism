@@ -136,8 +136,8 @@ def _repo_context(project: project_service.Project) -> tuple[str, Optional[str]]
     return project.path, None
 
 
-def _resolve_output_dir(project_path: str, output_type: str) -> str:
-    resolved = path_config_service.resolve_paths(project_path)
+def _resolve_output_dir(project: project_service.Project, output_type: str) -> str:
+    resolved = project_service.resolved_paths_for(project)
     output_dir = (
         resolved.design_outputs_dir
         if output_type == "design"
@@ -160,6 +160,11 @@ def _join_relative_paths(*parts: Optional[str]) -> str:
             raise HTTPException(status_code=400, detail="Invalid file path")
         cleaned.append(normalized)
     return posixpath.join(*cleaned) if cleaned else ""
+
+
+#: One implementation of the `.prism.json` merge for both the working tree and
+#: a Git commit; they disagreed, and that disagreement was the bug.
+_merge_commit_config = path_config_service.config_for_anchor
 
 
 def _default_commit_path_config() -> PathConfig:
@@ -192,12 +197,13 @@ def _path_config_from_commit(project: project_service.Project, commit: Optional[
     if not isinstance(raw_config, dict):
         return _default_commit_path_config()
 
-    merged: Dict[str, object] = {}
-    if isinstance(raw_config.get("paths"), dict):
-        merged.update(raw_config["paths"])
-    for key, value in raw_config.items():
-        if key != "paths":
-            merged[key] = value
+    # Settings for one project of several sharing a directory live under
+    # `projects.<anchor>`. Flattening the file without that namespace handed a
+    # co-located sibling the first project's paths -- or the bare defaults --
+    # at every historical revision, while the working tree looked right.
+    merged: Dict[str, object] = dict(
+        _merge_commit_config(raw_config, project_service.project_anchor(project))
+    )
 
     for key, default_value in path_config_service.DEFAULT_PATHS.items():
         if not str(merged.get(key) or "").strip():
@@ -1329,7 +1335,7 @@ async def download_file(
         )
         return _commit_file_response(commit_file, inline=inline)
 
-    output_dir = _resolve_output_dir(project.path, output_type)
+    output_dir = _resolve_output_dir(project, output_type)
 
     file_path = resolve_path_within_root(output_dir, path, invalid_detail="Invalid file path")
 
@@ -1406,7 +1412,7 @@ async def get_docs_files(
         docs_path = config.documentation or "docs"
         return _files_from_commit(project, commit, docs_path)
     
-    resolved = path_config_service.resolve_paths(project.path)
+    resolved = project_service.resolved_paths_for(project)
     docs_dir = resolved.documentation_dir
     
     if not docs_dir or not os.path.exists(docs_dir):
@@ -1441,7 +1447,7 @@ async def get_doc_file_content(
             raise
     
     # Otherwise read from filesystem
-    resolved = path_config_service.resolve_paths(project.path)
+    resolved = project_service.resolved_paths_for(project)
     docs_dir = resolved.documentation_dir
     
     if not docs_dir or not os.path.exists(docs_dir):
@@ -1922,7 +1928,9 @@ async def detect_project_paths(project_id: str, user: AuthenticatedUser = Depend
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
-    detected = path_config_service.detect_paths(project.path)
+    detected = path_config_service.detect_paths(
+        project.path, anchor=project_service.project_anchor(project)
+    )
     
     return {
         "detected": detected.model_dump(),

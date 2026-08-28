@@ -214,3 +214,64 @@ class ProjectKeys(unittest.TestCase):
 
     def test_a_row_without_an_anchor_keys_on_its_directory_alone(self) -> None:
         self.assertEqual(project_import_service.make_project_key("hardware/a", ""), "hardware/a")
+
+
+class AdoptsAProjectRegisteredBeforeAnchors(unittest.TestCase):
+    """Re-importing a directory that used to register as one project.
+
+    An affected install has a single row for the directory, with no anchor,
+    named after one of the projects. Re-importing discovers both anchored
+    projects, and neither matches that row's key -- so both registered as new
+    and the old, wrongly-identified row stayed alongside them. Discovery names
+    a project after its `.kicad_pro` stem and always did, so the row's name
+    says exactly which project it is, and it is taken over rather than
+    duplicated.
+    """
+
+    def rows(self, *names_and_anchors: tuple[str, str]) -> list[dict]:
+        return [
+            {
+                "id": f"prj_{name}",
+                "name": name,
+                "relative_path": ".",
+                "project_file_rel": anchor,
+            }
+            for name, anchor in names_and_anchors
+        ]
+
+    def test_a_legacy_row_is_taken_over_by_its_own_project(self) -> None:
+        row = project_import_service.find_legacy_row_to_adopt(
+            self.rows(("top", "")), ".", "top"
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row["id"], "prj_top")
+
+    def test_the_sibling_does_not_take_it_over(self) -> None:
+        self.assertIsNone(
+            project_import_service.find_legacy_row_to_adopt(
+                self.rows(("top", "")), ".", "base"
+            )
+        )
+
+    def test_an_already_anchored_row_is_never_adopted(self) -> None:
+        self.assertIsNone(
+            project_import_service.find_legacy_row_to_adopt(
+                self.rows(("top", "top.kicad_pro")), ".", "top"
+            )
+        )
+
+    def test_a_row_in_another_directory_is_not_adopted(self) -> None:
+        rows = self.rows(("top", ""))
+        rows[0]["relative_path"] = "hardware"
+        self.assertIsNone(
+            project_import_service.find_legacy_row_to_adopt(rows, ".", "top")
+        )
+
+    def test_an_ambiguous_match_is_left_alone(self) -> None:
+        # Two unanchored rows with the same name in the same directory should
+        # never have existed; guessing between them is worse than duplicating.
+        self.assertIsNone(
+            project_import_service.find_legacy_row_to_adopt(
+                self.rows(("top", ""), ("top", "")), ".", "top"
+            )
+        )

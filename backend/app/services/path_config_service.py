@@ -219,6 +219,28 @@ def _flatten_prism_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def config_for_anchor(
+    config: Dict[str, Any], anchor: Optional[str]
+) -> Dict[str, Any]:
+    """Merge one parsed `.prism.json` down to the settings for one project.
+
+    The shared flat/`paths` block is the base and ``projects.<anchor>``
+    overrides it key by key, so a setting a project does not override still
+    falls through. Split out from `_load_prism_config` because the same merge
+    has to happen when the file is read out of a Git commit rather than the
+    working tree -- reading it two different ways is what let a project look
+    correct live and show its sibling's board at a past revision.
+    """
+    result = _flatten_prism_config(config)
+    if anchor:
+        namespaced = config.get("projects")
+        if isinstance(namespaced, dict):
+            entry = namespaced.get(anchor)
+            if isinstance(entry, dict):
+                result.update(_flatten_prism_config(entry))
+    return result
+
+
 def _load_prism_config(
     project_path: str, anchor: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
@@ -241,14 +263,7 @@ def _load_prism_config(
     if not isinstance(config, dict):
         return None
 
-    result = _flatten_prism_config(config)
-    if anchor:
-        namespaced = config.get("projects")
-        if isinstance(namespaced, dict):
-            entry = namespaced.get(anchor)
-            if isinstance(entry, dict):
-                result.update(_flatten_prism_config(entry))
-    return result
+    return config_for_anchor(config, anchor)
 
 
 def _find_files_by_pattern(directory: Path, pattern: str) -> List[Path]:
