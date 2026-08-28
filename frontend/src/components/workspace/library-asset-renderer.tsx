@@ -71,6 +71,7 @@ export function LibraryAssetRenderer({
     setState("loading");
 
     (async () => {
+      let nextHandle: RenderHandle | null = null;
       try {
         const [renderer, text] = await Promise.all([
           loadEcadRenderer(),
@@ -92,23 +93,32 @@ export function LibraryAssetRenderer({
           const symbol = symbols[0];
           if (!symbol) throw new Error("The library file has no symbol");
           report(symbolUnitCount(symbol));
-          renderedRef.current = await renderer.renderSymbol(symbol, {
+          nextHandle = await renderer.renderSymbol(symbol, {
             canvas,
-            interactive: true,
+            // LibraryPreviewViewport owns pan/zoom for every Prism surface.
+            // Enabling the viewer's native controls as well makes both layers
+            // handle the same wheel gesture, and traps scrolling in the KiCad
+            // panel even when its outer viewport deliberately disables wheel
+            // zoom.
+            interactive: false,
             unit: activeUnit,
           });
         } else {
           report(1);
-          renderedRef.current = await renderer.renderFootprint(
+          nextHandle = await renderer.renderFootprint(
             renderer.parseFootprint(text),
-            { canvas, interactive: true },
+            { canvas, interactive: false },
           );
         }
         if (cancelled) {
-          renderedRef.current?.dispose();
-          renderedRef.current = null;
+          // Keep the handle local until this effect is known to be current.
+          // Otherwise a late render can overwrite the newer effect's handle,
+          // dispose itself, and leave the newer WebGL context alive but
+          // unreachable at unmount.
+          nextHandle.dispose();
           return;
         }
+        renderedRef.current = nextHandle;
         setState("ready");
       } catch (error) {
         if (cancelled) return;
