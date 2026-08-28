@@ -42,18 +42,43 @@ def derived_root() -> Path:
     return Path(settings.KICAD_PROJECTS_ROOT) / ".kicad-prism" / "derived"
 
 
-def _project_key(project_path: str | Path) -> str:
+def _has_sibling_project(project_path: Path, anchor: str) -> bool:
+    """Whether another KiCad project shares this directory with ``anchor``.
+
+    KiCad permits it, and Prism imports each `.kicad_pro` as its own project,
+    so the directory alone no longer identifies one.
+    """
+    stem = Path(anchor).stem.strip().casefold()
+    if not stem:
+        return False
+    try:
+        stems = {item.stem.casefold() for item in project_path.glob("*.kicad_pro")}
+    except OSError:
+        return False
+    return any(other != stem for other in stems)
+
+
+def _project_key(project_path: str | Path, anchor: Optional[str] = None) -> str:
     """Stable directory name for a project checkout.
 
     Keyed by resolved path rather than project id because assets are generated
     during import, before the project row exists.
+
+    The anchor joins the key only when a sibling project actually shares the
+    directory. Every thumbnail already on disk -- renders and custom uploads
+    alike -- was stored under the bare path, so a lone project has to keep
+    resolving to it; adding the anchor unconditionally would orphan all of
+    them on upgrade.
     """
-    resolved = str(Path(project_path).resolve())
-    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:32]
+    resolved = Path(project_path).resolve()
+    key = str(resolved)
+    if anchor and _has_sibling_project(resolved, anchor):
+        key = f"{key}\0{Path(anchor).name}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
 
 
-def thumbnail_dir(project_path: str | Path) -> Path:
-    return derived_root() / "thumbnails" / _project_key(project_path)
+def thumbnail_dir(project_path: str | Path, anchor: Optional[str] = None) -> Path:
+    return derived_root() / "thumbnails" / _project_key(project_path, anchor)
 
 
 # A render and an uploaded image are stored side by side under distinct
@@ -70,7 +95,11 @@ def _prefix(kind: str) -> str:
 
 
 def store_thumbnail(
-    project_path: str | Path, source: Path, *, kind: str = "generated"
+    project_path: str | Path,
+    source: Path,
+    *,
+    kind: str = "generated",
+    anchor: Optional[str] = None,
 ) -> tuple[Path, str, int]:
     """Move ``source`` into the derived store, returning (path, digest, size).
 
@@ -80,7 +109,7 @@ def store_thumbnail(
     prefix = _prefix(kind)
     encoded = source.read_bytes()
     digest = hashlib.sha256(encoded).hexdigest()
-    directory = thumbnail_dir(project_path)
+    directory = thumbnail_dir(project_path, anchor)
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / f"{prefix}.{digest[:16]}.webp"
     source.replace(target)
@@ -98,10 +127,15 @@ def store_thumbnail(
     return target, digest, target.stat().st_size
 
 
-def find_thumbnail(project_path: str | Path, *, kind: str = "generated") -> Optional[Path]:
+def find_thumbnail(
+    project_path: str | Path,
+    *,
+    kind: str = "generated",
+    anchor: Optional[str] = None,
+) -> Optional[Path]:
     """Return the stored thumbnail of ``kind``, if there is one."""
     prefix = _prefix(kind)
-    directory = thumbnail_dir(project_path)
+    directory = thumbnail_dir(project_path, anchor)
     if not directory.is_dir():
         return None
     for candidate in sorted(directory.glob(f"{prefix}.*.webp")):
@@ -110,10 +144,12 @@ def find_thumbnail(project_path: str | Path, *, kind: str = "generated") -> Opti
     return None
 
 
-def discard_thumbnail(project_path: str | Path, *, kind: str) -> bool:
+def discard_thumbnail(
+    project_path: str | Path, *, kind: str, anchor: Optional[str] = None
+) -> bool:
     """Drop the stored thumbnail of ``kind``. Returns whether one was removed."""
     prefix = _prefix(kind)
-    directory = thumbnail_dir(project_path)
+    directory = thumbnail_dir(project_path, anchor)
     if not directory.is_dir():
         return False
     removed = False
@@ -135,7 +171,9 @@ class ThumbnailImageError(ValueError):
     """An uploaded file could not be used as a thumbnail."""
 
 
-def store_uploaded_thumbnail(project_path: str | Path, data: bytes) -> tuple[Path, str, int]:
+def store_uploaded_thumbnail(
+    project_path: str | Path, data: bytes, *, anchor: Optional[str] = None
+) -> tuple[Path, str, int]:
     """Normalise an uploaded image and store it as the project's custom thumbnail.
 
     The upload is decoded and re-encoded rather than stored as received. Prism
@@ -154,7 +192,7 @@ def store_uploaded_thumbnail(project_path: str | Path, data: bytes) -> tuple[Pat
             f"The image is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
         )
 
-    directory = thumbnail_dir(project_path)
+    directory = thumbnail_dir(project_path, anchor)
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         dir=directory, prefix=".thumbnail-upload-", suffix=".webp", delete=False
@@ -180,7 +218,9 @@ def store_uploaded_thumbnail(project_path: str | Path, data: bytes) -> tuple[Pat
                 image.save(encoded_path, format="WEBP", quality=quality, method=6)
                 if encoded_path.stat().st_size <= 250 * 1024:
                     break
-        return store_thumbnail(project_path, encoded_path, kind="custom")
+        return store_thumbnail(
+            project_path, encoded_path, kind="custom", anchor=anchor
+        )
     except UnidentifiedImageError as error:
         raise ThumbnailImageError("That file is not an image Prism can read.") from error
     except OSError as error:  # truncated or otherwise undecodable image data
@@ -189,9 +229,9 @@ def store_uploaded_thumbnail(project_path: str | Path, data: bytes) -> tuple[Pat
         encoded_path.unlink(missing_ok=True)
 
 
-def discard(project_path: str | Path) -> None:
+def discard(project_path: str | Path, anchor: Optional[str] = None) -> None:
     """Drop every derived asset for a project checkout."""
-    shutil.rmtree(thumbnail_dir(project_path), ignore_errors=True)
+    shutil.rmtree(thumbnail_dir(project_path, anchor), ignore_errors=True)
 
 
 def purge_legacy_in_tree_thumbnails(project_path: str | Path, repo) -> list[str]:

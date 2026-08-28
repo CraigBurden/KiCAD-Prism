@@ -259,3 +259,89 @@ class LegacyInTreeThumbnailCleanup(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TwoProjectsInOneDirectoryKeepSeparateThumbnails(unittest.TestCase):
+    """Issue #193 follow-up.
+
+    KiCad lets two projects share a directory, and Prism now imports both. The
+    derived store still keyed a thumbnail on the directory alone, so the second
+    render replaced the first and the two projects showed one board.
+    """
+
+    def setUp(self) -> None:
+        self._temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self._temporary.name)
+        patcher = mock.patch.object(
+            derived_assets, "derived_root", return_value=self.root / "derived"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self._temporary.cleanup)
+        self.checkout = self.root / "projects" / "fixture"
+        self.checkout.mkdir(parents=True)
+        (self.checkout / "base.kicad_pro").write_text("{}")
+        (self.checkout / "top.kicad_pro").write_text("{}")
+
+    def _render(self, content: bytes) -> Path:
+        staging = derived_assets.derived_root() / "staging"
+        staging.mkdir(parents=True, exist_ok=True)
+        source = staging / f".encode-{content.decode()}.webp"
+        source.write_bytes(content)
+        return source
+
+    def test_each_project_keeps_its_own_render(self) -> None:
+        derived_assets.store_thumbnail(
+            self.checkout, self._render(b"base"), anchor="base.kicad_pro"
+        )
+        derived_assets.store_thumbnail(
+            self.checkout, self._render(b"top"), anchor="top.kicad_pro"
+        )
+
+        base = derived_assets.find_thumbnail(self.checkout, anchor="base.kicad_pro")
+        top = derived_assets.find_thumbnail(self.checkout, anchor="top.kicad_pro")
+        self.assertIsNotNone(base)
+        self.assertIsNotNone(top)
+        self.assertEqual(base.read_bytes(), b"base")
+        self.assertEqual(top.read_bytes(), b"top")
+
+    def test_discarding_one_leaves_the_sibling_alone(self) -> None:
+        derived_assets.store_thumbnail(
+            self.checkout, self._render(b"base"), anchor="base.kicad_pro"
+        )
+        derived_assets.store_thumbnail(
+            self.checkout, self._render(b"top"), anchor="top.kicad_pro"
+        )
+
+        derived_assets.discard_thumbnail(
+            self.checkout, kind="generated", anchor="top.kicad_pro"
+        )
+
+        self.assertIsNone(
+            derived_assets.find_thumbnail(self.checkout, anchor="top.kicad_pro")
+        )
+        self.assertIsNotNone(
+            derived_assets.find_thumbnail(self.checkout, anchor="base.kicad_pro")
+        )
+
+    def test_a_lone_project_keeps_the_directory_key(self) -> None:
+        # Every thumbnail already on disk was stored under the unanchored key.
+        # A directory with one project must keep resolving to it, or upgrading
+        # Prism silently drops every existing render and custom upload.
+        lone = self.root / "projects" / "solo"
+        lone.mkdir(parents=True)
+        (lone / "solo.kicad_pro").write_text("{}")
+
+        self.assertEqual(
+            derived_assets.thumbnail_dir(lone, anchor="solo.kicad_pro"),
+            derived_assets.thumbnail_dir(lone),
+        )
+
+    def test_siblings_do_not_share_the_directory_key(self) -> None:
+        anchored = derived_assets.thumbnail_dir(
+            self.checkout, anchor="base.kicad_pro"
+        )
+        self.assertNotEqual(
+            anchored, derived_assets.thumbnail_dir(self.checkout, anchor="top.kicad_pro")
+        )
+        self.assertNotEqual(anchored, derived_assets.thumbnail_dir(self.checkout))

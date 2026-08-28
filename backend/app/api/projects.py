@@ -897,7 +897,11 @@ def _resolve_thumbnail_file(project, row: Optional[dict]) -> Optional[Path]:
         return None
     source = str(row.get("thumbnail_source") or "generated")
     if source in ("generated", "custom"):
-        return derived_assets.find_thumbnail(project.path, kind=source)
+        return derived_assets.find_thumbnail(
+            project.path,
+            kind=source,
+            anchor=path_config_service.anchor_for_project(project),
+        )
     abs_path = resolve_path_within_root(
         project.path,
         str(row["thumbnail_rel"]),
@@ -1054,7 +1058,10 @@ async def upload_project_thumbnail(
     data = await file.read(derived_assets.MAX_UPLOAD_BYTES + 1)
     try:
         stored, digest, size = await asyncio.to_thread(
-            derived_assets.store_uploaded_thumbnail, project.path, data
+            derived_assets.store_uploaded_thumbnail,
+            project.path,
+            data,
+            anchor=path_config_service.anchor_for_project(project),
         )
     except derived_assets.ThumbnailImageError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -1083,7 +1090,10 @@ async def clear_project_thumbnail(
     """Drop an uploaded thumbnail and go back to the rendered board."""
     project = get_project_for_role_or_404(project_id, user.role)
     await asyncio.to_thread(
-        derived_assets.discard_thumbnail, project.path, kind="custom"
+        derived_assets.discard_thumbnail,
+        project.path,
+        kind="custom",
+        anchor=path_config_service.anchor_for_project(project),
     )
     cached = await asyncio.to_thread(project_import_service.refresh_project_assets, project_id)
 
