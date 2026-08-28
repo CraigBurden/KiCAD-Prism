@@ -80,14 +80,22 @@ def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
     Compares canonical identities rather than URL strings, so importing
     ``git@github.com:org/repo.git`` after ``https://github.com/org/repo`` is
     recognised as the same repository instead of cloning it twice.
+
+    A stored URL is read under this deployment's policy, not the default one.
+    An operator running an internal Git server without TLS enables
+    ``IMPORT_ALLOW_INSECURE_HTTP`` to import from it; reading its own rows back
+    under a policy that rejects ``http://`` made those repositories fail to
+    canonicalize, leaving deduplication to an exact string comparison that a
+    trailing ``.git`` or a change of case defeats.
     """
+    policy = remote_url_policy()
     target = parsed.dedup_key
     for repository in workspace.get_repositories():
         stored = str(repository.get("url") or "")
         if not stored:
             continue
         try:
-            if parse_remote_url(stored).dedup_key == target:
+            if parse_remote_url(stored, policy).dedup_key == target:
                 return repository
         except Exception:
             # A row predating URL validation should not block a valid import.
@@ -1057,10 +1065,16 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
         adopted_checkout = False
         if target_path.exists():
             existing_checkout = Repo(str(target_path))
+            # Under this deployment's policy, for the same reason as
+            # `find_existing_repository`: the default policy rejects `http://`,
+            # so on a workspace configured for a plaintext internal Git server
+            # every remote here raised and was dropped, and the checkout Prism
+            # had just cloned itself was reported as belonging to someone else.
+            policy = remote_url_policy()
             remotes = set()
             for remote in existing_checkout.remotes:
                 try:
-                    remotes.add(parse_remote_url(remote.url).dedup_key)
+                    remotes.add(parse_remote_url(remote.url, policy).dedup_key)
                 except Exception:
                     continue
             if parsed.dedup_key not in remotes:

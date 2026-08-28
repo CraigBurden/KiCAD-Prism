@@ -343,3 +343,78 @@ class ImportsProjectsThatShareADirectory(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             self._run([".::missing.kicad_pro"])
         self.assertIn("not KiCad projects", str(caught.exception))
+
+
+class ImportsFromAPlaintextSelfHostedServer(unittest.TestCase):
+    """An internal Git server without TLS, once the operator has allowed one.
+
+    `http://` is refused by default and enabled with `IMPORT_ALLOW_INSECURE_HTTP`.
+    That switch only ever governed the URL the user types: the two places that
+    read a remote back -- the deduplication scan and the checkout-adoption
+    check -- parsed it under the default policy instead, so a workspace
+    configured for a plaintext server could import a repository once and then
+    failed every time it went back to the same checkout.
+    """
+
+    url = "http://git.internal.example/hw/boards.git"
+
+    def setUp(self) -> None:
+        self.discovered = [
+            _project("hardware/board-a", "board-a"),
+            _project("hardware/board-b", "board-b"),
+        ]
+        patcher = mock.patch.object(
+            project_import_service,
+            "remote_url_policy",
+            return_value=project_import_service.RemoteUrlPolicy.build(
+                allow_insecure_http=True
+            ),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _checkout_on_this_remote(self, path):
+        repo = mock.Mock()
+        repo.remotes = [SimpleNamespace(url=self.url)]
+        repo.working_tree_dir = str(path)
+        repo.git.ls_files.return_value = ""
+        return repo
+
+    def test_a_second_import_adopts_the_existing_checkout(self) -> None:
+        runner = ImportRunner(
+            self.discovered,
+            existing_repo={"id": "repo-1", "name": "boards"},
+            existing_projects=[{"relative_path": "hardware/board-a"}],
+        )
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "type2" / "boards").mkdir(parents=True)
+            with mock.patch.object(
+                project_import_service, "Repo", side_effect=self._checkout_on_this_remote
+            ):
+                result = runner.run(
+                    {
+                        "repo_url": self.url,
+                        "import_type": "type2",
+                        "selected_paths": ["hardware/board-b"],
+                    },
+                    root,
+                )
+        self.assertEqual(len(result.details["project_ids"]), 1)
+        self.assertEqual(
+            [p["relative_path"] for p in runner.registered_projects],
+            ["hardware/board-b"],
+        )
+
+    def test_a_stored_plaintext_url_is_recognised_across_spellings(self) -> None:
+        # Deduplication fell back to an exact string comparison, which a
+        # trailing `.git` defeats -- so the same repository imported twice.
+        stored = [{"id": "repo-1", "url": "http://git.internal.example/hw/boards"}]
+        with mock.patch.object(
+            project_import_service.workspace, "get_repositories", return_value=stored
+        ):
+            found = project_import_service.find_existing_repository(
+                project_import_service.parse_remote_url(
+                    self.url, project_import_service.remote_url_policy()
+                )
+            )
+        self.assertEqual(found, stored[0])
