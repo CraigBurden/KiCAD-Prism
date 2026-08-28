@@ -16,7 +16,6 @@ import {
 import { fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { FolderTreeItem, Project, ProjectPropertiesResponse } from "@/types/project";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -316,10 +315,7 @@ export function WorkspaceProjectPropertiesSheet({
       <div className="flex min-h-full flex-col overflow-hidden">
         <div className="space-y-3 border-b px-6 py-5 text-left">
           <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0 space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Properties</Badge>
-              </div>
+            <div className="min-w-0">
               <div className="space-y-1">
                 <h2 className="truncate text-2xl font-semibold leading-tight">{displayName}</h2>
                 <p className="text-sm text-muted-foreground">
