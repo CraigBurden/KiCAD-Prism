@@ -424,6 +424,12 @@ def _workspace_row_to_project(row: dict) -> Project:
         thumbnail_url=thumbnail_url_for_row(row),
         thumbnail_source=row.get("thumbnail_source") or "generated",
         sub_path=row.get("relative_path") if row.get("relative_path") != "." else None,
+        # Background jobs resolve their project through here, not through the
+        # API's converter. Dropping the anchor sent every WebGPU render,
+        # semantic index and KiCad workflow back to "the first .kicad_pro that
+        # sorts", so a directory holding two projects built the wrong one while
+        # the workspace, reading the other converter, showed the right one.
+        project_file=row.get("project_file_rel") or None,
         parent_repo=row.get("parent_repo"),
         repo_url=row.get("repo_url"),
         import_type=row.get("import_type"),
@@ -483,6 +489,7 @@ def start_workflow_job(
     if not row:
         raise ValueError("Project not found")
     repository_id = str(row.get("repo_id") or "")
+    project_file_rel = str(row.get("project_file_rel") or "")
 
     if workflow_type == "webgpu_3d":
         source_selector = commit or f"workspace:{row.get('last_modified') or ''}"
@@ -490,6 +497,7 @@ def start_workflow_job(
             json.dumps(
                 {
                     "project": project_id,
+                    "projectFileRel": project_file_rel,
                     "source": source_selector,
                     "force": bool(force),
                     "generator": semantic_index_service.generator_cache_tag(),
@@ -505,6 +513,7 @@ def start_workflow_job(
                 "commit": commit,
                 "force": bool(force),
                 "artifact_key": artifact_key,
+                "project_file_rel": project_file_rel,
             },
             worker_pool="prism",
             artifact_key="" if force else artifact_key,
@@ -528,6 +537,7 @@ def start_workflow_job(
         json.dumps(
             {
                 "project": project_id,
+                "projectFileRel": project_file_rel,
                 "workflow": workflow_type,
             },
             sort_keys=True,
@@ -540,6 +550,7 @@ def start_workflow_job(
             "project_id": project_id,
             "workflow_type": workflow_type,
             "author": author,
+            "project_file_rel": project_file_rel,
         },
         worker_pool="prism",
         artifact_key=active_key,
@@ -571,11 +582,13 @@ def start_semantic_index_job(
     if not row:
         raise ValueError("Project not found")
     repository_id = str(row.get("repo_id") or "")
+    project_file_rel = str(row.get("project_file_rel") or "")
     source_selector = commit or f"workspace:{row.get('last_modified') or ''}"
     artifact_key = hashlib.sha256(
         json.dumps(
             {
                 "project": project_id,
+                "projectFileRel": project_file_rel,
                 "source": source_selector,
                 "generator": semantic_index_service.generator_cache_tag(),
             },
@@ -590,6 +603,7 @@ def start_semantic_index_job(
             "commit": commit,
             "force": bool(force),
             "artifact_key": artifact_key,
+            "project_file_rel": project_file_rel,
         },
         worker_pool="prism",
         artifact_key="" if force else artifact_key,
@@ -617,12 +631,20 @@ def run_webgpu_3d_job_v3(context: JobContext) -> JobResult:
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
+    expected_anchor = str(payload.get("project_file_rel") or "")
+    current_anchor = str(row.get("project_file_rel") or "")
+    if current_anchor != expected_anchor:
+        raise RuntimeError(
+            "Project anchor changed after WebGPU generation was queued; retry the job"
+        )
     project = _workspace_row_to_project(row)
     commit = payload.get("commit")
     force = bool(payload.get("force"))
     artifact_key = str(payload["artifact_key"])
-    status_selector = (
-        f"commit:{commit}" if commit else f"workspace:{row.get('last_modified') or ''}"
+    status_selector = semantic_visualizer_service.status_selector_for_project(
+        project,
+        commit=str(commit) if commit else None,
+        last_modified=row.get("last_modified") or "",
     )
     state: dict[str, Any] = {
         "job_id": context.job_id,
@@ -719,10 +741,10 @@ def run_webgpu_3d_job_v3(context: JobContext) -> JobResult:
         generator_version=build_fingerprint,
         readiness="ready",
     )
-    status_selector = (
-        f"commit:{status.get('commit') or commit}"
-        if commit
-        else f"workspace:{row.get('last_modified') or ''}"
+    status_selector = semantic_visualizer_service.status_selector_for_project(
+        project,
+        commit=str(status.get("commit") or commit) if commit else None,
+        last_modified=row.get("last_modified") or "",
     )
     return JobResult(
         message="WebGPU 3D assets are ready",
@@ -742,6 +764,12 @@ def run_semantic_index_job_v3(context: JobContext) -> JobResult:
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
+    expected_anchor = str(payload.get("project_file_rel") or "")
+    current_anchor = str(row.get("project_file_rel") or "")
+    if current_anchor != expected_anchor:
+        raise RuntimeError(
+            "Project anchor changed after semantic indexing was queued; retry the job"
+        )
     project = _workspace_row_to_project(row)
     commit = payload.get("commit")
     context.progress(
@@ -780,13 +808,19 @@ def run_kicad_workflow_job_v3(context: JobContext) -> JobResult:
     project_id = str(payload["project_id"])
     workflow_type = str(payload["workflow_type"])
     author = str(payload.get("author") or "anonymous")
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError("Project not found")
+    expected_anchor = str(payload.get("project_file_rel") or "")
+    current_anchor = str(row.get("project_file_rel") or "")
+    if current_anchor != expected_anchor:
+        raise RuntimeError(
+            "Project anchor changed after the KiCad workflow was queued; retry the job"
+        )
     output_id = _WORKFLOW_OUTPUT_IDS.get(workflow_type)
     if output_id is None:
         raise ValueError(f"Unknown workflow type: {workflow_type}")
 
-    row = workspace.get_project_by_id(project_id)
-    if not row:
-        raise ValueError("Project not found")
     project = _workspace_row_to_project(row)
     context.progress(
         stage="resolve-inputs",

@@ -549,6 +549,35 @@ def infer_project_anchor(project_path: str) -> str:
     return pro_files[0] if len(pro_files) == 1 else ""
 
 
+def find_legacy_row_to_adopt(
+    rows: list[dict], relative_path: str, name: str
+) -> Optional[dict]:
+    """A pre-anchor project row this import should take over rather than duplicate.
+
+    An install predating anchors has one row per directory with an empty
+    ``project_file_rel``. Re-importing a directory that turns out to hold two
+    projects discovers both, neither matches that row's key, and both would
+    register as new -- leaving the old row, whose name came from one board
+    while it rendered another, registered alongside them.
+
+    Discovery has always named a project after its ``.kicad_pro`` stem, so the
+    row's name identifies which project it is exactly rather than by guess.
+    Taking it over keeps whatever is attached to that project id -- comments,
+    releases, history -- and makes it consistent with the board it renders.
+    Anything less than an exact, unique match is left alone: a duplicate row is
+    recoverable, silently rebinding a project's history to the wrong board is
+    not.
+    """
+    candidates = [
+        row
+        for row in rows
+        if str(row.get("relative_path") or ".") == relative_path
+        and not str(row.get("project_file_rel") or "").strip()
+        and str(row.get("name") or "") == name
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def refresh_project_assets(project_id: str) -> dict:
     """Re-scan a registered project's files, preserving its thumbnail choice.
 
@@ -1145,6 +1174,11 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             )
         else:
             checkout_root = target_path.resolve()
+            # Read once: adoption removes rows from this list as it consumes
+            # them, so two projects cannot both claim the same legacy row.
+            existing_rows = (
+                workspace.get_projects_by_repo(repo_id) if existing_repo else []
+            )
             for index, project in enumerate(selected_projects):
                 context.check_cancelled()
                 relative_path = project.relative_path
@@ -1159,15 +1193,29 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 cached = resolve_cached_paths(
                     str(full_project_path), anchor=project.project_file
                 )
-                imported_ids.append(
-                    workspace.register_project(
-                        repo_id=repo_id,
-                        name=board_name,
-                        relative_path=relative_path,
-                        description=f"{repo_name} / {board_name}",
-                        **cached,
-                    )
+                # A row this directory registered before anchors existed is
+                # this project, not a third one; take it over so re-importing
+                # an affected install corrects it instead of leaving the
+                # wrongly-identified project registered beside its replacement.
+                legacy_row = find_legacy_row_to_adopt(
+                    existing_rows, relative_path, board_name
                 )
+                if legacy_row is not None:
+                    workspace.update_project(str(legacy_row["id"]), **cached)
+                    imported_ids.append(str(legacy_row["id"]))
+                    existing_rows = [
+                        row for row in existing_rows if row["id"] != legacy_row["id"]
+                    ]
+                else:
+                    imported_ids.append(
+                        workspace.register_project(
+                            repo_id=repo_id,
+                            name=board_name,
+                            relative_path=relative_path,
+                            description=f"{repo_name} / {board_name}",
+                            **cached,
+                        )
+                    )
                 context.progress(
                     stage="register-projects",
                     message=f"Registered {index + 1} of {len(selected_projects)} projects",

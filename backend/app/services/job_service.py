@@ -1322,6 +1322,8 @@ class JobService:
         project_id: str,
         generator_build: str,
         commit_prefix: str,
+        *,
+        selector_suffix: str = "",
     ) -> dict[str, Any] | None:
         """Resolve readiness for an abbreviated SHA without calling git."""
 
@@ -1341,6 +1343,7 @@ class JobService:
                     WHERE project_id = %s
                       AND generator_build = %s
                       AND invalidated_at IS NULL
+                      AND (%s = '' OR selector_key LIKE %s)
                       AND (
                         selector_key = %s
                         OR lower(COALESCE(status_payload->>'commit', '')) LIKE %s
@@ -1356,9 +1359,11 @@ class JobService:
                 (
                     project_id,
                     generator_build,
-                    f"commit:{normalized}",
+                    selector_suffix,
+                    f"%{selector_suffix}",
+                    f"commit:{normalized}{selector_suffix}",
                     f"{normalized}%",
-                    f"commit:{normalized}",
+                    f"commit:{normalized}{selector_suffix}",
                 ),
             ).fetchone()
             conn.commit()

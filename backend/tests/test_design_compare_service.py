@@ -910,7 +910,13 @@ class FabricationDomainTests(unittest.TestCase):
             os.utime(old, (1_000, 1_000))
             os.utime(new, (2_000, 2_000))
 
-            with mock.patch.object(design_compare_service, "_CACHE_ROOT", root):
+            with mock.patch.object(
+                design_compare_service, "_CACHE_ROOT", root
+            ), mock.patch.object(
+                design_compare_service,
+                "_project_cache_namespace",
+                return_value="pA",
+            ):
                 # A build writes deep inside `new`; that must not count as use.
                 (new / tag / "snapshot" / "extra.kicad_sch").write_bytes(b"y" * 10)
                 self.assertEqual(new.stat().st_mtime, 2_000)

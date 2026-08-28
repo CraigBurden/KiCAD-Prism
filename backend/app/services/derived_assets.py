@@ -64,20 +64,63 @@ def _project_key(project_path: str | Path, anchor: Optional[str] = None) -> str:
     Keyed by resolved path rather than project id because assets are generated
     during import, before the project row exists.
 
-    The anchor joins the key only when a sibling project actually shares the
-    directory. Every thumbnail already on disk -- renders and custom uploads
-    alike -- was stored under the bare path, so a lone project has to keep
-    resolving to it; adding the anchor unconditionally would orphan all of
-    them on upgrade.
+    The anchor is always part of the key when there is one. Deciding it by
+    whether a sibling happens to exist made a project's identity depend on its
+    neighbours: adding a second `.kicad_pro` moved the key and made an
+    uploaded thumbnail unreachable, and removing one orphaned what had been
+    stored under the anchor. Thumbnails written before anchors existed are
+    reached through `_legacy_key` instead, and adopted on first use.
     """
     resolved = Path(project_path).resolve()
     key = str(resolved)
-    if anchor and _has_sibling_project(resolved, anchor):
+    if anchor:
         key = f"{key}\0{Path(anchor).name}"
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
 
 
+def _legacy_key(project_path: str | Path) -> str:
+    """The pre-anchor key: the checkout path and nothing else."""
+    return hashlib.sha256(
+        str(Path(project_path).resolve()).encode("utf-8")
+    ).hexdigest()[:32]
+
+
+def _adopt_legacy_store(project_path: str | Path, anchor: Optional[str]) -> None:
+    """Move a pre-anchor thumbnail directory onto its project's anchored key.
+
+    Everything already on disk was stored under the bare checkout path. A lone
+    project has to keep finding it or every existing thumbnail -- uploads
+    included -- disappears on upgrade. Moving rather than reading through means
+    it is adopted once and permanently, so a sibling appearing later cannot
+    strand it again.
+
+    Nothing is adopted when the directory holds more than one project: the
+    bare-path thumbnail could belong to either, and handing the same image to
+    both is the confusion this anchoring exists to end.
+    """
+    if not anchor:
+        return
+    resolved = Path(project_path).resolve()
+    if _has_sibling_project(resolved, anchor):
+        return
+    root = derived_root() / "thumbnails"
+    anchored = root / _project_key(resolved, anchor)
+    if anchored.exists():
+        return
+    legacy = root / _legacy_key(resolved)
+    if not legacy.is_dir():
+        return
+    try:
+        anchored.parent.mkdir(parents=True, exist_ok=True)
+        legacy.rename(anchored)
+    except OSError as error:
+        # A failed adoption must not fail the read that triggered it; the
+        # project simply renders a fresh thumbnail.
+        logger.warning("Could not adopt legacy thumbnail store: %s", error)
+
+
 def thumbnail_dir(project_path: str | Path, anchor: Optional[str] = None) -> Path:
+    _adopt_legacy_store(project_path, anchor)
     return derived_root() / "thumbnails" / _project_key(project_path, anchor)
 
 
