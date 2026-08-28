@@ -462,14 +462,16 @@ def resolve_cached_paths(
 
         thumbnail_file = None
         if current_source == "custom":
-            uploaded = derived_assets.find_thumbnail(project_path, kind="custom")
+            uploaded = derived_assets.find_thumbnail(
+                project_path, kind="custom", anchor=anchor
+            )
             if uploaded is not None:
                 thumbnail_file = uploaded
                 thumb_rel = uploaded.name
                 thumbnail_source = "custom"
 
         if thumbnail_file is None:
-            generated = derived_assets.find_thumbnail(project_path)
+            generated = derived_assets.find_thumbnail(project_path, anchor=anchor)
             if generated is not None:
                 thumbnail_file = generated
                 thumb_rel = generated.name
@@ -612,7 +614,7 @@ def generate_thumbnail_for_project(
 
         # Render into a scratch directory outside the checkout. Nothing this
         # function does may leave a file inside the user's working tree.
-        staging_dir = derived_assets.thumbnail_dir(project_path)
+        staging_dir = derived_assets.thumbnail_dir(project_path, anchor)
         staging_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
             dir=staging_dir,
@@ -671,7 +673,7 @@ def generate_thumbnail_for_project(
                     if webp_path.stat().st_size <= 250 * 1024:
                         break
             output_path, _digest, _size = derived_assets.store_thumbnail(
-                project_path, webp_path
+                project_path, webp_path, anchor=anchor
             )
         finally:
             render_path.unlink(missing_ok=True)
