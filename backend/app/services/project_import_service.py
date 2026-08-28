@@ -22,6 +22,28 @@ from app.services.job_service import jobs as v3_jobs
 from app.services.workspace_service import workspace
 
 
+# Separates a directory from the project file inside it. A directory may hold
+# several KiCad projects, so the directory alone cannot name one.
+PROJECT_KEY_SEPARATOR = "::"
+
+
+def make_project_key(relative_path: str, project_file: str) -> str:
+    """The stable identifier for one project inside a repository.
+
+    Prism used to identify a project by its directory. That silently merged the
+    two projects of a repository that keeps, say, a fixture's top and base plate
+    side by side in the root: one checkbox ticked both, one of the two was
+    registered, and it was named after one board while the viewer rendered the
+    other. Naming the project file as well keeps them apart.
+
+    Projects registered before the anchor existed have no project file recorded;
+    their key stays the bare directory, which is what it has always been.
+    """
+    if not project_file:
+        return relative_path
+    return f"{relative_path}{PROJECT_KEY_SEPARATOR}{project_file}"
+
+
 @dataclass
 class DiscoveredProject:
     """A KiCAD project discovered within a repository."""
@@ -34,6 +56,14 @@ class DiscoveredProject:
     # teams gitignore the project file because KiCad rewrites it on every open,
     # so its absence must not hide the board.
     has_project_file: bool = True
+    # The project's own file within ``relative_path``: its ``.kicad_pro``, or the
+    # board/schematic KiCad would regenerate one from. This is what tells two
+    # projects in the same directory apart.
+    project_file: str = ""
+
+    @property
+    def project_key(self) -> str:
+        return make_project_key(self.relative_path, self.project_file)
 
 
 def remote_url_policy() -> RemoteUrlPolicy:
@@ -321,13 +351,24 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
         relative_path = dir_path if dir_path != "." else "."
         if pro_files:
             for pro_file in pro_files:
+                stem = Path(pro_file).stem
+                # With several projects in one directory, the subtree answer
+                # above ("does anything here have a board?") is about the
+                # directory, not about this project. Ask per project file.
+                if len(pro_files) > 1:
+                    project_has_sch = f"{stem}.kicad_sch" in filenames
+                    project_has_pcb = f"{stem}.kicad_pcb" in filenames
+                else:
+                    project_has_sch = has_sch
+                    project_has_pcb = has_pcb
                 projects.append(DiscoveredProject(
-                    name=Path(pro_file).stem,
+                    name=stem,
                     relative_path=relative_path,
                     full_path="", # No checkout path
-                    has_schematic=has_sch,
-                    has_pcb=has_pcb,
+                    has_schematic=project_has_sch,
+                    has_pcb=project_has_pcb,
                     has_project_file=True,
+                    project_file=pro_file,
                 ))
             continue
 
@@ -341,6 +382,7 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
             has_schematic=has_sch,
             has_pcb=has_pcb,
             has_project_file=False,
+            project_file=anchor,
         ))
 
     # A `Subsheets/` or `sch/` directory sits inside a project and holds that
@@ -372,14 +414,20 @@ def discover_projects_from_repo(repo: Repo) -> List[DiscoveredProject]:
     return projects
 
 
-def resolve_cached_paths(project_path: str, *, current_source: Optional[str] = None) -> dict:
+def resolve_cached_paths(
+    project_path: str,
+    *,
+    current_source: Optional[str] = None,
+    anchor: Optional[str] = None,
+) -> dict:
     """Resolve and return cached path info for a project directory.
 
     ``current_source`` is the project's recorded ``thumbnail_source``, so a
-    thumbnail the user chose deliberately survives a re-scan.
+    thumbnail the user chose deliberately survives a re-scan. ``anchor`` is the
+    project's own file, needed when the directory holds more than one project.
     """
     try:
-        resolved = path_config_service.resolve_paths(project_path)
+        resolved = path_config_service.resolve_paths(project_path, anchor=anchor)
         sch = resolved.schematic
         pcb = resolved.pcb
         thumb = resolved.thumbnail_dir
@@ -457,6 +505,7 @@ def resolve_cached_paths(project_path: str, *, current_source: Optional[str] = N
                     if f.lower().endswith(('.glb', '.step', '.stp')):
                         has_3d = True
         return {
+            'project_file_rel': anchor or '',
             'schematic_rel': _rel(sch),
             'pcb_rel': _rel(pcb),
             'thumbnail_rel': thumb_rel,
@@ -472,6 +521,24 @@ def resolve_cached_paths(project_path: str, *, current_source: Optional[str] = N
         return {}
 
 
+def infer_project_anchor(project_path: str) -> str:
+    """Guess a project's own file for a row registered before anchors existed.
+
+    Only answers when the guess cannot be wrong: a directory holding exactly one
+    ``.kicad_pro`` has exactly one project, which is every project Prism has
+    registered so far that still works. A directory with several is the case
+    this whole mechanism exists for, and it must be re-imported rather than
+    guessed at.
+    """
+    try:
+        pro_files = sorted(
+            name for name in os.listdir(project_path) if name.endswith(".kicad_pro")
+        )
+    except OSError:
+        return ""
+    return pro_files[0] if len(pro_files) == 1 else ""
+
+
 def refresh_project_assets(project_id: str) -> dict:
     """Re-scan a registered project's files, preserving its thumbnail choice.
 
@@ -484,22 +551,29 @@ def refresh_project_assets(project_id: str) -> dict:
     project_path = str(row.get("path") or "")
     if not project_path:
         return {}
+    anchor = str(row.get("project_file_rel") or "") or infer_project_anchor(project_path)
     cached = resolve_cached_paths(
-        project_path, current_source=str(row.get("thumbnail_source") or "") or None
+        project_path,
+        current_source=str(row.get("thumbnail_source") or "") or None,
+        anchor=anchor,
     )
     if cached:
         workspace.update_project(project_id, **cached)
     return cached
 
 
-def generate_thumbnail_for_project(project_path: str, logs_list: Optional[List[str]] = None) -> bool:
+def generate_thumbnail_for_project(
+    project_path: str,
+    logs_list: Optional[List[str]] = None,
+    anchor: Optional[str] = None,
+) -> bool:
     """
     Find the main .kicad_pcb file and run kicad-cli pcb render to generate a thumbnail.
     """
     try:
         from PIL import Image
 
-        resolved = path_config_service.resolve_paths(project_path)
+        resolved = path_config_service.resolve_paths(project_path, anchor=anchor)
         pcb_file = resolved.pcb
         if not pcb_file or not os.path.exists(pcb_file):
             if logs_list is not None:
@@ -757,10 +831,20 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
     existing_repo = find_existing_repository(parsed)
     imported_paths: list[str] = []
     if existing_repo:
-        imported_paths = [
-            str(row.get("relative_path") or ".")
-            for row in workspace.get_projects_by_repo(str(existing_repo["id"]))
-        ]
+        rows = workspace.get_projects_by_repo(str(existing_repo["id"]))
+        # Both spellings: the key a project registered today reports, and the
+        # bare directory a project registered before anchors existed reports.
+        # The dialog matches on either, so an older project still shows as
+        # imported without hiding a sibling that shares its directory.
+        imported_paths = list(
+            dict.fromkeys(
+                make_project_key(
+                    str(row.get("relative_path") or "."),
+                    str(row.get("project_file_rel") or ""),
+                )
+                for row in rows
+            )
+        )
 
     result = {
         "repo_name": parsed.repo_name,
@@ -775,6 +859,8 @@ def run_project_analyze_job_v3(context: JobContext) -> JobResult:
             {
                 "name": project.name,
                 "relative_path": project.relative_path,
+                "project_key": project.project_key,
+                "project_file": project.project_file,
                 "has_schematic": project.has_schematic,
                 "has_pcb": project.has_pcb,
                 "has_project_file": project.has_project_file,
@@ -901,22 +987,58 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
     already_imported: set[str] = set()
     if existing_repo:
         already_imported = {
-            str(row.get("relative_path") or ".")
+            make_project_key(
+                str(row.get("relative_path") or "."),
+                str(row.get("project_file_rel") or ""),
+            )
             for row in workspace.get_projects_by_repo(str(existing_repo["id"]))
         }
 
-    discovered_paths = {project.relative_path for project in discovered}
-    discovered_names = {project.relative_path: project.name for project in discovered}
+    discovered_by_key = {project.project_key: project for project in discovered}
+    projects_by_directory: dict[str, list[DiscoveredProject]] = {}
+    for project in discovered:
+        projects_by_directory.setdefault(project.relative_path, []).append(project)
+
+    def is_already_imported(project: DiscoveredProject) -> bool:
+        if project.project_key in already_imported:
+            return True
+        # A row registered before anchors existed is keyed by its directory
+        # alone. It stands for that directory's one project -- which is only
+        # unambiguous while the directory still holds one.
+        return (
+            project.relative_path in already_imported
+            and len(projects_by_directory[project.relative_path]) == 1
+        )
+
     if import_type == "type1":
-        requested_paths = ["."]
-    unknown = sorted(set(requested_paths) - discovered_paths)
+        requested_paths = [discovered[0].project_key]
+
+    # A caller may name a project by its key, or name a directory and mean every
+    # project in it -- which is what every client sent before projects had keys.
+    resolved_selection: list[str] = []
+    unknown: list[str] = []
+    for path in requested_paths:
+        if path in discovered_by_key:
+            resolved_selection.append(path)
+        elif path in projects_by_directory:
+            resolved_selection.extend(
+                project.project_key for project in projects_by_directory[path]
+            )
+        else:
+            unknown.append(path)
     if unknown:
         raise ValueError(
             "Selected paths are not KiCad projects in this repository: "
-            + ", ".join(unknown)
+            + ", ".join(sorted(set(unknown)))
         )
-    selected_paths = [path for path in requested_paths if path not in already_imported]
-    if not selected_paths:
+
+    selected_keys = list(dict.fromkeys(resolved_selection))
+    selected_projects = [
+        discovered_by_key[key]
+        for key in selected_keys
+        if not is_already_imported(discovered_by_key[key])
+    ]
+    if not selected_projects:
         if requested_paths and already_imported:
             raise ValueError(
                 f"Every selected project is already imported from "
@@ -994,7 +1116,8 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             )
         imported_ids: list[str] = []
         if import_type == "type1":
-            cached = resolve_cached_paths(str(target_path))
+            project = selected_projects[0]
+            cached = resolve_cached_paths(str(target_path), anchor=project.project_file)
             imported_ids.append(
                 workspace.register_project(
                     repo_id=repo_id,
@@ -1006,8 +1129,9 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             )
         else:
             checkout_root = target_path.resolve()
-            for index, relative_path in enumerate(selected_paths):
+            for index, project in enumerate(selected_projects):
                 context.check_cancelled()
+                relative_path = project.relative_path
                 full_project_path = target_path / relative_path
                 # Paths are already validated against discovery; this keeps the
                 # guarantee local to the place that does the filesystem write.
@@ -1015,10 +1139,10 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                     raise ValueError(f"Project path escapes the checkout: {relative_path}")
                 # Discovery already worked out the board name, including for
                 # directories whose .kicad_pro is gitignored.
-                board_name = discovered_names.get(
-                    relative_path, os.path.basename(relative_path)
+                board_name = project.name or os.path.basename(relative_path)
+                cached = resolve_cached_paths(
+                    str(full_project_path), anchor=project.project_file
                 )
-                cached = resolve_cached_paths(str(full_project_path))
                 imported_ids.append(
                     workspace.register_project(
                         repo_id=repo_id,
@@ -1030,8 +1154,8 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                 )
                 context.progress(
                     stage="register-projects",
-                    message=f"Registered {index + 1} of {len(selected_paths)} projects",
-                    percent=80 + (15 * (index + 1) / len(selected_paths)),
+                    message=f"Registered {index + 1} of {len(selected_projects)} projects",
+                    percent=80 + (15 * (index + 1) / len(selected_projects)),
                 )
         # Render boards in their own jobs. The projects are registered and
         # browsable now; thumbnails fill in as each render finishes, rather than
@@ -1153,6 +1277,7 @@ def run_project_thumbnail_job_v3(context: JobContext) -> JobResult:
     project_path = str(row.get("path") or "")
     if not project_path or not os.path.isdir(project_path):
         raise ValueError(f"Project path not found: {project_path}")
+    anchor = str(row.get("project_file_rel") or "") or infer_project_anchor(project_path)
 
     context.progress(
         stage="render-thumbnail",
@@ -1161,7 +1286,7 @@ def run_project_thumbnail_job_v3(context: JobContext) -> JobResult:
         force=True,
     )
     logs: list[str] = []
-    rendered = generate_thumbnail_for_project(project_path, logs)
+    rendered = generate_thumbnail_for_project(project_path, logs, anchor=anchor)
     for line in logs:
         print(line, flush=True)
     context.check_cancelled()

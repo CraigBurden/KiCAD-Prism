@@ -132,6 +132,7 @@ class WorkspaceService:
                 display_name    TEXT,
                 description     TEXT NOT NULL DEFAULT '',
                 relative_path   TEXT NOT NULL DEFAULT '.',
+                project_file_rel TEXT NOT NULL DEFAULT '',
                 folder_id       TEXT REFERENCES ws_folders(id) ON DELETE SET NULL,
                 schematic_rel   TEXT,
                 pcb_rel         TEXT,
@@ -142,7 +143,12 @@ class WorkspaceService:
                 registered_at   TIMESTAMPTZ NOT NULL,
                 last_modified   TIMESTAMPTZ NOT NULL,
                 prism_json_hash TEXT,
-                UNIQUE(repo_id, relative_path)
+                -- A directory can hold more than one KiCad project, so it does
+                -- not identify one on its own. Keying uniqueness on the
+                -- directory alone made a repository with two projects in its
+                -- root importable only as one of them.
+                CONSTRAINT ws_projects_repo_path_file_key
+                    UNIQUE (repo_id, relative_path, project_file_rel)
             );
             CREATE INDEX IF NOT EXISTS idx_ws_projects_folder ON ws_projects(folder_id);
             CREATE INDEX IF NOT EXISTS idx_ws_projects_repo   ON ws_projects(repo_id);
@@ -283,6 +289,7 @@ class WorkspaceService:
         display_name: Optional[str] = None,
         description: str = "",
         folder_id: Optional[str] = None,
+        project_file_rel: str = "",
         schematic_rel: Optional[str] = None,
         pcb_rel: Optional[str] = None,
         thumbnail_rel: Optional[str] = None,
@@ -301,12 +308,14 @@ class WorkspaceService:
             conn.execute(
                 """INSERT INTO ws_projects
                    (id,repo_id,name,display_name,description,relative_path,folder_id,
+                    project_file_rel,
                     schematic_rel,pcb_rel,thumbnail_rel,thumbnail_source,thumbnail_digest,
                     thumbnail_media_type,thumbnail_size_bytes,jobset_rel,
                     has_3d_model,has_ibom,registered_at,last_modified,prism_json_hash)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     project_id, repo_id, name, display_name, description, relative_path, folder_id,
+                    project_file_rel,
                     schematic_rel, pcb_rel, thumbnail_rel, thumbnail_source, thumbnail_digest,
                     thumbnail_media_type, thumbnail_size_bytes, jobset_rel,
                     has_3d_model, has_ibom, now, now, prism_json_hash,
@@ -406,6 +415,7 @@ class WorkspaceService:
             return False
         allowed = {
             "name", "display_name", "description", "folder_id",
+            "project_file_rel",
             "schematic_rel", "pcb_rel", "thumbnail_rel", "jobset_rel",
             "thumbnail_source", "thumbnail_digest", "thumbnail_media_type",
             "thumbnail_size_bytes",
