@@ -467,3 +467,72 @@ class DesignComparisonPicksTheAnchoredProject(unittest.TestCase):
         older.mkdir()
         write_tree(older, ["base.kicad_pro", "base.kicad_pcb"])
         self.assertIsNone(sources._find_pcb(older, "top.kicad_pro"))
+
+    def test_comparison_cache_identity_includes_the_anchor(self) -> None:
+        from app.services import design_compare_service
+
+        with mock.patch.object(
+            design_compare_service,
+            "_project_anchor",
+            side_effect=("top.kicad_pro", "base.kicad_pro"),
+        ):
+            top = design_compare_service._project_cache_namespace("prj_shared")
+            base = design_compare_service._project_cache_namespace("prj_shared")
+
+        self.assertNotEqual(top, base)
+
+    def test_comparison_anchor_lookup_errors_fail_closed(self) -> None:
+        from app.services import design_compare_service
+
+        with mock.patch.object(
+            design_compare_service.workspace,
+            "get_project_by_id",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "database unavailable"):
+                design_compare_service._project_anchor("prj_shared")
+
+    def test_comparison_artifact_identity_includes_the_anchor(self) -> None:
+        from app.services import design_compare_service
+
+        def artifact_key(anchor: str) -> tuple[str, str]:
+            with mock.patch.object(
+                design_compare_service.workspace,
+                "get_project_by_id",
+                return_value={
+                    "id": "prj_shared",
+                    "repo_id": "repo_shared",
+                    "project_file_rel": anchor,
+                },
+            ), mock.patch.object(
+                design_compare_service.v3_jobs,
+                "enqueue",
+                return_value={"job_id": "job_compare"},
+            ) as enqueue:
+                design_compare_service.start_design_compare_job(
+                    "prj_shared", "base", "head"
+                )
+            return (
+                str(enqueue.call_args.kwargs["artifact_key"]),
+                str(enqueue.call_args.args[1]["project_file_rel"]),
+            )
+
+        top_key, top_payload_anchor = artifact_key("top.kicad_pro")
+        base_key, base_payload_anchor = artifact_key("base.kicad_pro")
+        self.assertNotEqual(top_key, base_key)
+        self.assertEqual(top_payload_anchor, "top.kicad_pro")
+        self.assertEqual(base_payload_anchor, "base.kicad_pro")
+
+    def test_semantic_and_webgpu_cache_identity_includes_the_anchor(self) -> None:
+        from app.services import semantic_index_service, semantic_visualizer_service
+
+        top = self.snap / "top.kicad_pro"
+        base = self.snap / "base.kicad_pro"
+        self.assertNotEqual(
+            semantic_index_service.source_revision_key_for_project_file(top),
+            semantic_index_service.source_revision_key_for_project_file(base),
+        )
+        self.assertNotEqual(
+            semantic_visualizer_service.source_fingerprint_for_project_file(top),
+            semantic_visualizer_service.source_fingerprint_for_project_file(base),
+        )

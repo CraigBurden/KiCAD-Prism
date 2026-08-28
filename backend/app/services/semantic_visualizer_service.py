@@ -178,16 +178,26 @@ def find_kicad_project(project_path: str, anchor: Optional[str] = None) -> Path:
     raise ValueError(".kicad_pro file not found")
 
 
-def source_fingerprint(project_path: str) -> str:
-    return source_fingerprint_for_root(Path(project_path))
+def source_fingerprint(project_path: str, *, project_file_rel: str = "") -> str:
+    return source_fingerprint_for_root(
+        Path(project_path), project_file_rel=project_file_rel
+    )
 
 
 def source_fingerprint_for_root(
     project_root: Path,
     profile_callback: Callable[[str, Dict[str, Any]], None] | None = None,
+    *,
+    project_file_rel: str = "",
 ) -> str:
     root = project_root.resolve()
     digest = hashlib.sha256()
+    # Two projects may intentionally share one directory and therefore the
+    # same set of source files. The selected .kicad_pro is part of the render
+    # identity; without it, adopting a legacy row can reuse its sibling's
+    # pre-anchor bundle under the stable project id.
+    digest.update(project_file_rel.encode("utf-8"))
+    digest.update(b"\0")
     started = time.perf_counter()
     files = 0
     bytes_read = 0
@@ -226,7 +236,10 @@ def source_fingerprint_for_root(
 
 
 def source_fingerprint_for_project_file(project_file: Path) -> str:
-    return source_fingerprint_for_root(project_file.resolve().parent)
+    resolved = project_file.resolve()
+    return source_fingerprint_for_root(
+        resolved.parent, project_file_rel=resolved.name
+    )
 
 
 def _artifact_segment(value: object, label: str) -> str:
@@ -261,10 +274,30 @@ def _build_lock(project_id: str, source_hash: str) -> threading.Lock:
         return lock
 
 
+def _anchor_selector_suffix(project: Any) -> str:
+    anchor = path_config_service.anchor_for_project(project) or ""
+    digest = hashlib.sha256(anchor.encode("utf-8")).hexdigest()[:16]
+    return f":anchor:{digest}"
+
+
+def status_selector_for_project(
+    project: Any,
+    *,
+    commit: str | None = None,
+    last_modified: object = "",
+) -> str:
+    """Identify readiness by source selector and the selected project anchor."""
+
+    prefix = f"commit:{commit}" if commit else f"workspace:{last_modified or ''}"
+    return f"{prefix}{_anchor_selector_suffix(project)}"
+
+
 def get_status(project: Any, commit: str | None = None) -> Dict[str, Any]:
     if commit:
         return get_status_for_commit(project, commit)
-    current_source = source_fingerprint(project.path)
+    anchor = path_config_service.anchor_for_project(project)
+    project_file = find_kicad_project(project.path, anchor)
+    current_source = source_fingerprint_for_project_file(project_file)
     return get_status_for_source(project, current_source)
 
 
@@ -277,7 +310,7 @@ def get_status_fast(project: Any, commit: str | None = None) -> Dict[str, Any]:
         normalized_commit = commit.strip().lower()
         if re.fullmatch(r"[0-9a-f]{40}", normalized_commit):
             resolved_commit = normalized_commit
-            selector = f"commit:{resolved_commit}"
+            selector = status_selector_for_project(project, commit=resolved_commit)
             cached = jobs.get_webgpu_ready(
                 str(project.id),
                 selector,
@@ -288,6 +321,7 @@ def get_status_fast(project: Any, commit: str | None = None) -> Dict[str, Any]:
                 str(project.id),
                 BUILD_FINGERPRINT,
                 normalized_commit,
+                selector_suffix=_anchor_selector_suffix(project),
             )
             if cached and cached.get("commit"):
                 resolved_commit = str(cached["commit"])
@@ -295,7 +329,9 @@ def get_status_fast(project: Any, commit: str | None = None) -> Dict[str, Any]:
                     cached.get("status_selector") or f"commit:{resolved_commit}"
                 )
             else:
-                selector = f"commit:{normalized_commit}"
+                selector = status_selector_for_project(
+                    project, commit=normalized_commit
+                )
         else:
             # Symbolic refs require git; keep the fast path O(1) and let
             # diagnostic=true callers resolve through get_status().
@@ -303,7 +339,10 @@ def get_status_fast(project: Any, commit: str | None = None) -> Dict[str, Any]:
             selector = f"ref:{commit.strip()}"
             cached = None
     else:
-        selector = f"workspace:{getattr(project, 'last_modified', '') or ''}"
+        selector = status_selector_for_project(
+            project,
+            last_modified=getattr(project, "last_modified", "") or "",
+        )
         cached = jobs.get_webgpu_ready(
             str(project.id),
             selector,
@@ -870,7 +909,11 @@ def build_visualizer_bundle(
 ) -> Dict[str, Any]:
     total_started = time.perf_counter()
     project_file = find_kicad_project(project.path, path_config_service.anchor_for_project(project))
-    source_hash = source_fingerprint_for_root(project_file.resolve().parent, _job_profiler(job, persist))
+    source_hash = source_fingerprint_for_root(
+        project_file.resolve().parent,
+        _job_profiler(job, persist),
+        project_file_rel=project_file.name,
+    )
     status = build_visualizer_bundle_from_project_file(
         project,
         project_file,
@@ -920,7 +963,11 @@ def build_visualizer_bundle_for_commit(
         project_file = checkout / rel
         if not project_file.is_file():
             raise ValueError(f"KiCad project file not found in commit {resolved_commit}: {rel}")
-        source_hash = source_fingerprint_for_root(project_file.resolve().parent, _job_profiler(job, persist))
+        source_hash = source_fingerprint_for_root(
+            project_file.resolve().parent,
+            _job_profiler(job, persist),
+            project_file_rel=project_file.name,
+        )
         source_tree = git_project_tree_fingerprint(repo_root, resolved_commit, rel)
         record_commit_source(
             project.id,

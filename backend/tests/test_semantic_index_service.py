@@ -364,9 +364,10 @@ class SemanticIndexServiceTests(unittest.TestCase):
             status = semantic_visualizer_service.get_status_fast(project)
 
         self.assertEqual(status, ready)
+        anchor_suffix = semantic_visualizer_service._anchor_selector_suffix(project)
         lookup.assert_called_once_with(
             "prj_test",
-            "workspace:revision-7",
+            f"workspace:revision-7{anchor_suffix}",
             semantic_visualizer_service.BUILD_FINGERPRINT,
         )
 
@@ -385,7 +386,12 @@ class SemanticIndexServiceTests(unittest.TestCase):
 
         self.assertEqual(status["status"], "missing")
         self.assertFalse(status["available"])
-        self.assertEqual(status["status_selector"], "workspace:revision-8")
+        self.assertEqual(
+            status["status_selector"],
+            semantic_visualizer_service.status_selector_for_project(
+                project, last_modified="revision-8"
+            ),
+        )
 
     def test_webgpu_fast_status_never_invokes_git_for_symbolic_refs(self) -> None:
         project = SimpleNamespace(
@@ -439,6 +445,9 @@ class SemanticIndexServiceTests(unittest.TestCase):
             "prj_test",
             semantic_visualizer_service.BUILD_FINGERPRINT,
             "abcdef012345",
+            selector_suffix=semantic_visualizer_service._anchor_selector_suffix(
+                project
+            ),
         )
 
     def test_source_revision_key_ignores_heavy_assets(self) -> None:

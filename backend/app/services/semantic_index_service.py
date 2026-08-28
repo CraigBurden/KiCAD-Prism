@@ -83,10 +83,14 @@ def _blob_id(data: bytes) -> str:
     return digest.hexdigest()
 
 
-def _revision_key(entries: Iterable[tuple[str, str]]) -> str:
-    """Reduce (project-relative path, blob id) pairs to a cache key."""
+def _revision_key(
+    entries: Iterable[tuple[str, str]], *, project_file_rel: str = ""
+) -> str:
+    """Reduce source entries and the selected project anchor to a cache key."""
 
     digest = hashlib.sha256()
+    digest.update(project_file_rel.encode("utf-8"))
+    digest.update(b"\0")
     for path, blob in sorted(entries):
         digest.update(path.encode("utf-8"))
         digest.update(b"\0")
@@ -147,7 +151,11 @@ def _source_entries_in_commit(
 
 
 def source_revision_key_for_project_file(project_file: Path) -> str:
-    return _revision_key(_source_entries_on_disk(project_file.resolve().parent))
+    resolved = project_file.resolve()
+    return _revision_key(
+        _source_entries_on_disk(resolved.parent),
+        project_file_rel=resolved.name,
+    )
 
 
 def _lock(project_id: str, source_revision_key: str) -> threading.Lock:
@@ -201,7 +209,13 @@ def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | Non
     anchor = path_config_service.anchor_for_project(project)
     if not commit:
         project_file = semantic_visualizer_service.find_kicad_project(project.path, anchor)
-        return _revision_key(_source_entries_on_disk(project_file.resolve().parent)), None
+        return (
+            _revision_key(
+                _source_entries_on_disk(project_file.resolve().parent),
+                project_file_rel=anchor or project_file.name,
+            ),
+            None,
+        )
 
     repo_root = semantic_visualizer_service._repo_root(Path(project.path))
     resolved_commit = semantic_visualizer_service._resolve_commit(repo_root, commit)
@@ -212,7 +226,13 @@ def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | Non
     if project_dir == ".":
         project_dir = ""
     entries = _source_entries_in_commit(repo_root, resolved_commit, project_dir)
-    return _revision_key(entries), resolved_commit
+    return (
+        _revision_key(
+            entries,
+            project_file_rel=anchor or PurePosixPath(project_rel).name,
+        ),
+        resolved_commit,
+    )
 
 
 @contextlib.contextmanager

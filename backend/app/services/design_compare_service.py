@@ -247,17 +247,40 @@ def _snapshot_commit(repo_path: Path, commit: str, destination: Path, relative_p
 
 
 
+def _project_anchor(project_id: str) -> Optional[str]:
+    """Return this project's own KiCad project file, failing closed.
+
+    A missing workspace row or a database error must abort comparison work. If
+    either were treated as an unanchored project, source discovery would fall
+    back to the first co-located board and could cache a sibling's design.
+    """
+
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError(f"Project '{project_id}' not found")
+    return str(row.get("project_file_rel") or "").strip() or None
+
+
+def _project_cache_namespace(project_id: str) -> str:
+    """Keep caches for different anchors of a stable project id separate."""
+
+    anchor = _project_anchor(project_id) or ""
+    anchor_digest = hashlib.sha256(anchor.encode("utf-8")).hexdigest()[:16]
+    return f"{project_id}-{anchor_digest}"
+
+
 def _cache_dir(project_id: str, commit: str) -> Path:
-    _touch_cache_entry(project_id, commit)
+    namespace = _project_cache_namespace(project_id)
+    _touch_cache_entry(namespace, commit)
     return (
         _CACHE_ROOT
-        / project_id
+        / namespace
         / commit
         / semantic_index_service.generator_cache_tag()
     )
 
 
-def _touch_cache_entry(project_id: str, commit: str) -> None:
+def _touch_cache_entry(project_namespace: str, commit: str) -> None:
     """Stamp a cache entry as used, so eviction can rank by last use.
 
     Eviction ranks whole ``project/commit`` entries by that directory's mtime.
@@ -270,7 +293,7 @@ def _touch_cache_entry(project_id: str, commit: str) -> None:
     choke point every reader and writer goes through, makes it a real LRU.
     """
 
-    entry = _CACHE_ROOT / project_id / commit
+    entry = _CACHE_ROOT / project_namespace / commit
     try:
         if entry.is_dir():
             os.utime(entry, None)
@@ -280,7 +303,8 @@ def _touch_cache_entry(project_id: str, commit: str) -> None:
 
 
 def _cache_lock(project_id: str, commit: str) -> threading.Lock:
-    key = f"{project_id}:{commit}:{semantic_index_service.generator_cache_tag()}"
+    namespace = _project_cache_namespace(project_id)
+    key = f"{namespace}:{commit}:{semantic_index_service.generator_cache_tag()}"
     with _CACHE_LOCKS_GUARD:
         return _CACHE_LOCKS.setdefault(key, threading.Lock())
 
@@ -446,20 +470,6 @@ def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
-
-
-def _project_anchor(project_id: str) -> Optional[str]:
-    """This project's own `.kicad_pro` name, for picking files out of a snapshot.
-
-    A comparison scans a checked-out revision, where nothing distinguishes two
-    co-located projects but their filenames. Without this the shallowest file
-    won, so a second project in a shared directory diffed its sibling's board.
-    """
-    try:
-        row = workspace.get_project_by_id(project_id)
-    except Exception:  # pragma: no cover - a comparison must not die on this
-        return None
-    return str((row or {}).get("project_file_rel") or "").strip() or None
 
 
 def _load_or_build_initial_revision(
@@ -652,8 +662,8 @@ def _load_or_build_pcb_revision(
         snap = cache / "snapshot"
         semantic_index = copy.deepcopy(initial.get("semantic") or {})
 
+        anchor = _project_anchor(project_id)
         try:
-            anchor = _project_anchor(project_id)
             stackup = timed("stackup", lambda: _extract_stackup(snap, anchor))
         except Exception as exc:
             logs.append(f"Stackup extract failed for {commit[:7]}: {exc}")
@@ -1827,6 +1837,7 @@ def start_design_compare_job(
         json.dumps(
             {
                 "project": project_id,
+                "projectFileRel": str(row.get("project_file_rel") or ""),
                 "base": base,
                 "head": head,
                 "includeUnchanged": include_unchanged,
@@ -1847,6 +1858,7 @@ def start_design_compare_job(
             "head": head,
             "include_unchanged": include_unchanged,
             "artifact_key": artifact_key,
+            "project_file_rel": str(row.get("project_file_rel") or ""),
         },
         worker_pool="prism",
         artifact_key=artifact_key,
@@ -1987,6 +1999,12 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
     requested_head = str(payload["head"])
     include_unchanged = bool(payload.get("include_unchanged"))
     artifact_key = str(payload["artifact_key"])
+    expected_anchor = str(payload.get("project_file_rel") or "")
+    current_anchor = _project_anchor(project_id) or ""
+    if current_anchor != expected_anchor:
+        raise RuntimeError(
+            "Project anchor changed after the comparison was queued; retry the comparison"
+        )
     repo_path, relative_path, _checkout = _repo_paths(project_id)
     base = _resolve_revision(repo_path, requested_base)
     head = _resolve_revision(repo_path, requested_head)
