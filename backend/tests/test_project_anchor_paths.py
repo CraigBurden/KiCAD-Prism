@@ -13,6 +13,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from app.services import path_config_service, semantic_visualizer_service
 
@@ -330,6 +331,87 @@ class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
             path_config_service.config_for_anchor,
         )
 
+    def test_default_commit_globs_select_the_anchored_schematic(self) -> None:
+        from app.api import projects as projects_api
+        from app.services import project_service
+
+        project = project_service.Project(
+            id="prj_top",
+            name="top",
+            description="",
+            path="/tmp/shared",
+            last_modified="",
+            project_file="top.kicad_pro",
+        )
+        expected = object()
+        with (
+            mock.patch.object(
+                projects_api.file_service,
+                "find_files_in_commit",
+                return_value=["base.kicad_sch", "top.kicad_sch"],
+            ),
+            mock.patch.object(
+                projects_api,
+                "_read_commit_file",
+                return_value=expected,
+            ) as read_file,
+        ):
+            result = projects_api._read_configured_commit_file(
+                project,
+                "deadbeef",
+                "*.kicad_sch",
+                not_found_detail="Schematic not found",
+            )
+
+        self.assertIs(result, expected)
+        self.assertEqual(read_file.call_args.args[2], "top.kicad_sch")
+
+    def test_a_missing_anchored_file_does_not_select_a_sibling(self) -> None:
+        from fastapi import HTTPException
+        from app.api import projects as projects_api
+        from app.services import project_service
+
+        project = project_service.Project(
+            id="prj_top",
+            name="top",
+            description="",
+            path="/tmp/shared",
+            last_modified="",
+            project_file="top.kicad_pro",
+        )
+        with mock.patch.object(
+            projects_api.file_service,
+            "find_files_in_commit",
+            return_value=["base.kicad_pcb"],
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                projects_api._read_configured_commit_file(
+                    project,
+                    "deadbeef",
+                    "*.kicad_pcb",
+                    not_found_detail="PCB not found",
+                )
+        self.assertEqual(raised.exception.status_code, 404)
+
+    def test_sibling_root_schematics_are_not_loaded_as_subsheets(self) -> None:
+        from app.api import projects as projects_api
+        from app.services import project_service
+
+        project = project_service.Project(
+            id="prj_top",
+            name="top",
+            description="",
+            path="/tmp/shared",
+            last_modified="",
+            project_file="top.kicad_pro",
+        )
+        self.assertEqual(
+            projects_api._sibling_root_schematic_names(
+                project, ["base.kicad_pro", "top.kicad_pro"]
+            ),
+            {"base.kicad_sch"},
+        )
+
 
 class DesignComparisonPicksTheAnchoredProject(unittest.TestCase):
     """A comparison scans a checked-out revision, where only filenames identify
@@ -376,14 +458,12 @@ class DesignComparisonPicksTheAnchoredProject(unittest.TestCase):
         self.assertEqual(sources._find_pro(self.snap).name, "base.kicad_pro")
         self.assertEqual(sources._find_pcb(self.snap).name, "base.kicad_pcb")
 
-    def test_a_revision_predating_the_project_still_compares(self) -> None:
-        # The anchored file may simply not exist at an older commit. Comparing
-        # the revision's one board beats reporting it as empty.
+    def test_a_revision_predating_the_project_does_not_compare_a_sibling(self) -> None:
+        # The anchored file may simply not exist at an older commit. Selecting
+        # a sibling would manufacture a comparison against a different design.
         from app.services import design_compare_sources as sources
 
         older = Path(self._tmp.name) / "older"
         older.mkdir()
         write_tree(older, ["base.kicad_pro", "base.kicad_pcb"])
-        self.assertEqual(
-            sources._find_pcb(older, "top.kicad_pro").name, "base.kicad_pcb"
-        )
+        self.assertIsNone(sources._find_pcb(older, "top.kicad_pro"))

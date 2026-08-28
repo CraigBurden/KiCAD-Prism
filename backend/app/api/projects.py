@@ -245,6 +245,42 @@ def _read_commit_file(
     )
 
 
+def _anchored_commit_path(
+    project: project_service.Project,
+    paths: List[str],
+    suffix: str,
+) -> Optional[str]:
+    """Select this project's root file from a commit listing.
+
+    The default schematic/PCB globs are shared by every project in the
+    directory. Once a project has an anchor, falling back to the first match is
+    the same identity bug as ignoring the anchor altogether. Legacy rows have
+    no anchor and retain the deterministic first-match behaviour.
+    """
+    if not paths:
+        return None
+    anchor = project_service.project_anchor(project)
+    if not anchor:
+        return paths[0]
+    expected = Path(anchor).with_suffix(suffix).name
+    return next((path for path in paths if path == expected), None)
+
+
+def _sibling_root_schematic_names(
+    project: project_service.Project, project_paths: List[str]
+) -> set[str]:
+    """Root schematics owned by the other anchored projects in this directory."""
+    anchor = project_service.project_anchor(project)
+    if not anchor:
+        return set()
+    own_project = Path(anchor).name
+    return {
+        Path(path).with_suffix(".kicad_sch").name
+        for path in project_paths
+        if Path(path).name != own_project
+    }
+
+
 def _read_configured_commit_file(
     project: project_service.Project,
     commit: str,
@@ -263,7 +299,16 @@ def _read_configured_commit_file(
     matches = file_service.find_files_in_commit(repo_path, commit, path, relative_prefix=sub_path)
     if not matches:
         raise HTTPException(status_code=404, detail=not_found_detail)
-    return _read_commit_file(project, commit, matches[0], not_found_detail=not_found_detail)
+    selected = matches[0]
+    default_suffix = {
+        path_config_service.DEFAULT_PATHS["schematic"]: ".kicad_sch",
+        path_config_service.DEFAULT_PATHS["pcb"]: ".kicad_pcb",
+    }.get(path)
+    if default_suffix:
+        selected = _anchored_commit_path(project, matches, default_suffix)
+        if selected is None:
+            raise HTTPException(status_code=404, detail=not_found_detail)
+    return _read_commit_file(project, commit, selected, not_found_detail=not_found_detail)
 
 
 def _commit_file_response(
@@ -1674,6 +1719,15 @@ async def get_project_subsheets(
             not_found_detail="Schematic not found",
         )
         repo_path, sub_path = _repo_context(project)
+        sibling_roots = _sibling_root_schematic_names(
+            project,
+            file_service.find_files_in_commit(
+                repo_path,
+                commit,
+                "*.kicad_pro",
+                relative_prefix=sub_path,
+            ),
+        )
         root_sheets = [
             path for path in file_service.find_files_in_commit(
                 repo_path,
@@ -1681,7 +1735,7 @@ async def get_project_subsheets(
                 "*.kicad_sch",
                 relative_prefix=sub_path,
             )
-            if path != main_schematic.path
+            if path != main_schematic.path and path not in sibling_roots
         ]
         subsheets_dir = config.subsheets or "Subsheets"
         nested_sheets = [
@@ -1733,12 +1787,9 @@ async def get_project_viewer_support_files(
         )
         if not pro_paths:
             return {"files": []}
-        config = _path_config_from_commit(project, commit)
-        expected_stem = Path(config.schematic or "").stem
-        pro_path = next(
-            (path for path in pro_paths if Path(path).stem == expected_stem),
-            pro_paths[0],
-        )
+        pro_path = _anchored_commit_path(project, pro_paths, ".kicad_pro")
+        if pro_path is None:
+            return {"files": []}
         pro_file = _read_commit_file(project, commit, pro_path)
         files = [
             {

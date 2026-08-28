@@ -65,15 +65,17 @@ def _prefer_anchored(paths: List[Path], anchor: Optional[str]) -> Optional[Path]
     whichever file sat shallowest, so a second co-located project could look
     correct live and diff its sibling's board at a past revision.
 
-    Falls through to the shallowest when the anchored file is absent from the
-    revision -- a project that did not exist yet, or was renamed -- because
-    comparing something is better than reporting the revision as empty.
+    When the anchored file is absent from the revision -- a project that did
+    not exist yet, or was renamed -- return no file. Selecting a sibling would
+    manufacture a comparison against a different project, which is worse than
+    accurately reporting that this project has no document at that revision.
     """
     stem = _anchor_stem(anchor)
     if stem:
         owned = [path for path in paths if path.stem.casefold() == stem]
-        if owned:
-            paths = owned
+        if not owned:
+            return None
+        paths = owned
     return min(paths, key=lambda path: (len(path.parts), str(path)))
 
 
