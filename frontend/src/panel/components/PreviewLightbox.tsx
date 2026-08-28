@@ -1,11 +1,13 @@
 import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
+import { LibraryAssetRenderer } from "@/components/workspace/library-asset-renderer";
 import { LibraryPreviewViewport } from "@/components/workspace/library-preview-inspector";
 
 interface PreviewLightboxProps {
-  /** Any renderable preview URL (symbol, footprint, or 3D render). */
-  url: string;
+  /** The catalog asset to draw, and which kind of drawing it needs. */
+  assetId: string;
+  kind: "symbol" | "footprint";
   title: string;
   subtitle?: string;
 }
@@ -20,7 +22,7 @@ interface ControlledProps extends PreviewLightboxProps {
  * close control exists. Wheel zoom is enabled here because the lightbox has
  * no page content to scroll past.
  */
-export function PreviewLightbox({ open, onOpenChange, url, title, subtitle }: ControlledProps) {
+export function PreviewLightbox({ open, onOpenChange, assetId, kind, title, subtitle }: ControlledProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
@@ -42,12 +44,12 @@ export function PreviewLightbox({ open, onOpenChange, url, title, subtitle }: Co
               <X className="h-4 w-4" />
             </DialogPrimitive.Close>
           </div>
-          <LibraryPreviewViewport viewportKey={url} className="min-h-0 flex-1 rounded-none border-0">
-            <img
-              src={url}
-              alt={title}
-              draggable={false}
-              className="pointer-events-none h-full w-full select-none object-contain p-2"
+          <LibraryPreviewViewport viewportKey={assetId} className="flex min-h-0 flex-1 rounded-none border-0">
+            <LibraryAssetRenderer
+              assetId={assetId}
+              kind={kind}
+              label={title}
+              source="panel"
             />
           </LibraryPreviewViewport>
         </DialogPrimitive.Content>

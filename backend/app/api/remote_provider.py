@@ -422,6 +422,32 @@ async def download_asset(
     )
 
 
+@router.get("/api/remote-provider/assets/{asset_id}/content")
+async def get_asset_content(
+    asset_id: str,
+    user: AuthenticatedUser = Depends(require_remote_symbol_reader),
+):
+    """Serve an asset's stored bytes to the panel so it can render them.
+
+    The signed `/assets/{asset_id}` download above is KiCad's placement path
+    and rewrites the payload for it. This one is the library file as stored,
+    and is gated by the panel's own reader dependency rather than a signature.
+    """
+    _ = user
+    asset = await asyncio.to_thread(catalog_service.catalog_asset_source, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    path, content_type, filename = asset
+    return FileResponse(
+        path,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": f'inline; filename="{filename}"',
+        },
+    )
+
+
 @router.get("/api/remote-provider/previews/{preview_id}")
 async def download_preview(
     preview_id: str,

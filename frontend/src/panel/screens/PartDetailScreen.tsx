@@ -30,6 +30,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { PanelComponent, PanelSupplySource } from "@/panel/lib/panel-api";
 import { getComponent, getInlineBundle, getPartManifest } from "@/panel/lib/panel-api";
 import { hasSession, retry, sendRpcCommand } from "@/panel/lib/kicad-bridge";
+import { LibraryAssetRenderer } from "@/components/workspace/library-asset-renderer";
 import { LibraryPreviewViewport } from "@/components/workspace/library-preview-inspector";
 import { PreviewLightbox } from "@/panel/components/PreviewLightbox";
 import { cn } from "@/lib/utils";
@@ -206,10 +207,8 @@ export function PartDetailScreen({
   const sources = component.supply?.sources ?? [];
   const vendorSources = sources.filter((s) => s.kind === "vendor");
   const localSources = sources.filter((s) => s.kind === "local");
-  const symbolPreviewUrl =
-    selectedRepresentation?.symbol?.preview_url || component.symbol_preview_url;
-  const footprintPreviewUrl =
-    selectedRepresentation?.footprint?.preview_url || component.footprint_preview_url;
+  const symbolAssetId = selectedRepresentation?.symbol?.id;
+  const footprintAssetId = selectedRepresentation?.footprint?.id;
   const symbolMeta = selectedRepresentation?.symbol
     ? `${selectedRepresentation.symbol.target_library}:${selectedRepresentation.symbol.target_name}`
     : `${component.library_name}:${component.symbol_name}`;
@@ -326,25 +325,21 @@ export function PartDetailScreen({
           </Select>
 
           <ZoomablePreview
-            key={symbolPreviewUrl}
+            key={symbolAssetId}
             label="Symbol"
-            url={symbolPreviewUrl}
-            status={selectedRepresentation.symbol?.preview_url ? "ready" : component.preview_status?.symbol?.status}
+            assetId={symbolAssetId}
+            kind="symbol"
             meta={symbolMeta}
             version={`Rev.${component.version}`}
-            onExpand={symbolPreviewUrl ? () => setLightbox("symbol") : undefined}
+            onExpand={symbolAssetId ? () => setLightbox("symbol") : undefined}
           />
           <ZoomablePreview
-            key={footprintPreviewUrl}
+            key={footprintAssetId}
             label="Footprint"
-            url={footprintPreviewUrl}
-            status={
-              selectedRepresentation.footprint?.preview_url
-                ? "ready"
-                : component.preview_status?.footprint?.status
-            }
+            assetId={footprintAssetId}
+            kind="footprint"
             meta={selectedRepresentation.footprint?.target_name || component.package_name || "—"}
-            onExpand={footprintPreviewUrl ? () => setLightbox("footprint") : undefined}
+            onExpand={footprintAssetId ? () => setLightbox("footprint") : undefined}
           />
         </Section>
       )}
@@ -423,20 +418,22 @@ export function PartDetailScreen({
       </div>
 
       {/* ── Lightboxes ─────────────────────────────────────────── */}
-      {lightbox === "symbol" && symbolPreviewUrl && (
+      {lightbox === "symbol" && symbolAssetId && (
         <PreviewLightbox
           open
           onOpenChange={(open) => !open && setLightbox(null)}
-          url={symbolPreviewUrl}
+          assetId={symbolAssetId}
+          kind="symbol"
           title={`${component.name} — Symbol`}
           subtitle={symbolMeta}
         />
       )}
-      {lightbox === "footprint" && footprintPreviewUrl && (
+      {lightbox === "footprint" && footprintAssetId && (
         <PreviewLightbox
           open
           onOpenChange={(open) => !open && setLightbox(null)}
-          url={footprintPreviewUrl}
+          assetId={footprintAssetId}
+          kind="footprint"
           title={`${component.name} — Footprint`}
           subtitle={selectedRepresentation?.footprint?.target_name || component.package_name || ""}
         />
@@ -501,38 +498,29 @@ function ParameterTable({
 
 function ZoomablePreview({
   label,
-  url,
-  status,
+  assetId,
+  kind,
   meta,
   version,
   onExpand,
 }: {
   label: string;
-  url?: string;
-  status?: string;
+  assetId?: string;
+  kind: "symbol" | "footprint";
   meta?: string;
   version?: string;
   onExpand?: () => void;
 }) {
-  // Keyed on the url by both call sites, so a new image is a new card and
-  // starts in its own loading state.
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
-    "loading"
-  );
-
-  const isReady = Boolean(url) && status !== "failed";
-
-  if (!isReady || loadState === "error") {
-    const message =
-      status === "failed"
-        ? `${label} preview failed`
-        : loadState === "error"
-          ? `${label} preview failed to load`
-          : `No ${label.toLowerCase()} preview`;
+  // Drawn from the asset itself now rather than a stored preview image, so
+  // there is no separate generation status to report: either the revision has
+  // the asset or it does not, and the renderer owns its own loading state.
+  if (!assetId) {
     return (
       <div className="mb-2 overflow-hidden rounded border border-border/50">
         <div className="flex min-h-[100px] items-center justify-center bg-preview-surface">
-          <span className="text-[11px] text-muted-foreground/50">{message}</span>
+          <span className="text-[11px] text-muted-foreground/50">
+            No {label.toLowerCase()}
+          </span>
         </div>
         <div className="border-t border-border/30 px-2.5 py-1 text-[10px] text-muted-foreground">
           {meta || label}
@@ -544,29 +532,22 @@ function ZoomablePreview({
   return (
     <div className="mb-2">
       <div className="relative">
+        {/* wheelZoom stays off: this panel is a narrow scrolling column inside
+            KiCad, and capturing the wheel would trap the page scroll. */}
         <LibraryPreviewViewport
-          viewportKey={`${label}-${url}`}
-          className="min-h-[220px]"
+          viewportKey={`${label}-${assetId}`}
+          className="flex min-h-[220px]"
           wheelZoom={false}
-          onExpand={loadState === "ready" ? onExpand : undefined}
+          onExpand={onExpand}
         >
-          <img
-            src={url}
-            alt={`${label} preview`}
-            draggable={false}
-            onLoad={() => setLoadState("ready")}
-            onError={() => setLoadState("error")}
-            className={cn(
-              "pointer-events-none h-full max-h-[220px] w-full select-none object-contain p-2",
-              loadState === "loading" && "invisible"
-            )}
+          <LibraryAssetRenderer
+            assetId={assetId}
+            kind={kind}
+            label={label}
+            source="panel"
+            className="max-h-[220px]"
           />
         </LibraryPreviewViewport>
-        {loadState === "loading" && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-preview-surface/60">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        )}
       </div>
       <div className="mt-1 flex items-center justify-between px-0.5 text-[10px] text-muted-foreground">
         <span className="truncate">{meta || label}</span>

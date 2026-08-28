@@ -2649,6 +2649,42 @@ class ComponentCatalogDomainService:
             return None
         return (path, str(row["content_type"] or "image/svg+xml")) if path.is_file() else None
 
+    def catalog_asset_source(self, asset_id: str) -> tuple[Path, str, str] | None:
+        """One asset's stored bytes, as written -- not the placement rewrite.
+
+        ``get_asset_by_id`` returns what KiCad places: a symbol carries an
+        injected footprint reference and the component's fields, a footprint
+        carries rewritten 3D-model paths. Those rewrites exist for placement.
+        A renderer wants the file as the library holds it, so this resolves the
+        canonical path instead of materialising a payload.
+
+        Returns ``(path, content_type, filename)``, or ``None`` when the asset
+        is unknown or its file is missing.
+        """
+        self.initialize()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT canonical_path, asset_type FROM assets WHERE id = %s",
+                (asset_id,),
+            ).fetchone()
+        if not row:
+            return None
+        path = Path(str(row["canonical_path"] or "")).resolve()
+        # Every asset root is a child of the store root. Confining the resolved
+        # path keeps a stored value that escaped the store -- or a row written
+        # by an older import -- from turning this into an arbitrary file read.
+        try:
+            path.relative_to(self._store_root.resolve())
+        except ValueError:
+            return None
+        if not path.is_file():
+            return None
+        return (
+            path,
+            _content_type_for_asset(str(row["asset_type"] or ""), path),
+            path.name,
+        )
+
     def create_project_import_session(
         self,
         *,

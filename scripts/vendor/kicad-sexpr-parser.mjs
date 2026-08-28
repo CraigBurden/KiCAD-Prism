@@ -102,7 +102,8 @@ function decode_string(input, start, end, firstBs) {
     const c = input.charCodeAt(i);
     if (c === CC_BACKSLASH && i + 1 < end) {
       const nc = input.charCodeAt(i + 1);
-      if (nc === 110) out += "\n";
+      if (nc === 110)
+        out += "\n";
       else if (nc === CC_BACKSLASH) out += "\\";
       else if (nc === CC_QUOTE) out += '"';
       else out += input[i + 1];
@@ -1247,6 +1248,18 @@ function parseGroup(expr) {
   );
 }
 var BoardParser = class {
+  /**
+   * Parse a `.kicad_mod` file into one footprint.
+   *
+   * A footprint file is a bare `(footprint ...)` expression, not a board, so
+   * `parse` cannot read one -- it starts at `kicad_pcb`. This mirrors
+   * `SchematicParser.parseLibSymbols` for the other half of a library asset.
+   */
+  parseFootprintFile(text) {
+    const expr = listify(text);
+    const root = expr.length === 1 && Array.isArray(expr[0]) ? expr[0] : expr;
+    return parseFootprint(root);
+  }
   parse(text) {
     const want_breakdown = isEcadPerfLogEnabled() && text.length > 1e6;
     const t0 = want_breakdown ? performance.now() : 0;
@@ -1355,8 +1368,10 @@ ${indent2})`;
   }
   if (effects.justify) {
     const parts = [];
-    if (effects.justify.horiz && effects.justify.horiz !== "center") parts.push(effects.justify.horiz);
-    if (effects.justify.vert && effects.justify.vert !== "center") parts.push(effects.justify.vert);
+    if (effects.justify.horiz && effects.justify.horiz !== "center")
+      parts.push(effects.justify.horiz);
+    if (effects.justify.vert && effects.justify.vert !== "center")
+      parts.push(effects.justify.vert);
     if (effects.justify.mirror) parts.push("mirror");
     if (parts.length > 0) {
       result += `
@@ -1525,7 +1540,8 @@ function serializeLibSymbol(symbol, level = 0) {
   const indent = indentString(level);
   let result = `${indent}(symbol "${escapeString(symbol.name)}"
 `;
-  if (symbol.power) result += `${indentString(level + 1)}(power)
+  if (symbol.power)
+    result += `${indentString(level + 1)}(power)
 `;
   if (symbol.pin_numbers?.hide) {
     result += `${indentString(level + 1)}(pin_numbers
@@ -1541,16 +1557,20 @@ function serializeLibSymbol(symbol, level = 0) {
     if (symbol.pin_names.offset !== void 0)
       result += `${indentString(level + 2)}(offset ${symbol.pin_names.offset})
 `;
-    if (symbol.pin_names.hide) result += `${indentString(level + 2)}(hide yes)
+    if (symbol.pin_names.hide)
+      result += `${indentString(level + 2)}(hide yes)
 `;
     result += `${indentString(level + 1)})
 `;
   }
-  if (symbol.exclude_from_sim !== void 0) result += `${indentString(level + 1)}(exclude_from_sim ${symbol.exclude_from_sim ? "yes" : "no"})
+  if (symbol.exclude_from_sim !== void 0)
+    result += `${indentString(level + 1)}(exclude_from_sim ${symbol.exclude_from_sim ? "yes" : "no"})
 `;
-  if (symbol.in_bom !== void 0) result += `${indentString(level + 1)}(in_bom ${symbol.in_bom ? "yes" : "no"})
+  if (symbol.in_bom !== void 0)
+    result += `${indentString(level + 1)}(in_bom ${symbol.in_bom ? "yes" : "no"})
 `;
-  if (symbol.on_board !== void 0) result += `${indentString(level + 1)}(on_board ${symbol.on_board ? "yes" : "no"})
+  if (symbol.on_board !== void 0)
+    result += `${indentString(level + 1)}(on_board ${symbol.on_board ? "yes" : "no"})
 `;
   if (symbol.properties && symbol.properties.length > 0) {
     for (const property of symbol.properties) {
@@ -1579,11 +1599,14 @@ function serializeLibSymbol(symbol, level = 0) {
           result += `${indentString(level + 2)}(radius (xy ${arc.radius.at.x} ${arc.radius.at.y}) (length ${arc.radius.length}) (angles ${arc.radius.angles.x} ${arc.radius.angles.y}))
 `;
         }
-        if (arc.stroke) result += `${indentString(level + 2)}${serializeStroke(arc.stroke, level + 2)}
+        if (arc.stroke)
+          result += `${indentString(level + 2)}${serializeStroke(arc.stroke, level + 2)}
 `;
-        if (arc.fill) result += `${indentString(level + 2)}${serializeFill(arc.fill, level + 2)}
+        if (arc.fill)
+          result += `${indentString(level + 2)}${serializeFill(arc.fill, level + 2)}
 `;
-        if (arc.uuid) result += `${indentString(level + 2)}(uuid "${escapeString(arc.uuid)}")
+        if (arc.uuid)
+          result += `${indentString(level + 2)}(uuid "${escapeString(arc.uuid)}")
 `;
         result += `${indentString(level + 1)})
 `;
@@ -1600,9 +1623,11 @@ function serializeLibSymbol(symbol, level = 0) {
         if (bezier.stroke)
           result += `${indentString(level + 2)}${serializeStroke(bezier.stroke, level + 2)}
 `;
-        if (bezier.fill) result += `${indentString(level + 2)}${serializeFill(bezier.fill, level + 2)}
+        if (bezier.fill)
+          result += `${indentString(level + 2)}${serializeFill(bezier.fill, level + 2)}
 `;
-        if (bezier.uuid) result += `${indentString(level + 2)}(uuid "${escapeString(bezier.uuid)}")
+        if (bezier.uuid)
+          result += `${indentString(level + 2)}(uuid "${escapeString(bezier.uuid)}")
 `;
         result += `${indentString(level + 1)})
 `;
@@ -1617,7 +1642,10 @@ function serializeLibSymbol(symbol, level = 0) {
         if (circle.stroke) {
           result += `${indentString(level + 2)}(stroke
 `;
-          const strokeStr = serializeStroke(circle.stroke, level + 3);
+          const strokeStr = serializeStroke(
+            circle.stroke,
+            level + 3
+          );
           const strokeLines = strokeStr.split("\n");
           for (let i = 1; i < strokeLines.length - 1; i++) {
             result += strokeLines[i] + "\n";
@@ -1636,7 +1664,8 @@ function serializeLibSymbol(symbol, level = 0) {
           result += `${indentString(level + 2)})
 `;
         }
-        if (circle.uuid) result += `${indentString(level + 2)}(uuid "${escapeString(circle.uuid)}")
+        if (circle.uuid)
+          result += `${indentString(level + 2)}(uuid "${escapeString(circle.uuid)}")
 `;
         result += `${indentString(level + 1)})
 `;
@@ -1661,7 +1690,10 @@ function serializeLibSymbol(symbol, level = 0) {
         if (polyline.stroke) {
           result += `${indentString(level + 2)}(stroke
 `;
-          const strokeStr = serializeStroke(polyline.stroke, level + 3);
+          const strokeStr = serializeStroke(
+            polyline.stroke,
+            level + 3
+          );
           const strokeLines = strokeStr.split("\n");
           for (let i = 1; i < strokeLines.length - 1; i++) {
             result += strokeLines[i] + "\n";
@@ -1680,7 +1712,8 @@ function serializeLibSymbol(symbol, level = 0) {
           result += `${indentString(level + 2)})
 `;
         }
-        if (polyline.uuid) result += `${indentString(level + 2)}(uuid "${escapeString(polyline.uuid)}")
+        if (polyline.uuid)
+          result += `${indentString(level + 2)}(uuid "${escapeString(polyline.uuid)}")
 `;
         result += `${indentString(level + 1)})
 `;
@@ -1695,7 +1728,10 @@ function serializeLibSymbol(symbol, level = 0) {
         if (rectangle.stroke) {
           result += `${indentString(level + 2)}(stroke
 `;
-          const strokeStr = serializeStroke(rectangle.stroke, level + 3);
+          const strokeStr = serializeStroke(
+            rectangle.stroke,
+            level + 3
+          );
           const strokeLines = strokeStr.split("\n");
           for (let i = 1; i < strokeLines.length - 1; i++) {
             result += strokeLines[i] + "\n";
@@ -1714,7 +1750,8 @@ function serializeLibSymbol(symbol, level = 0) {
           result += `${indentString(level + 2)})
 `;
         }
-        if (rectangle.uuid) result += `${indentString(level + 2)}(uuid "${escapeString(rectangle.uuid)}")
+        if (rectangle.uuid)
+          result += `${indentString(level + 2)}(uuid "${escapeString(rectangle.uuid)}")
 `;
         result += `${indentString(level + 1)})
 `;
@@ -1728,7 +1765,8 @@ function serializeLibSymbol(symbol, level = 0) {
 `;
         result += `${indentString(level + 2)}${serializeEffects(text.effects, level + 2)}
 `;
-        if (text.uuid) result += `${indentString(level + 2)}(uuid "${escapeString(text.uuid)}")
+        if (text.uuid)
+          result += `${indentString(level + 2)}(uuid "${escapeString(text.uuid)}")
 `;
         result += `${indentString(level + 1)})
 `;
@@ -1747,9 +1785,11 @@ function serializeLibSymbol(symbol, level = 0) {
         if (textbox.stroke)
           result += `${indentString(level + 2)}${serializeStroke(textbox.stroke, level + 2)}
 `;
-        if (textbox.fill) result += `${indentString(level + 2)}${serializeFill(textbox.fill, level + 2)}
+        if (textbox.fill)
+          result += `${indentString(level + 2)}${serializeFill(textbox.fill, level + 2)}
 `;
-        if (textbox.uuid) result += `${indentString(level + 2)}(uuid "${escapeString(textbox.uuid)}")
+        if (textbox.uuid)
+          result += `${indentString(level + 2)}(uuid "${escapeString(textbox.uuid)}")
 `;
         result += `${indentString(level + 1)})
 `;
@@ -1761,7 +1801,8 @@ function serializeLibSymbol(symbol, level = 0) {
       result += serializePin(pin, level + 1) + "\n";
     }
   }
-  if (symbol.embedded_fonts !== void 0) result += `${indentString(level + 1)}(embedded_fonts ${symbol.embedded_fonts ? "yes" : "no"})
+  if (symbol.embedded_fonts !== void 0)
+    result += `${indentString(level + 1)}(embedded_fonts ${symbol.embedded_fonts ? "yes" : "no"})
 `;
   if (symbol.embedded_files)
     result += `${indentString(level + 1)}(embedded_files "${escapeString(symbol.embedded_files)}")
@@ -1828,7 +1869,8 @@ function serializeJunction(junction) {
   } else {
     result += `(at 0 0)`;
   }
-  if (junction.diameter !== void 0) result += ` (diameter ${formatDouble(junction.diameter)})`;
+  if (junction.diameter !== void 0)
+    result += ` (diameter ${formatDouble(junction.diameter)})`;
   if (junction.color) {
     result += ` (color ${Math.round(junction.color.r * 255)} ${Math.round(junction.color.g * 255)} ${Math.round(junction.color.b * 255)} ${formatColorAlpha(junction.color.a)})`;
   }
@@ -1879,7 +1921,21 @@ function serializeHierarchicalLabel(label) {
 }
 function serializePinInstance(pin) {
   let result = "(pin ";
-  const pinTypes = ["input", "output", "bidirectional", "tri_state", "passive", "dot", "round", "diamond", "rectangle", "power_in", "power_out", "open_collector", "open_emitter"];
+  const pinTypes = [
+    "input",
+    "output",
+    "bidirectional",
+    "tri_state",
+    "passive",
+    "dot",
+    "round",
+    "diamond",
+    "rectangle",
+    "power_in",
+    "power_out",
+    "open_collector",
+    "open_emitter"
+  ];
   if (pin.number !== void 0 && pin.number !== null) {
     if (pin.number.trim() !== "" && !pinTypes.includes(pin.number)) {
       result += `"${escapeString(pin.number)}"`;
@@ -1908,11 +1964,13 @@ function serializeSchematicSymbol(symbol, level = 0) {
 `;
   result += `${indentString(level + 1)}${serializeAt(symbol.at, 0, true)}
 `;
-  if (symbol.mirror) result += `${indentString(level + 1)}(mirror ${symbol.mirror})
+  if (symbol.mirror)
+    result += `${indentString(level + 1)}(mirror ${symbol.mirror})
 `;
   result += `${indentString(level + 1)}(unit ${symbol.unit || 1})
 `;
-  if (symbol.exclude_from_sim !== void 0) result += `${indentString(level + 1)}(exclude_from_sim ${symbol.exclude_from_sim ? "yes" : "no"})
+  if (symbol.exclude_from_sim !== void 0)
+    result += `${indentString(level + 1)}(exclude_from_sim ${symbol.exclude_from_sim ? "yes" : "no"})
 `;
   if (symbol.in_bom !== void 0) {
     result += `${indentString(level + 1)}(in_bom ${symbol.in_bom ? "yes" : "no"})
@@ -1922,7 +1980,8 @@ function serializeSchematicSymbol(symbol, level = 0) {
     result += `${indentString(level + 1)}(on_board ${symbol.on_board ? "yes" : "no"})
 `;
   }
-  if (symbol.dnp !== void 0) result += `${indentString(level + 1)}(dnp ${symbol.dnp ? "yes" : "no"})
+  if (symbol.dnp !== void 0)
+    result += `${indentString(level + 1)}(dnp ${symbol.dnp ? "yes" : "no"})
 `;
   const body_style = symbol.body_style ?? symbol.convert;
   if (typeof body_style !== "undefined" && body_style !== null) {
@@ -1994,7 +2053,8 @@ function serializeSchematicSymbol(symbol, level = 0) {
             if (path.value)
               result += `${indentString(level + 4)}(value "${escapeString(path.value)}")
 `;
-            if (path.unit) result += `${indentString(level + 4)}(unit ${path.unit})
+            if (path.unit)
+              result += `${indentString(level + 4)}(unit ${path.unit})
 `;
             if (path.footprint)
               result += `${indentString(level + 4)}(footprint "${escapeString(path.footprint)}")
@@ -2053,7 +2113,8 @@ function serializeSchematicSheet(sheet, level = 0) {
   result += `${indentString(level + 1)}${serializeStroke(sheet.stroke)}
 `;
   const fillStr = serializeFill(sheet.fill);
-  if (fillStr) result += `${indentString(level + 1)}${fillStr}
+  if (fillStr)
+    result += `${indentString(level + 1)}${fillStr}
 `;
   result += `${indentString(level + 1)}(uuid "${escapeString(sheet.uuid)}")
 `;
@@ -2220,7 +2281,8 @@ function serializeSchematic(schematic) {
   if (schematic.uuid)
     result += `${indentString(indent)}(uuid "${escapeString(schematic.uuid)}")
 `;
-  if (schematic.paper) result += `${indentString(indent)}${serializePaper(schematic.paper)}
+  if (schematic.paper)
+    result += `${indentString(indent)}${serializePaper(schematic.paper)}
 `;
   if (schematic.title_block)
     result += `${serializeTitleBlock(schematic.title_block, indent)}
@@ -2320,7 +2382,8 @@ function serializeSchematic(schematic) {
         if (bezier.stroke)
           result += ` ${serializeStroke(bezier.stroke)}`;
         if (bezier.fill) result += ` ${serializeFill(bezier.fill)}`;
-        if (bezier.uuid) result += ` (uuid "${escapeString(bezier.uuid)}")`;
+        if (bezier.uuid)
+          result += ` (uuid "${escapeString(bezier.uuid)}")`;
         result += `)
 `;
       } else if (drawing.type === "circle") {
@@ -2329,7 +2392,8 @@ function serializeSchematic(schematic) {
         if (circle.stroke)
           result += ` ${serializeStroke(circle.stroke)}`;
         if (circle.fill) result += ` ${serializeFill(circle.fill)}`;
-        if (circle.uuid) result += ` (uuid "${escapeString(circle.uuid)}")`;
+        if (circle.uuid)
+          result += ` (uuid "${escapeString(circle.uuid)}")`;
         result += `)
 `;
       } else if (drawing.type === "polyline") {
@@ -2342,7 +2406,8 @@ function serializeSchematic(schematic) {
         if (polyline.stroke)
           result += ` ${serializeStroke(polyline.stroke)}`;
         if (polyline.fill) result += ` ${serializeFill(polyline.fill)}`;
-        if (polyline.uuid) result += ` (uuid "${escapeString(polyline.uuid)}")`;
+        if (polyline.uuid)
+          result += ` (uuid "${escapeString(polyline.uuid)}")`;
         result += `)
 `;
       } else if (drawing.type === "rectangle") {
@@ -2352,7 +2417,8 @@ function serializeSchematic(schematic) {
           result += ` ${serializeStroke(rectangle.stroke)}`;
         if (rectangle.fill)
           result += ` ${serializeFill(rectangle.fill)}`;
-        if (rectangle.uuid) result += ` (uuid "${escapeString(rectangle.uuid)}")`;
+        if (rectangle.uuid)
+          result += ` (uuid "${escapeString(rectangle.uuid)}")`;
         result += `)
 `;
       } else if (drawing.type === "text") {
@@ -2376,7 +2442,8 @@ function serializeSchematic(schematic) {
         if (textbox.stroke)
           result += ` ${serializeStroke(textbox.stroke)}`;
         if (textbox.fill) result += ` ${serializeFill(textbox.fill)}`;
-        if (textbox.uuid) result += ` (uuid "${escapeString(textbox.uuid)}")`;
+        if (textbox.uuid)
+          result += ` (uuid "${escapeString(textbox.uuid)}")`;
         result += `)
 `;
       }
@@ -3056,11 +3123,7 @@ var SchematicParser = class {
         const parsed = parse_expr(
           e,
           P.start("lib_symbols"),
-          P.collection(
-            "symbols",
-            "symbol",
-            T.item(parseLibSymbol)
-          )
+          P.collection("symbols", "symbol", T.item(parseLibSymbol))
         );
         return parsed["symbols"] ?? [];
       }),
