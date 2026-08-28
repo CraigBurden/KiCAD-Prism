@@ -91,8 +91,8 @@ export function LibraryComponentQuickView({
               </section>
 
               <section aria-label="Component previews" className="space-y-3 border-t pt-5">
-                <div><p className="mb-1.5 text-xs font-medium">Symbol</p><LibraryPreviewInspector previews={component.previews} kind="symbol" label={component.name} compact /></div>
-                <div><p className="mb-1.5 text-xs font-medium">Footprint</p><LibraryPreviewInspector previews={component.previews} kind="footprint" label={component.name} compact /></div>
+                <div><p className="mb-1.5 text-xs font-medium">Symbol</p><LibraryPreviewInspector assets={component.assets} kind="symbol" label={component.name} compact /></div>
+                <div><p className="mb-1.5 text-xs font-medium">Footprint</p><LibraryPreviewInspector assets={component.assets} kind="footprint" label={component.name} compact /></div>
               </section>
 
               <section aria-labelledby="quick-readiness" className="border-t pt-5">
