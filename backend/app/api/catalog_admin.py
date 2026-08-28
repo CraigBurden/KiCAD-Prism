@@ -946,6 +946,31 @@ def get_catalog_preview(preview_id: str, user: AuthenticatedUser = Depends(requi
     return FileResponse(path, media_type=content_type, headers={"Cache-Control": "private, max-age=300"})
 
 
+@router.get("/assets/{asset_id}/content")
+def get_catalog_asset_content(asset_id: str, user: AuthenticatedUser = Depends(require_catalog_reader)):
+    """Serve an asset's stored bytes so the browser can render it.
+
+    Deliberately not the placement payload from the remote-provider download:
+    that one rewrites a symbol's footprint reference and a footprint's
+    3D-model paths for KiCad. A renderer wants the library file itself.
+    """
+    _ = user
+    asset = catalog_service.catalog_asset_source(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    path, content_type, filename = asset
+    return FileResponse(
+        path,
+        media_type=content_type,
+        # Assets are immutable once written -- a change produces a new asset
+        # row -- but they are catalog content, so keep the cache private.
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": f'inline; filename="{filename}"',
+        },
+    )
+
+
 @router.patch("/components/{component_id}")
 def update_catalog_component(
     component_id: str,
