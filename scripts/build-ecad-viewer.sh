@@ -28,6 +28,17 @@ install -m 0644 "${APP_DIR}/build/ecad-viewer.js" "${PUBLIC_DIR}/ecad-viewer.js"
 install -m 0644 "${APP_DIR}/build/parser.worker.js" "${PUBLIC_DIR}/parser.worker.js"
 install -m 0644 "${APP_DIR}/build/ecad-renderer.js" "${PUBLIC_DIR}/ecad-renderer.js"
 
+# esbuild preserves third-party license comment indentation, including spaces
+# on otherwise empty lines. Normalize trailing horizontal whitespace before
+# hashing so generated artifacts satisfy the repository's diff checks without
+# altering the bundled license text.
+node -e '
+const fs = require("fs");
+const file = process.argv[1];
+const source = fs.readFileSync(file, "utf8");
+fs.writeFileSync(file, source.replace(/[\t ]+$/gm, ""));
+' "${PUBLIC_DIR}/ecad-renderer.js"
+
 ADAPTER_COMMIT="$(git -C "${ECAD_VIEWER_DIR}" rev-parse HEAD)"
 ECAD_SHA="$(shasum -a 256 "${PUBLIC_DIR}/ecad-viewer.js" | awk '{print $1}')"
 WORKER_SHA="$(shasum -a 256 "${PUBLIC_DIR}/parser.worker.js" | awk '{print $1}')"
