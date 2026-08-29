@@ -11,10 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type {
-  AssetSource,
-  RenderController,
-  RenderNavigationOptions,
+import {
+  symbolUnitLabel,
+  type AssetSource,
+  type RenderController,
+  type RenderNavigationOptions,
 } from "@/lib/ecad-renderer";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ import {
 import {
   LibraryCrossProbeProvider,
   LibraryProbeBadge,
+  useLibraryCrossProbe,
 } from "./library-cross-probe";
 
 /**
@@ -180,6 +182,49 @@ function LibraryLivePreviewViewport({
   );
 }
 
+/**
+ * The unit strip for a multi-unit symbol.
+ *
+ * It sits above the preview frame rather than inside it. The frame's ground is
+ * the ECAD canvas white, which is the same in both themes, so a strip drawn on
+ * it rendered near-white-on-white in dark mode; and the frame's top-right
+ * corner already belongs to the zoom controls, which covered the tail of the
+ * strip on a part with many units.
+ */
+function LivePreviewUnitTabs({
+  label,
+  units,
+  unit,
+  onSelect,
+}: {
+  label: string;
+  units: number;
+  unit: number;
+  onSelect: (unit: number) => void;
+}) {
+  return (
+    <div
+      className="flex max-w-full shrink-0 gap-1 overflow-x-auto pb-1"
+      role="tablist"
+      aria-label={`${label} symbol units`}
+    >
+      {Array.from({ length: units }, (_, index) => index + 1).map((value) => (
+        <Button
+          key={value}
+          size="sm"
+          variant={value === unit ? "secondary" : "ghost"}
+          className="h-7 shrink-0"
+          role="tab"
+          aria-selected={value === unit}
+          onClick={() => onSelect(value)}
+        >
+          {symbolUnitLabel(value)}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 function LivePreviewPane({
   assetId,
   kind,
@@ -196,6 +241,9 @@ function LivePreviewPane({
   className?: string;
 }) {
   const [controller, setController] = useState<RenderController | null>(null);
+  const [units, setUnits] = useState(1);
+  const [unit, setUnit] = useState(1);
+  const clearProbe = useLibraryCrossProbe()?.clear;
   if (!assetId) {
     return (
       <div
@@ -209,17 +257,36 @@ function LivePreviewPane({
     );
   }
   return (
-    <LibraryLivePreviewViewport controller={controller} className={className}>
-      <LibraryAssetRenderer
-        key={assetId}
-        assetId={assetId}
-        kind={kind}
-        label={label}
-        source={source}
-        navigation={navigation}
-        onControllerChange={setController}
-      />
-    </LibraryLivePreviewViewport>
+    <div className={cn("flex min-h-0 min-w-0 flex-col", className)}>
+      {units > 1 ? (
+        <LivePreviewUnitTabs
+          label={label}
+          units={units}
+          unit={unit}
+          onSelect={(next) => {
+            // A latched pin belongs to the unit it was probed on.
+            clearProbe?.();
+            setUnit(next);
+          }}
+        />
+      ) : null}
+      <LibraryLivePreviewViewport
+        controller={controller}
+        className="min-h-0 flex-1"
+      >
+        <LibraryAssetRenderer
+          key={assetId}
+          assetId={assetId}
+          kind={kind}
+          label={label}
+          source={source}
+          navigation={navigation}
+          unit={unit}
+          onUnitsChange={setUnits}
+          onControllerChange={setController}
+        />
+      </LibraryLivePreviewViewport>
+    </div>
   );
 }
 

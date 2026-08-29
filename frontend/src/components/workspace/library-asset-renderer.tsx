@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import {
   assetContentUrl,
   loadAssetText,
   loadEcadRenderer,
   symbolUnitCount,
-  symbolUnitLabel,
   type AssetSource,
   type RenderController,
   type RenderHandle,
@@ -49,6 +47,10 @@ export const EXPANDED_PREVIEW_NAVIGATION: RenderNavigationOptions = {
  * than a flat image.
  *
  * Loading lives in `lib/ecad-renderer`; this component owns only the canvas.
+ * A multi-unit part's tab strip belongs to whoever owns the surrounding
+ * chrome: it reports the unit count and takes the selected unit back as a
+ * prop, so the strip is laid out and themed with the rest of the frame rather
+ * than sitting on the preview's own white canvas ground.
  */
 
 export function LibraryAssetRenderer({
@@ -58,7 +60,7 @@ export function LibraryAssetRenderer({
   source = "catalog",
   className,
   onUnitsChange,
-  unit: controlledUnit,
+  unit = 1,
   navigation = EMBEDDED_PREVIEW_NAVIGATION,
   onControllerChange,
 }: {
@@ -67,33 +69,28 @@ export function LibraryAssetRenderer({
   label: string;
   source?: AssetSource;
   className?: string;
-  /** Reports the symbol's unit count so a parent can render its own tabs. */
+  /** Reports the symbol's unit count so the parent can render its tabs. */
   onUnitsChange?: (units: number) => void;
-  /** Selected unit when the parent owns the tab strip. */
+  /** Which unit of a multi-unit symbol to draw. Defaults to the first. */
   unit?: number;
   navigation?: RenderNavigationOptions;
   onControllerChange?: (controller: RenderController | null) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderedRef = useRef<RenderHandle | null>(null);
-  const [units, setUnits] = useState(1);
-  const [localUnit, setLocalUnit] = useState(1);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("");
   const crossProbe = useLibraryCrossProbe();
   const registerProbe = crossProbe?.register;
   const handleProbe = crossProbe?.handleProbe;
-  const clearProbe = crossProbe?.clear;
 
   const url = useMemo(
     () => assetContentUrl(source, assetId),
     [assetId, source],
   );
-  const activeUnit = controlledUnit ?? localUnit;
 
   const report = useCallback(
     (count: number) => {
-      setUnits(count);
       onUnitsChange?.(count);
     },
     [onUnitsChange],
@@ -135,7 +132,7 @@ export function LibraryAssetRenderer({
             selectable: true,
             navigation,
             onProbe: handleProbe,
-            unit: activeUnit,
+            unit,
           });
         } else {
           report(1);
@@ -171,7 +168,7 @@ export function LibraryAssetRenderer({
   }, [
     url,
     kind,
-    activeUnit,
+    unit,
     report,
     navigation,
     handleProbe,
@@ -190,37 +187,8 @@ export function LibraryAssetRenderer({
     [],
   );
 
-  const showTabs =
-    kind === "symbol" && units > 1 && controlledUnit === undefined;
-
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {showTabs ? (
-        <div
-          className="mb-1 flex max-w-full gap-1 overflow-x-auto border-b pb-1"
-          role="tablist"
-          aria-label={`${label} symbol units`}
-        >
-          {Array.from({ length: units }, (_, index) => index + 1).map(
-            (value) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={value === activeUnit ? "secondary" : "ghost"}
-                className="h-7 shrink-0"
-                role="tab"
-                aria-selected={value === activeUnit}
-                onClick={() => {
-                  clearProbe?.();
-                  setLocalUnit(value);
-                }}
-              >
-                {symbolUnitLabel(value)}
-              </Button>
-            ),
-          )}
-        </div>
-      ) : null}
       <div className={cn("relative min-h-0 flex-1", className)}>
         <canvas
           ref={canvasRef}
