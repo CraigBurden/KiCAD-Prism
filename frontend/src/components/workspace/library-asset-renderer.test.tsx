@@ -58,6 +58,7 @@ describe("LibraryAssetRenderer", () => {
         wheel: "modifier",
         pinch: false,
         touchPan: false,
+        drag: true,
       },
     });
     view.unmount();

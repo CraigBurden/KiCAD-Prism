@@ -25,6 +25,8 @@ export interface RenderNavigationOptions {
   wheel: "disabled" | "modifier" | "direct";
   pinch: boolean;
   touchPan: boolean;
+  /** Pan by dragging with a mouse or trackpad button held down. */
+  drag: boolean;
 }
 
 export interface RenderController {

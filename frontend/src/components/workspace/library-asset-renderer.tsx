@@ -17,16 +17,25 @@ import { cn } from "@/lib/utils";
 
 import { useLibraryCrossProbe } from "./library-cross-probe";
 
+/**
+ * Wheel is left to the page so a preview embedded in a scrolling column -- the
+ * narrow remote-provider panel is one -- does not swallow the scroll; zoom is
+ * reached with the modifier, the buttons, or the expanded view. Dragging is how
+ * a viewer is panned everywhere else in the product, so it is on in both.
+ * Single-finger touch pan stays off for the same reason wheel zoom does.
+ */
 export const EMBEDDED_PREVIEW_NAVIGATION: RenderNavigationOptions = {
   wheel: "modifier",
   pinch: false,
   touchPan: false,
+  drag: true,
 };
 
 export const EXPANDED_PREVIEW_NAVIGATION: RenderNavigationOptions = {
   wheel: "direct",
   pinch: true,
   touchPan: false,
+  drag: true,
 };
 
 /**
