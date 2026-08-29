@@ -355,8 +355,14 @@ export function LibraryPreviewPair({
       resetKey={resetKey}
       className={cn("space-y-2", className)}
     >
-      <div className="flex min-h-7 items-center justify-between gap-2">
-        <LibraryProbeBadge />
+      <div className="flex min-h-7 items-center gap-2">
+        {/* The badge slot is always laid out, empty or not. Left to
+            `justify-between`, the expand control was the row's only child
+            until a probe latched, so it sat left and then jumped right the
+            moment the badge appeared. */}
+        <div className="min-w-0 flex-1">
+          <LibraryProbeBadge />
+        </div>
         <Button
           size="icon-sm"
           variant="ghost"
