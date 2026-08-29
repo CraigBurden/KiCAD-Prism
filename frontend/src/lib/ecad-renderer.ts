@@ -54,8 +54,6 @@ export interface RenderHandle {
 
 interface BaseRenderOptions {
   canvas: HTMLCanvasElement;
-  /** Deprecated renderer compatibility alias. */
-  interactive?: boolean;
   selectable?: boolean;
   navigation?: Partial<RenderNavigationOptions>;
   onProbe?: (event: ProbeEvent) => void;

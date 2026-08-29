@@ -88,7 +88,8 @@ import type {
   WorkflowStage,
 } from "@/types/catalog";
 import type { Project } from "@/types/project";
-import { LibraryPreviewPair, LibraryPreviewViewport } from "./library-preview-inspector";
+import { LibraryPreviewPair } from "./library-preview-inspector";
+import { LibraryPreviewViewport } from "./library-preview-viewport";
 import { resolveLibraryPreviewPairAssetIds } from "./library-preview-pair";
 
 type ComponentTab = "overview" | "assets" | "revisions" | "review" | "usage" | "audit";
@@ -359,7 +360,7 @@ function PreviewImage({ previewId, label }: { previewId: string; label: string }
 
 function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogComponent; canMutate: boolean; onEdit: () => void }) {
   const requiredAttached = component.assets.filter((asset) => asset.required).length;
-  const renderableAssets = component.assets.filter((asset) => asset.asset_type === "symbol" || asset.asset_type === "footprint").length;
+
   const engineeringRows = [
     { label: "Mass", value: component.mass_g ? `${component.mass_g} g` : "" },
     { label: "RθJC", value: component.rqjc_c_w ? `${component.rqjc_c_w} °C/W` : "" },
@@ -368,8 +369,12 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
     { label: "Power dissipation", value: component.power_dissipation_w ? `${component.power_dissipation_w} W` : "" },
     { label: "Rate", value: component.rate },
   ];
-  const hasRenderableAssets = component.assets.some((asset) => asset.asset_type === "symbol" || asset.asset_type === "footprint");
+  // Gate on the pair that actually resolves, not on the raw asset list: the
+  // panes draw one representation's symbol and footprint, so a component whose
+  // assets are not linked into a representation would render an empty card.
   const previewPair = resolveLibraryPreviewPairAssetIds(component);
+  const renderableAssets = [previewPair.symbolAssetId, previewPair.footprintAssetId].filter(Boolean).length;
+  const hasRenderableAssets = renderableAssets > 0;
 
   return (
     <div className="space-y-4">
@@ -415,7 +420,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <PanelCard title="Visual inspection" description={`${renderableAssets} renderable asset${renderableAssets === 1 ? "" : "s"} for this revision.`}>
+        <PanelCard title="Visual inspection" description={`${renderableAssets} renderable asset${renderableAssets === 1 ? "" : "s"} on this revision's representation.`}>
           {hasRenderableAssets ? (
             <LibraryPreviewPair
               label={component.name}
@@ -608,9 +613,9 @@ function AssetsPanel({
     type,
     assets: component.assets.filter((asset) => asset.asset_type === type),
   }));
-  const hasRenderableAssets = component.assets.some((asset) => asset.asset_type === "symbol" || asset.asset_type === "footprint");
   const downloadsAvailable = component.revision_id === component.released_revision_id;
   const previewPair = resolveLibraryPreviewPairAssetIds(component);
+  const hasRenderableAssets = Boolean(previewPair.symbolAssetId || previewPair.footprintAssetId);
 
   return (
     <div className="space-y-4">

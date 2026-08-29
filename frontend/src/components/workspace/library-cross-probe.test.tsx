@@ -121,6 +121,45 @@ describe("LibraryCrossProbeProvider", () => {
     );
   });
 
+  it("keeps two sessions independent", async () => {
+    // The lightbox gets its own provider rather than nesting inside the
+    // embedded pair's. Sharing one registered all four viewers together, so a
+    // pointer move repainted the two canvases hidden behind the modal, and
+    // latching a pin in the lightbox changed the badge on the page beneath.
+    const embeddedSymbol = makeController({ symbol_pin_1: 1 });
+    const embeddedFootprint = makeController({ footprint_pad_1: 1 });
+    const expandedSymbol = makeController({ symbol_pin_1: 1 });
+    const expandedFootprint = makeController({ footprint_pad_1: 1 });
+
+    render(
+      <>
+        <Harness
+          symbol={expandedSymbol}
+          footprints={[{ id: "expanded", controller: expandedFootprint }]}
+        />
+        <Harness
+          symbol={embeddedSymbol}
+          footprints={[{ id: "embedded", controller: embeddedFootprint }]}
+        />
+      </>,
+    );
+
+    // Both harnesses render the same controls; the second is the embedded one.
+    const [, embeddedLatch] = screen.getAllByRole("button", {
+      name: "latch one",
+    });
+    fireEvent.click(embeddedLatch!);
+
+    await waitFor(() =>
+      expect(embeddedFootprint.setProbeHighlight).toHaveBeenCalledWith(
+        "footprint_pad_1",
+        "latched",
+      ),
+    );
+    expect(expandedSymbol.setProbeHighlight).not.toHaveBeenCalled();
+    expect(expandedFootprint.setProbeHighlight).not.toHaveBeenCalled();
+  });
+
   it("keeps only the source identity for a missing counterpart and clears on Escape", async () => {
     const symbol = makeController({ symbol_pin_9: 1 });
     const footprint = makeController({});

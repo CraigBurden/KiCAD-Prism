@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
-import { TransformComponent, TransformWrapper } from "react-zoom-pan-pinch";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -29,108 +28,6 @@ import {
   LibraryProbeBadge,
   useLibraryCrossProbe,
 } from "./library-cross-probe";
-
-/**
- * Shared pan/zoom frame for every catalog preview. Keeping this separate from
- * the preview selector lets revision comparison use the exact same viewport
- * mechanics as the catalog quick view and Assets tab.
- *
- * `wheelZoom` opts out of wheel handling so a scrolling page (e.g. the narrow
- * remote-provider panel) keeps its scroll; zoom is then available through the
- * buttons, pinch, and an expanded lightbox where wheel zoom re-enables.
- */
-export function LibraryPreviewViewport({
-  viewportKey,
-  children,
-  className,
-  wheelZoom = true,
-  onExpand,
-}: {
-  viewportKey: string;
-  children: ReactNode;
-  className?: string;
-  wheelZoom?: boolean;
-  onExpand?: () => void;
-}) {
-  return (
-    <div
-      className={cn(
-        "relative overflow-hidden border bg-preview-surface",
-        className,
-      )}
-    >
-      <TransformWrapper
-        key={viewportKey}
-        initialScale={1}
-        minScale={0.5}
-        maxScale={8}
-        centerOnInit
-        centerZoomedOut
-        smooth
-        wheel={
-          wheelZoom ? { step: 0.12, smoothStep: 0.006 } : { disabled: true }
-        }
-        // Interactive controls supplied inside a preview must not start a
-        // pan gesture in the transformed canvas beneath them.
-        panning={{
-          velocityDisabled: false,
-          excluded: ["prism-preview-interaction"],
-        }}
-        pinch={{ step: 4 }}
-        doubleClick={{ mode: "reset", animationTime: 180 }}
-        zoomAnimation={{ animationTime: 180, animationType: "easeOut" }}
-        alignmentAnimation={{ animationTime: 180, velocityAlignmentTime: 220 }}
-      >
-        {({ zoomIn, zoomOut, resetTransform }) => (
-          <>
-            <div className="absolute right-2 top-2 z-20 flex items-center border bg-background/90 shadow-sm">
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Zoom out preview"
-                onClick={() => zoomOut(0.3)}
-              >
-                <Minus className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Zoom in preview"
-                onClick={() => zoomIn(0.3)}
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="Reset preview view"
-                onClick={() => resetTransform()}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </Button>
-              {onExpand ? (
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label="Expand preview"
-                  onClick={onExpand}
-                >
-                  <Maximize2 className="h-3.5 w-3.5" />
-                </Button>
-              ) : null}
-            </div>
-            <TransformComponent
-              wrapperClass="!h-full !w-full"
-              contentClass="!h-full !w-full"
-            >
-              {children}
-            </TransformComponent>
-          </>
-        )}
-      </TransformWrapper>
-    </div>
-  );
-}
 
 function LibraryLivePreviewViewport({
   controller,
@@ -351,43 +248,56 @@ export function LibraryPreviewPair({
   );
 
   return (
-    <LibraryCrossProbeProvider
-      resetKey={resetKey}
-      className={cn("space-y-2", className)}
-    >
-      <div className="flex min-h-7 items-center gap-2">
-        {/* The badge slot is always laid out, empty or not. Left to
-            `justify-between`, the expand control was the row's only child
-            until a probe latched, so it sat left and then jumped right the
-            moment the badge appeared. */}
-        <div className="min-w-0 flex-1">
-          <LibraryProbeBadge />
-        </div>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Expand paired preview"
-          onClick={() => setExpanded(true)}
-        >
-          <Maximize2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-      {panes(EMBEDDED_PREVIEW_NAVIGATION)}
-      <Dialog open={expanded} onOpenChange={setExpanded}>
-        <DialogContent className="flex h-[85vh] max-w-6xl flex-col overflow-hidden">
-          <DialogHeader className="shrink-0 pr-8">
-            <DialogTitle>{label} · Pin↔pad inspection</DialogTitle>
-            <DialogDescription>
-              Hover to preview a mapping. Click to latch it; press Escape or
-              click empty space to clear.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-7 shrink-0">
+    <>
+      <LibraryCrossProbeProvider
+        resetKey={resetKey}
+        className={cn("space-y-2", className)}
+      >
+        <div className="flex min-h-7 items-center gap-2">
+          {/* The badge slot is always laid out, empty or not. Left to
+              `justify-between`, the expand control was the row's only child
+              until a probe latched, so it sat left and then jumped right the
+              moment the badge appeared. */}
+          <div className="min-w-0 flex-1">
             <LibraryProbeBadge />
           </div>
-          {panes(EXPANDED_PREVIEW_NAVIGATION, true)}
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Expand paired preview"
+            onClick={() => setExpanded(true)}
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        {panes(EMBEDDED_PREVIEW_NAVIGATION)}
+      </LibraryCrossProbeProvider>
+      {/* The lightbox gets its own probe session rather than nesting inside
+          the one above. Sharing it registered all four viewers with one
+          controller registry, so every pointer move also repainted the two
+          canvases sitting behind the modal -- and latching a pin in here
+          changed the badge on the page underneath. The dialog unmounts its
+          children when closed, so nothing here is registered until it opens. */}
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="flex h-[85vh] max-w-6xl flex-col overflow-hidden p-0">
+          <LibraryCrossProbeProvider
+            resetKey={resetKey}
+            className="flex min-h-0 flex-1 flex-col gap-4 p-6"
+          >
+            <DialogHeader className="shrink-0 pr-8">
+              <DialogTitle>{label} · Pin↔pad inspection</DialogTitle>
+              <DialogDescription>
+                Hover to preview a mapping. Click to latch it; press Escape or
+                click empty space to clear.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="min-h-7 shrink-0">
+              <LibraryProbeBadge />
+            </div>
+            {panes(EXPANDED_PREVIEW_NAVIGATION, true)}
+          </LibraryCrossProbeProvider>
         </DialogContent>
       </Dialog>
-    </LibraryCrossProbeProvider>
+    </>
   );
 }

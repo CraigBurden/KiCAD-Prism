@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import {
@@ -89,13 +89,6 @@ export function LibraryAssetRenderer({
     [assetId, source],
   );
 
-  const report = useCallback(
-    (count: number) => {
-      onUnitsChange?.(count);
-    },
-    [onUnitsChange],
-  );
-
   useEffect(() => {
     // A superseded render must not paint over a newer one, and the canvas
     // it drew into may already be gone. Every await below is followed by a
@@ -126,7 +119,7 @@ export function LibraryAssetRenderer({
           const symbols = renderer.parseSymbolLibrary(text);
           const symbol = symbols[0];
           if (!symbol) throw new Error("The library file has no symbol");
-          report(symbolUnitCount(symbol));
+          onUnitsChange?.(symbolUnitCount(symbol));
           nextHandle = await renderer.renderSymbol(symbol, {
             canvas,
             selectable: true,
@@ -135,7 +128,7 @@ export function LibraryAssetRenderer({
             unit,
           });
         } else {
-          report(1);
+          onUnitsChange?.(1);
           nextHandle = await renderer.renderFootprint(
             renderer.parseFootprint(text),
             { canvas, selectable: true, navigation, onProbe: handleProbe },
@@ -169,10 +162,10 @@ export function LibraryAssetRenderer({
     url,
     kind,
     unit,
-    report,
     navigation,
     handleProbe,
     registerProbe,
+    onUnitsChange,
     onControllerChange,
   ]);
 

@@ -26,8 +26,19 @@ these modules are forms and grids over server data rather than viewer bridges.
 ## Modules
 
 **Component authoring** — `library-component-workspace.tsx` (the monolith),
-`library-component-quick-view.tsx`, `library-preview-inspector.tsx`,
-`library-asset-link-picker.tsx`, `use-edit-history.ts`.
+`library-component-quick-view.tsx`, `library-asset-link-picker.tsx`,
+`use-edit-history.ts`.
+
+**Previews** — two paths that share nothing but a subject.
+`library-preview-viewport.tsx` pans and zooms a stored SVG render
+(`/api/catalog/previews/{id}`) with `react-zoom-pan-pinch`; the Assets tab
+thumbnails and the revision visual diff use it. Everything else is live:
+`library-asset-renderer.tsx` draws a `.kicad_sym` or `.kicad_mod` into a canvas
+through the vendored renderer, `library-preview-inspector.tsx` pairs a symbol
+with its footprint, `library-cross-probe.tsx` carries a pin↔pad probe between
+the two, and `library-preview-pair.ts` decides which representation's assets a
+pair draws. Navigation belongs to the viewer, not to the frame around it — see
+`frontend/src/lib/ecad-renderer.ts`.
 
 **Import** — `library-import-center.tsx`,
 `library-import-remediation-dialog.tsx`, `library-import-remediation-grid.tsx`,
