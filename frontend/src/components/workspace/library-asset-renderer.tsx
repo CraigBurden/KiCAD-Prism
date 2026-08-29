@@ -9,9 +9,25 @@ import {
   symbolUnitCount,
   symbolUnitLabel,
   type AssetSource,
+  type RenderController,
   type RenderHandle,
+  type RenderNavigationOptions,
 } from "@/lib/ecad-renderer";
 import { cn } from "@/lib/utils";
+
+import { useLibraryCrossProbe } from "./library-cross-probe";
+
+export const EMBEDDED_PREVIEW_NAVIGATION: RenderNavigationOptions = {
+  wheel: "modifier",
+  pinch: false,
+  touchPan: false,
+};
+
+export const EXPANDED_PREVIEW_NAVIGATION: RenderNavigationOptions = {
+  wheel: "direct",
+  pinch: true,
+  touchPan: false,
+};
 
 /**
  * Live symbol and footprint previews.
@@ -34,6 +50,8 @@ export function LibraryAssetRenderer({
   className,
   onUnitsChange,
   unit: controlledUnit,
+  navigation = EMBEDDED_PREVIEW_NAVIGATION,
+  onControllerChange,
 }: {
   assetId: string;
   kind: "symbol" | "footprint";
@@ -44,6 +62,8 @@ export function LibraryAssetRenderer({
   onUnitsChange?: (units: number) => void;
   /** Selected unit when the parent owns the tab strip. */
   unit?: number;
+  navigation?: RenderNavigationOptions;
+  onControllerChange?: (controller: RenderController | null) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderedRef = useRef<RenderHandle | null>(null);
@@ -51,8 +71,15 @@ export function LibraryAssetRenderer({
   const [localUnit, setLocalUnit] = useState(1);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("");
+  const crossProbe = useLibraryCrossProbe();
+  const registerProbe = crossProbe?.register;
+  const handleProbe = crossProbe?.handleProbe;
+  const clearProbe = crossProbe?.clear;
 
-  const url = useMemo(() => assetContentUrl(source, assetId), [assetId, source]);
+  const url = useMemo(
+    () => assetContentUrl(source, assetId),
+    [assetId, source],
+  );
   const activeUnit = controlledUnit ?? localUnit;
 
   const report = useCallback(
@@ -68,6 +95,7 @@ export function LibraryAssetRenderer({
     // it drew into may already be gone. Every await below is followed by a
     // cancellation check for that reason.
     let cancelled = false;
+    let unregisterProbe: (() => void) | undefined;
     setState("loading");
 
     (async () => {
@@ -95,19 +123,16 @@ export function LibraryAssetRenderer({
           report(symbolUnitCount(symbol));
           nextHandle = await renderer.renderSymbol(symbol, {
             canvas,
-            // LibraryPreviewViewport owns pan/zoom for every Prism surface.
-            // Enabling the viewer's native controls as well makes both layers
-            // handle the same wheel gesture, and traps scrolling in the KiCad
-            // panel even when its outer viewport deliberately disables wheel
-            // zoom.
-            interactive: false,
+            selectable: true,
+            navigation,
+            onProbe: handleProbe,
             unit: activeUnit,
           });
         } else {
           report(1);
           nextHandle = await renderer.renderFootprint(
             renderer.parseFootprint(text),
-            { canvas, interactive: false },
+            { canvas, selectable: true, navigation, onProbe: handleProbe },
           );
         }
         if (cancelled) {
@@ -119,6 +144,8 @@ export function LibraryAssetRenderer({
           return;
         }
         renderedRef.current = nextHandle;
+        unregisterProbe = registerProbe?.(kind, nextHandle.controller);
+        onControllerChange?.(nextHandle.controller);
         setState("ready");
       } catch (error) {
         if (cancelled) return;
@@ -129,8 +156,19 @@ export function LibraryAssetRenderer({
 
     return () => {
       cancelled = true;
+      unregisterProbe?.();
+      onControllerChange?.(null);
     };
-  }, [url, kind, activeUnit, report]);
+  }, [
+    url,
+    kind,
+    activeUnit,
+    report,
+    navigation,
+    handleProbe,
+    registerProbe,
+    onControllerChange,
+  ]);
 
   // Unmount is the only place the last render is torn down; the effect above
   // deliberately keeps it alive across re-renders so the canvas is not
@@ -143,7 +181,8 @@ export function LibraryAssetRenderer({
     [],
   );
 
-  const showTabs = kind === "symbol" && units > 1 && controlledUnit === undefined;
+  const showTabs =
+    kind === "symbol" && units > 1 && controlledUnit === undefined;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -153,29 +192,31 @@ export function LibraryAssetRenderer({
           role="tablist"
           aria-label={`${label} symbol units`}
         >
-          {Array.from({ length: units }, (_, index) => index + 1).map((value) => (
-            <Button
-              key={value}
-              size="sm"
-              variant={value === activeUnit ? "secondary" : "ghost"}
-              className="h-7 shrink-0"
-              role="tab"
-              aria-selected={value === activeUnit}
-              onClick={() => setLocalUnit(value)}
-            >
-              {symbolUnitLabel(value)}
-            </Button>
-          ))}
+          {Array.from({ length: units }, (_, index) => index + 1).map(
+            (value) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={value === activeUnit ? "secondary" : "ghost"}
+                className="h-7 shrink-0"
+                role="tab"
+                aria-selected={value === activeUnit}
+                onClick={() => {
+                  clearProbe?.();
+                  setLocalUnit(value);
+                }}
+              >
+                {symbolUnitLabel(value)}
+              </Button>
+            ),
+          )}
         </div>
       ) : null}
       <div className={cn("relative min-h-0 flex-1", className)}>
         <canvas
           ref={canvasRef}
           aria-label={`${label} ${kind} preview`}
-          className={cn(
-            "h-full w-full",
-            state === "ready" ? "" : "invisible",
-          )}
+          className={cn("h-full w-full", state === "ready" ? "" : "invisible")}
         />
         {state === "loading" ? (
           <div className="absolute inset-0 flex items-center justify-center">

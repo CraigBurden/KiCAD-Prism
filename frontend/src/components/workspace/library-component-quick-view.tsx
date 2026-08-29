@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { CatalogComponent, CatalogValidationStatus, WorkflowStage } from "@/types/catalog";
-import { LibraryPreviewInspector } from "./library-preview-inspector";
+import { LibraryPreviewPair } from "./library-preview-inspector";
 
 const WORKFLOW_LABELS: Record<WorkflowStage, string> = {
   open: "Open",
@@ -90,9 +90,14 @@ export function LibraryComponentQuickView({
                 <DefinitionRow label="Datasheet" value={component.datasheet_url ? <a className="inline-flex items-center justify-end gap-1 text-primary hover:underline" href={component.datasheet_url} target="_blank" rel="noreferrer">Open datasheet <ExternalLink className="h-3 w-3" /></a> : ""} />
               </section>
 
-              <section aria-label="Component previews" className="space-y-3 border-t pt-5">
-                <div><p className="mb-1.5 text-xs font-medium">Symbol</p><LibraryPreviewInspector assets={component.assets} kind="symbol" label={component.name} compact /></div>
-                <div><p className="mb-1.5 text-xs font-medium">Footprint</p><LibraryPreviewInspector assets={component.assets} kind="footprint" label={component.name} compact /></div>
+              <section aria-label="Component previews" className="border-t pt-5">
+                <LibraryPreviewPair
+                  label={component.name}
+                  symbolAssetId={component.assets.find((asset) => asset.asset_type === "symbol")?.id}
+                  footprintAssetId={component.assets.find((asset) => asset.asset_type === "footprint")?.id}
+                  compact
+                  stacked
+                />
               </section>
 
               <section aria-labelledby="quick-readiness" className="border-t pt-5">

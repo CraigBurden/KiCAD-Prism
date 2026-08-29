@@ -88,7 +88,7 @@ import type {
   WorkflowStage,
 } from "@/types/catalog";
 import type { Project } from "@/types/project";
-import { LibraryPreviewInspector, LibraryPreviewViewport } from "./library-preview-inspector";
+import { LibraryPreviewPair, LibraryPreviewViewport } from "./library-preview-inspector";
 
 type ComponentTab = "overview" | "assets" | "revisions" | "review" | "usage" | "audit";
 type AssetType = CatalogAsset["asset_type"];
@@ -416,7 +416,11 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
         <PanelCard title="Visual inspection" description={`${renderableAssets} renderable asset${renderableAssets === 1 ? "" : "s"} for this revision.`}>
           {hasRenderableAssets ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              {(["symbol", "footprint"] as const).map((kind) => <div key={kind} className="min-w-0"><p className="mb-2 text-xs font-medium capitalize">{kind}</p><LibraryPreviewInspector assets={component.assets} kind={kind} label={component.name} /></div>)}
+              <LibraryPreviewPair
+                label={component.name}
+                symbolAssetId={component.assets.find((asset) => asset.asset_type === "symbol")?.id}
+                footprintAssetId={component.assets.find((asset) => asset.asset_type === "footprint")?.id}
+              />
             </div>
           ) : (
             <EmptyState icon={SearchCheck} title="No renderable assets" detail="Attach a symbol or footprint before visual review." />
@@ -671,7 +675,11 @@ function AssetsPanel({
       {hasRenderableAssets ? (
         <PanelCard title="Rendered previews" description="Drawn from this revision\u2019s own symbol and footprint, without opening KiCad.">
           <div className="grid gap-3 md:grid-cols-2">
-            {(["symbol", "footprint"] as const).map((kind) => <div key={kind} className="min-w-0"><p className="mb-2 text-xs font-medium capitalize">{kind}</p><LibraryPreviewInspector assets={component.assets} kind={kind} label={component.name} /></div>)}
+            <LibraryPreviewPair
+              label={component.name}
+              symbolAssetId={component.assets.find((asset) => asset.asset_type === "symbol")?.id}
+              footprintAssetId={component.assets.find((asset) => asset.asset_type === "footprint")?.id}
+            />
           </div>
         </PanelCard>
       ) : null}

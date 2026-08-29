@@ -30,9 +30,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { PanelComponent, PanelSupplySource } from "@/panel/lib/panel-api";
 import { getComponent, getInlineBundle, getPartManifest } from "@/panel/lib/panel-api";
 import { hasSession, retry, sendRpcCommand } from "@/panel/lib/kicad-bridge";
-import { LibraryAssetRenderer } from "@/components/workspace/library-asset-renderer";
-import { LibraryPreviewViewport } from "@/components/workspace/library-preview-inspector";
-import { PreviewLightbox } from "@/panel/components/PreviewLightbox";
+import { LibraryPreviewPair } from "@/components/workspace/library-preview-inspector";
 import { cn } from "@/lib/utils";
 
 interface PartDetailScreenProps {
@@ -95,7 +93,6 @@ export function PartDetailScreen({
   const [placing, setPlacing] = useState(false);
   const [placingInline, setPlacingInline] = useState(false);
   const [representationId, setRepresentationId] = useState("");
-  const [lightbox, setLightbox] = useState<"symbol" | "footprint" | null>(null);
 
   // Fetch full component details. List screens pass a slim payload, so detail
   // refreshes the component before previews/assets are shown.
@@ -324,22 +321,16 @@ export function PartDetailScreen({
             </SelectContent>
           </Select>
 
-          <ZoomablePreview
-            key={symbolAssetId}
-            label="Symbol"
-            assetId={symbolAssetId}
-            kind="symbol"
-            meta={symbolMeta}
-            version={`Rev.${component.version}`}
-            onExpand={symbolAssetId ? () => setLightbox("symbol") : undefined}
-          />
-          <ZoomablePreview
-            key={footprintAssetId}
-            label="Footprint"
-            assetId={footprintAssetId}
-            kind="footprint"
-            meta={selectedRepresentation.footprint?.target_name || component.package_name || "—"}
-            onExpand={footprintAssetId ? () => setLightbox("footprint") : undefined}
+          <LibraryPreviewPair
+            key={`${symbolAssetId ?? "-"}:${footprintAssetId ?? "-"}`}
+            label={component.name}
+            symbolAssetId={symbolAssetId}
+            footprintAssetId={footprintAssetId}
+            source="panel"
+            compact
+            stacked
+            symbolMeta={`${symbolMeta} · Rev.${component.version}`}
+            footprintMeta={selectedRepresentation.footprint?.target_name || component.package_name || "—"}
           />
         </Section>
       )}
@@ -417,27 +408,6 @@ export function PartDetailScreen({
         </div>
       </div>
 
-      {/* ── Lightboxes ─────────────────────────────────────────── */}
-      {lightbox === "symbol" && symbolAssetId && (
-        <PreviewLightbox
-          open
-          onOpenChange={(open) => !open && setLightbox(null)}
-          assetId={symbolAssetId}
-          kind="symbol"
-          title={`${component.name} — Symbol`}
-          subtitle={symbolMeta}
-        />
-      )}
-      {lightbox === "footprint" && footprintAssetId && (
-        <PreviewLightbox
-          open
-          onOpenChange={(open) => !open && setLightbox(null)}
-          assetId={footprintAssetId}
-          kind="footprint"
-          title={`${component.name} — Footprint`}
-          subtitle={selectedRepresentation?.footprint?.target_name || component.package_name || ""}
-        />
-      )}
     </div>
   );
 }
@@ -490,69 +460,6 @@ function ParameterTable({
           </span>
         </div>
       ))}
-    </div>
-  );
-}
-
-// ─── Zoomable preview card ─────────────────────────────────────────
-
-function ZoomablePreview({
-  label,
-  assetId,
-  kind,
-  meta,
-  version,
-  onExpand,
-}: {
-  label: string;
-  assetId?: string;
-  kind: "symbol" | "footprint";
-  meta?: string;
-  version?: string;
-  onExpand?: () => void;
-}) {
-  // Drawn from the asset itself now rather than a stored preview image, so
-  // there is no separate generation status to report: either the revision has
-  // the asset or it does not, and the renderer owns its own loading state.
-  if (!assetId) {
-    return (
-      <div className="mb-2 overflow-hidden rounded border border-border/50">
-        <div className="flex min-h-[100px] items-center justify-center bg-preview-surface">
-          <span className="text-[11px] text-muted-foreground/50">
-            No {label.toLowerCase()}
-          </span>
-        </div>
-        <div className="border-t border-border/30 px-2.5 py-1 text-[10px] text-muted-foreground">
-          {meta || label}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mb-2">
-      <div className="relative">
-        {/* wheelZoom stays off: this panel is a narrow scrolling column inside
-            KiCad, and capturing the wheel would trap the page scroll. */}
-        <LibraryPreviewViewport
-          viewportKey={`${label}-${assetId}`}
-          className="flex min-h-[220px]"
-          wheelZoom={false}
-          onExpand={onExpand}
-        >
-          <LibraryAssetRenderer
-            assetId={assetId}
-            kind={kind}
-            label={label}
-            source="panel"
-            className="max-h-[220px]"
-          />
-        </LibraryPreviewViewport>
-      </div>
-      <div className="mt-1 flex items-center justify-between px-0.5 text-[10px] text-muted-foreground">
-        <span className="truncate">{meta || label}</span>
-        {version ? <span className="shrink-0">{version}</span> : null}
-      </div>
     </div>
   );
 }

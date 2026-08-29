@@ -9,10 +9,36 @@ import { ECAD_RENDERER_URL } from "@/lib/ecad-renderer-build";
 
 /** Which API serves asset bytes. The panel and the workspace differ. */
 export type AssetSource = "catalog" | "panel";
+export type ProbeHighlightState = "hover" | "latched";
+export type ProbeKind = "pin" | "pad";
+export type ProbeEvent =
+  | {
+      phase: "hover" | "leave" | "activate";
+      source: ProbeKind;
+      number: string;
+      index: string;
+      crossIndex: string;
+    }
+  | { phase: "clear" };
+
+export interface RenderNavigationOptions {
+  wheel: "disabled" | "modifier" | "direct";
+  pinch: boolean;
+  touchPan: boolean;
+}
+
+export interface RenderController {
+  zoomBy(factor: number): void;
+  resetView(): void;
+  setProbeHighlight(index: string, state: ProbeHighlightState): number;
+  clearProbeHighlight(): void;
+}
 
 const CONTENT_URL: Record<AssetSource, (assetId: string) => string> = {
-  catalog: (assetId) => `/api/catalog/assets/${encodeURIComponent(assetId)}/content`,
-  panel: (assetId) => `/api/remote-provider/assets/${encodeURIComponent(assetId)}/content`,
+  catalog: (assetId) =>
+    `/api/catalog/assets/${encodeURIComponent(assetId)}/content`,
+  panel: (assetId) =>
+    `/api/remote-provider/assets/${encodeURIComponent(assetId)}/content`,
 };
 
 export function assetContentUrl(source: AssetSource, assetId: string): string {
@@ -20,7 +46,17 @@ export function assetContentUrl(source: AssetSource, assetId: string): string {
 }
 
 export interface RenderHandle {
+  controller: RenderController;
   dispose(): void;
+}
+
+interface BaseRenderOptions {
+  canvas: HTMLCanvasElement;
+  /** Deprecated renderer compatibility alias. */
+  interactive?: boolean;
+  selectable?: boolean;
+  navigation?: Partial<RenderNavigationOptions>;
+  onProbe?: (event: ProbeEvent) => void;
 }
 
 export interface EcadRenderer {
@@ -28,11 +64,11 @@ export interface EcadRenderer {
   parseFootprint(text: string): unknown;
   renderSymbol(
     symbol: unknown,
-    options: { canvas: HTMLCanvasElement; interactive?: boolean; unit?: number }
+    options: BaseRenderOptions & { unit?: number },
   ): Promise<RenderHandle>;
   renderFootprint(
     footprint: unknown,
-    options: { canvas: HTMLCanvasElement; interactive?: boolean }
+    options: BaseRenderOptions,
   ): Promise<RenderHandle>;
 }
 
@@ -45,7 +81,7 @@ let rendererModule: Promise<EcadRenderer> | null = null;
 
 export function loadEcadRenderer(): Promise<EcadRenderer> {
   rendererModule ??= import(/* @vite-ignore */ ECAD_RENDERER_URL).then(
-    (module) => module as unknown as EcadRenderer
+    (module) => module as unknown as EcadRenderer,
   );
   return rendererModule;
 }
@@ -79,7 +115,8 @@ export function loadAssetText(url: string): Promise<string> {
  * symbol itself rather than from however many previews were generated.
  */
 export function symbolUnitCount(symbol: unknown): number {
-  const children = (symbol as { children?: { name: string }[] })?.children ?? [];
+  const children =
+    (symbol as { children?: { name: string }[] })?.children ?? [];
   let highest = 1;
   for (const child of children) {
     const match = /_(\d+)_(\d+)$/.exec(child.name);
