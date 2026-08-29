@@ -62,6 +62,15 @@ describe("resolveLibraryPreviewPairAssetIds", () => {
     });
   });
 
+  it("resolves nothing from a lightweight catalog row", () => {
+    // The catalog list is fetched with lightweight=true, so a row has neither
+    // graph. The quick view renders that row first, and used to throw here.
+    expect(resolveLibraryPreviewPairAssetIds({})).toEqual({
+      symbolAssetId: undefined,
+      footprintAssetId: undefined,
+    });
+  });
+
   it("does not borrow a counterpart for an incomplete representation", () => {
     const symbolA = asset("symbol-a", "symbol");
     const unrelatedFootprint = asset("footprint-b", "footprint");

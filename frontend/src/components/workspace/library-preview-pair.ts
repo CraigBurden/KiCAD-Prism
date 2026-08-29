@@ -1,11 +1,18 @@
 import type { CatalogComponent } from "@/types/catalog";
 
-type PreviewPairSource = Pick<
-  CatalogComponent,
-  | "assets"
-  | "representations"
-  | "default_representation_id"
-  | "effective_representation_id"
+/**
+ * Every field is optional because the catalog list is served lightweight: a
+ * row carries identity and status but no representation or asset graph, and
+ * the quick view shows that row while the full component is still loading.
+ */
+type PreviewPairSource = Partial<
+  Pick<
+    CatalogComponent,
+    | "assets"
+    | "representations"
+    | "default_representation_id"
+    | "effective_representation_id"
+  >
 >;
 
 export interface LibraryPreviewPairAssetIds {
@@ -24,10 +31,11 @@ export function resolveLibraryPreviewPairAssetIds(
   const requestedId =
     component.effective_representation_id ||
     component.default_representation_id;
+  const representations = component.representations ?? [];
   const representation =
-    component.representations.find((entry) => entry.id === requestedId) ||
-    component.representations.find((entry) => entry.is_default) ||
-    [...component.representations].sort(
+    representations.find((entry) => entry.id === requestedId) ||
+    representations.find((entry) => entry.is_default) ||
+    [...representations].sort(
       (left, right) => left.display_order - right.display_order,
     )[0];
 
@@ -38,12 +46,10 @@ export function resolveLibraryPreviewPairAssetIds(
     };
   }
 
+  const assets = component.assets ?? [];
   return {
-    symbolAssetId: component.assets.find(
-      (asset) => asset.asset_type === "symbol",
-    )?.id,
-    footprintAssetId: component.assets.find(
-      (asset) => asset.asset_type === "footprint",
-    )?.id,
+    symbolAssetId: assets.find((asset) => asset.asset_type === "symbol")?.id,
+    footprintAssetId: assets.find((asset) => asset.asset_type === "footprint")
+      ?.id,
   };
 }
