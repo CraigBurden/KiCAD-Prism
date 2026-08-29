@@ -89,6 +89,7 @@ import type {
 } from "@/types/catalog";
 import type { Project } from "@/types/project";
 import { LibraryPreviewPair, LibraryPreviewViewport } from "./library-preview-inspector";
+import { resolveLibraryPreviewPairAssetIds } from "./library-preview-pair";
 
 type ComponentTab = "overview" | "assets" | "revisions" | "review" | "usage" | "audit";
 type AssetType = CatalogAsset["asset_type"];
@@ -368,6 +369,7 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
     { label: "Rate", value: component.rate },
   ];
   const hasRenderableAssets = component.assets.some((asset) => asset.asset_type === "symbol" || asset.asset_type === "footprint");
+  const previewPair = resolveLibraryPreviewPairAssetIds(component);
 
   return (
     <div className="space-y-4">
@@ -415,13 +417,11 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
       <div className="grid gap-4 xl:grid-cols-2">
         <PanelCard title="Visual inspection" description={`${renderableAssets} renderable asset${renderableAssets === 1 ? "" : "s"} for this revision.`}>
           {hasRenderableAssets ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <LibraryPreviewPair
-                label={component.name}
-                symbolAssetId={component.assets.find((asset) => asset.asset_type === "symbol")?.id}
-                footprintAssetId={component.assets.find((asset) => asset.asset_type === "footprint")?.id}
-              />
-            </div>
+            <LibraryPreviewPair
+              label={component.name}
+              symbolAssetId={previewPair.symbolAssetId}
+              footprintAssetId={previewPair.footprintAssetId}
+            />
           ) : (
             <EmptyState icon={SearchCheck} title="No renderable assets" detail="Attach a symbol or footprint before visual review." />
           )}
@@ -610,6 +610,7 @@ function AssetsPanel({
   }));
   const hasRenderableAssets = component.assets.some((asset) => asset.asset_type === "symbol" || asset.asset_type === "footprint");
   const downloadsAvailable = component.revision_id === component.released_revision_id;
+  const previewPair = resolveLibraryPreviewPairAssetIds(component);
 
   return (
     <div className="space-y-4">
@@ -674,13 +675,11 @@ function AssetsPanel({
 
       {hasRenderableAssets ? (
         <PanelCard title="Rendered previews" description="Drawn from this revision\u2019s own symbol and footprint, without opening KiCad.">
-          <div className="grid gap-3 md:grid-cols-2">
-            <LibraryPreviewPair
-              label={component.name}
-              symbolAssetId={component.assets.find((asset) => asset.asset_type === "symbol")?.id}
-              footprintAssetId={component.assets.find((asset) => asset.asset_type === "footprint")?.id}
-            />
-          </div>
+          <LibraryPreviewPair
+            label={component.name}
+            symbolAssetId={previewPair.symbolAssetId}
+            footprintAssetId={previewPair.footprintAssetId}
+          />
         </PanelCard>
       ) : null}
     </div>

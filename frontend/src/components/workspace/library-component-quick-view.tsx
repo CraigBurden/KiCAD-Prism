@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { CatalogComponent, CatalogValidationStatus, WorkflowStage } from "@/types/catalog";
 import { LibraryPreviewPair } from "./library-preview-inspector";
+import { resolveLibraryPreviewPairAssetIds } from "./library-preview-pair";
 
 const WORKFLOW_LABELS: Record<WorkflowStage, string> = {
   open: "Open",
@@ -58,6 +59,9 @@ export function LibraryComponentQuickView({
   onOpenWorkspace: () => void;
   onRetry: () => void;
 }) {
+  const previewPair = component
+    ? resolveLibraryPreviewPairAssetIds(component)
+    : {};
   return (
     <aside className="flex h-full w-96 shrink-0 flex-col border-l bg-card" aria-label="Component quick view">
       <div className="flex shrink-0 items-start justify-between gap-3 border-b p-4">
@@ -93,8 +97,8 @@ export function LibraryComponentQuickView({
               <section aria-label="Component previews" className="border-t pt-5">
                 <LibraryPreviewPair
                   label={component.name}
-                  symbolAssetId={component.assets.find((asset) => asset.asset_type === "symbol")?.id}
-                  footprintAssetId={component.assets.find((asset) => asset.asset_type === "footprint")?.id}
+                  symbolAssetId={previewPair.symbolAssetId}
+                  footprintAssetId={previewPair.footprintAssetId}
                   compact
                   stacked
                 />
