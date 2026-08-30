@@ -26,6 +26,7 @@ import {
 import {
   LibraryCrossProbeProvider,
   LibraryProbeBadge,
+  type LibraryProbeSelection,
   useLibraryCrossProbe,
 } from "./library-cross-probe";
 
@@ -128,6 +129,8 @@ function LivePreviewPane({
   label,
   source,
   navigation,
+  unit = 1,
+  onUnitChange,
   className,
 }: {
   assetId?: string;
@@ -135,11 +138,12 @@ function LivePreviewPane({
   label: string;
   source: AssetSource;
   navigation: RenderNavigationOptions;
+  unit?: number;
+  onUnitChange?: (unit: number) => void;
   className?: string;
 }) {
   const [controller, setController] = useState<RenderController | null>(null);
   const [units, setUnits] = useState(1);
-  const [unit, setUnit] = useState(1);
   const clearProbe = useLibraryCrossProbe()?.clear;
   if (!assetId) {
     return (
@@ -163,7 +167,7 @@ function LivePreviewPane({
           onSelect={(next) => {
             // A latched pin belongs to the unit it was probed on.
             clearProbe?.();
-            setUnit(next);
+            onUnitChange?.(next);
           }}
         />
       ) : null}
@@ -199,22 +203,29 @@ export interface LibraryPreviewPairProps {
   className?: string;
 }
 
-export function LibraryPreviewPair({
+function LibraryPreviewPanes({
   label,
   symbolAssetId,
   footprintAssetId,
-  source = "catalog",
-  compact = false,
+  source,
+  navigation,
+  initialSymbolUnit,
+  onSymbolUnitChange,
+  paneClassName,
   stacked = false,
   symbolMeta,
   footprintMeta,
-  className,
-}: LibraryPreviewPairProps) {
-  const [expanded, setExpanded] = useState(false);
-  const resetKey = `${symbolAssetId ?? "-"}:${footprintAssetId ?? "-"}`;
-  const paneClassName = compact ? "h-48" : "h-80";
-
-  const panes = (navigation: RenderNavigationOptions, expandedView = false) => (
+  expandedView,
+}: LibraryPreviewPairProps & {
+  source: AssetSource;
+  navigation: RenderNavigationOptions;
+  initialSymbolUnit: number;
+  onSymbolUnitChange?: (unit: number) => void;
+  paneClassName: string;
+  expandedView: boolean;
+}) {
+  const [symbolUnit, setSymbolUnit] = useState(initialSymbolUnit);
+  return (
     <div
       className={cn(
         "grid min-h-0 gap-3",
@@ -230,6 +241,11 @@ export function LibraryPreviewPair({
           label={label}
           source={source}
           navigation={navigation}
+          unit={symbolUnit}
+          onUnitChange={(next) => {
+            setSymbolUnit(next);
+            onSymbolUnitChange?.(next);
+          }}
           className={expandedView ? "min-h-0 flex-1" : paneClassName}
         />
       </div>
@@ -246,11 +262,31 @@ export function LibraryPreviewPair({
       </div>
     </div>
   );
+}
+
+function LibraryPreviewPairSession({
+  label,
+  symbolAssetId,
+  footprintAssetId,
+  source = "catalog",
+  compact = false,
+  stacked = false,
+  symbolMeta,
+  footprintMeta,
+  className,
+}: LibraryPreviewPairProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [latchedProbe, setLatchedProbe] =
+    useState<LibraryProbeSelection | null>(null);
+  const [symbolUnit, setSymbolUnit] = useState(1);
+  const resetKey = `${symbolAssetId ?? "-"}:${footprintAssetId ?? "-"}`;
+  const paneClassName = compact ? "h-48" : "h-80";
 
   return (
     <>
       <LibraryCrossProbeProvider
         resetKey={resetKey}
+        onLatchedChange={setLatchedProbe}
         className={cn("space-y-2", className)}
       >
         <div className="flex min-h-7 items-center gap-2">
@@ -270,7 +306,20 @@ export function LibraryPreviewPair({
             <Maximize2 className="h-3.5 w-3.5" />
           </Button>
         </div>
-        {panes(EMBEDDED_PREVIEW_NAVIGATION)}
+        <LibraryPreviewPanes
+          label={label}
+          symbolAssetId={symbolAssetId}
+          footprintAssetId={footprintAssetId}
+          source={source}
+          navigation={EMBEDDED_PREVIEW_NAVIGATION}
+          initialSymbolUnit={1}
+          onSymbolUnitChange={setSymbolUnit}
+          paneClassName={paneClassName}
+          stacked={stacked}
+          symbolMeta={symbolMeta}
+          footprintMeta={footprintMeta}
+          expandedView={false}
+        />
       </LibraryCrossProbeProvider>
       {/* The lightbox gets its own probe session rather than nesting inside
           the one above. Sharing it registered all four viewers with one
@@ -282,6 +331,7 @@ export function LibraryPreviewPair({
         <DialogContent className="flex h-[85vh] max-w-6xl flex-col overflow-hidden p-0">
           <LibraryCrossProbeProvider
             resetKey={resetKey}
+            initialLatched={latchedProbe}
             className="flex min-h-0 flex-1 flex-col gap-4 p-6"
           >
             <DialogHeader className="shrink-0 pr-8">
@@ -294,10 +344,27 @@ export function LibraryPreviewPair({
             <div className="min-h-7 shrink-0">
               <LibraryProbeBadge />
             </div>
-            {panes(EXPANDED_PREVIEW_NAVIGATION, true)}
+            <LibraryPreviewPanes
+              label={label}
+              symbolAssetId={symbolAssetId}
+              footprintAssetId={footprintAssetId}
+              source={source}
+              navigation={EXPANDED_PREVIEW_NAVIGATION}
+              initialSymbolUnit={symbolUnit}
+              paneClassName={paneClassName}
+              stacked={stacked}
+              symbolMeta={symbolMeta}
+              footprintMeta={footprintMeta}
+              expandedView
+            />
           </LibraryCrossProbeProvider>
         </DialogContent>
       </Dialog>
     </>
   );
+}
+
+export function LibraryPreviewPair(props: LibraryPreviewPairProps) {
+  const resetKey = `${props.symbolAssetId ?? "-"}:${props.footprintAssetId ?? "-"}`;
+  return <LibraryPreviewPairSession key={resetKey} {...props} />;
 }

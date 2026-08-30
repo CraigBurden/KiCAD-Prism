@@ -17,10 +17,10 @@ import type {
 } from "@/lib/ecad-renderer";
 import { cn } from "@/lib/utils";
 
-type ActiveProbe = Exclude<ProbeEvent, { phase: "clear" }>;
+export type LibraryProbeSelection = Exclude<ProbeEvent, { phase: "clear" }>;
 
 interface LibraryCrossProbeValue {
-  active: ActiveProbe | null;
+  active: LibraryProbeSelection | null;
   matched: boolean;
   clear(): void;
   handleProbe(event: ProbeEvent): void;
@@ -39,24 +39,37 @@ const viewerKind = (source: ProbeKind) =>
 
 export function LibraryCrossProbeProvider({
   resetKey,
+  initialLatched = null,
+  onLatchedChange,
   className,
   children,
 }: {
   resetKey: string;
+  initialLatched?: LibraryProbeSelection | null;
+  onLatchedChange?: (probe: LibraryProbeSelection | null) => void;
   className?: string;
   children: ReactNode;
 }) {
   return (
-    <LibraryCrossProbeSession key={resetKey} className={className}>
+    <LibraryCrossProbeSession
+      key={resetKey}
+      initialLatched={initialLatched}
+      onLatchedChange={onLatchedChange}
+      className={className}
+    >
       {children}
     </LibraryCrossProbeSession>
   );
 }
 
 function LibraryCrossProbeSession({
+  initialLatched,
+  onLatchedChange,
   className,
   children,
 }: {
+  initialLatched: LibraryProbeSelection | null;
+  onLatchedChange?: (probe: LibraryProbeSelection | null) => void;
   className?: string;
   children: ReactNode;
 }) {
@@ -66,15 +79,19 @@ function LibraryCrossProbeSession({
     footprint: new Set<RenderController>(),
   });
   const [registryVersion, setRegistryVersion] = useState(0);
-  const [hovered, setHovered] = useState<ActiveProbe | null>(null);
-  const [latched, setLatched] = useState<ActiveProbe | null>(null);
+  const [hovered, setHovered] = useState<LibraryProbeSelection | null>(null);
+  const [latched, setLatched] =
+    useState<LibraryProbeSelection | null>(initialLatched);
   const [matched, setMatched] = useState(false);
-  const hoveredRef = useRef<ActiveProbe | null>(null);
-  const latchedRef = useRef<ActiveProbe | null>(null);
+  const hoveredRef = useRef<LibraryProbeSelection | null>(null);
+  const latchedRef = useRef<LibraryProbeSelection | null>(initialLatched);
   const active = hovered ?? latched;
 
   const applyHighlight = useCallback(
-    (probe: ActiveProbe | null, state: "hover" | "latched" = "hover") => {
+    (
+      probe: LibraryProbeSelection | null,
+      state: "hover" | "latched" = "hover",
+    ) => {
       const registry = controllersRef.current;
       for (const controller of [...registry.symbol, ...registry.footprint]) {
         controller.clearProbeHighlight();
@@ -104,7 +121,8 @@ function LibraryCrossProbeSession({
     applyHighlight(null);
     setHovered(null);
     setLatched(null);
-  }, [applyHighlight]);
+    onLatchedChange?.(null);
+  }, [applyHighlight, onLatchedChange]);
 
   const handleProbe = useCallback(
     (event: ProbeEvent) => {
@@ -130,8 +148,9 @@ function LibraryCrossProbeSession({
       applyHighlight(event, "latched");
       setLatched(event);
       setHovered(null);
+      onLatchedChange?.(event);
     },
-    [applyHighlight, clear],
+    [applyHighlight, clear, onLatchedChange],
   );
 
   const register = useCallback(

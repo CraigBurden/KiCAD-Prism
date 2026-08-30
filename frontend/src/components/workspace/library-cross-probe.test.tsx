@@ -7,6 +7,7 @@ import type { ProbeEvent, RenderController } from "@/lib/ecad-renderer";
 import {
   LibraryCrossProbeProvider,
   LibraryProbeBadge,
+  type LibraryProbeSelection,
   useLibraryCrossProbe,
 } from "./library-cross-probe";
 
@@ -51,12 +52,20 @@ const pin = (
 function Harness({
   symbol,
   footprints,
+  initialLatched,
+  onLatchedChange,
 }: {
   symbol: RenderController;
   footprints: { id: string; controller: RenderController }[];
+  initialLatched?: LibraryProbeSelection | null;
+  onLatchedChange?: (probe: LibraryProbeSelection | null) => void;
 }) {
   return (
-    <LibraryCrossProbeProvider resetKey="pair-a">
+    <LibraryCrossProbeProvider
+      resetKey="pair-a"
+      initialLatched={initialLatched}
+      onLatchedChange={onLatchedChange}
+    >
       <RegisteredController kind="symbol" controller={symbol} />
       {footprints.map(({ id, controller }) => (
         <RegisteredController
@@ -158,6 +167,51 @@ describe("LibraryCrossProbeProvider", () => {
     );
     expect(expandedSymbol.setProbeHighlight).not.toHaveBeenCalled();
     expect(expandedFootprint.setProbeHighlight).not.toHaveBeenCalled();
+  });
+
+  it("seeds a new independent session from an existing latch", async () => {
+    const symbol = makeController({ symbol_pin_1: 1 });
+    const footprint = makeController({ footprint_pad_1: 1 });
+
+    render(
+      <Harness
+        symbol={symbol}
+        footprints={[{ id: "expanded", controller: footprint }]}
+        initialLatched={pin("activate", "1") as LibraryProbeSelection}
+      />,
+    );
+
+    expect(await screen.findByText("Pin 1 ↔ Pad 1")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(footprint.setProbeHighlight).toHaveBeenCalledWith(
+        "footprint_pad_1",
+        "latched",
+      ),
+    );
+  });
+
+  it("reports latch and clear transitions to its owner", () => {
+    const onLatchedChange = vi.fn();
+    render(
+      <Harness
+        symbol={makeController({ symbol_pin_1: 1 })}
+        footprints={[
+          {
+            id: "embedded",
+            controller: makeController({ footprint_pad_1: 1 }),
+          },
+        ]}
+        onLatchedChange={onLatchedChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "latch one" }));
+    expect(onLatchedChange).toHaveBeenLastCalledWith(pin("activate", "1"));
+
+    fireEvent.keyDown(screen.getByText("Pin 1 ↔ Pad 1").closest("div")!, {
+      key: "Escape",
+    });
+    expect(onLatchedChange).toHaveBeenLastCalledWith(null);
   });
 
   it("keeps only the source identity for a missing counterpart and clears on Escape", async () => {
