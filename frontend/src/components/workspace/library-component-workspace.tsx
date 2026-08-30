@@ -88,7 +88,9 @@ import type {
   WorkflowStage,
 } from "@/types/catalog";
 import type { Project } from "@/types/project";
-import { LibraryPreviewInspector, LibraryPreviewViewport } from "./library-preview-inspector";
+import { LibraryPreviewPair } from "./library-preview-inspector";
+import { LibraryPreviewViewport } from "./library-preview-viewport";
+import { resolveLibraryPreviewPairAssetIds } from "./library-preview-pair";
 
 type ComponentTab = "overview" | "assets" | "revisions" | "review" | "usage" | "audit";
 type AssetType = CatalogAsset["asset_type"];
@@ -358,7 +360,7 @@ function PreviewImage({ previewId, label }: { previewId: string; label: string }
 
 function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogComponent; canMutate: boolean; onEdit: () => void }) {
   const requiredAttached = component.assets.filter((asset) => asset.required).length;
-  const renderableAssets = component.assets.filter((asset) => asset.asset_type === "symbol" || asset.asset_type === "footprint").length;
+
   const engineeringRows = [
     { label: "Mass", value: component.mass_g ? `${component.mass_g} g` : "" },
     { label: "RθJC", value: component.rqjc_c_w ? `${component.rqjc_c_w} °C/W` : "" },
@@ -367,7 +369,12 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
     { label: "Power dissipation", value: component.power_dissipation_w ? `${component.power_dissipation_w} W` : "" },
     { label: "Rate", value: component.rate },
   ];
-  const hasRenderableAssets = component.assets.some((asset) => asset.asset_type === "symbol" || asset.asset_type === "footprint");
+  // Gate on the pair that actually resolves, not on the raw asset list: the
+  // panes draw one representation's symbol and footprint, so a component whose
+  // assets are not linked into a representation would render an empty card.
+  const previewPair = resolveLibraryPreviewPairAssetIds(component);
+  const renderableAssets = [previewPair.symbolAssetId, previewPair.footprintAssetId].filter(Boolean).length;
+  const hasRenderableAssets = renderableAssets > 0;
 
   return (
     <div className="space-y-4">
@@ -413,11 +420,13 @@ function OverviewPanel({ component, canMutate, onEdit }: { component: CatalogCom
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <PanelCard title="Visual inspection" description={`${renderableAssets} renderable asset${renderableAssets === 1 ? "" : "s"} for this revision.`}>
+        <PanelCard title="Visual inspection" description={`${renderableAssets} renderable asset${renderableAssets === 1 ? "" : "s"} on this revision's representation.`}>
           {hasRenderableAssets ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(["symbol", "footprint"] as const).map((kind) => <div key={kind} className="min-w-0"><p className="mb-2 text-xs font-medium capitalize">{kind}</p><LibraryPreviewInspector assets={component.assets} kind={kind} label={component.name} /></div>)}
-            </div>
+            <LibraryPreviewPair
+              label={component.name}
+              symbolAssetId={previewPair.symbolAssetId}
+              footprintAssetId={previewPair.footprintAssetId}
+            />
           ) : (
             <EmptyState icon={SearchCheck} title="No renderable assets" detail="Attach a symbol or footprint before visual review." />
           )}
@@ -604,8 +613,9 @@ function AssetsPanel({
     type,
     assets: component.assets.filter((asset) => asset.asset_type === type),
   }));
-  const hasRenderableAssets = component.assets.some((asset) => asset.asset_type === "symbol" || asset.asset_type === "footprint");
   const downloadsAvailable = component.revision_id === component.released_revision_id;
+  const previewPair = resolveLibraryPreviewPairAssetIds(component);
+  const hasRenderableAssets = Boolean(previewPair.symbolAssetId || previewPair.footprintAssetId);
 
   return (
     <div className="space-y-4">
@@ -670,9 +680,11 @@ function AssetsPanel({
 
       {hasRenderableAssets ? (
         <PanelCard title="Rendered previews" description="Drawn from this revision\u2019s own symbol and footprint, without opening KiCad.">
-          <div className="grid gap-3 md:grid-cols-2">
-            {(["symbol", "footprint"] as const).map((kind) => <div key={kind} className="min-w-0"><p className="mb-2 text-xs font-medium capitalize">{kind}</p><LibraryPreviewInspector assets={component.assets} kind={kind} label={component.name} /></div>)}
-          </div>
+          <LibraryPreviewPair
+            label={component.name}
+            symbolAssetId={previewPair.symbolAssetId}
+            footprintAssetId={previewPair.footprintAssetId}
+          />
         </PanelCard>
       ) : null}
     </div>

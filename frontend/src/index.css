@@ -71,6 +71,10 @@
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
   --ring: 224.3 76.3% 48%;
+  /* Deliberately the same white as the light theme: this is the ground the
+     ECAD canvas paints on, and the renderer's own colours assume it. Chrome
+     drawn over it has to come from `--foreground`, not from this token, which
+     is why a preview's unit strip sits outside the frame rather than in it. */
   --preview-surface: 0 0% 100%;
 }
 
