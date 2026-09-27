@@ -63,7 +63,7 @@ function HelpDialogContent({ dialog, authConfig, onDialogChange, onClose }: Help
         backend: sources.backend,
         viewer: sources.viewer,
         authConfig,
-        userAgent: navigator.userAgent,
+        client: sources.client,
         language: navigator.language,
         pathname: window.location.pathname,
         search: window.location.search,

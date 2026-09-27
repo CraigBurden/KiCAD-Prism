@@ -2,6 +2,8 @@ import { fetchJson } from "@/lib/api";
 import type { PrismBuildInfo } from "@/lib/build-info";
 import type { AuthConfig } from "@/types/auth";
 
+import { loadClientEnvironment, type ClientEnvironment, type NavigatorLike } from "./client-environment";
+
 export const PRISM_REPOSITORY_URL = "https://github.com/krishna-swaroop/KiCAD-Prism";
 
 /** Field ids in `.github/ISSUE_TEMPLATE/bug_report.yml`; GitHub pre-fills a form field from the query parameter of the same name. */
@@ -30,7 +32,7 @@ export interface DiagnosticsInput {
   backend: BackendAbout | null;
   viewer: ViewerManifest | null;
   authConfig: AuthConfig;
-  userAgent: string;
+  client: ClientEnvironment;
   language: string;
   pathname: string;
   search: string;
@@ -89,7 +91,9 @@ export function formatDiagnostics(input: DiagnosticsInput): string {
       : `ECAD viewer: ${UNAVAILABLE}`,
     `KiCad CLI: ${backend?.kicadCli ?? UNAVAILABLE}`,
     `Authentication: ${describeAuth(input.authConfig)}`,
-    `Browser: ${input.userAgent || UNAVAILABLE}`,
+    `Browser: ${input.client.browser}`,
+    `OS: ${input.client.os}`,
+    `User agent: ${input.client.userAgent || UNAVAILABLE}`,
     `Locale: ${input.language || UNAVAILABLE}`,
     `Page: ${describePage(input.pathname, input.search)}`,
   ];
@@ -123,15 +127,20 @@ export function bugReportUrl(version: string, diagnostics: string): { url: strin
 export interface DiagnosticSources {
   backend: BackendAbout | null;
   viewer: ViewerManifest | null;
+  client: ClientEnvironment;
 }
 
-/** Reads the backend identity and the viewer manifest; either may come back null. */
-export async function loadDiagnosticSources(signal: AbortSignal): Promise<DiagnosticSources> {
+/** Reads the backend identity, the viewer manifest (either may come back null) and the browser environment. */
+export async function loadDiagnosticSources(
+  signal: AbortSignal,
+  nav: NavigatorLike = navigator,
+): Promise<DiagnosticSources> {
   // Each source is optional: a report about a broken backend is exactly the
   // one that most needs to open, so a failed lookup reads "unavailable".
-  const [backend, viewer] = await Promise.all([
+  const [backend, viewer, client] = await Promise.all([
     fetchJson<BackendAbout>("/api/health/about", { signal }).catch(() => null),
     fetchJson<ViewerManifest>("/ecad-viewer.manifest.json", { signal, cache: "no-store" }).catch(() => null),
+    loadClientEnvironment(nav),
   ]);
-  return { backend, viewer };
+  return { backend, viewer, client };
 }
