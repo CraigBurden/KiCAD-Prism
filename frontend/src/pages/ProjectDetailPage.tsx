@@ -25,6 +25,7 @@ import { canAdministerWorkspace, canCommentOnProjects, canManageProjects } from 
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { projectLastUpdated } from "@/lib/project-dates";
 import { UsedInPanel } from "@/features/system-builder/used-in-panel";
+import { HelpMenu } from "@/features/bug-report/help-menu";
 
 const AssetsPortal = lazy(() =>
     import("@/components/assets-portal").then((module) => ({ default: module.AssetsPortal }))
@@ -577,6 +578,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         <Settings className="h-4 w-4" />
                     </Button>
                 )}
+
+                <HelpMenu />
 
                 {projectId && pathConfigOpen && (
                     <Suspense fallback={null}>
