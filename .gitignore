@@ -11,10 +11,14 @@
 backend/**/*.pyc
 backend/.env
 backend/venv/
+# Scratch environment the dependency-identity gate builds.
+.identity-venv/
 backend/app/static/remote_provider/
 
 # Frontend
-frontend/node_modules/
+# Unanchored so it also catches a stray root-level node_modules, which vitest
+# creates for its .vite cache when run from the repo root.
+node_modules/
 frontend/dist/
 frontend/.env.local
 # frontend/.env.example
@@ -27,12 +31,40 @@ frontend/yarn-debug.log*
 frontend/yarn-error.log*
 dist/
 
+# Local Compose development overrides
+docker-compose.override.yml
+
+# Deployment installer output: contains .env with live secrets
+generated/
+generated.bak.*/
+
+# Remote-panel loadtest secrets + reports
+loadtest/.env.loadtest
+loadtest/results/
+
+# Python packaging + tooling artifacts
+*.egg-info/
+build/
+.pytest_cache/
+
 # Project Data
 # (The project database is currently outside the repo, but just in case)
 project-database/
 data/
 
-# Deploy Data
-deploy/
+# Deploy: track Caddy/Nginx examples; ignore private certificate material
+deploy/certs/*
+!deploy/certs/README.md
+!deploy/certs/.gitignore
+*.key
+*.pem
 *.crt
 
+# KiCad writes per-project UI state (active layer, opacity, hidden nets) beside
+# any project a tool opens. Running the fixtures through kicad-cli or Cruncher
+# drops one into fixtures/, where it is neither an input nor an output.
+*.kicad_prl
+
+# ecad-parse snapshot index cache (a stray one can appear if the CLI is run
+# with a relative root; never commit it)
+*.index-cache.json

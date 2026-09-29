@@ -1,0 +1,559 @@
+name: Quality gate
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+      - feature/release-studio
+  push:
+    branches:
+      - dev
+      - main
+      - feature/release-studio
+  schedule:
+    # Live KiCad is not on every feature commit; keep a daily executor check.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  catalog-architecture:
+    name: Catalog architecture and agent guidance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve catalog architecture base ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ZERO_SHA="0000000000000000000000000000000000000000"
+
+          is_usable_prior() {
+            local ref="${1:-}"
+            if [ -z "$ref" ] || [ "$ref" = "$ZERO_SHA" ]; then
+              return 1
+            fi
+            if ! git rev-parse --verify "${ref}^{commit}" >/dev/null 2>&1; then
+              return 1
+            fi
+            local resolved head
+            resolved="$(git rev-parse --verify "${ref}^{commit}")"
+            head="$(git rev-parse --verify HEAD)"
+            if [ "$resolved" = "$head" ] || [ "$resolved" = "$HEAD_SHA" ]; then
+              return 1
+            fi
+            return 0
+          }
+
+          export_base_ref() {
+            local resolved
+            resolved="$(git rev-parse --verify "${1}^{commit}")"
+            echo "CATALOG_BASE_REF=${resolved}" >> "$GITHUB_ENV"
+          }
+
+          try_head_parent() {
+            if ! git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+              return 1
+            fi
+            if is_usable_prior HEAD^; then
+              export_base_ref HEAD^
+              return 0
+            fi
+            return 1
+          }
+
+          bootstrap() {
+            echo "Catalog architecture baseline bootstrap: no genuine prior commit; source-vs-baseline only"
+            echo "CATALOG_BASELINE_BOOTSTRAP=1" >> "$GITHUB_ENV"
+          }
+
+          case "$EVENT_NAME" in
+            pull_request)
+              if is_usable_prior "$PR_BASE_SHA"; then
+                export_base_ref "$PR_BASE_SHA"
+              elif try_head_parent; then
+                :
+              else
+                bootstrap
+              fi
+              ;;
+            push)
+              if is_usable_prior "$PUSH_BEFORE"; then
+                export_base_ref "$PUSH_BEFORE"
+              elif try_head_parent; then
+                :
+              else
+                bootstrap
+              fi
+              ;;
+            *)
+              if try_head_parent; then
+                :
+              else
+                bootstrap
+              fi
+              ;;
+          esac
+
+      - name: Check catalog architecture ratchets
+        run: |
+          set -euo pipefail
+          if [ "${CATALOG_BASELINE_BOOTSTRAP:-}" = "1" ]; then
+            echo "Catalog architecture baseline bootstrap: no prior commit; source-vs-baseline only"
+            python3 scripts/check_catalog_architecture.py
+          else
+            python3 scripts/check_catalog_architecture.py --base-ref "$CATALOG_BASE_REF"
+          fi
+
+      - name: Check agent guidance
+        run: python3 scripts/check_agent_docs.py
+
+      - name: Test architecture checker
+        run: python3 -m unittest backend.tests.test_catalog_architecture -v
+
+      - name: Compile Python sources
+        run: python3 -m compileall -q backend/app scripts/check_catalog_architecture.py
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Hold the react-doctor backlog
+        # react-doctor exits 0 whatever it finds, so the gate compares the
+        # count against react-doctor-baseline.json. Errors always fail; the
+        # warning backlog may shrink but never grow.
+        run: npm run scan:gate
+
+      - name: Test
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build Remote Symbol Provider panel
+        run: npm run build:panel
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: kicad_prism_test
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kicad_prism_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      AUTH_ENABLED: "false"
+      DEV_GUEST_ROLE: admin
+      KICAD_PROJECTS_ROOT: ${{ github.workspace }}/.ci-data/projects
+      PRISM_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/kicad_prism_test
+      # The catalog integration suite refuses to run against the application
+      # database, because it drops and rebuilds schema objects. Pointing both
+      # names at one database silently skipped the entire suite.
+      TEST_POSTGRES_URL: postgresql://postgres@127.0.0.1:5432/kicad_prism_catalog_test
+      LEGACY_SURVIVOR_TEST_POSTGRES_URL: postgresql://postgres@127.0.0.1:5432/kicad_prism_survivor_test
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements/runtime.lock
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Create the isolated catalog test database
+        run: |
+          psql "$PRISM_DATABASE_URL" -c 'CREATE DATABASE kicad_prism_catalog_test'
+          psql "$PRISM_DATABASE_URL" -c 'CREATE DATABASE kicad_prism_survivor_test'
+
+      - name: Compile Python sources
+        run: python -m compileall -q app
+
+      - name: Run backend tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Require the catalog integration suite to have run
+        run: |
+          # These tests skip themselves when TEST_POSTGRES_URL is missing or
+          # points at the application database, so a silent skip looks green.
+          python -m unittest tests.test_component_catalog_postgres_integration -v 2>&1 | tee result.log
+          if grep -q "skipped" result.log; then
+            echo "Catalog integration tests skipped; check TEST_POSTGRES_URL." >&2
+            exit 1
+          fi
+
+      - name: Require the legacy survivor integration suite to have run
+        run: |
+          # This is the destructive upgrade path: export a legacy catalog,
+          # initialize epoch 2, and restore every non-CERN survivor.
+          python -m unittest tests.test_legacy_catalog_survivor_postgres_integration -v 2>&1 | tee survivor-result.log
+          if grep -q "skipped" survivor-result.log; then
+            echo "Legacy survivor integration tests skipped; check LEGACY_SURVIVOR_TEST_POSTGRES_URL." >&2
+            exit 1
+          fi
+
+  semantic-viewer:
+    name: Semantic viewer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: kicad-prism-viewer
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: kicad-prism-viewer/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements/runtime.lock
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          # The shared Python lock is the same graph used by the backend and
+          # production image, including the coordinated Monkey/Cruncher pair.
+          python -m pip install -r requirements-runtime.txt
+
+      - name: Test glTF conversion
+        run: npm run test:gltf
+
+      - name: Test viewer
+        run: npm run test:viewer
+
+      - name: Test topology compiler
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Build viewer bundles
+        run: npm run build
+
+      - name: Require the served semantic viewer to match source
+        working-directory: ${{ github.workspace }}
+        run: >-
+          git diff --exit-code --
+          frontend/public/prism-semantic-viewer.js
+          frontend/index.html
+
+  deployment-config:
+    name: Deployment configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Validate default Compose configuration
+        run: docker compose --env-file .env.example -f docker-compose.yml config --quiet
+
+      - name: Validate reverse-proxy Compose configuration
+        run: docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.proxy.yml config --quiet
+
+      - name: Prepare load-test configuration
+        run: touch loadtest/.env.loadtest
+
+      - name: Validate load-test Compose configuration
+        run: docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.loadtest.yml config --quiet
+
+      - name: Validate local kicad-monkey Compose configuration
+        run: docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.local-kicad-monkey.yml config --quiet
+
+      - name: Validate pull-only release Compose configuration
+        env:
+          POSTGRES_PASSWORD: ci-release-validation
+          PRISM_ENV_FILE: .env.example
+        working-directory: deploy/release
+        run: |
+          docker compose --env-file .env.example -f compose.yml config --quiet
+          docker compose --env-file .env.example -f compose.yml --profile proxy config --quiet
+          if grep -Eq '^[[:space:]]*build:' compose.yml; then
+            echo "Release Compose must not contain build directives." >&2
+            exit 1
+          fi
+
+      - name: Test release metadata and bundle generation
+        run: python3 -m unittest scripts.test_release_bundle
+
+      - name: Test the deployment installer
+        working-directory: scripts
+        run: python3 -m unittest test_prism_deploy
+
+      - name: Test the backup tool
+        working-directory: scripts
+        run: python3 -m unittest test_prism_backup
+
+      - name: Validate generated Compose configuration for every scheme
+        run: |
+          set -euo pipefail
+          for scheme in tailscale tailscale-host dns-01 http-01 internal-ca external-proxy plain-http; do
+            python3 - "$scheme" > /tmp/answers.json <<'PY'
+          import json, sys
+          scheme = sys.argv[1]
+          answers = {
+              "scheme": scheme,
+              "hostname": "prism.example.com",
+              "oidc_issuer": "https://sso.example.com",
+              "oidc_client_id": "kicad-prism",
+              "oidc_client_secret": "ci-placeholder",
+              "bootstrap_admins": "admin@example.com",
+          }
+          if scheme == "dns-01":
+              answers.update(
+                  dns_provider="cloudflare",
+                  dns_credential="abcdefghij0123456789ABCDEFGHIJ0123456789",
+              )
+          if scheme == "internal-ca":
+              answers["certificate_dir"] = "./deploy/certs"
+          if scheme.startswith("tailscale"):
+              answers["scheme"] = "tailscale"
+              answers["hostname"] = "prism.tail1a2b3c.ts.net"
+              if scheme == "tailscale-host":
+                  answers["ts_mode"] = "host"
+              else:
+                  answers["ts_authkey"] = "tskey-auth-ci-placeholder"
+          print(json.dumps(answers))
+          PY
+            mkdir -p deploy/certs && touch deploy/certs/prism.crt deploy/certs/prism.key
+            python3 -m scripts.prism_deploy --answers /tmp/answers.json --skip-preflight
+            # Renders the overlay, then asks Compose whether it merges cleanly.
+            eval "$(python3 -c "
+          import json, sys
+          sys.path.insert(0, 'scripts')
+          from prism_deploy import render
+          answers = render.normalise(json.load(open('/tmp/answers.json')))
+          print(' '.join(render.compose_command(answers, 'config', '--quiet')))
+          ")"
+            echo "  $scheme: compose configuration is valid"
+          done
+
+  dependency-identity:
+    name: Dependency identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: .python-version
+
+      - name: Install uv
+        # Read the image's own pin rather than adding a second uv version that
+        # has to be kept in step by hand.
+        run: |
+          version="$(sed -n 's/^ARG UV_VERSION=//p' backend/Dockerfile | head -n 1)"
+          test -n "$version"
+          python -m pip install --disable-pip-version-check "uv==${version}"
+
+      - name: Reproduce the locked Python runtime
+        # `pip install` only adds; the drift this gate exists to catch is a
+        # runtime carrying something the lock does not name, so sync into a
+        # fresh environment exactly the way the image does.
+        run: |
+          uv venv .identity-venv --python "$(cat .python-version)"
+          uv pip sync --python .identity-venv/bin/python requirements/runtime.lock
+
+      - name: Verify runtime identity
+        # Both halves run here. The image can only check Python -- it has no
+        # JavaScript manifests on disk -- so this is the only place a drifted
+        # Node, npm, or package set fails a gate instead of surfacing later as
+        # an unreproducible bug report.
+        run: .identity-venv/bin/python scripts/verify_dependency_identity.py
+
+  kicad-live:
+    name: Release Studio live KiCad
+    # Rebuilds the Prism backend image (FROM pinned kicad/kicad). That proves
+    # kicad-cli and the baked executor identity. It is not compiling KiCad, and
+    # it is not a per-commit concern — run it where a merge or nightly matters.
+    if: >-
+      github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'dev'))
+      || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build backend image from Dockerfile KiCad default
+        run: >-
+          docker build
+          --platform linux/amd64
+          --build-arg KICAD_BASE_PLATFORM=linux/amd64
+          --tag release-studio-live-kicad:ci
+          --file backend/Dockerfile
+          .
+
+      - name: Smoke-test native semantic compiler
+        run: |
+          set -euo pipefail
+          smoke_root="$RUNNER_TEMP/prism-native-smoke"
+          mkdir -p "$smoke_root"
+          docker run --rm \
+            --platform linux/amd64 \
+            --volume "${GITHUB_WORKSPACE}/fixtures/release-studio/usb-pd:/fixture:ro" \
+            --volume "$smoke_root:/output" \
+            --entrypoint /usr/local/bin/prism-kicad-native \
+            release-studio-live-kicad:ci \
+            compile-semantic \
+            --pcb /fixture/USB-PD-Trigger-Board.kicad_pcb \
+            --output /output/semantic \
+            --tile-size auto \
+            --mesh-tolerance-mm 0.005 \
+            --meshopt-level medium
+          python3 -c 'import json, pathlib, sys; p=json.loads(pathlib.Path(sys.argv[1]).read_text()); assert p["schema"] == "prism.semantic_mesh_pack.v1"; assert p["tiles"]' \
+            "$smoke_root/semantic/mesh-pack.json"
+
+      - name: Run Release Studio live KiCad tests
+        run: |
+          set -euo pipefail
+          BAKED_IMAGE="$(docker run --rm --entrypoint /bin/cat release-studio-live-kicad:ci /etc/prism/kicad-base-image | tr -d '\r\n')"
+          if [[ ! "$BAKED_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]; then
+            echo "baked KiCad base image must end with @sha256:<64 lowercase hex>; got: ${BAKED_IMAGE}" >&2
+            exit 1
+          fi
+          export PRISM_RELEASE_EXECUTOR_IMAGE="$BAKED_IMAGE"
+          echo "PRISM_RELEASE_EXECUTOR_IMAGE=${PRISM_RELEASE_EXECUTOR_IMAGE}"
+
+          docker run --rm \
+            --platform linux/amd64 \
+            --env "PRISM_RELEASE_EXECUTOR_IMAGE=${PRISM_RELEASE_EXECUTOR_IMAGE}" \
+            --volume "${GITHUB_WORKSPACE}/fixtures/release-studio:/fixtures/release-studio:ro" \
+            --entrypoint /app/venv/bin/python \
+            release-studio-live-kicad:ci \
+            -m tests.release_studio_live_runner
+
+  agent-docs:
+    name: Agent guidance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Verify paths named in agent maps and skills
+        run: python3 scripts/check_agent_docs.py
+
+  quality-gate:
+    name: Quality gate
+    if: ${{ always() }}
+    needs:
+      - catalog-architecture
+      - frontend
+      - backend
+      - semantic-viewer
+      - deployment-config
+      - dependency-identity
+      - kicad-live
+      - agent-docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require every quality job
+        env:
+          CATALOG_ARCHITECTURE_RESULT: ${{ needs.catalog-architecture.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          VIEWER_RESULT: ${{ needs.semantic-viewer.result }}
+          DEPLOYMENT_RESULT: ${{ needs.deployment-config.result }}
+          IDENTITY_RESULT: ${{ needs.dependency-identity.result }}
+          KICAD_LIVE_RESULT: ${{ needs.kicad-live.result }}
+          AGENT_DOCS_RESULT: ${{ needs.agent-docs.result }}
+        run: |
+          test "$CATALOG_ARCHITECTURE_RESULT" = "success"
+          test "$FRONTEND_RESULT" = "success"
+          test "$BACKEND_RESULT" = "success"
+          test "$VIEWER_RESULT" = "success"
+          test "$DEPLOYMENT_RESULT" = "success"
+          test "$IDENTITY_RESULT" = "success"
+          test "$AGENT_DOCS_RESULT" = "success"
+          case "$KICAD_LIVE_RESULT" in
+            success|skipped) ;;
+            *)
+              echo "Release Studio live KiCad: $KICAD_LIVE_RESULT" >&2
+              exit 1
+              ;;
+          esac

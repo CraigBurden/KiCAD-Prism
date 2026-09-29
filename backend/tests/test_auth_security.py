@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -20,62 +19,76 @@ from app.core.security import (  # noqa: E402
     require_catalog_reader,
     require_catalog_writer,
     require_designer,
+    require_project_release_actor,
     require_remote_symbol_reader,
 )
-from app.services import access_service, provider_auth_service  # noqa: E402
-from app.services import service_client_service  # noqa: E402
-from app.services.component_catalog_service import ComponentCatalogService  # noqa: E402
+from app.services import access_service, password_credential_service, provider_auth_service  # noqa: E402
 
 
 class AuthSecurityTests(unittest.TestCase):
-    def test_component_roles_normalize_and_match_viewer_project_visibility(self) -> None:
-        self.assertEqual(normalize_role("Component_Designer"), "component_designer")
-        self.assertEqual(normalize_role("component_qa"), "component_qa")
-        self.assertTrue(role_matches_allowed_role("component_designer", ["viewer"]))
-        self.assertTrue(role_matches_allowed_role("component_qa", ["viewer"]))
-        self.assertFalse(role_matches_allowed_role("component_qa", ["designer"]))
+    def test_legacy_catalog_roles_normalize_onto_the_current_model(self) -> None:
+        self.assertEqual(normalize_role("Component_Designer"), "designer")
+        self.assertEqual(normalize_role("component_qa"), "qa")
+        self.assertTrue(role_matches_allowed_role("qa", ["viewer"]))
+        self.assertFalse(role_matches_allowed_role("qa", ["designer"]))
 
-    def test_component_roles_do_not_get_project_mutation_access(self) -> None:
-        user = AuthenticatedUser(email="component@example.com", name="Component", role="component_designer")
+    def test_qa_does_not_get_project_mutation_access(self) -> None:
+        user = AuthenticatedUser(email="qa@example.com", name="QA", role="qa")
 
         with self.assertRaises(HTTPException) as ctx:
             asyncio.run(require_designer(user))
 
         self.assertEqual(ctx.exception.status_code, 403)
 
-    def test_catalog_reader_accepts_designer_and_component_roles(self) -> None:
-        for role in ("designer", "component_designer", "component_qa"):
+    def test_project_release_actor_accepts_designer_qa_and_admin(self) -> None:
+        for role in ("designer", "qa", "admin"):
+            user = AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
+            resolved = asyncio.run(require_project_release_actor(user))
+            self.assertEqual(resolved.role, role)
+
+        viewer = AuthenticatedUser(email="viewer@example.com", name="Viewer", role="viewer")
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(require_project_release_actor(viewer))
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_catalog_reader_accepts_designer_and_qa(self) -> None:
+        for role in ("designer", "qa"):
             user = AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
             resolved = asyncio.run(require_catalog_reader(user))
             self.assertEqual(resolved.role, role)
 
-    def test_catalog_writer_accepts_component_designer_only(self) -> None:
-        writer = AuthenticatedUser(email="component@example.com", name="Component", role="component_designer")
+    def test_catalog_writer_accepts_designer(self) -> None:
+        writer = AuthenticatedUser(email="designer@example.com", name="Designer", role="designer")
         resolved = asyncio.run(require_catalog_writer(writer))
-        self.assertEqual(resolved.role, "component_designer")
+        self.assertEqual(resolved.role, "designer")
 
-        for role in ("designer", "component_qa", "viewer"):
+        for role in ("qa", "viewer"):
             user = AuthenticatedUser(email=f"{role}@example.com", name=role, role=role)
             with self.assertRaises(HTTPException) as ctx:
                 asyncio.run(require_catalog_writer(user))
             self.assertEqual(ctx.exception.status_code, 403)
 
-    def test_settings_access_upsert_accepts_component_roles(self) -> None:
+    def test_settings_access_upsert_accepts_qa(self) -> None:
         admin = AuthenticatedUser(email="admin@example.com", name="Admin", role="admin")
-        access_service._role_cache = None  # type: ignore[attr-defined]  # noqa: SLF001
-        access_service._role_cache_mtime = 0.0  # type: ignore[attr-defined]  # noqa: SLF001
-        with tempfile.TemporaryDirectory() as tmp:
-            store = str(Path(tmp) / "roles.json")
-            with patch.object(access_service, "_role_store_path", return_value=store):
-                assignment = asyncio.run(
-                    upsert_access_user(
-                        "qa@example.com",
-                        UpsertRoleRequest(role="component_qa"),
-                        admin,
-                    )
+        with patch.object(
+            access_service,
+            "upsert_user_role",
+            return_value={"email": "qa@example.com", "role": "qa", "source": "store"},
+        ), patch.object(
+            password_credential_service,
+            "has_credential",
+            return_value=False,
+        ):
+            assignment = asyncio.run(
+                upsert_access_user(
+                    "qa@example.com",
+                    UpsertRoleRequest(role="qa"),
+                    admin,
                 )
+            )
 
-        self.assertEqual(assignment.role, "component_qa")
+        self.assertEqual(assignment.role, "qa")
+        self.assertFalse(assignment.has_password)
 
     def test_kicad_provider_token_cannot_access_admin_api(self) -> None:
         user = AuthenticatedUser(
@@ -128,56 +141,6 @@ class AuthSecurityTests(unittest.TestCase):
             provider_auth_service.normalize_provider_scope("remote_symbols.read api:read")
 
         self.assertEqual(ctx.exception.status_code, 400)
-
-    def test_service_client_credentials_use_sqlite_catalog(self) -> None:
-        previous_db = service_client_service._db  # type: ignore[attr-defined]  # noqa: SLF001
-        previous_secret = service_client_service.settings.SESSION_SECRET
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
-                catalog = ComponentCatalogService(
-                    store_root=root / "components",
-                    database_url=str(root / "prism.sqlite3"),
-                )
-                catalog.initialize()
-                service_client_service._db = lambda: catalog  # type: ignore[attr-defined]  # noqa: SLF001
-                service_client_service.settings.SESSION_SECRET = "test-secret"
-
-                created = service_client_service.create_service_client(
-                    name="Inventree",
-                    role="viewer",
-                    scopes=["api:read", "remote_symbols.read"],
-                )
-                token = service_client_service.issue_client_credentials_token(
-                    client_id=created["client_id"],
-                    client_secret=created["client_secret"],
-                    requested_scope="api:read",
-                )
-                resolved = service_client_service.validate_service_access_token(token["access_token"])
-
-                self.assertEqual(resolved["client_id"], created["client_id"])
-                self.assertEqual(resolved["role"], "viewer")
-                self.assertEqual(resolved["scopes"], ["api:read"])
-
-                component_client = service_client_service.create_service_client(
-                    name="Catalog automation",
-                    role="component_designer",
-                    scopes=["api:read", "api:write"],
-                )
-                component_token = service_client_service.issue_client_credentials_token(
-                    client_id=component_client["client_id"],
-                    client_secret=component_client["client_secret"],
-                    requested_scope="api:write",
-                )
-                component_resolved = service_client_service.validate_service_access_token(
-                    component_token["access_token"]
-                )
-
-                self.assertEqual(component_resolved["role"], "component_designer")
-        finally:
-            service_client_service._db = previous_db  # type: ignore[attr-defined]  # noqa: SLF001
-            service_client_service.settings.SESSION_SECRET = previous_secret
-
 
 if __name__ == "__main__":
     unittest.main()

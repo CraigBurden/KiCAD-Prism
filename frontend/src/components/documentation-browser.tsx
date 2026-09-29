@@ -40,6 +40,7 @@ function TreeNodeComponent({
                     <button
                         onClick={() => setExpanded(!expanded)}
                         className="p-0 hover:bg-transparent"
+                        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.name}`}
                     >
                         {expanded ? (
                             <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -51,9 +52,9 @@ function TreeNodeComponent({
                 {node.isDir && !hasChildren && <div className="w-4" />}
 
                 {node.isDir ? (
-                    <Folder className="h-4 w-4 text-yellow-500 flex-shrink-0" />
+                    <Folder className="h-4 w-4 text-warning flex-shrink-0" />
                 ) : isMarkdown ? (
-                    <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <FileText className="h-4 w-4 text-primary flex-shrink-0" />
                 ) : (
                     <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 )}
@@ -121,24 +122,35 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
         return `${url}${url.includes("?") ? "&" : "?"}commit=${encodeURIComponent(commit)}`;
     }, [commit]);
 
+    // Fetch carries the AbortController signal and setters are guarded by
+    // `signal.aborted`; the rule cannot see those guards from outside.
+    // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect
     useEffect(() => {
+        const controller = new AbortController();
+        const { signal } = controller;
+
         const fetchFiles = async () => {
             setLoading(true);
             setViewingDoc(null);
             try {
-                const response = await fetch(appendCommit(`/api/projects/${projectId}/docs`));
+                const response = await fetch(appendCommit(`/api/projects/${projectId}/docs`), { signal });
                 if (response.ok) {
                     const data = await response.json();
-                    setFiles(data);
+                    if (!signal.aborted) setFiles(data);
                 }
             } catch (err) {
+                if (err instanceof DOMException && err.name === "AbortError") return;
                 console.error("Failed to fetch docs", err);
             } finally {
-                setLoading(false);
+                // The abort guard is required: an unconditional reset would let
+                // the stale, aborted effect clear the replacement effect's spinner.
+                // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally
+                if (!signal.aborted) setLoading(false);
             }
         };
 
-        fetchFiles();
+        void fetchFiles();
+        return () => controller.abort();
     }, [projectId, appendCommit]);
 
     const handleView = async (path: string, name: string) => {
@@ -156,7 +168,7 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
 
     const handleDownload = (path: string) => {
         const url = appendCommit(`/api/projects/${projectId}/asset/docs/${path}`);
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
     };
 
     const tree = useMemo(() => buildFileTree(files), [files]);

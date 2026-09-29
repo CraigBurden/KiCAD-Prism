@@ -1,10 +1,22 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { Box, CalendarDays, FolderTree, GitBranch, GitCommit, PanelRightOpen, Tag, X } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Box,
+  CalendarDays,
+  FolderTree,
+  GitBranch,
+  GitCommit,
+  Image as ImageIcon,
+  PanelRightOpen,
+  RefreshCw,
+  Tag,
+  Upload,
+  X,
+} from "lucide-react";
 
 import { fetchJson } from "@/lib/api";
+import { repositoryWebUrl } from "@/lib/repository-url";
 import { cn } from "@/lib/utils";
 import type { FolderTreeItem, Project, ProjectPropertiesResponse } from "@/types/project";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -14,7 +26,20 @@ interface WorkspaceProjectPropertiesSheetProps {
   folderById: Map<string, FolderTreeItem>;
   onOpenChange: (open: boolean) => void;
   onOpenProject: (project: Project) => void;
+  canManageProjects?: boolean;
+  onRegenerateThumbnail?: (project: Project) => Promise<void>;
+  onUploadThumbnail?: (project: Project, file: File) => Promise<void>;
+  onRevertThumbnail?: (project: Project) => Promise<void>;
 }
+
+/** What the browser will let someone pick, and what Pillow will read back. */
+const THUMBNAIL_ACCEPT = "image/png,image/jpeg,image/webp,image/gif,image/bmp";
+
+const THUMBNAIL_SOURCE_LABELS: Record<string, string> = {
+  generated: "Rendered from the PCB",
+  custom: "Uploaded image",
+  repository: "Committed in the repository",
+};
 
 function formatDateTime(value?: string | null): string {
   if (!value) {
@@ -203,10 +228,16 @@ export function WorkspaceProjectPropertiesSheet({
   folderById,
   onOpenChange,
   onOpenProject,
+  canManageProjects = false,
+  onRegenerateThumbnail,
+  onUploadThumbnail,
+  onRevertThumbnail,
 }: WorkspaceProjectPropertiesSheetProps) {
   const [data, setData] = useState<ProjectPropertiesResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [thumbnailBusy, setThumbnailBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open || !project) {
@@ -246,10 +277,29 @@ export function WorkspaceProjectPropertiesSheet({
   const panelProject = activeProject ?? project;
   const displayName = activeProject?.display_name || activeProject?.name || "Project";
   const repositoryLabel = panelProject ? resolveRepositoryLabel(panelProject) : "Standalone Project";
+  const repositoryUrl = panelProject ? repositoryWebUrl(panelProject.repo_url) : null;
   const folderPath = useMemo(
     () => buildFolderPath(panelProject?.folder_id ?? null, folderById),
     [panelProject?.folder_id, folderById]
   );
+  const thumbnailSource = panelProject?.thumbnail_source ?? "generated";
+  const usesUploadedThumbnail = thumbnailSource === "custom";
+  const thumbnailSourceLabel = panelProject?.thumbnail_url
+    ? THUMBNAIL_SOURCE_LABELS[thumbnailSource] ?? "Unknown source"
+    : "No thumbnail yet";
+
+  /** Run one thumbnail action at a time, so a slow render cannot be double-fired. */
+  const runThumbnailAction = async (action: () => Promise<void> | undefined) => {
+    if (thumbnailBusy) {
+      return;
+    }
+    setThumbnailBusy(true);
+    try {
+      await action();
+    } finally {
+      setThumbnailBusy(false);
+    }
+  };
 
   if (!open) {
     return null;
@@ -259,17 +309,15 @@ export function WorkspaceProjectPropertiesSheet({
     <aside
       className={cn(
         "flex h-full min-w-0 shrink-0 flex-col border-l bg-background/95 backdrop-blur-sm shadow-2xl",
-        "w-[360px] lg:w-[400px] xl:w-[460px]"
+        "w-[360px] lg:w-[400px] xl:w-[460px]",
+        "animate-in slide-in-from-right duration-200 ease-out"
       )}
       aria-label="Project properties panel"
     >
       <div className="flex min-h-full flex-col overflow-hidden">
         <div className="space-y-3 border-b px-6 py-5 text-left">
           <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0 space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Properties</Badge>
-              </div>
+            <div className="min-w-0">
               <div className="space-y-1">
                 <h2 className="truncate text-2xl font-semibold leading-tight">{displayName}</h2>
                 <p className="text-sm text-muted-foreground">
@@ -302,7 +350,7 @@ export function WorkspaceProjectPropertiesSheet({
 
           {!loading && !error && panelProject ? (
             <>
-              <section className="space-y-4">
+              <section className="space-y-3">
                 <div className="aspect-[4/3] overflow-hidden rounded-none border bg-muted/30">
                   {activeProject?.thumbnail_url ? (
                     <img
@@ -316,6 +364,60 @@ export function WorkspaceProjectPropertiesSheet({
                     </div>
                   )}
                 </div>
+
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                  <span>{thumbnailSourceLabel}</span>
+                </div>
+
+                {canManageProjects ? (
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept={THUMBNAIL_ACCEPT}
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        // Clear first, so picking the same file twice still fires.
+                        event.target.value = "";
+                        if (file) {
+                          void runThumbnailAction(() => onUploadThumbnail?.(panelProject, file));
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={thumbnailBusy || !onUploadThumbnail}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="h-4 w-4" />
+                      Upload image
+                    </Button>
+                    {usesUploadedThumbnail ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={thumbnailBusy || !onRevertThumbnail}
+                        onClick={() => void runThumbnailAction(() => onRevertThumbnail?.(panelProject))}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Use rendered board
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={thumbnailBusy || !onRegenerateThumbnail}
+                        onClick={() => void runThumbnailAction(() => onRegenerateThumbnail?.(panelProject))}
+                      >
+                        <RefreshCw className={cn("h-4 w-4", thumbnailBusy && "animate-spin")} />
+                        Re-render
+                      </Button>
+                    )}
+                  </div>
+                ) : null}
               </section>
 
               <MetadataSection title="Project Details" icon={FolderTree}>
@@ -324,15 +426,17 @@ export function WorkspaceProjectPropertiesSheet({
                 <MetadataRow
                   label="Repository Link"
                   value={
-                    panelProject.repo_url ? (
+                    repositoryUrl ? (
                       <a
-                        href={panelProject.repo_url}
+                        href={repositoryUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="break-all underline underline-offset-4 transition-colors hover:text-primary"
                       >
-                        {panelProject.repo_url}
+                        {repositoryUrl}
                       </a>
+                    ) : panelProject.repo_url ? (
+                      <span className="break-all">{panelProject.repo_url}</span>
                     ) : (
                       repositoryLabel
                     )

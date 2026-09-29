@@ -1,19 +1,22 @@
 import os
+import hashlib
 import json
 import time
-import uuid
 import shutil
-import threading
 import datetime
 import subprocess
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from git import Repo, RemoteProgress
+from git import Repo
 from pydantic import BaseModel
 
-from app.services import path_config_service
+from app.release_studio.jobset import WORKFLOW_OUTPUT_IDS as _WORKFLOW_OUTPUT_IDS
+from app.services import kicad_jobset_service, path_config_service, semantic_index_service
 from app.services.workspace_service import workspace
+from app.services.job_artifact_service import job_artifacts
+from app.services.job_runtime import JobContext, JobResult
+from app.services.job_service import jobs as v3_jobs
 
 class Project(BaseModel):
     id: str
@@ -24,7 +27,17 @@ class Project(BaseModel):
     last_modified: str
     registered_at: Optional[str] = None
     thumbnail_url: Optional[str] = None
+    # Where the thumbnail came from: "generated" (kicad-cli render), "custom"
+    # (uploaded in the workspace) or "repository" (an image committed in the
+    # repo, used only when there is nothing to render). The workspace needs
+    # this to know which thumbnail actions to offer.
+    thumbnail_source: Optional[str] = None
     sub_path: Optional[str] = None  # Relative path within parent repo
+    # This project's own file inside its directory (its .kicad_pro, or the board
+    # KiCad would regenerate one from). A directory can hold several KiCad
+    # projects, and this is what tells them apart. Empty for projects registered
+    # before Prism recorded it, which are the only project in their directory.
+    project_file: Optional[str] = None
     parent_repo: Optional[str] = None  # Parent monorepo name
     repo_url: Optional[str] = None  # Original Git URL
     import_type: Optional[str] = None  # "type1" or "type2_subproject"
@@ -89,16 +102,52 @@ def _save_project_registry(registry: Dict[str, dict]) -> None:
         print(f"Warning: Failed to save project registry: {e}")
 
 
-def invalidate_project_caches() -> None:
-    from app.services import project_properties_service
+# The project file that identifies one project inside a shared directory.
+# Accepts either a `Project` or a raw workspace row, because callers hold one or
+# the other depending on how deep in the stack they are.
+project_anchor = path_config_service.anchor_for_project
 
+
+def _project_path_of(project: Any) -> str:
+    if isinstance(project, dict):
+        return str(project.get("path") or "")
+    return str(getattr(project, "path", "") or "")
+
+
+def path_config_for(project: Any, use_cache: bool = True) -> path_config_service.PathConfig:
+    """Load a project's path configuration, honouring its anchor."""
+    return path_config_service.get_path_config(
+        _project_path_of(project), use_cache, anchor=project_anchor(project)
+    )
+
+
+def resolved_paths_for(
+    project: Any,
+    config: Optional[path_config_service.PathConfig] = None,
+) -> path_config_service.ResolvedPaths:
+    """Resolve a project's paths, honouring its anchor."""
+    return path_config_service.resolve_paths(
+        _project_path_of(project), config, anchor=project_anchor(project)
+    )
+
+
+def save_path_config_for(project: Any, config: path_config_service.PathConfig) -> None:
+    """Persist a project's path configuration under its own anchor."""
+    path_config_service.save_path_config(
+        _project_path_of(project), config, anchor=project_anchor(project)
+    )
+
+
+def invalidate_project_caches() -> None:
+    # Project metadata used to be memoised in-process here as well. It now
+    # lives in ws_project_metadata, keyed by a fingerprint of the files it was
+    # computed from, so it invalidates itself and has nothing to clear.
     global _project_records_cache, _project_records_cache_time
     global _projects_cache, _projects_cache_time
     _project_records_cache = []
     _project_records_cache_time = 0
     _projects_cache = []
     _projects_cache_time = 0
-    project_properties_service.invalidate_project_properties_cache()
 
 def register_project(project_id: str, name: str, path: str, repo_url: str,
                      sub_path: Optional[str] = None, parent_repo: Optional[str] = None,
@@ -266,6 +315,16 @@ def _record_to_project(record: RegisteredProjectRecord) -> Project:
     )
 
 
+def thumbnail_url_for_row(row: dict) -> Optional[str]:
+    if not row.get("thumbnail_rel"):
+        return None
+    project_id = quote(str(row["id"]), safe="")
+    digest = str(row.get("thumbnail_digest") or "")
+    if digest:
+        return f"/api/projects/{project_id}/thumbnail/{quote(digest, safe='')}"
+    return f"/api/projects/{project_id}/thumbnail"
+
+
 def get_registered_project_records() -> List[RegisteredProjectRecord]:
     """
     Return normalized registry-backed project records without hydrating `.prism.json`.
@@ -328,8 +387,17 @@ def get_registered_projects() -> List[Project]:
 
 def get_project_by_id(project_id: str) -> Optional[Project]:
     """
-    Efficiently get a single project by its ID without scanning all projects if possible.
+    Resolve a project from the authoritative workspace registry.
+
+    The JSON registry remains a compatibility fallback for older local installs,
+    but current `prj_*` identities are owned by the workspace database. This is
+    especially important in separate worker processes, whose legacy in-memory
+    registry cache may be empty even though the API can see the project.
     """
+    workspace_row = workspace.get_project_by_id(project_id)
+    if workspace_row:
+        return _workspace_row_to_project(workspace_row)
+
     # Try cache first
     global _projects_cache, _projects_cache_time
     current_time = time.time()
@@ -344,26 +412,6 @@ def get_project_by_id(project_id: str) -> Optional[Project]:
 
     return _record_to_project(record)
 
-# Global job store: {job_id: {status: str, message: str, percent: float, project_id: str, error: str, logs: list[str], type: str}}
-jobs = {}
-
-
-def _persist_job(job_id: str) -> None:
-    job = jobs.get(job_id)
-    if job:
-        workspace.update_job(
-            job_id,
-            status=job.get("status", "running"),
-            message=job.get("message", ""),
-            percent=job.get("percent", 0),
-            **{
-                key: value
-                for key, value in job.items()
-                if key not in {"job_id", "status", "message", "percent"}
-            },
-        )
-
-
 def _workspace_row_to_project(row: dict) -> Project:
     return Project(
         id=row["id"],
@@ -373,8 +421,15 @@ def _workspace_row_to_project(row: dict) -> Project:
         path=row.get("path", ""),
         last_modified=row.get("last_modified", ""),
         registered_at=row.get("registered_at"),
-        thumbnail_url=f"/api/projects/{quote(row['id'])}/thumbnail" if row.get("thumbnail_rel") else None,
+        thumbnail_url=thumbnail_url_for_row(row),
+        thumbnail_source=row.get("thumbnail_source") or "generated",
         sub_path=row.get("relative_path") if row.get("relative_path") != "." else None,
+        # Background jobs resolve their project through here, not through the
+        # API's converter. Dropping the anchor sent every WebGPU render,
+        # semantic index and KiCad workflow back to "the first .kicad_pro that
+        # sorts", so a directory holding two projects built the wrong one while
+        # the workspace, reading the other converter, showed the right one.
+        project_file=row.get("project_file_rel") or None,
         parent_repo=row.get("parent_repo"),
         repo_url=row.get("repo_url"),
         import_type=row.get("import_type"),
@@ -383,395 +438,441 @@ def _workspace_row_to_project(row: dict) -> Project:
         portfolio=row.get("portfolio"),
     )
 
-class CloneProgress(RemoteProgress):
-    def __init__(self, job_id):
-        super().__init__()
-        self.job_id = job_id
-        
-    def update(self, op_code, cur_count, max_count=None, message=''):
-        if self.job_id in jobs:
-            job = jobs[self.job_id]
-            # Calculate percentage if max_count is available
-            percent = 0
-            if max_count:
-                percent = (cur_count / max_count) * 100
-                
-            job['percent'] = percent
-            job['message'] = message or f"Processing... {int(percent)}%"
-            # Add to logs only if message makes sense
-            if message:
-                job['logs'].append(f"[GIT] {message}")
-            _persist_job(self.job_id)
-
-def _run_clone_job(job_id: str, repo_url: str, selected_paths: Optional[List[str]] = None):
-    job = jobs[job_id]
-    
-    # Extract project name
-    project_name = repo_url.rstrip('/').split('/')[-1]
-    if project_name.endswith('.git'):
-        project_name = project_name[:-4]
-    
-    # Clone to monorepos directory
-    target_path = os.path.join(MONOREPOS_ROOT, project_name)
-    target_path_abs = os.path.abspath(target_path)
-    
-    # Check if monorepo already exists
-    if os.path.exists(target_path):
-        job['status'] = 'failed'
-        job['error'] = f"Monorepo '{project_name}' already exists"
-        job['logs'].append(f"Error: Monorepo '{project_name}' already exists")
-        _persist_job(job_id)
-        return
-
-    try:
-        job['logs'].append(f"Cloning {repo_url} into {target_path}...")
-        _persist_job(job_id)
-        # Prevent git from asking for credentials (avoid hanging)
-        env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        
-        Repo.clone_from(
-            repo_url, 
-            target_path, 
-            progress=CloneProgress(job_id),
-            env=env
-        )
-        
-        # Register project(s)
-        if selected_paths and len(selected_paths) > 0:
-            # Multi-project import
-            imported_projects = []
-            for sub_path in selected_paths:
-                # Generate unique project ID
-                safe_name = sub_path.replace('/', '-').replace(' ', '_')
-                project_id = f"{project_name}-{safe_name}"
-                
-                # Check for duplicate ID
-                registry = _load_project_registry()
-                if project_id in registry:
-                    existing_path = _normalize_path(registry[project_id].get("path", ""))
-                    if existing_path != os.path.abspath(os.path.join(target_path, sub_path)):
-                        # Different project with same ID - add numeric suffix
-                        suffix = 1
-                        original_id = project_id
-                        while f"{original_id}-{suffix}" in registry:
-                            suffix += 1
-                        project_id = f"{original_id}-{suffix}"
-                        job['logs'].append(f"Warning: ID collision detected, using {project_id}")
-                
-                full_project_path = os.path.join(target_path, sub_path)
-                
-                # Get project name from the .kicad_pro file
-                pro_files = [f for f in os.listdir(full_project_path) if f.endswith('.kicad_pro')]
-                board_name = pro_files[0].replace('.kicad_pro', '') if pro_files else os.path.basename(sub_path)
-                
-                register_project(
-                    project_id=project_id,
-                    name=board_name,
-                    path=full_project_path,
-                    repo_url=repo_url,
-                    sub_path=sub_path,
-                    parent_repo=project_name,
-                    description=f"{project_name} / {board_name}"
-                )
-                imported_projects.append(project_id)
-                job['logs'].append(f"Registered sub-project: {project_id}")
-            
-            job['project_ids'] = imported_projects
-            job['message'] = f'Imported {len(imported_projects)} projects'
-        else:
-            # Single project import (root level)
-            # Check if root has .kicad_pro files
-            pro_files = [f for f in os.listdir(target_path) if f.endswith('.kicad_pro')]
-            
-            if pro_files:
-                # Root has KiCAD project
-                project_id = project_name
-                
-                # Check for duplicate ID
-                registry = _load_project_registry()
-                if project_id in registry:
-                    existing_path = _normalize_path(registry[project_id].get("path", ""))
-                    if existing_path != target_path_abs:
-                        # Different project with same ID - add numeric suffix
-                        suffix = 1
-                        original_id = project_id
-                        while f"{original_id}-{suffix}" in registry:
-                            suffix += 1
-                        project_id = f"{original_id}-{suffix}"
-                        job['logs'].append(f"Warning: ID collision detected, using {project_id}")
-                
-                register_project(
-                    project_id=project_id,
-                    name=project_name,
-                    path=target_path,
-                    repo_url=repo_url,
-                    sub_path=None,
-                    parent_repo=None,
-                    description=f"Project {project_name}"
-                )
-                job['project_id'] = project_id
-            else:
-                # No KiCAD files at root - register as monorepo container
-                job['logs'].append("Warning: No .kicad_pro files found at root level")
-                job['project_id'] = project_name
-        
-        job['status'] = 'completed'
-        job['percent'] = 100
-        job['logs'].append("Clone and registration successful.")
-        _persist_job(job_id)
-        
-    except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
-        _persist_job(job_id)
-        # Cleanup
-        if os.path.exists(target_path):
-            try:
-                shutil.rmtree(target_path)
-            except:
-                pass
-
-def start_import_job(repo_url: str, selected_paths: Optional[List[str]] = None) -> str:
-    job_id = str(uuid.uuid4())
-    jobs[job_id] = {
-        "job_id": job_id,
-        "status": "running",
-        "message": "Starting import...",
-        "percent": 0,
-        "project_id": None,
-        "project_ids": [],
-        "error": None,
-        "logs": [],
-        "type": "import"
-    }
-    workspace.create_job(
-        job_id,
-        "legacy_import",
-        status=jobs[job_id]["status"],
-        message=jobs[job_id]["message"],
-        percent=jobs[job_id]["percent"],
-        **{
-            key: value
-            for key, value in jobs[job_id].items()
-            if key not in {"job_id", "status", "message", "percent"}
-        },
-    )
-    
-    thread = threading.Thread(target=_run_clone_job, args=(job_id, repo_url, selected_paths))
-    thread.daemon = True
-    thread.start()
-    
-    return job_id
-
 def get_job_status(job_id: str):
-    return jobs.get(job_id) or workspace.get_job(job_id)
+    v3_job = v3_jobs.get(job_id)
+    if v3_job:
+        metadata = dict(v3_job.get("result_metadata") or {})
+        payload_compat = dict(v3_job.get("payload") or {})
+        staged_keys = (
+            "bundle_url",
+            "readiness",
+            "readiness_stage",
+            "sourceRevisionKey",
+            "source_fingerprint",
+            "status_selector",
+            "commit",
+        )
+        staged_fields = {
+            key: payload_compat[key]
+            for key in staged_keys
+            if key in payload_compat and payload_compat[key] is not None
+        }
+        logs = payload_compat.get("logs")
+        if not isinstance(logs, list):
+            logs = []
+        return {
+            **metadata,
+            **staged_fields,
+            **v3_job,
+            "type": v3_job.get("kind"),
+            "error": v3_job.get("error_message") or None,
+            "logs": logs,
+        }
+    return workspace.get_job(job_id)
 
 # Workflow Jobs
 def _find_cli_path():
-    # Check standard Mac path first
-    mac_path = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
-    if os.path.exists(mac_path):
-        return mac_path
-    return "kicad-cli" # Fallback to PATH
+    """Keep the legacy lookup seam while delegating to the jobset service."""
 
-def _run_workflow_job(job_id: str, project_id: str, workflow_type: str):
-    job = jobs[job_id]
-    
-    try:
-        row = workspace.get_project_by_id(project_id)
-        project = _workspace_row_to_project(row) if row else get_project_by_id(project_id)
-        if not project:
-            raise ValueError("Project not found")
+    return kicad_jobset_service.find_kicad_cli_path()
 
-        job['logs'].append(f"Starting workflow: {workflow_type}")
-        cli_path = _find_cli_path()
-        job['logs'].append(f"Using KiCAD CLI: {cli_path}")
-        _persist_job(job_id)
+def start_workflow_job(
+    project_id: str,
+    workflow_type: str,
+    author: str = "anonymous",
+    force: bool = False,
+    commit: str | None = None,
+) -> str:
+    if workflow_type not in {"design", "manufacturing", "render", "webgpu_3d"}:
+        raise ValueError(f"Unknown workflow type: {workflow_type}")
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError("Project not found")
+    repository_id = str(row.get("repo_id") or "")
+    project_file_rel = str(row.get("project_file_rel") or "")
 
-        # Find .kicad_pro file
-        pro_file = None
-        for file in os.listdir(project.path):
-            if file.endswith(".kicad_pro"):
-                pro_file = file
-                break
-        
-        if not pro_file:
-            raise ValueError(".kicad_pro file not found in project root")
-
-        output_id = ""
-        if workflow_type == "design":
-            output_id = "28dab1d3-7bf2-4d8a-9723-bcdd14e1d814"
-        elif workflow_type == "manufacturing":
-            output_id = "9e5c254b-cb26-4a49-beea-fa7af8a62903"
-        elif workflow_type == "render":
-            output_id = "81c80ad4-e8b9-4c9a-8bed-df7864fdefc6"
-        else:
-            raise ValueError(f"Unknown workflow type: {workflow_type}")
-
-        # Resolve workflow jobset from project settings (.prism.json) / auto-detection.
-        config = path_config_service.get_path_config(project.path)
-        resolved_paths = path_config_service.resolve_paths(project.path, config)
-        jobset_path = resolved_paths.jobset_path
-        configured_jobset = config.jobset or "Outputs.kicad_jobset"
-
-        if not jobset_path:
-            raise ValueError(f"{configured_jobset} not found in project root")
-
-        # Prefer a path relative to project root for CLI invocation/log readability.
-        try:
-            project_root_abs = os.path.abspath(project.path)
-            jobset_abs = os.path.abspath(jobset_path)
-            if os.path.commonpath([project_root_abs, jobset_abs]) == project_root_abs:
-                jobset_file = os.path.relpath(jobset_abs, project_root_abs)
-            else:
-                jobset_file = jobset_path
-        except ValueError:
-            # Fallback for uncommon path edge cases (e.g., different mount roots).
-            jobset_file = jobset_path
-
-        cmd = [
-            cli_path,
-            "jobset",
-            "run",
-            "-f", jobset_file,
-            "--output", output_id,
-            pro_file
-        ]
-        
-        job['logs'].append(f"Command: {' '.join(cmd)}")
-        _persist_job(job_id)
-        
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            cwd=project.path,
-            text=True,
-            bufsize=1,
-            universal_newlines=True
+    if workflow_type == "webgpu_3d":
+        source_selector = commit or f"workspace:{row.get('last_modified') or ''}"
+        artifact_key = hashlib.sha256(
+            json.dumps(
+                {
+                    "project": project_id,
+                    "projectFileRel": project_file_rel,
+                    "source": source_selector,
+                    "force": bool(force),
+                    "generator": semantic_index_service.generator_cache_tag(),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        queued = v3_jobs.enqueue(
+            "webgpu_3d",
+            {
+                "project_id": project_id,
+                "commit": commit,
+                "force": bool(force),
+                "artifact_key": artifact_key,
+                "project_file_rel": project_file_rel,
+            },
+            worker_pool="prism",
+            artifact_key="" if force else artifact_key,
+            project_id=project_id,
+            repository_id=repository_id or None,
+            requested_by=author,
+            resources={
+                "prism_worker": 1,
+                "webgpu": 1,
+                "semantic_compile": 1,
+            },
+            locks=(
+                [{"key": f"repository:{repository_id}", "mode": "read"}]
+                if repository_id
+                else [{"key": f"project:{project_id}", "mode": "read"}]
+            ),
         )
+        return str(queued["job_id"])
 
-        for line in process.stdout:
-            line = line.strip()
-            if line:
-                job['logs'].append(line)
-                _persist_job(job_id)
-        
-        return_code = process.wait()
-        
-        if return_code == 0:
-            job['percent'] = 100
-            job['message'] = 'Processing outputs...'
-            job['logs'].append("Job completed successfully.")
-            _persist_job(job_id)
-            
-            # --- Git Push Logic ---
-            try:
-                job['logs'].append("Starting Git Sync...")
-                _persist_job(job_id)
-                repo = Repo(project.path)
-                
-                # Check for changes
-                if not repo.is_dirty(untracked_files=True):
-                    job['logs'].append("No changes detected to commit.")
-                    _persist_job(job_id)
-                else:
-                    # Add all changes
-                    job['logs'].append("Staging files...")
-                    repo.git.add('.')
-                    job['logs'].append("Files staged.")
-                    _persist_job(job_id)
-                    
-                    # Commit
-                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    author_name = job.get('author', 'anonymous')
-                    commit_message = f"Generated {workflow_type} outputs - {timestamp} by {author_name}"
-                    job['logs'].append(f"Committing with message: '{commit_message}'")
-                    _persist_job(job_id)
-                    
-                    # Set local config for this commit to ensure it works even if global config is missing
-                    # Or just use author argument in commit
-                    repo.git.commit(
-                        m=commit_message, 
-                        author="KiCAD Prism <prism@example.com>"
-                    )
-                    job['logs'].append("Commit created.")
-                    _persist_job(job_id)
-                    
-                    # Push
-                    job['logs'].append("Pushing to remote...")
-                    _persist_job(job_id)
-                    # Disable interactive prompt for push
-                    env = os.environ.copy()
-                    env['GIT_TERMINAL_PROMPT'] = '0'
-                    
-                    origin = repo.remote(name='origin')
-                    push_info = origin.push(env=env)
-                    
-                    # Check push results
-                    for info in push_info:
-                        if info.flags & info.ERROR:
-                            raise Exception(f"Push failed: {info.summary}")
-                            
-                    job['logs'].append("Successfully pushed to remote.")
-                    _persist_job(job_id)
-                    
-            except Exception as e:
-                job['logs'].append(f"Git Sync Warning: {str(e)}")
-                # We don't fail the job if push fails, just warn
-                _persist_job(job_id)
-            # ----------------------
-
-            job['status'] = 'completed'
-            job['message'] = 'Workflow completed successfully'
-            _persist_job(job_id)
-            
-        else:
-            job['status'] = 'failed'
-            job['error'] = f"Process exited with code {return_code}"
-            job['logs'].append(f"Job failed with exit code {return_code}")
-            _persist_job(job_id)
-
-    except Exception as e:
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        job['logs'].append(f"Error: {str(e)}")
-        _persist_job(job_id)
+    active_key = hashlib.sha256(
+        json.dumps(
+            {
+                "project": project_id,
+                "projectFileRel": project_file_rel,
+                "workflow": workflow_type,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    queued = v3_jobs.enqueue(
+        "kicad_workflow",
+        {
+            "project_id": project_id,
+            "workflow_type": workflow_type,
+            "author": author,
+            "project_file_rel": project_file_rel,
+        },
+        worker_pool="prism",
+        artifact_key=active_key,
+        project_id=project_id,
+        repository_id=repository_id or None,
+        requested_by=author,
+        max_attempts=1,
+        resources={
+            "prism_worker": 1,
+            "workflow": 1,
+        },
+        locks=(
+            [{"key": f"repository:{repository_id}", "mode": "write"}]
+            if repository_id
+            else [{"key": f"project:{project_id}", "mode": "write"}]
+        ),
+    )
+    return str(queued["job_id"])
 
 
-def start_workflow_job(project_id: str, workflow_type: str, author: str = "anonymous") -> str:
-    job_id = str(uuid.uuid4())
-    jobs[job_id] = {
-        "job_id": job_id,
+def start_semantic_index_job(
+    project_id: str,
+    *,
+    commit: str | None = None,
+    force: bool = False,
+    requested_by: str = "",
+) -> str:
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError("Project not found")
+    repository_id = str(row.get("repo_id") or "")
+    project_file_rel = str(row.get("project_file_rel") or "")
+    source_selector = commit or f"workspace:{row.get('last_modified') or ''}"
+    artifact_key = hashlib.sha256(
+        json.dumps(
+            {
+                "project": project_id,
+                "projectFileRel": project_file_rel,
+                "source": source_selector,
+                "generator": semantic_index_service.generator_cache_tag(),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    queued = v3_jobs.enqueue(
+        "semantic_index",
+        {
+            "project_id": project_id,
+            "commit": commit,
+            "force": bool(force),
+            "artifact_key": artifact_key,
+            "project_file_rel": project_file_rel,
+        },
+        worker_pool="prism",
+        artifact_key="" if force else artifact_key,
+        project_id=project_id,
+        repository_id=repository_id or None,
+        requested_by=requested_by,
+        resources={
+            "prism_worker": 1,
+            "semantic_compile": 1,
+        },
+        locks=(
+            [{"key": f"repository:{repository_id}", "mode": "read"}]
+            if repository_id
+            else [{"key": f"project:{project_id}", "mode": "read"}]
+        ),
+    )
+    return str(queued["job_id"])
+
+
+def run_webgpu_3d_job_v3(context: JobContext) -> JobResult:
+    from app.services import semantic_visualizer_service
+
+    payload = context.payload
+    project_id = str(payload["project_id"])
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError("Project not found")
+    expected_anchor = str(payload.get("project_file_rel") or "")
+    current_anchor = str(row.get("project_file_rel") or "")
+    if current_anchor != expected_anchor:
+        raise RuntimeError(
+            "Project anchor changed after WebGPU generation was queued; retry the job"
+        )
+    project = _workspace_row_to_project(row)
+    commit = payload.get("commit")
+    force = bool(payload.get("force"))
+    artifact_key = str(payload["artifact_key"])
+    status_selector = semantic_visualizer_service.status_selector_for_project(
+        project,
+        commit=str(commit) if commit else None,
+        last_modified=row.get("last_modified") or "",
+    )
+    state: dict[str, Any] = {
+        "job_id": context.job_id,
         "status": "running",
-        "message": "Queued...",
+        "stage": "starting",
+        "message": "Generating WebGPU 3D assets...",
         "percent": 0,
         "project_id": project_id,
-        "error": None,
+        "status_selector": status_selector,
         "logs": [],
-        "type": workflow_type,
-        "author": author
+        "performance": [],
     }
-    workspace.create_job(
-        job_id,
-        "workflow",
-        status=jobs[job_id]["status"],
-        message=jobs[job_id]["message"],
-        percent=jobs[job_id]["percent"],
-        **{
-            key: value
-            for key, value in jobs[job_id].items()
-            if key not in {"job_id", "status", "message", "percent"}
+    if commit:
+        state["commit"] = commit
+    emitted_logs = 0
+    last_readiness_stage: dict[str, str | None] = {"value": None}
+
+    def persist() -> None:
+        nonlocal emitted_logs
+        logs = list(state.get("logs") or [])
+        for line in logs[emitted_logs:]:
+            print(str(line), flush=True)
+        emitted_logs = len(logs)
+        readiness_stage = state.get("readiness_stage")
+        milestone = (
+            isinstance(readiness_stage, str)
+            and readiness_stage
+            and readiness_stage != last_readiness_stage["value"]
+        )
+        if milestone:
+            last_readiness_stage["value"] = str(readiness_stage)
+        payload_updates: dict[str, Any] = {}
+        for key in (
+            "bundle_url",
+            "readiness",
+            "readiness_stage",
+            "sourceRevisionKey",
+            "source_fingerprint",
+            "status_selector",
+            "commit",
+        ):
+            if key in state and state[key] is not None:
+                payload_updates[key] = state[key]
+        if logs:
+            payload_updates["logs"] = logs[-80:]
+        if state.get("bundle_url") and state.get("readiness"):
+            semantic_visualizer_service.sync_staged_webgpu_status(
+                job_id=context.job_id,
+                fence=context.fence,
+                project=project,
+                state=state,
+            )
+        context.progress(
+            stage=str(state.get("stage") or "building"),
+            message=str(state.get("message") or "Generating WebGPU 3D assets..."),
+            percent=float(state.get("percent") or 0),
+            payload_updates=payload_updates or None,
+            force=bool(milestone),
+        )
+
+    context.check_cancelled()
+    if commit:
+        status = semantic_visualizer_service.build_visualizer_bundle_for_commit(
+            project,
+            str(commit),
+            state,
+            persist,
+            force=force,
+        )
+    else:
+        status = semantic_visualizer_service.build_visualizer_bundle(
+            project,
+            state,
+            persist,
+            force=force,
+        )
+    context.check_cancelled()
+    source_fingerprint = str(status["source_fingerprint"])
+    build_fingerprint = str(status["build_fingerprint"])
+    bundle_path = semantic_visualizer_service.bundle_path(
+        project_id,
+        source_fingerprint,
+        build_fingerprint,
+    )
+    staged_manifest = context.staging_dir / "bundle.json"
+    shutil.copy2(bundle_path, staged_manifest)
+    artifact = job_artifacts.prepare_file(
+        context,
+        staged_manifest,
+        kind="webgpu_3d",
+        artifact_key=artifact_key,
+        media_type="application/json",
+        schema_version=str(status.get("schema") or ""),
+        generator_version=build_fingerprint,
+        readiness="ready",
+    )
+    status_selector = semantic_visualizer_service.status_selector_for_project(
+        project,
+        commit=str(status.get("commit") or commit) if commit else None,
+        last_modified=row.get("last_modified") or "",
+    )
+    return JobResult(
+        message="WebGPU 3D assets are ready",
+        artifact=artifact,
+        details={
+            **status,
+            "project_id": project_id,
+            "status_selector": status_selector,
+            "performance": state.get("performance") or [],
         },
     )
-    
-    thread = threading.Thread(target=_run_workflow_job, args=(job_id, project_id, workflow_type))
-    thread.daemon = True
-    thread.start()
-    
-    return job_id
+
+
+def run_semantic_index_job_v3(context: JobContext) -> JobResult:
+    payload = context.payload
+    project_id = str(payload["project_id"])
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError("Project not found")
+    expected_anchor = str(payload.get("project_file_rel") or "")
+    current_anchor = str(row.get("project_file_rel") or "")
+    if current_anchor != expected_anchor:
+        raise RuntimeError(
+            "Project anchor changed after semantic indexing was queued; retry the job"
+        )
+    project = _workspace_row_to_project(row)
+    commit = payload.get("commit")
+    context.progress(
+        stage="semantic-compile",
+        message="Generating semantic identity index",
+        percent=10,
+        force=True,
+    )
+    result = semantic_index_service.generate(
+        project,
+        str(commit) if commit else None,
+        force=bool(payload.get("force")),
+    )
+    context.check_cancelled()
+    artifact = job_artifacts.prepare_json(
+        context,
+        result,
+        kind="semantic_index",
+        artifact_key=str(payload["artifact_key"]),
+        schema_version=str(result.get("schema") or ""),
+        generator_version=semantic_index_service.generator_cache_tag(),
+    )
+    return JobResult(
+        message="Semantic identity index is ready",
+        artifact=artifact,
+        details={
+            "available": True,
+            "sourceRevisionKey": result.get("sourceRevisionKey"),
+            "generator": result.get("generator"),
+        },
+    )
+
+
+def run_kicad_workflow_job_v3(context: JobContext) -> JobResult:
+    payload = context.payload
+    project_id = str(payload["project_id"])
+    workflow_type = str(payload["workflow_type"])
+    author = str(payload.get("author") or "anonymous")
+    row = workspace.get_project_by_id(project_id)
+    if not row:
+        raise ValueError("Project not found")
+    expected_anchor = str(payload.get("project_file_rel") or "")
+    current_anchor = str(row.get("project_file_rel") or "")
+    if current_anchor != expected_anchor:
+        raise RuntimeError(
+            "Project anchor changed after the KiCad workflow was queued; retry the job"
+        )
+    output_id = _WORKFLOW_OUTPUT_IDS.get(workflow_type)
+    if output_id is None:
+        raise ValueError(f"Unknown workflow type: {workflow_type}")
+
+    project = _workspace_row_to_project(row)
+    context.progress(
+        stage="resolve-inputs",
+        message=f"Preparing {workflow_type} workflow",
+        percent=5,
+        force=True,
+    )
+    context.check_cancelled()
+
+    # This project's own .kicad_pro, not whichever one sorts first: a directory
+    # holding two projects would otherwise build the wrong board.
+    pro_file = project_anchor(project)
+    if not pro_file or not pro_file.endswith(".kicad_pro"):
+        pro_file = next(
+            (name for name in sorted(os.listdir(project.path)) if name.endswith(".kicad_pro")),
+            None,
+        )
+    if not pro_file:
+        raise ValueError(".kicad_pro file not found in project root")
+
+    config = path_config_for(project)
+    resolved_paths = resolved_paths_for(project, config)
+    jobset_path = resolved_paths.jobset_path
+    configured_jobset = config.jobset or "Outputs.kicad_jobset"
+    if not jobset_path:
+        raise ValueError(f"{configured_jobset} not found in project root")
+
+    execution = kicad_jobset_service.execute_kicad_jobset(
+        context,
+        project_path=project.path,
+        jobset_path=jobset_path,
+        project_file=pro_file,
+        output_id=output_id,
+        workflow_type=workflow_type,
+        author=author,
+        routing="repository",
+        cli_path=_find_cli_path(),
+        # Keep the old project_service.Repo patch seam for the legacy handler
+        # while the generic service remains independently testable.
+        repository_factory=Repo,
+        timestamp_factory=datetime.datetime.now,
+    )
+
+    return JobResult(
+        message="Workflow completed successfully",
+        details={
+            "project_id": project_id,
+            "workflow_type": workflow_type,
+            "generated_commit": execution.generated_commit,
+            "warnings": list(execution.warnings),
+        },
+    )
 
 def get_project_thumbnail_path(project_id: str) -> Optional[str]:
     project = get_project_by_id(project_id)
@@ -780,8 +881,8 @@ def get_project_thumbnail_path(project_id: str) -> Optional[str]:
         return None
     
     # Use path config service to get thumbnail path
-    config = path_config_service.get_path_config(project.path)
-    resolved = path_config_service.resolve_paths(project.path, config)
+    config = path_config_for(project)
+    resolved = resolved_paths_for(project, config)
     thumbnail_path = resolved.thumbnail_dir
     
     print(f"[DEBUG] Project: {project.path}")
@@ -808,14 +909,14 @@ def get_project_thumbnail_path(project_id: str) -> Optional[str]:
     print(f"[DEBUG] No valid thumbnail found")
     return None
 
-def find_schematic_file(project_path: str) -> Optional[str]:
+def find_schematic_file(project_path: str, anchor: Optional[str] = None) -> Optional[str]:
     """Find the main .kicad_sch file using path config."""
-    resolved = path_config_service.resolve_paths(project_path)
+    resolved = path_config_service.resolve_paths(project_path, anchor=anchor)
     return resolved.schematic
 
-def find_pcb_file(project_path: str) -> Optional[str]:
+def find_pcb_file(project_path: str, anchor: Optional[str] = None) -> Optional[str]:
     """Find the main .kicad_pcb file using path config."""
-    resolved = path_config_service.resolve_paths(project_path)
+    resolved = path_config_service.resolve_paths(project_path, anchor=anchor)
     return resolved.pcb
 
 def find_3d_model(project_path: str) -> Optional[str]:
@@ -922,9 +1023,9 @@ def update_project_description(project_id: str, description: str) -> bool:
     if not project:
         return False
 
-    config = path_config_service.get_path_config(project.path)
+    config = path_config_for(project)
     config.description = description
-    path_config_service.save_path_config(project.path, config)
+    save_path_config_for(project, config)
 
     # Keep registry mirrored for legacy fallback/search compatibility on older code paths.
     registry = _load_project_registry()

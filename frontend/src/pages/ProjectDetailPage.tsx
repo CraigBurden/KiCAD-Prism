@@ -1,11 +1,25 @@
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings } from "lucide-react";
+import { ReleaseStudioPanel } from "@/components/release-studio/ReleaseStudioPanel";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRight, GitBranch, RotateCcw, PlayCircle, RefreshCw, Menu, Settings, ShieldCheck, Link2 } from "lucide-react";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { toast } from "sonner";
+import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
+import {
+    comparisonIsOpen,
+    readComparisonUrlState,
+} from "@/components/design-comparison/comparison-url";
+import {
+    ProjectSectionPanel,
+    useVisitedProjectSections,
+    type ProjectSection,
+} from "./project-section-cache";
 
+import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 const AssetsPortal = lazy(() =>
@@ -13,6 +27,10 @@ const AssetsPortal = lazy(() =>
 );
 const PathConfigDialog = lazy(() =>
     import("@/components/path-config-dialog").then((module) => ({ default: module.PathConfigDialog }))
+);
+const TrackerSettingsDialog = lazy(() =>
+    import("@/features/tracker-integration/tracker-settings-dialog")
+        .then((module) => ({ default: module.TrackerSettingsDialog }))
 );
 const DocumentationBrowser = lazy(() =>
     import("@/components/documentation-browser").then((module) => ({ default: module.DocumentationBrowser }))
@@ -63,60 +81,122 @@ interface WorkflowJobResponse {
     job_id: string;
 }
 
-interface WorkflowJobStatus {
-    status: string;
-    logs?: string[];
+function sectionFromSearchParams(searchParams: URLSearchParams): ProjectSection {
+    const section = searchParams.get("section");
+    if (
+        section === "history"
+        || section === "visualizers"
+        || section === "assets"
+        || section === "documentation"
+        || section === "workflows"
+        || section === "release-studio"
+    ) {
+        return section;
+    }
+    return "overview";
 }
 
-type Section = "overview" | "history" | "visualizers" | "assets" | "documentation" | "workflows";
+// Fixed navigation table, no closure over props: build it once.
+const NAV_ITEMS = [
+    { id: "overview" as ProjectSection, label: "Overview", icon: FileText },
+    { id: "history" as ProjectSection, label: "History", icon: History },
+    { id: "visualizers" as ProjectSection, label: "Visualizers", icon: Box },
+    { id: "workflows" as ProjectSection, label: "Workflows", icon: PlayCircle },
+    { id: "release-studio" as ProjectSection, label: "Release Studio", icon: ShieldCheck },
+    { id: "assets" as ProjectSection, label: "Assets Portal", icon: FolderOpen },
+    { id: "documentation" as ProjectSection, label: "Documentation", icon: FileText },
+];
 
+// Closes over nothing in the component.
+const getDisplayName = (project: Project) => {
+    return project.display_name || project.name;
+};
 
-
+// react-doctor-disable-next-line no-giant-component - page aggregating tabs, builds, and branch state for one project
 export function ProjectDetailPage({ user }: { user: User | null }) {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [project, setProject] = useState<Project | null>(null);
     const [readme, setReadme] = useState<string>("");
     const [loading, setLoading] = useState(true);
-    const [activeSection, setActiveSection] = useState<Section>("overview");
+    const [activeSection, setActiveSection] = useState<ProjectSection>(() => (
+        sectionFromSearchParams(searchParams)
+    ));
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [sidebarHovered, setSidebarHovered] = useState(false);
-    const [searchParams, setSearchParams] = useSearchParams();
     const [commitsBehind, setCommitsBehind] = useState<number>(0);
     const [syncing, setSyncing] = useState(false);
-    const [syncMessage, setSyncMessage] = useState<string | null>(null);
-    const [visualizerLoaded, setVisualizerLoaded] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [pathConfigOpen, setPathConfigOpen] = useState(false);
+    const [trackerSettingsOpen, setTrackerSettingsOpen] = useState(false);
     const [branches, setBranches] = useState<ProjectBranch[]>([]);
     const [branchesLoading, setBranchesLoading] = useState(false);
     const [branchError, setBranchError] = useState<string | null>(null);
     const canMutateProject = user?.role === "admin" || user?.role === "designer";
 
     // Helper function to get display name
-    const getDisplayName = (project: Project) => {
-        return project.display_name || project.name;
-    };
-
-    useEffect(() => {
-        if (activeSection === 'visualizers') {
-            setVisualizerLoaded(true);
-        }
-    }, [activeSection]);
-
     const selectedBranchRef = searchParams.get('branch');
     const currentCommit = searchParams.get('commit');
     const selectedBranch = useMemo(
         () => branches.find((branch) => branch.ref === selectedBranchRef) || null,
         [branches, selectedBranchRef]
     );
-    const activeCommit = currentCommit || selectedBranch?.commit || null;
+    // The empty-value option means "the branch the repo is checked out to".
+    // Show that branch's name rather than the generic "Current checkout".
+    const currentBranch = useMemo(
+        () => branches.find((branch) => branch.is_current) || null,
+        [branches]
+    );
+    const defaultBranch = currentBranch || branches[0] || null;
+    const activeBranchRef = selectedBranchRef || defaultBranch?.ref || null;
+    const activeCommit = currentCommit || selectedBranch?.commit || defaultBranch?.commit || null;
+    const viewerSelectionKey = `${projectId ?? ""}:${activeBranchRef ?? ""}:${currentCommit ?? ""}`;
+    const [viewerPin, setViewerPin] = useState<{ key: string; commit: string } | null>(null);
+    const viewerCommit = currentCommit
+        || (viewerPin?.key === viewerSelectionKey ? viewerPin.commit : activeCommit);
+    const newerViewerRevisionAvailable = activeSection === "visualizers" && !currentCommit
+        && !!activeCommit && !!viewerCommit && activeCommit !== viewerCommit;
+    const comparisonUrl = useMemo(
+        () => readComparisonUrlState(searchParams),
+        [searchParams],
+    );
+    const comparisonOpen = comparisonIsOpen(comparisonUrl);
+    const comparisonVisible = comparisonOpen && activeSection === "history";
+
+    useEffect(() => {
+        setActiveSection(sectionFromSearchParams(searchParams));
+    }, [searchParams]);
+
+    const visitedSections = useVisitedProjectSections(projectId, activeSection);
+
+    const handleSectionChange = (section: ProjectSection) => {
+        if (section === "visualizers" && !currentCommit && activeCommit) {
+            setViewerPin((previous) => previous?.key === viewerSelectionKey
+                ? previous : { key: viewerSelectionKey, commit: activeCommit });
+        }
+        setActiveSection(section);
+        const next = new URLSearchParams(searchParams);
+        next.set("section", section);
+        setSearchParams(next);
+    };
 
     const handleViewCommit = (commitHash: string) => {
-        const next: Record<string, string> = { commit: commitHash };
-        if (selectedBranchRef) {
-            next.branch = selectedBranchRef;
-        }
+        const next = new URLSearchParams(searchParams);
+        next.set("section", "history");
+        next.set("commit", commitHash);
+        setSearchParams(next);
+    };
+
+    // Open the design at a commit directly in the visualizer, read-only. Distinct
+    // from handleViewCommit, which keeps you in the history section. An optional
+    // tab opens straight onto a specific view (e.g. a changed .kicad_pcb).
+    const handleOpenCommitVisualizer = (commitHash: string, tab?: string) => {
+        const next = new URLSearchParams(searchParams);
+        next.set("section", "visualizers");
+        next.set("commit", commitHash);
+        if (tab) next.set("tab", tab);
+        else next.delete("tab");
         setSearchParams(next);
     };
 
@@ -129,27 +209,50 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     };
 
     const handleBranchChange = (branchRef: string) => {
-        setSearchParams(branchRef ? { branch: branchRef } : {});
+        const branch = branches.find((entry) => entry.ref === branchRef)
+            || (branchRef ? null : defaultBranch);
+        if (activeSection === "visualizers" && branch?.commit) {
+            setViewerPin({
+                key: `${projectId ?? ""}:${branchRef || defaultBranch?.ref || ""}:`,
+                commit: branch.commit,
+            });
+        }
+        const next = new URLSearchParams(searchParams);
+        if (branchRef) next.set("branch", branchRef);
+        else next.delete("branch");
+        setSearchParams(next);
     };
 
     const handleSync = async () => {
         if (!projectId || syncing || !canMutateProject) return;
 
         setSyncing(true);
-        setSyncMessage(null);
+        // One toast, updated in place, so progress and outcome share a slot
+        // instead of the app having two feedback systems. Success and failure
+        // come from the job's own state rather than from reading its prose.
+        const toastId = toast.loading("Syncing repository");
 
         try {
-            const data = await fetchJson<{ message?: string }>(
+            const data = await fetchJson<{ job_id: string; message?: string }>(
                 `/api/projects/${projectId}/sync`,
                 { method: "POST" },
                 "Sync failed"
             );
-            setSyncMessage(data.message || "Sync completed.");
+            const job = await watchPrismJob(data.job_id, {
+                onUpdate: (update) => {
+                    toast.loading(
+                        `${update.message || "Syncing repository"} (${Math.round(update.percent)}%)`,
+                        { id: toastId },
+                    );
+                },
+            });
+            throwIfJobFailed(job, "Sync failed");
+            toast.success(job.message || "Sync completed", { id: toastId });
             // Refresh project data and readme without full reload
             setRefreshKey((prev) => prev + 1);
         } catch (err) {
             const message = err instanceof Error ? err.message : "Sync failed";
-            setSyncMessage(`Sync failed: ${message}`);
+            toast.error(message, { id: toastId });
         } finally {
             setSyncing(false);
         }
@@ -162,34 +265,63 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
 
         const controller = new AbortController();
+        let cancelled = false;
+        let inFlight = false;
+        let firstLoad = true;
         setBranchesLoading(true);
         setBranchError(null);
 
         const fetchBranches = async () => {
+            if (inFlight) return;
+            inFlight = true;
             try {
                 const data = await fetchJson<ProjectBranchesResponse>(
                     `/api/projects/${projectId}/branches`,
                     { signal: controller.signal },
                     "Failed to load branches"
                 );
-                if (!controller.signal.aborted) {
-                    setBranches(data.branches || []);
+                if (!cancelled) {
+                    const received = data.branches || [];
+                    setBranches(received);
+                    if (activeSection === "visualizers" && !currentCommit) {
+                        const chosen = received.find((branch) => branch.ref === selectedBranchRef)
+                            || received.find((branch) => branch.is_current) || received[0];
+                        if (chosen?.commit) {
+                            const key = `${projectId}:${selectedBranchRef || chosen.ref}:`;
+                            setViewerPin((previous) => previous?.key === key
+                                ? previous : { key, commit: chosen.commit });
+                        }
+                    }
+                    setBranchError(null);
                 }
             } catch (err) {
-                if (!controller.signal.aborted) {
-                    setBranches([]);
+                if (!cancelled) {
                     setBranchError(err instanceof Error ? err.message : "Failed to load branches");
                 }
             } finally {
-                if (!controller.signal.aborted) {
-                    setBranchesLoading(false);
+                if (!cancelled) {
+                    if (firstLoad) setBranchesLoading(false);
                 }
+                firstLoad = false;
+                inFlight = false;
             }
         };
 
         void fetchBranches();
-        return () => controller.abort();
-    }, [projectId, refreshKey]);
+        const timer = window.setInterval(() => {
+            if (document.visibilityState === "visible") void fetchBranches();
+        }, 30_000);
+        const onVisible = () => {
+            if (document.visibilityState === "visible") void fetchBranches();
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => {
+            cancelled = true;
+            controller.abort();
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
+    }, [projectId, refreshKey, activeSection, currentCommit, selectedBranchRef]);
 
     useEffect(() => {
         if (!projectId) {
@@ -198,6 +330,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
 
         const controller = new AbortController();
+        let cancelled = false;
         setLoading(true);
 
         const fetchProjectData = async () => {
@@ -211,28 +344,31 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     "Failed to fetch project overview"
                 );
 
-                if (controller.signal.aborted) {
+                if (cancelled) {
                     return;
                 }
 
                 setProject(overview.project);
                 setReadme(overview.readme ?? "");
             } catch (err) {
-                if (controller.signal.aborted) {
+                if (cancelled) {
                     return;
                 }
                 console.error("Failed to fetch project details", err);
                 setProject(null);
                 setReadme("");
             } finally {
-                if (!controller.signal.aborted) {
+                if (!cancelled) {
                     setLoading(false);
                 }
             }
         };
 
         void fetchProjectData();
-        return () => controller.abort();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [projectId, activeCommit, refreshKey]);
 
     // Calculate commits behind when viewing specific commit
@@ -251,7 +387,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
             }
 
             try {
-                const refQuery = selectedBranchRef ? `&ref=${encodeURIComponent(selectedBranchRef)}` : "";
+                const refQuery = activeBranchRef ? `&ref=${encodeURIComponent(activeBranchRef)}` : "";
                 const data = await fetchJson<CommitDistanceResponse>(
                     `/api/projects/${projectId}/commits/distance?commit=${encodeURIComponent(currentCommit)}${refQuery}`,
                     { signal: controller.signal },
@@ -273,24 +409,15 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
 
         void calculateCommitsBehind();
         return () => controller.abort();
-    }, [currentCommit, projectId, selectedBranchRef]);
+    }, [activeBranchRef, currentCommit, projectId]);
 
     if (loading) {
-        return <div className="flex items-center justify-center h-screen">Loading...</div>;
+        return <div className="flex items-center justify-center h-app-viewport">Loading...</div>;
     }
 
     if (!project) {
-        return <div className="flex items-center justify-center h-screen">Project not found</div>;
+        return <div className="flex items-center justify-center h-app-viewport">Project not found</div>;
     }
-
-    const navItems = [
-        { id: "overview" as Section, label: "Overview", icon: FileText },
-        { id: "history" as Section, label: "History", icon: History },
-        { id: "visualizers" as Section, label: "Visualizers", icon: Box },
-        { id: "workflows" as Section, label: "Workflows", icon: PlayCircle },
-        { id: "assets" as Section, label: "Assets Portal", icon: FolderOpen },
-        { id: "documentation" as Section, label: "Documentation", icon: FileText },
-    ];
 
     const handleBackNavigation = () => {
         if (project.folder_id) {
@@ -308,7 +435,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     };
 
     return (
-        <div className="h-screen flex flex-col bg-background">
+        <div className="h-app-viewport flex flex-col bg-background">
             <header className="border-b px-4 md:px-6 py-4 flex items-center gap-4">
                 {/* Mobile Menu */}
                 <Sheet>
@@ -321,13 +448,13 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         <div className="py-4">
                             <h2 className="px-4 text-lg font-semibold tracking-tight mb-2">Project Navigation</h2>
                             <nav className="space-y-1 p-2">
-                                {navItems.map((item) => {
+                                {NAV_ITEMS.map((item) => {
                                     const Icon = item.icon;
                                     return (
                                         <button
                                             key={item.id}
                                             onClick={() => {
-                                                setActiveSection(item.id);
+                                                handleSectionChange(item.id);
                                                 // Close sheet hack
                                                 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
                                             }}
@@ -352,29 +479,80 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Back
                 </Button>
-                <div className="flex-1">
-                    <h1 className="text-xl font-bold truncate max-w-[200px] md:max-w-none">{project ? getDisplayName(project) : ''}</h1>
-                    <p className="text-sm text-muted-foreground hidden md:block">{project?.description}</p>
+                {/* The title takes whatever the header has left; it truncates only when
+                    there is genuinely no room, rather than at a fixed pixel cap. */}
+                <div className="min-w-[7rem] flex-1">
+                    <h1 className={cn(
+                        "text-xl font-bold truncate",
+                        activeSection === "visualizers" ? "" : "max-w-[200px] md:max-w-none",
+                    )}>
+                        {project ? getDisplayName(project) : ""}
+                    </h1>
+                    <p className={cn(
+                        "text-sm text-muted-foreground",
+                        activeSection === "visualizers" ? "hidden" : "hidden md:block",
+                    )}>
+                        {project?.description}
+                    </p>
                 </div>
+                {activeSection === "visualizers" ? (
+                    <div
+                        id={VISUALIZER_DESIGN_SEARCH_SLOT_ID}
+                        // Compact at rest so the project name is not squeezed; grows while
+                        // the search field or its results have focus.
+                        className="flex w-full min-w-0 max-w-sm shrink justify-center px-2 transition-[max-width] duration-150 focus-within:max-w-lg"
+                    />
+                ) : null}
 
                 <div className="hidden min-w-0 items-center gap-2 md:flex">
                     <GitBranch className="h-4 w-4 text-muted-foreground" />
                     <select
-                        value={selectedBranchRef || ""}
+                        // An explicit ?branch= for the current branch has no
+                        // option of its own (it lives in the default entry), so
+                        // map it back to the default value to keep the select
+                        // in sync rather than falling through to the first item.
+                        value={
+                            selectedBranchRef && selectedBranchRef !== currentBranch?.ref
+                                ? selectedBranchRef
+                                : ""
+                        }
                         onChange={(event) => handleBranchChange(event.target.value)}
                         disabled={branchesLoading}
                         title={branchError || "View this project on another branch"}
-                        className="h-9 max-w-[260px] rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        className="h-9 max-w-[260px] appearance-none rounded-md border border-input bg-background bg-no-repeat py-0 pl-3 pr-8 text-sm text-foreground shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        style={{
+                            backgroundImage:
+                                "url(\"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+                            backgroundPosition: "right 0.5rem center",
+                            backgroundSize: "1rem",
+                        }}
                     >
-                        <option value="">{branchesLoading ? "Loading branches..." : "Current checkout"}</option>
-                        {branches.map((branch) => (
-                            <option key={branch.ref} value={branch.ref}>
-                                {branch.source === "remote" ? branch.ref : branch.name}
-                                {branch.is_current ? " (current)" : ""}
-                            </option>
+                        <option value="">
+                            {branchesLoading
+                                ? "Loading branches..."
+                                : currentBranch?.name || "Current checkout"}
+                        </option>
+                        {/* The default option above already represents the
+                            current branch by name, so skip it here rather than
+                            listing it a second time with a "(current)" suffix. */}
+                        {branches.flatMap((branch) => (
+                            !branch.is_current
+                                ? [
+                                    <option key={branch.ref} value={branch.ref}>
+                                        {branch.name}
+                                    </option>,
+                                ]
+                                : []
                         ))}
                     </select>
                 </div>
+
+                {newerViewerRevisionAvailable && activeCommit && (
+                    <Button variant="outline" size="sm"
+                        onClick={() => setViewerPin({ key: viewerSelectionKey, commit: activeCommit })}>
+                        New revision available · View
+                    </Button>
+                )}
 
                 {/* Sync Button */}
                 {canMutateProject && (
@@ -388,6 +566,18 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     >
                         <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
                         {syncing ? 'Syncing...' : 'Sync'}
+                    </Button>
+                )}
+
+                {projectId && (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setTrackerSettingsOpen(true)}
+                        title="Issue publishing settings"
+                        aria-label="Issue publishing settings"
+                    >
+                        <Link2 className="h-4 w-4" />
                     </Button>
                 )}
 
@@ -411,31 +601,23 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                         />
                     </Suspense>
                 )}
+                {projectId && trackerSettingsOpen && (
+                    <Suspense fallback={null}>
+                        <TrackerSettingsDialog
+                            projectId={projectId}
+                            isAdmin={user?.role === "admin"}
+                            open={trackerSettingsOpen}
+                            onOpenChange={setTrackerSettingsOpen}
+                        />
+                    </Suspense>
+                )}
             </header>
-
-            {/* Sync Message Banner */}
-            {syncMessage && (
-                <div className={cn(
-                    "px-6 py-2 text-sm border-b",
-                    syncMessage.includes('failed')
-                        ? "bg-red-500/10 border-red-500/20 text-red-500"
-                        : "bg-green-500/10 border-green-500/20 text-green-500"
-                )}>
-                    {syncMessage}
-                    <button
-                        onClick={() => setSyncMessage(null)}
-                        className="ml-2 text-xs underline"
-                    >
-                        Dismiss
-                    </button>
-                </div>
-            )}
 
             {/* Version Banner */}
             {(currentCommit || selectedBranch) && (
-                <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-3 flex items-center justify-between">
+                <div className="bg-warning/10 border-b border-warning/20 px-6 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm">
-                        <GitBranch className="h-4 w-4 text-amber-500" />
+                        <GitBranch className="h-4 w-4 text-warning" />
                         <span className="font-medium">
                             {currentCommit
                                 ? `Viewing commit ${currentCommit.substring(0, 7)}`
@@ -487,13 +669,13 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </div>
 
                     <nav className="space-y-1 mt-8">
-                        {navItems.map((item) => {
+                        {NAV_ITEMS.map((item) => {
                             const Icon = item.icon;
                             const isExpanded = !sidebarCollapsed || sidebarHovered;
                             return (
                                 <button
                                     key={item.id}
-                                    onClick={() => setActiveSection(item.id)}
+                                    onClick={() => handleSectionChange(item.id)}
                                     className={cn(
                                         "w-full flex items-center rounded-md text-sm transition-colors",
                                         isExpanded ? "gap-3 px-3 py-2" : "justify-center py-2",
@@ -513,92 +695,141 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     </nav>
                 </aside>
 
-                <main className="flex-1 overflow-auto p-6">
-                    {activeSection === "overview" && (
-                        <div className="space-y-6">
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <span>Last Updated: {project.last_modified}</span>
-                            </div>
-
-                            {readme && (
-                                <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
-                                    <MarkdownContent
-                                        content={readme}
-                                        resolveImageSrc={resolveProjectAssetSrc}
-                                    />
-                                </Suspense>
-                            )}
-
-                            {!readme && (
-                                <p className="text-muted-foreground">No README.md found for this project.</p>
-                            )}
-                        </div>
-                    )}
-
-                    {activeSection === "assets" && (
-                        <div>
-                            <h2 className="text-2xl font-bold mb-6">Assets Portal</h2>
-                            {projectId && (
-                                <Suspense fallback={<div className="text-sm text-muted-foreground">Loading assets...</div>}>
-                                    <AssetsPortal projectId={projectId} commit={activeCommit} />
-                                </Suspense>
-                            )}
-                        </div>
-                    )}
-
-                    {activeSection === "documentation" && (
-                        <div>
-                            <h2 className="text-2xl font-bold mb-6">Documentation</h2>
-                            {projectId && (
-                                <Suspense fallback={<div className="text-sm text-muted-foreground">Loading documentation...</div>}>
-                                    <DocumentationBrowser projectId={projectId} commit={activeCommit} key={activeSection} />
-                                </Suspense>
-                            )}
-                        </div>
-                    )}
-
-                    {activeSection === "history" && (
-                        <div>
-                            <h2 className="text-2xl font-bold mb-6">History</h2>
-                            {projectId && (
-                                <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
-                                    <HistoryViewer
-                                        key={refreshKey}
-                                        projectId={projectId}
-                                        branchRef={selectedBranchRef}
-                                        onViewCommit={handleViewCommit}
-                                        canCompareDiffs={canMutateProject}
-                                    />
-                                </Suspense>
-                            )}
-                        </div>
-                    )}
-
-                    {visualizerLoaded && ( // Render only if visualizer has been loaded at least once
-                        <div
-                            className={cn(
-                                "h-full flex flex-col",
-                                activeSection !== "visualizers" && "hidden" // Hide if not active
-                            )}
+                <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                    {visitedSections.has("overview") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:overview`}
+                            active={activeSection === "overview"}
                         >
-                            <h2 className="text-2xl font-bold mb-6">Visualizers</h2>
-                            <div className="flex-1 min-h-0">
+                            <ErrorBoundary label="the project overview" resetKeys={[projectId, activeCommit, refreshKey]}>
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <span>Last Updated: {project.last_modified}</span>
+                                    </div>
+                                    {readme ? (
+                                        <Suspense fallback={<div className="text-sm text-muted-foreground">Loading README...</div>}>
+                                            <MarkdownContent
+                                                content={readme}
+                                                resolveImageSrc={resolveProjectAssetSrc}
+                                            />
+                                        </Suspense>
+                                    ) : (
+                                        <p className="text-muted-foreground">No README.md found for this project.</p>
+                                    )}
+                                </div>
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
+                    )}
+
+                    {visitedSections.has("assets") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:assets`}
+                            active={activeSection === "assets"}
+                        >
+                            <ErrorBoundary label="the assets portal" resetKeys={[projectId, activeCommit, refreshKey]}>
+                                <h2 className="mb-6 text-2xl font-bold">Assets Portal</h2>
                                 {projectId && (
-                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading visualizers...</div>}>
-                                        <Visualizer projectId={projectId} user={user} commit={activeCommit} />
+                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading assets...</div>}>
+                                        <AssetsPortal projectId={projectId} commit={activeCommit} />
                                     </Suspense>
                                 )}
-                            </div>
-                        </div>
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
                     )}
 
-                    {activeSection === "workflows" && (
-                        <div>
-                            <WorkflowsPanel projectId={projectId!} user={user} canRun={canMutateProject} />
-                        </div>
+                    {visitedSections.has("documentation") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:documentation`}
+                            active={activeSection === "documentation"}
+                        >
+                            <ErrorBoundary label="the documentation browser" resetKeys={[projectId, activeCommit, refreshKey]}>
+                                <h2 className="mb-6 text-2xl font-bold">Documentation</h2>
+                                {projectId && (
+                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading documentation...</div>}>
+                                        <DocumentationBrowser projectId={projectId} commit={activeCommit} />
+                                    </Suspense>
+                                )}
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
                     )}
 
+                    {visitedSections.has("history") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:history`}
+                            active={activeSection === "history"}
+                        >
+                            <h2 className="mb-6 text-2xl font-bold">History</h2>
+                            {projectId && (
+                                <ErrorBoundary label="the history viewer" resetKeys={[projectId, activeBranchRef, refreshKey]}>
+                                    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading history...</div>}>
+                                        <HistoryViewer
+                                            // The identity the ErrorBoundary
+                                            // above already resets on.
+                                            key={`${projectId}:${activeBranchRef}:${refreshKey}`}
+                                            projectId={projectId}
+                                            branchRef={activeBranchRef}
+                                            onViewCommit={handleViewCommit}
+                                            onOpenVisualizer={handleOpenCommitVisualizer}
+                                            canCompareDiffs
+                                            canComment={canMutateProject}
+                                            active={activeSection === "history"}
+                                        />
+                                    </Suspense>
+                                </ErrorBoundary>
+                            )}
+                        </ProjectSectionPanel>
+                    )}
 
+                    {visitedSections.has("visualizers") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:visualizers`}
+                            active={activeSection === "visualizers"}
+                            fill
+                        >
+                            {projectId && (
+                                <ErrorBoundary label="the visualizer" resetKeys={[projectId, viewerCommit]}>
+                                    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading visualizers...</div>}>
+                                        <Visualizer
+                                            // The identity the ErrorBoundary
+                                            // beside it already resets on.
+                                            key={`${projectId}:${viewerCommit ?? ""}`}
+                                            projectId={projectId}
+                                            user={user}
+                                            commit={viewerCommit}
+                                            active={!comparisonVisible && activeSection === "visualizers"}
+                                        />
+                                    </Suspense>
+                                </ErrorBoundary>
+                            )}
+                        </ProjectSectionPanel>
+                    )}
+
+                    {visitedSections.has("release-studio") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:release-studio`}
+                            active={activeSection === "release-studio"}
+                            fill
+                        >
+                            <ErrorBoundary label="the release studio panel" resetKeys={[projectId]}>
+                                <ReleaseStudioPanel
+                                    projectId={projectId!}
+                                    canMutate={canMutateProject}
+                                    userRole={user?.role}
+                                />
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
+                    )}
+
+                    {visitedSections.has("workflows") && (
+                        <ProjectSectionPanel
+                            key={`${projectId}:workflows`}
+                            active={activeSection === "workflows"}
+                        >
+                            <ErrorBoundary label="the workflows panel" resetKeys={[projectId]}>
+                                <WorkflowsPanel projectId={projectId!} user={user} canRun={canMutateProject} />
+                            </ErrorBoundary>
+                        </ProjectSectionPanel>
+                    )}
                 </main>
             </div>
         </div>
@@ -612,41 +843,29 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
     const [status, setStatus] = useState<string>("idle");
 
     useEffect(() => {
-        let pollInterval: ReturnType<typeof window.setInterval> | null = null;
-
-        if (runningJob) {
-            pollInterval = setInterval(async () => {
-                try {
-                    const job = await fetchJson<WorkflowJobStatus>(`/api/projects/jobs/${runningJob.id}`);
-                    setLogs(job.logs || []);
-                    setStatus(job.status);
-
-                    if (job.status === 'completed' || job.status === 'failed') {
-                        // Keep logs visible but stop polling after a short delay to ensure final update
-                        setTimeout(() => {
-                            if (pollInterval) {
-                                clearInterval(pollInterval);
-                                pollInterval = null;
-                            }
-                            // Optional: Reset running job after some time? No, let user see result.
-                        }, 1000);
-                    }
-                } catch (e) {
-                    console.error("Poll error", e);
-                }
-            }, 1000);
-        }
-
-        return () => {
-            if (pollInterval) {
-                clearInterval(pollInterval);
-            }
-        };
+        if (!runningJob) return;
+        const controller = new AbortController();
+        void watchPrismJob(runningJob.id, {
+            signal: controller.signal,
+            includeLogs: true,
+            onUpdate: (job, nextLogs) => {
+                setLogs(nextLogs);
+                setStatus(job.status);
+            },
+        }).catch((error: unknown) => {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+            setStatus("failed");
+            setLogs((current) => [
+                ...current,
+                error instanceof Error ? error.message : "Failed to poll workflow",
+            ]);
+        });
+        return () => controller.abort();
     }, [runningJob]);
 
     const runWorkflow = async (type: string) => {
         if (!canRun) {
-            alert("You do not have permission to run workflows.");
+            toast.error("Your role does not allow you to run workflows.");
             return;
         }
         setLogs([]);
@@ -666,15 +885,23 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
                 setRunningJob({ id: data.job_id, type });
             } else {
                 const message = await readApiError(res, "Failed to start workflow");
-                alert(`Error: ${message}`);
+                toast.error(message);
                 setStatus("idle");
             }
         } catch (e) {
             const message = e instanceof Error ? e.message : "Failed to start workflow";
-            alert(message);
+            toast.error(message);
             setStatus("idle");
         }
     };
+
+    // Log lines arrive as whole-array snapshots from the job poller; position
+    // is their only stable identity, and the array is replaced (not appended)
+    // on every update, so index-based reconciliation is exact here.
+    const logRows = logs.map((log, i) => (
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key
+        <div key={i} className="break-all whitespace-pre-wrap">{log}</div>
+    ));
 
     return (
         <div className="max-w-5xl">
@@ -708,14 +935,12 @@ function WorkflowsPanel({ projectId, user, canRun }: { projectId: string, user: 
                 <div className="bg-zinc-950 rounded-lg border border-zinc-800 p-4 font-mono text-xs md:text-sm h-96 overflow-auto shadow-inner text-zinc-300">
                     <div className="flex items-center justify-between mb-2 text-zinc-500 border-b border-zinc-800 pb-2">
                         <span>Job: {runningJob.type.toUpperCase()} ({status})</span>
-                        {status === 'running' && <span className="animate-pulse text-amber-500">Running...</span>}
-                        {status === 'completed' && <span className="text-green-500">Completed</span>}
-                        {status === 'failed' && <span className="text-red-500">Failed</span>}
+                        {status === 'running' && <span className="animate-pulse text-warning">Running...</span>}
+                        {status === 'completed' && <span className="text-success">Completed</span>}
+                        {status === 'failed' && <span className="text-destructive">Failed</span>}
                     </div>
                     <div className="space-y-1">
-                        {logs.map((log, i) => (
-                            <div key={i} className="break-all whitespace-pre-wrap">{log}</div>
-                        ))}
+                        {logRows}
                         {logs.length === 0 && <span className="text-zinc-600">Initializing...</span>}
                     </div>
                 </div>
@@ -737,7 +962,7 @@ function WorkflowCard({ title, desc, icon: Icon, onClick, disabled }: WorkflowCa
         <button
             onClick={onClick}
             disabled={disabled}
-            className="flex flex-col items-start p-6 rounded-lg border bg-card text-card-foreground shadow-sm hover:border-primary/50 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex flex-col items-start p-6 rounded-lg border bg-card text-card-foreground shadow-sm hover:border-primary/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
         >
             <div className="p-2 bg-primary/10 rounded-md mb-4 text-primary">
                 <Icon className="h-6 w-6" />

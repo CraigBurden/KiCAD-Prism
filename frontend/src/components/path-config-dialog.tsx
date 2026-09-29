@@ -88,6 +88,8 @@ const PATH_LABELS: Record<string, { label: string; description: string }> = {
     },
 };
 
+// react-doctor-disable-next-line no-giant-component - config form, workflow editor, and path resolution share one fetch/save flow
+// react-doctor-disable-next-line prefer-useReducer - the states belong to separate concerns: form draft, fetch results, busy flags
 export function PathConfigDialog({ projectId, open, onOpenChange }: PathConfigDialogProps) {
     const [config, setConfig] = useState<PathConfig>({});
     const [originalConfig, setOriginalConfig] = useState<PathConfig>({});
@@ -235,9 +237,9 @@ export function PathConfigDialog({ projectId, open, onOpenChange }: PathConfigDi
         const resolved = resolvedPaths[key];
         if (!resolved) return <AlertCircle className="h-4 w-4 text-muted-foreground" />;
         if (key === "thumbnail" && resolved) {
-            return <Check className="h-4 w-4 text-green-500" />;
+            return <Check className="h-4 w-4 text-success" />;
         }
-        return <Check className="h-4 w-4 text-green-500" />;
+        return <Check className="h-4 w-4 text-success" />;
     };
 
     const getResolvedPath = (key: string) => {
@@ -350,7 +352,7 @@ export function PathConfigDialog({ projectId, open, onOpenChange }: PathConfigDi
                                 className="min-h-40 font-mono text-xs"
                             />
                             {workflowsError ? (
-                                <p className="text-xs text-red-500">{workflowsError}</p>
+                                <p className="text-xs text-destructive">{workflowsError}</p>
                             ) : (
                                 <p className="text-xs text-muted-foreground">
                                     Configure project workflows directly in `.prism.json` from this dialog.
@@ -393,7 +395,7 @@ export function PathConfigDialog({ projectId, open, onOpenChange }: PathConfigDi
                                     </p>
                                 )}
                                 {key === "subsheets" && !config.subsheets && (
-                                    <p className="text-xs text-blue-500">Using project root (all .kicad_sch files)</p>
+                                    <p className="text-xs text-primary">Using project root (all .kicad_sch files)</p>
                                 )}
                             </div>
                         ))}

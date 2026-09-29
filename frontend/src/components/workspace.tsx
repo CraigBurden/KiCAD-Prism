@@ -1,21 +1,26 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { FolderInput, FolderPlus, Image, LayoutGrid, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import type { User } from "@/types/auth";
 import type { FolderTreeItem, Project } from "@/types/project";
 import { Button } from "@/components/ui/button";
-import { useWorkspaceData } from "@/hooks/use-workspace-data";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { useWorkspaceData, workspaceSessionKey } from "@/hooks/use-workspace-data";
 import { useWorkspaceSearch } from "@/hooks/use-workspace-search";
 import { canManageProjects as roleCanManageProjects, canOpenLibraryManager } from "@/lib/roles";
+import { settingsTabFromParam } from "@/lib/settings-tabs";
+import { registerPaletteCommands, type PaletteCommand } from "@/lib/command-registry";
 import { fetchApi, readApiError } from "@/lib/api";
+import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { WorkspaceBreadcrumbs } from "./workspace/workspace-breadcrumbs";
 import { WorkspaceGalleryView } from "./workspace/workspace-gallery-view";
 import { WorkspaceListView } from "./workspace/workspace-list-view";
-import { LibraryManagerPanel } from "./workspace/library-manager-panel";
+import { LibraryManagerWorkspace } from "./workspace/library-manager-workspace";
 import { WorkspaceAppsPlaceholder } from "./workspace/workspace-apps-placeholder";
 import { WorkspaceLoadingState } from "./workspace/workspace-loading-state";
+import { WorkspaceRefreshNotice } from "./workspace/workspace-refresh-notice";
 import { WorkspaceProjectPropertiesSheet } from "./workspace/workspace-project-properties-sheet";
 import { WorkspaceProjectToolbar } from "./workspace/workspace-project-toolbar";
 import { WorkspaceSidebar } from "./workspace/workspace-sidebar";
@@ -50,14 +55,19 @@ interface WorkspaceProps {
   user: User | null;
 }
 
+// Closes over nothing in the component.
+const getProjectDisplayName = (project: Project) => project.display_name || project.name;
+
+// react-doctor-disable-next-line no-giant-component - multi-surface shell whose modals and tabs share session state
 export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const { projects, folders, loading, error, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProject, deleteProject } =
-    useWorkspaceData();
+  const { projects, folders, loading, error, refreshError, folderById, refresh, createFolder, renameFolder, deleteFolder, moveProjects, deleteProject } =
+    useWorkspaceData({ sessionKey: workspaceSessionKey(user) });
 
-  const [section, setSection] = useState<WorkspaceSection>("projects");
+  const requestedSection = searchParams.get("section") === "library-manager" ? "library-manager" : "projects";
+  const [section, setSection] = useState<WorkspaceSection>(requestedSection);
   const [viewMode, setViewMode] = useState<ViewMode>("gallery");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -66,7 +76,11 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
 
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  // The project the user asked to inspect. It only counts as selected while
+  // that project is still in the workspace, so a project removed by a refresh
+  // (or another session's data) deselects itself without an adjustment effect.
+  const [requestedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [rawBulkSelection, setBulkSelectedProjectIds] = useState<Set<string>>(() => new Set());
 
   const [folderToRename, setFolderToRename] = useState<FolderTreeItem | null>(null);
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
@@ -74,17 +88,33 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const [folderToDelete, setFolderToDelete] = useState<FolderTreeItem | null>(null);
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
 
-  const [projectToMove, setProjectToMove] = useState<Project | null>(null);
+  const [projectsToMove, setProjectsToMove] = useState<Project[]>([]);
   const [isMovingProject, setIsMovingProject] = useState(false);
+  const [isRegeneratingThumbnails, setIsRegeneratingThumbnails] = useState(false);
 
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  // Paging belongs to the list being paged. Carrying that scope on the value
+  // replaces both a reset effect and the clamp effect chained behind it.
+  const [pageState, setPageState] = useState({ scope: "", page: 1 });
   const canManageProjects = roleCanManageProjects(user?.role);
-  const canOpenSettings = user?.role === "admin";
+  // Everyone has personal settings (connected accounts, password); the
+  // dialog itself hides workspace pages from non-admins.
+  const canOpenSettings = Boolean(user);
+  const requestedSettingsTab = settingsTabFromParam(searchParams.get("settings"));
+  const settingsOpen = canOpenSettings && (isSettingsOpen || requestedSettingsTab !== null);
+  const setSettingsOpen = useCallback((open: boolean) => {
+    setIsSettingsOpen(open);
+    if (!open && searchParams.has("settings")) {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("settings");
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const canOpenLibrary = canOpenLibraryManager(user?.role);
 
-  const getProjectDisplayName = (project: Project) => project.display_name || project.name;
   const folderFromUrl = searchParams.get("folder");
   const currentFolderId = folderFromUrl && folderById.has(folderFromUrl) ? folderFromUrl : null;
 
@@ -105,6 +135,25 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     },
     [setSearchParams]
   );
+
+  const handleSectionChange = useCallback((nextSection: WorkspaceSection) => {
+    setSection(nextSection);
+    setSearchParams((currentParams) => {
+      const next = new URLSearchParams(currentParams);
+      if (nextSection === "library-manager") {
+        next.set("section", nextSection);
+      } else {
+        next.delete("section");
+        next.delete("libraryView");
+        next.delete("session");
+      }
+      return next;
+    });
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    setSection(requestedSection);
+  }, [requestedSection]);
 
   useEffect(() => {
     if (!loading && folderFromUrl && !folderById.has(folderFromUrl)) {
@@ -147,20 +196,80 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   const listFolders = isSearching ? [] : visibleFolders;
   const allListProjects = isSearching ? searchResults : visibleProjects;
   const totalPages = Math.max(1, Math.ceil(allListProjects.length / WORKSPACE_PAGE_SIZE));
+  const pageScope = [currentFolderId ?? "", searchQuery, viewMode, section].join("|");
+  const currentPage = Math.min(
+    pageState.scope === pageScope ? pageState.page : 1,
+    totalPages,
+  );
+  const setCurrentPage = (next: number | ((page: number) => number)) =>
+    setPageState({
+      scope: pageScope,
+      page: typeof next === "function" ? next(currentPage) : next,
+    });
   const pageStart = (currentPage - 1) * WORKSPACE_PAGE_SIZE;
   const listProjects = allListProjects.slice(pageStart, pageStart + WORKSPACE_PAGE_SIZE);
+  // A selection is only ever read against the page it was made on: the bulk
+  // actions already intersect with `listProjects`, and both views only draw
+  // checkboxes for rows they render. Narrowing here during render says that
+  // once, instead of an effect pruning the stored set a commit later.
+  const bulkSelectedProjectIds = useMemo(() => {
+    const onThisPage = new Set<string>();
+    for (const project of listProjects) {
+      if (rawBulkSelection.has(project.id)) onThisPage.add(project.id);
+    }
+    return onThisPage;
+  }, [listProjects, rawBulkSelection]);
+  const selectedVisibleProjects = listProjects.filter((project) => bulkSelectedProjectIds.has(project.id));
+  const allVisibleProjectsSelected =
+    listProjects.length > 0 && selectedVisibleProjects.length === listProjects.length;
   const pageLabel =
     allListProjects.length === 0
       ? "0 projects"
       : `${pageStart + 1}-${Math.min(pageStart + WORKSPACE_PAGE_SIZE, allListProjects.length)} / ${allListProjects.length}`;
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [currentFolderId, searchQuery, viewMode, section]);
+  const toggleProjectSelection = (projectId: string, selected: boolean) => {
+    setBulkSelectedProjectIds((current) => {
+      const next = new Set(current);
+      if (selected) {
+        next.add(projectId);
+      } else {
+        next.delete(projectId);
+      }
+      return next;
+    });
+  };
 
+  const toggleVisibleProjectSelection = () => {
+    setBulkSelectedProjectIds(
+      allVisibleProjectsSelected
+        ? new Set()
+        : new Set(listProjects.map((project) => project.id)),
+    );
+  };
+
+  // Actions that need this screen's dialog state, published to the ⌘K palette
+  // for as long as the workspace is mounted.
   useEffect(() => {
-    setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
+    const commands: PaletteCommand[] = [];
+    if (canManageProjects) {
+      commands.push(
+        { id: "workspace:import", label: "Import project", group: "Workspace", icon: FolderPlus, keywords: "add new repository clone", run: () => setIsImportOpen(true) },
+        { id: "workspace:new-folder", label: "New folder", group: "Workspace", icon: FolderPlus, keywords: "create directory", run: () => setIsCreateFolderOpen(true) },
+      );
+    }
+    commands.push({
+      id: "workspace:view-mode",
+      label: "Toggle gallery / list view",
+      group: "Workspace",
+      icon: LayoutGrid,
+      run: () => setViewMode((current) => (current === "gallery" ? "list" : "gallery")),
+    });
+    commands.push({ id: "workspace:refresh", label: "Refresh workspace", group: "Workspace", icon: RefreshCw, run: () => void refresh() });
+    if (canOpenSettings) {
+      commands.push({ id: "workspace:settings", label: "Open settings", group: "Workspace", icon: Settings, run: () => setIsSettingsOpen(true) });
+    }
+    return registerPaletteCommands(commands);
+  }, [canManageProjects, canOpenSettings, refresh]);
 
   const openProject = (project: Project) => {
     navigate(`/project/${project.id}`);
@@ -171,15 +280,10 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
   };
 
   const selectedProject = useMemo(
-    () => projects.find((project) => project.id === selectedProjectId) ?? null,
-    [projects, selectedProjectId]
+    () => projects.find((project) => project.id === requestedProjectId) ?? null,
+    [projects, requestedProjectId]
   );
-
-  useEffect(() => {
-    if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) {
-      setSelectedProjectId(null);
-    }
-  }, [projects, selectedProjectId]);
+  const selectedProjectId = selectedProject?.id ?? null;
 
 
   const handleCreateFolder = async (name: string) => {
@@ -246,7 +350,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
     }
   };
 
-  const handleMoveProject = async (projectId: string, folderId: string | null) => {
+  const handleMoveProjects = async (projectIds: string[], folderId: string | null) => {
     if (!canManageProjects) {
       toast.error("You do not have permission to move projects");
       return;
@@ -254,15 +358,16 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
 
     setIsMovingProject(true);
     try {
-      const movedProjectName = projectToMove ? getProjectDisplayName(projectToMove) : "project";
-      const result = await moveProject(projectId, folderId);
+      const movedProjectName = projectsToMove.length === 1 ? getProjectDisplayName(projectsToMove[0]) : null;
+      const result = await moveProjects(projectIds, folderId);
       if (!result.ok) {
-        toast.error(result.error || "Failed to move project");
+        toast.error(result.error || (projectIds.length === 1 ? "Failed to move project" : "Failed to move projects"));
         return;
       }
 
-      toast.success(`Moved "${movedProjectName}"`);
-      setProjectToMove(null);
+      toast.success(movedProjectName ? `Moved "${movedProjectName}"` : `Moved ${projectIds.length} projects`);
+      setProjectsToMove([]);
+      setBulkSelectedProjectIds(new Set());
     } finally {
       setIsMovingProject(false);
     }
@@ -296,23 +401,128 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
       return;
     }
 
-    const toastId = toast.loading(`Regenerating thumbnail for "${getProjectDisplayName(project)}"...`);
+    const toastId = toast.loading(`Rendering thumbnail for "${getProjectDisplayName(project)}"...`);
     try {
       const response = await fetchApi(`/api/projects/${project.id}/thumbnail/regenerate`, {
         method: "POST",
       });
 
       if (!response.ok) {
-        const error = await readApiError(response, "Failed to regenerate thumbnail");
+        const error = await readApiError(response, "Failed to render thumbnail");
         toast.error(error, { id: toastId });
         return;
       }
 
-      toast.success("Thumbnail regenerated successfully", { id: toastId });
-      // Refresh the workspace to reload the updated thumbnail
+      // The render runs on a worker rather than in the request, so the result
+      // arrives with the job rather than with this response.
+      const { job_id: jobId } = (await response.json()) as { job_id?: string };
+      if (jobId) {
+        const job = await watchPrismJob(jobId);
+        throwIfJobFailed(job, "Failed to render thumbnail");
+      }
+
+      toast.success("Thumbnail rendered", { id: toastId });
       await refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to regenerate thumbnail", { id: toastId });
+      toast.error(err instanceof Error ? err.message : "Failed to render thumbnail", { id: toastId });
+    }
+  };
+
+  const handleRegenerateThumbnails = async (projectsToRegenerate: Project[]) => {
+    if (!canManageProjects) {
+      toast.error("You do not have permission to regenerate thumbnails");
+      return;
+    }
+    if (projectsToRegenerate.length === 0) return;
+
+    setIsRegeneratingThumbnails(true);
+    const count = projectsToRegenerate.length;
+    const toastId = toast.loading(`Rendering thumbnails for ${count} projects...`);
+    try {
+      const response = await fetchApi("/api/projects/thumbnails/regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_ids: projectsToRegenerate.map((project) => project.id) }),
+      });
+
+      if (!response.ok) {
+        toast.error(await readApiError(response, "Failed to queue thumbnail renders"), { id: toastId });
+        return;
+      }
+
+      const payload = (await response.json()) as { job_ids?: string[]; count?: number };
+      const jobIds = payload.job_ids ?? [];
+      const jobs = await Promise.all(jobIds.map((jobId) => watchPrismJob(jobId)));
+      jobs.forEach((job) => throwIfJobFailed(job, "Failed to render thumbnail"));
+
+      toast.success(`Rendered ${payload.count ?? count} thumbnail${(payload.count ?? count) === 1 ? "" : "s"}`, {
+        id: toastId,
+      });
+      setBulkSelectedProjectIds(new Set());
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to render thumbnails", { id: toastId });
+    } finally {
+      setIsRegeneratingThumbnails(false);
+    }
+  };
+
+  const handleUploadThumbnail = async (project: Project, file: File) => {
+    if (!canManageProjects) {
+      toast.error("You do not have permission to change thumbnails");
+      return;
+    }
+
+    const toastId = toast.loading(`Uploading thumbnail for "${getProjectDisplayName(project)}"...`);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const response = await fetchApi(`/api/projects/${project.id}/thumbnail`, {
+        method: "PUT",
+        body,
+      });
+
+      if (!response.ok) {
+        toast.error(await readApiError(response, "Failed to upload thumbnail"), { id: toastId });
+        return;
+      }
+
+      toast.success("Thumbnail updated", { id: toastId });
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload thumbnail", { id: toastId });
+    }
+  };
+
+  const handleRevertThumbnail = async (project: Project) => {
+    if (!canManageProjects) {
+      toast.error("You do not have permission to change thumbnails");
+      return;
+    }
+
+    const toastId = toast.loading("Restoring the rendered board image...");
+    try {
+      const response = await fetchApi(`/api/projects/${project.id}/thumbnail`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        toast.error(await readApiError(response, "Failed to restore the rendered image"), { id: toastId });
+        return;
+      }
+
+      // Nothing had been rendered for this project yet, so the server queued
+      // the render this is reverting to.
+      const { job_id: jobId } = (await response.json()) as { job_id?: string | null };
+      if (jobId) {
+        const job = await watchPrismJob(jobId);
+        throwIfJobFailed(job, "Failed to render thumbnail");
+      }
+
+      toast.success("Using the rendered board image", { id: toastId });
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to restore the rendered image", { id: toastId });
     }
   };
 
@@ -327,7 +537,7 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
           section={section}
           isCollapsed={isSidebarCollapsed}
           onToggle={() => setIsSidebarCollapsed((previous) => !previous)}
-          onSectionChange={setSection}
+          onSectionChange={handleSectionChange}
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -357,133 +567,176 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
             )}
           </header>
 
-          <main className="min-h-0 flex-1 overflow-hidden">
-            {loading ? (
-              <WorkspaceLoadingState />
-            ) : section === "library-manager" ? (
-              canOpenLibrary ? (
-                <LibraryManagerPanel user={user} />
+          {/* Scoped to the content area so a crash here leaves the sidebar and
+              the section switcher alive — the reviewer can navigate out of a
+              broken section instead of reloading. Keyed to the section so
+              switching away and back retries rather than staying broken. */}
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <WorkspaceRefreshNotice refreshError={refreshError} refresh={refresh} />
+            <div className="min-h-0 flex-1 overflow-hidden">
+            <ErrorBoundary label="this section" resetKeys={[section]}>
+              {loading ? (
+                <WorkspaceLoadingState />
+              ) : section === "library-manager" ? (
+                canOpenLibrary ? (
+                  <LibraryManagerWorkspace user={user} projects={projects} />
+                ) : (
+                  <WorkspaceAppsPlaceholder
+                    canOpenLibraryManager={canOpenLibrary}
+                    onOpenLibraryManager={() => {}}
+                  />
+                )
               ) : (
-                <WorkspaceAppsPlaceholder
-                  canOpenLibraryManager={canOpenLibrary}
-                  onOpenLibraryManager={() => {}}
-                />
-              )
-            ) : (
-              <div className="flex h-full min-h-0 flex-col p-6">
-                <WorkspaceBreadcrumbs
-                  isSearching={isSearching}
-                  breadcrumbs={breadcrumbs}
-                  viewMode={viewMode}
-                  onGoRoot={() => setFolderInUrl(null)}
-                  onSelectFolder={(folderId) => setFolderInUrl(folderId)}
-                />
+                <div className="flex h-full min-h-0 flex-col p-6">
+                  <WorkspaceBreadcrumbs
+                    isSearching={isSearching}
+                    breadcrumbs={breadcrumbs}
+                    viewMode={viewMode}
+                    onGoRoot={() => setFolderInUrl(null)}
+                    onSelectFolder={(folderId) => setFolderInUrl(folderId)}
+                  />
 
-                <div className="relative mt-6 min-h-0 flex-1 overflow-hidden">
-                  <div className="h-full overflow-y-auto pr-1">
-                    <div className="mb-4 flex items-center justify-between rounded-lg border bg-card/30 px-3 py-2">
-                      <p className="text-xs text-muted-foreground">
-                        Page {currentPage} of {totalPages} · {pageLabel}
-                      </p>
-                      <div className="flex items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          disabled={currentPage <= 1}
-                          onClick={() => setCurrentPage(1)}
-                        >
-                          First
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          disabled={currentPage <= 1}
-                          onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          disabled={currentPage >= totalPages}
-                          onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                        >
-                          Next
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          disabled={currentPage >= totalPages}
-                          onClick={() => setCurrentPage(totalPages)}
-                        >
-                          Last
-                        </Button>
+                  <div className="relative mt-6 min-h-0 flex-1 overflow-hidden">
+                    <div
+                      className={`h-full overflow-y-auto pr-1 ${
+                        selectedProject !== null
+                          ? "md:pr-[376px] lg:pr-[416px] xl:pr-[476px]"
+                          : ""
+                      }`}
+                    >
+                      <div className="mb-4 flex items-center justify-between rounded-lg border bg-card/30 px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-xs text-muted-foreground">
+                            {pageLabel}
+                          </p>
+                          {canManageProjects && listProjects.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-[11px]"
+                              onClick={toggleVisibleProjectSelection}
+                            >
+                              {allVisibleProjectsSelected ? "Clear selection" : `Select visible (${listProjects.length})`}
+                            </Button>
+                          )}
+                          {canManageProjects && selectedVisibleProjects.length > 0 && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-[11px]"
+                                onClick={() => setProjectsToMove(selectedVisibleProjects)}
+                              >
+                                <FolderInput className="mr-1.5 h-3.5 w-3.5" />
+                                Move selected ({selectedVisibleProjects.length})
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-[11px]"
+                                disabled={isRegeneratingThumbnails}
+                                onClick={() => void handleRegenerateThumbnails(selectedVisibleProjects)}
+                              >
+                                <Image className="mr-1.5 h-3.5 w-3.5" />
+                                Regenerate thumbnails ({selectedVisibleProjects.length})
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            disabled={currentPage <= 1}
+                            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                          >
+                            Previous
+                          </Button>
+                          <span className="px-1 text-[11px] text-muted-foreground">
+                            Page {currentPage} of {totalPages}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            disabled={currentPage >= totalPages}
+                            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                          >
+                            Next
+                          </Button>
+                        </div>
                       </div>
+                      {viewMode === "gallery" ? (
+                        <WorkspaceGalleryView
+                          searchQuery={searchQuery}
+                          isSearching={isSearching}
+                          searchResults={listProjects}
+                          selectedProjectId={selectedProjectId}
+                          propertiesPanelOpen={selectedProject !== null}
+                          bulkSelectedProjectIds={bulkSelectedProjectIds}
+                          currentFolderId={currentFolderId}
+                          visibleFolders={visibleFolders}
+                          visibleProjects={listProjects}
+                          getProjectDisplayName={getProjectDisplayName}
+                          onSelectProject={selectProject}
+                          onToggleProjectSelection={toggleProjectSelection}
+                          onOpenProject={openProject}
+                          onOpenFolder={(folderId) => setFolderInUrl(folderId)}
+                          onRenameFolder={setFolderToRename}
+                          onDeleteFolder={setFolderToDelete}
+                          onMoveProject={(project) => setProjectsToMove([project])}
+                          onDeleteProject={setProjectToDelete}
+                          onRegenerateThumbnail={handleRegenerateThumbnail}
+                          canManageProjects={canManageProjects}
+                        />
+                      ) : (
+                        <WorkspaceListView
+                          isSearching={isSearching}
+                          selectedProjectId={selectedProjectId}
+                          bulkSelectedProjectIds={bulkSelectedProjectIds}
+                          currentFolderId={currentFolderId}
+                          breadcrumbs={breadcrumbs}
+                          listFolders={listFolders}
+                          listProjects={listProjects}
+                          getProjectDisplayName={getProjectDisplayName}
+                          onSelectProject={selectProject}
+                          onToggleProjectSelection={toggleProjectSelection}
+                          onOpenProject={openProject}
+                          onOpenFolder={(folderId) => setFolderInUrl(folderId)}
+                          onRenameFolder={setFolderToRename}
+                          onDeleteFolder={setFolderToDelete}
+                          onMoveProject={(project) => setProjectsToMove([project])}
+                          onDeleteProject={setProjectToDelete}
+                          onRegenerateThumbnail={handleRegenerateThumbnail}
+                          canManageProjects={canManageProjects}
+                        />
+                      )}
                     </div>
-                    {viewMode === "gallery" ? (
-                      <WorkspaceGalleryView
-                        searchQuery={searchQuery}
-                        isSearching={isSearching}
-                        searchResults={listProjects}
-                        selectedProjectId={selectedProjectId}
-                        currentFolderId={currentFolderId}
-                        visibleFolders={visibleFolders}
-                        visibleProjects={listProjects}
-                        getProjectDisplayName={getProjectDisplayName}
-                        onSelectProject={selectProject}
-                        onOpenProject={openProject}
-                        onOpenFolder={(folderId) => setFolderInUrl(folderId)}
-                        onRenameFolder={setFolderToRename}
-                        onDeleteFolder={setFolderToDelete}
-                        onMoveProject={setProjectToMove}
-                        onDeleteProject={setProjectToDelete}
-                        onRegenerateThumbnail={handleRegenerateThumbnail}
-                        canManageProjects={canManageProjects}
-                      />
-                    ) : (
-                      <WorkspaceListView
-                        isSearching={isSearching}
-                        selectedProjectId={selectedProjectId}
-                        currentFolderId={currentFolderId}
-                        breadcrumbs={breadcrumbs}
-                        listFolders={listFolders}
-                        listProjects={listProjects}
-                        getProjectDisplayName={getProjectDisplayName}
-                        onSelectProject={selectProject}
-                        onOpenProject={openProject}
-                        onOpenFolder={(folderId) => setFolderInUrl(folderId)}
-                        onRenameFolder={setFolderToRename}
-                        onDeleteFolder={setFolderToDelete}
-                        onMoveProject={setProjectToMove}
-                        onDeleteProject={setProjectToDelete}
-                        onRegenerateThumbnail={handleRegenerateThumbnail}
-                        canManageProjects={canManageProjects}
-                      />
-                    )}
-                  </div>
 
-                  <div className="pointer-events-none absolute inset-y-0 right-0 z-20 flex justify-end">
-                    <div className="pointer-events-auto h-full">
-                      <WorkspaceProjectPropertiesSheet
-                        open={selectedProject !== null}
-                        project={selectedProject}
-                        folderById={folderById}
-                        onOpenChange={(open) => {
-                          if (!open) {
-                            setSelectedProjectId(null);
-                          }
-                        }}
-                        onOpenProject={openProject}
-                      />
+                    <div className="pointer-events-none absolute inset-y-0 right-0 z-20 flex justify-end">
+                      <div className="pointer-events-auto h-full">
+                        <WorkspaceProjectPropertiesSheet
+                          open={selectedProject !== null}
+                          project={selectedProject}
+                          folderById={folderById}
+                          onOpenChange={(open) => {
+                            if (!open) {
+                              setSelectedProjectId(null);
+                            }
+                          }}
+                          onOpenProject={openProject}
+                          canManageProjects={canManageProjects}
+                          onRegenerateThumbnail={handleRegenerateThumbnail}
+                          onUploadThumbnail={handleUploadThumbnail}
+                          onRevertThumbnail={handleRevertThumbnail}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </ErrorBoundary>
+            </div>
           </main>
         </div>
       </div>
@@ -493,9 +746,15 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
           <ImportDialog open={isImportOpen} onOpenChange={setIsImportOpen} onImportComplete={refresh} />
         </Suspense>
       )}
-      {isSettingsOpen && (
+      {settingsOpen && (
         <Suspense fallback={null}>
-          <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} user={user} />
+          <SettingsDialog
+            key={requestedSettingsTab ?? "settings"}
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            user={user}
+            initialTab={requestedSettingsTab ?? undefined}
+          />
         </Suspense>
       )}
 
@@ -529,14 +788,14 @@ export function Workspace({ searchQuery, user }: WorkspaceProps) {
           />
         </Suspense>
       )}
-      {projectToMove && (
+      {projectsToMove.length > 0 && (
         <Suspense fallback={null}>
           <MoveProjectDialog
-            project={projectToMove}
+            projects={projectsToMove}
             folders={folders}
             isMoving={isMovingProject}
-            onClose={() => setProjectToMove(null)}
-            onConfirm={handleMoveProject}
+            onClose={() => setProjectsToMove([])}
+            onConfirm={handleMoveProjects}
             getProjectDisplayName={getProjectDisplayName}
           />
         </Suspense>

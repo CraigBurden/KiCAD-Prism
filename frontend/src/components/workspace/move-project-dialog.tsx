@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
 import { FolderTreeItem, Project } from "@/types/project";
@@ -13,25 +13,36 @@ import {
 } from "@/components/ui/dialog";
 
 interface MoveProjectDialogProps {
-  project: Project | null;
+  projects: Project[];
   folders: FolderTreeItem[];
   isMoving: boolean;
   onClose: () => void;
-  onConfirm: (projectId: string, folderId: string | null) => void | Promise<void>;
+  onConfirm: (projectIds: string[], folderId: string | null) => void | Promise<void>;
   getProjectDisplayName: (project: Project) => string;
 }
 
 const ROOT_VALUE = "__root__";
+const UNSELECTED_VALUE = "__unselected__";
+
+// One shared source folder preselects it; a mixed selection forces a choice.
+// The dialog is mounted per move (workspace.tsx gates on projectsToMove), so
+// this is the initial value rather than a correction applied after render.
+function initialTarget(projects: Project[]): string {
+  if (projects.length === 0) return ROOT_VALUE;
+  const sourceFolderIds = new Set(projects.map((project) => project.folder_id ?? null));
+  if (sourceFolderIds.size === 1) return projects[0].folder_id ?? ROOT_VALUE;
+  return UNSELECTED_VALUE;
+}
 
 export function MoveProjectDialog({
-  project,
+  projects,
   folders,
   isMoving,
   onClose,
   onConfirm,
   getProjectDisplayName,
 }: MoveProjectDialogProps) {
-  const [targetFolderId, setTargetFolderId] = useState(ROOT_VALUE);
+  const [targetFolderId, setTargetFolderId] = useState(() => initialTarget(projects));
 
   const folderPathById = useMemo(() => {
     const folderById = new Map(folders.map((folder) => [folder.id, folder]));
@@ -87,15 +98,14 @@ export function MoveProjectDialog({
     return paths;
   }, [folders]);
 
-  useEffect(() => {
-    setTargetFolderId(project?.folder_id ?? ROOT_VALUE);
-  }, [project]);
-
   const submit = () => {
-    if (!project) {
+    if (projects.length === 0 || targetFolderId === UNSELECTED_VALUE) {
       return;
     }
-    void onConfirm(project.id, targetFolderId === ROOT_VALUE ? null : targetFolderId);
+    void onConfirm(
+      projects.map((project) => project.id),
+      targetFolderId === ROOT_VALUE ? null : targetFolderId,
+    );
   };
 
   const handleDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -104,7 +114,7 @@ export function MoveProjectDialog({
     }
 
     event.preventDefault();
-    if (isMoving || !project) {
+    if (isMoving || projects.length === 0 || targetFolderId === UNSELECTED_VALUE) {
       return;
     }
 
@@ -112,22 +122,34 @@ export function MoveProjectDialog({
   };
 
   return (
-    <Dialog open={!!project} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={projects.length > 0} onOpenChange={(open) => !open && onClose()}>
       <DialogContent onKeyDown={handleDialogKeyDown}>
         <DialogHeader>
-          <DialogTitle>Move Project</DialogTitle>
-          <DialogDescription>Select where this project should live.</DialogDescription>
+          <DialogTitle>{projects.length === 1 ? "Move Project" : `Move ${projects.length} Projects`}</DialogTitle>
+          <DialogDescription>
+            {projects.length === 1
+              ? "Select where this project should live."
+              : "Select one destination for all selected projects. The move is applied atomically."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            Project: {project ? getProjectDisplayName(project) : ""}
+            {projects.length === 1
+              ? `Project: ${getProjectDisplayName(projects[0])}`
+              : `${projects.length} selected projects`}
           </p>
           <select
+            aria-label="Destination folder"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm"
             value={targetFolderId}
             onChange={(event) => setTargetFolderId(event.target.value)}
           >
+            {targetFolderId === UNSELECTED_VALUE && (
+              <option value={UNSELECTED_VALUE} disabled>
+                Choose a destination
+              </option>
+            )}
             <option value={ROOT_VALUE}>Workspace Root</option>
             {folders.map((folder) => (
               <option key={folder.id} value={folder.id}>
@@ -141,7 +163,10 @@ export function MoveProjectDialog({
           <Button variant="outline" onClick={onClose} disabled={isMoving}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={isMoving || !project}>
+          <Button
+            onClick={submit}
+            disabled={isMoving || projects.length === 0 || targetFolderId === UNSELECTED_VALUE}
+          >
             {isMoving ? "Moving..." : "Move"}
           </Button>
         </DialogFooter>

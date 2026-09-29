@@ -7,6 +7,13 @@ export interface Project {
     last_modified: string;
     registered_at?: string;
     thumbnail_url?: string;
+    /**
+     * Where the visible thumbnail came from. "generated" is a kicad-cli render
+     * of the board and is the default; "custom" is an image uploaded in the
+     * workspace; "repository" is an image committed under assets/thumbnail,
+     * used only when there is no board to render.
+     */
+    thumbnail_source?: "generated" | "custom" | "repository";
     sub_path?: string;
     parent_repo?: string;
     repo_url?: string;
@@ -64,9 +71,6 @@ export interface MonorepoStructure {
 export interface ProjectPropertiesFileTitleBlock {
     title: string;
     date: string;
-    rev: string;
-    company: string;
-    comments: Record<string, string>;
 }
 
 export interface ProjectPropertiesSchematicFile {
@@ -75,8 +79,6 @@ export interface ProjectPropertiesSchematicFile {
     version?: number;
     generator?: string;
     generator_version?: string;
-    paper?: string;
-    uuid?: string;
     title_block?: ProjectPropertiesFileTitleBlock | null;
 }
 
@@ -86,7 +88,6 @@ export interface ProjectPropertiesPcbFile {
     version?: number;
     generator?: string;
     generator_version?: string;
-    paper?: string;
     dimensions_mm?: {
         width_mm: number;
         height_mm: number;
