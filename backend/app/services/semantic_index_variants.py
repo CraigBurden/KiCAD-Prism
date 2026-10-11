@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from app.services import semantic_index_service
+from app.services import kicad_library_reader, semantic_index_service
 from app.services.kicad_monkey_design_adapter import KiCadMonkeyDesign
 
 SCHEMA = "prism.assembly_state_a0"
@@ -535,7 +535,7 @@ def physical_visibility(
 def _scan_unsupported_tokens(text: str, suffix: str) -> list[str]:
     tokens: list[str] = []
     for match in _VARIANT_START.finditer(text):
-        end = semantic_index_service._balanced_s_expression_end(text, match.start())
+        end = kicad_library_reader.form_end(text, match.start())
         if end is None:
             continue
         block = text[match.start() : end]
@@ -548,7 +548,7 @@ def _scan_unsupported_tokens(text: str, suffix: str) -> list[str]:
 def _scan_rule_areas(text: str) -> list[dict[str, bool]]:
     areas: list[dict[str, bool]] = []
     for match in _RULE_AREA_START.finditer(text):
-        end = semantic_index_service._balanced_s_expression_end(text, match.start())
+        end = kicad_library_reader.form_end(text, match.start())
         if end is None:
             continue
         block = text[match.start() : end]
