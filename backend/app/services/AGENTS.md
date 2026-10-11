@@ -82,6 +82,10 @@ sets, the design-compare file list, the semantic-index cache key and its
 schematic field overlay all apply it; do not add another suffix or autosave
 filter next to a reader.
 
+Project settings edited in Prism live in the workspace database
+(`project_settings_service.py`) and win over the committed .prism.json file;
+nothing writes into a checkout, because Sync fast-forwards only a clean tree.
+
 ## KiCad tools
 
 `kicad_tools.py` is the only place that locates or starts `kicad-cli` and

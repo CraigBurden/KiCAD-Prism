@@ -63,6 +63,7 @@ from app.services.workspace_migrations import m051_system_net_renames
 from app.services.workspace_migrations import m052_system_parts_collisions
 from app.services.workspace_migrations import m053_system_step_exports
 from app.services.workspace_migrations import m054_system_harness_outputs
+from app.services.workspace_migrations import m055_project_path_settings
 
 
 Migration = Callable[[Any], None]
@@ -119,6 +120,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (52, "system_parts_collisions", m052_system_parts_collisions.migrate),
     (53, "system_step_exports", m053_system_step_exports.migrate),
     (54, "system_harness_outputs", m054_system_harness_outputs.migrate),
+    (55, "project_path_settings", m055_project_path_settings.migrate),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.

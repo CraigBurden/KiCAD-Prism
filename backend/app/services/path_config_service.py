@@ -538,7 +538,8 @@ def get_path_config(
 ) -> PathConfig:
     """
     Get path configuration for a project.
-    Priority: 1) .prism.json, 2) auto-detect, 3) defaults
+    Priority: 1) settings stored in Prism (``project_settings_service``),
+    2) the checkout's committed .prism.json, 3) auto-detect, 4) defaults
 
     Args:
         project_path: Absolute path to project root
@@ -554,17 +555,20 @@ def get_path_config(
     # identify a configuration.
     cache_key = _cache_key(project_path, anchor)
     prism_mtime = _get_prism_mtime(project_path)
-    
+    stored = _stored_settings(project_path, anchor)
+
     # Check cache
     if use_cache and cache_key in _config_cache:
         cached_entry = _config_cache[cache_key]
-        if cached_entry.get("prism_mtime") == prism_mtime:
+        if cached_entry.get("prism_mtime") == prism_mtime and cached_entry.get("stored") == stored:
             return PathConfig(**cached_entry["config"])
 
     project_dir = Path(project_path)
 
-    # Start from explicit config so complete `.prism.json` files skip auto-detection.
+    # Settings stored in Prism win over the committed `.prism.json`; complete
+    # explicit settings skip auto-detection.
     explicit_config = _normalize_config_values(_load_prism_config(project_path, anchor) or {})
+    explicit_config.update(_normalize_config_values(stored or {}))
     merged_dict: Dict[str, Any] = dict(explicit_config)
 
     for key in PATH_FIELDS:
@@ -580,6 +584,7 @@ def get_path_config(
         _config_cache[cache_key] = {
             "config": merged.dict(),
             "prism_mtime": prism_mtime,
+            "stored": stored,
         }
     return merged
 
@@ -707,73 +712,12 @@ def get_portfolio_config(project_path: str) -> Optional[Dict[str, Any]]:
     return config.portfolio
 
 
-def save_path_config(
-    project_path: str,
-    config: PathConfig,
-    anchor: Optional[str] = None,
-) -> None:
-    """
-    Save path configuration to .prism.json.
+def _stored_settings(project_path: str, anchor: Optional[str]) -> Optional[Dict[str, Any]]:
+    # Imported at call time: the settings store reads the workspace database,
+    # which imports this module.
+    from app.services.project_settings_service import stored_settings
 
-    With an anchor the settings are written under ``projects.<anchor>`` so the
-    two projects sharing a directory keep separate paths; without one they are
-    written flat, exactly as before.
-
-    Args:
-        project_path: Absolute path to project root
-        config: PathConfig to save
-        anchor: This project's own ``.kicad_pro``/board filename
-    """
-    config_path = Path(project_path) / ".prism.json"
-    
-    # Load existing config to preserve other settings
-    existing = {}
-    if config_path.exists():
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                existing = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    
-    # Update paths and other fields
-    config_dict = config.dict(exclude_none=True)
-    non_path_fields = ["project_name", "description", "workflows", "portfolio"]
-
-    if anchor:
-        namespaced = existing.get("projects")
-        if not isinstance(namespaced, dict):
-            namespaced = {}
-            existing["projects"] = namespaced
-        entry = namespaced.get(anchor)
-        if not isinstance(entry, dict):
-            entry = {}
-            namespaced[anchor] = entry
-        target_paths = entry.setdefault("paths", {})
-        target_top = entry
-    else:
-        # Separate paths and other fields
-        if not isinstance(existing.get("paths"), dict):
-            existing["paths"] = {}
-        target_paths = existing["paths"]
-        target_top = existing
-
-    # Path fields go under paths key
-    for field in PATH_FIELDS:
-        if field in config_dict:
-            target_paths[field] = config_dict[field]
-
-    # Non-path fields go at top level
-    for field in non_path_fields:
-        if field in config_dict:
-            target_top[field] = config_dict[field]
-
-    # Save
-    with open(config_path, 'w', encoding='utf-8') as f:
-        json.dump(existing, f, indent=2)
-
-    # Config file changed; force reload on next access. Every project sharing
-    # this directory reads the same file, so drop all of their entries.
-    clear_config_cache(project_path)
+    return stored_settings(project_path, anchor)
 
 
 def clear_config_cache(project_path: Optional[str] = None) -> None:
