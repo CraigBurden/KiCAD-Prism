@@ -26,6 +26,7 @@ from app.services.catalog.asset_types import (
 )
 from app.services.catalog.locking import CatalogLockOperations, NoopCatalogLocks
 from app.services.catalog.metadata_batch_application import CatalogMetadataBatchApplication
+from app.services.catalog.metadata_batch_lifecycle import CatalogMetadataBatchLifecycle
 from app.services.catalog.metadata_batches import CatalogMetadataBatches
 from app.services.catalog.metadata_batch_staging import CatalogMetadataBatchStaging
 from app.services.catalog.metadata_csv import CatalogMetadataCsv
@@ -770,10 +771,18 @@ class ComponentCatalogDomainService:
             self._metadata_grid.hydrate_rows(prepared, rows, result["items"])
         return {**result, "schema": METADATA_SCHEMA_VERSION, "fields": fields}
 
+    @property
+    def metadata_batch_lifecycle(self) -> CatalogMetadataBatchLifecycle:
+        """Stage, approve, apply and account metadata batches (``catalog/metadata_batch_lifecycle.py``)."""
+        return CatalogMetadataBatchLifecycle(
+            connect=self._connect, initialize=self.initialize, runtime=self._runtime_for_compat(),
+            metadata_fields=self._metadata_fields, metadata_csv=self._metadata_csv,
+            batches=self._metadata_batches, workflow=self._metadata_batch_workflow,
+            application=self._metadata_batch_application,
+        )
+
     def get_metadata_batch(self, batch_id: str) -> dict[str, Any] | None:
-        self.initialize()
-        with self._connect() as conn:
-            return self._metadata_batches.batch_payload(conn, batch_id)
+        return self.metadata_batch_lifecycle.get(batch_id)
 
     def stage_metadata_batch(
         self,
@@ -784,48 +793,12 @@ class ComponentCatalogDomainService:
         change_summary: str,
         proposed_fields: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        self.initialize()
-        with self._connect() as conn:
-            batch_id = self._metadata_batch_workflow.stage(
-                conn,
-                items,
-                source=source,
-                actor=actor,
-                change_summary=change_summary,
-                proposed_fields=proposed_fields,
-            )
-            conn.commit()
-            return self._metadata_batches.batch_payload(conn, batch_id) or {}
+        return self.metadata_batch_lifecycle.stage(
+            items, source=source, actor=actor, change_summary=change_summary, proposed_fields=proposed_fields
+        )
 
     def approve_metadata_batch_fields(self, batch_id: str, *, actor: str) -> dict[str, Any]:
-        self.initialize()
-        with self._connect() as conn:
-            proposals = self._metadata_batches.fetch_batch_field_proposals(conn, batch_id)
-            if proposals is None:
-                raise ValueError("Metadata batch not found")
-        for proposal in proposals:
-            try:
-                self.create_metadata_field(proposal, actor=actor)
-            except ValueError as exc:
-                if "already exists" not in str(exc):
-                    raise
-        with self._connect() as conn:
-            self._metadata_batches.mark_fields_approved(
-                conn,
-                batch_id,
-                _utc_now_iso(),
-            )
-            conn.commit()
-            return self._metadata_batches.batch_payload(conn, batch_id) or {}
-
-    def apply_metadata_batch_item(self, item_id: str, *, actor: str) -> dict[str, Any]:
-        self.initialize()
-        with self._connect() as conn:
-            result = self._metadata_batch_workflow.apply_item(
-                conn, self._runtime_for_compat(), item_id, actor=actor
-            )
-            conn.commit()
-        return result
+        return self.metadata_batch_lifecycle.approve_fields(batch_id, actor=actor)
 
     def apply_metadata_batch(
         self,
@@ -835,54 +808,9 @@ class ComponentCatalogDomainService:
         item_ids: list[str] | None = None,
         progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
-        self.initialize()
-        with self._connect() as conn:
-            batch = self._metadata_batches.fetch_batch_for_apply(conn, batch_id)
-            if not batch:
-                raise ValueError("Metadata batch not found")
-            if str(batch["status"]) == "needs_fields":
-                raise ValueError("Unknown CSV fields must be approved before applying")
-            rows = self._metadata_batches.fetch_valid_item_rows(conn, batch_id)
-        selection = self._metadata_batch_application.select_valid_item_ids(rows, item_ids)
-        ids = list(selection.ids)
-        if selection.selected and not ids:
-            raise ValueError("None of the selected metadata batch items are valid")
-        applied = 0
-        failed = 0
-        errors: list[dict[str, str]] = []
-        for index, item_id in enumerate(ids):
-            try:
-                self.apply_metadata_batch_item(item_id, actor=actor)
-                applied += 1
-            except ValueError as exc:
-                failed += 1
-                errors.append({"item_id": item_id, "error": str(exc)})
-                with self._connect() as conn:
-                    self._metadata_batches.mark_item_conflict(
-                        conn,
-                        item_id,
-                        str(exc),
-                        _utc_now_iso(),
-                    )
-                    conn.commit()
-            if progress_callback:
-                progress_callback({"completed": index + 1, "total": len(ids), "applied": applied, "failed": failed})
-        with self._connect() as conn:
-            totals = self._metadata_batches.calculate_batch_totals(conn, batch_id)
-            accounting = self._metadata_batch_application.account_batch(
-                batch_id, totals, applied, failed, errors
-            )
-            self._metadata_batches.finalize_batch(
-                conn,
-                batch_id=batch_id,
-                status=accounting.status,
-                valid_items=accounting.remaining,
-                applied_items=accounting.total_applied,
-                failed_items=accounting.total_failed,
-                updated_at=_utc_now_iso(),
-            )
-            conn.commit()
-        return accounting.result
+        return self.metadata_batch_lifecycle.apply(
+            batch_id, actor=actor, item_ids=item_ids, progress_callback=progress_callback
+        )
 
     def export_metadata_csv(self, field_keys: list[str] | None = None) -> str:
         return "".join(self.iter_metadata_csv(field_keys=field_keys))
@@ -915,37 +843,7 @@ class ComponentCatalogDomainService:
         return generate()
 
     def preview_metadata_csv(self, file_content: str, *, actor: str, change_summary: str = "Import component metadata from CSV") -> dict[str, Any]:
-        self.initialize()
-        fields = {field["key"]: field for field in self.list_metadata_fields(include_archived=True)}
-        parsed = self._metadata_csv.parse_preview(file_content, list(fields.values()))
-
-        with self._connect() as conn:
-            current_rows = {
-                str(row["component_id"]): dict(row)
-                for row in conn.execute(
-                    "SELECT c.id AS component_id, cr.* FROM components c "
-                    "JOIN component_revisions cr ON cr.id = c.current_revision_id WHERE c.is_active = 1"
-                ).fetchall()
-            }
-
-        changes = self._metadata_csv.filter_preview_changes(
-            parsed.parsed_rows,
-            current_rows,
-            fields,
-            parsed.proposed_fields,
-        )
-        batch = self.stage_metadata_batch(
-            changes.items,
-            source="csv",
-            actor=actor,
-            change_summary=change_summary,
-            proposed_fields=changes.used_proposals,
-        )
-        return {
-            **batch,
-            "source_rows": len(parsed.parsed_rows),
-            "skipped_unchanged_rows": changes.skipped_unchanged_rows,
-        }
+        return self.metadata_batch_lifecycle.stage_csv(file_content, actor=actor, change_summary=change_summary)
 
     def export_inventory_csv(self) -> str:
         self.initialize()

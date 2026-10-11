@@ -61,6 +61,15 @@ class CatalogMetadataFields:
         return PreparedMetadataField(payload, field_key, field_type, enum_values, now, field_id)
 
     def create_field(self, conn: Any, payload: PreparedMetadataField, actor: str) -> dict[str, Any]:
+        created = self.create_field_unless_defined(conn, payload, actor)
+        if created is None:
+            raise ValueError(f"Metadata field '{payload.field_key}' already exists")
+        return created
+
+    def create_field_unless_defined(
+        self, conn: Any, payload: PreparedMetadataField, actor: str
+    ) -> dict[str, Any] | None:
+        """Create the field, or return ``None`` when its key is already defined (archived or not)."""
         field_key = payload.field_key
         field_type = payload.field_type
         enum_values = payload.enum_values
@@ -69,7 +78,7 @@ class CatalogMetadataFields:
         source = payload.payload
         exists = conn.execute("SELECT 1 FROM catalog_field_definitions WHERE field_key = %s", (field_key,)).fetchone()
         if exists:
-            raise ValueError(f"Metadata field '{field_key}' already exists")
+            return None
         order_row = conn.execute("SELECT COALESCE(MAX(display_order), -1) AS value FROM catalog_field_definitions").fetchone()
         conn.execute(
             """

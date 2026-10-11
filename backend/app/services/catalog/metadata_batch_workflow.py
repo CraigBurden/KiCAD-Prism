@@ -3,7 +3,7 @@
 Staging validates each item against the current field schema and records a
 diff per component; applying rewrites one component per transaction so a
 conflict on one item never rolls back the others. The batch-level loop that
-opens those transactions stays with the facade. Nothing here commits.
+opens those transactions is ``metadata_batch_lifecycle.py``. Nothing here commits.
 """
 
 from __future__ import annotations
