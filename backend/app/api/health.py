@@ -17,9 +17,9 @@ router = APIRouter(prefix="/api/health", tags=["health"])
 
 def build_metadata() -> dict[str, str]:
     return {
-        "release": os.environ.get("PRISM_RELEASE", "development"),
-        "revision": os.environ.get("PRISM_REVISION", "unknown"),
-        "buildDate": os.environ.get("PRISM_BUILD_DATE", "unknown"),
+        "release": settings.PRISM_RELEASE,
+        "revision": settings.PRISM_REVISION,
+        "buildDate": settings.PRISM_BUILD_DATE,
     }
 
 

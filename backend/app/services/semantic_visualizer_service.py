@@ -49,7 +49,7 @@ def _compute_build_fingerprint() -> str:
         hasher = hashlib.sha256()
         hasher.update(base.encode("utf-8"))
         update_native_geometry_fingerprint(hasher)
-        hasher.update(os.environ.get("PRISM_KICAD_MONKEY_SOURCE", "").encode("utf-8"))
+        hasher.update(settings.PRISM_KICAD_MONKEY_SOURCE.encode("utf-8"))
         for rel_path in inputs:
             path = viewer_root / rel_path
             if path.is_file():
@@ -109,19 +109,19 @@ def semantic_store_root() -> Path:
 
 
 def semantic_compiler_cache_root() -> Path:
-    configured = os.environ.get("PRISM_SEMANTIC_VIEWER_CACHE", "").strip()
+    configured = settings.PRISM_SEMANTIC_VIEWER_CACHE.strip()
     root = Path(configured).expanduser() if configured else semantic_store_root() / ".cache"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
 def semantic_meshopt_level() -> str:
-    level = os.environ.get("PRISM_SEMANTIC_GLTF_MESHOPT_LEVEL", "medium").strip().lower()
+    level = settings.PRISM_SEMANTIC_GLTF_MESHOPT_LEVEL.strip().lower()
     return level if level in MESHOPT_LEVELS else "medium"
 
 
 def semantic_tile_size_mm() -> str:
-    configured = os.environ.get("PRISM_SEMANTIC_GLTF_TILE_SIZE_MM", "auto").strip().lower()
+    configured = settings.PRISM_SEMANTIC_GLTF_TILE_SIZE_MM.strip().lower()
     if configured == "auto":
         return "auto"
     try:

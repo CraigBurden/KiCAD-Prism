@@ -497,14 +497,13 @@ class SemanticIndexServiceTests(unittest.TestCase):
             root = Path(temporary)
             helper = root / "prism-kicad-native"
             helper.write_bytes(b"helper-a")
-            environment = {
-                "PRISM_PCB_GEOMETRY_BACKEND": "rust",
-                "PRISM_KICAD_NATIVE_PATH": str(helper),
-            }
             with patch.dict(
                 semantic_visualizer_service.os.environ,
-                environment,
+                {"PRISM_KICAD_NATIVE_PATH": str(helper)},
                 clear=False,
+            ), patch(
+                "app.services.semantic_viewer_runtime.settings.PRISM_PCB_GEOMETRY_BACKEND",
+                "rust",
             ), patch(
                 "app.services.semantic_viewer_runtime.find_viewer_repo_root",
                 return_value=root,
@@ -851,8 +850,7 @@ class RevisionIdentityTests(unittest.TestCase):
             project = SimpleNamespace(id="p1", path=str(board))
             key, _ = semantic_index_service._revision_identity(project, "HEAD")
 
-            # KICAD_PROJECTS_ROOT is a computed property on the settings model,
-            # so the module's own root function is the patch point.
+            # The module's own root function is the patch point.
             index_root = root / "index"
             index_root.mkdir()
             self.enterContext(

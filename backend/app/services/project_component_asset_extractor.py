@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
+from app.core.config import environment_value
 from app.services import kicad_footprint_normalizer
 
 
@@ -221,7 +222,7 @@ def _resolve_model_path(
     expanded = expanded.replace("${KIPRJMOD}", str(project_root))
     variable = re.match(r"^\$\{([^}]+)\}(.*)$", expanded)
     if variable:
-        root = os.environ.get(variable.group(1), "")
+        root = environment_value(variable.group(1))
         if root:
             expanded = str(Path(root) / variable.group(2).lstrip("/\\"))
     candidate = Path(expanded).expanduser()

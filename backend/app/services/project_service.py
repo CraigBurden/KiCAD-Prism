@@ -11,6 +11,7 @@ from urllib.parse import quote
 from git import Repo
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.release_studio.jobset import WORKFLOW_OUTPUT_IDS as _WORKFLOW_OUTPUT_IDS
 from app.services import kicad_jobset_service, path_config_service, semantic_index_service
 from app.services.workspace_service import workspace
@@ -71,7 +72,7 @@ class RegisteredProjectRecord(BaseModel):
 
 # PROJECTS_ROOT is where imported projects are stored.
 # In Docker, this should be a persistent volume mount.
-PROJECTS_ROOT = os.environ.get("KICAD_PROJECTS_ROOT", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")))
+PROJECTS_ROOT = settings.KICAD_PROJECTS_ROOT
 
 # MONOREPOS_ROOT is where monorepos are cloned (Type-2 sub-projects)
 MONOREPOS_ROOT = os.path.join(PROJECTS_ROOT, "type2")

@@ -22,7 +22,11 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[1]
-CONFIG = REPO / "backend" / "app" / "core" / "config.py"
+# `Settings` (config.py) and the field groups it inherits.
+CONFIG_MODULES = (
+    REPO / "backend" / "app" / "core" / "config.py",
+    REPO / "backend" / "app" / "core" / "pipeline_config.py",
+)
 APP_SERVICES = ("backend", "catalog-worker", "prism-worker")
 SOURCE_STACKS = (
     ("docker-compose.yml",),
@@ -34,10 +38,16 @@ _KEY = re.compile(r"^#?\s*([A-Z][A-Z0-9_]*)=")
 
 def settings_env_names() -> set[str]:
     """Environment names `Settings` reads: field names, or their alias."""
-    tree = ast.parse(CONFIG.read_text(encoding="utf-8"))
-    settings = next(
-        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Settings"
-    )
+    names: set[str] = set()
+    for module in CONFIG_MODULES:
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name.endswith("Settings"):
+                names |= _field_names(node)
+    return names
+
+
+def _field_names(settings: ast.ClassDef) -> set[str]:
     names: set[str] = set()
     for node in settings.body:
         if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
@@ -153,6 +163,7 @@ class SettingsDiscoveryTests(unittest.TestCase):
         self.assertIn("AUTH_ENABLED", names)
         self.assertNotIn("AUTH_ENABLED_OVERRIDE", names)
         self.assertIn("IMPORT_ALLOWED_HOSTS_STR", names)
+        self.assertIn("PRISM_DESIGN_COMPARE_CACHE", names)  # inherited field group
 
 
 if __name__ == "__main__":

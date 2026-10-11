@@ -48,7 +48,7 @@ class GitHostTestCase(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.tmp = Path(temporary.name)
-        environment = patch.dict("os.environ", {"KICAD_PROJECTS_ROOT": str(self.tmp)})
+        environment = patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp))
         environment.start()
         self.addCleanup(environment.stop)
 

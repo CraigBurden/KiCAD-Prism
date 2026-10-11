@@ -13,6 +13,8 @@ from typing import List
 import os
 import re
 
+from app.core.pipeline_config import PipelineSettings
+
 
 # Placeholders that appear in this repository's examples and in copy-pasted guides.
 # None of them may sign a real session.
@@ -28,8 +30,12 @@ _WEAK_SESSION_SECRETS = {
 _TRACKER_KEY_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
-class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+class Settings(PipelineSettings):
+    """Application settings loaded from environment variables.
+
+    The only reader of process configuration in `app`. Design-pipeline fields
+    are declared in `app.core.pipeline_config` and inherited here.
+    """
     
     # ===========================================
     # OIDC / OAuth Configuration
@@ -508,6 +514,16 @@ class Settings(BaseSettings):
         ),
     )
 
+    PRISM_JOB_ARTIFACT_RETENTION_DAYS: int = Field(
+        default=30,
+        description="Days job artifact metadata is kept by artifact maintenance (negative means 0).",
+    )
+
+    PRISM_JOB_PARTIAL_RETENTION_HOURS: int = Field(
+        default=24,
+        description="Hours partial (unfinished) job artifacts are kept by artifact maintenance.",
+    )
+
     COMMENT_ATTACHMENT_ROOT: str = Field(
         default="",
         description=(
@@ -665,6 +681,25 @@ class Settings(BaseSettings):
     # ===========================================
     # Computed Properties
     # ===========================================
+    # ===========================================
+    # Build identity and runtime locations
+    # ===========================================
+    KICAD_PROJECTS_ROOT: str = Field(
+        default=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")),
+        description="Root for imported projects and Prism's .kicad-prism state.",
+    )
+    PRISM_RELEASE: str = Field(default="development", description="Release label baked into the image.")
+    PRISM_REVISION: str = Field(default="unknown", description="Source revision baked into the image.")
+    PRISM_BUILD_DATE: str = Field(default="unknown", description="Image build timestamp.")
+    PRISM_PLUGIN_DOWNLOAD_URL: str = Field(
+        default="https://github.com/krishna-swaroop/KiCAD-Prism/releases/latest",
+        description="Where the KiCad plugin update prompt sends users; point it at a private build.",
+    )
+    PRISM_CAIRO_LIBRARY_DIR: str = Field(
+        default="",
+        description="macOS only: directory holding libcairo.2.dylib for Release Studio PDF pages.",
+    )
+
     @property
     def ALLOWED_USERS(self) -> List[str]:
         """Parse allowed emails from comma-separated string."""
@@ -729,13 +764,6 @@ class Settings(BaseSettings):
             bool(self.EFFECTIVE_OIDC_CLIENT_SECRET),
         ]
         return any(present) and not all(present)
-
-    @property
-    def KICAD_PROJECTS_ROOT(self) -> str:
-        return os.environ.get(
-            "KICAD_PROJECTS_ROOT",
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")),
-        )
 
     @property
     def AUTH_ENABLED(self) -> bool:
@@ -956,3 +984,14 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+
+def environment_value(name: str) -> str:
+    """A variable whose name comes from data rather than code.
+
+    A forge host's `token_name` (PRISM_FORGE_HOSTS) and a KiCad path variable
+    such as `${KICAD9_3DMODEL_DIR}` in a 3D model path name variables that no
+    `Settings` field can declare. Read them here so this module stays the only
+    configuration reader.
+    """
+    return os.environ.get(name, "")

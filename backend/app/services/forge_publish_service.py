@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import re
 import tarfile
 from dataclasses import dataclass
@@ -18,7 +17,7 @@ from urllib.parse import quote
 
 import requests
 
-from app.core.config import settings
+from app.core.config import environment_value, settings
 from app.release_studio.canonical import write_deterministic_zip
 from app.services.forge_hosts import ForgeHostConfigError, resolve_forge_host
 from app.services.git_remote_url import ParsedRemote, RemoteUrlError, parse_remote_url
@@ -292,7 +291,7 @@ def _headers_for_target(target: ForgeTarget) -> dict[str, str]:
 def _token_for_name(token_name: str) -> str:
     configured = getattr(settings, token_name, None)
     if configured is None:
-        configured = os.environ.get(token_name, "")
+        configured = environment_value(token_name)
     return str(configured or "").strip()
 
 

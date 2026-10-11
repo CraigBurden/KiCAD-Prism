@@ -4,10 +4,12 @@ import os
 import sys
 from pathlib import Path
 
+from app.core.config import settings
+
 
 def update_native_geometry_fingerprint(hasher) -> None:
     """Add the selected PCB backend and native helper identity to a hash."""
-    geometry_backend = os.environ.get("PRISM_PCB_GEOMETRY_BACKEND", "legacy")
+    geometry_backend = settings.PRISM_PCB_GEOMETRY_BACKEND
     helper_path = Path(
         os.environ.get("PRISM_KICAD_NATIVE_PATH", "/usr/local/bin/prism-kicad-native")
     )
@@ -21,7 +23,7 @@ def candidate_roots() -> list[Path]:
     roots: list[Path] = []
     
     # 1. Environment variable override
-    explicit = os.environ.get("PRISM_SEMANTIC_VIEWER_REPO", "").strip()
+    explicit = settings.PRISM_SEMANTIC_VIEWER_REPO.strip()
     if explicit:
         roots.append(Path(explicit).expanduser())
 

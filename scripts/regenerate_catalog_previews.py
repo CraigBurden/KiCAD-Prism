@@ -493,6 +493,10 @@ def main() -> int:
 
     projects_root = _resolve_projects_root(args.projects_root)
     os.environ["KICAD_PROJECTS_ROOT"] = projects_root
+    # The backend is already imported; its settings were read at import.
+    from app.core.config import settings  # noqa: PLC0415
+
+    settings.KICAD_PROJECTS_ROOT = projects_root
 
     service = ComponentCatalogService(database_url=args.database_url or None)
     stats = PreviewStats()
