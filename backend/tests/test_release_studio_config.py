@@ -122,7 +122,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
         return checkout, remote
 
     def test_studio_publishes_then_fast_forwards_the_clean_mirror(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -169,7 +169,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
             self.assertIn("?? unrelated.txt", changed)
 
     def test_a_rejected_push_leaves_no_local_configuration_commit(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -199,7 +199,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
             )
 
     def test_a_form_loaded_from_an_older_tip_cannot_overwrite_newer_remote_state(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -224,7 +224,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                     )
 
     def test_retry_after_a_successful_push_converges_on_the_published_commit(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -265,7 +265,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
 
     def test_a_blocked_push_times_out_without_updating_the_mirror(self) -> None:
         from app.release_studio import git_publish
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -299,7 +299,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
             )
 
     def test_cancellation_does_not_update_the_mirror(self) -> None:
-        from app.services import release_studio_build_service as builds
+        from app.services import release_studio_config_service as builds
         from app.services.job_runtime import JobCancelled
 
         with tempfile.TemporaryDirectory() as tmp:

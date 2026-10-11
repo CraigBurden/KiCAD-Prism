@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterator, Mapping
@@ -18,6 +19,9 @@ from .schema import (
 
 CONFIG_DIR = Path(".prism") / "release-studio" / "configurations"
 POLICIES_DIR = Path(".prism") / "release-studio" / "policies"
+
+logger = logging.getLogger(__name__)
+_ROOT_FALLBACKS_LOGGED: set[tuple[str, str, str]] = set()
 
 
 def configuration_relpath(config_key: str) -> Path:
@@ -65,13 +69,27 @@ def list_configuration_keys(checkout_root: Path | str) -> list[str]:
     return sorted(keys)
 
 
-def list_configuration_keys_at_commit(repo_root: Path | str, commit: str) -> list[str]:
-    """List configuration keys present in *commit* via ``git ls-tree``."""
+def list_configuration_keys_at_commit(
+    repo_root: Path | str, commit: str, *, project_path: str = ""
+) -> list[str]:
+    """List configuration keys present in *commit* for the project at *project_path*.
 
+    A subproject's own configurations live under its folder. Keys found only
+    at the repository root are listed too: that is where at-commit reads
+    looked before, so configurations committed there keep working.
+    """
+
+    prefix = _project_prefix(project_path)
+    keys = set(_keys_in_tree(repo_root, commit, _config_dir(prefix)))
+    if prefix:
+        keys |= set(_keys_in_tree(repo_root, commit, _config_dir("")))
+    return sorted(keys)
+
+
+def _keys_in_tree(repo_root: Path | str, commit: str, directory: str) -> list[str]:
     root = _checkout_root(repo_root)
     if not commit or commit.startswith("-") or any(ch.isspace() for ch in commit):
         raise ConfigLoadError(f"invalid commit ref: {commit!r}")
-    directory = CONFIG_DIR.as_posix()
     result = subprocess.run(
         [
             "git",
@@ -184,16 +202,86 @@ def load_configuration_at_commit(
     repo_root: Path | str,
     commit: str,
     config_key: str,
+    *,
+    project_path: str = "",
 ) -> dict[str, Any]:
-    """Load a configuration as it existed at *commit* via ``git show``."""
+    """Load a configuration as it existed at *commit* via ``git show``.
+
+    The location rule, the same one Settings saves by: a project's
+    configurations live in ``<project_path>/.prism/release-studio/``, and the
+    files they name are relative to the project folder. They are returned as
+    repository paths, because a build's closure is the whole repository. For a
+    subproject without its own file the repository root's is read as before
+    (its paths are already repository paths) and the fallback is logged once.
+    """
 
     root = _checkout_root(repo_root)
+    prefix = _project_prefix(project_path)
     rel = configuration_relpath(config_key)
+    if prefix:
+        own = f"{prefix}/{rel.as_posix()}"
+        if _git_path_exists(root, commit, own):
+            text = _git_show(root, commit, own)
+            config = parse_configuration_yaml(text, source=f"{commit}:{own}")
+            config = _rebased(config, prefix)
+            _validate_referenced_commit_paths(root, commit, config)
+            _load_referenced_policy_at_commit(root, commit, config, source=own)
+            return config
+        _log_root_fallback(root, prefix, config_key)
     text = _git_show(root, commit, rel.as_posix())
     config = parse_configuration_yaml(text, source=f"{commit}:{rel.as_posix()}")
     _validate_referenced_commit_paths(root, commit, config)
     _load_referenced_policy_at_commit(root, commit, config, source=rel.as_posix())
     return config
+
+
+def _project_prefix(project_path: str | None) -> str:
+    text = str(project_path or "").replace("\\", "/").strip().strip("/")
+    if text in {"", "."}:
+        return ""
+    return _normalize_repository_path(text, source="project", kind="project folder")
+
+
+def _config_dir(prefix: str) -> str:
+    return f"{prefix}/{CONFIG_DIR.as_posix()}" if prefix else CONFIG_DIR.as_posix()
+
+
+def _git_path_exists(repo_root: Path, commit: str, relpath: str) -> bool:
+    try:
+        _resolve_git_file_path(repo_root, commit, relpath)
+    except ConfigLoadError:
+        return False
+    return True
+
+
+def _rebased(config: dict[str, Any], prefix: str) -> dict[str, Any]:
+    """A subproject configuration's file references as repository paths."""
+
+    rebased = dict(config)
+    for field in ("board", "schematic", "jobset", "template"):
+        if rebased.get(field):
+            rebased[field] = f"{prefix}/{rebased[field]}"
+    if rebased.get("sheets"):
+        rebased["sheets"] = [f"{prefix}/{path}" for path in rebased["sheets"]]
+    policy = rebased.get("policy")
+    if isinstance(policy, str) and not policy.startswith("org:"):
+        rebased["policy"] = f"{prefix}/{policy}"
+    elif isinstance(policy, Mapping) and policy.get("path"):
+        rebased["policy"] = {**policy, "path": f"{prefix}/{policy['path']}"}
+    return rebased
+
+
+def _log_root_fallback(root: Path, prefix: str, config_key: str) -> None:
+    marker = (str(root), prefix, config_key)
+    if marker in _ROOT_FALLBACKS_LOGGED:
+        return
+    _ROOT_FALLBACKS_LOGGED.add(marker)
+    logger.warning(
+        "Release Studio configuration %r for %s is read from the repository root; "
+        "save it again in Settings to store it with the subproject",
+        config_key,
+        prefix,
+    )
 
 
 def load_policy_for_configuration_at_commit(

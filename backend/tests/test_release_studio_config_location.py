@@ -1,0 +1,145 @@
+"""AC-32: one place for a monorepo subproject's Release Studio configurations.
+
+Settings saves a subproject's configuration under the subproject
+(``<sub>/.prism/release-studio/configurations``) with paths relative to the
+subproject. Reading at a commit (candidates, builds, the at-commit listing)
+must find it there, and hand builds repository paths, because the closure is
+the whole repository.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from app.release_studio.config import parse_configuration_yaml, technical_config_digest
+from app.services import release_studio_config_service as config_service
+from app.services.project_revision import ProjectLocation
+
+
+def _config(title: str, board: str = "board.kicad_pcb", schematic: str = "board.kicad_sch") -> str:
+    return (
+        "schema: prism.release-studio.configuration/1\n"
+        f"title: {title}\n"
+        f"board: {board}\n"
+        f"schematic: {schematic}\n"
+        "default_variant: default\n"
+    )
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _write(root: Path, relative: str, text: str) -> None:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+CONFIG_DIR = ".prism/release-studio/configurations"
+
+
+class MonorepoConfigurationLocationTests(unittest.TestCase):
+    """Two subprojects in one repository, each with its own configuration."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.remote = self.root / "remote.git"
+        self.repo = self.root / "repo"
+        _git(self.root, "init", "--bare", "--initial-branch=main", str(self.remote))
+        _git(self.root, "clone", str(self.remote), str(self.repo))
+        _git(self.repo, "config", "user.email", "seed@example.com")
+        _git(self.repo, "config", "user.name", "Seed")
+        for sub in ("alpha", "beta"):
+            _write(self.repo, f"{sub}/board.kicad_pcb", f"{sub} board\n")
+            _write(self.repo, f"{sub}/board.kicad_sch", f"{sub} schematic\n")
+            _write(self.repo, f"{sub}/{CONFIG_DIR}/release.yaml", _config(f"{sub} release"))
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-m", "two subprojects")
+        _git(self.repo, "push", "-u", "origin", "main")
+        self.commit = _git(self.repo, "rev-parse", "HEAD")
+
+    def _located(self, sub: str):
+        location = ProjectLocation(self.repo.resolve(), sub)
+        row = {"id": f"project-{sub}", "path": str(location.checkout)}
+        return (
+            patch("app.services.project_revision.locate_id", return_value=location),
+            patch("app.services.project_revision.locate", return_value=location),
+            patch("app.services.workspace_service.workspace.get_project_by_id", return_value=row),
+        )
+
+    def _listing(self, sub: str, commit: str) -> dict[str, dict]:
+        first, second, third = self._located(sub)
+        with first, second, third:
+            rows = config_service.list_configurations_at_commit(f"project-{sub}", commit)
+        return {row["config_key"]: row for row in rows}
+
+    def test_each_subproject_reads_its_own_configuration_at_a_commit(self) -> None:
+        for sub in ("alpha", "beta"):
+            with self.subTest(sub=sub):
+                rows = self._listing(sub, self.commit)
+                self.assertEqual(sorted(rows), ["release"])
+                self.assertEqual(rows["release"]["title"], f"{sub} release")
+                # Builds join these to the closure, which is the whole repository.
+                self.assertEqual(rows["release"]["board_rel"], f"{sub}/board.kicad_pcb")
+                self.assertEqual(rows["release"]["schematic_rel"], f"{sub}/board.kicad_sch")
+
+    def test_a_candidate_without_a_snapshot_reads_its_subproject_configuration(self) -> None:
+        expected = parse_configuration_yaml(
+            _config("beta release", "beta/board.kicad_pcb", "beta/board.kicad_sch")
+        )
+        candidate = {
+            "config_key": "release",
+            "commit_sha": self.commit,
+            "technical_config_digest": technical_config_digest(expected),
+        }
+        first, second, third = self._located("beta")
+        with first, second, third:
+            config = config_service.configuration_for_candidate("project-beta", candidate)
+        self.assertEqual(config["title"], "beta release")
+        self.assertEqual(config["board"], "beta/board.kicad_pcb")
+
+    def test_a_saved_configuration_is_read_back_from_where_it_was_written(self) -> None:
+        document = parse_configuration_yaml(_config("alpha production"))
+        first, second, third = self._located("alpha")
+        with first, second, third, patch.object(config_service, "sync_configurations", return_value=[
+            {"config_key": "production"}
+        ]):
+            saved = config_service.save_configuration(
+                "project-alpha", "production", document, author_email="designer@example.com"
+            )
+        self.assertEqual(saved["path"], f"alpha/{CONFIG_DIR}/production.yaml")
+
+        alpha = self._listing("alpha", saved["commit_sha"])
+        beta = self._listing("beta", saved["commit_sha"])
+        self.assertEqual(sorted(alpha), ["production", "release"])
+        self.assertEqual(alpha["production"]["board_rel"], "alpha/board.kicad_pcb")
+        self.assertEqual(sorted(beta), ["release"])
+
+    def test_configurations_at_the_repository_root_still_read_for_a_subproject(self) -> None:
+        """Today's place for subproject reads: kept as a fallback, the subproject's own file wins."""
+
+        _write(self.repo, f"{CONFIG_DIR}/legacy.yaml", _config("root legacy", "alpha/board.kicad_pcb", "alpha/board.kicad_sch"))
+        _write(self.repo, f"{CONFIG_DIR}/release.yaml", _config("root release", "beta/board.kicad_pcb", "beta/board.kicad_sch"))
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-m", "root configurations")
+        commit = _git(self.repo, "rev-parse", "HEAD")
+
+        alpha = self._listing("alpha", commit)
+        self.assertEqual(sorted(alpha), ["legacy", "release"])
+        self.assertEqual(alpha["release"]["title"], "alpha release")
+        # Root-level files keep their repository paths, exactly as before.
+        self.assertEqual(alpha["legacy"]["board_rel"], "alpha/board.kicad_pcb")
+        self.assertEqual(alpha["legacy"]["title"], "root legacy")
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()
