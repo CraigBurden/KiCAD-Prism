@@ -7,6 +7,7 @@
  */
 
 import { humanize, verbForProperty } from "./comparison-change-vocabulary";
+import { kindsWith } from "./comparison-change-kinds";
 import type {
     ChangeItem,
     FieldDiffValue,
@@ -31,21 +32,8 @@ const PRIMARY_FIELDS = [
 
 const HIDDEN_FIELDS = new Set(["Reference", "Qty", "DNP"]);
 
-/**
- * KiCad object kinds that are a route rather than a placed part.
- *
- * Wider than the grouping module's `PCB_COPPER_KINDS`, and deliberately so:
- * that set decides which changes bucket onto one conductor and answers to the
- * parser's own vocabulary, while this one decides how a group's fields are
- * summarised and has to accept every spelling a provider might emit.
- */
-const ROUTING_OBJECT_KINDS = new Set([
-    "track",
-    "segment",
-    "arc",
-    "arc_segment",
-    "via",
-]);
+/** KiCad object kinds that are a route rather than a placed part. */
+const ROUTING_OBJECT_KINDS = kindsWith("copper");
 
 function isRouting(change: ChangeItem): boolean {
     return ROUTING_OBJECT_KINDS.has(change.object_kind ?? "");
@@ -64,10 +52,7 @@ const FOOTPRINT_PRIMITIVE_FIELDS = new Set([
     "stroke",
 ]);
 
-const FOOTPRINT_PRIMITIVE_KINDS = new Set([
-    "footprint_graphic",
-    "footprint_text",
-]);
+const FOOTPRINT_PRIMITIVE_KINDS = kindsWith("footprint-primitive");
 
 /**
  * Position is proven by the two canvases and a RefDes means nothing on copper.

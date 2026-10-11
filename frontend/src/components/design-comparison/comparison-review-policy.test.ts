@@ -198,7 +198,7 @@ const schematicCases: PolicyCase[] = [
 ];
 
 const pcbCases: PolicyCase[] = [
-    ...["footprint", "pad", "segment", "arc", "via", "zone"].map((object_kind) => ({
+    ...["footprint", "pad", "track", "arc", "via", "zone"].map((object_kind) => ({
         name: `${object_kind} fabrication change`,
         change: {
             domain: "pcb" as const,
@@ -450,7 +450,7 @@ describe("review presentation policy", () => {
         const objectKinds = [
             undefined, "symbol", "pin", "sheet", "wire", "label", "junction",
             "footprint", "pad", "track", "via", "zone", "group", "net_class",
-            "image", "text", "graphic", "drawing",
+            "image", "text", "graphic",
         ];
 
         for (const domain of domains) {

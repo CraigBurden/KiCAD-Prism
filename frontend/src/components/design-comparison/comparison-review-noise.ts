@@ -23,13 +23,10 @@ import {
     parentSymbolKey,
     stringFieldPair,
 } from "./comparison-change-facts";
+import { kindsWith } from "./comparison-change-kinds";
 import type { ChangeItem } from "./types";
 
-const SCHEMATIC_LABEL_KINDS = new Set([
-    "label",
-    "global_label",
-    "hierarchical_label",
-]);
+const SCHEMATIC_LABEL_KINDS = kindsWith("schematic-label");
 
 export interface PreparedReviewChanges {
     changes: ChangeItem[];
