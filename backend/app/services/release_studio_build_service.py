@@ -1378,9 +1378,13 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
     if not row:
         raise BuildError("project not found")
     repository_id = str(row.get("repo_id") or "")
-    location = project_revision.locate(row)
-    relative_path = location.relative_path or "."
-    repo_root = location.repo_root
+    try:
+        location = project_revision.locate(row)
+        repo_root, relative_path = location.repo_root, location.relative_path or "."
+    except project_revision.ProjectNotInRepository:
+        # Let preparation fail inside the retained-failure path below.
+        repo_root = Path(str(row.get("path") or ""))
+        relative_path = str(row.get("relative_path") or ".")
 
     context.progress(stage="closure", message="Materializing the input closure", percent=5)
     tracker = PipelineTracker(
