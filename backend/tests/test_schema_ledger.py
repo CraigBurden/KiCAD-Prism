@@ -18,10 +18,8 @@ from typing import Any, Iterator
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.schema_ledger import Ledger, Renumbered, Step  # noqa: E402
+from support.postgres import APPLICATION_URL, connect, scratch_schema  # noqa: E402
 
-POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip().replace(
-    "postgresql+psycopg://", "postgresql://", 1
-)
 
 
 class LedgerDeclarationTests(unittest.TestCase):
@@ -45,24 +43,19 @@ class LedgerDeclarationTests(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for ledger tests")
+@unittest.skipUnless(APPLICATION_URL, "PRISM_DATABASE_URL is required for ledger tests")
 class LedgerPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        self.schema = f"ledger_{uuid.uuid4().hex[:12]}"
+        # Ledger.migrate creates the schema itself; the scratch only names and drops it.
+        self.scratch = scratch_schema(self, "ledger", create=False, url=APPLICATION_URL)
+        self.schema = self.scratch.name
         self.calls: list[str] = []
-        self.admin = psycopg.connect(POSTGRES_URL, row_factory=dict_row, autocommit=True)
+        self.admin = connect(url=APPLICATION_URL, autocommit=True)
         self.addCleanup(self.admin.close)
-        self.addCleanup(lambda: self.admin.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE'))
 
     @contextmanager
     def connect(self) -> Iterator[Any]:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        with psycopg.connect(POSTGRES_URL, row_factory=dict_row) as conn:
+        with connect(url=APPLICATION_URL) as conn:
             yield conn
 
     def step(self, version: int, name: str, *, fail: bool = False) -> Step:

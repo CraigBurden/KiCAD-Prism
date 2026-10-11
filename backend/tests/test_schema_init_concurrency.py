@@ -24,7 +24,8 @@ from typing import Any, Callable, Iterator
 from unittest.mock import patch
 from urllib.parse import urlsplit, urlunsplit
 
-POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
+from support.postgres import APPLICATION_URL, drop_schema
+
 ROUNDS = 5
 
 
@@ -63,12 +64,12 @@ def _race(*initialisers: Callable[[], None]) -> list[BaseException]:
     return errors
 
 
-@unittest.skipUnless(POSTGRES_URL, "PRISM_DATABASE_URL is required for schema race tests")
+@unittest.skipUnless(APPLICATION_URL, "PRISM_DATABASE_URL is required for schema race tests")
 class ConcurrentSchemaInitializationTests(unittest.TestCase):
     def setUp(self) -> None:
         import psycopg
 
-        parts = urlsplit(POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1))
+        parts = urlsplit(APPLICATION_URL)
         self.name = f"{parts.path.lstrip('/')}_initrace"
         self.server = urlunsplit(parts._replace(path="/postgres"))
         with psycopg.connect(self.server, autocommit=True) as conn:
@@ -86,8 +87,7 @@ class ConcurrentSchemaInitializationTests(unittest.TestCase):
             conn.execute(f'DROP DATABASE IF EXISTS "{self.name}" WITH (FORCE)')
 
     def _drop_schema(self, schema: str) -> None:
-        with self.database.connection() as conn:
-            conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+        drop_schema(schema, url=self.dsn)
 
     def _catalog(self, label: str):
         from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService

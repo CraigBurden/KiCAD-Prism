@@ -129,21 +129,10 @@ RENUMBERED: tuple[tuple[str, int, int], ...] = (
 )
 
 
-def _ledger() -> Ledger:
-    return Ledger(
-        name="workspace",
-        schema="workspace",
-        table="ws_schema_migrations",
-        steps=tuple(Step(version, name, body) for version, name, body in MIGRATIONS),
-        renumbered=tuple(Renumbered(name, old, new) for name, old, new in RENUMBERED),
-    )
-
-
-WORKSPACE_LEDGER = _ledger()
-
-
-def apply_workspace_migrations(conn: Any) -> list[int]:
-    """Apply pending workspace steps under the caller's lock and ``search_path``."""
-
-    # Built per call so a test that patches MIGRATIONS or RENUMBERED is honoured.
-    return _ledger().apply(conn)
+WORKSPACE_LEDGER = Ledger(
+    name="workspace",
+    schema="workspace",
+    table="ws_schema_migrations",
+    steps=tuple(Step(version, name, body) for version, name, body in MIGRATIONS),
+    renumbered=tuple(Renumbered(name, old, new) for name, old, new in RENUMBERED),
+)

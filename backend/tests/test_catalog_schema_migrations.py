@@ -19,8 +19,7 @@ from app.services.catalog_schema_migrations import (  # noqa: E402
     MIGRATIONS,
     PORTABLE_TYPES_MARKER,
     PORTABLE_TYPES_VERSION,
-    apply_catalog_migrations,
-    pending_catalog_migrations,
+    CATALOG_LEDGER,
 )
 
 
@@ -88,7 +87,7 @@ class FakeConnection:
 class CatalogSchemaMigrationTests(unittest.TestCase):
     def test_fresh_database_applies_every_migration_in_order(self) -> None:
         conn = FakeConnection(ledger_exists=False)
-        apply_catalog_migrations(conn)
+        CATALOG_LEDGER.apply(conn)
         self.assertEqual(
             [(version, name) for version, name in sorted(conn.ledger.items())],
             [(version, name) for version, name, _ in MIGRATIONS],
@@ -96,11 +95,11 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
 
     def test_second_run_changes_nothing(self) -> None:
         conn = FakeConnection(ledger_exists=False)
-        apply_catalog_migrations(conn)
+        CATALOG_LEDGER.apply(conn)
         first_pass = list(conn.ledger.items())
         conn.statements.clear()
 
-        apply_catalog_migrations(conn)
+        CATALOG_LEDGER.apply(conn)
 
         self.assertEqual(list(conn.ledger.items()), first_pass)
         self.assertEqual(conn.rewrites_columns(), [])
@@ -117,7 +116,7 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
             catalog_meta={PORTABLE_TYPES_MARKER: PORTABLE_TYPES_VERSION},
         )
 
-        apply_catalog_migrations(conn)
+        CATALOG_LEDGER.apply(conn)
 
         self.assertIn(1, conn.ledger)
         self.assertEqual(conn.rewrites_columns(), [])
@@ -125,7 +124,7 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
     def test_stale_marker_still_runs_the_migration(self) -> None:
         conn = FakeConnection(ledger_exists=False, catalog_meta={PORTABLE_TYPES_MARKER: "catalog-portable-types-v0"})
 
-        apply_catalog_migrations(conn)
+        CATALOG_LEDGER.apply(conn)
 
         self.assertIn(1, conn.ledger)
         self.assertTrue(conn.rewrites_columns())
@@ -137,7 +136,7 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
         conn.ledger = {0: "baseline", 1: "portable_column_types", 2: "import_proposal_draft_column"}
         conn.statements.clear()
 
-        apply_catalog_migrations(conn)
+        CATALOG_LEDGER.apply(conn)
 
         self.assertNotIn(
             "SELECT value FROM catalog_meta WHERE key = %s",
@@ -147,12 +146,12 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
     def test_pending_reports_what_an_upgrade_would_do(self) -> None:
         conn = FakeConnection(ledger_exists=False)
         self.assertEqual(
-            pending_catalog_migrations(conn),
+            CATALOG_LEDGER.pending(conn),
             [(version, name) for version, name, _ in MIGRATIONS],
         )
 
-        apply_catalog_migrations(conn)
-        self.assertEqual(pending_catalog_migrations(conn), [])
+        CATALOG_LEDGER.apply(conn)
+        self.assertEqual(CATALOG_LEDGER.pending(conn), [])
 
     def test_pending_does_not_list_a_migration_that_will_only_be_adopted(self) -> None:
         """The pre-upgrade report has to match what the upgrade actually does."""
@@ -161,7 +160,7 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
             catalog_meta={PORTABLE_TYPES_MARKER: PORTABLE_TYPES_VERSION},
         )
 
-        pending = pending_catalog_migrations(conn)
+        pending = CATALOG_LEDGER.pending(conn)
 
         self.assertNotIn(1, [version for version, _ in pending])
         self.assertEqual(conn.ledger, {}, "reporting must not modify the database")
@@ -192,16 +191,16 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
         conn = FakeConnection()
         conn.ledger = {1: "portable_column_types", 2: "import_proposal_draft_column", 3: "agent_tokens_registry"}
 
-        self.assertNotIn("agent_tokens_registry", [name for _, name in pending_catalog_migrations(conn)])
+        self.assertNotIn("agent_tokens_registry", [name for _, name in CATALOG_LEDGER.pending(conn)])
         self.assertEqual(conn.ledger[3], "agent_tokens_registry", "reporting must not modify the database")
 
-        apply_catalog_migrations(conn)
+        CATALOG_LEDGER.apply(conn)
 
         self.assertEqual(conn.ledger[6], "agent_tokens_registry")
         self.assertEqual(list(conn.ledger.values()).count("agent_tokens_registry"), 1)
         # 3 is free again for the migration that owns it.
         self.assertNotEqual(conn.ledger.get(3), "agent_tokens_registry")
-        self.assertEqual(pending_catalog_migrations(conn), [])
+        self.assertEqual(CATALOG_LEDGER.pending(conn), [])
 
 
 if __name__ == "__main__":
