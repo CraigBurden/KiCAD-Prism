@@ -511,14 +511,6 @@ def _run_once(
         "schematicChanges": len(complete_result["schematic"]["changes"]),
         "pcbChanges": len(complete_result["pcb"]["changes"]),
         "bomChanges": len((complete_result.get("bom") or {}).get("changes") or []),
-        "schematicPositionDeltaGroups": sum(
-            group.get("position_delta") is not None
-            for group in complete_result["schematic"]["groups"]
-        ),
-        "pcbPositionDeltaGroups": sum(
-            group.get("position_delta") is not None
-            for group in complete_result["pcb"]["groups"]
-        ),
     }
     ordered_revisions = list(dict.fromkeys((base, compare)))
     snapshots = {

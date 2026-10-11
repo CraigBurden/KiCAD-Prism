@@ -8,7 +8,7 @@ import subprocess
 from unittest import mock
 
 from app.core.config import Settings, settings
-from app.services import design_compare_artifacts, design_compare_sources
+from app.services import design_compare_artifacts, design_compare_occurrences, design_compare_sources
 from app.services import bom_diff_service, design_compare_service, semantic_index_service
 from app.services import project_revision as project_revision_module
 from app.services.design_compare_benchmark import DesignCompareBenchmark
@@ -351,8 +351,8 @@ class DesignCompareServiceTests(unittest.TestCase):
                 design_compare_service._resolve_revision(root, "../not-a-revision")
 
     def test_semantic_bom_projection_reuses_components_and_excludes_non_bom(self) -> None:
-        rows = design_compare_service._semantic_bom_rows({
-            "components": [
+        rows = design_compare_occurrences.bom_rows(
+            [
                 {
                     "reference": "R1",
                     "value": "10k",
@@ -364,7 +364,7 @@ class DesignCompareServiceTests(unittest.TestCase):
                     "fields": {"kicad_in_bom": "false"},
                 },
             ],
-        })
+        )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["Reference"], "R1")
         self.assertEqual(rows[0]["Manufacturer"], "ACME")
@@ -531,7 +531,6 @@ class DesignCompareServiceTests(unittest.TestCase):
             "semantic": self._design(),
             "geometry": {"schematic": {}, "pcb": {}},
             "sources": [{"filename": "root.kicad_sch", "path": "root.kicad_sch"}],
-            "bom_rows": [],
         }
         benchmark = DesignCompareBenchmark(job_id="staged-test")
         result, _state = design_compare_service._assemble_initial_comparison(
