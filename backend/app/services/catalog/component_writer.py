@@ -157,6 +157,30 @@ class CatalogComponentWriter:
             counter += 1
         return candidate
 
+    def identity_holder(
+        self,
+        conn: Any,
+        *,
+        manufacturer: str,
+        mpn: str,
+        identity_kind: str = IDENTITY_KIND_MPN,
+        identity_source: str = "",
+        source_internal_part_number: str = "",
+        component_id: str = "",
+        acquire_identity_lock: bool = True,
+    ) -> dict[str, Any] | None:
+        """The component (active or retired) holding this identity, under the identity lock."""
+        identity = ComponentIdentity.of(
+            manufacturer=manufacturer,
+            mpn=mpn,
+            identity_kind=identity_kind,
+            identity_source=identity_source,
+            source_internal_part_number=source_internal_part_number,
+        )
+        if acquire_identity_lock:
+            self._catalog_locks.lock_component_identity(conn, identity.lock_scope, identity.part_number)
+        return find_identity_holder(conn, identity, exclude_component_id=component_id)
+
     def assert_identity_available(
         self,
         conn: Any,
@@ -170,16 +194,16 @@ class CatalogComponentWriter:
         acquire_identity_lock: bool = True,
     ) -> None:
         """Reject a second component with the same orderable or provisional identity."""
-        identity = ComponentIdentity.of(
+        if self.identity_holder(
+            conn,
             manufacturer=manufacturer,
             mpn=mpn,
             identity_kind=identity_kind,
             identity_source=identity_source,
             source_internal_part_number=source_internal_part_number,
-        )
-        if acquire_identity_lock:
-            self._catalog_locks.lock_component_identity(conn, identity.lock_scope, identity.part_number)
-        if find_identity_holder(conn, identity, exclude_component_id=component_id):
+            component_id=component_id,
+            acquire_identity_lock=acquire_identity_lock,
+        ):
             raise ValueError("A component with this manufacturer-part identity already exists")
 
     def upsert_metadata_row(

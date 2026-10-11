@@ -23,6 +23,7 @@ from app.services.catalog.health import CatalogHealth
 from app.services.catalog.inventory_csv import CatalogInventoryCsv
 from app.services.catalog.klc_validation import CatalogKlcValidation
 from app.services.catalog.locking import CatalogLockOperations
+from app.services.catalog.runtime import CatalogRuntime
 from app.services.catalog.metadata_batch_application import CatalogMetadataBatchApplication
 from app.services.catalog.metadata_batch_staging import CatalogMetadataBatchStaging
 from app.services.catalog.metadata_batch_workflow import CatalogMetadataBatchWorkflow
@@ -40,6 +41,7 @@ from app.services.catalog.project_import_assets import CatalogProjectImportAsset
 from app.services.catalog.project_import_matching import CatalogProjectImportMatching
 from app.services.catalog.project_import_sessions import CatalogProjectImportSessions
 from app.services.catalog.provider_tokens import CatalogProviderTokens
+from app.services.catalog.library_import_writer import CatalogLibraryImportWriter
 from app.services.catalog.release_workflow import CatalogReleaseWorkflow
 from app.services.catalog.remote_heads import CatalogRemoteHeads
 from app.services.catalog.representations import CatalogRepresentations
@@ -232,4 +234,14 @@ def build_catalog_collaborators(
         metadata_batch_staging=metadata_batch_staging,
         metadata_batch_application=metadata_batch_application,
         metadata_batch_workflow=metadata_batch_workflow,
+    )
+
+
+def build_library_import_writer(
+    runtime: CatalogRuntime, *, catalog_locks: CatalogLockOperations
+) -> CatalogLibraryImportWriter:
+    """The bulk library-import writer over its own collaborator graph (the import CLIs)."""
+    graph = build_catalog_collaborators(catalog_locks=catalog_locks)
+    return CatalogLibraryImportWriter(
+        runtime, graph.revision_kernel, graph.component_writer, graph.release_workflow
     )

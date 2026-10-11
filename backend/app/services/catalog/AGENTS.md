@@ -51,7 +51,10 @@ rationale are recorded in `docs/CATALOG_DECOMPOSITION_HANDOFF.md`.
   byte-stable for identical inputs.
 - DBL bundle layout, column order, and file names (`dbl_export.py`).
 - Release gating is fail-closed and review/release records are append-only
-  (`release_workflow.py`).
+  (`release_workflow.py`). Bulk library imports release only through its
+  trusted-import path (`release_trusted_import`), which applies the same gates,
+  and take slugs and identities under the component writer's locks
+  (`library_import_writer.py`).
 - Workflow stages, legacy aliases, transitions, and role rights have one
   definition (`workflow_policy.py`). The API, release workflow, and revision
   kernel import it; the frontend's offered transitions are generated from it

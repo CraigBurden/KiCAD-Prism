@@ -32,7 +32,10 @@ from dataclasses import dataclass
 import re
 from typing import Any, Iterable, Mapping
 
-from app.services.catalog.metadata_descriptors import BUILTIN_METADATA_DESCRIPTORS
+from app.services.catalog.metadata_descriptors import (
+    BUILTIN_METADATA_DESCRIPTORS,
+    read_builtin_metadata_value,
+)
 from app.services.catalog.metadata_normalization import (
     IDENTITY_KIND_MPN,
     IDENTITY_KIND_PROVISIONAL_IPN,
@@ -209,6 +212,25 @@ def missing_metadata_findings(values: Mapping[str, Any]) -> list[dict[str, str]]
     ]
 
 
+def missing_builtin_fields(
+    payload: Mapping[str, Any],
+    *,
+    identity_kind: str | None = IDENTITY_KIND_MPN,
+) -> list[str]:
+    """Labels of the built-in fields required for ``identity_kind`` that are blank in ``payload``.
+
+    ``payload`` is raw (pre-normalization) metadata; aliases are read as
+    ``normalize_metadata`` reads them.
+    """
+
+    return [
+        descriptor.label
+        for descriptor in BUILTIN_METADATA_DESCRIPTORS
+        if is_field_required({"key": descriptor.key}, identity_kind=identity_kind)
+        and not read_builtin_metadata_value(payload, descriptor)
+    ]
+
+
 def missing_custom_fields(
     fields: Iterable[Mapping[str, Any]],
     metadata: Mapping[str, Any],
@@ -321,6 +343,7 @@ __all__ = [
     "import_metadata_problems",
     "import_metadata_verdicts",
     "is_field_required",
+    "missing_builtin_fields",
     "missing_custom_fields",
     "missing_metadata_findings",
 ]
