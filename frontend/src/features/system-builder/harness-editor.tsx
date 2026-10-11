@@ -305,7 +305,7 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
   const wires = draft ?? draftFromHarness(harness);
   const problems = wireProblems(wires, harness);
   const spliced = splices(wires);
-  const own = findings.filter((finding) => (finding.detail as { harnessId?: string } | null)?.harnessId === harness.id);
+  const own = findings.filter((finding) => !finding.waived && (finding.detail as { harnessId?: string } | null)?.harnessId === harness.id);
   const isBusy = busy !== null;
 
   const edit = (update: (rows: DraftWire[]) => DraftWire[]) => {

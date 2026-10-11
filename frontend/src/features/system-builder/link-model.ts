@@ -120,9 +120,9 @@ export function sortDraft(draft: DraftRow[]): DraftRow[] {
   return [...draft].sort((a, b) => comparePads(a.pinA, b.pinA) || comparePads(a.pinB, b.pinB));
 }
 
-/** Findings that concern one link, and the ones that name each of its rows. */
+/** Open findings that concern one link, and the ones that name each of its rows (SB2-100: waived ones colour nothing). */
 export function linkFindings(findings: Finding[], link: SystemLink): { all: Finding[]; byRow: Map<string, Finding[]> } {
-  const all = findings.filter((finding) => finding.linkId === link.id);
+  const all = findings.filter((finding) => finding.linkId === link.id && !finding.waived);
   const byRow = new Map<string, Finding[]>();
   for (const finding of all) {
     if (finding.rowId) {
