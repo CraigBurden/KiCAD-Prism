@@ -20,7 +20,7 @@ import { ConnectedAccounts } from "@/features/code-hosts/connected-accounts";
 import { User, UserRole } from "@/types/auth";
 import { fetchApi, readApiError } from "@/lib/api";
 import { changeOwnPassword, fetchAuthConfig } from "@/lib/auth";
-import { ROLE_OPTIONS, roleLabel } from "@/lib/roles";
+import { ROLE_OPTIONS, canAdministerWorkspace, roleLabel } from "@/lib/roles";
 import { AgentTokensForUser, useAgentTokens, type AgentToken } from "@/components/agent-tokens";
 import type { SettingsTab } from "@/lib/settings-tabs";
 
@@ -65,7 +65,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
 ];
 
 export function SettingsDialog({ open, onOpenChange, user, initialTab }: SettingsDialogProps) {
-    const isAdmin = user?.role === "admin";
+    const isAdmin = canAdministerWorkspace(user?.role);
     const allowed = (tab: SettingsTab | undefined): tab is SettingsTab =>
         Boolean(tab) && NAV_GROUPS.some((group) => group.items.some((item) => item.tab === tab && (!item.adminOnly || isAdmin)));
     const [activeTab, setActiveTab] = useState<SettingsTab>(allowed(initialTab) ? initialTab : "accounts");

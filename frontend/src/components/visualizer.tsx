@@ -18,7 +18,7 @@ import { useLiveComments } from "@/features/live-comments/use-live-comments";
 import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-overlay-rail";
 import { fetchApi, readApiError } from "@/lib/api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
-import { canWriteCatalog } from "@/lib/roles";
+import { canCommentOnProjects, canWriteCatalog } from "@/lib/roles";
 import { crossProbeRequestForSelection, enrichPrismSelection, netStatisticsRefForSelection, normalizeEcadSelection } from "@/lib/prism-selection";
 import {
     adoptViewerNets,
@@ -570,7 +570,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     ]);
 
     const canImportLibraryComponent = canWriteCatalog(user?.role);
-    const canModifyComments = user?.role === "admin" || user?.role === "designer";
+    const canModifyComments = canCommentOnProjects(user?.role);
 
     const handleImportSelectedComponent = useCallback(async () => {
         if (!globalSelection || globalSelection.kind === "net" || componentImportPending) return;
