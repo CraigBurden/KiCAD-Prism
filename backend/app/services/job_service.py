@@ -923,6 +923,39 @@ class JobService:
             conn.commit()
             return cursor.rowcount == 1
 
+    def publish_ended_result(
+        self, job_id: str, artifact: Mapping[str, Any], *, expected_digest: str, details: Mapping[str, Any]
+    ) -> bool:
+        """Replace an ended (``failed``/``cancelled``) job's result without a fence, for
+        end hooks: only while its result is still ``expected_digest``, so once."""
+
+        with self._connect() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            row = conn.execute(
+                """UPDATE ws_jobs SET result_path = %s, result_digest = %s, result_metadata = %s::jsonb,
+                       updated_at = NOW()
+                   WHERE id = %s AND status IN ('failed', 'cancelled') AND result_digest = %s
+                   RETURNING fence""",
+                (artifact["object_path"], artifact["digest"], _json(dict(details)), job_id, expected_digest),
+            ).fetchone()
+            if row is not None:
+                self._insert_artifact(conn, str(uuid.uuid4()), artifact, job_id=job_id, fence=int(row["fence"]))
+                self._event(conn, job_id, "ended_result_published", details={"digest": artifact["digest"]})
+            conn.commit()
+            return row is not None
+
+    def ended_job_ids(self, kind: str, *, result_metadata: Mapping[str, Any], limit: int = 100) -> list[str]:
+        """``failed``/``cancelled`` jobs of ``kind`` whose result metadata contains ``result_metadata``."""
+
+        with self._connect() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            rows = conn.execute(
+                """SELECT id FROM ws_jobs WHERE kind = %s AND status IN ('failed', 'cancelled')
+                   AND result_metadata @> %s::jsonb ORDER BY updated_at DESC LIMIT %s""",
+                (kind, _json(dict(result_metadata)), limit),
+            ).fetchall()
+        return [str(row["id"]) for row in rows]
+
     def register_fenced_artifacts(
         self,
         job_id: str,
