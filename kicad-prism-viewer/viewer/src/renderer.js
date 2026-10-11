@@ -1,4 +1,5 @@
 import { GeometryArena } from "./geometry-arena.js";
+import { buildVariant, featureKey, hook, sortedFeatures, stripHooks } from "./shader-variants.js";
 import {
   FEATURE_MASK_WGSL,
   MIN_FEATURE_MASK_CAPACITY,
@@ -53,7 +54,7 @@ const STENCIL_MARKED = { compare: "equal", passOp: "keep" };
 // SB2-89: positions are unorm16 within the primitive's bounds; the draw names the bounds.
 const DEQUANT_WGSL = `fn dequant(p: vec3f) -> vec3f { return draw.quantMin.xyz + p * draw.quantSize.xyz; }`;
 
-const MAIN_SHADER = `
+const MAIN_SOURCE = `
 struct Globals {
   viewProjection: mat4x4f,
   activeNet: u32,
@@ -85,7 +86,7 @@ ${NET_MASK_WGSL}
 // Set on the pipeline that draws the solder mask over copper.
 override COVERED: bool = false;
 
-struct VertexInput {
+${hook("decl")}struct VertexInput {
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) netId: u32,
@@ -96,7 +97,7 @@ struct VertexOutput {
   @location(0) normal: vec3f,
   @location(1) @interpolate(flat) netId: u32,
   @location(2) @interpolate(flat) objectId: u32,
-  @location(3) world: vec3f,
+${hook("vs-out")}  @location(3) world: vec3f,
 };
 @vertex fn vs(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
@@ -105,7 +106,7 @@ struct VertexOutput {
   output.normal = normalize(input.normal);
   output.netId = input.netId;
   output.objectId = input.objectId;
-  return output;
+${hook("vs-end")}  return output;
 }
 fn aces(color: vec3f) -> vec3f {
   let a = 2.51;
@@ -116,7 +117,7 @@ fn aces(color: vec3f) -> vec3f {
   return clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3f(0), vec3f(1));
 }
 @fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
-  let kind = u32(draw.flags.x);
+${hook("fs-begin")}  let kind = u32(draw.flags.x);
   let copper = kind == 1u;
   let component = kind == 2u;
   if (component && featureHidden(input.objectId)) { discard; }
@@ -161,11 +162,12 @@ fn aces(color: vec3f) -> vec3f {
   // Translucent placeholders (material.z = full component opacity) turn solid when selected.
   if (selectedComponent) { alpha = max(alpha, draw.material.z * 0.9); }
   if (COVERED) { alpha = min(1.0, alpha * 1.2); }
-  return vec4f(aces(lit), alpha);
+${hook("fs-return")}  return vec4f(aces(lit), alpha);
 }
 `;
+const MAIN_SHADER = stripHooks(MAIN_SOURCE);
 
-const PICK_SHADER = `
+const PICK_SOURCE = `
 struct Globals {
   viewProjection: mat4x4f,
   activeNet: u32,
@@ -186,7 +188,7 @@ ${DEQUANT_WGSL}
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${FEATURE_MASK_WGSL}
 ${NET_MASK_WGSL}
-struct Input {
+${hook("decl")}struct Input {
   @location(0) position: vec3f,
   @location(1) normal: vec3f,
   @location(2) netId: u32,
@@ -195,25 +197,26 @@ struct Input {
 struct Output {
   @builtin(position) position: vec4f,
   @location(2) @interpolate(flat) netId: u32,
-  @location(0) @interpolate(flat) objectId: u32,
+${hook("vs-out")}  @location(0) @interpolate(flat) objectId: u32,
 };
 @vertex fn vs(input: Input) -> Output {
   var output: Output;
   output.position = globals.viewProjection * vec4f(dequant(input.position) + draw.offset.xyz, 1.0);
   output.objectId = input.objectId;
   output.netId = input.netId;
-  return output;
+${hook("vs-end")}  return output;
 }
 @fragment fn fs(input: Output) -> @location(0) vec2u {
-  if (u32(draw.flags.x) == 2u && featureHidden(input.objectId)) { discard; }
+${hook("fs-begin")}  if (u32(draw.flags.x) == 2u && featureHidden(input.objectId)) { discard; }
   // Isolated (flags.z), unlit copper is not drawn, so it is not there to pick (SB2-31e).
   let lit = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   if (u32(draw.flags.x) == 1u && draw.flags.z > 0.5 && !lit) { discard; }
-  return vec2u(1u, input.objectId);
+${hook("fs-return")}  return vec2u(1u, input.objectId);
 }
 `;
+const PICK_SHADER = stripHooks(PICK_SOURCE);
 
-const BARREL_SHADER = `
+const BARREL_SOURCE = `
 struct Globals {
   viewProjection: mat4x4f,
   activeNet: u32,
@@ -232,7 +235,7 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${NET_MASK_WGSL}
-struct Input {
+${hook("decl")}struct Input {
   @location(0) unit: vec3f,
   @location(1) normal: vec3f,
   @location(2) radiusMix: f32,
@@ -245,7 +248,7 @@ struct Output {
   @location(0) normal: vec3f,
   @location(1) @interpolate(flat) netId: u32,
   @location(2) @interpolate(flat) objectId: u32,
-  @location(3) @interpolate(flat) visible: u32,
+${hook("vs-out")}  @location(3) @interpolate(flat) visible: u32,
 };
 @vertex fn vs(input: Input) -> Output {
   let radius = mix(input.dimensions.z, input.dimensions.w, input.radiusMix);
@@ -265,10 +268,10 @@ struct Output {
   if (globals.selectedLayer == 0u || (globals.selectedLayer >= input.ids.z && globals.selectedLayer <= input.ids.w)) {
     output.visible = 1u;
   }
-  return output;
+${hook("vs-end")}  return output;
 }
 @fragment fn fs(input: Output) -> @location(0) vec4f {
-  if (input.visible == 0u) { discard; }
+${hook("fs-begin")}  if (input.visible == 0u) { discard; }
   let selected = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   var base = draw.color.rgb;
   if (selected) {
@@ -281,11 +284,12 @@ struct Output {
   if (draw.flags.z > 0.5 && !selected) { discard; }
   let light = normalize(globals.lightDirection.xyz);
   let lit = base * (0.38 + max(dot(normalize(input.normal), light), 0.0) * 0.72);
-  return vec4f(lit, 1.0);
+${hook("fs-return")}  return vec4f(lit, 1.0);
 }
 `;
+const BARREL_SHADER = stripHooks(BARREL_SOURCE);
 
-const BARREL_PICK_SHADER = `
+const BARREL_PICK_SOURCE = `
 struct Globals {
   viewProjection: mat4x4f,
   activeNet: u32,
@@ -304,7 +308,7 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(2) var<storage, read> layerOffsets: array<f32>;
 @group(0) @binding(4) var<storage, read> netMask: array<u32>;
 ${NET_MASK_WGSL}
-struct Input {
+${hook("decl")}struct Input {
   @location(0) unit: vec3f,
   @location(1) normal: vec3f,
   @location(2) radiusMix: f32,
@@ -316,7 +320,7 @@ struct Output {
   @builtin(position) position: vec4f,
   @location(3) @interpolate(flat) netId: u32,
   @location(0) @interpolate(flat) objectId: u32,
-  @location(1) @interpolate(flat) visible: u32,
+${hook("vs-out")}  @location(1) @interpolate(flat) visible: u32,
 };
 @vertex fn vs(input: Input) -> Output {
   let radius = mix(input.dimensions.z, input.dimensions.w, input.radiusMix);
@@ -333,15 +337,16 @@ struct Output {
   if (globals.selectedLayer == 0u || (globals.selectedLayer >= input.ids.z && globals.selectedLayer <= input.ids.w)) {
     output.visible = 1u;
   }
-  return output;
+${hook("vs-end")}  return output;
 }
 @fragment fn fs(input: Output) -> @location(0) vec2u {
-  if (input.visible == 0u) { discard; }
+${hook("fs-begin")}  if (input.visible == 0u) { discard; }
   let lit = netEmphasized(input.netId) || (globals.activeNet != 0u && input.netId == globals.activeNet);
   if (draw.flags.z > 0.5 && !lit) { discard; }
-  return vec2u(1u, input.objectId);
+${hook("fs-return")}  return vec2u(1u, input.objectId);
 }
 `;
+const BARREL_PICK_SHADER = stripHooks(BARREL_PICK_SOURCE);
 
 // Occurrence-instanced variants (System Builder SB2-23). Every draw runs once
 // per occurrence and places the board-local position (after the explode and
@@ -376,7 +381,7 @@ const PICK_LIT = "  let lit = netEmphasized(input.netId) || (globals.activeNet !
 const PICK_LIT_INSTANCED = `  let lit = emphasisOf(input.occurrence, input.netId) != 0u
     || (input.occurrence == globals.selectedOccurrence && globals.activeNet != 0u && input.netId == globals.activeNet);`;
 
-const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
+const MAIN_SOURCE_INSTANCED = variant(MAIN_SOURCE, [
   SELECTED_OCCURRENCE,
   [`  @location(3) world: vec3f,
 };`, `  @location(3) world: vec3f,
@@ -418,8 +423,9 @@ const MAIN_SHADER_INSTANCED = variant(MAIN_SHADER, [
   ["      base = vec3f(0.08, 1.0, 0.2) * pulse;", "      base = emphasisColor(mark, vec3f(0.08, 1.0, 0.2)) * pulse;"],
   ["  var alpha = draw.flags.y;", "  var alpha = draw.flags.y * input.fade;"],
 ]);
+const MAIN_SHADER_INSTANCED = stripHooks(MAIN_SOURCE_INSTANCED);
 
-const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
+const PICK_SOURCE_INSTANCED = variant(PICK_SOURCE, [
   SELECTED_OCCURRENCE,
   [`  @location(0) @interpolate(flat) objectId: u32,
 };`, `  @location(0) @interpolate(flat) objectId: u32,
@@ -441,12 +447,14 @@ const PICK_SHADER_INSTANCED = variant(PICK_SHADER, [
     output.position = vec4f(0.0, 0.0, 2.0, 1.0);
   }`],
   // Board context draws (kind 0) pick as feature 0: "this board", no feature.
-  [`  return vec2u(1u, input.objectId);`,
+  // The fs-return hook moves with the return line.
+  [`${hook("fs-return")}  return vec2u(1u, input.objectId);`,
   `  let kind = u32(draw.flags.x);
-  return vec2u(input.occurrence, select(input.objectId, 0u, kind == 0u));`],
+${hook("fs-return")}  return vec2u(input.occurrence, select(input.objectId, 0u, kind == 0u));`],
   ...EMPHASIS_TABLE,
   [PICK_LIT, PICK_LIT_INSTANCED],
 ]);
+const PICK_SHADER_INSTANCED = stripHooks(PICK_SOURCE_INSTANCED);
 
 // Component instancing (SB2-86): a component model is uploaded once and drawn at
 // every placement. A placement is a 3×4 transform (board frame, the GLB's axes
@@ -468,7 +476,7 @@ const PLACED_OBJECT = ["  output.objectId = input.objectId;", "  output.objectId
 const INSTANCED_PLACEMENT = ["  let index = listedOccurrence(u32(draw.material.w + 0.5), instance);",
   "  let placement = placements[draw.placement.x + instance % draw.placement.y];\n  let index = listedOccurrence(u32(draw.material.w + 0.5), instance / draw.placement.y);"];
 
-const COMPONENT_SHADER = variant(MAIN_SHADER, [
+const COMPONENT_SOURCE = variant(MAIN_SOURCE, [
   PLACEMENT_PRELUDE,
   [`@vertex fn vs(input: VertexInput) -> VertexOutput {
   var output: VertexOutput;
@@ -479,7 +487,7 @@ const COMPONENT_SHADER = variant(MAIN_SHADER, [
   ["  output.normal = normalize(input.normal);", "  output.normal = normalize(turn(placement, input.normal));"],
   PLACED_OBJECT,
 ]);
-const COMPONENT_SHADER_INSTANCED = variant(MAIN_SHADER_INSTANCED, [
+const COMPONENT_SOURCE_INSTANCED = variant(MAIN_SOURCE_INSTANCED, [
   PLACEMENT_PRELUDE,
   INSTANCED_PLACEMENT,
   ["occurrence.model * vec4f(dequant(input.position) + draw.offset.xyz + lift, 1.0)",
@@ -487,7 +495,7 @@ const COMPONENT_SHADER_INSTANCED = variant(MAIN_SHADER_INSTANCED, [
   ["(occurrence.normal * vec4f(input.normal, 0.0))", "(occurrence.normal * vec4f(turn(placement, input.normal), 0.0))"],
   PLACED_OBJECT,
 ]);
-const COMPONENT_PICK_SHADER = variant(PICK_SHADER, [
+const COMPONENT_PICK_SOURCE = variant(PICK_SOURCE, [
   PLACEMENT_PRELUDE,
   [`@vertex fn vs(input: Input) -> Output {
   var output: Output;
@@ -497,13 +505,17 @@ const COMPONENT_PICK_SHADER = variant(PICK_SHADER, [
   output.position = globals.viewProjection * vec4f(place(placement, dequant(input.position)) + draw.offset.xyz, 1.0);`],
   PLACED_OBJECT,
 ]);
-const COMPONENT_PICK_SHADER_INSTANCED = variant(PICK_SHADER_INSTANCED, [
+const COMPONENT_PICK_SOURCE_INSTANCED = variant(PICK_SOURCE_INSTANCED, [
   PLACEMENT_PRELUDE,
   INSTANCED_PLACEMENT,
   ["occurrence.model * vec4f(dequant(input.position) + draw.offset.xyz + lift, 1.0)",
     "occurrence.model * vec4f(place(placement, dequant(input.position)) + draw.offset.xyz + lift, 1.0)"],
   PLACED_OBJECT,
 ]);
+const COMPONENT_SHADER = stripHooks(COMPONENT_SOURCE);
+const COMPONENT_SHADER_INSTANCED = stripHooks(COMPONENT_SOURCE_INSTANCED);
+const COMPONENT_PICK_SHADER = stripHooks(COMPONENT_PICK_SOURCE);
+const COMPONENT_PICK_SHADER_INSTANCED = stripHooks(COMPONENT_PICK_SOURCE_INSTANCED);
 // A placement record: three rows of the transform, then the feature id.
 export const PLACEMENT_STRIDE = 64;
 // Instanced component slots carry their placement count in the class word: 6 | count << 3.
@@ -561,8 +573,8 @@ function barrelVariant(source, positionLine, extra = []) {
   ]);
 }
 
-const BARREL_SHADER_INSTANCED = barrelVariant(
-  BARREL_SHADER,
+const BARREL_SOURCE_INSTANCED = barrelVariant(
+  BARREL_SOURCE,
   "  output.position = globals.viewProjection * vec4f(world, 1.0);\n  output.normal = input.normal;",
   [
     ["  let z0 = input.span.x + layerOffsets[input.ids.z];\n  let z1 = input.span.y + layerOffsets[input.ids.w];",
@@ -575,8 +587,8 @@ const BARREL_SHADER_INSTANCED = barrelVariant(
     ["      base = vec3f(0.1, 1.0, 0.22) * (", "      base = emphasisColor(mark, vec3f(0.1, 1.0, 0.22)) * ("],
   ],
 );
-const BARREL_PICK_SHADER_INSTANCED = barrelVariant(
-  BARREL_PICK_SHADER,
+const BARREL_PICK_SOURCE_INSTANCED = barrelVariant(
+  BARREL_PICK_SOURCE,
   "  output.position = globals.viewProjection * vec4f(world, 1.0);\n  output.objectId",
   [
     ["mix(input.span.x + layerOffsets[input.ids.z], input.span.y + layerOffsets[input.ids.w], input.unit.z)",
@@ -587,6 +599,8 @@ const BARREL_PICK_SHADER_INSTANCED = barrelVariant(
     [PICK_LIT, PICK_LIT_INSTANCED],
   ],
 );
+const BARREL_SHADER_INSTANCED = stripHooks(BARREL_SOURCE_INSTANCED);
+const BARREL_PICK_SHADER_INSTANCED = stripHooks(BARREL_PICK_SOURCE_INSTANCED);
 
 // The stand-in for an occurrence at box detail: the board's bounding box
 // (draw.offset = minimum, draw.material.xyz = size, in the board's own frame).
@@ -607,14 +621,14 @@ struct Draw { color: vec4f, material: vec4f, offset: vec4f, flags: vec4f };
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(0) @binding(1) var<uniform> draw: Draw;
 ${OCCURRENCE_WGSL}
-struct Input {
+${hook("decl")}struct Input {
   @location(0) corner: vec3f,
   @location(1) normal: vec3f,
 };
 struct Output {
   @builtin(position) position: vec4f,
   @location(0) normal: vec3f,
-  @location(1) @interpolate(flat) occurrence: u32,
+${hook("vs-out")}  @location(1) @interpolate(flat) occurrence: u32,
 };
 @vertex fn vs(input: Input, @builtin(instance_index) instance: u32) -> Output {
   let index = listedOccurrence(LIST_BOX, instance);
@@ -624,20 +638,22 @@ struct Output {
   output.position = globals.viewProjection * vec4f((occurrence.model * vec4f(local, 1.0)).xyz, 1.0);
   output.normal = (occurrence.normal * vec4f(input.normal, 0.0)).xyz;
   output.occurrence = index + 1u + globals.occurrenceBase;
-  return output;
+${hook("vs-end")}  return output;
 }
 `;
-const BOX_SHADER = `${BOX_SHADER_HEAD}
+const BOX_SOURCE = `${BOX_SHADER_HEAD}
 @fragment fn fs(input: Output) -> @location(0) vec4f {
-  let light = normalize(globals.lightDirection.xyz);
-  return vec4f(draw.color.rgb * (0.45 + max(dot(normalize(input.normal), light), 0.0) * 0.55), 1.0);
+${hook("fs-begin")}  let light = normalize(globals.lightDirection.xyz);
+${hook("fs-return")}  return vec4f(draw.color.rgb * (0.45 + max(dot(normalize(input.normal), light), 0.0) * 0.55), 1.0);
 }
 `;
-const BOX_PICK_SHADER = `${BOX_SHADER_HEAD}
+const BOX_SHADER = stripHooks(BOX_SOURCE);
+const BOX_PICK_SOURCE = `${BOX_SHADER_HEAD}
 @fragment fn fs(input: Output) -> @location(0) vec2u {
-  return vec2u(input.occurrence, 0u);
+${hook("fs-begin")}${hook("fs-return")}  return vec2u(input.occurrence, 0u);
 }
 `;
+const BOX_PICK_SHADER = stripHooks(BOX_PICK_SOURCE);
 
 // The cull pass (SB2-25). `classify` runs per occurrence: frustum test on the
 // transformed board box, then a level of detail from its projected radius with
@@ -761,6 +777,54 @@ export const INSTANCED_SHADERS = Object.freeze({
   componentPickInstanced: COMPONENT_PICK_SHADER_INSTANCED,
 });
 
+// Every draw shader with its hook markers (VT-01), one-board and instanced, and
+// where a feature finds the vertex's scene-space position at the vs-end hook.
+// Box draws exist only for occurrences.
+const SHADER_FAMILIES = Object.freeze({
+  main: { output: "color", single: MAIN_SOURCE, instanced: MAIN_SOURCE_INSTANCED, world: ["output.world", "output.world"] },
+  pick: { output: "pick", single: PICK_SOURCE, instanced: PICK_SOURCE_INSTANCED, world: ["(dequant(input.position) + draw.offset.xyz)", "world"] },
+  barrel: { output: "color", single: BARREL_SOURCE, instanced: BARREL_SOURCE_INSTANCED, world: ["world", "(occurrence.model * vec4f(world, 1.0)).xyz"] },
+  barrelPick: { output: "pick", single: BARREL_PICK_SOURCE, instanced: BARREL_PICK_SOURCE_INSTANCED, world: ["world", "(occurrence.model * vec4f(world, 1.0)).xyz"] },
+  component: { output: "color", single: COMPONENT_SOURCE, instanced: COMPONENT_SOURCE_INSTANCED, world: ["output.world", "output.world"] },
+  componentPick: {
+    output: "pick",
+    single: COMPONENT_PICK_SOURCE,
+    instanced: COMPONENT_PICK_SOURCE_INSTANCED,
+    world: ["(place(placement, dequant(input.position)) + draw.offset.xyz)", "world"],
+  },
+  box: { output: "color", single: null, instanced: BOX_SOURCE, world: [null, "(occurrence.model * vec4f(local, 1.0)).xyz"] },
+  boxPick: { output: "pick", single: null, instanced: BOX_PICK_SOURCE, world: [null, "(occurrence.model * vec4f(local, 1.0)).xyz"] },
+});
+
+export const SHADER_FAMILY_NAMES = Object.freeze(Object.keys(SHADER_FAMILIES));
+
+// A draw shader for a set of features; with none, the shader the renderer has always used.
+export function shaderVariant(family, instanced, features = []) {
+  const entry = SHADER_FAMILIES[family];
+  const source = entry?.[instanced ? "instanced" : "single"];
+  if (!source) throw new Error(`No ${instanced ? "instanced" : "one-board"} ${family} shader`);
+  return buildVariant(source, features, { family, instanced, output: entry.output, world: entry.world[instanced ? 1 : 0] });
+}
+
+// For tests: the shaders that must never change while no feature is on.
+export const BASE_SHADERS = Object.freeze({
+  main: MAIN_SHADER,
+  pick: PICK_SHADER,
+  barrel: BARREL_SHADER,
+  barrelPick: BARREL_PICK_SHADER,
+  mainInstanced: MAIN_SHADER_INSTANCED,
+  pickInstanced: PICK_SHADER_INSTANCED,
+  barrelInstanced: BARREL_SHADER_INSTANCED,
+  barrelPickInstanced: BARREL_PICK_SHADER_INSTANCED,
+  component: COMPONENT_SHADER,
+  componentInstanced: COMPONENT_SHADER_INSTANCED,
+  componentPick: COMPONENT_PICK_SHADER,
+  componentPickInstanced: COMPONENT_PICK_SHADER_INSTANCED,
+  box: BOX_SHADER,
+  boxPick: BOX_PICK_SHADER,
+  cull: CULL_SHADER,
+});
+
 export class Renderer {
   static async create(canvas) {
     if (!navigator.gpu) throw new Error("WebGPU is unavailable in this browser");
@@ -836,6 +900,14 @@ export class Renderer {
     this.placementBuffer = device.createBuffer({ label: "component-placements", size: PLACEMENT_STRIDE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.componentPipelineSets = new Map();
     this.instancedPipelines = null;
+    // Shader features (VT-01): none by default, so the original pipelines draw.
+    // Pipeline sets for a feature set compile on first use and are kept by the
+    // renderer that owns the pipelines; their number is bounded by the feature
+    // combinations in use.
+    this.shaderFeatures = [];
+    this.shaderFeatureKey = "";
+    this.featurePipelineSets = new Map();
+    this.pipelineSetKinds = new WeakMap();
     // Culled lists the instanced shaders read (SB2-25): three u32 per occurrence.
     this.listBuffer = this.createListBuffer(this.occurrenceCapacity);
     // Indirect draw arguments: a five-word slot per draw. Slot 0 is the barrels,
@@ -931,12 +1003,7 @@ export class Renderer {
         { shaderLocation: 3, offset: 16, format: "uint32" },
       ],
     }];
-    this.singlePipelines = {
-      ...this.makeMainPipelines(MAIN_SHADER, ""),
-      pick: this.makePipeline(layout, PICK_SHADER, PICK_FORMAT, vertexBuffers, "pick"),
-      barrel: this.makeBarrelPipeline(layout, BARREL_SHADER, this.format, "barrel"),
-      barrelPick: this.makeBarrelPipeline(layout, BARREL_PICK_SHADER, PICK_FORMAT, "barrel-pick"),
-    };
+    this.singlePipelines = this.makePipelineSet(false, []);
     this.pipeline = this.singlePipelines.main;
     this.pickPipeline = this.singlePipelines.pick;
     this.barrelPipeline = this.singlePipelines.barrel;
@@ -1336,26 +1403,73 @@ export class Renderer {
       this.createCull();
       return;
     }
-    const layout = this.pipelineLayout;
-    this.instancedPipelines = {
-      ...this.makeMainPipelines(MAIN_SHADER_INSTANCED, "-instanced"),
-      pick: this.makePipeline(layout, PICK_SHADER_INSTANCED, PICK_FORMAT, this.vertexBuffers, "pick-instanced"),
-      barrel: this.makeBarrelPipeline(layout, BARREL_SHADER_INSTANCED, this.format, "barrel-instanced", false),
-      barrelPick: this.makeBarrelPipeline(layout, BARREL_PICK_SHADER_INSTANCED, PICK_FORMAT, "barrel-pick-instanced", false),
-      box: this.makePipeline(layout, BOX_SHADER, this.format, BOX_VERTEX_BUFFERS, "box"),
-      boxPick: this.makePipeline(layout, BOX_PICK_SHADER, PICK_FORMAT, BOX_VERTEX_BUFFERS, "box-pick"),
-    };
+    this.instancedPipelines = this.makePipelineSet(true, []);
     this.createBox();
     this.createCull();
+  }
+
+  /**
+   * One set of draw pipelines (VT-01), one-board or occurrence-instanced, for a
+   * list of shader features. With no features the shaders are the original
+   * text and the labels the original names.
+   */
+  makePipelineSet(instanced, features) {
+    const layout = this.pipelineLayout;
+    const key = featureKey(features);
+    const variant = (family) => shaderVariant(family, instanced, features);
+    const tag = key ? `+${key}` : "";
+    const suffix = `${instanced ? "-instanced" : ""}${tag}`;
+    const set = {
+      ...this.makeMainPipelines(variant("main"), suffix),
+      pick: this.makePipeline(layout, variant("pick"), PICK_FORMAT, this.vertexBuffers, `pick${suffix}`),
+      barrel: this.makeBarrelPipeline(layout, variant("barrel"), this.format, `barrel${suffix}`, !instanced),
+      barrelPick: this.makeBarrelPipeline(layout, variant("barrelPick"), PICK_FORMAT, `barrel-pick${suffix}`, !instanced),
+    };
+    if (instanced) {
+      set.box = this.makePipeline(layout, variant("box"), this.format, BOX_VERTEX_BUFFERS, `box${tag}`);
+      set.boxPick = this.makePipeline(layout, variant("boxPick"), PICK_FORMAT, BOX_VERTEX_BUFFERS, `box-pick${tag}`);
+    }
+    this.pipelineSetKinds.set(set, { instanced, features: sortedFeatures(features), key });
+    return set;
+  }
+
+  /**
+   * Shader features for every draw (VT-01): `{ name, decl?, vsOut?, vsEnd?,
+   * fsBegin?, fsReturn? }` objects (shader-variants.js). A name stands for one
+   * definition: pipelines are cached by the sorted names. An empty list goes
+   * back to the original pipelines. Scene assets follow their scene's list.
+   */
+  setShaderFeatures(features = []) {
+    const ordered = sortedFeatures(features);
+    const key = featureKey(ordered);
+    if (key === this.shaderFeatureKey) return;
+    this.shaderFeatures = ordered;
+    this.shaderFeatureKey = key;
+    this.bundleCache.clear();
+    this.invalidate();
+  }
+
+  // The pipeline set for this renderer's shader features.
+  pipelinesFor(instanced) {
+    const owner = this.shareFrom || this;
+    if (instanced) this.ensureInstancedPipelines();
+    if (!this.shaderFeatureKey) return instanced ? owner.instancedPipelines : owner.singlePipelines;
+    const cacheKey = `${instanced ? "instanced" : "single"}|${this.shaderFeatureKey}`;
+    let set = owner.featurePipelineSets.get(cacheKey);
+    if (!set) {
+      set = owner.makePipelineSet(instanced, this.shaderFeatures);
+      owner.featurePipelineSets.set(cacheKey, set);
+    }
+    return set;
   }
 
   // The pipelines and instance counts for the current occurrences.
   // The one-board view draws directly; occurrences draw indirectly, counted by the cull pass.
   drawSet() {
     if (this.identityOnly) {
-      return { pipelines: this.singlePipelines, indirect: false, barrelInstances: this.barrels?.instanceCount || 0 };
+      return { pipelines: this.pipelinesFor(false), indirect: false, barrelInstances: this.barrels?.instanceCount || 0 };
     }
-    return { pipelines: this.instancedPipelines, indirect: true, barrelInstances: 0 };
+    return { pipelines: this.pipelinesFor(true), indirect: true, barrelInstances: 0 };
   }
 
   drawEntry(pass, entry, indirect) {
@@ -1769,12 +1883,12 @@ export class Renderer {
     const owner = this.shareFrom || this;
     let set = owner.componentPipelineSets.get(pipelines);
     if (!set) {
-      const instanced = pipelines !== owner.singlePipelines;
+      const { instanced, features, key } = owner.pipelineSetKinds.get(pipelines);
       const layout = owner.pipelineLayout;
       const buffers = owner.vertexBuffers;
-      const draw = instanced ? COMPONENT_SHADER_INSTANCED : COMPONENT_SHADER;
-      const pick = instanced ? COMPONENT_PICK_SHADER_INSTANCED : COMPONENT_PICK_SHADER;
-      const suffix = instanced ? "-instanced" : "";
+      const draw = shaderVariant("component", instanced, features);
+      const pick = shaderVariant("componentPick", instanced, features);
+      const suffix = `${instanced ? "-instanced" : ""}${key ? `+${key}` : ""}`;
       set = {
         main: owner.makePipeline(layout, draw, owner.format, buffers, `component${suffix}`, { stencil: STENCIL_OPAQUE }),
         blend: owner.makePipeline(layout, draw, owner.format, buffers, `component-blend${suffix}`),
@@ -2213,7 +2327,7 @@ export class Renderer {
     const { pipelines, indirect } = this.drawSet();
     // A repack (SB2-90) moves geometry: bundles recorded before it name the old ranges.
     const { vertex, index } = this.arenas();
-    const key = `${panelLayerId}:${indirect ? "indirect" : "single"}:${vertex.generation}.${index.generation}:${entries.map((entry) => entry.id).join(",")}`;
+    const key = `${panelLayerId}:${indirect ? "indirect" : "single"}:${this.shaderFeatureKey}:${vertex.generation}.${index.generation}:${entries.map((entry) => entry.id).join(",")}`;
     const cached = this.bundleCache.get(key);
     if (cached) return cached;
     const encoder = this.device.createRenderBundleEncoder({

@@ -44,6 +44,16 @@ node tests/browser/pixel-diff/run.mjs --board obc=<bundle dir> \
   --build base=origin/dev --build candidate=worktree --perf
 ```
 
+New render features never edit a base shader. They plug into the hook markers
+in each shader source as feature variants (`viewer/src/shader-variants.js`,
+`Renderer.setShaderFeatures`). With no feature on, the shaders stay
+byte-identical; `viewer/src/shader-variants.test.mjs` pins their hashes. Check
+that variants compile on a real GPU with:
+
+```bash
+node tests/browser/shader-variants/check.mjs
+```
+
 Install the JavaScript tooling and rebuild the embedded viewer after
 dependency changes:
 
