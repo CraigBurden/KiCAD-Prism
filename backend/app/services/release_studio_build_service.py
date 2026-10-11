@@ -15,8 +15,6 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
-import time
-from concurrent.futures import ThreadPoolExecutor
 from importlib import metadata
 from pathlib import Path
 from typing import Any, Mapping
@@ -35,20 +33,14 @@ from app.release_studio.config import (
 )
 from app.release_studio.document_pipeline import with_documents
 from app.release_studio.jobset import HERMETIC_STEP_TYPES
-from app.release_studio.pipeline import PipelineTracker
+from app.release_studio.pipeline import PipelineTracker, run_build_waves
 from app.release_studio.steps import (
-    CATALOGUE_WAVE_ARTWORK,
-    CATALOGUE_WAVE_BOM,
-    CATALOGUE_WAVE_CHECKS,
-    CATALOGUE_WAVE_POSITIONS,
     DOCUMENT_STEP_SPEC,
     STEP_CATALOGUE,
     StepExecutionError,
-    StepOutput,
     gerber_manifest_gaps,
-    run_step_catalogue,
 )
-from app.release_studio.vendors import generate_vendor_outputs, resolve_vendor_ids
+from app.release_studio.vendors import resolve_vendor_ids
 from app.services import project_revision
 from app.services import release_build_attempts as attempts
 from app.services import release_build_failure_evidence as failure_evidence
@@ -56,7 +48,7 @@ from app.services import release_studio_service as store
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_kinds import JobKind
 from app.services.job_runtime import JobCancelled, JobContext, JobResult
-from app.services.kicad_tools import KicadTool, KicadTools
+from app.services.kicad_tools import KicadTools
 
 logger = logging.getLogger(__name__)
 
@@ -348,167 +340,23 @@ def execute_build(
         )
         tracker.succeed("closure", percent=8)
 
-        def _timed(name: str, fn):
-            started = time.perf_counter()
-            try:
-                return fn()
-            finally:
-                timings.append(
-                    {
-                        "name": name,
-                        "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
-                    }
-                )
-
-        def _on_catalogue_step(
-            step_id: str,
-            status: str,
-            *,
-            elapsed_ms: int | None = None,
-            log: str = "",
-            message: str = "",
-        ) -> None:
-            tracker.catalogue_event(
-                step_id,
-                status,
-                elapsed_ms=elapsed_ms,
-                log=log,
-                message=message,
-            )
-
-        board_rel = str(config.get("board") or "")
-        board_path = closure_root / board_rel if board_rel else None
-        assembly_views: dict[str, Any] | None = None
-        assembly_error: BaseException | None = None
-        cruncher_pool: ThreadPoolExecutor | None = None
-        extra_evidence: dict[str, bytes] = {}
-        vendor_outputs: tuple[StepOutput, ...] = ()
-        schematic_rel = str(config.get("schematic") or "") or None
-        variant = str(candidate.get("variant") or "")
-        bom_preset = str(config.get("bom_preset") or "")
-
-        def _catalogue(timing_name: str, only: tuple[str, ...], *, with_bom_preset: bool = False):
-            return _timed(
-                timing_name,
-                lambda: run_step_catalogue(
-                    closure_root=closure_root,
-                    board_rel=board_rel,
-                    schematic_rel=schematic_rel,
-                    output_root=output_root,
-                    variant=variant,
-                    tool=tools.cli,
-                    only=only,
-                    progress=lambda **kwargs: context.progress(**kwargs),
-                    on_step=_on_catalogue_step,
-                    bom_preset=bom_preset if with_bom_preset else "",
-                ),
-            )
-
-        try:
-            # Checks first. Positions, then BOM, then Cruncher: each of those
-            # used to share the worker with DRC/ERC and with each other, and
-            # BOM died with std::bad_alloc.
-            outputs_checks = _catalogue("catalogue-wave-checks", CATALOGUE_WAVE_CHECKS)
-            outputs_positions = _catalogue("catalogue-wave-positions", CATALOGUE_WAVE_POSITIONS)
-            outputs_bom = _catalogue(
-                "catalogue-wave-bom",
-                CATALOGUE_WAVE_BOM,
-                with_bom_preset=True,
-            )
-            tracker.start("cruncher-assembly", message="Rendering assembly views")
-            cruncher = tools.cruncher
-            if cruncher is not None and board_path is not None and board_path.is_file():
-                from app.release_studio.documents.artwork import acquire_board_views
-
-                cruncher_pool = ThreadPoolExecutor(
-                    max_workers=1, thread_name_prefix="rs-cruncher"
-                )
-                cruncher_future = cruncher_pool.submit(
-                    lambda: _timed(
-                        "cruncher-assembly",
-                        lambda: acquire_board_views(
-                            cruncher,
-                            board_path,
-                            context.staging_dir / "artwork" / "cruncher",
-                        ),
-                    )
-                )
-            else:
-                cruncher_future = None
-                tracker.skip(
-                    "cruncher-assembly",
-                    reason="kicad-cruncher is not available"
-                    if cruncher is None
-                    else "no board in the closure",
-                )
-            if cruncher_future is not None:
-                try:
-                    assembly_views = cruncher_future.result()
-                    tracker.succeed("cruncher-assembly")
-                except Exception as exc:  # noqa: BLE001 - compose records the miss
-                    assembly_error = exc
-                    logger.warning(
-                        "Release Studio assembly views unavailable: %s", exc
-                    )
-                    tracker.fail("cruncher-assembly", message=str(exc))
-            # Vendor generators also load the board; run them after the
-            # assembly Cruncher so the two parses are not overlapped.
-            #
-            # Measured, because it looks like free parallelism and is not:
-            # overlapping the two on JTYU-OBC took 147.9s against 155.7s
-            # serial -- 8s saved -- while peak worker RSS went from 1.68 GiB
-            # to 6.41 GiB. Both are Cruncher board loads and both are CPU
-            # bound, so concurrency splits the same cores and buys nothing
-            # except an OOM risk on a host with less memory than this one.
-            vendor_outputs, extra_evidence = _timed(
-                "vendors",
-                lambda: _run_vendors(
-                    config=config,
-                    closure_root=closure_root,
-                    output_root=output_root,
-                    variant=variant,
-                    cruncher=cruncher,
-                    tracker=tracker,
-                ),
-            )
-            outputs_artwork = _catalogue("catalogue-wave-artwork", CATALOGUE_WAVE_ARTWORK)
-        finally:
-            if cruncher_pool is not None:
-                cruncher_pool.shutdown(wait=True)
-
-        combined = {
-            output.step_id: output
-            for output in (*outputs_checks, *outputs_positions, *outputs_bom, *outputs_artwork)
-        }
-        outputs = tuple(
-            combined[spec.step_id]
-            for spec in STEP_CATALOGUE
-            if spec.step_id in combined
+        waves = run_build_waves(
+            tracker,
+            progress=context.progress,
+            tools=tools,
+            closure_root=closure_root,
+            output_root=output_root,
+            artwork_root=context.staging_dir / "artwork" / "cruncher",
+            config=config,
+            variant=str(candidate.get("variant") or ""),
+            timings=timings,
         )
-        # An incomplete Gerber set is the one omission that costs a fab run,
-        # and it is invisible downstream: the vendor pack only asks whether
-        # *any* gerber is present.
-        build_warnings: list[str] = []
-        gerbers = combined.get("gerbers")
-        if gerbers is not None and gerbers.ran:
-            has_manifest, missing_plots = gerber_manifest_gaps(gerbers.files)
-            if missing_plots:
-                raise BuildError(
-                    "the Gerber export is incomplete: its job file lists "
-                    f"{', '.join(missing_plots)}, which {'was' if len(missing_plots) == 1 else 'were'} "
-                    "not written"
-                )
-            if not has_manifest:
-                build_warnings.append(
-                    "fabrication: the Gerber export wrote no readable .gbrjob "
-                    "manifest, so the layer set could not be checked for "
-                    "completeness"
-                )
+        build_warnings = _gerber_set_warnings(waves.by_step)
         if not include_schematic:
             tracker.skip("schematic_pdf", reason="no schematic in the configuration")
         tracker.start("documents-cover", message="Composing documentation", percent=70)
         outputs, document_warnings, projections = with_documents(
-            outputs,
+            waves.outputs,
             closure_root=closure_root,
             config=config,
             candidate=candidate,
@@ -518,8 +366,8 @@ def execute_build(
             staging=context.staging_dir,
             repo_root=repo_root,
             project_relpath=str(candidate.get("project_relpath") or "") or None,
-            assembly_views=assembly_views,
-            assembly_error=assembly_error,
+            assembly_views=waves.assembly_views,
+            assembly_error=waves.assembly_error,
             timings=timings,
             tracker=tracker,
             repo_url=str(candidate.get("repo_url") or ""),
@@ -541,7 +389,7 @@ def execute_build(
                 "document composition produced no sheets: "
                 f"{composed.skipped_reason or 'compose failed'}"
             )
-        outputs = (*outputs, *vendor_outputs)
+        outputs = (*outputs, *waves.vendor_outputs)
 
         tracker.start("package", message="Canonicalizing and packaging", percent=75)
 
@@ -562,7 +410,7 @@ def execute_build(
                 repo_root, str(candidate.get("commit_sha") or "")
             ),
             timings=timings,
-            extra_evidence=extra_evidence,
+            extra_evidence=waves.extra_evidence,
         )
 
         # DRC/ERC are evidence, not a gate -- a release is allowed to carry
@@ -694,49 +542,31 @@ def execute_build(
         raise
 
 
-def _run_vendors(
-    *,
-    config: Mapping[str, Any],
-    closure_root: Path,
-    output_root: Path,
-    variant: str,
-    cruncher: KicadTool | None,
-    tracker: PipelineTracker,
-) -> tuple[tuple[StepOutput, ...], dict[str, bytes]]:
-    """Generate configured vendor packs after the assembly Cruncher load."""
+def _gerber_set_warnings(by_step: Mapping[str, Any]) -> list[str]:
+    """Refuse an incomplete Gerber set; warn when it cannot be checked.
 
-    vendor_ids = resolve_vendor_ids(config)
-    if not vendor_ids:
-        return (), {}
-    for vendor_id in vendor_ids:
-        tracker.start(f"vendor-{vendor_id}", message=f"Generating {vendor_id} pack")
-    outputs, extra_evidence = generate_vendor_outputs(
-        config=config,
-        closure_root=closure_root,
-        output_root=output_root,
-        variant=variant,
-        cruncher=cruncher,
-    )
-    by_id = {output.step_id: output for output in outputs}
-    for vendor_id in vendor_ids:
-        step_id = f"vendor-{vendor_id}"
-        output = by_id.get(step_id)
-        if output is None:
-            tracker.skip(step_id, reason="vendor generator produced no output")
-            continue
-        log = "\n".join(part for part in (output.stdout, output.stderr) if part)
-        if output.skipped_reason:
-            tracker.skip(step_id, reason=output.skipped_reason)
-        elif output.returncode != 0:
-            tracker.fail(
-                step_id,
-                message=output.stderr or output.skipped_reason or f"{vendor_id} failed",
-                log=log,
-                elapsed_ms=output.elapsed_ms,
-            )
-        else:
-            tracker.succeed(step_id, elapsed_ms=output.elapsed_ms, log=log)
-    return outputs, extra_evidence
+    An incomplete Gerber set is the one omission that costs a fab run, and it
+    is invisible downstream: the vendor pack only asks whether *any* gerber is
+    present.
+    """
+
+    gerbers = by_step.get("gerbers")
+    if gerbers is None or not gerbers.ran:
+        return []
+    has_manifest, missing_plots = gerber_manifest_gaps(gerbers.files)
+    if missing_plots:
+        raise BuildError(
+            "the Gerber export is incomplete: its job file lists "
+            f"{', '.join(missing_plots)}, which {'was' if len(missing_plots) == 1 else 'were'} "
+            "not written"
+        )
+    if has_manifest:
+        return []
+    return [
+        "fabrication: the Gerber export wrote no readable .gbrjob "
+        "manifest, so the layer set could not be checked for "
+        "completeness"
+    ]
 
 
 def _commit_timestamp(repo_root: Path, commit: str) -> int:
