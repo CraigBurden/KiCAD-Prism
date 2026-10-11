@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Iterable, Optional
 
+from app.core import preconditions
 from app.core.policy import folder_visibility_params, folder_visible_sql
 from app.core.roles import Role
 
@@ -27,7 +28,7 @@ def _iso(value: Any) -> Any:
 
 
 def etag(system_id: str, version: int) -> str:
-    return f'"sys:{system_id}:{int(version)}"'
+    return preconditions.etag("sys", system_id, int(version))
 
 
 def summary(row: dict) -> dict[str, Any]:

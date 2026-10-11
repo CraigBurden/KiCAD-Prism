@@ -17,7 +17,7 @@ import { CommentPanel } from "./comment-panel";
 import { ThreadUpdateContext } from "@/features/rich-comments/thread-updates";
 import { useLiveComments } from "@/features/live-comments/use-live-comments";
 import { ViewerOverlayRail, SELECTION_INSPECTOR_RAIL_RESIZE } from "./viewer-overlay-rail";
-import { fetchApi, readApiError } from "@/lib/api";
+import { fetchApi, ifMatch, readApiError } from "@/lib/api";
 import { throwIfJobFailed } from "@/lib/jobs";
 import { useJobWatcher } from "@/hooks/use-job-watcher";
 import { canCommentOnProjects, canWriteCatalog } from "@/lib/roles";
@@ -1109,9 +1109,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         try {
             const response = await fetchApi(`/api/projects/${projectId}/comments/${comment.id}/reattach`, {
                 method: "POST",
+                headers: ifMatch("comment", comment.id, comment.revision),
                 body: JSON.stringify({
                     commit,
-                    expectedRevision: comment.revision,
                     elementId: selected.uuid,
                     relativePoint,
                     location: { x: selected.x, y: selected.y, layer: selected.layer ?? "", page: selected.page ?? "" },

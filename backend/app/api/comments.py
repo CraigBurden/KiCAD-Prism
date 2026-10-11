@@ -11,11 +11,12 @@ import os
 import re
 from typing import Callable, List, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, model_validator
 
 from app.api._helpers import get_project_for_role_or_404
+from app.core import preconditions
 from app.core.security import AuthenticatedUser, require_comment_writer, require_designer, require_viewer
 from app.services import access_service, comment_attachments, comment_permissions, comment_social
 from app.services.comment_capabilities import with_capabilities
@@ -80,7 +81,6 @@ class CreateReplyRequest(BaseModel):
 class UpdateReplyRequest(BaseModel):
     content: str
     contentFormat: Optional[str] = None
-    expectedRevision: Optional[int] = None
 
 
 class UpdateCommentRequest(BaseModel):
@@ -90,7 +90,6 @@ class UpdateCommentRequest(BaseModel):
     severity: Optional[str] = None
     commentClass: Optional[str] = None
     mentions: Optional[List[str]] = None
-    expectedRevision: Optional[int] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -102,7 +101,6 @@ class UpdateCommentRequest(BaseModel):
 
 class PinCommentRequest(BaseModel):
     commit: str
-    expectedRevision: Optional[int] = None
 
 
 class ReattachCommentRequest(BaseModel):
@@ -110,7 +108,6 @@ class ReattachCommentRequest(BaseModel):
     location: CommentLocation
     elementId: Optional[str] = None
     relativePoint: Optional[List[float]] = None
-    expectedRevision: int = Field(ge=1)
 
 
 class CommentAnchor(BaseModel):
@@ -576,11 +573,17 @@ async def create_comment(
     return await _run_mutation(write)
 
 
+def _expected_revision(http: Request, kind: str, target_id: str, *, required: bool = False) -> Optional[int]:
+    """The revision ``If-Match`` names (``"comment:<id>:<n>"`` / ``"reply:<id>:<n>"``); ``None`` when optional and absent."""
+    return preconditions.int_version(preconditions.if_match(http, kind, target_id, required=required))
+
+
 @router.patch("/{project_id}/comments/{comment_id}", dependencies=[Depends(require_comment_writer)])
 async def update_comment(
     project_id: str,
     comment_id: str,
     request: UpdateCommentRequest,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """Edit content or status using optimistic comment revisions."""
@@ -597,12 +600,13 @@ async def update_comment(
     content_format = _content_format(request.contentFormat, default=None)
     severity = _normalize_severity(request.severity) if request.severity is not None else None
     comment_class = _normalize_comment_class(request.commentClass) if request.commentClass is not None else None
+    expected_revision = _expected_revision(http, "comment", comment_id)
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
         return comments_store.patch_comment(
             project.id, project.path, comment_id, actor=_actor(user),
-            expected_revision=request.expectedRevision, content=content, severity=severity,
+            expected_revision=expected_revision, content=content, severity=severity,
             comment_class=comment_class, mentions=request.mentions, status=status,
             content_format=content_format,
         )
@@ -620,15 +624,18 @@ async def pin_comment(
     project_id: str,
     comment_id: str,
     request: PinCommentRequest,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """An admin may pin a legacy or worktree comment once, to an exact commit."""
+    expected_revision = _expected_revision(http, "comment", comment_id)
+
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
         return comments_store.pin_comment_anchor(
             project.id, project.path, comment_id, actor=_actor(user), commit=request.commit,
             resolve=lambda context: resolve_manual_pin(project, commit=request.commit, context=context),
-            expected_revision=request.expectedRevision,
+            expected_revision=expected_revision,
         )
 
     result = await _run_mutation(write)
@@ -642,9 +649,11 @@ async def reattach_comment(
     project_id: str,
     comment_id: str,
     request: ReattachCommentRequest,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """Append a binding for this commit's descendants; preserve the origin."""
+    expected_revision = _expected_revision(http, "comment", comment_id, required=True)
     location = request.location.model_dump()
     if not all(math.isfinite(float(location[key])) for key in ("x", "y")):
         raise HTTPException(status_code=400, detail="Comment location must be finite")
@@ -666,7 +675,7 @@ async def reattach_comment(
             resolve=lambda context: resolve_canvas_anchor(
                 project, revision={"commit": request.commit}, context=context,
             ),
-            expected_revision=request.expectedRevision,
+            expected_revision=expected_revision,
         )
 
     result = await _run_mutation(write)
@@ -716,16 +725,18 @@ async def update_reply(
     comment_id: str,
     reply_id: str,
     request: UpdateReplyRequest,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     content = _normalize_content(request.content)
     content_format = _content_format(request.contentFormat, default=None)
+    expected_revision = _expected_revision(http, "reply", reply_id)
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
         return comments_store.edit_reply(
             project.id, project.path, comment_id, reply_id, content, actor=_actor(user),
-            expected_revision=request.expectedRevision, content_format=content_format,
+            expected_revision=expected_revision, content_format=content_format,
         )
 
     result = await _run_mutation(write)
@@ -739,14 +750,16 @@ async def delete_reply(
     project_id: str,
     comment_id: str,
     reply_id: str,
-    expectedRevision: Optional[int] = None,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
+    expected_revision = _expected_revision(http, "reply", reply_id)
+
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
         return comments_store.delete_reply(
             project.id, project.path, comment_id, reply_id, actor=_actor(user),
-            expected_revision=expectedRevision,
+            expected_revision=expected_revision,
         )
 
     result = await _run_mutation(write)
@@ -796,19 +809,21 @@ async def remove_comment_reaction(
 async def delete_comment(
     project_id: str,
     comment_id: str,
-    expectedRevision: Optional[int] = None,
+    http: Request,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
     Delete a comment.
     """
+    expected_revision = _expected_revision(http, "comment", comment_id)
+
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
         return comments_store.delete_comment(
             project_id=project.id,
             project_path=project.path,
             comment_id=comment_id,
-            expected_revision=expectedRevision,
+            expected_revision=expected_revision,
             actor=_actor(user),
         )
 

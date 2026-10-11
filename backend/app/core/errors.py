@@ -1,22 +1,26 @@
 """Typed domain errors and the one place they become HTTP responses.
 
 A service refuses a request by raising a ``DomainError`` subclass. The class
-fixes the status; the message is written for the caller, so it may reach the
-client. Routers do not translate these: the handler ``install_error_handlers``
-registers renders every one the same way::
+fixes the status and a default machine ``code``; the message is written for the
+caller, so it may reach the client. Routers do not translate these: the handler
+``install_error_handlers`` registers renders every one the same way::
 
     {"detail": "<message>", "code": "<code>", ...extra}
 
-``detail`` keeps FastAPI's key so every existing reader (browser, KiCad panel,
-scripts) keeps working. ``code`` is present when the error carries one (the
-comment, tracker and catalog errors do; a plain ``NotFound`` does not), and
-extra fields (``currentRevision``, ``requiredRole`` ...) sit beside it.
-``headers`` (an ``ETag`` on a stale write) are sent with the response. A domain
-whose clients read an older body shape overrides ``body()`` (catalog conflicts).
+That is the only error body Prism sends (FastAPI's own 422 validation arrays
+aside). ``detail`` is always a string and keeps FastAPI's key so every existing
+reader (browser, KiCad panel, scripts) keeps working. ``code`` is always present:
+a service passes a specific one (``revision_conflict``, ``publication_required``,
+``interface_not_ready`` ...) or the class default applies (``not_found``,
+``stale_version`` ...). Extra fields (``currentRevision``, ``requiredRole`` ...)
+sit beside it. ``headers`` (an ``ETag`` on a stale write) are sent with the
+response.
 
-Status codes stay with the domain that owns them: System Builder answers a
-stale whole-system ETag with 412 (``StaleVersion``); comments, catalog and
-tracker writes carry their revision in the body and answer 409 (``Conflict``).
+Guarded writes (a whole System, a comment or reply, a catalog component) use
+one conflict shape: the client sends ``If-Match`` with the ETag it read
+(``app.core.preconditions``), a missing one is 428 (``PreconditionRequired``)
+and an old one is 412 (``StaleVersion``) carrying the current ETag. 409
+(``Conflict``) is for a write that contradicts state no ETag describes.
 Pass ``status_code=`` only to keep a status an existing client depends on.
 
 Untyped exceptions are never rendered here, so their text never reaches a
@@ -40,7 +44,7 @@ class DomainError(Exception):
     """A refusal the caller can act on. Subclasses fix the status."""
 
     status_code: int = 400
-    code: str | None = None
+    code: str = "error"
     default_detail: str = "Request refused"
 
     def __init__(
@@ -63,16 +67,14 @@ class DomainError(Exception):
         self.extra = extra
 
     def body(self) -> dict[str, Any]:
-        body: dict[str, Any] = {"detail": self.detail}
-        if self.code:
-            body["code"] = self.code
-        return {**body, **self.extra}
+        return {"detail": self.detail, "code": self.code, **self.extra}
 
 
 class BadRequest(DomainError):
     """Bad request."""
 
     status_code = 400
+    code = "bad_request"
     default_detail = "Bad request"
 
 
@@ -80,6 +82,7 @@ class Forbidden(DomainError):
     """Forbidden."""
 
     status_code = 403
+    code = "forbidden"
     default_detail = "Forbidden"
 
 
@@ -87,6 +90,7 @@ class NotFound(DomainError):
     """Not found."""
 
     status_code = 404
+    code = "not_found"
     default_detail = "Not found"
 
 
@@ -94,6 +98,7 @@ class Conflict(DomainError):
     """The request contradicts the current state."""
 
     status_code = 409
+    code = "conflict"
     default_detail = "Conflict"
 
 
@@ -101,6 +106,7 @@ class StaleVersion(DomainError):
     """The resource changed since the caller read it."""
 
     status_code = 412
+    code = "stale_version"
     default_detail = "The resource changed; reload it"
 
 
@@ -108,13 +114,23 @@ class Invalid(DomainError):
     """Invalid request."""
 
     status_code = 422
+    code = "invalid"
     default_detail = "Invalid request"
+
+
+class PreconditionRequired(DomainError):
+    """A guarded write came without ``If-Match``."""
+
+    status_code = 428
+    code = "precondition_required"
+    default_detail = "If-Match is required"
 
 
 class UpstreamFailure(DomainError):
     """An upstream service failed."""
 
     status_code = 502
+    code = "upstream_failure"
     default_detail = "An upstream service failed"
 
 
@@ -122,6 +138,7 @@ class Unavailable(DomainError):
     """Service unavailable."""
 
     status_code = 503
+    code = "unavailable"
     default_detail = "Service unavailable"
 
 
@@ -147,6 +164,7 @@ _CLASS_FOR_STATUS: dict[int, type[DomainError]] = {
     409: Conflict,
     412: StaleVersion,
     422: Invalid,
+    428: PreconditionRequired,
     502: UpstreamFailure,
     503: Unavailable,
 }
@@ -221,6 +239,7 @@ __all__ = [
     "Forbidden",
     "Invalid",
     "NotFound",
+    "PreconditionRequired",
     "StaleVersion",
     "Unavailable",
     "UpstreamFailure",

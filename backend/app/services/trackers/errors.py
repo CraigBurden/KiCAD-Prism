@@ -125,6 +125,16 @@ class ProviderError(Exception):
         self.retryable = _RETRYABLE[class_] if retryable is None else retryable
         self.new_ref = new_ref
 
+    def refusal(self, status_code: int):
+        """The typed HTTP refusal for a route: flat ``{"detail", "code": class, "class", "retryable"}``."""
+
+        from app.core.errors import DomainError
+
+        return DomainError(
+            self.message, status_code=status_code, code=self.class_,
+            **{"class": self.class_, "retryable": self.retryable},
+        )
+
     def to_dto(self) -> dict:
         payload = {
             "class": self.class_,

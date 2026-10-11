@@ -171,7 +171,7 @@ describe("metadata edit session", () => {
 
         fireEvent.click(await screen.findByRole("button", { name: /save new revision/i }));
         await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
-        expect(patchCallBody().expected_revision_id).toBe("rev-at-open");
+        expect(vi.mocked(patchComponent).mock.calls[0]?.[2]).toBe("rev-at-open");
     });
 
     it("renders a custom enum field from definitions and round-trips unknown extras", async () => {
@@ -447,14 +447,13 @@ describe("asset attach session", () => {
         unmount();
         finish!({ component: catalogComponent() });
         await waitFor(() => expect(onSuccess).not.toHaveBeenCalled());
-        const [componentId, assetType, body] = vi.mocked(importComponentAsset).mock.calls[0];
-        expect([componentId, assetType]).toEqual(["comp-a", "symbol"]);
-        expect(body.get("expected_revision_id")).toBe("comp-a-rev1");
+        const [componentId, assetType, , revisionId] = vi.mocked(importComponentAsset).mock.calls[0];
+        expect([componentId, assetType, revisionId]).toEqual(["comp-a", "symbol", "comp-a-rev1"]);
     });
 
     it("closes on revision_conflict so the next open recaptures the head", async () => {
         vi.mocked(importComponentAsset).mockRejectedValue(
-            new ApiHttpError(409, "Refresh the component before saving.", "revision_conflict"),
+            new ApiHttpError(412, "Refresh the component before saving.", "revision_conflict"),
         );
         const onClose = vi.fn();
         const onSuccess = vi.fn();

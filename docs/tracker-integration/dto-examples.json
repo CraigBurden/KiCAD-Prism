@@ -121,12 +121,11 @@
       "severity": "critical",
       "commentClass": "task",
       "mentions": [{ "userId": "u_7f2a", "displayName": "Arjun" }],
-      "status": null,
-      "expectedRevision": 1
+      "status": null
     },
-    "UpdateCommentStatusRequest": { "status": "RESOLVED", "expectedRevision": 2 },
+    "UpdateCommentStatusRequest": { "status": "RESOLVED" },
     "CreateReplyRequest": { "content": "Re-routed in a1b2c3d." },
-    "UpdateReplyRequest": { "content": "Re-routed in a1b2c3d (both P and N).", "expectedRevision": 1 },
+    "UpdateReplyRequest": { "content": "Re-routed in a1b2c3d (both P and N)." },
     "ConflictError": { "detail": "Comment changed since revision 1", "code": "revision_conflict", "currentRevision": 3 },
     "PublicationDeniedError": { "detail": "Resolving a linked thread requires the designer role on this project", "code": "publication_required", "requiredRole": "designer" },
     "Mention": { "userId": "u_7f2a", "displayName": "Arjun" },

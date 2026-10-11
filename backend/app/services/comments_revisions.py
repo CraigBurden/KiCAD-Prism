@@ -9,7 +9,8 @@ Optimistic concurrency: a mutation names the revision it was based on and
 the ``UPDATE ... WHERE revision = %s`` plus the unique
 ``(target_kind, target_id, revision)`` history row make two concurrent edits
 of the same revision impossible to both succeed. The loser gets
-``RevisionConflict`` carrying the current revision.
+``RevisionConflict`` (412) carrying the current revision and ETag. Routes read
+the expected revision from ``If-Match`` (``etag`` below).
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from app.core import errors
+from app.core import errors, preconditions
 from app.services import comment_live_events
 
 ROOT = "root"
@@ -35,14 +36,24 @@ ORIGIN_PRISM = "prism"
 ORIGIN_REMOTE = "remote"
 
 
-class RevisionConflict(errors.Conflict):
-    """The target moved on since the revision the caller edited (409 with ``currentRevision``)."""
+ETAG_KINDS = {ROOT: "comment", REPLY: "reply"}
+
+
+def etag(target_kind: str, target_id: str, revision: int) -> str:
+    """A root's ETag is ``"comment:<id>:<revision>"``, a reply's ``"reply:<id>:<revision>"``."""
+
+    return preconditions.etag(ETAG_KINDS[target_kind], target_id, int(revision))
+
+
+class RevisionConflict(errors.StaleVersion):
+    """The target moved on since the revision the caller's ``If-Match`` named (412, current ETag + ``currentRevision``)."""
 
     def __init__(self, target_kind: str, target_id: str, current_revision: Optional[int]):
         super().__init__(
             f"{target_kind} {target_id} is at revision {current_revision}",
             detail="Comment changed since the revision you edited",
             code="revision_conflict",
+            headers={"ETag": etag(target_kind, target_id, current_revision)} if current_revision else None,
             currentRevision=current_revision,
         )
         self.target_kind = target_kind

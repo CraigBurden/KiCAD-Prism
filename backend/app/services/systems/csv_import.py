@@ -725,7 +725,7 @@ def apply_wires(store: SystemStore, change: Mutation, proposals: Sequence[Mappin
 def _end_component(end: Mapping[str, Any], interfaces: Mapping[str, Optional[dict]]) -> Optional[dict]:
     interface = interfaces.get(end["mates_instance_id"])
     if interface is None:
-        raise Conflict("interface_not_ready: a mated board's interface is still being extracted")
+        raise Conflict("A mated board's interface is still being extracted", code="interface_not_ready")
     return exposure.component_by_key(interface, end["mates_port"]["portKey"])
 
 

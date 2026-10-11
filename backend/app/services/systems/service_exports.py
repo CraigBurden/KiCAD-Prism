@@ -178,7 +178,7 @@ class ExportsMixin:
         if missing:
             for iid in set(missing):
                 self._enqueue_quietly(instances[iid]["project_id"], instances[iid]["baseline_commit"], caller)
-            raise Conflict("interface_not_ready: a board behind an export is still being extracted")
+            raise Conflict("A board behind an export is still being extracted", code="interface_not_ready")
         body = exports_module.interface(exports, instances, interfaces, overrides, subport_rows)
         # A re-export resolves through the child's export to a board inside it; when that board is
         # hidden from the reader (or the export no longer resolves), so are its pins' nets (P2 §5.4).

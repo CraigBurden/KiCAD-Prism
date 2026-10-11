@@ -562,7 +562,7 @@ class CommentsStoreWritesMixin:
                 reply_id = comment_write.insert_reply(
                     conn, project_id=project_id, comment_id=comment_id, content=content,
                     editor=Editor(user_id=author_user_id, kind=author_kind_norm, display=author, origin=origin),
-                    content_format=content_format, timestamp=_utc_now_iso(), require_live_root=True,
+                    content_format=content_format, require_live_root=True,
                 )
                 if reply_id is None:
                     return None
@@ -772,7 +772,7 @@ class CommentsStoreWritesMixin:
 
     @_retry_on_deadlock
     def promote_comment(self, project_id: str, project_path: str, comment_id: str, actor: ActorIdentity) -> Optional[Dict]:
-        """Queue the root's issue publication; the reader's copy is personalized only."""
+        """Queue the root's issue publication; returns the thread with the reader's capabilities."""
         self.initialize()
         with self._connect() as conn:
             with conn.transaction():
@@ -791,15 +791,13 @@ class CommentsStoreWritesMixin:
                     raise PublicationDenied(result.code or "publication_required", result.reason or "Publication denied")
                 # The tracked_threads/sync_ops trigger emits the durable
                 # projection event in this transaction for a newly queued op.
-                return comment_social.personalize(
-                    self._get_comment_with_replies(conn, project_id, comment_id), actor.actor_id,
-                )
+                return _decorated(self._get_comment_with_replies(conn, project_id, comment_id), actor)
 
     @_retry_on_deadlock
     def share_reply(
         self, project_id: str, project_path: str, comment_id: str, reply_id: str, actor: ActorIdentity,
     ) -> Optional[Dict]:
-        """Queue a Prism-local reply on a linked thread; the reader's copy is personalized only."""
+        """Queue a Prism-local reply on a linked thread; returns the thread with the reader's capabilities."""
         self.initialize()
         with self._connect() as conn:
             with conn.transaction():
@@ -813,15 +811,17 @@ class CommentsStoreWritesMixin:
                 reply = self._live_reply(conn, project_id, comment_id, reply_id)
                 if current is None or reply is None:
                     return None
-                enqueue_share_reply(
+                shared = enqueue_share_reply(
                     conn, project_id=project_id, comment=current,
                     reply=_row_to_reply_dict(reply), actor=promotion_actor_for(actor),
                     workspace_schema=self.workspace_schema,
                 )
-                comment_write.set_reply_sync_state(conn, project_id=project_id, reply_id=reply_id, state=None)
-                return comment_social.personalize(
-                    self._get_comment_with_replies(conn, project_id, comment_id), actor.actor_id,
+                # A newly queued op's sync_ops trigger already streamed this thread.
+                comment_write.set_reply_sync_state(
+                    conn, project_id=project_id, reply_id=reply_id, state=None,
+                    streamed_by_caller=shared.action == "enqueued",
                 )
+                return _decorated(self._get_comment_with_replies(conn, project_id, comment_id), actor)
 
 
 def _json_or_none(value) -> Optional[str]:

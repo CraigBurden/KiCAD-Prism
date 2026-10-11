@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.errors import DomainError, error_response  # noqa: E402
+from tests.test_tracker_tr_01 import if_match  # noqa: E402
 from app.services.trackers.connector_runtime import credential_context  # noqa: E402
 from app.services.trackers.create_executor import _comment_dict_from_row  # noqa: E402
 from app.services.trackers.connector_service import _context as connector_context  # noqa: E402
@@ -141,8 +142,7 @@ class StatusChangeEnqueuesSetStateTests(unittest.TestCase):
         with patch.object(comments_api, "comments_store", store), \
                 patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")):
             try:
-                return asyncio.run(comments_api.update_comment(
-                    "prj", "c_1", comments_api.UpdateCommentRequest(status=status, expectedRevision=4), user,
+                return asyncio.run(comments_api.update_comment("prj", "c_1", comments_api.UpdateCommentRequest(status=status), if_match("comment", "c_1", 4), user,
                 ))
             except DomainError as exc:
                 return error_response(exc)
@@ -477,19 +477,18 @@ class ReplyAndRootMutationsCarryActorTests(unittest.TestCase):
 
     def test_reply_edit_passes_promotion_actor(self) -> None:
         calls: list = []
-        self._call(self._store(calls), lambda api, user: api.update_reply(
-            "prj", "c_1", "r_1", api.UpdateReplyRequest(content="edited", expectedRevision=1), user,
+        self._call(self._store(calls), lambda api, user: api.update_reply("prj", "c_1", "r_1", api.UpdateReplyRequest(content="edited"), if_match("reply", "r_1", 1), user,
         ))
         self._assert_actor(calls, "edit_reply")
 
     def test_reply_delete_passes_promotion_actor(self) -> None:
         calls: list = []
-        self._call(self._store(calls), lambda api, user: api.delete_reply("prj", "c_1", "r_1", 1, user))
+        self._call(self._store(calls), lambda api, user: api.delete_reply("prj", "c_1", "r_1", if_match("reply", "r_1", 1), user))
         self._assert_actor(calls, "delete_reply")
 
     def test_root_delete_passes_promotion_actor(self) -> None:
         calls: list = []
-        self._call(self._store(calls), lambda api, user: api.delete_comment("prj", "c_1", 2, user))
+        self._call(self._store(calls), lambda api, user: api.delete_comment("prj", "c_1", if_match("comment", "c_1", 2), user))
         self._assert_actor(calls, "delete_comment")
 
 

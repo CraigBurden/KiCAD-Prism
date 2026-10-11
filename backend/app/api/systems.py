@@ -15,6 +15,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, 
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core import preconditions
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services.systems import csv_import, links as link_rules
 from app.services.systems import service as system_service
@@ -25,7 +26,6 @@ from app.services.systems.visibility import etag
 router = APIRouter(dependencies=[Depends(require_viewer)])
 
 T = TypeVar("T")
-_IF_MATCH = re.compile(r'^"sys:([A-Za-z0-9_]+):([0-9]{1,18})"$')
 
 Name = Field(min_length=1, max_length=200)
 
@@ -174,15 +174,9 @@ def _caller(user: AuthenticatedUser) -> Caller:
 
 
 def _expected_version(request: Request, system_id: str) -> int:
-    """§8: ``If-Match: "sys:<id>:<version>"``. Missing is 428; anything else stale is 412."""
+    """§8: ``If-Match: "sys:<id>:<version>"``. Missing is 428; anything else stale is 412 (``core.preconditions``)."""
 
-    raw = request.headers.get("if-match")
-    if not raw:
-        raise HTTPException(status_code=428, detail="If-Match is required")
-    match = _IF_MATCH.match(raw.strip())
-    if not match or match.group(1) != system_id:
-        return -1  # never current: the store answers 412 with the real version
-    return int(match.group(2))
+    return int(preconditions.int_version(preconditions.if_match(request, "sys", system_id)))
 
 
 async def _run(call: Callable[[], T]) -> T:

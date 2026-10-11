@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core import errors
 from app.core.security import AuthenticatedUser, require_admin
 from app.services.trackers.connector_service import (
     ConnectorNotFound,
@@ -66,19 +67,14 @@ def _actor(user: AuthenticatedUser) -> str:
     return user.user_id or user.email
 
 
-def _http_error(exc: Exception) -> HTTPException:
+def _http_error(exc: Exception) -> errors.DomainError:
     if isinstance(exc, ConnectorNotFound):
-        return HTTPException(status_code=404, detail="Connector not found")
+        return errors.NotFound("Connector not found", code="connector_not_found")
     if isinstance(exc, SecretStoreLocked):
-        return HTTPException(status_code=503, detail="Tracker credential encryption is locked")
+        return errors.Unavailable("Tracker credential encryption is locked", code="secret_store_locked")
     if isinstance(exc, ProviderError):
-        status = 403 if exc.class_ in {"forbidden", "auth_lost", "capability_missing"} else 400
-        if exc.class_ == "auth_lost":
-            status = 409
-        return HTTPException(
-            status_code=status,
-            detail={"class": exc.class_, "message": exc.message, "retryable": exc.retryable},
-        )
+        status = 403 if exc.class_ in {"forbidden", "capability_missing"} else 400
+        return exc.refusal(409 if exc.class_ == "auth_lost" else status)
     raise exc
 
 

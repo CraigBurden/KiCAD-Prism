@@ -68,9 +68,10 @@ rationale are recorded in `docs/CATALOG_DECOMPOSITION_HANDOFF.md`.
 - Component identity is normalized and looked up in one place
   (`component_identity.py`): the writer's uniqueness check, import acceptance,
   folder discovery and usage indexing all see active and retired holders alike.
-- Write-conflict classification is `CatalogConflict.code`. HTTP 409 bodies are
-  `{"detail": {code, message}}` (`conflicts.py`, rendered by the app's
-  domain-error handler in `backend/app/core/errors.py`).
+- Write-conflict classification is `CatalogConflict.code` (`conflicts.py`). A
+  stale revision is 412 `revision_conflict` (with the current `ETag`); referential and manifest conflicts are 409. Bodies are the app's one
+  flat shape `{"detail", "code"}` (`backend/app/core/errors.py`). Single-component
+  writes take the component ETag (`"component:<id>:<revision id>"`) as `If-Match`.
 - Canonical asset paths under the store root (`asset_files.py`, `runtime.py`).
 - Paginated catalog and remote-head lists end `ORDER BY` with immutable
   component identity (`component_queries.py`, `remote_heads.py`). This is a

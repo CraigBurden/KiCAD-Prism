@@ -101,7 +101,10 @@ class CatalogReleaseWorkflow:
         if not revision:
             raise ValueError("Component revision not found")
         if expected_revision_id and str(revision["id"]) != expected_revision_id:
-            raise revision_conflict("Component revision conflict: refresh the component before changing workflow")
+            raise revision_conflict(
+                "Component revision conflict: refresh the component before changing workflow",
+                component_id=component_id, current_revision_id=str(revision["id"]),
+            )
         if expected_manifest_hash and str(revision.get("manifest_hash") or "") != expected_manifest_hash:
             raise manifest_conflict()
         current_status = normalize_workflow_stage(str(revision["release_status"]))

@@ -11,6 +11,7 @@ import {
   fetchChecked,
   fetchJson,
   fetchText,
+  ifMatch,
   readApiError,
 } from "./api";
 
@@ -49,18 +50,9 @@ describe("error bodies", () => {
     ).resolves.toBe("datasheet is required");
   });
 
-  it("reads a catalog conflict object without dropping the message", async () => {
-    const error = await apiErrorFrom(
-      jsonResponse(409, { detail: { code: "asset_referenced", message: "cannot detach" } }),
-      "fail",
-    );
-    expect(error).toMatchObject({ status: 409, message: "cannot detach", code: "asset_referenced" });
-    expect(error.isConflict).toBe(true);
-  });
-
   it("reads a domain error's code and extra fields beside detail", async () => {
     const error = await apiErrorFrom(
-      jsonResponse(409, {
+      jsonResponse(412, {
         detail: "Comment changed since the revision you edited",
         code: "revision_conflict",
         currentRevision: 3,
@@ -68,23 +60,25 @@ describe("error bodies", () => {
     );
     expect(error).toMatchObject({ message: "Comment changed since the revision you edited", code: "revision_conflict" });
     expect(error.payload).toEqual({ currentRevision: 3 });
-  });
-
-  it("flattens a tracker body nested under detail", async () => {
-    const error = await apiErrorFrom(
-      jsonResponse(403, { detail: { detail: "designer role required", code: "publication_required", requiredRole: "designer" } }),
-    );
-    expect(error).toMatchObject({ message: "designer role required", code: "publication_required" });
-    expect(error.payload).toEqual({ requiredRole: "designer" });
-    expect(error.isPermission).toBe(true);
+    expect(error.isStale).toBe(true);
   });
 
   it("keeps a provider error's class and retryable flags", async () => {
     const error = await apiErrorFrom(
-      jsonResponse(409, { detail: { class: "auth_lost", message: "Reconnect GitHub", retryable: false } }),
+      jsonResponse(409, { detail: "Reconnect GitHub", code: "auth_lost", class: "auth_lost", retryable: false }),
     );
-    expect(error.message).toBe("Reconnect GitHub");
+    expect(error).toMatchObject({ message: "Reconnect GitHub", code: "auth_lost" });
     expect(error.payload).toEqual({ class: "auth_lost", retryable: false });
+  });
+
+  it("reads no nested body: an object detail is not a message", async () => {
+    const error = await apiErrorFrom(jsonResponse(409, { detail: { code: "x", message: "nested" } }), "fail");
+    expect(error).toMatchObject({ message: "fail", code: undefined });
+  });
+
+  it("builds a guarded write's If-Match from the resource ETag", () => {
+    expect(ifMatch("component", "cmp-1", "rev-2")).toEqual({ "If-Match": '"component:cmp-1:rev-2"' });
+    expect(ifMatch("reply", "r_1", 4)).toEqual({ "If-Match": '"reply:r_1:4"' });
   });
 
   it("turns a 422 validation array into one readable message", async () => {
@@ -151,9 +145,9 @@ describe("typed readers", () => {
     stubFetch(jsonResponse(200, { job_id: "j1" }));
     await expect(fetchJson("/api/projects/analyze")).resolves.toEqual({ job_id: "j1" });
 
-    stubFetch(jsonResponse(409, { detail: { code: "revision_conflict", message: "head moved" } }));
+    stubFetch(jsonResponse(412, { detail: "head moved", code: "revision_conflict" }));
     const error = await rejection(fetchJson("/api/catalog/components/cmp-1"));
-    expect(error).toMatchObject({ status: 409, message: "head moved", code: "revision_conflict" });
+    expect(error).toMatchObject({ status: 412, message: "head moved", code: "revision_conflict" });
   });
 
   it("fetchText and fetchBlob read their bodies and share the error path", async () => {

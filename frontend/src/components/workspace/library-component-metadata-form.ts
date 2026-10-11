@@ -83,13 +83,11 @@ export function buildMetadataPatch({
   fields,
   unknownExtras,
   changeSummary,
-  expectedRevisionId,
 }: {
   values: Record<string, string>;
   fields: CatalogMetadataField[];
   unknownExtras: Record<string, string>;
   changeSummary: string;
-  expectedRevisionId: string;
 }): Record<string, unknown> {
   const extraFields = { ...unknownExtras };
   const columns: Record<string, string> = {};
@@ -102,6 +100,5 @@ export function buildMetadataPatch({
     ...columns,
     extra_fields: extraFields,
     change_summary: changeSummary.trim(),
-    expected_revision_id: expectedRevisionId,
   };
 }

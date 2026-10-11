@@ -70,14 +70,14 @@ def insert_reply(
     content: str,
     editor: Editor,
     content_format: Optional[str] = None,
-    timestamp: Optional[str] = None,
     reply_id: Optional[str] = None,
     require_live_root: bool = False,
 ) -> Optional[str]:
     """Insert a reply at revision 1 and record its creation (streams an upsert).
 
-    The author columns come from ``editor``. ``timestamp`` defaults to the
-    transaction time; ``content_format`` to the column default (``plain``),
+    The author columns come from ``editor``. Every reply, Prism's or the
+    tracker's, is stamped with the transaction's ``NOW()`` (one clock);
+    ``content_format`` defaults to the column default (``plain``),
     and the revision then records none, as tracker-written replies always
     have. With ``require_live_root`` nothing is written under a tombstoned
     root and ``None`` comes back.
@@ -90,14 +90,13 @@ def insert_reply(
             id, comment_id, project_id, author, timestamp, content,
             author_user_id, author_kind, revision, updated_at, origin, content_format
         )
-        SELECT %s, %s, %s, %s, COALESCE(%s::timestamptz, NOW()), %s, %s, %s, 1,
-               COALESCE(%s::timestamptz, NOW()), %s, COALESCE(%s, 'plain')
+        SELECT %s, %s, %s, %s, NOW(), %s, %s, %s, 1, NOW(), %s, COALESCE(%s, 'plain')
         FROM comments
         WHERE project_id = %s AND id = %s{root_guard}
         """,
         (
-            reply_id, comment_id, project_id, editor.display, timestamp, content,
-            editor.user_id, editor.kind, timestamp, editor.origin, content_format,
+            reply_id, comment_id, project_id, editor.display, content,
+            editor.user_id, editor.kind, editor.origin, content_format,
             project_id, comment_id,
         ),
     )

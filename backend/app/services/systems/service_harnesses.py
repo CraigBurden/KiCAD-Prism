@@ -69,7 +69,7 @@ class HarnessesMixin:
         components = self._end_components(store, harness)
         for end in harness["ends"]:
             if end["mates_instance_id"] and end["id"] not in components:
-                raise Conflict("interface_not_ready: a mated board's interface is still being extracted")
+                raise Conflict("A mated board's interface is still being extracted", code="interface_not_ready")
         store.replace_wires(change, harness_id, harnesses_module.capture(wires, ends, components),
                             keep_new_ids=keep_new_ids)
 

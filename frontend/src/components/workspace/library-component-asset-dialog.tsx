@@ -204,12 +204,14 @@ export function AssetAttachDialog({
       const form = new FormData();
       form.append("file", sourceFile);
       form.append("target_library", importSelection?.targetLibrary || targetLibrary || session.componentName);
-      form.append("expected_revision_id", assetMutationRevisionId(session.expectedRevisionId, importSelection?.expectedRevisionId));
       if (counterpartAssetId) form.append("counterpart_asset_id", counterpartAssetId);
       if (importSelection?.selected) {
         form.append(session.assetType === "symbol" ? "selected_symbol" : "selected_footprint", importSelection.selected);
       }
-      const response = await importComponentAsset(session.componentId, session.assetType, form);
+      const response = await importComponentAsset(
+        session.componentId, session.assetType, form,
+        assetMutationRevisionId(session.expectedRevisionId, importSelection?.expectedRevisionId),
+      );
       if (!aliveRef.current) return;
       if ("mode" in response && response.mode === "selection_required") {
         const options = response.discovered_symbols || response.discovered_footprints || [];
@@ -242,8 +244,7 @@ export function AssetAttachDialog({
         target_library: targetLibrary.trim() || session.componentName,
         target_name: targetName.trim(),
         counterpart_asset_id: counterpartAssetId,
-        expected_revision_id: session.expectedRevisionId,
-      });
+      }, session.expectedRevisionId);
       if (!aliveRef.current) return;
       toast.success(`${label} linked as a new revision.`);
       onSuccess();

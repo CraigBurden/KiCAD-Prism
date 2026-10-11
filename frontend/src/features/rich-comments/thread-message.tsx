@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatCommentTimestamp } from "@/components/comment-date";
+import { ifMatch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Comment, CommentReply } from "@/types/comments";
 import { CommentBody } from "./comment-body";
@@ -43,11 +44,10 @@ export function ThreadMessage({
 
     const deleteReply = async () => {
         setConfirmDelete(false);
-        const revision = reply?.revision ? `?expectedRevision=${reply.revision}` : "";
         try {
             const updated = await threadAction(
-                commentPath(projectId, thread.id, `${messagePath}${revision}`),
-                { method: "DELETE" },
+                commentPath(projectId, thread.id, messagePath),
+                { method: "DELETE", headers: reply?.id && reply.revision ? ifMatch("reply", reply.id, reply.revision) : undefined },
                 "Could not delete the reply",
             );
             applyThread?.(updated);
@@ -63,7 +63,9 @@ export function ThreadMessage({
                     projectId={projectId}
                     path={commentPath(projectId, thread.id, messagePath)}
                     initialMarkdown={editableMarkdown(message.content, message.contentFormat)}
-                    revision={message.revision}
+                    guard={message.revision
+                        ? reply?.id ? ifMatch("reply", reply.id, message.revision) : ifMatch("comment", thread.id, message.revision)
+                        : undefined}
                     mentions={reply ? undefined : thread.mentions}
                     onDone={(updated) => {
                         if (updated) applyThread?.(updated);
@@ -145,12 +147,13 @@ function MessageAction({
 
 /** In-place edit: the same WYSIWYG composer, seeded with the stored Markdown. */
 function MessageEditor({
-    projectId, path, initialMarkdown, revision, mentions, onDone,
+    projectId, path, initialMarkdown, guard, mentions, onDone,
 }: {
     projectId: string;
     path: string;
     initialMarkdown: string;
-    revision?: number;
+    /** The `If-Match` for the revision the editor opened. */
+    guard?: Record<string, string>;
     /** A root's mentions; an edit keeps only those still in the text. */
     mentions?: string[];
     onDone: (updated: Comment | null) => void;
@@ -172,10 +175,10 @@ function MessageEditor({
         try {
             const updated = await threadAction(path, {
                 method: "PATCH",
+                headers: guard,
                 body: JSON.stringify({
                     content: draft.markdown,
                     contentFormat: "md",
-                    expectedRevision: revision,
                     ...(mentions ? {
                         mentions: extractMentions(draft.markdown, mentions.map((email) => ({ email, role: "" }))),
                     } : {}),

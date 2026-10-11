@@ -6,7 +6,7 @@ import json
 import uuid
 from typing import Any
 
-from app.services.catalog.conflicts import CatalogConflict
+from app.services.catalog.conflicts import revision_conflict
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.normalization import (
     canonical_json,
@@ -204,10 +204,10 @@ class CatalogRevisionKernel:
         return sha256_text(canonical)
 
     @staticmethod
-    def assert_expected_revision(current_id: str, expected_revision_id: str = "") -> None:
+    def assert_expected_revision(current_id: str, expected_revision_id: str = "", *, component_id: str = "") -> None:
         # Empty expected_revision_id is the legacy skip used by older callers.
         if expected_revision_id and current_id != expected_revision_id:
-            raise CatalogConflict()
+            raise revision_conflict(component_id=component_id, current_revision_id=current_id)
 
     def clone_revision(
         self,
@@ -223,7 +223,7 @@ class CatalogRevisionKernel:
         component, current = self.active_revision_row(conn, component_id, released=False)
         if not component or not current:
             raise ValueError("Component not found")
-        self.assert_expected_revision(str(current["id"]), expected_revision_id)
+        self.assert_expected_revision(str(current["id"]), expected_revision_id, component_id=component_id)
 
         now = _utc_now_iso()
         next_version = int(

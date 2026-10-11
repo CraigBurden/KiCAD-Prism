@@ -386,8 +386,7 @@ function RepresentationRow({
         footprint_asset_id: footprintId,
         display_order: Number(order) || 0,
         is_default: makeDefault,
-        expected_revision_id: component.revision_id,
-      });
+      }, component.revision_id);
       toast.success(makeDefault && !representation.is_default ? "Default representation updated." : "Representation saved.");
       onChanged();
     } catch (reason) {
@@ -458,8 +457,7 @@ function RepresentationsPanel({ component, canMutate, onChanged }: { component: 
         symbol_asset_id: unused?.symbol.id || (component.representations.length ? "" : currentDefault?.symbol?.id || symbols[0]?.id || ""),
         footprint_asset_id: unused?.footprint.id || (component.representations.length ? "" : currentDefault?.footprint?.id || footprints[0]?.id || ""),
         display_order: component.representations.length,
-        expected_revision_id: component.revision_id,
-      });
+      }, component.revision_id);
       toast.success("Representation added in a new revision.");
       onChanged();
     } catch (reason) {
@@ -885,9 +883,8 @@ export function LibraryComponentWorkspace({
         workflow_stage: transitionTarget,
         review_note: reviewNote.trim(),
         self_approval_override_reason: overrideReason.trim(),
-        expected_revision_id: currentComponent.revision_id,
         expected_manifest_hash: currentComponent.manifest_hash,
-      });
+      }, currentComponent.revision_id);
       toast.success(`Component moved to ${WORKFLOW_LABELS[transitionTarget]}.`);
       setTransitionTarget(null);
       setReviewNote("");

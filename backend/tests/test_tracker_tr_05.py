@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api import comments as comments_api  # noqa: E402
 from tests.test_tracker_tr_01 import (  # noqa: E402
+    if_match,
     POSTGRES_URL,
     SHARED_APPLICATION_DATABASE,
     DisposableSchemaStore,
@@ -236,13 +237,11 @@ class ImmutableAnchorTests(unittest.TestCase):
         admin = session("admin", user_id="u_a")
         created = self._create(designer)
         self.assertEqual(created["anchor"]["state"], "unpinned")
-        refused = run(comments_api.pin_comment(
-            "prj_test", created["id"], comments_api.PinCommentRequest(commit=self.fixture.sha_a), designer,
+        refused = run(comments_api.pin_comment("prj_test", created["id"], comments_api.PinCommentRequest(commit=self.fixture.sha_a), if_match("comment", created["id"], None), designer,
         ))
         self.assertEqual((refused.status_code, body(refused)["code"]), (403, "legacy_admin_only"))
 
-        pinned = run(comments_api.pin_comment(
-            "prj_test", created["id"], comments_api.PinCommentRequest(commit=self.fixture.sha_a, expectedRevision=1), admin,
+        pinned = run(comments_api.pin_comment("prj_test", created["id"], comments_api.PinCommentRequest(commit=self.fixture.sha_a), if_match("comment", created["id"], 1), admin,
         ))
         self.assertEqual((pinned["anchor"]["commit"], pinned["anchor"]["source"], pinned["anchor"]["state"]),
                          (self.fixture.sha_a, "manual", "pinned"))
@@ -251,8 +250,7 @@ class ImmutableAnchorTests(unittest.TestCase):
         self.assertEqual([h["changeKind"] for h in history], ["create", "edit"])
         self.assertEqual(history[-1]["editorUserId"], "u_a")
 
-        again = run(comments_api.pin_comment(
-            "prj_test", created["id"], comments_api.PinCommentRequest(commit=self.fixture.sha_b), admin,
+        again = run(comments_api.pin_comment("prj_test", created["id"], comments_api.PinCommentRequest(commit=self.fixture.sha_b), if_match("comment", created["id"], None), admin,
         ))
         self.assertEqual((again.status_code, body(again)["code"]), (422, "anchor_immutable"))
         current = self.store.get_comment("prj_test", self.project.path, created["id"])
@@ -280,8 +278,7 @@ class ImmutableAnchorTests(unittest.TestCase):
         )
         revision_before = created["revision"]
 
-        refused = run(comments_api.pin_comment(
-            "prj_test", created["id"], comments_api.PinCommentRequest(commit=self.fixture.sha_a), admin,
+        refused = run(comments_api.pin_comment("prj_test", created["id"], comments_api.PinCommentRequest(commit=self.fixture.sha_a), if_match("comment", created["id"], None), admin,
         ))
         self.assertIsInstance(refused, JSONResponse)
         self.assertEqual((refused.status_code, body(refused)["code"]), (422, "anchor_immutable"))

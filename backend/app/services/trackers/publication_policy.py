@@ -70,6 +70,11 @@ class DispatchPause(Exception):
         self.reason = reason
         self.message = message
 
+    def refusal(self, code: str | None = None) -> errors.Conflict:
+        """The typed 409 a route answers: ``code`` (default the reason) and ``pausedReason``."""
+
+        return errors.Conflict(self.message, code=code or self.reason, pausedReason=self.reason)
+
 
 _PATH_SEGMENT = r"[A-Za-z0-9_.-]+"
 
