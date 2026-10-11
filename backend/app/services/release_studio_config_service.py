@@ -344,11 +344,16 @@ def list_configurations_at_commit(
 
     from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
 
-    repo_root = project_revision.locate_id(project_id).repo_root
+    location = project_revision.locate_id(project_id)
+    repo_root, project_path = location.repo_root, location.relative_path
     rows: list[dict[str, Any]] = []
-    for config_key in list_configuration_keys_at_commit(repo_root, commit_sha):
+    for config_key in list_configuration_keys_at_commit(
+        repo_root, commit_sha, project_path=project_path
+    ):
         try:
-            config = load_configuration_at_commit(repo_root, commit_sha, config_key)
+            config = load_configuration_at_commit(
+                repo_root, commit_sha, config_key, project_path=project_path
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "release studio configuration %s/%s at %s did not load: %s",
@@ -408,13 +413,14 @@ def configuration_for_candidate(
         if not row:
             raise BuildError("project not found")
         try:
-            repo_root = project_revision.locate(row).repo_root
+            location = project_revision.locate(row)
         except project_revision.ProjectNotInRepository as exc:
             raise BuildError("project repository is unavailable for committed configuration") from exc
         config = load_configuration_at_commit(
-            repo_root,
+            location.repo_root,
             _candidate_commit(candidate),
             str(candidate.get("config_key") or "default"),
+            project_path=location.relative_path,
         )
 
     digest = technical_config_digest(config)

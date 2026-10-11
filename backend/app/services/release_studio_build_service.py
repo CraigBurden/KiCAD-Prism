@@ -173,7 +173,9 @@ def prepare_candidate(
         config = dict(configuration)
         selected_variant = variant or str(config.get("default_variant") or "")
     else:
-        config = load_configuration_at_commit(repo_root, commit_sha, config_key)
+        config = load_configuration_at_commit(
+            repo_root, commit_sha, config_key, project_path=project_relpath
+        )
         selected_variant = variant or str(config.get("default_variant") or "")
         declared_variants = {str(item) for item in config.get("variants") or ()}
         if declared_variants and selected_variant not in declared_variants:
