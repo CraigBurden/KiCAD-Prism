@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchJson } from "@/lib/api";
+import { invalidateServerState } from "@/lib/server-state";
 import { ProjectDetailPage } from "./ProjectDetailPage";
 
 vi.mock("@/lib/api", () => ({
@@ -14,20 +15,20 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/features/system-builder/used-in-panel", () => ({ UsedInPanel: () => null }));
 vi.mock("@/components/markdown-content", () => ({ MarkdownContent: () => null }));
 vi.mock("@/components/release-studio/ReleaseStudioPanel", () => ({ ReleaseStudioPanel: () => null }));
+vi.mock("@/components/visualizer", () => ({
+    Visualizer: ({ commit }: { commit: string | null }) => <div>viewer at {commit}</div>,
+}));
 
-const BRANCHES = {
-    branches: [
-        { name: "main", ref: "main", source: "local", is_current: true, hash: "a1", commit: "a1" },
-    ],
-};
+const MAIN = { name: "main", ref: "main", source: "local", is_current: true, hash: "a1", commit: "a1" };
+let BRANCHES = { branches: [{ ...MAIN }] };
 
 function branchRequests(): number {
     return vi.mocked(fetchJson).mock.calls.filter(([url]) => String(url).endsWith("/branches")).length;
 }
 
-function renderPage() {
+function renderPage(path = "/project/p1") {
     return render(
-        <MemoryRouter initialEntries={["/project/p1"]}>
+        <MemoryRouter initialEntries={[path]}>
             <Routes>
                 <Route path="/project/:projectId" element={<ProjectDetailPage user={null} />} />
             </Routes>
@@ -52,9 +53,10 @@ describe("ProjectDetailPage branch polling", () => {
 
     afterEach(() => {
         vi.mocked(fetchJson).mockReset();
+        BRANCHES = { branches: [{ ...MAIN }] };
     });
 
-    it.fails("keeps one branch poller across section switches", async () => {
+    it("keeps one branch poller across section switches", async () => {
         renderPage();
         await screen.findAllByText("Board");
         await waitFor(() => expect(branchRequests()).toBe(1));
@@ -67,5 +69,18 @@ describe("ProjectDetailPage branch polling", () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
 
         expect(branchRequests()).toBe(1);
+    });
+
+    it("keeps the visualizer on the commit it opened when the branch head moves", async () => {
+        renderPage("/project/p1?section=visualizers");
+        expect(await screen.findByText("viewer at a1")).toBeInTheDocument();
+
+        BRANCHES = { branches: [{ ...MAIN, hash: "b2", commit: "b2" }] };
+        await invalidateServerState(["project", "p1", "branches"]);
+
+        const offer = await screen.findByRole("button", { name: /New revision available/ });
+        expect(screen.getByText("viewer at a1")).toBeInTheDocument();
+        fireEvent.click(offer);
+        expect(await screen.findByText("viewer at b2")).toBeInTheDocument();
     });
 });
