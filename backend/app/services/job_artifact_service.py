@@ -209,9 +209,14 @@ class JobArtifactService:
             from app.services.job_service import jobs
 
             service = jobs
+        from app.services.local_artifact_store import artifact_store
+
         object_root = self.objects.resolve()
         referenced: set[Path] = set()
-        for value in service.referenced_object_paths():
+        # Catalog objects share this tree by default and are tracked only in
+        # catalog_artifacts, so job metadata alone cannot say what is garbage.
+        owned = [*service.referenced_object_paths(), *artifact_store.referenced_object_paths()]
+        for value in owned:
             path = Path(value).resolve()
             try:
                 path.relative_to(object_root)

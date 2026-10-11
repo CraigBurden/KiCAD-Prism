@@ -396,6 +396,27 @@ class LocalArtifactStore:
             shutil.copyfile(source, destination)
         return destination
 
+    def referenced_object_paths(self) -> set[str]:
+        """Object paths the catalog still owns, for collectors of the shared tree."""
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT to_regclass('operations.catalog_artifacts') AS name"
+            ).fetchone()
+            if not exists or not exists["name"]:
+                return set()
+            rows = conn.execute(
+                "SELECT object_path FROM catalog_artifacts "
+                "WHERE storage_state = 'available' AND object_path <> ''"
+            ).fetchall()
+        return {str(row["object_path"]) for row in rows}
+
+    @staticmethod
+    def _job_referenced_paths() -> set[Path]:
+        """Job artifacts may point at the same digest; catalog policy must not move them."""
+        from app.services.job_service import jobs
+
+        return {Path(value).resolve() for value in jobs.referenced_object_paths()}
+
     def archive_unreleased_before(self, cutoff: datetime) -> int:
         """Compress old, unreferenced source objects. Released refs always win."""
         self.initialize()
@@ -420,9 +441,12 @@ class LocalArtifactStore:
                 """,
                 (cutoff,),
             ).fetchall()
+            foreign = self._job_referenced_paths() if rows else set()
             for row in rows:
                 source = Path(row["object_path"])
                 if not source.is_file() or source.suffix.lower() in {".step", ".stp"}:
+                    continue
+                if source.resolve() in foreign:
                     continue
                 destination = self.archive / row["sha256"][:2] / f"{row['sha256']}.gz"
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -455,9 +479,10 @@ class LocalArtifactStore:
                 """,
                 (cutoff,),
             ).fetchall()
+            foreign = self._job_referenced_paths() if rows else set()
             for row in rows:
                 source = Path(str(row["object_path"] or ""))
-                if not source.is_file():
+                if not source.is_file() or source.resolve() in foreign:
                     continue
                 destination = self.quarantine / run_id / str(row["sha256"])
                 destination.parent.mkdir(parents=True, exist_ok=True)
