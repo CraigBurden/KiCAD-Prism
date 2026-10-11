@@ -489,6 +489,26 @@ def set_candidate_status(candidate_id: str, status: str, *, actor: str = "") -> 
 # ---------------------------------------------------------------------------
 
 
+def _settle_candidate(conn: Any, build: Mapping[str, Any], status: str) -> None:
+    """Move the candidate to ``status`` only from its newest attempt.
+
+    A retried job starts a new attempt for the same candidate. The older
+    attempt can still end afterwards (its worker lost the lease), and it must
+    not overwrite what the newer attempt reports.
+    """
+
+    conn.execute(
+        """
+        UPDATE ws_release_candidates SET status=%s, updated_at=NOW()
+        WHERE id=%s AND NOT EXISTS (
+            SELECT 1 FROM ws_release_builds
+            WHERE candidate_id=%s AND attempt > %s
+        )
+        """,
+        (status, build["candidate_id"], build["candidate_id"], int(build["attempt"])),
+    )
+
+
 def start_build(candidate_id: str, *, job_id: str | None, fence: int) -> dict[str, Any]:
     with connect() as conn:
         attempt = int(
@@ -657,10 +677,7 @@ def complete_build(
                     (artifact_id, kind, build_id),
                 )
 
-        conn.execute(
-            "UPDATE ws_release_candidates SET status='built', updated_at=NOW() WHERE id=%s",
-            (build["candidate_id"],),
-        )
+        _settle_candidate(conn, build, "built")
         append_audit_event(
             conn,
             project_id=candidate["project_id"],
@@ -719,10 +736,7 @@ def fail_build(
                 """,
                 (evidence_artifact_id, build_id),
             )
-        conn.execute(
-            "UPDATE ws_release_candidates SET status='failed', updated_at=NOW() WHERE id=%s",
-            (build["candidate_id"],),
-        )
+        _settle_candidate(conn, build, "failed")
         append_audit_event(
             conn,
             project_id=candidate["project_id"],
@@ -782,10 +796,7 @@ def cancel_build(
         # Candidates model immutable identities, not worker outcomes. The
         # attempt carries the cancelled state; returning the candidate to draft
         # leaves a retry available without representing cancellation as failure.
-        conn.execute(
-            "UPDATE ws_release_candidates SET status='draft', updated_at=NOW() WHERE id=%s",
-            (build["candidate_id"],),
-        )
+        _settle_candidate(conn, build, "draft")
         append_audit_event(
             conn,
             project_id=candidate["project_id"],
