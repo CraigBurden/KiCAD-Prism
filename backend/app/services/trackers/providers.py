@@ -225,8 +225,8 @@ def _gitlab_issue_pages(adapter: Any, dest: Destination, *, since: str | None = 
 
     def fetch(cursor: Optional[str]) -> Any:
         # The cursor is GitLab's next-page URL, so a scan can resume or restart.
-        response = adapter._request("GET", cursor or first_url, params=None if cursor else first_params)
-        page = [item for item in adapter._json_list(response) if isinstance(item, dict)]
+        response = adapter.client.request("GET", cursor or first_url, params=None if cursor else first_params)
+        page = [item for item in adapter.client.json_list(response) if isinstance(item, dict)]
         items = [
             {
                 "id": item.get("id"),

@@ -353,8 +353,8 @@ def make_issue_page_fetcher(
 
     def fetch(cursor: Optional[str]) -> IssuePage:
         url = cursor or base_url
-        response = adapter._request("GET", url, params=None if cursor else params)
-        items = adapter._json_list(response)
+        response = adapter.client.request("GET", url, params=None if cursor else params)
+        items = adapter.client.json_list(response)
         return items, response.next_page()
 
     return fetch
