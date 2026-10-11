@@ -14,6 +14,7 @@ from typing import Any, BinaryIO, Sequence
 
 from app.core.config import settings
 from app.services.object_store import CATALOG_OWNER, ObjectStore, ReferenceOwner
+from app.services.artifact_schema_migrations import ARTIFACT_LEDGER
 from app.services.postgres_database import database
 
 
@@ -59,85 +60,7 @@ class LocalArtifactStore:
             return
         for directory in (self.objects, self.archive, self.staging, self.quarantine):
             directory.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
-            # Lock before the first DDL: CREATE SCHEMA/TABLE IF NOT EXISTS is not
-            # race-safe, and catalog jobs initialise this store from separate
-            # processes at the same moment.
-            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-artifacts-schema",))
-            conn.execute("CREATE SCHEMA IF NOT EXISTS operations")
-            conn.execute("SET search_path TO operations, catalog, public")
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS catalog_artifacts (
-                    sha256 TEXT PRIMARY KEY,
-                    size_bytes BIGINT NOT NULL,
-                    media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-                    artifact_kind TEXT NOT NULL DEFAULT 'source',
-                    storage_state TEXT NOT NULL DEFAULT 'available',
-                    object_path TEXT NOT NULL,
-                    archived_path TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    last_accessed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    quarantined_at TIMESTAMPTZ,
-                    purged_at TIMESTAMPTZ
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS catalog_artifact_references (
-                    id TEXT PRIMARY KEY,
-                    artifact_sha256 TEXT NOT NULL REFERENCES catalog_artifacts(sha256),
-                    owner_type TEXT NOT NULL,
-                    owner_id TEXT NOT NULL,
-                    role TEXT NOT NULL DEFAULT '',
-                    released BOOLEAN NOT NULL DEFAULT FALSE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    removed_at TIMESTAMPTZ,
-                    UNIQUE(artifact_sha256, owner_type, owner_id, role)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS catalog_import_snapshots (
-                    id TEXT PRIMARY KEY,
-                    source_type TEXT NOT NULL,
-                    display_name TEXT NOT NULL,
-                    source_locator TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'uploading',
-                    manifest_sha256 TEXT NOT NULL DEFAULT '',
-                    file_count INTEGER NOT NULL DEFAULT 0,
-                    size_bytes BIGINT NOT NULL DEFAULT 0,
-                    created_by TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    completed_at TIMESTAMPTZ
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS catalog_import_snapshot_files (
-                    snapshot_id TEXT NOT NULL REFERENCES catalog_import_snapshots(id) ON DELETE CASCADE,
-                    relative_path TEXT NOT NULL,
-                    artifact_sha256 TEXT NOT NULL REFERENCES catalog_artifacts(sha256),
-                    size_bytes BIGINT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    PRIMARY KEY(snapshot_id, relative_path)
-                )
-                """
-            )
-            # The catalog's common read path is revision -> asset. Retention needs
-            # the reverse lookup and should not scan every revision link.
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_revision_assets_asset "
-                "ON revision_assets(asset_id, revision_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_artifact_refs_active "
-                "ON catalog_artifact_references(artifact_sha256, removed_at, released)"
-            )
-            conn.commit()
+        ARTIFACT_LEDGER.migrate(self._connect)
         self._initialized = True
 
     def object_path(self, digest: str) -> Path:
