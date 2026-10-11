@@ -42,6 +42,8 @@ from app.services.trackers.secrets import (  # noqa: E402
     rewrap_secret,
 )
 from app.services.trackers.store import TrackerStore  # noqa: E402
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -56,8 +58,6 @@ OPERATIONS = (ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
 F3 = json.loads((DOCS / "fixtures" / "F03.json").read_text(encoding="utf-8"))
 F5 = json.loads((DOCS / "fixtures" / "F05.json").read_text(encoding="utf-8"))
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
 CONNECTOR = "cn_gh_tr44"
 CONTAINER = "987654321"
@@ -74,22 +74,6 @@ OAUTH_CLIENT_ID = "Iv1.oauth-client-fixture"
 OAUTH_CLIENT_SECRET = "oauth-client-secret-fixture"
 USER_TOKEN = "user-oauth-token-fixture"
 TEST_SESSION_SECRET = "unit-test-session-secret-not-a-credential"
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _hex_key() -> str:
@@ -144,21 +128,13 @@ class FixtureAndDocsTests(unittest.TestCase):
         self.assertIn("do not reset production databases", lowered)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class BackupRestorePostgresTests(unittest.TestCase):
     """Disposable-schema stand-in for restore into a fresh deployment."""
 
     def setUp(self) -> None:
-        self.schema = f"tr44_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
+        self.scratch = scratch_schema(self, "tr44", ledgers=(COMMENTS_LEDGER,), then=(migrate_workspace_tracker_tables,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         migrate_tracker_webhook_oauth_tables(self.conn)
         apply_op_schema(self.conn)
         apply_inbox_schema(self.conn)
@@ -172,51 +148,6 @@ class BackupRestorePostgresTests(unittest.TestCase):
             TRACKER_CREDENTIAL_ROOT_KEY_ID="v1",
         )
         self._seed_destination_and_comment()
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                author_kind TEXT NOT NULL DEFAULT 'user',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                comment_class TEXT NOT NULL DEFAULT 'general',
-                severity TEXT NOT NULL DEFAULT 'info',
-                scope TEXT NOT NULL DEFAULT 'canvas',
-                anchor_commit TEXT,
-                anchor_state TEXT NOT NULL DEFAULT 'unpinned',
-                anchor_source TEXT,
-                revision INTEGER NOT NULL DEFAULT 1,
-                metadata JSONB NOT NULL DEFAULT '{}'::jsonb
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
 
     def _seed_destination_and_comment(self) -> None:
         envelope = encrypt_secret(
@@ -262,27 +193,20 @@ class BackupRestorePostgresTests(unittest.TestCase):
             generation=1,
             visibility="private",
         )
-        self.conn.execute(
-            """
-            INSERT INTO comments (
-                id, project_id, author, author_kind, content, severity, comment_class,
-                context, location_x, location_y, location_layer, revision
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                COMMENT_ID,
-                "prj_tr44",
-                "Priya",
-                "user",
-                "original body",
-                "major",
-                "observation",
-                "PCB",
-                1.0,
-                2.0,
-                "F.Cu",
-                2,
-            ),
+        seed_comment(
+            self.conn,
+            COMMENT_ID,
+            "prj_tr44",
+            author="Priya",
+            author_kind="user",
+            content="original body",
+            severity="major",
+            comment_class="observation",
+            context="PCB",
+            location_x=1.0,
+            location_y=2.0,
+            location_layer="F.Cu",
+            revision=2,
         )
         self.conn.execute(
             """
@@ -453,13 +377,14 @@ class BackupRestorePostgresTests(unittest.TestCase):
         # F5.crash_before_send / F5.claim_of_sent_is_recovery after restore.
         other_comment = "c_tr44_sent"
         other_thread = "tt_tr44_sent"
-        self.conn.execute(
-            """
-            INSERT INTO comments (
-                id, project_id, author, content, severity, revision
-            ) VALUES (%s, %s, %s, %s, %s, %s)
-            """,
-            (other_comment, "prj_tr44", "Priya", "already sent", "major", 1),
+        seed_comment(
+            self.conn,
+            other_comment,
+            "prj_tr44",
+            author="Priya",
+            content="already sent",
+            severity="major",
+            revision=1,
         )
         self.store.insert_thread(
             thread_id=other_thread,

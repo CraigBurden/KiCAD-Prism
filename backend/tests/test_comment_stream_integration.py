@@ -11,36 +11,20 @@ from contextlib import contextmanager
 from app.services import comment_live_events
 from app.services.comments_revisions import Editor
 from app.services.comments_store_service import CommentsStoreService
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
 
 
-TEST_DSN = os.environ.get("TEST_POSTGRES_URL", "")
 
-
-@unittest.skipUnless(TEST_DSN, "disposable TEST_POSTGRES_URL required")
+@requires_scratch_postgres("comment store tests")
 class CommentStreamIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        self.psycopg = psycopg
-        self.dict_row = dict_row
-        self.schema = "test_comment_stream_" + uuid.uuid4().hex[:16]
-        self.store = CommentsStoreService()
-        self.store.schema = self.schema
-
-        @contextmanager
-        def connect():
-            with psycopg.connect(TEST_DSN, row_factory=dict_row) as conn:
-                conn.execute(f'SET search_path TO "{self.schema}", public')
-                yield conn
-
-        self.store._connect = connect
+        self.scratch = scratch_schema(self, "test_comment_stream", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.project_id = "p_" + uuid.uuid4().hex[:12]
         self.path = tempfile.TemporaryDirectory()
 
     def tearDown(self) -> None:
-        with self.psycopg.connect(TEST_DSN) as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
         self.path.cleanup()
 
     def test_create_reply_edit_delete_and_snapshot_cursor(self) -> None:

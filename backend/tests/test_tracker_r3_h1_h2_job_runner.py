@@ -26,20 +26,18 @@ from tracker_fault_harness import (  # noqa: E402
     COMMENT_ID,
     CONNECTOR,
     CONTAINER,
-    DisposableSchema,
     EXT_COMMENT,
     ISSUE_ID,
     ISSUE_NUMBER,
-    POSTGRES_URL,
     PROJECT_ID,
     REPLY_ID,
-    SHARED_APPLICATION_DATABASE,
     StatefulFakeForge,
     THREAD_ID,
     install_fake_provider,
     seed_comment_row,
     seed_destination,
 )
+from support.postgres import requires_scratch_postgres, seed_reply, tracker_schema  # noqa: E402
 
 try:
     import psycopg
@@ -81,9 +79,7 @@ class JobRunnerMountUnitTests(unittest.TestCase):
         self.assertIsNone(jobs_executor(FakeContext({})))
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class JobRunnerDispatchTablePostgresTests(unittest.TestCase):
     """Import job_runner path → load handlers → mount composition → create+reply."""
 
@@ -98,9 +94,8 @@ class JobRunnerDispatchTablePostgresTests(unittest.TestCase):
         self.assertIsNotNone(jobs_executor(FakeContext({})))
         self.assertIs(jobs_executor(FakeContext({})), execute_outbound_op)
 
-        self.schema_helper = DisposableSchema("r3h1")
-        self.addCleanup(self.schema_helper.drop)
-        self.conn = self.schema_helper.conn
+        self.scratch = tracker_schema(self, "r3h1")
+        self.conn = self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.traces: list[dict] = []
@@ -114,7 +109,7 @@ class JobRunnerDispatchTablePostgresTests(unittest.TestCase):
         )
         self._public_base.start()
         self.addCleanup(self._public_base.stop)
-        self._provider_cm = install_fake_provider(self.forge, self.schema_helper.factory)
+        self._provider_cm = install_fake_provider(self.forge, self.scratch.connection)
         self._provider_cm.__enter__()
         self.addCleanup(lambda: self._provider_cm.__exit__(None, None, None))
         self.addCleanup(reset_tracker_runtime)
@@ -140,13 +135,16 @@ class JobRunnerDispatchTablePostgresTests(unittest.TestCase):
         self.conn.commit()
 
     def _seed_pending_reply(self) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO comment_replies (
-                id, comment_id, project_id, author, author_kind, content, revision, origin
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (REPLY_ID, COMMENT_ID, PROJECT_ID, "Priya", "user", "designer reply", 1, "prism"),
+        seed_reply(
+            self.conn,
+            REPLY_ID,
+            COMMENT_ID,
+            PROJECT_ID,
+            author="Priya",
+            author_kind="user",
+            content="designer reply",
+            revision=1,
+            origin="prism",
         )
         self.ops.insert(
             op_id=OP_REPLY,
@@ -169,7 +167,7 @@ class JobRunnerDispatchTablePostgresTests(unittest.TestCase):
             {
                 "connectorId": CONNECTOR,
                 "remoteContainerId": CONTAINER,
-                "_connect": self.schema_helper.factory,
+                "_connect": self.scratch.connection,
             }
         )
         result = handler(create_ctx)
@@ -189,7 +187,7 @@ class JobRunnerDispatchTablePostgresTests(unittest.TestCase):
             {
                 "connectorId": CONNECTOR,
                 "remoteContainerId": CONTAINER,
-                "_connect": self.schema_helper.factory,
+                "_connect": self.scratch.connection,
             }
         )
         result = handler(reply_ctx)
@@ -229,7 +227,7 @@ class JobRunnerDispatchTablePostgresTests(unittest.TestCase):
                     {
                         "connectorId": CONNECTOR,
                         "remoteContainerId": CONTAINER,
-                        "_connect": self.schema_helper.factory,
+                        "_connect": self.scratch.connection,
                     }
                 )
             )
@@ -250,7 +248,7 @@ class JobRunnerDispatchTablePostgresTests(unittest.TestCase):
                 {
                     "connectorId": CONNECTOR,
                     "remoteContainerId": CONTAINER,
-                    "_connect": self.schema_helper.factory,
+                    "_connect": self.scratch.connection,
                 }
             )
         )

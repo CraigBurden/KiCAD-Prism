@@ -24,7 +24,7 @@ from app.services.trackers.connector_service import _context as connector_contex
 from app.services.trackers.drafts import board_name_from_comment, render_context_block_lines  # noqa: E402
 from app.services.trackers.executor_support import workspace_schema  # noqa: E402
 from app.services.trackers.promotion import load_policy_row  # noqa: E402
-from tracker_fault_harness import POSTGRES_URL, SHARED_APPLICATION_DATABASE  # noqa: E402
+from support.postgres import CATALOG_URL, comments_store_on, requires_scratch_postgres, scratch_schema, set_path  # noqa: E402
 
 try:
     import psycopg
@@ -33,19 +33,14 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class WorkerSearchPathPolicyTests(unittest.TestCase):
     """Two real schemas, worker search_path order, workspace tables only in the second."""
 
     def setUp(self) -> None:
-        tag = uuid.uuid4().hex[:10]
-        self.comments_schema = f"c46_{tag}"
-        self.workspace_schema = f"w46_{tag}"
-        self.conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
-        self.conn.execute(f'CREATE SCHEMA "{self.comments_schema}"')
-        self.conn.execute(f'CREATE SCHEMA "{self.workspace_schema}"')
+        self.comments_schema = scratch_schema(self, "c46").name
+        workspace = scratch_schema(self, "w46")
+        self.workspace_schema, self.conn = workspace.name, workspace.conn
         self.conn.execute(
             f"""
             CREATE TABLE "{self.workspace_schema}".tracker_connectors (
@@ -61,15 +56,8 @@ class WorkerSearchPathPolicyTests(unittest.TestCase):
             """
         )
         # The worker's order: comments first, workspace second.
-        self.conn.execute(f'SET search_path TO "{self.comments_schema}", "{self.workspace_schema}", public')
+        set_path(self.conn, self.comments_schema, self.workspace_schema)
         self.conn.commit()
-
-    def tearDown(self) -> None:
-        self.conn.rollback()
-        self.conn.execute(f'DROP SCHEMA "{self.comments_schema}" CASCADE')
-        self.conn.execute(f'DROP SCHEMA "{self.workspace_schema}" CASCADE')
-        self.conn.commit()
-        self.conn.close()
 
     def test_resolves_schema_that_holds_project_trackers(self) -> None:
         self.assertEqual(workspace_schema(self.conn), self.workspace_schema)
@@ -245,9 +233,7 @@ class SetStateReconciliationTests(unittest.TestCase):
         self.assertEqual((outcome, human_state), ("human_precedes", "closed"))
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class SystemNoteProductionSchemaTests(unittest.TestCase):
     """The production comment_replies table has NOT NULL timestamp; disposable
     tracker schemas defaulted it, so the note insert only failed live."""
@@ -255,19 +241,12 @@ class SystemNoteProductionSchemaTests(unittest.TestCase):
     def setUp(self) -> None:
         import tempfile
 
-        from tests.test_tracker_tr_01 import DisposableSchemaStore
-
-        self.schema = f"c46note_{uuid.uuid4().hex[:10]}"
-        self.store = DisposableSchemaStore(self.schema)
+        self.scratch = scratch_schema(self, "c46note", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
-        self.addCleanup(self._drop_schema)
         self.store.initialize()
-
-    def _drop_schema(self) -> None:
-        with self.store._connect() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            conn.commit()
 
     def test_append_system_note_satisfies_production_constraints(self) -> None:
         from app.services.trackers.state_mutations import append_system_note
@@ -492,9 +471,7 @@ class ReplyAndRootMutationsCarryActorTests(unittest.TestCase):
         self._assert_actor(calls, "delete_comment")
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class CommentsStoreSearchPathTests(unittest.TestCase):
     """Live finding: POST .../tracker/unlink 500'd with ``relation
     "tracker_audit" does not exist`` because the comments store connection
@@ -509,7 +486,7 @@ class CommentsStoreSearchPathTests(unittest.TestCase):
 
         @contextmanager
         def connection():
-            with psycopg.connect(POSTGRES_URL, row_factory=dict_row) as conn:
+            with psycopg.connect(CATALOG_URL, row_factory=dict_row) as conn:
                 yield conn
 
         store = css.CommentsStoreService()
