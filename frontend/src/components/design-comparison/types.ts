@@ -498,17 +498,4 @@ export interface DesignCompareReadiness {
     domains: Record<DesignCompareDomain, DesignCompareDomainStatus>;
 }
 
-export interface DesignCompareJobStatus {
-    job_id: string;
-    status: "running" | "completed" | "failed";
-    message: string;
-    percent: number;
-    logs: string[];
-    base?: string;
-    head?: string;
-    result_version?: number;
-    ready_domains?: DesignCompareDomain[];
-    readiness?: DesignCompareReadiness;
-}
-
 export type ViewerSide = "base" | "head";
