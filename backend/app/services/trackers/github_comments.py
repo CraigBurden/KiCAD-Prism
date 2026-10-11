@@ -11,7 +11,7 @@ never returned as a complete empty listing.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional
 
 from app.services.trackers.capabilities import require_capability
 from app.services.trackers.contracts import (
@@ -24,12 +24,13 @@ from app.services.trackers.contracts import (
     PageCursor,
     RemoteComment,
     RemoteVersion,
-    UncertainAbsence,
     assert_no_owner_repo,
 )
 from app.services.trackers.errors import ProviderError
+from app.services.trackers.github_recovery import CommentPageFetcher, make_comment_page_fetcher
+from app.services.trackers.forge_client import ForgeClient, read_outcome
 from app.services.trackers.github_auth import GitHubAppAuth
-from app.services.trackers.http import ForgeHttpResponse, TrackerHttp
+from app.services.trackers.http import TrackerHttp
 
 
 def comment_body_hash(body: str) -> str:
@@ -53,6 +54,7 @@ class GitHubCommentAdapter:
     ) -> None:
         self.auth = auth
         self.http = http or auth.http
+        self.client = ForgeClient(self.http, auth.installation_headers, forge="GitHub", noun="comment")
         self.bot_user_id = (bot_user_id or "").strip()
         self.bot_login = (bot_login or "").strip()
 
@@ -67,13 +69,13 @@ class GitHubCommentAdapter:
     ) -> RemoteComment:
         del op_id
         owner, repo = _owner_repo(dest)
-        response = self._request(
+        response = self.client.request(
             "POST",
             self.auth.url(f"/repos/{owner}/{repo}/issues/{ext_id}/comments"),
             json_body={"body": body},
         )
         return self._comment_from(
-            self._json_object(response),
+            self.client.json_object(response),
             issue_id=issue_id,
             issue_number=str(ext_id),
             etag=response.etag,
@@ -84,13 +86,13 @@ class GitHubCommentAdapter:
         self._require_own(current, action="edit")
         require_capability(self._caps(), "canEditOwnComment")
         owner, repo = _owner_repo(dest)
-        response = self._request(
+        response = self.client.request(
             "PATCH",
             self.auth.url(f"/repos/{owner}/{repo}/issues/comments/{ext_cid}"),
             json_body={"body": body},
         )
         return self._comment_from(
-            self._json_object(response),
+            self.client.json_object(response),
             issue_id=current.externalId,
             issue_number=str(current.externalNumber) if current.externalNumber is not None else None,
             etag=response.etag,
@@ -101,7 +103,7 @@ class GitHubCommentAdapter:
         self._require_own(current, action="delete")
         require_capability(self._caps(), "canDeleteOwnComment")
         owner, repo = _owner_repo(dest)
-        self._request("DELETE", self.auth.url(f"/repos/{owner}/{repo}/issues/comments/{ext_cid}"))
+        self.client.request("DELETE", self.auth.url(f"/repos/{owner}/{repo}/issues/comments/{ext_cid}"))
 
     def get_comment(
         self, dest: Destination, ext_cid: str, etag: Optional[str] = None
@@ -109,12 +111,12 @@ class GitHubCommentAdapter:
         owner, repo = _owner_repo(dest)
         url = self.auth.url(f"/repos/{owner}/{repo}/issues/comments/{ext_cid}")
         try:
-            response = self._request("GET", url, etag=etag)
+            response = self.client.request("GET", url, etag=etag)
         except ProviderError as exc:
-            return _read_from_error(exc)
+            return read_outcome(exc, allow_moved=False)
         if response.status == 304:
             return NotModified(etag=response.etag or etag)
-        return self._comment_from(self._json_object(response), etag=response.etag)
+        return self._comment_from(self.client.json_object(response), etag=response.etag)
 
     def list_comments(
         self,
@@ -131,11 +133,11 @@ class GitHubCommentAdapter:
         if not (cursor and cursor.value):
             params = {"per_page": 100}
         try:
-            response = self._request("GET", url, params=params)
+            response = self.client.request("GET", url, params=params)
         except ProviderError:
             # A failed page is not an empty complete listing (C7).
             raise
-        items = self._json_list(response)
+        items = self.client.json_list(response)
         comments = [
             self._comment_from(
                 item,
@@ -150,6 +152,11 @@ class GitHubCommentAdapter:
         if next_page:
             return comments, PageCursor(value=next_page, exhausted=False)
         return comments, PageCursor(value="", exhausted=True)
+
+    def recovery_comment_pages(self, dest: Destination, issue: str) -> CommentPageFetcher:
+        """Pages of the issue's comments for a reply recovery scan."""
+
+        return make_comment_page_fetcher(self, dest, issue)
 
     def find_comment_by_marker(
         self,
@@ -263,50 +270,6 @@ class GitHubCommentAdapter:
         )
         assert_no_owner_repo(comment)
         return comment
-
-    def _request(
-        self,
-        method: str,
-        url: str,
-        *,
-        json_body: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
-        etag: str | None = None,
-    ) -> ForgeHttpResponse:
-        response = self.http.request(
-            method,
-            url,
-            headers=self.auth.installation_headers(),
-            json_body=json_body,
-            params=params,
-            etag=etag,
-        )
-        return self.http.outcome(response)
-
-    def _json_object(self, response: ForgeHttpResponse) -> dict[str, Any]:
-        payload = response.json() if response.content else {}
-        if not isinstance(payload, dict):
-            raise ProviderError("transient", "GitHub returned a non-object comment payload.")
-        return payload
-
-    def _json_list(self, response: ForgeHttpResponse) -> list[Any]:
-        payload = response.json() if response.content else []
-        if not isinstance(payload, list):
-            raise ProviderError(
-                "transient",
-                "GitHub comment listing was not a complete page.",
-            )
-        return payload
-
-
-def _read_from_error(exc: ProviderError) -> CommentRead:
-    if exc.class_ == "not_found_uncertain":
-        return UncertainAbsence(status=exc.status or 404)
-    if exc.class_ == "gone_confirmed":
-        return GoneConfirmed(status=exc.status or 410)
-    if exc.class_ == "forbidden":
-        return ForbiddenRead(status=exc.status or 403)
-    raise exc
 
 
 def _owner_repo(dest: Destination) -> tuple[str, str]:

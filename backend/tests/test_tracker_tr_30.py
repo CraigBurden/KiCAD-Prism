@@ -15,21 +15,9 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tracker_fault_harness import StatefulFakeForge, github_issue_url, install_fake_provider  # noqa: E402
 from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import Editor, tombstone_root  # noqa: E402
-from app.services.trackers.contracts import (  # noqa: E402
-    ForgeUser,
-    IssueContainerRef,
-    RemoteComment,
-    RemoteIssue,
-    RemoteVersion,
-)
-from app.services.trackers.create_executor import (  # noqa: E402
-    github_issue_url,
-    mount_create_executor,
-    set_connect_factory as set_create_connect_factory,
-    unmount_create_executor,
-)
 from app.services.trackers.drafts import (  # noqa: E402
     DraftAttribution,
     DraftRenderInput,
@@ -41,19 +29,8 @@ from app.services.trackers.migrations import migrate_workspace_tracker_tables  #
 from app.services.trackers.op_store import RECOVERY_DISPATCH, OpStore, apply_schema as apply_op_schema  # noqa: E402
 from app.services.trackers.promotion import PromotionActor  # noqa: E402
 from app.services.trackers.provenance import body_hash  # noqa: E402
-from app.services.trackers.reply_executor import (  # noqa: E402
-    mount_reply_executor,
-    set_connect_factory as set_reply_connect_factory,
-    unmount_reply_executor,
-)
 from app.services.trackers.store import TrackerStore, issue_number_for_api  # noqa: E402
-from app.services.trackers.thread_executor import (  # noqa: E402
-    execute_thread_claimed_op,
-    mount_thread_executor,
-    recover_thread_op,
-    set_connect_factory as set_thread_connect_factory,
-    unmount_thread_executor,
-)
+from app.services.trackers.thread_executor import execute_thread_claimed_op, recover_thread_op  # noqa: E402
 from app.services.trackers.thread_mutations import (  # noqa: E402
     DELETION_NOTE,
     after_root_content_edited,
@@ -105,21 +82,6 @@ SHARED_APPLICATION_DATABASE = bool(
 def _dsn() -> str:
     return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
-
-def _remote_issue(*, body: str, title: str = "[MAJOR] Root — openswitch (F.Cu)") -> RemoteIssue:
-    return RemoteIssue(
-        externalId=ISSUE_ID,
-        number=ISSUE_NUMBER,
-        url=github_issue_url(REPO, ISSUE_NUMBER),
-        title=title,
-        body=body,
-        state="open",
-        labels=["prism"],
-        assignees=[],
-        author=ForgeUser(id=BOT_ID, login=BOT_LOGIN, isBot=True),
-        version=RemoteVersion(updatedAt="2026-09-20T16:00:00Z"),
-        container=IssueContainerRef(remoteContainerId=CONTAINER, path=REPO),
-    )
 
 
 def _build_remote_body(prose: str, *, op_id: str = "op_create") -> str:
@@ -184,9 +146,6 @@ class BodyBlockTests(unittest.TestCase):
 @unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
 class ThreadMutationPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        unmount_thread_executor()
-        unmount_reply_executor()
-        unmount_create_executor()
         self.schema = f"tr30_{uuid.uuid4().hex[:12]}"
         self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
         self.addCleanup(self._cleanup)
@@ -200,9 +159,6 @@ class ThreadMutationPostgresTests(unittest.TestCase):
         self.ops = OpStore(self.conn)
         self._seed_destination()
         self._seed_linked_thread()
-        mount_create_executor()
-        mount_reply_executor()
-        mount_thread_executor()
 
         @contextmanager
         def factory():
@@ -213,15 +169,10 @@ class ThreadMutationPostgresTests(unittest.TestCase):
             finally:
                 conn.close()
 
-        set_thread_connect_factory(factory)
-        set_reply_connect_factory(factory)
-        set_create_connect_factory(factory)
-        self.addCleanup(unmount_thread_executor)
-        self.addCleanup(unmount_reply_executor)
-        self.addCleanup(unmount_create_executor)
-        self.addCleanup(lambda: set_thread_connect_factory(None))
-        self.addCleanup(lambda: set_reply_connect_factory(None))
-        self.addCleanup(lambda: set_create_connect_factory(None))
+        self.forge = StatefulFakeForge()
+        provider = install_fake_provider(self.forge, factory)
+        provider.__enter__()
+        self.addCleanup(provider.__exit__, None, None, None)
 
     def _cleanup(self) -> None:
         try:
@@ -378,29 +329,14 @@ class ThreadMutationPostgresTests(unittest.TestCase):
         claimed = self.ops.claim("worker-a")
         self.ops.mark_sent(OP_UPDATE, int(claimed["fence"]))
         self.conn.commit()
-        captured: dict[str, object] = {}
+        self.forge.seed_issue(body=remote_body)
 
-        class FakeAdapter:
-            def get_issue(self, dest, issue_ref, etag=None):  # noqa: ANN001
-                captured["issue_ref"] = issue_ref
-                return _remote_issue(body=remote_body)
-
-            def update_issue(self, dest, issue_ref, patch):  # noqa: ANN001
-                captured["patch"] = patch
-                return _remote_issue(body=patch.proseBlock or remote_body, title=patch.title or "title")
-
-            def capabilities(self):
-                return type("Caps", (), {"hasStateEvents": True})()
-
-        with (
-            patch("app.services.trackers.thread_executor._issue_adapter", return_value=FakeAdapter()),
-            patch("app.services.trackers.thread_executor.settings.PUBLIC_BASE_URL", "https://prism.example"),
-        ):
+        with patch("app.services.trackers.thread_executor.settings.PUBLIC_BASE_URL", "https://prism.example"):
             execute_thread_claimed_op(self.ops.get(OP_UPDATE))
 
         self.assertEqual(self.ops.get(OP_UPDATE)["state"], "confirmed")
-        self.assertEqual(captured["issue_ref"], str(ISSUE_NUMBER))
-        issue_patch = captured["patch"]
+        [(issue_ref, issue_patch)] = self.forge.update_patches
+        self.assertEqual(issue_ref, str(ISSUE_NUMBER))
         self.assertIn("edited locally", issue_patch.proseBlock)
         self.assertIn(remote_blocks.marker.raw, issue_patch.proseBlock)
         self.assertIn(remote_blocks.context, issue_patch.proseBlock)
@@ -496,33 +432,13 @@ class ThreadMutationPostgresTests(unittest.TestCase):
             comment_id=COMMENT_ID,
             op_id=OP_NOTE,
         )
-        remote = RemoteComment(
-            externalCommentId="9001",
-            externalId=ISSUE_ID,
-            externalNumber=ISSUE_NUMBER,
-            url=f"https://github.com/{REPO}/issues/{ISSUE_NUMBER}#issuecomment-9001",
-            body=f"{DELETION_NOTE}\n\n{marker}",
-            author=ForgeUser(id=BOT_ID, login=BOT_LOGIN, isBot=True),
-            version=RemoteVersion(updatedAt="2026-09-20T16:00:00Z"),
-        )
-
-        class FakeAdapter:
-            deleted = False
-
-            def add_comment(self, dest, issue_ref, body, op_id, *, issue_id=None):  # noqa: ANN001
-                self.issue_ref = issue_ref
-                self.body = body
-                return remote
-
-            def delete_issue(self, dest, ext_id):  # noqa: ANN001
-                self.deleted = True
-
-        fake = FakeAdapter()
-        with patch("app.services.trackers.reply_executor._comment_adapter", return_value=fake):
-            execute_thread_claimed_op(self.ops.get(OP_NOTE))
-        self.assertFalse(fake.deleted)
-        self.assertEqual(fake.issue_ref, str(ISSUE_NUMBER))
-        self.assertIn(DELETION_NOTE, fake.body)
+        del marker
+        self.forge.seed_issue()
+        execute_thread_claimed_op(self.ops.get(OP_NOTE))
+        self.assertIn(ISSUE_ID, self.forge.issues, "a deletion note never deletes the remote issue")
+        self.assertEqual(self.forge.comment_calls, [OP_NOTE])
+        [note_id] = self.forge.comments_by_issue[str(ISSUE_NUMBER)]
+        self.assertIn(DELETION_NOTE, self.forge.comments[note_id].body)
         self.assertEqual(self.ops.get(OP_NOTE)["state"], "confirmed")
 
     def test_deletion_note_recovery_confirms_without_duplicate(self) -> None:  # F8.deletion_note_crash
@@ -542,25 +458,10 @@ class ThreadMutationPostgresTests(unittest.TestCase):
             comment_id=COMMENT_ID,
             op_id=OP_NOTE,
         )
-        remote = RemoteComment(
-            externalCommentId="9002",
-            externalId=ISSUE_ID,
-            externalNumber=ISSUE_NUMBER,
-            url=f"https://github.com/{REPO}/issues/{ISSUE_NUMBER}#issuecomment-9002",
-            body=f"{DELETION_NOTE}\n\n{marker}",
-            author=ForgeUser(id=BOT_ID, login=BOT_LOGIN, isBot=True),
-            version=RemoteVersion(updatedAt="2026-09-20T16:00:00Z"),
-        )
-
-        class FakeAdapter:
-            def find_comment_by_marker(self, dest, issue_ref, marker_text, *, issue_id=None):  # noqa: ANN001
-                return remote if marker_text in (remote.body or "") else None
-
-            def list_comments(self, dest, issue, page_cursor=None):  # noqa: ANN001
-                return [remote], None
-
-        with patch("app.services.trackers.reply_executor._comment_adapter", return_value=FakeAdapter()):
-            recover_thread_op(self.conn, {**self.ops.get(OP_NOTE), "dispatch": RECOVERY_DISPATCH})
+        self.forge.seed_issue()
+        self.forge.seed_comment(external_comment_id="9002", body=f"{DELETION_NOTE}\n\n{marker}")
+        recover_thread_op(self.conn, {**self.ops.get(OP_NOTE), "dispatch": RECOVERY_DISPATCH})
+        self.assertEqual(self.forge.comment_calls, [], "recovery must not post a second note")
         self.assertEqual(self.ops.get(OP_NOTE)["state"], "confirmed")
         self.assertEqual(
             self.conn.execute("SELECT COUNT(*) AS n FROM sync_ops WHERE op = 'post_note'").fetchone()["n"],
@@ -584,24 +485,11 @@ class ThreadMutationPostgresTests(unittest.TestCase):
         self.ops.mark_sent(OP_UPDATE, int(claimed["fence"]))
         self.conn.commit()
 
-        class FakeAdapter:
-            def get_issue(self, dest, issue_ref, etag=None):  # noqa: ANN001
-                return _remote_issue(body=remote_body, title="Human changed title")
-
-            def update_issue(self, dest, issue_ref, patch):  # noqa: ANN001
-                self.patch = patch
-                return _remote_issue(body=patch.proseBlock or remote_body, title="Human changed title")
-
-            def capabilities(self):
-                return type("Caps", (), {"hasStateEvents": True})()
-
-        fake = FakeAdapter()
-        with (
-            patch("app.services.trackers.thread_executor._issue_adapter", return_value=fake),
-            patch("app.services.trackers.thread_executor.settings.PUBLIC_BASE_URL", "https://prism.example"),
-        ):
+        self.forge.seed_issue(body=remote_body, title="Human changed title")
+        with patch("app.services.trackers.thread_executor.settings.PUBLIC_BASE_URL", "https://prism.example"):
             execute_thread_claimed_op(self.ops.get(OP_UPDATE))
-        self.assertIsNone(fake.patch.title)  # type: ignore[attr-defined]
+        [(_ref, issue_patch)] = self.forge.update_patches
+        self.assertIsNone(issue_patch.title)
         self.assertEqual(self.ops.get(OP_UPDATE)["state"], "confirmed")
 
 

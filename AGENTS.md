@@ -111,7 +111,8 @@ in `backend/app/services/comment_anchor_bindings.py`. Read
 `backend/app/services/trackers/promotion.py` →
 `backend/app/services/trackers/op_store.py` →
 `backend/app/services/trackers/jobs.py` →
-`backend/app/services/trackers/provider_registry.py`. GitHub and GitLab issue
+`backend/app/services/trackers/connector_runtime.py` →
+`backend/app/services/trackers/providers.py`. GitHub and GitLab issue
 publication are available; Gitea/Forgejo is account-linking only. See
 `docs/TRACKER_INTEGRATION.md` for credentials, destinations, and recovery.
 

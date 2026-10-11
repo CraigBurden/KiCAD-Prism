@@ -11,22 +11,17 @@ are dropped. Assignment failures do not fail issue creation.
 from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence
-from urllib.parse import urlsplit
 
 from app.services.trackers.capabilities import ProviderCapabilities, github_com_capabilities
 from app.services.trackers.contracts import (
     PROTOCOL_CONFORMANCE_CASES,
     Container,
     Destination,
-    ForbiddenRead,
     ForgeUser,
-    GoneConfirmed,
     IssueDraft,
     IssuePatch,
     IssueRead,
-    Moved,
     NotModified,
-    PageCursor,
     RemoteAssignee,
     RemoteChange,
     RemoteEvent,
@@ -37,8 +32,10 @@ from app.services.trackers.contracts import (
     assert_no_owner_repo,
 )
 from app.services.trackers.errors import ProviderError
+from app.services.trackers.forge_client import ForgeClient, read_outcome
 from app.services.trackers.github_auth import API_VERSION, GitHubAppAuth
-from app.services.trackers.http import ForgeHttpResponse, TrackerHttp
+from app.services.trackers.github_recovery import IssuePage, IssuePageFetcher, RecoveryCandidate
+from app.services.trackers.http import TrackerHttp
 
 # Fresh poll checkpoints start here; never sent to GitHub as ``since`` (see list_updates).
 DEFAULT_SINCE = "1970-01-01T00:00:00Z"
@@ -62,6 +59,7 @@ class GitHubIssueAdapter:
     ) -> None:
         self.auth = auth
         self.http = http or auth.http
+        self.client = ForgeClient(self.http, auth.installation_headers, forge="GitHub", noun="issue")
         self.bot_user_id = (bot_user_id or "").strip()
         self.bot_login = (bot_login or "").strip()
 
@@ -79,11 +77,11 @@ class GitHubIssueAdapter:
         # repository works as the destination without typing a numeric id (TR-46).
         remote_id = str(dest.remoteContainerId or "").strip()
         if remote_id.isdigit():
-            response = self._request("GET", self.auth.url(f"/repositories/{remote_id}"))
+            response = self.client.request("GET", self.auth.url(f"/repositories/{remote_id}"))
         else:
             owner, repo = _owner_repo(dest)
-            response = self._request("GET", self.auth.url(f"/repos/{owner}/{repo}"))
-        payload = self._json_object(response)
+            response = self.client.request("GET", self.auth.url(f"/repos/{owner}/{repo}"))
+        payload = self.client.json_object(response)
         path = str(payload.get("full_name") or dest.containerPath)
         visibility = "unknown"
         if "private" in payload:
@@ -109,12 +107,12 @@ class GitHubIssueAdapter:
         payload: dict[str, Any] = {"title": draft.title, "body": body}
         if draft.labels:
             payload["labels"] = list(draft.labels)
-        response = self._request(
+        response = self.client.request(
             "POST",
             self.auth.url(f"/repos/{owner}/{repo}/issues"),
             json_body=payload,
         )
-        created = self._json_object(response)
+        created = self.client.json_object(response)
         issue = self._issue_from(created, dest, etag=response.etag)
         if draft.assignees:
             self._try_assign(dest, issue, draft.assignees)
@@ -146,8 +144,8 @@ class GitHubIssueAdapter:
         owner, repo = _owner_repo(dest)
         while True:
             url = cursor or self.auth.url(f"/repos/{owner}/{repo}/issues")
-            response = self._request("GET", url, params=None if cursor else params)
-            items = self._json_list(response)
+            response = self.client.request("GET", url, params=None if cursor else params)
+            items = self.client.json_list(response)
             for item in items:
                 if _is_pull_request(item):
                     continue
@@ -160,18 +158,49 @@ class GitHubIssueAdapter:
             if not cursor:
                 return None
 
+    def recovery_issue_pages(self, dest: Destination, *, since: Optional[str] = None) -> IssuePageFetcher:
+        """Pages of the bot's issues as recovery candidates; pull requests are dropped.
+
+        No label filter: a human may have removed Prism's labels before the scan.
+        """
+
+        owner, repo = _owner_repo(dest)
+        first_url = self.auth.url(f"/repos/{owner}/{repo}/issues")
+        params: dict[str, Any] = {"state": "all", "per_page": 100}
+        if self.bot_login:
+            params["creator"] = self.bot_login
+        if since:
+            params["since"] = since
+
+        def fetch(cursor: Optional[str]) -> IssuePage:
+            response = self.client.request("GET", cursor or first_url, params=None if cursor else params)
+            items = [
+                RecoveryCandidate(
+                    external_id=str(item.get("id") or ""),
+                    number=int(item["number"]) if item.get("number") is not None else None,
+                    url=str(item.get("html_url") or item.get("url") or "") or None,
+                    body=str(item.get("body") or ""),
+                    author_id=str((item.get("user") or {}).get("id") or ""),
+                )
+                for item in self.client.json_list(response)
+                if isinstance(item, dict) and not _is_pull_request(item)
+            ]
+            return items, response.next_page()
+
+        return fetch
+
     def get_issue(
         self, dest: Destination, ext_id: str, etag: Optional[str] = None
     ) -> IssueRead:
         owner, repo = _owner_repo(dest)
         url = self.auth.url(f"/repos/{owner}/{repo}/issues/{ext_id}")
         try:
-            response = self._request("GET", url, etag=etag)
+            response = self.client.request("GET", url, etag=etag)
         except ProviderError as exc:
-            return _read_from_error(exc)
+            return read_outcome(exc)
         if response.status == 304:
             return NotModified(etag=response.etag or etag)
-        payload = self._json_object(response)
+        payload = self.client.json_object(response)
         if _is_pull_request(payload):
             return UncertainAbsence(status=404)
         return self._issue_from(payload, dest, etag=response.etag)
@@ -186,16 +215,16 @@ class GitHubIssueAdapter:
         if patch.labels is not None:
             self.ensure_labels(dest, patch.labels)
             body["labels"] = list(patch.labels)
-        headers = self._headers()
+        headers = self.client.headers()
         # D1: GitHub PATCH /issues does not honour If-Match. Never send it.
         headers.pop("If-Match", None)
-        response = self._request(
+        response = self.client.request(
             "PATCH",
             self.auth.url(f"/repos/{owner}/{repo}/issues/{ext_id}"),
             json_body=body,
             headers=headers,
         )
-        return self._issue_from(self._json_object(response), dest, etag=response.etag)
+        return self._issue_from(self.client.json_object(response), dest, etag=response.etag)
 
     def set_state(self, dest: Destination, ext_id: str, state: str, note: str) -> RemoteIssue:
         del note
@@ -205,12 +234,12 @@ class GitHubIssueAdapter:
         body: dict[str, Any] = {"state": state}
         if state == "closed":
             body["state_reason"] = "completed"
-        response = self._request(
+        response = self.client.request(
             "PATCH",
             self.auth.url(f"/repos/{owner}/{repo}/issues/{ext_id}"),
             json_body=body,
         )
-        return self._issue_from(self._json_object(response), dest, etag=response.etag)
+        return self._issue_from(self.client.json_object(response), dest, etag=response.etag)
 
     def list_updates(
         self, dest: Destination, since_cursor: UpdateCursor
@@ -223,8 +252,8 @@ class GitHubIssueAdapter:
         if since_cursor.since and since_cursor.since > DEFAULT_SINCE:
             params["since"] = since_cursor.since
         url = since_cursor.page or self.auth.url(f"/repos/{owner}/{repo}/issues")
-        response = self._request("GET", url, params=None if since_cursor.page else params)
-        items = self._json_list(response)
+        response = self.client.request("GET", url, params=None if since_cursor.page else params)
+        items = self.client.json_list(response)
         changes: list[RemoteChange] = []
         latest = since_cursor.since
         for item in items:
@@ -251,9 +280,9 @@ class GitHubIssueAdapter:
         url: Optional[str] = self.auth.url(f"/repos/{owner}/{repo}/issues/{ext_id}/events")
         params: dict[str, Any] | None = {"per_page": 100}
         while url:
-            response = self._request("GET", url, params=params)
+            response = self.client.request("GET", url, params=params)
             params = None
-            for item in self._json_list(response):
+            for item in self.client.json_list(response):
                 actor_raw = item.get("actor")
                 actor = _forge_user(actor_raw) if isinstance(actor_raw, dict) else None
                 events.append(
@@ -276,12 +305,12 @@ class GitHubIssueAdapter:
                 continue
             url = self.auth.url(f"/repos/{owner}/{repo}/labels/{label}")
             try:
-                self._request("GET", url)
+                self.client.request("GET", url)
                 continue
             except ProviderError as exc:
                 if exc.class_ not in {"not_found_uncertain", "gone_confirmed"}:
                     raise
-            self._request(
+            self.client.request(
                 "POST",
                 self.auth.url(f"/repos/{owner}/{repo}/labels"),
                 json_body={"name": label, "color": "ededed"},
@@ -293,7 +322,7 @@ class GitHubIssueAdapter:
             return False
         owner, repo = _owner_repo(dest)
         try:
-            self._request("GET", self.auth.url(f"/repos/{owner}/{repo}/assignees/{login}"))
+            self.client.request("GET", self.auth.url(f"/repos/{owner}/{repo}/assignees/{login}"))
             return True
         except ProviderError as exc:
             if exc.class_ in {"not_found_uncertain", "forbidden", "gone_confirmed"}:
@@ -307,7 +336,7 @@ class GitHubIssueAdapter:
         if not allowed:
             return
         try:
-            self._request(
+            self.client.request(
                 "POST",
                 self.auth.url(f"/repos/{owner}/{repo}/issues/{number}/assignees"),
                 json_body={"assignees": allowed},
@@ -362,43 +391,6 @@ class GitHubIssueAdapter:
             return False
         return bool(self.bot_user_id or self.bot_login)
 
-    def _request(
-        self,
-        method: str,
-        url: str,
-        *,
-        json_body: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
-        etag: str | None = None,
-        headers: Mapping[str, str] | None = None,
-    ) -> ForgeHttpResponse:
-        hdrs = dict(headers or self._headers())
-        response = self.http.request(
-            method,
-            url,
-            headers=hdrs,
-            json_body=json_body,
-            params=params,
-            etag=etag,
-        )
-        return self.http.outcome(response)
-
-    def _headers(self) -> dict[str, str]:
-        return dict(self.auth.installation_headers())
-
-    def _json_object(self, response: ForgeHttpResponse) -> dict[str, Any]:
-        payload = response.json() if response.content else {}
-        if not isinstance(payload, dict):
-            raise ProviderError("transient", "GitHub returned a non-object issue payload.")
-        return payload
-
-    def _json_list(self, response: ForgeHttpResponse) -> list[Any]:
-        payload = response.json() if response.content else []
-        if not isinstance(payload, list):
-            raise ProviderError("transient", "GitHub returned a non-list payload.")
-        return payload
-
-
 def conformance_kind(status: int, *, retry_after: bool = False) -> str:
     """Map PROTOCOL_CONFORMANCE_CASES onto adapter outcomes."""
 
@@ -406,17 +398,6 @@ def conformance_kind(status: int, *, retry_after: bool = False) -> str:
 
     return classify_read_status(status, retry_after=retry_after)
 
-
-def _read_from_error(exc: ProviderError) -> IssueRead:
-    if exc.class_ == "not_found_uncertain":
-        return UncertainAbsence(status=exc.status or 404)
-    if exc.class_ == "gone_confirmed":
-        return GoneConfirmed(status=exc.status or 410)
-    if exc.class_ == "moved":
-        return Moved(new_ref=exc.new_ref or "", new_container_id=None)
-    if exc.class_ == "forbidden":
-        return ForbiddenRead(status=exc.status or 403)
-    raise exc
 
 
 def _compose_body(draft: IssueDraft) -> str:

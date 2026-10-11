@@ -23,7 +23,7 @@ from app.services.trackers.github_auth import GitHubAppAuth, GitHubAppCredential
 from app.services.trackers.github_issues import GitHubIssueAdapter  # noqa: E402
 from app.services.trackers.github_recovery import (  # noqa: E402
     RecoveryKind,
-    make_issue_page_fetcher,
+    RecoveryCandidate,
     next_quarantine_at,
     quarantine_delay_minutes,
     recover_create_issue,
@@ -145,6 +145,19 @@ def _issue_payload(*, number=412, issue_id=198400412, body=None, user_id=BOT_ID,
     }
 
 
+def _candidate(**kwargs) -> RecoveryCandidate:  # noqa: ANN003
+    """The recovery view of ``_issue_payload`` an adapter's issue pages yield."""
+
+    item = _issue_payload(**kwargs)
+    return RecoveryCandidate(
+        external_id=str(item["id"]),
+        number=item["number"],
+        url=item["html_url"],
+        body=item["body"],
+        author_id=str(item["user"]["id"]),
+    )
+
+
 class MarkerTests(unittest.TestCase):
     def test_fixture_cases_are_present(self) -> None:
         ids = {case["id"] for case in F4["cases"]}
@@ -222,7 +235,7 @@ class RecoveryScanTests(unittest.TestCase):
     def test_labels_removed_issue_is_still_found(self) -> None:  # F5.labels_removed_before_scan
         pages = {
             None: (
-                [_issue_payload(number=412, labels=[])],
+                [_candidate(number=412, labels=[])],
                 None,
             )
         }
@@ -245,7 +258,7 @@ class RecoveryScanTests(unittest.TestCase):
     def test_copied_marker_issue_is_ignored_with_audit(self) -> None:  # F4.copied_marker
         pages = {
             None: (
-                [_issue_payload(number=500, issue_id=500, user_id=HUMAN_ID, body=f"copied\n{MARKER}")],
+                [_candidate(number=500, issue_id=500, user_id=HUMAN_ID, body=f"copied\n{MARKER}")],
                 None,
             )
         }
@@ -276,7 +289,7 @@ class RecoveryScanTests(unittest.TestCase):
         def fetch(cursor):  # noqa: ANN001
             calls["n"] += 1
             if cursor is None:
-                return ([_issue_payload(number=1, issue_id=1, body="no marker")], "page-2")
+                return ([_candidate(number=1, issue_id=1, body="no marker")], "page-2")
             raise ProviderError("transient", "upstream 502", status=502)
 
         outcome = scan_issue_pages(
@@ -295,8 +308,8 @@ class RecoveryScanTests(unittest.TestCase):
         pages = {
             None: (
                 [
-                    _issue_payload(number=412, issue_id=412, body=f"a\n{MARKER}"),
-                    _issue_payload(number=413, issue_id=413, body=f"b\n{MARKER}"),
+                    _candidate(number=412, issue_id=412, body=f"a\n{MARKER}"),
+                    _candidate(number=413, issue_id=413, body=f"b\n{MARKER}"),
                 ],
                 None,
             )
@@ -324,7 +337,7 @@ class RecoveryScanTests(unittest.TestCase):
         )
         self.assertEqual(first.kind, RecoveryKind.NOT_FOUND)
         second = scan_issue_pages(
-            lambda _cursor: ([_issue_payload()], None),
+            lambda _cursor: ([_candidate()], None),
             marker_text=MARKER,
             connector_id=DEST.connectorId,
             container_id=DEST.remoteContainerId,
@@ -417,7 +430,7 @@ class GitHubAdapterRecoveryTests(unittest.TestCase):
             op,
             dest=DEST,
             comment_id=COMMENT_ID,
-            fetch_page=make_issue_page_fetcher(adapter, DEST, since="2026-09-20T14:50:00Z"),
+            fetch_page=adapter.recovery_issue_pages(DEST, since="2026-09-20T14:50:00Z"),
             bot_user_id=BOT_ID,
         )
         self.assertEqual(outcome.kind, RecoveryKind.FOUND)

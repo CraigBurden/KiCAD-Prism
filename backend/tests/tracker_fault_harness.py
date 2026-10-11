@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
-from unittest.mock import patch
 from urllib.parse import urlsplit
 
 from app.services import comments_schema_migrations
@@ -31,27 +30,13 @@ from app.services.trackers.contracts import (
     UncertainAbsence,
     UpdateCursor,
 )
-from app.services.trackers.create_executor import (
-    github_issue_url,
-    mount_create_executor,
-    set_connect_factory as set_create_connect_factory,
-    unmount_create_executor,
-)
+from app.services.trackers.composition import initialize_tracker_composition, reset_tracker_runtime
+from app.services.trackers.connector_runtime import ConnectorRuntime, install_connector_runtime
 from app.services.trackers.errors import ProviderError
 from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema
 from app.services.trackers.migrations import migrate_workspace_tracker_tables
 from app.services.trackers.op_store import apply_schema as apply_op_schema
-from app.services.trackers.reply_executor import (
-    github_comment_url,
-    mount_reply_executor,
-    set_connect_factory as set_reply_connect_factory,
-    unmount_reply_executor,
-)
-from app.services.trackers.thread_executor import (
-    mount_thread_executor,
-    set_connect_factory as set_thread_connect_factory,
-    unmount_thread_executor,
-)
+from app.services.trackers.github_recovery import RecoveryCandidate
 
 try:
     import psycopg
@@ -239,6 +224,16 @@ class DisposableSchema:
                 pass
 
 
+def github_issue_url(container_path: str, issue_number: int | str) -> str:
+    """github.com issue page for fixtures (the GitHub kit's own form for github.com)."""
+
+    return f"https://github.com/{container_path.strip('/')}/issues/{issue_number}"
+
+
+def github_comment_url(container_path: str, issue_number: int | str, comment_id: int | str) -> str:
+    return f"{github_issue_url(container_path, issue_number)}#issuecomment-{comment_id}"
+
+
 class FakeJobs:
     def __init__(self) -> None:
         self.rows: list[dict] = []
@@ -301,9 +296,10 @@ class StatefulFakeForge:
         self.comment_calls: list[str] = []
         self.throttled_until: str | None = None
         self.auth_lost = False
-        self.list_issues_pages: list[tuple[list[dict], Optional[str]]] | None = None
+        self.list_issues_pages: list[tuple[list[RecoveryCandidate], Optional[str]]] | None = None
         self._list_issues_call = 0
         self.closed_as_duplicate: list[str] = []
+        self.update_patches: list[tuple[str, Any]] = []
 
     def trace(self, action: str, **detail: Any) -> None:
         entry = {"action": action, "at": _now_iso(), **detail}
@@ -480,6 +476,7 @@ class StatefulFakeForge:
         return issue
 
     def update_issue(self, dest: Destination, ext_id: str, patch: Any) -> RemoteIssue:
+        self.update_patches.append((str(ext_id), patch))
         issue = self._require_issue(ext_id)
         updates: dict[str, Any] = {
             "version": RemoteVersion(updatedAt=_now_iso(), etag=f"W/{uuid.uuid4().hex[:6]}"),
@@ -664,12 +661,12 @@ class StatefulFakeForge:
 
     # --- recovery page fetchers -----------------------------------------
 
-    def issue_page_fetcher(
+    def recovery_issue_pages(
         self, dest: Destination, *, since: str | None = None
-    ) -> Callable[[Optional[str]], tuple[list[dict], Optional[str]]]:
+    ) -> Callable[[Optional[str]], tuple[list[RecoveryCandidate], Optional[str]]]:
         del since
 
-        def fetch(cursor: Optional[str]) -> tuple[list[dict], Optional[str]]:
+        def fetch(cursor: Optional[str]) -> tuple[list[RecoveryCandidate], Optional[str]]:
             self._scan_count += 1
             self.trace("issue_page_scan", scan=self._scan_count, cursor=cursor)
             if self.delay_accept_until_scan_n and self._scan_count >= self.delay_accept_until_scan_n:
@@ -689,23 +686,18 @@ class StatefulFakeForge:
                 return page
             if self.mid_page_502 and cursor is not None:
                 raise ProviderError("transient", "mid-page 502", status=502, retryable=True)
-            items: list[dict] = []
-            for issue in self._unique_issues():
-                if issue.container.remoteContainerId != dest.remoteContainerId:
-                    continue
-                if issue.author.id != BOT_ID:
-                    continue
-                labels = [] if str(issue.externalId) in self.dropped_labels or str(issue.number) in self.dropped_labels else list(issue.labels)
-                items.append(
-                    {
-                        "id": int(issue.externalId),
-                        "number": issue.number,
-                        "body": issue.body,
-                        "html_url": issue.url,
-                        "labels": [{"name": name} for name in labels],
-                        "user": {"id": int(BOT_ID), "login": BOT_LOGIN},
-                    }
+            # Labels play no part: recovery must find issues whose labels were dropped.
+            items: list[RecoveryCandidate] = [
+                RecoveryCandidate(
+                    external_id=str(issue.externalId),
+                    number=issue.number,
+                    url=issue.url,
+                    body=issue.body or "",
+                    author_id=BOT_ID,
                 )
+                for issue in self._unique_issues()
+                if issue.container.remoteContainerId == dest.remoteContainerId and issue.author.id == BOT_ID
+            ]
             if self.mid_page_502 and cursor is None and items:
                 # Simulate multi-page: first page returns a next cursor.
                 return items[:1], "page-2"
@@ -713,7 +705,7 @@ class StatefulFakeForge:
 
         return fetch
 
-    def comment_page_fetcher(
+    def recovery_comment_pages(
         self, dest: Destination, issue: str
     ) -> Callable[[Optional[str]], tuple[list[RemoteComment], Optional[str]]]:
         def fetch(cursor: Optional[str]) -> tuple[list[RemoteComment], Optional[str]]:
@@ -740,12 +732,13 @@ class StatefulFakeForge:
         container_id: str = CONTAINER,
         path: str = REPO,
         author: ForgeUser | None = None,
+        title: str = "[MAJOR] adversarial",
     ) -> RemoteIssue:
         issue = RemoteIssue(
             externalId=str(external_id),
             url=github_issue_url(path, number),
             number=number,
-            title="[MAJOR] adversarial",
+            title=title,
             body=body,
             state=state,  # type: ignore[arg-type]
             labels=list(labels) if labels is not None else ["prism"],
@@ -878,50 +871,29 @@ class StatefulFakeForge:
         raise ProviderError("transient", f"forced status {status}", status=status, retryable=True)
 
 
+def forge_runtime(forge: Any, connect_factory: Callable[[], Any]) -> ConnectorRuntime:
+    """A connector runtime whose every connector talks to ``forge`` over ``connect_factory``."""
+
+    return ConnectorRuntime(connect=connect_factory, adapters=lambda _connector: (forge, forge))
+
+
 @contextmanager
 def install_fake_provider(
-    forge: StatefulFakeForge,
+    forge: Any,
     connect_factory: Callable[[], Any],
-) -> Iterator[StatefulFakeForge]:
-    """Patch executor adapters + recovery page fetchers; mount create/reply/thread."""
+) -> Iterator[Any]:
+    """Mount tracker composition with ``forge`` plugged in at the connector-runtime seam.
 
-    def _adapter(_connector, http=None):  # noqa: ANN001, ARG001
-        return forge
+    ``forge`` serves as both the issue and the comment adapter, recovery page
+    listings included, for executors, poll, sweep and inbound alike.
+    """
 
-    def _issue_pages(adapter, dest, since=None):  # noqa: ANN001, ARG001
-        return forge.issue_page_fetcher(dest, since=since)
-
-    def _comment_pages(adapter, dest, issue):  # noqa: ANN001, ARG001
-        return forge.comment_page_fetcher(dest, issue)
-
-    patches = [
-        patch("app.services.trackers.create_executor._issue_adapter", _adapter),
-        patch("app.services.trackers.reply_executor._comment_adapter", _adapter),
-        patch("app.services.trackers.state_executor._issue_adapter", _adapter),
-        patch("app.services.trackers.thread_executor._issue_adapter", _adapter),
-        patch("app.services.trackers.create_executor.issue_page_fetcher_for", _issue_pages),
-        patch("app.services.trackers.reply_executor.comment_page_fetcher_for", _comment_pages),
-        patch("app.services.trackers.thread_executor.comment_page_fetcher_for", _comment_pages),
-    ]
-    for item in patches:
-        item.start()
-    mount_create_executor()
-    mount_reply_executor()
-    mount_thread_executor()
-    set_create_connect_factory(connect_factory)
-    set_reply_connect_factory(connect_factory)
-    set_thread_connect_factory(connect_factory)
+    initialize_tracker_composition()
+    install_connector_runtime(forge_runtime(forge, connect_factory))
     try:
         yield forge
     finally:
-        unmount_thread_executor()
-        unmount_reply_executor()
-        unmount_create_executor()
-        set_create_connect_factory(None)
-        set_reply_connect_factory(None)
-        set_thread_connect_factory(None)
-        for item in reversed(patches):
-            item.stop()
+        reset_tracker_runtime()
 
 
 def seed_destination(store: Any, conn: Any, *, visibility: str = "private") -> None:

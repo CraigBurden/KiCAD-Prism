@@ -167,6 +167,23 @@ For a single-slot worker, jobs still share that slot by priority.
 Project and comment APIs expose link state (`linked`, `inaccessible`, `deleted`,
 `transferred`) and pending local intent separately from observed remote status.
 
+### Connector status
+
+Every connector response carries one `status`, derived on the server
+(`backend/app/services/trackers/connector_runtime.py`); the settings screens
+only label it.
+
+| `status` | Meaning |
+| --- | --- |
+| `ready` | Credentials tested, bot identity known, not paused: publishing works. |
+| `linking-only` | A host that only links accounts (Gitea/Forgejo), or a GitLab connection without a bot token yet. |
+| `needs-test` | New or rotated credentials, or a failed test: run **Test connection**. |
+| `paused` | Paused by an administrator, a permission probe, or unknown destination visibility. |
+| `revoked` | Credentials were revoked, the forge rejected them (`paused_reason` `auth_lost`), or a GitHub connection has no App credentials. |
+
+`pausedReason` and `writesEnabled` remain in the response for detail;
+`writesEnabled` is true exactly when `status` is `ready`.
+
 ### Pause and resume
 
 | Action | API | Effect |
@@ -175,8 +192,9 @@ Project and comment APIs expose link state (`linked`, `inaccessible`, `deleted`,
 | Resume connector | `POST .../resume` | Re-queues work; does not bypass publication policy. |
 | Revoke connector | `POST .../revoke` | Erases credentials; linked threads become inaccessible. |
 
-Authentication or permission loss pauses the connector automatically
-(`paused:auth`). Rate limits schedule retries without unlinking. Operators fix
+Authentication loss pauses the connector automatically (`pausedReason`
+`auth_lost`, status `revoked`); a failed permission probe pauses it with
+`permissions`. Rate limits schedule retries without unlinking. Operators fix
 the root cause, then resume.
 
 ### Credential rotation
@@ -276,7 +294,7 @@ the full decision record (D1–D9).
 | OAuth callback denied | `PUBLIC_BASE_URL` matches registered callback; user still signed in; state not replayed. |
 | Webhook 401 | Webhook secret matches connector; raw body signature verified. |
 | Ops pending forever | Connector paused; worker healthy; `prism-worker` logs for `tracker_sync` jobs. |
-| Promotion blocked | Role, visibility acknowledgement, unpinned legacy anchor, or connector `paused:auth`. |
+| Promotion blocked | Role, visibility acknowledgement, unpinned legacy anchor, or connector status `revoked` (`auth_lost`). |
 | After restore | Same `TRACKER_CREDENTIAL_ROOT_KEY` as backup; both workers restarted. |
 
 ## Related documentation

@@ -9,7 +9,6 @@ import unittest
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -35,12 +34,8 @@ from app.services.trackers.state_mutations import (  # noqa: E402
 )
 from app.services.trackers.state_executor import execute_set_state_op  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
-from app.services.trackers.create_executor import (  # noqa: E402
-    execute_claimed_op,
-    mount_create_executor,
-    set_connect_factory,
-    unmount_create_executor,
-)
+from app.services.trackers.create_executor import execute_claimed_op  # noqa: E402
+from tracker_fault_harness import install_fake_provider  # noqa: E402
 
 try:
     import psycopg
@@ -107,6 +102,12 @@ def _issue(
 
 
 class FakeIssueAdapter:
+    """Scripted F6 forge: the event list is exactly what each case declares.
+
+    ``StatefulFakeForge`` records its own bot events on ``set_state``; the F6
+    postflight cases need the remote history to stay as scripted.
+    """
+
     def __init__(self, *, has_state_events: bool = True) -> None:
         self.has_state_events = has_state_events
         self.issues: dict[str, RemoteIssue] = {}
@@ -172,7 +173,6 @@ class FixtureContractTests(unittest.TestCase):
 @unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
 class StateReconciliationPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        unmount_create_executor()
         self.schema = f"tr31_{uuid.uuid4().hex[:12]}"
         self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
         self.addCleanup(self._cleanup)
@@ -186,7 +186,6 @@ class StateReconciliationPostgresTests(unittest.TestCase):
         self.ops = OpStore(self.conn)
         self.adapter = FakeIssueAdapter()
         self._seed_destination()
-        mount_create_executor()
 
         @contextmanager
         def factory():
@@ -197,15 +196,9 @@ class StateReconciliationPostgresTests(unittest.TestCase):
             finally:
                 conn.close()
 
-        set_connect_factory(factory)
-        self.addCleanup(unmount_create_executor)
-        self.addCleanup(lambda: set_connect_factory(None))
-        self._issue_patch = patch(
-            "app.services.trackers.state_executor._issue_adapter",
-            lambda _connector, http=None: self.adapter,  # noqa: ARG005
-        )
-        self._issue_patch.start()
-        self.addCleanup(self._issue_patch.stop)
+        provider = install_fake_provider(self.adapter, factory)
+        provider.__enter__()
+        self.addCleanup(provider.__exit__, None, None, None)
 
     def _cleanup(self) -> None:
         try:

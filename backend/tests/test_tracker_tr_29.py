@@ -10,11 +10,11 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tracker_fault_harness import StatefulFakeForge, github_comment_url, github_issue_url, install_fake_provider  # noqa: E402
 from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import history  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
@@ -22,25 +22,13 @@ from app.services.trackers.contracts import (  # noqa: E402
     RemoteComment,
     RemoteVersion,
 )
-from app.services.trackers.create_executor import (  # noqa: E402
-    github_issue_url,
-    mount_create_executor,
-    set_connect_factory as set_create_connect_factory,
-    unmount_create_executor,
-)
 from app.services.trackers.github_recovery import RecoveryKind, recover_add_comment  # noqa: E402
 from app.services.trackers.markers import build_marker  # noqa: E402
 from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
 from app.services.trackers.op_store import RECOVERY_DISPATCH, OpStore, apply_schema as apply_op_schema  # noqa: E402
 from app.services.trackers.promotion import PromotionActor  # noqa: E402
 from app.services.trackers.provenance import body_hash  # noqa: E402
-from app.services.trackers.reply_executor import (  # noqa: E402
-    execute_reply_claimed_op,
-    github_comment_url,
-    mount_reply_executor,
-    set_connect_factory,
-    unmount_reply_executor,
-)
+from app.services.trackers.reply_executor import execute_reply_claimed_op  # noqa: E402
 from app.services.trackers.reply_mutations import (  # noqa: E402
     after_reply_added,
     after_reply_deleted,
@@ -138,8 +126,6 @@ class ReplyExecutorPostgresTests(unittest.TestCase):
         self.ops = OpStore(self.conn)
         self._seed_destination()
         self._seed_linked_thread()
-        mount_create_executor()
-        mount_reply_executor()
 
         @contextmanager
         def factory():
@@ -150,12 +136,11 @@ class ReplyExecutorPostgresTests(unittest.TestCase):
             finally:
                 conn.close()
 
-        set_connect_factory(factory)
-        set_create_connect_factory(factory)
-        self.addCleanup(unmount_reply_executor)
-        self.addCleanup(unmount_create_executor)
-        self.addCleanup(lambda: set_connect_factory(None))
-        self.addCleanup(lambda: set_create_connect_factory(None))
+        self.forge = StatefulFakeForge()
+        self.forge.seed_issue()
+        provider = install_fake_provider(self.forge, factory)
+        provider.__enter__()
+        self.addCleanup(provider.__exit__, None, None, None)
 
     def _cleanup(self) -> None:
         try:
@@ -346,16 +331,9 @@ class ReplyExecutorPostgresTests(unittest.TestCase):
         self.conn.commit()
         remote = _remote_comment(body=f"*{ 'Priya' }* (via Prism)\n\n{body}\n\n{build_marker(connector_id=CONNECTOR, container_id=CONTAINER, reply_id=REPLY_ID, op_id=OP_REPLY)}")
 
-        class FakeAdapter:
-            sent_body = ""
-
-            def add_comment(self, dest, issue_ref, body_text, op_id, *, issue_id=None):  # noqa: ANN001
-                self.issue_ref = issue_ref
-                FakeAdapter.sent_body = body_text
-                return remote
-
-        with patch("app.services.trackers.reply_executor._comment_adapter", return_value=FakeAdapter()):
-            execute_reply_claimed_op(self.ops.get(OP_REPLY))
+        execute_reply_claimed_op(self.ops.get(OP_REPLY))
+        self.assertEqual(self.forge.comment_calls, [OP_REPLY])
+        sent_body = self.forge.comments[EXT_COMMENT].body
 
         thread = self.conn.execute("SELECT * FROM tracked_threads WHERE id = %s", (THREAD_ID,)).fetchone()
         link = self.conn.execute(
@@ -367,8 +345,8 @@ class ReplyExecutorPostgresTests(unittest.TestCase):
         # D3 echo key describes the body the forge will echo back, not the
         # prose recorded at enqueue (TR-46: the bot's own comment was imported
         # as a remote edit and overwrote the local reply).
-        self.assertEqual(op["expected_body_hash"], body_hash(FakeAdapter.sent_body))
-        self.assertEqual(FakeAdapter.sent_body, remote.body)
+        self.assertEqual(op["expected_body_hash"], body_hash(sent_body))
+        self.assertEqual(sent_body, remote.body)
         from app.services.trackers.provenance import find_body_echo
 
         echo = find_body_echo([op], fetched_body=remote.body)
@@ -401,24 +379,9 @@ class ReplyExecutorPostgresTests(unittest.TestCase):
         self.conn.commit()
         sent = self.ops.get(OP_REPLY)
         sent["dispatch"] = RECOVERY_DISPATCH
-        remote = _remote_comment(body=body)
-
-        class FakeAdapter:
-            def find_comment_by_marker(self, dest, issue_ref, marker_text, *, issue_id=None):  # noqa: ANN001
-                return remote if marker_text in (remote.body or "") else None
-
-            def get_comment(self, dest, ext_cid, etag=None):  # noqa: ANN001
-                return remote
-
-        def fetch_page(cursor):  # noqa: ANN001
-            return ([remote], None)
-
-        with patch("app.services.trackers.reply_executor._comment_adapter", return_value=FakeAdapter()):
-            with patch(
-                "app.services.trackers.reply_executor.comment_page_fetcher_for",
-                return_value=fetch_page,
-            ):
-                execute_reply_claimed_op(sent)
+        self.forge.seed_comment(body=body)
+        execute_reply_claimed_op(sent)
+        self.assertEqual(self.forge.comment_calls, [], "recovery must not resend")
 
         self.assertEqual(self.ops.get(OP_REPLY)["state"], "confirmed")
         link = self.conn.execute(

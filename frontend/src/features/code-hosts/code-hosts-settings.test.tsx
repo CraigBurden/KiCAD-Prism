@@ -27,10 +27,10 @@ beforeEach(() => {
     mocks.getOAuthCallbackUrl.mockResolvedValue(CALLBACK);
     mocks.listConnectors.mockResolvedValue([
         { ...base, id: "cn_gh", provider: "github", instanceKind: "github.com", displayName: "GitHub", host: "github.com",
-            credentialConfigured: true, writesEnabled: true, capabilities: { issues: true, accountLinking: false } },
+            credentialConfigured: true, status: "ready", writesEnabled: true, capabilities: { issues: true, accountLinking: false } },
         // No bot token yet: this GitLab only links accounts.
         { ...base, id: "cn_gl", provider: "gitlab", instanceKind: "self-hosted", displayName: "Acme GitLab",
-            host: "gitlab.acme.io", capabilities: { issues: true, accountLinking: true } },
+            host: "gitlab.acme.io", status: "linking-only", capabilities: { issues: true, accountLinking: true } },
     ]);
 });
 
@@ -49,7 +49,7 @@ it("summarises what each host does and whether it is ready", async () => {
 it("walks an admin through registering a Gitea or Forgejo server", async () => {
     mocks.createConnector.mockResolvedValue({
         ...base, id: "cn_new", provider: "gitea", instanceKind: "self-hosted", displayName: "git.corp.io",
-        host: "git.corp.io", oauthClientConfigured: true, capabilities: { issues: false, accountLinking: true },
+        host: "git.corp.io", status: "linking-only", oauthClientConfigured: true, capabilities: { issues: false, accountLinking: true },
     });
     render(<CodeHostsSettings />);
     fireEvent.click(await screen.findByRole("button", { name: /Add code host/ }));
