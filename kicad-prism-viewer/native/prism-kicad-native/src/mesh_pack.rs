@@ -10,6 +10,9 @@ use crate::geometry::{
     trapezoid,
 };
 use crate::semantic_compiler::{LoweringRoute, TileId, classify, resolve_tile_size_mm};
+use crate::stackup_frame::{
+    board_frame, centred_layer_z, compensated_sum, outward_face_z, outward_sign, stackup_role,
+};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use serde::Serialize;
@@ -36,6 +39,8 @@ pub struct LayerRecord {
     pub z_mm: f64,
     pub runtime_z_mm: f64,
     pub thickness_mm: f64,
+    /// +1 when the layer is drawn by its top face, -1 by its bottom face.
+    pub surface_sign: i32,
     pub material: String,
     pub color: String,
     pub visibility_group: String,
@@ -598,45 +603,53 @@ fn append_mesh(target: &mut TileMesh, chunk: TileMesh) -> Result<()> {
 
 fn layer_records(document: &Document) -> Result<Vec<LayerRecord>> {
     let mut raw = Vec::<LayerRecord>::new();
-    let total_thickness = document
-        .board
-        .stackup_layers
-        .iter()
-        .map(|layer| layer.thickness_mm.max(0.0))
-        .sum::<f64>();
-    let physical_thickness = if total_thickness > 0.0 {
-        total_thickness
-    } else {
-        document.board.thickness_mm
-    };
-    let mut cursor = physical_thickness / 2.0;
     let source_by_name = document
         .layers
         .iter()
         .map(|layer| (layer.name.as_str(), layer.index))
         .collect::<HashMap<_, _>>();
+    let thicknesses = document
+        .board
+        .stackup_layers
+        .iter()
+        .map(|layer| layer.thickness_mm.max(0.0))
+        .collect::<Vec<_>>();
+    let centres = if compensated_sum(&thicknesses) > 0.0 {
+        centred_layer_z(&thicknesses)
+    } else {
+        // No stackup thickness: centre the layers on the board thickness.
+        let mut cursor = document.board.thickness_mm / 2.0;
+        thicknesses
+            .iter()
+            .map(|thickness| {
+                cursor -= thickness / 2.0;
+                let centre = cursor;
+                cursor -= thickness / 2.0;
+                centre
+            })
+            .collect()
+    };
     for (index, layer) in document.board.stackup_layers.iter().enumerate() {
-        let thickness = layer.thickness_mm.max(0.0);
-        cursor -= thickness / 2.0;
-        let z_mm = cursor;
-        cursor -= thickness / 2.0;
-        let role = layer_role(&layer.name, &layer.type_name);
+        let thickness = thicknesses[index];
+        let z_mm = centres[index];
+        let role = stackup_role(&layer.name, &layer.type_name);
         raw.push(LayerRecord {
             id: index as u32 + 1,
             uid: stable_uid("layer", &layer.name),
             source_index: source_by_name.get(layer.name.as_str()).copied(),
             name: layer.name.clone(),
-            role: role.to_owned(),
+            role: role.clone(),
             z_mm,
             runtime_z_mm: z_mm,
             thickness_mm: thickness,
+            surface_sign: outward_sign(z_mm),
             material: if layer.material.is_empty() {
-                role.to_owned()
+                role.clone()
             } else {
                 layer.material.clone()
             },
             color: layer.color.clone(),
-            visibility_group: role.to_owned(),
+            visibility_group: role,
             stack_index: index,
             epsilon_r: layer.epsilon_r,
             loss_tangent: layer.loss_tangent,
@@ -665,6 +678,7 @@ fn layer_records(document: &Document) -> Result<Vec<LayerRecord>> {
                 z_mm,
                 runtime_z_mm: z_mm,
                 thickness_mm: 0.035,
+                surface_sign: outward_sign(z_mm),
                 material: "copper".to_owned(),
                 color: String::new(),
                 visibility_group: "copper".to_owned(),
@@ -677,27 +691,16 @@ fn layer_records(document: &Document) -> Result<Vec<LayerRecord>> {
     let copper = raw
         .iter()
         .filter(|layer| layer.role == "copper")
+        .map(|layer| (layer.z_mm, layer.thickness_mm))
         .collect::<Vec<_>>();
-    if copper.len() < 2 {
+    let Some((offset, body_thickness)) = board_frame(&copper) else {
         bail!("semantic mesh pack requires at least two copper stackup layers");
-    }
-    let bottom = copper
-        .iter()
-        .min_by(|a, b| a.z_mm.total_cmp(&b.z_mm))
-        .unwrap();
-    let top = copper
-        .iter()
-        .max_by(|a, b| a.z_mm.total_cmp(&b.z_mm))
-        .unwrap();
-    // KiCad's board body spans the inner faces of the outer copper and its outer
-    // copper sits on those faces, so the stackup is shifted into that frame, not
-    // scaled: scaling pushed the outer copper inside the body.
-    let body_min = bottom.z_mm + bottom.thickness_mm / 2.0;
-    if top.z_mm - top.thickness_mm / 2.0 <= body_min {
+    };
+    if body_thickness <= 0.0 {
         bail!("semantic mesh pack stackup has no board body between the outer copper layers");
     }
     for layer in &mut raw {
-        layer.runtime_z_mm = layer.z_mm - body_min;
+        layer.runtime_z_mm = layer.z_mm + offset;
     }
     Ok(raw)
 }
@@ -1298,30 +1301,9 @@ fn normalized_kind(kind: &str) -> &str {
     }
 }
 
-/// The outward face: top of layers above the board centre, bottom of those below.
+/// The face a layer is drawn by, in the board frame.
 fn layer_surface_y_mm(layer: &LayerRecord) -> f64 {
-    if layer.z_mm >= 0.0 {
-        layer.runtime_z_mm + layer.thickness_mm / 2.0
-    } else {
-        layer.runtime_z_mm - layer.thickness_mm / 2.0
-    }
-}
-
-fn layer_role(name: &str, type_name: &str) -> &'static str {
-    let lower = type_name.to_ascii_lowercase();
-    if name.ends_with(".Cu") || lower == "copper" {
-        "copper"
-    } else if name.ends_with(".Mask") || lower.contains("solder mask") {
-        "soldermask"
-    } else if name.ends_with(".Paste") || lower.contains("solder paste") {
-        "paste"
-    } else if name.ends_with(".SilkS") || lower.contains("silk") {
-        "silkscreen"
-    } else if lower.contains("dielectric") || lower == "core" || lower == "prepreg" {
-        "dielectric"
-    } else {
-        "unknown"
-    }
+    outward_face_z(layer.runtime_z_mm, layer.thickness_mm, layer.surface_sign)
 }
 
 fn stable_uid(kind: &str, value: &str) -> String {

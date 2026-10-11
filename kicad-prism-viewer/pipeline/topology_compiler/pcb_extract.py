@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from .models import stable_id
+from .stackup_frame import normalize_physical_role as _normalize_physical_role
+from .stackup_frame import role_for_layer as _role_for_layer
 
 
 LAYER_COLORS = {
@@ -204,26 +206,6 @@ def _component_uid(designator: str) -> str:
     return stable_id("cmp", designator) if designator else ""
 
 
-def _role_for_layer(name: str, raw_type: str = "") -> str:
-    if name == "Board":
-        return "dielectric"
-    if name == "Edge.Cuts":
-        return "outline"
-    if name.endswith(".Cu"):
-        return "copper"
-    if name.endswith(".Mask"):
-        return "soldermask"
-    if name.endswith(".Paste"):
-        return "paste"
-    if name.endswith(".SilkS"):
-        return "silkscreen"
-    if name.endswith(".Fab"):
-        return "fabrication"
-    if raw_type:
-        return raw_type
-    return "drawing"
-
-
 def _layer_material(role: str) -> str:
     if role == "dielectric":
         return "FR4"
@@ -367,15 +349,6 @@ def _stackup_role(raw: Any) -> str:
     item_type = get_item_type() if callable(get_item_type) else ""
     role = _value(getattr(item_type, "value", item_type)).lower()
     return _normalize_physical_role(role or _role_for_layer(name, _value(getattr(raw, "type_name", ""))))
-
-
-def _normalize_physical_role(role: str) -> str:
-    normalized = _value(role).lower()
-    if normalized == "solderpaste":
-        return "paste"
-    if normalized in {"core", "prepreg"}:
-        return "dielectric"
-    return normalized
 
 
 def _normalize_stackup_layers(raw_layers: list[dict[str, Any]], allowed_roles: set[str]) -> list[dict[str, Any]]:
