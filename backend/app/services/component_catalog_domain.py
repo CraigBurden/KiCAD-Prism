@@ -101,6 +101,7 @@ from app.services.catalog.normalization import (
     utc_now_iso as _utc_now_iso,
 )
 from app.services.catalog.project_import_sessions import CatalogProjectImportSessions
+from app.services.catalog.component_identity import match_part_identities
 from app.services.catalog.project_import_matching import CatalogProjectImportMatching
 from app.services.catalog.project_import_assets import CatalogProjectImportAssets
 from app.services.catalog.provider_tokens import CatalogProviderTokens
@@ -739,14 +740,11 @@ class ComponentCatalogDomainService:
             conn.commit()
         return result
 
-    def match_component_identities(self, identities: list[dict[str, str]]) -> dict[str, dict[str, Any]]:
-        """Resolve manufacturer/MPN identities in one catalog query for import preflight."""
-        requested = self._project_import_matching.normalize_identity_requests(identities)
-        if not requested:
-            return {}
+    def match_component_identities(self, identities: list[dict[str, str]]) -> list[dict[str, Any] | None]:
+        """Resolve manufacturer/MPN identities, in order, to the active or retired holder."""
         self.initialize()
         with self._connect() as conn:
-            return self._project_import_matching.match_component_identities(conn, requested)
+            return match_part_identities(conn, identities)
 
     def accept_project_import_proposal(
         self,
