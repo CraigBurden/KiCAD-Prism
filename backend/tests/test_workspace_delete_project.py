@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import tempfile
 import unittest
 import uuid
 from contextlib import contextmanager
@@ -403,7 +404,7 @@ class DeleteProjectEndpointTests(unittest.TestCase):
         with patch.object(api, "get_project_for_role_or_404", return_value=SimpleNamespace(path="/tmp/p")), \
              patch.object(api.workspace, "get_project_by_id", return_value={"repo_id": "repo", "import_type": "single", "parent_repo_path": "/tmp/p"}), \
              patch.object(api.workspace, "delete_project", return_value=True) as delete_project, \
-             patch.object(api.comments_store, "delete_project_comments"), \
+             patch.object(api.project_deletion.comments_store, "delete_project_comments"), \
              patch.object(api.workspace, "get_projects_by_repo", return_value=[]), \
              patch.object(api.workspace, "delete_repository"), \
              patch.object(api.project_service, "PROJECTS_ROOT", "/tmp"):
@@ -411,6 +412,50 @@ class DeleteProjectEndpointTests(unittest.TestCase):
 
         delete_project.assert_called_once_with("prj_1", force=True)
         self.assertEqual(result["message"], "Project deleted successfully")
+
+
+class ProjectDeletionServiceTests(unittest.TestCase):
+    def _delete(self, root: Path, row: dict, remaining: list) -> object:
+        from app.services import project_deletion
+
+        with patch.object(project_deletion.workspace, "get_project_by_id", return_value=row), \
+             patch.object(project_deletion.workspace, "delete_project", return_value=True), \
+             patch.object(project_deletion.workspace, "get_projects_by_repo", return_value=remaining), \
+             patch.object(project_deletion.workspace, "delete_repository") as delete_repository, \
+             patch.object(project_deletion.comments_store, "delete_project_comments"), \
+             patch.object(project_deletion.project_service, "PROJECTS_ROOT", str(root)):
+            result = project_deletion.delete_project("prj_1", force=False)
+        self.delete_repository = delete_repository
+        return result
+
+    def test_monorepo_subproject_keeps_a_clone_its_siblings_still_use(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            clone = root / "type2" / "mono"
+            (clone / "boards" / "a").mkdir(parents=True)
+            row = {
+                "repo_id": "repo",
+                "import_type": "multi",
+                "parent_repo_path": str(clone),
+                "path": str(clone / "boards" / "a"),
+            }
+            result = self._delete(root, row, remaining=[{"id": "prj_2"}])
+            self.assertTrue(clone.is_dir())
+        self.assertFalse(result.repository_deleted)
+        self.assertFalse(result.removed_files)
+        self.delete_repository.assert_not_called()
+
+    def test_last_project_removes_the_clone_inside_the_projects_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            clone = root / "type1" / "board"
+            clone.mkdir(parents=True)
+            row = {"repo_id": "repo", "import_type": "single", "parent_repo_path": str(clone), "path": str(clone)}
+            result = self._delete(root, row, remaining=[])
+            self.assertFalse(clone.exists())
+        self.assertTrue(result.repository_deleted)
+        self.assertTrue(result.removed_files)
+        self.delete_repository.assert_called_once_with("repo")
 
 
 if __name__ == "__main__":
