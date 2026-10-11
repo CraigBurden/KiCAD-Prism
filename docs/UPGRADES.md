@@ -47,11 +47,18 @@ those steps is safe on a database that already has it, so an existing
 installation runs them once on upgrade and records them; no manual step is
 needed.
 
+The catalog's baseline (base tables, epoch row, metadata registry and its
+built-in field seed, the first install of the head projections) is step 0 of
+the catalog ledger. Earlier releases reconciled it on every start; an existing
+installation runs it once on upgrade, where it changes nothing, and records it.
+From then on the catalog is forward-only: a later change to any of it ships as a
+new step, and rolling back to a release from before the ledger is not supported
+(see below).
+
 Derived state sits outside those ledgers on purpose. Component-head projections,
 search indexes and integrity guards are rebuilt whenever their definition version
-changes, which a run-once ledger cannot express. The catalog's baseline (its
-epoch guard, base tables and metadata-field seed) is reconciled on every start
-ahead of its numbered steps for the same reason. They rebuild from authoritative
+changes, which a run-once ledger cannot express, and the catalog's epoch guard
+still refuses a populated pre-epoch-2 catalog on every start. They rebuild from authoritative
 data, so they are not schema-migrated and are omitted from the standard
 `prism_backup.py` archive. Include them separately when faster recovery is worth
 the additional storage.
@@ -349,11 +356,13 @@ had never fired, because the version had never been bumped — so the first
 release to change a catalog table would have discovered it on somebody's
 production database, mid-upgrade, after the old stack had been stopped.
 
-The ladder replaced it. The legacy version row is still written on every startup
-so that an older Prism, which treats that row as a hard precondition, can still
-open a database a newer V3 build has touched. That preserves the catalog
-rollback convention; it does not make a V2 SQLite installation or arbitrary
-alpha API changes backwards-compatible.
+The ladder replaced it. Until the baseline moved into the ledger (step 0), the
+legacy version row was still written on every startup so that an older Prism,
+which treats that row as a hard precondition, could open a database a newer
+build had touched. That row is no longer written: the catalog is forward-only,
+and a rollback to an older Prism needs the pre-upgrade backup. Existing
+databases keep the row they already have; a database created by this release
+never gets one.
 
 ## Catalog epoch 2 cutover
 

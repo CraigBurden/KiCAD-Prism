@@ -1467,7 +1467,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
 
         with self.service.connection() as conn:
             conn.execute("DROP TABLE IF EXISTS catalog_schema_versions")
-            conn.execute("DELETE FROM catalog_schema_migrations")
+            conn.execute("DROP TABLE IF EXISTS catalog_schema_migrations")
             conn.commit()
 
         upgraded = ComponentCatalogPostgresService(
@@ -1487,8 +1487,8 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             self.assertEqual(pending_catalog_migrations(conn), [])
             # D8: the catalog is forward-only. The legacy version row an older
             # Prism required is no longer written, so a rollback is unsupported.
-            legacy = conn.execute("SELECT count(*) AS total FROM catalog_schema_migrations").fetchone()
-            self.assertEqual(int(legacy["total"]), 0)
+            legacy = conn.execute("SELECT to_regclass('catalog_schema_migrations') AS relation").fetchone()
+            self.assertIsNone(legacy["relation"])
 
         survivor = upgraded.get_component(component["id"])
         self.assertIsNotNone(survivor)

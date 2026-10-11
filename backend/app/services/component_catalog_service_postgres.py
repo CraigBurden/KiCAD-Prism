@@ -18,11 +18,7 @@ from app.services.catalog.postgres_projections import (
     ensure_component_heads_projection,
     ensure_remote_component_heads_projection,
 )
-from app.services.catalog.postgres_schema import (
-    CATALOG_SCHEMA_EPOCH,
-    POSTGRES_SCHEMA_VERSION,
-    create_base_schema,
-)
+from app.services.catalog.postgres_schema import CATALOG_SCHEMA_EPOCH
 from app.services.catalog_schema_migrations import CATALOG_LEDGER
 from app.services.component_catalog_domain import ComponentCatalogDomainService
 
@@ -61,7 +57,11 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
             if runtime.initialized:
                 return
             self._ensure_storage_dirs()
-            CATALOG_LEDGER.migrate(self._connect, before=(self._refuse_or_reset_pre_epoch, self._baseline))
+            CATALOG_LEDGER.migrate(
+                self._connect,
+                before=(self._refuse_or_reset_pre_epoch,),
+                after=(self._reconcile_projections,),
+            )
             self._ensure_postgres_search_indexes()
             self._ensure_postgres_integrity_guards()
             runtime.fts_available = False
@@ -95,48 +95,8 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
                 conn.execute("CREATE SCHEMA catalog")
                 conn.execute("SET search_path TO catalog, public")
 
-    def _baseline(self, conn: CatalogPostgresConnection) -> None:
-        """The catalog surface the numbered steps build on, reconciled on every start."""
-        # Every statement below is CREATE ... IF NOT EXISTS, so running
-        # this on an existing database adds whatever a new release
-        # introduced and leaves everything else untouched. An older
-        # Prism reaching this database still finds the schema-version
-        # row it insists on, which is what keeps a rollback from
-        # needing a data restore.
-        create_base_schema(conn)
-        conn.execute(
-            "INSERT INTO catalog_meta(key, value) VALUES (%s, %s) "
-            "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
-            ("catalog_schema_epoch", CATALOG_SCHEMA_EPOCH),
-        )
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_component_sequence "
-            "ON catalog_audit_events(component_id, sequence)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_component_usage_current "
-            "ON component_usage(component_id, is_current, last_seen_at DESC)"
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS catalog_schema_migrations (
-                version TEXT PRIMARY KEY,
-                applied_at TEXT NOT NULL
-            )
-            """
-        )
-        self._metadata_schema.ensure_schema(conn)
-        conn.execute(
-            """
-            INSERT INTO catalog_schema_migrations (version, applied_at)
-            VALUES (%s, CURRENT_TIMESTAMP::text)
-            ON CONFLICT (version) DO NOTHING
-            """,
-            (POSTGRES_SCHEMA_VERSION,),
-        )
-        # Projections first: they are part of the schema surface a
-        # migration may need to alter, and a migration that widens a
-        # head column cannot run before the head table exists.
+    def _reconcile_projections(self, conn: CatalogPostgresConnection) -> None:
+        """Rebuild a head projection whose definition version changed (derived state)."""
         self._ensure_component_heads_projection(conn)
         self._ensure_remote_component_heads_projection(conn)
 
@@ -158,7 +118,4 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
         self._catalog_runtime.close()
 
 
-__all__ = [
-    "ComponentCatalogPostgresService",
-    "POSTGRES_SCHEMA_VERSION",
-]
+__all__ = ["ComponentCatalogPostgresService"]

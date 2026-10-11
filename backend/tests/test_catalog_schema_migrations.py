@@ -51,6 +51,8 @@ class FakeConnection:
         if statement.startswith("CREATE TABLE IF NOT EXISTS catalog_schema_versions"):
             self.ledger_exists = True
             return _Result([])
+        if statement.startswith("SELECT to_regclass") and params == ("catalog_meta",):
+            return _Result([{"relation": "catalog_meta" if self.catalog_meta else None}])
         if statement.startswith("SELECT to_regclass"):
             return _Result([{"relation": "catalog_schema_versions" if self.ledger_exists else None}])
         if statement.startswith("SELECT version FROM catalog_schema_versions"):
