@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { pollUntil } from "@/lib/server-state";
 import {
   Archive, ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, Columns3, Download,
   Eye, EyeOff, FilePenLine, FilterX, GripVertical, Loader2, Pencil, Pin, Plus, Redo2,
@@ -511,12 +512,11 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
     if (!batch) return; setBusy(true);
     try {
       const queued = await applyMetadataBatch(batch.id, itemIds);
-      const poll = async (): Promise<void> => {
+      await pollUntil(async () => {
         const job = await getMetadataJob(queued.job_id);
         if (job.status === "failed") throw new Error(job.error_message || "Metadata batch failed");
-        if (job.status !== "completed") { await new Promise((resolve) => window.setTimeout(resolve, 800)); return poll(); }
-      };
-      await poll();
+        return job.status === "completed";
+      }, { intervalMs: 800 });
       const completed = await getMetadataBatch(batch.id);
       const itemIdSet = new Set(itemIds);
       const appliedComponents = new Set(

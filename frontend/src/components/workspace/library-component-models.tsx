@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { convertModels, listMates, listModels, modelPreviewUrl, saveModelAlignment } from "./catalog-client";
+import { pollUntil } from "@/lib/server-state";
 
 import type { MatingPart } from "./library-component-mates";
 
@@ -170,12 +171,11 @@ export function ModelsPanel({ componentId, canMutate, mates = true }: { componen
     setConverting(true);
     try {
       await convertModels(componentId);
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      await pollUntil(async () => {
         const body = await listModels(componentId);
         setState((current) => current && { ...current, models: body.items });
-        if (body.items.every((model) => model.glb)) break;
-      }
+        return body.items.every((model) => model.glb);
+      }, { intervalMs: 2000, delayFirst: true, maxTicks: 60 });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not convert the models");
     } finally {

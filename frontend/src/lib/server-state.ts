@@ -24,7 +24,8 @@
  *   observed key that starts with `prefix` (a write says what it changed).
  *
  * For a periodic side effect that is not a keyed read (a tick that updates
- * several things), `usePoll` gives the same non-overlapping poll.
+ * several things), `usePoll` gives the same non-overlapping poll; `pollUntil`
+ * is the awaitable form for a handler that waits on a server-side job.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
@@ -86,6 +87,8 @@ function documentVisible(): boolean {
 interface PollOptions {
   intervalMs: number;
   whileVisible?: boolean;
+  /** Run the first tick now instead of after one interval. */
+  immediate?: boolean;
 }
 
 /**
@@ -108,6 +111,7 @@ function startPoll(tick: (signal: AbortSignal) => Promise<void>, options: PollOp
     }
   };
   const timer = window.setInterval(() => void run(), options.intervalMs);
+  if (options.immediate) void run();
   const onVisibility = () => {
     if (documentVisible()) void run();
   };
@@ -417,4 +421,52 @@ export function usePoll(
       { intervalMs },
     );
   }, [enabled, intervalMs, tick]);
+}
+
+/**
+ * Run `tick` every `intervalMs`, never two at once, until it returns true
+ * (resolves true) or has run `maxTicks` times (resolves false). A tick that
+ * throws rejects with its error; `signal` aborts the wait. The first tick runs
+ * at once unless `delayFirst`.
+ */
+export function pollUntil(
+  tick: (signal: AbortSignal) => Promise<boolean>,
+  {
+    intervalMs,
+    maxTicks = Infinity,
+    delayFirst = false,
+    signal,
+  }: { intervalMs: number; maxTicks?: number; delayFirst?: boolean; signal?: AbortSignal },
+): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    let ticks = 0;
+    let settled = false;
+    let stop = () => undefined as void;
+    const finish = (settle: () => void) => {
+      if (settled) return;
+      settled = true;
+      stop();
+      signal?.removeEventListener("abort", onAbort);
+      settle();
+    };
+    const onAbort = () => finish(() => reject(new DOMException("Aborted", "AbortError")));
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    stop = startPoll(
+      async (tickSignal) => {
+        try {
+          const done = await tick(tickSignal);
+          ticks += 1;
+          if (done) finish(() => resolve(true));
+          else if (ticks >= maxTicks) finish(() => resolve(false));
+        } catch (error) {
+          finish(() => reject(error));
+        }
+      },
+      { intervalMs, immediate: !delayFirst },
+    );
+  });
 }

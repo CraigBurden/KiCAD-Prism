@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { cancelPrismJob, jobPipeline, throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { usePoll } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
 import type { UserRole } from "@/types/auth";
@@ -51,6 +52,9 @@ const FULL_SHA = /^[a-f0-9]{40}$/i;
  * moment the file is chosen.
  */
 const MAX_STACKUP_BYTES = 14_000_000;
+
+/** Publish-state polls stay quiet on failure; the next tick tries again. */
+const ignorePollError = () => undefined;
 
 /**
  * Base64 without building a megabyte-long string one character at a time.
@@ -276,13 +280,14 @@ export function ReleaseStudioPanel({
         });
     }, [refreshDetail, selectedBuildId]);
 
-    useEffect(() => {
-        if (stage !== "publish" || !selectedBuildId) return;
-        const timer = window.setInterval(() => {
-            void refreshDetail(selectedBuildId).catch(() => undefined);
-        }, 3000);
-        return () => window.clearInterval(timer);
-    }, [refreshDetail, selectedBuildId, stage]);
+    // While publishing, re-read the selected build's detail (publish state).
+    const pollPublishDetail = useCallback(async () => {
+        if (selectedBuildId) await refreshDetail(selectedBuildId);
+    }, [refreshDetail, selectedBuildId]);
+    usePoll(stage === "publish" && Boolean(selectedBuildId), pollPublishDetail, {
+        intervalMs: 3000,
+        onError: ignorePollError,
+    });
 
     useEffect(() => {
         const jobId = selectedDetail?.build.job_id;

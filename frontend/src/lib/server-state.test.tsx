@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ServerStateStore, usePoll, useServerState, type ServerKey, type ServerReadOptions } from "./server-state";
+import { pollUntil, ServerStateStore, usePoll, useServerState, type ServerKey, type ServerReadOptions } from "./server-state";
 
 /** A load function whose calls the test settles by hand. */
 function manualLoad<T>() {
@@ -433,5 +433,45 @@ describe("usePoll", () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(tick).not.toHaveBeenCalled();
+  });
+});
+
+describe("pollUntil", () => {
+  it("ticks at once, then every interval, until done", async () => {
+    vi.useFakeTimers();
+    let reads = 0;
+    const done = pollUntil(async () => ++reads === 3, { intervalMs: 800 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reads).toBe(1);
+    await vi.advanceTimersByTimeAsync(1600);
+    await expect(done).resolves.toBe(true);
+    expect(reads).toBe(3);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reads).toBe(3);
+  });
+
+  it("waits one interval first with delayFirst and gives up after maxTicks", async () => {
+    vi.useFakeTimers();
+    let reads = 0;
+    const done = pollUntil(async () => {
+      reads += 1;
+      return false;
+    }, { intervalMs: 2000, delayFirst: true, maxTicks: 3 });
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(reads).toBe(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(done).resolves.toBe(false);
+    expect(reads).toBe(3);
+  });
+
+  it("rejects with a tick's error and on abort", async () => {
+    vi.useFakeTimers();
+    await expect(pollUntil(async () => {
+      throw new Error("Metadata batch failed");
+    }, { intervalMs: 800 })).rejects.toThrow("Metadata batch failed");
+    const controller = new AbortController();
+    const waiting = pollUntil(async () => false, { intervalMs: 800, signal: controller.signal });
+    controller.abort();
+    await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
   });
 });
