@@ -164,9 +164,11 @@ def run_artifact_maintenance(job: dict[str, Any], progress: Progress) -> dict[st
     )
     progress(
         progress=60,
-        message="Collecting unreferenced job artifacts",
+        message="Collecting unreferenced artifact objects",
         result={**result, **reconciliation},
     )
+    # One collection over the shared object tree; it asks every owner
+    # (object_store.default_reference_owners), not just job metadata.
     garbage_collection = job_artifacts.collect_unreferenced_objects()
     staging_cleanup = job_artifacts.cleanup_stale_staging()
     git_cache_rows_purged = git_read_cache.prune()

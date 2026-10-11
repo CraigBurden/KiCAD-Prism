@@ -6,6 +6,7 @@ Neither collector may remove a file the other still owns.
 
 from __future__ import annotations
 
+import gzip
 import io
 import os
 import tempfile
@@ -116,6 +117,36 @@ class SharedObjectTreeOwnershipTests(unittest.TestCase):
 
         self.assertFalse(unowned.exists())
         self.assertEqual(self._storage_state(unowned), "quarantined")
+
+    def test_archived_object_is_restored_through_the_store(self) -> None:
+        path = self._put_catalog_object(age=timedelta(days=120))
+        payload = path.read_bytes()
+        self.catalog.archive_unreleased_before(datetime.now(timezone.utc) - timedelta(days=90))
+        self.assertFalse(path.exists())
+
+        restored = self.catalog.ensure_available(path.name)
+
+        self.assertEqual(restored, path)
+        self.assertEqual(restored.read_bytes(), payload)
+        self.assertEqual(self._storage_state(path), "available")
+
+    def test_corrupt_archive_is_never_published(self) -> None:
+        path = self._put_catalog_object(age=timedelta(days=120))
+        self.catalog.archive_unreleased_before(datetime.now(timezone.utc) - timedelta(days=90))
+        with self.catalog._connect() as conn:
+            archived = Path(
+                conn.execute(
+                    "SELECT archived_path FROM catalog_artifacts WHERE sha256 = %s", (path.name,)
+                ).fetchone()["archived_path"]
+            )
+        with gzip.open(archived, "wb") as output:
+            output.write(b"tampered")
+
+        with self.assertRaisesRegex(ValueError, "failed integrity verification"):
+            self.catalog.ensure_available(path.name)
+
+        self.assertFalse(path.exists())
+        self.assertEqual(list(self.catalog.staging.iterdir()), [])
 
 
 if __name__ == "__main__":

@@ -10,9 +10,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Sequence
 
 from app.core.config import settings
+from app.services.object_store import CATALOG_OWNER, ObjectStore, ReferenceOwner
 from app.services.postgres_database import database
 
 
@@ -24,12 +25,24 @@ class StoredArtifact:
 
 
 class LocalArtifactStore:
-    """Local content-addressed storage with PostgreSQL ownership metadata."""
+    """Catalog ownership metadata over the shared content-addressed object store.
 
-    def __init__(self, root: Path | None = None) -> None:
+    Objects live in :class:`ObjectStore`; this class owns the catalog tables,
+    import snapshots, and the catalog retention policy (archive, quarantine,
+    purge), which acts through the store and never removes an object another
+    owner still pins.
+    """
+
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        owners: Sequence[ReferenceOwner] | None = None,
+    ) -> None:
         default = Path(settings.KICAD_PROJECTS_ROOT) / ".kicad-prism" / "artifacts"
         self.root = (root or Path(settings.CATALOG_ARTIFACT_ROOT or default)).expanduser().resolve()
-        self.objects = self.root / "objects" / "sha256"
+        self.store = ObjectStore(self.root / "objects" / "sha256", owners=owners)
+        self.objects = self.store.root
         self.archive = self.root / "archive" / "sha256"
         self.staging = self.root / "staging"
         self.quarantine = self.root / "quarantine"
@@ -128,7 +141,7 @@ class LocalArtifactStore:
         self._initialized = True
 
     def object_path(self, digest: str) -> Path:
-        return self.objects / digest[:2] / digest[2:4] / digest
+        return self.store.path_for(digest)
 
     def put_stream(
         self,
@@ -139,29 +152,7 @@ class LocalArtifactStore:
         max_bytes: int | None = None,
     ) -> StoredArtifact:
         self.initialize()
-        temp = self.staging / f"upload-{uuid.uuid4().hex}"
-        digest = hashlib.sha256()
-        size = 0
-        try:
-            with temp.open("wb") as output:
-                while chunk := stream.read(1024 * 1024):
-                    digest.update(chunk)
-                    size += len(chunk)
-                    if max_bytes is not None and size > max_bytes:
-                        raise ValueError("Artifact exceeds the configured per-file size limit")
-                    output.write(chunk)
-                output.flush()
-                os.fsync(output.fileno())
-        except Exception:
-            temp.unlink(missing_ok=True)
-            raise
-        sha = digest.hexdigest()
-        destination = self.object_path(sha)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists():
-            temp.unlink(missing_ok=True)
-        else:
-            os.replace(temp, destination)
+        stored = self.store.put_stream(stream, staging_dir=self.staging, max_bytes=max_bytes)
         with self._connect() as conn:
             conn.execute(
                 """
@@ -170,10 +161,10 @@ class LocalArtifactStore:
                 ) VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (sha256) DO UPDATE SET last_accessed_at = NOW()
                 """,
-                (sha, size, media_type, artifact_kind, str(destination)),
+                (stored.digest, stored.size_bytes, media_type, artifact_kind, str(stored.path)),
             )
             conn.commit()
-        return StoredArtifact(sha256=sha, size_bytes=size, path=destination)
+        return StoredArtifact(sha256=stored.digest, size_bytes=stored.size_bytes, path=stored.path)
 
     def put_file(self, path: Path, **kwargs: Any) -> StoredArtifact:
         with path.open("rb") as stream:
@@ -369,12 +360,13 @@ class LocalArtifactStore:
             archived = Path(str(row["archived_path"] or ""))
             if not archived.is_file():
                 raise ValueError(f"Archived artifact {sha256} is unavailable")
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with gzip.open(archived, "rb") as input_file, destination.open("wb") as output:
-                shutil.copyfileobj(input_file, output)
-            if hashlib.sha256(destination.read_bytes()).hexdigest() != sha256:
-                destination.unlink(missing_ok=True)
-                raise ValueError(f"Archived artifact {sha256} failed integrity verification")
+            try:
+                with gzip.open(archived, "rb") as input_file:
+                    destination = self.store.put_stream(
+                        input_file, staging_dir=self.staging, expected_digest=sha256
+                    ).path
+            except ValueError as error:
+                raise ValueError(f"Archived artifact {sha256} failed integrity verification") from error
             conn.execute(
                 "UPDATE catalog_artifacts SET storage_state = 'available', object_path = %s, "
                 "last_accessed_at = NOW() WHERE sha256 = %s",
@@ -410,12 +402,9 @@ class LocalArtifactStore:
             ).fetchall()
         return {str(row["object_path"]) for row in rows}
 
-    @staticmethod
-    def _job_referenced_paths() -> set[Path]:
-        """Job artifacts may point at the same digest; catalog policy must not move them."""
-        from app.services.job_service import jobs
-
-        return {Path(value).resolve() for value in jobs.referenced_object_paths()}
+    def _foreign_references(self) -> set[Path]:
+        """Objects other owners pin; catalog policy must not move them (same digest)."""
+        return self.store.referenced_paths(exclude=CATALOG_OWNER)
 
     def archive_unreleased_before(self, cutoff: datetime) -> int:
         """Compress old, unreferenced source objects. Released refs always win."""
@@ -441,7 +430,7 @@ class LocalArtifactStore:
                 """,
                 (cutoff,),
             ).fetchall()
-            foreign = self._job_referenced_paths() if rows else set()
+            foreign = self._foreign_references() if rows else set()
             for row in rows:
                 source = Path(row["object_path"])
                 if not source.is_file() or source.suffix.lower() in {".step", ".stp"}:
@@ -479,7 +468,7 @@ class LocalArtifactStore:
                 """,
                 (cutoff,),
             ).fetchall()
-            foreign = self._job_referenced_paths() if rows else set()
+            foreign = self._foreign_references() if rows else set()
             for row in rows:
                 source = Path(str(row["object_path"] or ""))
                 if not source.is_file() or source.resolve() in foreign:
