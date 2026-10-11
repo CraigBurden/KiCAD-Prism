@@ -21,7 +21,11 @@ admin-only, project-scoped, and OAuth endpoints with different dependencies.
 ## Authorization and identity
 
 - For project-scoped routes, use the role-aware lookup in
-  `backend/app/api/_helpers.py`. Do not reintroduce a role-blind project helper.
+  `backend/app/api/_helpers.py` (`authorized_project` when the route needs the
+  full record). Do not reintroduce a role-blind project helper.
+- Role, scope, provider-token, and owner rules live in
+  `backend/app/core/policy.py`. Ask it; do not write `user.role == ...` or
+  compare emails in a route.
 - Use the router's appropriate `require_*` dependency and still authorize the
   requested resource; authentication alone is not object authorization.
 - Derive audit identity from `AuthenticatedUser` or the authenticated service
