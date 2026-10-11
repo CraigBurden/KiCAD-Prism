@@ -97,6 +97,10 @@ pub struct BarrelRecord {
     pub start_layer_id: u32,
     pub end_layer_id: u32,
     pub layer_ids: Vec<u32>,
+    /// Runtime z of the start and end copper layers' centres, as the Python lane
+    /// writes them; the viewer spans the barrel between these.
+    pub start_z_mm: f64,
+    pub end_z_mm: f64,
     pub bounds_mm: [f64; 6],
 }
 
@@ -1060,26 +1064,22 @@ fn build_barrels(
         let Some(feature_id) = source_feature_ids.get(&drill.source_uid).copied() else {
             continue;
         };
-        let layer_ids = drill
+        let source_ids = drill
             .layer_indexes
             .iter()
             .filter_map(|index| layer_by_source.get(index).map(|layer| layer.id))
-            .collect::<Vec<_>>();
-        if layer_ids.is_empty() {
-            continue;
-        }
+            .collect::<BTreeSet<_>>();
+        // Stackup order, top first: the barrel starts at its topmost layer.
         let selected = layers
             .iter()
-            .filter(|layer| layer_ids.contains(&layer.id))
+            .filter(|layer| source_ids.contains(&layer.id))
             .collect::<Vec<_>>();
-        let min_y = selected
-            .iter()
-            .map(|layer| layer.runtime_z_mm - layer.thickness_mm / 2.0)
-            .fold(f64::INFINITY, f64::min);
-        let max_y = selected
-            .iter()
-            .map(|layer| layer.runtime_z_mm + layer.thickness_mm / 2.0)
-            .fold(f64::NEG_INFINITY, f64::max);
+        let (Some(start), Some(end)) = (selected.first(), selected.last()) else {
+            continue;
+        };
+        let layer_ids = selected.iter().map(|layer| layer.id).collect::<Vec<_>>();
+        let (start_z, end_z) = (start.runtime_z_mm, end.runtime_z_mm);
+        let (min_y, max_y) = (start_z.min(end_z), start_z.max(end_z));
         let center = [nm_to_mm(drill.center_nm[0]), nm_to_mm(drill.center_nm[1])];
         let outer_width = nm_to_mm(drill.width_nm) + DEFAULT_PLATING_THICKNESS_MM * 2.0;
         let outer_height = nm_to_mm(drill.height_nm) + DEFAULT_PLATING_THICKNESS_MM * 2.0;
@@ -1113,9 +1113,11 @@ fn build_barrels(
             outer_height_mm: outer_height,
             plating_thickness_mm: DEFAULT_PLATING_THICKNESS_MM,
             plating_thickness_source: "default",
-            start_layer_id: *layer_ids.first().unwrap(),
-            end_layer_id: *layer_ids.last().unwrap(),
+            start_layer_id: start.id,
+            end_layer_id: end.id,
             layer_ids,
+            start_z_mm: start_z,
+            end_z_mm: end_z,
             bounds_mm: bounds,
         });
     }
@@ -1357,6 +1359,164 @@ fn circle_nm(center: NmPoint, radius: i64, tolerance_mm: f64) -> Vec<NmPoint> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analytic_contract::{Drill, StackupLayer};
+
+    fn stackup_layer(name: &str, type_name: &str, thickness_mm: f64) -> StackupLayer {
+        StackupLayer {
+            name: name.to_owned(),
+            type_name: type_name.to_owned(),
+            thickness_mm,
+            material: String::new(),
+            epsilon_r: None,
+            loss_tangent: None,
+            color: String::new(),
+        }
+    }
+
+    fn source_layer(index: usize, name: &str) -> crate::analytic_contract::Layer {
+        crate::analytic_contract::Layer {
+            index,
+            key: name.to_owned(),
+            name: name.to_owned(),
+            source_ordinal: index as i64,
+            layer_type: "signal".to_owned(),
+            user_name: None,
+        }
+    }
+
+    fn plated_drill(source_uid: &str, kind: &str, layer_indexes: Vec<usize>) -> Drill {
+        Drill {
+            semantic_id: format!("{kind}:{source_uid}"),
+            source_uid: source_uid.to_owned(),
+            kind: kind.to_owned(),
+            center_nm: [10_000_000, -5_000_000],
+            width_nm: 300_000,
+            height_nm: 300_000,
+            angle_deg: 0.0,
+            oval: false,
+            plated: true,
+            layer_indexes,
+            footprint_uid: None,
+            component_ref: None,
+            pad_number: None,
+        }
+    }
+
+    /// A four-copper board whose source layer order (F, B, In1, In2) differs from
+    /// its stackup order (F, In1, In2, B), with a through via, a blind via and a
+    /// plated pad hole.
+    fn four_layer_document() -> Document {
+        Document {
+            schema: crate::analytic_contract::SCHEMA,
+            contract_revision: crate::analytic_contract::CONTRACT_REVISION,
+            producer: "test",
+            kicad_monkey_revision: "test",
+            kicad_monkey_engine_version: "test",
+            source: crate::analytic_contract::SourceIdentity {
+                path: "board.kicad_pcb".to_owned(),
+                digest_sha256: String::new(),
+                bytes: 0,
+            },
+            coordinate_system: Default::default(),
+            terminal_tolerance_mm: 0.005,
+            board: crate::analytic_contract::Board {
+                thickness_mm: 1.6,
+                aux_axis_origin_nm: [0, 0],
+                stackup_layers: vec![
+                    stackup_layer("F.Mask", "Top Solder Mask", 0.01),
+                    stackup_layer("F.Cu", "copper", 0.035),
+                    stackup_layer("dielectric 1", "prepreg", 0.2),
+                    stackup_layer("In1.Cu", "copper", 0.035),
+                    stackup_layer("dielectric 2", "core", 1.0),
+                    stackup_layer("In2.Cu", "copper", 0.035),
+                    stackup_layer("dielectric 3", "prepreg", 0.2),
+                    stackup_layer("B.Cu", "copper", 0.035),
+                    stackup_layer("B.Mask", "Bottom Solder Mask", 0.01),
+                ],
+                copper_finish: String::new(),
+                edge_connector: String::new(),
+                edge_plating: false,
+            },
+            bounds_nm: None,
+            layers: vec![
+                source_layer(0, "F.Cu"),
+                source_layer(1, "B.Cu"),
+                source_layer(2, "In1.Cu"),
+                source_layer(3, "In2.Cu"),
+            ],
+            nets: Vec::new(),
+            operations: Vec::new(),
+            drills: vec![
+                plated_drill("through", "via", vec![0, 2, 3, 1]),
+                plated_drill("blind", "via", vec![2, 0]),
+                plated_drill("pad", "plated_pad", vec![0, 1, 2, 3]),
+            ],
+            diagnostics: Vec::new(),
+            stats: BTreeMap::new(),
+            metrics: Default::default(),
+        }
+    }
+
+    fn golden_path(name: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/testdata")
+            .join(name)
+    }
+
+    /// Compare `value` with a JSON golden that the viewer's JS and Python tests
+    /// also read. `PRISM_UPDATE_GOLDEN=1` rewrites it.
+    fn assert_golden(name: &str, value: &serde_json::Value) {
+        let path = golden_path(name);
+        if std::env::var_os("PRISM_UPDATE_GOLDEN").is_some() {
+            let mut text = serde_json::to_string_pretty(value).unwrap();
+            text.push('\n');
+            fs::write(&path, text).unwrap();
+        }
+        let golden: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value, &golden, "{name} differs from its golden");
+    }
+
+    #[test]
+    fn barrels_span_their_layer_centres_in_stackup_order() {
+        let document = four_layer_document();
+        let layers = layer_records(&document).unwrap();
+        let layer_by_source = layers
+            .iter()
+            .filter_map(|layer| layer.source_index.map(|index| (index, layer)))
+            .collect::<HashMap<_, _>>();
+        let mut features = (1..=3)
+            .map(|id| FeatureRecord {
+                id,
+                source_uid: String::new(),
+                net_id: 0,
+                layer_id: 0,
+                layer_ids: Vec::new(),
+                kind: "via".to_owned(),
+                bounds_mm: empty_bounds(),
+                footprint_uid: None,
+                component_ref: None,
+                pad_number: None,
+            })
+            .collect::<Vec<_>>();
+        let source_feature_ids = [("through", 1), ("blind", 2), ("pad", 3)]
+            .into_iter()
+            .map(|(uid, id)| (uid.to_owned(), id))
+            .collect::<HashMap<_, _>>();
+        let barrels = build_barrels(
+            &document,
+            &layers,
+            &layer_by_source,
+            &source_feature_ids,
+            &mut features,
+        );
+        let value = serde_json::to_value(&barrels).unwrap();
+        for barrel in value.as_array().unwrap() {
+            assert!(barrel["startZMm"].is_number(), "{barrel}");
+            assert!(barrel["endZMm"].is_number(), "{barrel}");
+        }
+        assert_golden("mesh-pack-barrels.json", &value);
+    }
 
     #[test]
     fn tile_binary_layout_has_a_fixed_header() {
