@@ -518,6 +518,9 @@ jobs:
             exit 1
           fi
 
+      - name: Test that Compose forwards every setting
+        run: python3 -m unittest scripts.test_compose_env_forwarding -v
+
       - name: Test release metadata and bundle generation
         run: python3 -m unittest scripts.test_release_bundle
 
