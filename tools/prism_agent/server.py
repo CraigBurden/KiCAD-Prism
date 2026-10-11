@@ -84,19 +84,8 @@ from . import (
 )
 from .prism_client import PrismClient, PrismConfig
 from .projects import git_status, identify_project
+from .version import PLUGIN_MIN, VERSION
 from .worktree_diff import uncommitted_changes
-
-VERSION = "0.5.17"
-
-# The oldest plugin this agent can serve.
-#
-# Only bump this when a change here genuinely BREAKS an older plugin, not merely
-# when the agent gains something. Every route so far has been additive, so an older
-# plugin still works fine against a newer agent; declaring otherwise would break
-# working setups for no reason. The compatibility that actually bites runs the other
-# way (a new plugin meeting an old agent, because autostart kept it alive), and the
-# plugin checks for that itself.
-PLUGIN_MIN = "0.1.0"
 
 # How old /health's view of the backend may get before it checks again.
 BACKEND_RECHECK_SECONDS = 15

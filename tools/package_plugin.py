@@ -60,13 +60,13 @@ def _read_constant(path: Path, name: str) -> str:
 def resolve_version() -> str:
     """The one version this package ships, taken from the plugin's own source.
 
-    The agent is checked against it rather than read separately. They are built and
-    shipped together, so a difference between them is a mistake someone made while
-    bumping one and forgetting the other, and it is worth catching at build time
-    instead of in a user's version check.
+    version.py is vendored byte for byte into both packages (the parity test guards
+    that), so the agent's copy is checked against the plugin's rather than read
+    separately. A difference means one copy was bumped and the other was not, which is
+    worth catching at build time instead of in a user's version check.
     """
     plugin = _read_constant(PLUGIN_SRC / "version.py", "VERSION")
-    agent = _read_constant(TOOLS / "prism_agent" / "server.py", "VERSION")
+    agent = _read_constant(TOOLS / "prism_agent" / "version.py", "VERSION")
     if plugin != agent:
         raise SystemExit(
             f"version mismatch: plugin {plugin}, agent {agent}. "
@@ -226,7 +226,8 @@ def main() -> int:
     if args.expect and args.expect != version:
         raise SystemExit(
             f"asked to build {args.expect}, but the source says {version}. "
-            "Bump tools/kicad_plugin/version.py and tools/prism_agent/server.py first."
+            "Bump tools/kicad_plugin/version.py and copy it over "
+            "tools/prism_agent/version.py first."
         )
     print(f"Packaging version {version}")
 

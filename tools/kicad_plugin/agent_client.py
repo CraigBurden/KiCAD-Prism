@@ -11,14 +11,12 @@ open. This is just the UI's transport.
 
 from __future__ import annotations
 
-import http.client
 import json
 import os
 import sys
-import threading
-import urllib.error
 import urllib.parse
-import urllib.request
+
+from . import loopback
 
 TIMEOUT = 15
 # One try of a poll for the agent to come up. A live agent answers /health at once.
@@ -48,18 +46,8 @@ class AgentUnavailable(Exception):
         self.code = code
 
 
-# The refusal code from the last HTTP error body, if it carried one. A side channel
-# rather than a return value because _http_message has status-only exits that never
-# read a body, and threading a tuple through all of them to say "no code" each time
-# would obscure what those branches are actually for.
-#
-# THREAD-LOCAL, not a module global: the plugin loads on one worker thread and computes
-# the diff on another, so a shared slot could hand one request the other's code.
-_codes = threading.local()
-
-
-def _http_message(exc, route):
-    """Turn an HTTP failure into something that points at the actual fix.
+def _http_message(status, detail, route):
+    """Turn an HTTP refusal into something that points at the actual fix.
 
     A 404 from a *live* agent means the agent is older than the plugin: the route didn't
     exist when it started. During development that's the single most likely thing to go
@@ -67,27 +55,18 @@ def _http_message(exc, route):
     doesn't have the new endpoint. "Restart the agent" is the real fix, so say it,
     instead of a bare status code or (worse) claiming the agent isn't running at all.
     """
-    if exc.code == 404:
+    if status == 404:
         return (
             "This Prism agent doesn't know about %s.\n\n"
             "It's running an older build than the plugin, restart the agent to pick "
             "up the new version." % route
         )
-    if exc.code == 401:
+    if status == 401:
         return (
             "The agent rejected our token.\n\n"
             "Its endpoint file is probably stale. Restart the agent."
         )
-
-    detail = ""
-    try:
-        body = json.loads(exc.read() or b"{}")
-        if isinstance(body, dict):
-            detail = body.get("error") or ""
-            _codes.value = body.get("code") or ""
-    except (ValueError, OSError):
-        pass
-    return detail or "The agent returned HTTP %d for %s." % (exc.code, route)
+    return detail or "The agent returned HTTP %d for %s." % (status, route)
 
 
 def profile():
@@ -145,44 +124,30 @@ class AgentClient:
         self.base = "http://127.0.0.1:%d" % ep["port"]
         self.token = ep["token"]
 
+    @property
+    def port(self):
+        return urllib.parse.urlsplit(self.base).port
+
     def _call(self, method, path, body=None, timeout=TIMEOUT):
-        url = self.base + path
-        data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(url, data=data, method=method)
-        req.add_header("Accept", "application/json")
-        req.add_header("Authorization", "Bearer " + self.token)
-        if data is not None:
-            req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read()
-        except urllib.error.HTTPError as exc:
-            # HTTPError subclasses URLError, so it MUST be caught first, otherwise an
-            # agent answering "404" is reported as an agent that isn't running, and the
-            # user goes off restarting a process that was working fine. An HTTP status
-            # is proof it's alive.
-            # The body can only be read once, and _http_message consumes it, so the
-            # code it found is picked up here rather than returned alongside: every
-            # other path out of that function is a status-only message with no body.
-            _codes.value = ""
-            message = _http_message(exc, path)
-            raise AgentUnavailable(message, getattr(_codes, "value", "")) from exc
-        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            return loopback.call(
+                self.port, method, path, token=self.token, body=body, timeout=timeout
+            )
+        except loopback.Refused as exc:
+            # The refusal code travels on the exception so a caller can recognise a
+            # specific case without matching on the message. A 404 or 401 is about the
+            # agent itself, not the request, so it carries none.
+            code = "" if exc.status in (401, 404) else exc.code
+            raise AgentUnavailable(
+                _http_message(exc.status, exc.error, path), code
+            ) from exc
+        except loopback.Unreachable as exc:
             # Nothing answered: the agent really is gone, or the endpoint file is stale
             # (it quit without cleaning up).
-            #
-            # Not only URLError: a connection that opened and then broke never becomes
-            # one. The agent exiting mid-request is a ConnectionResetError, a slow
-            # answer past our timeout is a bare TimeoutError from the read, and a
-            # half-closed socket is http.client.RemoteDisconnected. All three escaped
-            # before, found live on Linux: the restart's "is the old agent gone yet"
-            # poll crashed on the reset, and a timed-out dialog load left the dialog
-            # stuck on "Contacting agent" instead of saying the agent didn't answer.
             raise AgentUnavailable(
                 "Couldn't reach the Prism agent at %s.\n\n"
                 "It may have stopped. Restart it from the tray." % self.base
             ) from exc
-        return json.loads(raw) if raw else None
 
     # -- API ---------------------------------------------------------------
 
