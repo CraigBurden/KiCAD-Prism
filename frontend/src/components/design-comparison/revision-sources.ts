@@ -7,6 +7,7 @@ import type {
     KiCadProjectDiffBundle,
     SourceFileRef,
 } from "./types";
+import { fetchApi } from "@/lib/api";
 
 export type ComparisonDomain = "schematic" | "pcb";
 export type ViewerBlobSource = { filename: string; content: string };
@@ -81,7 +82,7 @@ export function useRevisionSources(
             try {
                 const root = `/api/projects/${projectId}`;
                 const query = `commit=${encodeURIComponent(commit)}`;
-                const supportResponse = await fetch(
+                const supportResponse = await fetchApi(
                     `${root}/viewer/support-files?${query}`,
                     { signal },
                 );
@@ -103,7 +104,7 @@ export function useRevisionSources(
                 }
                 const settled = await Promise.allSettled(
                     sourcePaths.map(async (path) => {
-                        const response = await fetch(
+                        const response = await fetchApi(
                             `${root}/asset/${encodeAssetPath(path)}?${query}`,
                             { signal },
                         );

@@ -404,8 +404,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
             try {
                 const [ibomRes, supportRes, mentionsRes] = await Promise.all([
-                    fetch(appendCommit(`${baseUrl}/ibom`), { signal }),
-                    fetch(appendCommit(`${baseUrl}/viewer/support-files`), { signal }),
+                    fetchApi(appendCommit(`${baseUrl}/ibom`), { signal }),
+                    fetchApi(appendCommit(`${baseUrl}/viewer/support-files`), { signal }),
                     fetchApi(`${baseUrl}/comments/mention-candidates`, { signal }),
                 ]);
                 if (cancelled) return;
@@ -455,7 +455,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         // assets and loaded in the background. It never gates SCH/PCB source
         // rendering, but is ready before the first normal selection whenever
         // generation completes quickly.
-        fetch(appendCommit(`/api/projects/${projectId}/semantic-index/identity`), {
+        fetchApi(appendCommit(`/api/projects/${projectId}/semantic-index/identity`), {
             signal: controller.signal,
             credentials: "include",
         })
@@ -516,8 +516,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     const baseUrl = `/api/projects/${projectId}`;
 
                     const [schRes, subsheetsRes] = await Promise.allSettled([
-                        fetch(appendCommit(`${baseUrl}/schematic`), { signal }),
-                        fetch(appendCommit(`${baseUrl}/schematic/subsheets`), { signal })
+                        fetchApi(appendCommit(`${baseUrl}/schematic`), { signal }),
+                        fetchApi(appendCommit(`${baseUrl}/schematic/subsheets`), { signal })
                     ]);
                     if (cancelled) return;
 
@@ -537,7 +537,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         if (cancelled) return;
                         if (data.files?.length) {
                             const subsheetResults = await Promise.allSettled(data.files.map(async (f: any) => {
-                                const cRes = await fetch(f.url, { signal });
+                                const cRes = await fetchApi(f.url, { signal });
                                 if (!cRes.ok) {
                                     throw new Error(`Failed to load subsheet: ${f.url}`);
                                 }
@@ -596,7 +596,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         const loadPcb = async () => {
             try {
                 const baseUrl = `/api/projects/${projectId}`;
-                const pcbRes = await fetch(appendCommit(`${baseUrl}/pcb`), { signal });
+                const pcbRes = await fetchApi(appendCommit(`${baseUrl}/pcb`), { signal });
                 if (cancelled) return;
 
                 if (pcbRes.ok) {

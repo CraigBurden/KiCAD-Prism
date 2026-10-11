@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Check, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { fetchJson } from "@/lib/api";
 import { isDialogSubmitShortcut } from "@/lib/dialog-shortcuts";
 import { cancelPrismJob, isAbortError, watchPrismJob, type PrismJobStatus } from "@/lib/jobs";
 
@@ -187,27 +188,22 @@ type ImportState =
 
 const fetchCommentsSourceUrls = async (projectIds: string[]): Promise<CommentsSourceUrls[]> =>
   Promise.all(
-    projectIds.map(async (id) => {
-      const response = await fetch(`/api/projects/${id}/comments/source-urls`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch KiCad URL helper for project ${id}`);
-      }
-
-      return response.json();
-    })
+    projectIds.map((id) =>
+      fetchJson<CommentsSourceUrls>(
+        `/api/projects/${id}/comments/source-urls`,
+        undefined,
+        `Failed to fetch KiCad URL helper for project ${id}`,
+      )
+    )
   );
 
 // Closes over nothing in the component.
 const loadAccessHelp = async (repoUrl: string): Promise<AccessHelp | undefined> => {
 try {
-  const res = await fetch("/api/projects/access-help", {
+  return await fetchJson<AccessHelp>("/api/projects/access-help", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url: repoUrl }),
   });
-  if (!res.ok) return undefined;
-  return (await res.json()) as AccessHelp;
 } catch {
   // The failure message still stands on its own; the guided fix is a bonus.
   return undefined;
@@ -270,18 +266,11 @@ export function ImportDialog({
     setState({ step: "analyzing", url: target });
 
     try {
-      const res = await fetch("/api/projects/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: target, ref: branch.trim() || null }),
-      });
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Analysis failed");
-      }
-
-      const { job_id } = await res.json();
+      const { job_id } = await fetchJson<{ job_id: string }>(
+        "/api/projects/analyze",
+        { method: "POST", body: JSON.stringify({ url: target, ref: branch.trim() || null }) },
+        "Analysis failed",
+      );
 
       // Start polling analysis job
       void pollAnalysisJob(job_id, target);
@@ -380,23 +369,19 @@ export function ImportDialog({
 
     try {
       stopPolling();
-      const res = await fetch("/api/projects/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          import_type: analysis.import_type,
-          selected_paths: pathsToImport,
-          ref: analysis.ref ?? null,
-        }),
-      });
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Import failed");
-      }
-
-      const { job_id } = await res.json();
+      const { job_id } = await fetchJson<{ job_id: string }>(
+        "/api/projects/import",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            url,
+            import_type: analysis.import_type,
+            selected_paths: pathsToImport,
+            ref: analysis.ref ?? null,
+          }),
+        },
+        "Import failed",
+      );
 
       // Start polling
       void pollJobStatus(job_id, url);
