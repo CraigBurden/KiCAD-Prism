@@ -209,7 +209,18 @@ describe("ConnectorSettings (F9.settings_states / C8)", () => {
 
     it("renders revoked badge when credentials are cleared", async () => {
         mockedFetch.mockResolvedValue(
-            respond({ ...trackerUiMocks.connector, credentialConfigured: false, paused: true, pausedReason: "auth" }),
+            respond({ ...trackerUiMocks.connector, credentialConfigured: false, paused: true, pausedReason: "auth_lost" }),
+        );
+        render(<ConnectorSettings connectorId="cn_gh1" isAdmin={true} />);
+        await waitFor(() => {
+            expect(document.querySelector('[data-tracker-phase="revoked"]')).toBeTruthy();
+        });
+    });
+
+    it("treats a connector the backend paused for lost auth as revoked", async () => {
+        // The backend writes paused_reason = 'auth_lost' (executor_support.pause_connector_auth_lost).
+        mockedFetch.mockResolvedValue(
+            respond({ ...trackerUiMocks.connector, credentialConfigured: true, paused: true, pausedReason: "auth_lost", writesEnabled: false }),
         );
         render(<ConnectorSettings connectorId="cn_gh1" isAdmin={true} />);
         await waitFor(() => {

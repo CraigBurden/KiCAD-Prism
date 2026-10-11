@@ -46,7 +46,7 @@ export const trackerUiMocks = {
         bot: { id: "199001", login: "prism[bot]" },
         credentialConfigured: true,
         paused: true,
-        pausedReason: "auth",
+        pausedReason: "auth_lost",
         writesEnabled: false,
         auditCount: 1,
     } satisfies TrackerConnector,
