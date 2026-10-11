@@ -175,6 +175,7 @@ def build_catalog_collaborators(
         asset_links,
         revision_finalizer,
         component_writer,
+        metadata_schema,
     )
     metadata_fields = CatalogMetadataFields(metadata_schema)
     metadata_grid = CatalogMetadataGrid()

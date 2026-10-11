@@ -12,7 +12,10 @@ metadata:
   remediate, with presence and shape, plus which scan findings still block.
 
 Requiredness of a built-in field comes from its descriptor (built-in
-requirements cannot be edited); a custom field carries its own flag. A
+requirements cannot be edited); a custom field carries its own flag. The
+server enforces a custom field's flag on the single-component PATCH and on
+import acceptance (:func:`custom_field_errors`, :func:`custom_import_problems`);
+built-in fields are enforced by ``normalize_metadata`` and the rules above. A
 provisional part has no manufacturer part number by definition, so ``mpn`` is
 not required for it in any context.
 
@@ -206,6 +209,57 @@ def missing_metadata_findings(values: Mapping[str, Any]) -> list[dict[str, str]]
     ]
 
 
+def missing_custom_fields(
+    fields: Iterable[Mapping[str, Any]],
+    metadata: Mapping[str, Any],
+    *,
+    identity_kind: str | None = IDENTITY_KIND_MPN,
+) -> list[Mapping[str, Any]]:
+    """Active custom fields required for ``identity_kind`` that are blank in ``metadata``.
+
+    ``metadata`` is normalized component metadata: column values at the top
+    level and custom values in ``extra_fields``. Only presence is checked, as
+    in the editor.
+    """
+
+    extras = metadata.get("extra_fields") or {}
+    missing: list[Mapping[str, Any]] = []
+    for field in fields:
+        if field.get("built_in") or field.get("archived"):
+            continue
+        storage_key = str(field.get("storage_key") or field.get("key") or "")
+        source = metadata if field.get("storage_kind") == "column" else extras
+        if field_verdict(field, source.get(storage_key), context=CONTEXT_EDITOR, identity_kind=identity_kind):
+            missing.append(field)
+    return missing
+
+
+def custom_field_errors(
+    fields: Iterable[Mapping[str, Any]],
+    metadata: Mapping[str, Any],
+    *,
+    identity_kind: str | None = IDENTITY_KIND_MPN,
+) -> list[str]:
+    """``"<label>: Required"`` for each custom required field blank in ``metadata``."""
+
+    return [
+        f"{field.get('label') or field.get('key')}: {FIELD_MESSAGES['required']}"
+        for field in missing_custom_fields(fields, metadata, identity_kind=identity_kind)
+    ]
+
+
+def custom_import_problems(
+    fields: Iterable[Mapping[str, Any]],
+    metadata: Mapping[str, Any],
+) -> list[str]:
+    """``"<label> is required"`` for each custom required field an import leaves blank."""
+
+    return [
+        f"{field.get('label') or field.get('key')} {IMPORT_MESSAGES['required']}"
+        for field in missing_custom_fields(fields, metadata, identity_kind=IDENTITY_KIND_MPN)
+    ]
+
+
 def blocking_import_findings(
     findings: Iterable[Mapping[str, Any]],
     linked_asset_types: Iterable[str] = (),
@@ -259,11 +313,14 @@ __all__ = [
     "IMPORT_FIELDS",
     "ImportField",
     "blocking_import_findings",
+    "custom_field_errors",
+    "custom_import_problems",
     "field_error",
     "field_rules_contract",
     "field_verdict",
     "import_metadata_problems",
     "import_metadata_verdicts",
     "is_field_required",
+    "missing_custom_fields",
     "missing_metadata_findings",
 ]

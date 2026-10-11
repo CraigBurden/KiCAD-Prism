@@ -15,6 +15,7 @@ import uuid
 
 from app.services.catalog.component_identity import ComponentIdentity, find_identity_holder
 from app.services.catalog.conflicts import revision_conflict
+from app.services.catalog.field_rules import custom_field_errors
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import (
     IDENTITY_KIND_MPN,
@@ -415,6 +416,11 @@ class CatalogComponentWriter:
         metadata = merge_metadata_patch(component, revision, updates)
         if metadata_matches_revision(revision, metadata):
             return ""
+        errors = custom_field_errors(
+            self._metadata_schema.list_fields(conn), metadata, identity_kind=metadata["identity_kind"]
+        )
+        if errors:
+            raise ValueError("; ".join(errors))
         _, revision_id = self.upsert_metadata_row(
             conn,
             runtime,

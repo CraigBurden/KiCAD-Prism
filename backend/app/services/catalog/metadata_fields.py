@@ -38,12 +38,7 @@ class CatalogMetadataFields:
         self._metadata_schema = metadata_schema
 
     def list_fields(self, conn: Any, include_archived: bool = False) -> list[dict[str, Any]]:
-        rows = conn.execute(
-            "SELECT * FROM catalog_field_definitions "
-            + ("" if include_archived else "WHERE archived = 0 ")
-            + "ORDER BY display_order, field_key"
-        ).fetchall()
-        return [self._metadata_schema.field_payload(dict(row)) for row in rows]
+        return self._metadata_schema.list_fields(conn, include_archived=include_archived)
 
     @staticmethod
     def prepare_create_field(payload: dict[str, Any]) -> PreparedMetadataField:

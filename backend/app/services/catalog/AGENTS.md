@@ -59,8 +59,9 @@ rationale are recorded in `docs/CATALOG_DECOMPOSITION_HANDOFF.md`.
   `backend/tests/test_workflow_policy.py` fails on drift.
 - Field validity and import readiness have one definition (`field_rules.py`):
   which fields are required for an identity kind, which contexts check value
-  shape, and which import findings block. Batch staging, import scans and
-  import acceptance call it; the frontend renders the same verdicts from
+  shape, and which import findings block. Batch staging, import scans,
+  import acceptance and the single-component PATCH call it (the last two
+  enforce custom required fields server-side); the frontend renders the same verdicts from
   `frontend/src/lib/catalog-field-rules.generated.ts` through
   `frontend/src/lib/catalog-field-rules.ts`, and
   `backend/tests/test_catalog_field_rules.py` fails on drift. Both test suites
