@@ -5,12 +5,18 @@
  * owns everything a component used to hand-roll around it:
  *
  * - **fetch and abort.** The first observer of a key starts the read. When the
- *   last observer leaves, the request in flight is aborted and the entry is
- *   forgotten (a later mount reads again).
+ *   last observer leaves, the request in flight is aborted.
+ * - **retention.** A key's last data outlives its observers for a retention
+ *   window (`retainMs`, five minutes by default). A later observer within the
+ *   window sees that data at once, marked `stale`, while the key is read again
+ *   (stale-while-revalidate across remounts). `forgetServerState` drops keys
+ *   whose data must not be shown again (sign-out).
  * - **stale responses.** Only the newest request for a key may publish. A
  *   response that lost a race, or arrived after its observers left, is dropped.
  * - **stale-while-refresh.** A refresh keeps the last data on screen. A failed
- *   refresh keeps the data too and reports the error beside it.
+ *   refresh keeps the data too and reports the error beside it. With
+ *   `keepPrevious`, a key change keeps the previous key's data on screen
+ *   (`placeholder`) until the new key's first response.
  * - **poll while visible.** An observer can ask for a poll. Polls never
  *   overlap; with `whileVisible` they skip while the tab is hidden and read
  *   once when it becomes visible again.
@@ -20,7 +26,7 @@
  * For a periodic side effect that is not a keyed read (a tick that updates
  * several things), `usePoll` gives the same non-overlapping poll.
  */
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 export type ServerKey = readonly (string | number | boolean | null)[];
 
@@ -31,6 +37,11 @@ export interface ServerSnapshot<T> {
   error: Error | null;
   /** A request for this key is in flight. */
   fetching: boolean;
+  /**
+   * `data` has not been confirmed since it was retained (no observer was
+   * left), or the latest read failed.
+   */
+  stale: boolean;
 }
 
 export interface ServerReadOptions<T> {
@@ -40,16 +51,27 @@ export interface ServerReadOptions<T> {
   whileVisible?: boolean;
   /** Called with every successful response, after it is published. */
   onData?: (data: T) => void;
+  /**
+   * How long the key's data is kept after its last observer leaves.
+   * `Infinity` keeps it until `forgetServerState`; 0 forgets it at once.
+   */
+  retainMs?: number;
+  /** On a key change, show the previous key's data until the new key has some. */
+  keepPrevious?: boolean;
 }
 
 export interface ServerRead<T> extends ServerSnapshot<T> {
-  /** No data for this key yet and no error: the first read is pending. */
+  /** No data to show yet and no error: the first read is pending. */
   loading: boolean;
+  /** `data` is the previous key's (`keepPrevious`), shown while this key loads. */
+  placeholder: boolean;
   /** Read again now (aborting a request in flight). Resolves once published. */
   refresh: () => Promise<void>;
 }
 
-const IDLE: ServerSnapshot<never> = { data: undefined, error: null, fetching: false };
+const IDLE: ServerSnapshot<never> = { data: undefined, error: null, fetching: false, stale: false };
+
+const DEFAULT_RETAIN_MS = 5 * 60_000;
 
 const isAbort = (error: unknown): boolean =>
   (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
@@ -112,6 +134,16 @@ interface Entry {
   pending: Promise<void> | null;
   /** Bumped by every request; only the newest may publish. */
   sequence: number;
+  /** Keep the data this long after the last observer leaves. */
+  retainMs: number;
+  /** No observer is left; the data is kept for the retention window. */
+  retained: boolean;
+  retainTimer: ReturnType<typeof setTimeout> | undefined;
+}
+
+interface ForgetOptions {
+  except?: ServerKey;
+  unobservedOnly?: boolean;
 }
 
 function startsWith(key: ServerKey, prefix: ServerKey): boolean {
@@ -130,7 +162,13 @@ export class ServerStateStore {
    * Observe `key`: `listener` hears every change, `observer.load` reads it.
    * Starts the first read. Returns the function that stops observing.
    */
-  observe(key: ServerKey, observer: Observer, listener: () => void, poll?: PollOptions): () => void {
+  observe(
+    key: ServerKey,
+    observer: Observer,
+    listener: () => void,
+    poll?: PollOptions,
+    retainMs: number = DEFAULT_RETAIN_MS,
+  ): () => void {
     const id = JSON.stringify(key);
     let entry = this.entries.get(id);
     if (!entry) {
@@ -142,14 +180,25 @@ export class ServerStateStore {
         controller: null,
         pending: null,
         sequence: 0,
+        retainMs,
+        retained: false,
+        retainTimer: undefined,
       };
       this.entries.set(id, entry);
     }
     const current = entry;
+    current.retainMs = Math.max(current.retainMs, retainMs);
     current.listeners.add(listener);
     current.observers.add(observer);
     if (poll) observer.stopPoll = startPoll(() => this.read(current, false), poll);
-    if (current.snapshot.data === undefined && current.snapshot.error === null && !current.pending) {
+    if (current.retained) {
+      // Back within the retention window: show the kept data and read again.
+      current.retained = false;
+      clearTimeout(current.retainTimer);
+      current.retainTimer = undefined;
+      current.snapshot = { ...current.snapshot, stale: true };
+      void this.read(current, false);
+    } else if (current.snapshot.data === undefined && current.snapshot.error === null && !current.pending) {
       void this.read(current, false);
     }
     return () => {
@@ -160,11 +209,50 @@ export class ServerStateStore {
       // changes; wait a microtask so that does not drop the entry and re-read.
       queueMicrotask(() => {
         if (current.observers.size > 0 || this.entries.get(id) !== current) return;
-        current.controller?.abort();
-        current.sequence += 1;
-        this.entries.delete(id);
+        this.settle(current);
+        if (current.snapshot.data === undefined || current.retainMs <= 0) {
+          this.entries.delete(id);
+          return;
+        }
+        current.retained = true;
+        current.snapshot = { ...current.snapshot, fetching: false };
+        if (Number.isFinite(current.retainMs)) {
+          current.retainTimer = setTimeout(() => {
+            if (current.retained && this.entries.get(id) === current) this.entries.delete(id);
+          }, current.retainMs);
+        }
       });
     };
+  }
+
+  /**
+   * Drop every key under `prefix`: its data is never shown again and a
+   * response in flight is discarded. An observed key starts over (no data, a
+   * fresh read). `except` is left alone; `unobservedOnly` leaves every
+   * observed key alone.
+   */
+  forget(prefix: ServerKey, { except, unobservedOnly = false }: ForgetOptions = {}): void {
+    const kept = except ? JSON.stringify(except) : null;
+    for (const [id, entry] of [...this.entries]) {
+      if (id === kept || !startsWith(entry.key, prefix)) continue;
+      if (unobservedOnly && entry.observers.size > 0) continue;
+      this.settle(entry);
+      clearTimeout(entry.retainTimer);
+      if (entry.observers.size === 0) {
+        this.entries.delete(id);
+        continue;
+      }
+      this.publish(entry, IDLE);
+      void this.read(entry, false);
+    }
+  }
+
+  /** Abort the request in flight and stop any older one from publishing. */
+  private settle(entry: Entry) {
+    entry.controller?.abort();
+    entry.sequence += 1;
+    entry.controller = null;
+    entry.pending = null;
   }
 
   /** Read `id` again, aborting a request in flight. No-op when unobserved. */
@@ -202,12 +290,17 @@ export class ServerStateStore {
       .then(
         (data) => {
           if (!owns()) return;
-          this.publish(entry, { data, error: null, fetching: false });
+          this.publish(entry, { data, error: null, fetching: false, stale: false });
           for (const each of [...entry.observers]) each.onData?.(data);
         },
         (error: unknown) => {
           if (!owns() || isAbort(error)) return;
-          this.publish(entry, { data: entry.snapshot.data, error: asError(error), fetching: false });
+          this.publish(entry, {
+            data: entry.snapshot.data,
+            error: asError(error),
+            fetching: false,
+            stale: entry.snapshot.data !== undefined,
+          });
         },
       )
       .finally(() => {
@@ -228,6 +321,11 @@ export function invalidateServerState(prefix: ServerKey): Promise<void> {
   return serverState.invalidate(prefix);
 }
 
+/** Drop every key starting with `prefix`, e.g. on sign-out (see `ServerStateStore.forget`). */
+export function forgetServerState(prefix: ServerKey, options?: ForgetOptions): void {
+  serverState.forget(prefix, options);
+}
+
 /**
  * Read `key` with `load` and keep it fresh. `null` reads nothing. `load` and
  * `onData` may change on every render; the latest ones are used.
@@ -245,7 +343,7 @@ export function useServerState<T>(
     loadRef.current = load;
     onDataRef.current = options.onData;
   });
-  const { pollMs, whileVisible } = options;
+  const { pollMs, whileVisible, retainMs, keepPrevious } = options;
 
   const subscribe = useCallback(
     (listener: () => void) => {
@@ -255,9 +353,9 @@ export function useServerState<T>(
         onData: (data) => onDataRef.current?.(data as T),
       };
       const poll = pollMs ? { intervalMs: pollMs, whileVisible } : undefined;
-      return store.observe(JSON.parse(id) as ServerKey, observer, listener, poll);
+      return store.observe(JSON.parse(id) as ServerKey, observer, listener, poll, retainMs);
     },
-    [id, pollMs, whileVisible, store],
+    [id, pollMs, whileVisible, retainMs, store],
   );
   const snapshot = useSyncExternalStore(
     subscribe,
@@ -266,9 +364,22 @@ export function useServerState<T>(
   ) as ServerSnapshot<T>;
   const refresh = useCallback(() => (id === null ? Promise.resolve() : store.refresh(id)), [id, store]);
 
+  // The last data shown, by key, so a key change can keep it on screen. Kept
+  // in state and updated during render (React's "previous render" pattern).
+  const [shown, setShown] = useState<{ id: string; data: T } | null>(null);
+  if (keepPrevious && id !== null && snapshot.data !== undefined && (shown?.id !== id || shown.data !== snapshot.data)) {
+    setShown({ id, data: snapshot.data });
+  }
+  const placeholder = Boolean(
+    keepPrevious && id !== null && snapshot.data === undefined && snapshot.error === null && shown && shown.id !== id,
+  );
+  const data = placeholder ? shown?.data : snapshot.data;
+
   return {
     ...snapshot,
-    loading: id !== null && snapshot.data === undefined && snapshot.error === null,
+    data,
+    placeholder,
+    loading: id !== null && data === undefined && snapshot.error === null,
     refresh,
   };
 }
