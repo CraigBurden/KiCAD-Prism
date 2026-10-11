@@ -12,11 +12,11 @@ Transactions, one per step:
 - ``stage`` and ``stage_csv``: one transaction for the batch row, its items
   and its valid count. ``stage_csv`` also reads the field registry and the
   current revisions in that transaction.
-- ``approve_fields``: each proposed field is created in its own transaction,
-  then the batch is marked ready in one more. A key that is already defined
-  is an expected outcome (``create_field_unless_defined`` returns ``None``),
-  not an error. Any other failure stops the approval and leaves the fields
-  created before it in place.
+- ``approve_fields``: all or nothing. Every proposal is prepared first, then
+  the fields are created and the batch is marked ready in one transaction, so
+  a failing proposal creates none of them and the batch stays
+  ``needs_fields``. A key that is already defined is an expected outcome
+  (``create_field_unless_defined`` returns ``None``), not an error.
 - ``apply``: each item is applied in its own transaction, so a conflict on one
   item never rolls back another. A ``ValueError`` marks that item ``conflict``
   in its own transaction. The accounting runs in one final transaction.
@@ -131,12 +131,10 @@ class CatalogMetadataBatchLifecycle:
             proposals = self._batches.fetch_batch_field_proposals(conn, batch_id)
         if proposals is None:
             raise ValueError("Metadata batch not found")
-        for proposal in proposals:
-            prepared = self._metadata_fields.prepare_create_field(proposal)
-            with self._connect() as conn:
-                if self._metadata_fields.create_field_unless_defined(conn, prepared, actor) is not None:
-                    conn.commit()
+        prepared = [self._metadata_fields.prepare_create_field(proposal) for proposal in proposals]
         with self._connect() as conn:
+            for field in prepared:
+                self._metadata_fields.create_field_unless_defined(conn, field, actor)
             self._batches.mark_fields_approved(conn, batch_id, utc_now_iso())
             conn.commit()
             return self._batches.batch_payload(conn, batch_id) or {}
