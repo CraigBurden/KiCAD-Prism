@@ -122,5 +122,87 @@ class ForgeCallsDoNotBlockTheEventLoopTests(unittest.TestCase):
         )
 
 
+class _FakeGitHub:
+    """Just enough of the GitHub Releases API: one Release per tag."""
+
+    def __init__(self) -> None:
+        self.releases: dict[int, str] = {}
+        self._next = 1
+
+    def __call__(self, method, url, **kwargs):  # noqa: ANN001,ANN003 - requests.request seam
+        response = SimpleNamespace(status_code=200, reason="OK", text="", content=b"{}")
+        body: dict = {}
+        if method == "POST" and url.endswith("/releases"):
+            tag = kwargs["json"]["tag_name"]
+            if tag in self.releases.values():
+                response.status_code = 422
+                body = {"message": "Validation Failed: already_exists"}
+            else:
+                release_id = self._next
+                self._next += 1
+                self.releases[release_id] = tag
+                response.status_code = 201
+                body = {
+                    "id": release_id,
+                    "upload_url": f"https://uploads.github.com/releases/{release_id}/assets{{?name}}",
+                    "html_url": f"https://github.com/org/board/releases/tag/{tag}",
+                }
+        elif method == "GET" and "/releases/tags/" in url:
+            tag = url.rsplit("/", 1)[-1]
+            match = [release_id for release_id, name in self.releases.items() if name == tag]
+            if match:
+                body = {"id": match[0]}
+            else:
+                response.status_code = 404
+        elif method == "DELETE" and "/releases/" in url:
+            self.releases.pop(int(url.rsplit("/", 1)[-1]), None)
+            response.status_code = 204
+        response.json = lambda: body
+        response.content = b"{}" if body else b""
+        return response
+
+
+class ForgeReleaseAndLocalRecordAgreeTests(unittest.TestCase):
+    """A Release on the forge without a local record makes the next publish fail on the tag."""
+
+    user = SimpleNamespace(email="qa@example.com", role="admin")
+
+    def test_a_failed_record_does_not_leave_a_release_that_blocks_the_retry(self) -> None:
+        github = _FakeGitHub()
+        build = {"id": "build-1", "candidate_id": "candidate-1", "status": "succeeded", "dossier_artifact_id": "d"}
+        records: list[dict] = []
+        outcomes = iter([RuntimeError("database went away"), None])
+
+        def record_publish(**kwargs):  # noqa: ANN003 - store seam
+            outcome = next(outcomes)
+            if outcome is not None:
+                raise outcome
+            records.append(kwargs)
+            return {"id": "pub-1", **kwargs}
+
+        request = api.PublishRequest(tag="v1.0.0")
+        with (
+            patch.object(forge.settings, "GITHUB_TOKEN", "ghp_example"),
+            patch.object(forge.requests, "request", github),
+            patch.object(api, "authorized_project", return_value={"name": "board", "repo_url": GITHUB_REPO}),
+            patch.object(api, "_build_or_404", return_value=build),
+            patch.object(api.store, "get_candidate", return_value={"commit_sha": "a" * 40}),
+            patch.object(api, "_candidate_configuration", return_value={"revision": "v1.0.0"}),
+            patch.object(api, "_vendor_readiness", return_value=[]),
+            patch.object(api, "_approval_state", return_value={"published": None, "can_publish": True}),
+            patch.object(api, "_artifact_bytes", return_value=b"tar"),
+            patch.object(api.forge_publish, "dossier_tar_to_zip", return_value=b"zip"),
+            patch.object(api.store, "record_publish", side_effect=record_publish),
+        ):
+            with self.assertRaises(Exception):
+                asyncio.run(api.publish_build("project", "build-1", request, self.user))
+            self.assertEqual(github.releases, {}, "the forge kept a Release Prism has no record of")
+            retried = asyncio.run(api.publish_build("project", "build-1", request, self.user))
+
+        self.assertEqual(retried["release"]["tag"], "v1.0.0")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(list(github.releases.values()), ["v1.0.0"])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

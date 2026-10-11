@@ -634,17 +634,24 @@ def _publish_build(
         filename=filename,
         extra_assets=extra_assets,
     )
-    record = store.record_publish(
-        project_id=project_id,
-        build_id=build_id,
-        tag=tag,
-        commit_sha=commit_sha,
-        dossier_digest=str(build.get("dossier_digest") or ""),
-        published_by=user.email,
-        forge_url=str(published.get("url") or ""),
-        asset_names=[filename, *extra_names],
-        config_key=str(candidate.get("config_key") or ""),
-    )
+    try:
+        record = store.record_publish(
+            project_id=project_id,
+            build_id=build_id,
+            tag=tag,
+            commit_sha=commit_sha,
+            dossier_digest=str(build.get("dossier_digest") or ""),
+            published_by=user.email,
+            forge_url=str(published.get("url") or ""),
+            asset_names=[filename, *extra_names],
+            config_key=str(candidate.get("config_key") or ""),
+        )
+    except Exception:
+        # A Release with no local record reads as unpublished here and makes
+        # the next attempt fail on "already exists"; take it back down.
+        logger.exception("Could not record the %s publish of build %s", tag, build_id)
+        forge_publish.remove_release(str(project.get("repo_url") or ""), tag)
+        raise
     return {"release": published, "filename": filename, "publish": record}
 
 

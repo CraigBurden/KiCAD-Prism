@@ -209,6 +209,39 @@ def publish_release(
     )
 
 
+def remove_release(repo_url: str, tag: str) -> None:
+    """Take down the Release just created for *tag*; the tag itself stays.
+
+    Used when Prism could not record a publish it made: a Release with no local
+    record makes the next attempt fail on "already exists". Best effort -- the
+    caller is already reporting the failure that matters.
+    """
+
+    try:
+        target = describe_forge(repo_url)
+        if target.kind == "unsupported" or not target.token_configured:
+            return
+        headers = _headers_for_target(target)
+        quoted = quote(tag, safe="")
+        if target.kind == "github":
+            release = _request(
+                "GET",
+                f"{target.api_root}/repos/{target.owner_repo}/releases/tags/{quoted}",
+                headers=headers,
+                forge="GitHub",
+            )
+            _delete_github_release(target, headers, (release or {}).get("id"))
+            return
+        _request(
+            "DELETE",
+            f"{target.api_root}/projects/{quote(target.owner_repo, safe='')}/releases/{quoted}",
+            headers=headers,
+            forge="GitLab",
+        )
+    except ForgePublishError:
+        return
+
+
 def release_zip_filename(project_name: str, tag: str) -> str:
     stem = _SAFE_FILENAME_RE.sub("-", (project_name or "release").strip()) or "release"
     safe_tag = _SAFE_FILENAME_RE.sub("-", tag.strip()) or "release"
