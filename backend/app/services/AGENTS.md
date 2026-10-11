@@ -75,12 +75,30 @@ the checkout. Do not add another `rev-parse --show-toplevel`, `.git` walk-up or
 `git archive | tar` next to a caller. Remote transport (credentials, pinned host
 keys, ls-remote) is `git_remote_access.py`.
 
+Which files of a revision are design sources is one rule,
+`project_revision.is_generated` (it builds on `kicad_noise_service.is_noise`,
+which the desktop agent loads by path, so that module stays stdlib-only). Source
+sets, the design-compare file list, the semantic-index cache key and its
+schematic field overlay all apply it; do not add another suffix or autosave
+filter next to a reader.
+
 ## KiCad tools
 
 `kicad_tools.py` is the only place that locates or starts `kicad-cli` and
 `kicad-cruncher` (Settings `KICAD_CLI_PATH`, `KICAD_CRUNCHER_PATH`). Callers take
 a `KicadTool` and state a timeout; do not add `subprocess` calls or path lookups
 for them elsewhere. `kicad_tool_replay.py` records and replays runs for tests.
+
+## KiCad library text
+
+`kicad_library_reader.py` reads KiCad text without parsing geometry: form
+ends, top-level symbol blocks and properties, footprint names (`footprint` and
+legacy `module`), model references, and folder link resolution with an explicit
+`ambiguous` outcome. Catalog uploads (`catalog/asset_files.py`), folder
+discovery (`kicad_library_discovery.py`), folder import
+(`library_folder_import_service.py`, built from the discovery result), project
+component extraction and the semantic index use it. Do not add another
+balancer or property regex.
 
 ## Design variants
 
