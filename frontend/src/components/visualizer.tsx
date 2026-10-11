@@ -8,6 +8,7 @@ import { SelectionInspector, type HighlightedNetEntry } from "./selection-inspec
 import { filterLabelInstances, type LabelInstanceRef } from "@/lib/label-instances";
 import { WebGpu3dTab } from "./webgpu-3d-tab";
 import { PrismInsetScene3D } from "@/lib/inset-scene-3d";
+import { MeasureReadout } from "./pcb-measure";
 import { EcadViewerControls } from "./ecad-viewer-controls";
 import { CommentForm, type CommentFormSubmitPayload } from "./comment-form";
 import { CommentCard } from "./comment-card";
@@ -1291,6 +1292,20 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         applyCommentMode(pcbViewerElement, commentMode && activeTab === "pcb");
     }, [activeTab, commentMode, pcbViewerElement, schematicViewerElement]);
 
+    // One click mode at a time on the board: comment mode ends measuring, and
+    // turning measure mode on (button or key) ends comment mode.
+    useEffect(() => {
+        if (commentMode) pcbViewerElement?.setMeasureMode?.(false);
+    }, [commentMode, pcbViewerElement]);
+    useEffect(() => {
+        if (!pcbViewerElement) return;
+        const onMeasureMode = (event: Event) => {
+            if ((event as CustomEvent<{ on: boolean }>).detail?.on) setCommentMode(false);
+        };
+        pcbViewerElement.addEventListener("ecad-viewer:measure-mode", onMeasureMode);
+        return () => pcbViewerElement.removeEventListener("ecad-viewer:measure-mode", onMeasureMode);
+    }, [pcbViewerElement]);
+
     const openCommentCardForOverlayHit = useCallback((event: Event) => {
         const detail = (event as CustomEvent<EcadCommentOverlayHitDetail>).detail;
         const commentId = commentIdFromOverlayHit(detail);
@@ -1527,6 +1542,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     event.preventDefault();
                     return;
                 }
+                // Then measure mode: its points, then the mode itself.
+                if (activeTab === "pcb" && viewer?.escapeMeasure?.()) {
+                    event.preventDefault();
+                    return;
+                }
                 clearSelectionAndHighlights();
                 setRightRailTab(null);
                 setCommentMode(false);
@@ -1737,6 +1757,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                         viewer={schematicViewerElement}
                                         onVisibleWidthChange={setSchematicLeftInset}
                                     />
+                                    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-2">
+                                        <MeasureReadout viewer={pcbViewerElement} />
+                                    </div>
                                     <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-2">
                                         <NetHighlightBar
                                             nets={highlightedNets}
@@ -1780,6 +1803,9 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                         viewer={pcbViewerElement}
                                         onVisibleWidthChange={setPcbLeftInset}
                                     />
+                                    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-2">
+                                        <MeasureReadout viewer={pcbViewerElement} />
+                                    </div>
                                     <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-2">
                                         <NetHighlightBar
                                             nets={highlightedNets}

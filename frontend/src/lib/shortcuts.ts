@@ -156,6 +156,15 @@ export const SHORTCUT_REFERENCE: ShortcutGroupDoc[] = [
     ],
   },
   {
+    title: "Measure",
+    hint: "PCB tab",
+    shortcuts: [
+      { combo: "mod+shift+m", description: "Measure mode: click two points" },
+      { keys: ["Hold", ...shortcutKeys("shift")], description: "Place a free point instead of snapping" },
+      { combo: "escape", description: "Clear the points, then leave measure mode" },
+    ],
+  },
+  {
     title: "Dialogs",
     shortcuts: [
       { combo: "mod+enter", description: "Submit a create, rename, move, or import dialog" },
