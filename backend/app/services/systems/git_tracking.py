@@ -25,6 +25,7 @@ from psycopg.types.json import Jsonb
 
 from app.core.config import settings
 from app.services.git_failures import GitAccessError, describe_git_failure
+from app.services.job_kinds import JobKind, JobSubject, subject_lock
 
 logger = logging.getLogger(__name__)
 
@@ -419,23 +420,14 @@ def remove_clone(system_id: str) -> None:
 
 
 def enqueue_sync(system_id: str, *, requested_by: str = GIT_ACTOR) -> dict:
-    from app.services.job_service import jobs
-
-    return jobs.enqueue(
-        SYNC_JOB_KIND, {"systemId": system_id}, worker_pool="prism", artifact_key=f"system-git-sync:{system_id}",
-        requested_by=requested_by, priority=150, max_attempts=1, resources={"prism_worker": 1},
-        locks=[{"key": f"system-git:{system_id}", "mode": "write"}],
-    )
+    return SYNC.enqueue({"systemId": system_id}, subject=JobSubject(lock_key=f"system-git:{system_id}"),
+                        artifact_key=f"system-git-sync:{system_id}", requested_by=requested_by)
 
 
 def enqueue_commit(system_id: str, snapshot_id: str, *, requested_by: str = GIT_ACTOR) -> dict:
-    from app.services.job_service import jobs
-
-    return jobs.enqueue(
-        COMMIT_JOB_KIND, {"systemId": system_id, "snapshotId": snapshot_id}, worker_pool="prism",
-        artifact_key=f"system-git-commit:{snapshot_id}", requested_by=requested_by, priority=120, max_attempts=1,
-        resources={"prism_worker": 1}, locks=[{"key": f"system-git:{system_id}", "mode": "write"}],
-    )
+    return COMMIT.enqueue({"systemId": system_id, "snapshotId": snapshot_id},
+                          subject=JobSubject(lock_key=f"system-git:{system_id}"),
+                          artifact_key=f"system-git-commit:{snapshot_id}", requested_by=requested_by)
 
 
 def enqueue_due_fetches(connect: Connect, *, interval_seconds: int, limit: int = 8) -> int:
@@ -474,3 +466,9 @@ def run_commit_job(context: Any) -> Any:
     state = commit_snapshot(workspace_connection, str(context.payload["systemId"]),
                             str(context.payload["snapshotId"]))
     return JobResult(message=f"Snapshot commit: {state['state']}", details=state)
+
+
+# One clone per System: sync and commit take its write lock.
+SYNC = JobKind(SYNC_JOB_KIND, run_sync_job, lock=subject_lock("write"), max_attempts=1, priority=150)
+COMMIT = JobKind(COMMIT_JOB_KIND, run_commit_job, lock=subject_lock("write"), max_attempts=1, priority=120)
+JOB_KINDS = (SYNC, COMMIT)

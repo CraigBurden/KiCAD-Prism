@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from app.services import job_service
 from app.services import project_import_service
 from app.services.git_failures import GitAccessError, describe_git_failure
 from app.services.job_runtime import PermanentJobError
@@ -54,7 +55,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
                 return_value={"id": "project-1", "repo_id": "repo-1"},
             ),
             mock.patch.object(
-                project_import_service.v3_jobs,
+                job_service.jobs,
                 "enqueue",
                 return_value={"job_id": "job-sync"},
             ) as enqueue,
@@ -74,7 +75,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
 
     def test_import_enqueue_uses_import_slot_and_repository_write_lock(self) -> None:
         with mock.patch.object(
-            project_import_service.v3_jobs,
+            job_service.jobs,
             "enqueue",
             return_value={"job_id": "job-import"},
         ) as enqueue:
@@ -369,13 +370,13 @@ class ImportHandlerReDerivesClientClaims(unittest.TestCase):
 
 class EnqueueValidatesRemoteUrls(unittest.TestCase):
     def test_analyze_rejects_a_dangerous_url_before_queueing(self) -> None:
-        with mock.patch.object(project_import_service.v3_jobs, "enqueue") as enqueue:
+        with mock.patch.object(job_service.jobs, "enqueue") as enqueue:
             with self.assertRaises(RemoteUrlError):
                 project_import_service.start_analyze_job("ext::sh -c 'id'")
         enqueue.assert_not_called()
 
     def test_import_rejects_a_dangerous_url_before_queueing(self) -> None:
-        with mock.patch.object(project_import_service.v3_jobs, "enqueue") as enqueue:
+        with mock.patch.object(job_service.jobs, "enqueue") as enqueue:
             with self.assertRaises(RemoteUrlError):
                 project_import_service.start_import_job(
                     "file:///etc", "type1", None
@@ -386,7 +387,7 @@ class EnqueueValidatesRemoteUrls(unittest.TestCase):
         # Otherwise two spellings of one remote could clone concurrently into
         # the same target directory.
         with mock.patch.object(
-            project_import_service.v3_jobs,
+            job_service.jobs,
             "enqueue",
             return_value={"job_id": "job-1"},
         ) as enqueue:
@@ -400,7 +401,7 @@ class EnqueueValidatesRemoteUrls(unittest.TestCase):
 
     def test_analyze_enqueue_records_authenticated_requester(self) -> None:
         with mock.patch.object(
-            project_import_service.v3_jobs,
+            job_service.jobs,
             "enqueue",
             return_value={"job_id": "job-1"},
         ) as enqueue:

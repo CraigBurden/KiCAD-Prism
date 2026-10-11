@@ -15,7 +15,7 @@ from app.services import kicad_jobset_service, path_config_service, project_sett
 from app.services.workspace_service import workspace
 from app.services.job_artifact_service import job_artifacts
 from app.services.job_runtime import JobContext, JobResult
-from app.services.job_service import jobs as v3_jobs
+from app.services.job_kinds import JobKind, JobSubject, repository_lock
 
 class Project(BaseModel):
     id: str
@@ -181,13 +181,11 @@ def start_workflow_job(
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
-    repository_id = str(row.get("repo_id") or "")
     project_file_rel = str(row.get("project_file_rel") or "")
 
     if workflow_type == "webgpu_3d":
         artifact_key = webgpu_artifact_key(row, commit, force=force)
-        queued = v3_jobs.enqueue(
-            "webgpu_3d",
+        queued = WEBGPU_3D.enqueue(
             {
                 "project_id": project_id,
                 "commit": commit,
@@ -195,21 +193,9 @@ def start_workflow_job(
                 "artifact_key": artifact_key,
                 "project_file_rel": project_file_rel,
             },
-            worker_pool="prism",
+            subject=JobSubject.of_project(row, project_id),
             artifact_key="" if force else artifact_key,
-            project_id=project_id,
-            repository_id=repository_id or None,
             requested_by=author,
-            resources={
-                "prism_worker": 1,
-                "webgpu": 1,
-                "semantic_compile": 1,
-            },
-            locks=(
-                [{"key": f"repository:{repository_id}", "mode": "read"}]
-                if repository_id
-                else [{"key": f"project:{project_id}", "mode": "read"}]
-            ),
         )
         return str(queued["job_id"])
 
@@ -224,29 +210,16 @@ def start_workflow_job(
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
-    queued = v3_jobs.enqueue(
-        "kicad_workflow",
+    queued = KICAD_WORKFLOW.enqueue(
         {
             "project_id": project_id,
             "workflow_type": workflow_type,
             "author": author,
             "project_file_rel": project_file_rel,
         },
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=active_key,
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=author,
-        max_attempts=1,
-        resources={
-            "prism_worker": 1,
-            "workflow": 1,
-        },
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "write"}]
-            if repository_id
-            else [{"key": f"project:{project_id}", "mode": "write"}]
-        ),
     )
     return str(queued["job_id"])
 
@@ -261,7 +234,6 @@ def start_semantic_index_job(
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
-    repository_id = str(row.get("repo_id") or "")
     project_file_rel = str(row.get("project_file_rel") or "")
     source_selector = commit or f"workspace:{row.get('last_modified') or ''}"
     artifact_key = hashlib.sha256(
@@ -276,8 +248,7 @@ def start_semantic_index_job(
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
-    queued = v3_jobs.enqueue(
-        "semantic_index",
+    queued = SEMANTIC_INDEX.enqueue(
         {
             "project_id": project_id,
             "commit": commit,
@@ -285,20 +256,9 @@ def start_semantic_index_job(
             "artifact_key": artifact_key,
             "project_file_rel": project_file_rel,
         },
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key="" if force else artifact_key,
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        resources={
-            "prism_worker": 1,
-            "semantic_compile": 1,
-        },
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "read"}]
-            if repository_id
-            else [{"key": f"project:{project_id}", "mode": "read"}]
-        ),
     )
     return str(queued["job_id"])
 
@@ -653,3 +613,25 @@ def get_subsheets(project_path: str, main_schematic: str) -> List[str]:
                 subsheets.append(subsheet_rel)
                 
     return subsheets
+
+
+WEBGPU_3D = JobKind(
+    "webgpu_3d",
+    run_webgpu_3d_job_v3,
+    resources={"prism_worker": 1, "webgpu": 1, "semantic_compile": 1},
+    lock=repository_lock("read"),
+)
+KICAD_WORKFLOW = JobKind(
+    "kicad_workflow",
+    run_kicad_workflow_job_v3,
+    resources={"prism_worker": 1, "workflow": 1},
+    lock=repository_lock("write"),
+    max_attempts=1,
+)
+SEMANTIC_INDEX = JobKind(
+    "semantic_index",
+    run_semantic_index_job_v3,
+    resources={"prism_worker": 1, "semantic_compile": 1},
+    lock=repository_lock("read"),
+)
+JOB_KINDS = (WEBGPU_3D, KICAD_WORKFLOW, SEMANTIC_INDEX)

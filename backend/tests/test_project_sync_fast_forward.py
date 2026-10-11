@@ -16,7 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from app.services import path_config_service, project_import_service, project_service
+from app.services import job_service, path_config_service, project_import_service, project_service
 
 
 class SyncFastForwardsOnly(unittest.TestCase):
@@ -87,7 +87,7 @@ class SyncFastForwardsOnly(unittest.TestCase):
 
     def test_background_fetch_job_is_separate_and_lower_priority(self) -> None:
         with mock.patch.object(
-            project_import_service.v3_jobs, "enqueue", return_value={"job_id": "job-1"}
+            job_service.jobs, "enqueue", return_value={"job_id": "job-1"}
         ) as enqueue:
             project_import_service.start_sync_job("prj_1", fetch_only=True)
         self.assertEqual(enqueue.call_args.args[1]["fetch_only"], True)

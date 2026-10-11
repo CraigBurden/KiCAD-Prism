@@ -401,3 +401,75 @@ def supervise_exit(
     )
     with mock.patch.object(prism_worker, "jobs", service):
         worker.supervise()
+
+
+def claimed_context(
+    service: InMemoryJobService,
+    kind: str,
+    payload: Mapping[str, Any],
+    *,
+    state_root: Any,
+    worker_pool: str = "prism",
+    artifact_key: str = "",
+    requested_by: str = "",
+) -> Any:
+    """Queue and claim one job, and return the ``JobContext`` its handler gets."""
+
+    from unittest import mock
+
+    from app.services import job_runtime
+
+    queued = service.enqueue(
+        kind, payload, worker_pool=worker_pool, artifact_key=artifact_key, requested_by=requested_by
+    )
+    claimed = service.claim("test-worker", worker_pool=worker_pool)
+    assert claimed is not None and claimed["job_id"] == queued["job_id"]
+    with mock.patch.object(job_runtime, "job_state_root", return_value=state_root):
+        return job_runtime.JobContext(claimed, worker_id="test-worker", service=service)
+
+
+def run_catalog_task(
+    task: Callable[[Any], Any],
+    job: Mapping[str, Any],
+    progress: Callable[..., Any] | None = None,
+    *,
+    kind: str = "catalog_task",
+) -> Any:
+    """Run one catalog task the way the catalog pool does, from a job-shaped dict.
+
+    ``job`` gives ``payload`` and optionally the saved ``checkpoint`` and
+    ``result`` a retried attempt resumes from. ``progress`` sees every update
+    that reached the job row as ``progress=, message=, checkpoint=, result=``.
+    """
+
+    import tempfile
+    from pathlib import Path
+
+    from app.services.job_runtime import CHECKPOINT_KEY, PARTIAL_RESULT_KEY
+
+    service = InMemoryJobService()
+    payload = dict(job.get("payload") or {})
+    if job.get("checkpoint"):
+        payload[CHECKPOINT_KEY] = dict(job["checkpoint"])
+    if job.get("result"):
+        payload[PARTIAL_RESULT_KEY] = dict(job["result"])
+    real_progress = service.progress
+
+    def recorded(job_id: str, worker_id: str, fence: int, **values: Any) -> bool:
+        updates = dict(values.get("payload_updates") or {})
+        if progress is not None:
+            progress(
+                progress=values.get("percent"),
+                message=values.get("message"),
+                checkpoint=updates.get(CHECKPOINT_KEY),
+                result=updates.get(PARTIAL_RESULT_KEY),
+            )
+        return real_progress(job_id, worker_id, fence, **values)
+
+    service.progress = recorded  # type: ignore[method-assign]
+    with tempfile.TemporaryDirectory() as root:
+        context = claimed_context(
+            service, kind, payload, state_root=Path(root), worker_pool="catalog",
+            requested_by=str(job.get("created_by") or ""),
+        )
+        return task(context)

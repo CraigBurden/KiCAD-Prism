@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -22,7 +21,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from importlib import metadata
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 import yaml
 
@@ -32,9 +31,7 @@ from app.release_studio.canonical import (
     CANONICALIZER_REGISTRY_NAME,
     CANONICALIZER_REGISTRY_VERSION,
     sha256_canonical,
-    write_deterministic_archive,
 )
-from app.release_studio.canonical.json import canonical_json_bytes
 from app.release_studio.closure import materialize_input_closure
 from app.release_studio.config import (
     list_configuration_keys,
@@ -64,22 +61,14 @@ from app.release_studio.steps import (
 from app.release_studio.vendors import generate_vendor_outputs, resolve_vendor_ids
 from app.services import project_revision
 from app.services import release_build_attempts as attempts
+from app.services import release_build_failure_evidence as failure_evidence
 from app.services import release_studio_service as store
 from app.services.job_artifact_service import JobArtifactService
+from app.services.job_kinds import JobKind, repository_lock
 from app.services.job_runtime import JobCancelled, JobContext, JobResult
 from app.services.kicad_tools import KicadTool, KicadTools
 
 logger = logging.getLogger(__name__)
-
-_FAILURE_SECRET = re.compile(
-    r"(?i)\b(password|passwd|secret|token|api[_-]?key|authorization|cookie)"
-    r"(\s*[:=]\s*)([^\s,;]+)"
-)
-_FAILURE_SECRET_KEY = re.compile(
-    r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|cookie)"
-)
-_AUTH_HEADER = re.compile(r"(?im)\b(authorization|cookie)(\s*[:=]\s*)[^\r\n]+")
-_URL_CREDENTIAL = re.compile(r"://([^/\s:@]+):([^@\s/]+)@")
 
 #: Identity of the code that assembles a dossier from a build's outputs.
 #:
@@ -94,128 +83,6 @@ EXECUTOR_IDENTITY_FILE = Path("/etc/prism/kicad-base-image")
 
 class BuildError(RuntimeError):
     """A Release Studio build could not be produced."""
-
-
-def _redact_failure_text(value: object) -> str:
-    """Keep operator diagnostics useful without preserving credential-shaped text."""
-
-    text = str(value).replace("\x00", " ")[:4000]
-    text = _URL_CREDENTIAL.sub("://[REDACTED]@", text)
-    text = _AUTH_HEADER.sub(r"\1\2[REDACTED]", text)
-    return _FAILURE_SECRET.sub(r"\1\2[REDACTED]", text)
-
-
-def _redact_failure_value(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {
-            str(key): (
-                "[REDACTED]"
-                if _FAILURE_SECRET_KEY.search(str(key))
-                else _redact_failure_value(item)
-            )
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_failure_value(item) for item in value]
-    if isinstance(value, tuple):
-        return [_redact_failure_value(item) for item in value]
-    if isinstance(value, str):
-        return _redact_failure_text(value)
-    return value
-
-
-def _publish_failure_evidence(
-    *,
-    artifacts: JobArtifactService,
-    context: JobContext,
-    build: Mapping[str, Any],
-    candidate: Mapping[str, Any],
-    error_code: str,
-    error: BaseException | str,
-    pipeline: Mapping[str, Any] | None,
-    timings: Sequence[Mapping[str, Any]] = (),
-) -> str | None:
-    """Publish the small, deterministic diagnostic archive for a failed run.
-
-    It intentionally contains no editable configuration, closure paths, or job
-    payload.  The pipeline snapshot supplies the completed step/log index; all
-    free text is redacted before it reaches immutable artifact storage.
-    """
-
-    message = _redact_failure_text(error)
-    payload = {
-        "schema_version": "release-studio.failure-evidence.v1",
-        "failure": {"code": error_code, "message": message},
-        "build": {
-            "id": str(build.get("id") or ""),
-            "candidate_id": str(candidate.get("id") or build.get("candidate_id") or ""),
-            "commit_sha": str(candidate.get("commit_sha") or ""),
-            "config_key": str(candidate.get("config_key") or ""),
-            "variant": str(candidate.get("variant") or ""),
-        },
-        "pipeline": _redact_failure_value(dict(pipeline or {})),
-        "timings": _redact_failure_value(list(timings)),
-    }
-    steps = {
-        str(step.get("id") or ""): {
-            "step_type": str(step.get("id") or ""),
-            "returncode": None,
-            "elapsed_ms": int(step.get("elapsed_ms") or 0),
-            "skipped_reason": str(step.get("message") or "")
-            if step.get("status") == "skipped"
-            else "",
-            "status": str(step.get("status") or "queued"),
-        }
-        for job in (pipeline or {}).get("jobs", [])
-        for step in job.get("steps", [])
-        if step.get("id")
-    }
-    steps["build-failure"] = {
-        "step_type": "diagnostic",
-        "returncode": None,
-        "elapsed_ms": 0,
-        "skipped_reason": "",
-        "status": "cancelled" if error_code == "cancelled" else "failure",
-    }
-    evidence_index = {
-        "schema_version": "release-studio.build-evidence.v1",
-        "steps": steps,
-        "timings": _redact_failure_value(list(timings)),
-        "diagnostics": payload["failure"],
-        "pipeline": payload["pipeline"],
-    }
-    archive = write_deterministic_archive(
-        {
-            "build-evidence.json": canonical_json_bytes(evidence_index),
-            "failure.json": canonical_json_bytes(payload),
-            "logs/build-failure.log": (message + "\n").encode("utf-8"),
-        }
-    )
-    artifact = _publish(
-        artifacts,
-        context,
-        archive,
-        name="build-failure-evidence.tar.gz",
-        kind="release_build_evidence",
-        artifact_key=f"release-evidence-failure:{build['id']}",
-        allow_cancel_requested=error_code == "cancelled",
-    )
-    artifact_ids = context.service.register_fenced_artifacts(
-        context.job_id,
-        context.worker_id,
-        context.fence,
-        (artifact.__dict__,),
-        allowed_statuses=("running", "cancel_requested")
-        if error_code == "cancelled"
-        else ("running",),
-    )
-    if artifact_ids is None:
-        logger.warning(
-            "Release Studio failure evidence was not registered because the fence is stale",
-            extra={"build_id": build.get("id")},
-        )
-        return None
-    return str(artifact_ids[0])
 
 
 def executor_image() -> str:
@@ -1165,7 +1032,7 @@ def execute_build(
             "settle": lambda conn: attempts.complete_build(conn=conn, **completion),
         }
     except JobCancelled as exc:
-        evidence_artifact_id = _failure_evidence_id(
+        evidence_artifact_id = failure_evidence.publish_or_none(
             artifacts=artifact_service,
             context=context,
             build=build,
@@ -1177,12 +1044,12 @@ def execute_build(
         )
         attempts.cancel_build(
             build["id"],
-            message=_redact_failure_text(exc),
+            message=failure_evidence.redact_text(exc),
             evidence_artifact_id=evidence_artifact_id,
         )
         raise
     except StepExecutionError as exc:
-        evidence_artifact_id = _failure_evidence_id(
+        evidence_artifact_id = failure_evidence.publish_or_none(
             artifacts=artifact_service,
             context=context,
             build=build,
@@ -1195,12 +1062,12 @@ def execute_build(
         attempts.fail_build(
             build["id"],
             error_code="step_failed",
-            error_message=_redact_failure_text(exc),
+            error_message=failure_evidence.redact_text(exc),
             evidence_artifact_id=evidence_artifact_id,
         )
         raise BuildError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - the build row must not stay running
-        evidence_artifact_id = _failure_evidence_id(
+        evidence_artifact_id = failure_evidence.publish_or_none(
             artifacts=artifact_service,
             context=context,
             build=build,
@@ -1213,20 +1080,10 @@ def execute_build(
         attempts.fail_build(
             build["id"],
             error_code="build_failed",
-            error_message=_redact_failure_text(exc),
+            error_message=failure_evidence.redact_text(exc),
             evidence_artifact_id=evidence_artifact_id,
         )
         raise
-
-
-def _failure_evidence_id(**kwargs: Any) -> str | None:
-    """Failure evidence must not hide the build error when publication itself fails."""
-
-    try:
-        return _publish_failure_evidence(**kwargs)
-    except Exception:  # noqa: BLE001 - failed attempt remains visible either way
-        logger.exception("Could not publish Release Studio failure evidence")
-        return None
 
 
 def _run_vendors(
@@ -1440,7 +1297,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         # explicit failed attempt without altering a successful candidate's
         # immutable identity.
         try:
-            tracker.fail("closure", message=_redact_failure_text(exc))
+            tracker.fail("closure", message=failure_evidence.redact_text(exc))
         except Exception:  # noqa: BLE001 - retain the failure even if progress is stale
             logger.debug("Could not report failed closure progress", exc_info=True)
         failed_build = attempts.record_prepare_failure(
@@ -1452,7 +1309,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
             job_id=context.job_id,
             fence=context.fence,
             author=author,
-            error=_redact_failure_text(exc),
+            error=failure_evidence.redact_text(exc),
         )
         failure_candidate = {
             "id": failed_build.get("candidate_id") or "",
@@ -1460,7 +1317,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
             "config_key": config_key,
             "variant": variant,
         }
-        evidence_artifact_id = _failure_evidence_id(
+        evidence_artifact_id = failure_evidence.publish_or_none(
             artifacts=JobArtifactService(),
             context=context,
             build=failed_build,
@@ -1472,7 +1329,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         attempts.fail_build(
             str(failed_build["id"]),
             error_code="prepare_failed",
-            error_message=_redact_failure_text(exc),
+            error_message=failure_evidence.redact_text(exc),
             actor=author,
             evidence_artifact_id=evidence_artifact_id,
         )
@@ -1546,8 +1403,28 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
     )
 
 
+RELEASE_BUILD = JobKind(
+    "release_studio_build",
+    run_release_studio_build_job,
+    # A build runs kicad-cli and a Cruncher board load; two of them on one
+    # worker have been measured at 6.4 GiB peak RSS. It takes the same slot
+    # every other heavy job takes so they serialize instead of racing.
+    resources={"prism_worker": 1},
+    settle=attempts.settle_build_job,
+    orphans=attempts.orphaned_jobs,
+)
+# Registered for completeness; nothing enqueues it today.
+RELEASE_CONFIGURATION_PUBLISH = JobKind(
+    "release_studio_configuration_publish",
+    run_release_studio_configuration_publish_job,
+    lock=repository_lock("write"),
+)
+JOB_KINDS = (RELEASE_BUILD, RELEASE_CONFIGURATION_PUBLISH)
+
+
 __all__ = [
     "GENERATOR_BUILD",
+    "RELEASE_BUILD",
     "BuildError",
     "execute_build",
     "executor_image",

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from app.release_studio.impedance import TEMPLATE_CSV, parse_impedance_csv
+from app.services.job_service import jobs as job_queue
 from app.release_studio.inputs import synthesize_configuration
 from app.release_studio.ipc import OTHER, public_ipc_payload
 from app.release_studio.source import apply_source_defaults, discover_source
@@ -448,7 +449,7 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         )
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.api.jobs, "enqueue", return_value={"job_id": "job-1"}),
+            patch.object(job_queue, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults") as persist,
             patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
             patch.object(self.api.forge_publish, "tag_exists", return_value=False),
@@ -470,7 +471,7 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         )
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.api.jobs, "enqueue", return_value={"job_id": "job-1"}),
+            patch.object(job_queue, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults", side_effect=RuntimeError("db down")),
             patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
             patch.object(self.api.forge_publish, "tag_exists", return_value=False),

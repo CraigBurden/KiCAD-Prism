@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from app.services import job_service
 from app.services import kicad_jobset_service, project_service, semantic_visualizer_service
 from app.services.job_runtime import PreparedArtifact
 from app.services.kicad_tools import ToolResult
@@ -26,7 +27,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 "get_project_by_id",
                 return_value=row,
             ), mock.patch.object(
-                project_service.v3_jobs,
+                job_service.jobs,
                 "enqueue",
                 return_value={"job_id": "job"},
             ) as enqueue:
@@ -73,7 +74,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 },
             ),
             mock.patch.object(
-                project_service.v3_jobs,
+                job_service.jobs,
                 "enqueue",
                 return_value={"job_id": "job-semantic"},
             ) as enqueue,
@@ -175,7 +176,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 return_value={"id": "project-1", "repo_id": "repo-1"},
             ),
             mock.patch.object(
-                project_service.v3_jobs,
+                job_service.jobs,
                 "enqueue",
                 return_value={"job_id": "job-workflow"},
             ) as enqueue,

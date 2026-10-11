@@ -14,7 +14,6 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services.catalog_job_service import CatalogJobService, _loads  # noqa: E402
 from app.services.library_folder_import_service import (  # noqa: E402
     configured_import_roots,
     build_folder_proposals,
@@ -48,30 +47,6 @@ class LibraryFolderImportTests(unittest.TestCase):
                 )
                 with self.assertRaises(ValueError):
                     resolve_server_import_path("engineering", "../outside")
-
-    def test_job_json_decoder_accepts_native_jsonb_objects(self) -> None:
-        self.assertEqual(_loads({"index": 3}, {}), {"index": 3})
-        decoded = CatalogJobService()._decode(
-            {
-                "id": "job-1",
-                "job_type": "folder_library_import",
-                "status": "queued",
-                "payload_json": {"snapshot_id": "snapshot-1"},
-                "result_json": {"proposal_count": 4},
-                "checkpoint_json": {},
-                "progress": 25,
-                "lease_expires_at": None,
-                "heartbeat_at": None,
-                "run_after": None,
-                "created_at": None,
-                "updated_at": None,
-                "started_at": None,
-                "completed_at": None,
-            }
-        )
-        self.assertEqual(decoded["payload"]["snapshot_id"], "snapshot-1")
-        self.assertEqual(decoded["proposal_count"], 4)
-        self.assertEqual(decoded["percent"], 25)
 
     SYMBOL = (
         '(kicad_symbol_lib (version 20231120) (generator "test") '

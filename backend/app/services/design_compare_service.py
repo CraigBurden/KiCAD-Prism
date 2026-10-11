@@ -31,6 +31,7 @@ from app.services import (
 )
 from app.services.design_compare_benchmark import DesignCompareBenchmark
 from app.services.job_artifact_service import job_artifacts
+from app.services.job_kinds import JobKind, JobSubject, repository_lock
 from app.services.job_runtime import JobContext, JobResult, job_state_root
 from app.services.job_service import jobs as v3_jobs
 from app.services.workspace_service import workspace
@@ -1732,9 +1733,7 @@ def start_design_compare_job(
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
-    repository_id = str(row.get("repo_id") or "")
-    queued = v3_jobs.enqueue(
-        "design_compare",
+    queued = DESIGN_COMPARE.enqueue(
         {
             "project_id": project_id,
             "base": base,
@@ -1743,21 +1742,9 @@ def start_design_compare_job(
             "artifact_key": artifact_key,
             "project_file_rel": str(row.get("project_file_rel") or ""),
         },
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=artifact_key,
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        resources={
-            "prism_worker": 1,
-            "design_compare": 1,
-            "semantic_compile": 2,
-        },
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "read"}]
-            if repository_id
-            else [{"key": f"project:{project_id}", "mode": "read"}]
-        ),
     )
     return str(queued["job_id"])
 
@@ -2121,3 +2108,12 @@ def _publish_late_domain_failure(
         )
     except Exception:  # noqa: BLE001 - a cancelled or lost attempt keeps its last result
         logger.warning("Could not publish the failed comparison readiness", exc_info=True)
+
+
+DESIGN_COMPARE = JobKind(
+    "design_compare",
+    run_design_compare_job_v3,
+    resources={"prism_worker": 1, "design_compare": 1, "semantic_compile": 2},
+    lock=repository_lock("read"),
+)
+JOB_KINDS = (DESIGN_COMPARE,)

@@ -16,6 +16,7 @@ from typing import IO
 
 from app.core.config import settings
 from app.services.job_handlers import settle_job_end, sweep_job_ends
+from app.services.job_kinds import resource_capacities
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
 
@@ -92,19 +93,7 @@ class PrismWorker:
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
-        from app.services.trackers.scheduler import TRACKER_RESOURCE, TRACKER_RESOURCE_CAPACITY
-
-        return {
-            "prism_worker": settings.PRISM_WORKER_CONCURRENCY,
-            "webgpu": settings.PRISM_WEBGPU_CONCURRENCY,
-            "design_compare": settings.PRISM_DESIGN_COMPARE_CONCURRENCY,
-            "workflow": settings.PRISM_WORKFLOW_CONCURRENCY,
-            "import": settings.PRISM_IMPORT_CONCURRENCY,
-            "semantic_compile": settings.PRISM_SEMANTIC_COMPILE_SLOTS,
-            "catalog_worker": settings.CATALOG_WORKER_CONCURRENCY,
-            "catalog_kicad": settings.CATALOG_KICAD_CONCURRENCY,
-            TRACKER_RESOURCE: TRACKER_RESOURCE_CAPACITY,
-        }
+        return resource_capacities()
 
     def request_stop(self, *_args: object) -> None:
         self.stopping = True
@@ -503,7 +492,6 @@ class PrismWorker:
             {},
             created_by="system:catalog-worker",
             idempotency_key=f"artifact-maintenance:{today}",
-            max_attempts=3,
         )
         self._catalog_maintenance_date = today
 

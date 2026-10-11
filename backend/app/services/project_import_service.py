@@ -17,7 +17,7 @@ from app.services import derived_assets, git_remote_access, project_revision, pr
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError
-from app.services.job_service import jobs as v3_jobs
+from app.services.job_kinds import JobKind, JobSubject, repository_lock, subject_lock
 from app.services.kicad_tools import kicad_cli
 from app.services.project_import_followups import (
     retry_import_follow_ups,
@@ -578,20 +578,16 @@ def start_import_job(repo_url: str, import_type: str,
             [parsed.dedup_key, import_type, validated_ref or "", *paths]
         ).encode("utf-8")
     ).hexdigest()
-    queued = v3_jobs.enqueue(
-        "project_import",
+    queued = PROJECT_IMPORT.enqueue(
         {
             "repo_url": parsed.url,
             "import_type": import_type,
             "selected_paths": list(selected_paths or []),
             "ref": validated_ref,
         },
-        worker_pool="prism",
+        subject=JobSubject(lock_key=_repository_lock_key(parsed)),
         artifact_key=active_key,
         requested_by=requested_by,
-        max_attempts=1,
-        resources={"prism_worker": 1, "import": 1},
-        locks=[{"key": _repository_lock_key(parsed), "mode": "write"}],
     )
     return str(queued["job_id"])
 
@@ -611,15 +607,11 @@ def start_analyze_job(
     active_key = hashlib.sha256(
         "\x1f".join([parsed.dedup_key, validated_ref or ""]).encode("utf-8")
     ).hexdigest()
-    queued = v3_jobs.enqueue(
-        "project_analyze",
+    queued = PROJECT_ANALYZE.enqueue(
         {"repo_url": parsed.url, "ref": validated_ref},
-        worker_pool="prism",
+        subject=JobSubject(lock_key=_repository_lock_key(parsed)),
         artifact_key=active_key,
         requested_by=requested_by,
-        max_attempts=2,
-        resources={"prism_worker": 1, "import": 1},
-        locks=[{"key": _repository_lock_key(parsed), "mode": "read"}],
     )
     return str(queued["job_id"])
 
@@ -1036,24 +1028,11 @@ def start_thumbnail_job(project_id: str, *, requested_by: str = "") -> Optional[
     row = workspace.get_project_by_id(project_id)
     if not row:
         return None
-    repository_id = str(row.get("repo_id") or "")
-    queued = v3_jobs.enqueue(
-        "project_thumbnail",
+    queued = PROJECT_THUMBNAIL.enqueue(
         {"project_id": project_id},
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=hashlib.sha256(f"thumbnail:{project_id}".encode("utf-8")).hexdigest(),
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        max_attempts=2,
-        resources={"prism_worker": 1},
-        # A read lock on the repository, so a render cannot observe the checkout
-        # halfway through a sync fast-forward.
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "read"}]
-            if repository_id
-            else []
-        ),
     )
     return str(queued["job_id"])
 
@@ -1069,24 +1048,11 @@ def start_project_metadata_job(project_id: str, *, requested_by: str = "") -> Op
     row = workspace.get_project_by_id(project_id)
     if not row:
         return None
-    repository_id = str(row.get("repo_id") or "")
-    queued = v3_jobs.enqueue(
-        "project_metadata",
+    queued = PROJECT_METADATA.enqueue(
         {"project_id": project_id},
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=hashlib.sha256(f"metadata:{project_id}".encode("utf-8")).hexdigest(),
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        max_attempts=2,
-        resources={"prism_worker": 1},
-        # Same read lock as the render: kicad-cli must not read a checkout
-        # halfway through a sync fast-forward.
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "read"}]
-            if repository_id
-            else []
-        ),
     )
     return str(queued["job_id"])
 
@@ -1236,25 +1202,15 @@ def start_sync_job(project_id: str, *, requested_by: str = "", fetch_only: bool 
     row = workspace.get_project_by_id(project_id)
     if not row:
         raise ValueError("Project not found")
-    repository_id = str(row.get("repo_id") or "")
     mode = "fetch" if fetch_only else "sync"
     active_key = hashlib.sha256(f"{mode}:{project_id}".encode("utf-8")).hexdigest()
-    queued = v3_jobs.enqueue(
-        "project_sync",
+    queued = PROJECT_SYNC.enqueue(
         {"project_id": project_id, "fetch_only": fetch_only},
-        worker_pool="prism",
+        subject=JobSubject.of_project(row, project_id),
         artifact_key=active_key,
-        project_id=project_id,
-        repository_id=repository_id or None,
         requested_by=requested_by,
-        priority=200 if fetch_only else 100,
-        max_attempts=2,
-        resources={"prism_worker": 1, "import": 1},
-        locks=(
-            [{"key": f"repository:{repository_id}", "mode": "write"}]
-            if repository_id
-            else [{"key": f"project:{project_id}", "mode": "write"}]
-        ),
+        # A background fetch yields to work someone asked for.
+        priority=200 if fetch_only else None,
     )
     return str(queued["job_id"])
 
@@ -1363,3 +1319,41 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+PROJECT_ANALYZE = JobKind(
+    "project_analyze",
+    run_project_analyze_job_v3,
+    resources={"prism_worker": 1, "import": 1},
+    lock=subject_lock("read"),
+    max_attempts=2,
+)
+PROJECT_IMPORT = JobKind(
+    "project_import",
+    run_project_import_job_v3,
+    resources={"prism_worker": 1, "import": 1},
+    lock=subject_lock("write"),
+    max_attempts=1,
+)
+PROJECT_SYNC = JobKind(
+    "project_sync",
+    run_project_sync_job_v3,
+    resources={"prism_worker": 1, "import": 1},
+    lock=repository_lock("write"),
+    max_attempts=2,
+)
+# Thumbnail and metadata read the checkout with kicad-cli; the read lock keeps
+# them from seeing it halfway through a sync fast-forward.
+PROJECT_THUMBNAIL = JobKind(
+    "project_thumbnail",
+    run_project_thumbnail_job_v3,
+    lock=repository_lock("read", project_fallback=False),
+    max_attempts=2,
+)
+PROJECT_METADATA = JobKind(
+    "project_metadata",
+    run_project_metadata_job_v3,
+    lock=repository_lock("read", project_fallback=False),
+    max_attempts=2,
+)
+JOB_KINDS = (PROJECT_ANALYZE, PROJECT_IMPORT, PROJECT_SYNC, PROJECT_THUMBNAIL, PROJECT_METADATA)
