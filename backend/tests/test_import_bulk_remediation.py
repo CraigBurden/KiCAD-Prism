@@ -363,6 +363,54 @@ class ImportBulkRemediationTests(unittest.TestCase):
         revisions = self.service.list_component_revisions(first_id)
         self.assertEqual(len(revisions), 1, "identical remediation should not add a revision")
 
+    def test_accept_enforces_import_readiness_on_the_server(self) -> None:
+        # The remediation grid blocks these rows; a direct API accept must too.
+        mpn = f"RC0603-READY-{uuid.uuid4().hex[:8]}"
+        _, proposal = self._stage_proposal(reference="R7", mpn=mpn)
+        with self.assertRaisesRegex(ValueError, "Datasheet must be an HTTP\\(S\\) URL"):
+            self.service.accept_project_import_proposal(
+                str(proposal["id"]),
+                metadata_overrides={"datasheet": "see intranet"},
+                actor="tester@example.com",
+            )
+        with self.assertRaisesRegex(ValueError, "Description is required"):
+            self.service.accept_project_import_proposal(
+                str(proposal["id"]),
+                metadata_overrides={"description": "  "},
+                actor="tester@example.com",
+            )
+        reloaded = self.service.get_project_import_proposal(str(proposal["id"]))
+        assert reloaded is not None
+        self.assertEqual(reloaded["status"], "candidate")
+
+    def test_retired_identity_is_matched_and_blocks_import_with_its_reason(self) -> None:
+        mpn = f"RC0603-RETIRED-{uuid.uuid4().hex[:8]}"
+        _, seed = self._stage_proposal(reference="R8", mpn=mpn)
+        seed_result = self.service.accept_project_import_proposal(
+            str(seed["id"]), actor="tester@example.com"
+        )
+        retired_id = str(seed_result["component"]["id"])
+        self.service.deactivate_component(retired_id, actor="tester@example.com", reason="retired")
+
+        # Folder discovery must not show the retired identity as new...
+        matches = self.service.match_component_identities(
+            [{"manufacturer": " yageo ", "mpn": mpn.lower()}, {"manufacturer": "Yageo", "mpn": ""}]
+        )
+        self.assertEqual(len(matches), 2)
+        self.assertIsNone(matches[1])
+        assert matches[0] is not None
+        self.assertEqual(
+            (matches[0]["component_id"], matches[0]["is_active"]), (retired_id, False)
+        )
+
+        # ...and acceptance names the retired component instead of a bare conflict.
+        _, again = self._stage_proposal(reference="R9", mpn=mpn)
+        with self.assertRaisesRegex(ValueError, "retired"):
+            self.service.accept_project_import_proposal(str(again["id"]), actor="tester@example.com")
+        reloaded = self.service.get_project_import_proposal(str(again["id"]))
+        assert reloaded is not None
+        self.assertEqual(reloaded["status"], "candidate")
+
     def test_unknown_or_mistyped_asset_links_are_rejected(self) -> None:
         _, seed = self._stage_proposal(reference="R1", mpn="RC0603-TYPES")
         seed_result = self.service.accept_project_import_proposal(

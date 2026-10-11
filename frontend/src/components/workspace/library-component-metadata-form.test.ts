@@ -5,12 +5,10 @@ import type { CatalogComponent, CatalogMetadataField } from "@/types/catalog";
 import {
   activeMetadataFields,
   buildMetadataPatch,
-  isFieldRequired,
   isMetadataFormComplete,
   metadataFormErrors,
   parseUnknownExtraJson,
   unknownExtraFields,
-  validateMetadataField,
   valuesFromComponent,
 } from "./library-component-metadata-form";
 
@@ -144,11 +142,11 @@ describe("identity and validation rules", () => {
   });
 
   it("keeps manufacturer required and MPN optional only for provisional identities", () => {
-    expect(isFieldRequired(manufacturer, "provisional_ipn")).toBe(true);
-    expect(isFieldRequired(mpn, "provisional_ipn")).toBe(false);
-    expect(isFieldRequired(mpn, "mpn")).toBe(true);
-    expect(validateMetadataField(mpn, "", "provisional_ipn")).toBe("");
-    expect(validateMetadataField(mpn, "", "mpn")).toBe("Required");
+    const empty = { mpn: "", manufacturer: "" };
+    expect(metadataFormErrors([mpn, manufacturer], empty, "provisional_ipn", "Update", "{}").fieldErrors)
+      .toEqual({ mpn: "", manufacturer: "Required" });
+    expect(metadataFormErrors([mpn, manufacturer], empty, "mpn", "Update", "{}").fieldErrors)
+      .toEqual({ mpn: "Required", manufacturer: "Required" });
   });
 
   it("does not block save on legacy number, URL, or enum shapes the PATCH still accepts", () => {
@@ -181,7 +179,8 @@ describe("identity and validation rules", () => {
       tolerance: "",
     });
     expect(isMetadataFormComplete(errors)).toBe(true);
-    expect(validateMetadataField(custom, "", "mpn")).toBe("Required");
+    expect(metadataFormErrors([custom], { tolerance: "" }, "mpn", "Update", "{}").fieldErrors.tolerance)
+      .toBe("Required");
   });
 
   it("blocks save when additional extras are not a JSON object", () => {

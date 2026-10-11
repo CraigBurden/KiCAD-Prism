@@ -424,13 +424,8 @@ def discover_folder_snapshot(
             for component in discovery["components"]
         ]
         existing = catalog_service.match_component_identities(identities)
-        for component in discovery["components"]:
-            metadata = component["metadata"]
-            identity_key = "\0".join((
-                str(metadata.get("manufacturer") or "").strip().casefold(),
-                str(metadata.get("manufacturer_part_number") or "").strip().casefold(),
-            ))
-            component["existing_component"] = existing.get(identity_key)
+        for component, match in zip(discovery["components"], existing):
+            component["existing_component"] = match
         discovery["existing_component_count"] = sum(
             1 for component in discovery["components"] if component.get("existing_component")
         )

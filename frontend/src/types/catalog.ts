@@ -456,6 +456,8 @@ export interface LibraryFolderDiscoveryComponent {
     name: string;
     manufacturer: string;
     manufacturer_part_number: string;
+    /** False when the identity belongs to a retired component, which cannot be re-imported. */
+    is_active: boolean;
   } | null;
 }
 

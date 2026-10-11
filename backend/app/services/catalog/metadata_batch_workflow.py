@@ -147,7 +147,7 @@ class CatalogMetadataBatchWorkflow:
         if str(revision["id"]) != str(item["expected_revision_id"]):
             raise CatalogConflict("Component revision conflict: current revision changed after preview")
         definitions = {field["key"]: field for field in self._metadata_fields.list_fields(conn)}
-        prepared = self._application.prepare_revision(item, revision, definitions)
+        prepared = self._application.prepare_revision(item, component, revision, definitions)
         metadata = prepared.metadata
         self._catalog_locks.lock_component_identity(conn, metadata["manufacturer"], metadata["mpn"])
         _, revision_id = self._component_writer.upsert_metadata_row(

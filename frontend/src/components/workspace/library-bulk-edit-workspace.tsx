@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { fieldError, type IdentityKind } from "@/lib/catalog-field-rules";
 import { canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
@@ -50,24 +51,12 @@ function componentFieldValue(component: CatalogComponent, field: CatalogMetadata
   return String((component as unknown as Record<string, unknown>)[field.storage_key] ?? "");
 }
 
-function validateCell(field: CatalogMetadataField, value: string): string {
-  if (!value.trim()) return field.required ? "Required" : "";
-  if (field.type === "number" && !Number.isFinite(Number(value))) return "Invalid number";
-  if (field.type === "url") {
-    try {
-      const url = new URL(value);
-      if (!['http:', 'https:'].includes(url.protocol)) return "Use HTTP(S)";
-    } catch { return "Invalid URL"; }
-  }
-  if (field.type === "enum" && !field.enum_values.includes(value)) return "Invalid option";
-  return "";
-}
-
 function MetadataCell({
-  value, field, readOnly, active, rowIndex, columnIndex, pinnedOffset, onCommit, onActivate, onNavigate,
+  value, field, identityKind, readOnly, active, rowIndex, columnIndex, pinnedOffset, onCommit, onActivate, onNavigate,
 }: {
   value: string;
   field: CatalogMetadataField;
+  identityKind: IdentityKind;
   readOnly: boolean;
   active: boolean;
   rowIndex: number;
@@ -133,6 +122,7 @@ function MetadataCell({
   return <CellTextEditor
     value={value}
     field={field}
+    identityKind={identityKind}
     rowIndex={rowIndex}
     columnIndex={columnIndex}
     pinnedClass={pinnedClass}
@@ -145,10 +135,11 @@ function MetadataCell({
 }
 
 function CellTextEditor({
-  value, field, rowIndex, columnIndex, pinnedClass, pinnedStyle, inputRef, readOnly, onCommit, onNavigate,
+  value, field, identityKind, rowIndex, columnIndex, pinnedClass, pinnedStyle, inputRef, readOnly, onCommit, onNavigate,
 }: {
   value: string;
   field: CatalogMetadataField;
+  identityKind: IdentityKind;
   rowIndex: number;
   columnIndex: number;
   pinnedClass: string;
@@ -160,7 +151,7 @@ function CellTextEditor({
 }) {
   const [draft, setDraft] = useState(value);
   const cancelCommit = useRef(false);
-  const error = validateCell(field, draft);
+  const error = fieldError(field, draft, "bulk", identityKind);
   const commit = () => {
     if (cancelCommit.current) { cancelCommit.current = false; return; }
     if (!readOnly && !error && draft !== value) onCommit(draft);
@@ -443,7 +434,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
     matrix.forEach((rowValues, rowOffset) => rowValues.forEach((value, columnOffset) => {
       const component = items[activeCell.row + rowOffset];
       const field = visibleFields[activeCell.column + columnOffset];
-      if (component && field && !validateCell(field, value)) next = applyCellValue(component, field, value, next);
+      if (component && field && !fieldError(field, value, "bulk", component.identity_kind)) next = applyCellValue(component, field, value, next);
     }));
     commitStaged(next);
   };
@@ -590,7 +581,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
             {firstVisibleRow ? <div aria-hidden="true" style={{ height: firstVisibleRow * GRID_ROW_HEIGHT }} /> : null}
             {visibleRows.map((component, visibleRowIndex) => { const rowIndex = firstVisibleRow + visibleRowIndex; return <div key={component.id} role="row" aria-rowindex={rowIndex + 2} className={cn("grid border-b last:border-b-0", staged[component.id] && "bg-primary/5")} style={{ gridTemplateColumns: gridTemplate }}>
               <div role="rowheader" aria-colindex={1} className="sticky left-0 z-10 flex h-9 min-w-0 items-center gap-2 border-r bg-background px-3"><span className="min-w-0 flex-1 truncate text-xs font-medium" title={component.name}>{component.mpn || component.name}</span><Badge variant={component.workflow_stage === "qa_review" ? "warning" : "outline"} className="shrink-0" title="Read-only workflow stage">{WORKFLOW_LABELS[component.workflow_stage]}</Badge><Badge variant="outline" className="shrink-0" title="Read-only revision">v{component.revision}</Badge></div>
-              {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} readOnly={!canEdit} active={activeCell?.row === rowIndex && activeCell.column === columnIndex} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCellValue(component, field, value)} onActivate={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
+              {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} identityKind={component.identity_kind} readOnly={!canEdit} active={activeCell?.row === rowIndex && activeCell.column === columnIndex} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCellValue(component, field, value)} onActivate={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
             </div>; })}
             {lastVisibleRow < items.length ? <div aria-hidden="true" style={{ height: (items.length - lastVisibleRow) * GRID_ROW_HEIGHT }} /> : null}
           </div>

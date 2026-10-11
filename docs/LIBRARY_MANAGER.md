@@ -62,6 +62,28 @@ Components can be proposed from imported project data or a selected schematic or
 PCB identity. Review every proposal before acceptance; project-local symbols and
 footprints are not automatically approved library assets.
 
+### What an import needs before acceptance
+
+Folder and project imports follow the same rules, and the server applies them
+when a proposal is accepted, including through the API:
+
+- value, manufacturer, manufacturer part number, description and datasheet are
+  present, and the datasheet is an `http://` or `https://` URL;
+- one symbol and one footprint, either from the import or linked from an
+  existing catalog asset (a link answers a `footprint_not_resolved` finding);
+- no other blocking error findings.
+
+A manufacturer part number held by a retired component cannot be imported
+again. Folder discovery marks such parts as retired rather than new.
+
+### Editing metadata
+
+The single-component editor checks only that required fields are present, so
+legacy values you did not touch never block a save. Bulk edit and metadata
+batches also check value shape: numbers, HTTP(S) URLs, booleans and configured
+enum options. Provisional parts never require a manufacturer part number;
+supplying one in either editor promotes the part to an orderable identity.
+
 ### Existing packed symbol libraries
 
 The scripts directory contains migration helpers for splitting packed KiCad

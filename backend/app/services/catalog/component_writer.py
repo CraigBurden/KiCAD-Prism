@@ -13,6 +13,7 @@ import json
 from typing import Any
 import uuid
 
+from app.services.catalog.component_identity import ComponentIdentity, find_identity_holder
 from app.services.catalog.conflicts import CatalogConflict
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import (
@@ -20,7 +21,6 @@ from app.services.catalog.metadata_normalization import (
     IDENTITY_KIND_PROVISIONAL_IPN,
     metadata_keywords,
     metadata_search_document,
-    normalize_identity_value,
     normalize_metadata,
 )
 from app.services.catalog.metadata_schema import CatalogMetadataSchema
@@ -169,36 +169,16 @@ class CatalogComponentWriter:
         acquire_identity_lock: bool = True,
     ) -> None:
         """Reject a second component with the same orderable or provisional identity."""
-        normalized_manufacturer = normalize_identity_value(manufacturer)
-        normalized_part_number = normalize_identity_value(
-            mpn if identity_kind == IDENTITY_KIND_MPN else source_internal_part_number
+        identity = ComponentIdentity.of(
+            manufacturer=manufacturer,
+            mpn=mpn,
+            identity_kind=identity_kind,
+            identity_source=identity_source,
+            source_internal_part_number=source_internal_part_number,
         )
         if acquire_identity_lock:
-            self._catalog_locks.lock_component_identity(
-                conn,
-                normalized_manufacturer if identity_kind == IDENTITY_KIND_MPN else identity_source,
-                normalized_part_number,
-            )
-        existing = conn.execute(
-            """
-            SELECT id
-            FROM components
-            WHERE identity_kind = %s
-              AND normalized_manufacturer = %s
-              AND normalized_part_number = %s
-              AND identity_source = %s
-              AND id <> %s
-            LIMIT 1
-            """,
-            (
-                identity_kind,
-                normalized_manufacturer if identity_kind == IDENTITY_KIND_MPN else "",
-                normalized_part_number,
-                identity_source if identity_kind == IDENTITY_KIND_PROVISIONAL_IPN else "",
-                component_id,
-            ),
-        ).fetchone()
-        if existing:
+            self._catalog_locks.lock_component_identity(conn, identity.lock_scope, identity.part_number)
+        if find_identity_holder(conn, identity, exclude_component_id=component_id):
             raise ValueError("A component with this manufacturer-part identity already exists")
 
     def upsert_metadata_row(
