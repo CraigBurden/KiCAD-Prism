@@ -13,6 +13,7 @@
     "build": "npm run build:viewer && npm run build:element",
     "test:gltf": "node --test tools/semantic-gltf/*.test.mjs",
     "test:viewer": "node --test viewer/src/*.test.mjs",
+    "test:harness": "node --test tests/browser/pixel-diff/*.test.mjs",
     "bench:schematic-dom": "node tools/schematic-dom-benchmark.mjs"
   },
   "dependencies": {

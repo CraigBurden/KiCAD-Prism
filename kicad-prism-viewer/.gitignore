@@ -20,3 +20,6 @@ samples/
 *.stp
 *.stpz
 *.bin
+
+# Pixel-diff harness output.
+/tests/browser/pixel-diff/out/
