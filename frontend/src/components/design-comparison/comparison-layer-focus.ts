@@ -1,3 +1,4 @@
+import { kindsWith } from "./comparison-change-kinds";
 import type { ChangeItem } from "./types";
 
 /**
@@ -36,7 +37,7 @@ export type LayerFocusSide = "reference" | "comparison" | "both";
  */
 export const LAYER_FOCUS_CONTEXT_LAYERS = ["Edge.Cuts"];
 
-const VIA_KINDS = new Set(["via"]);
+const VIA_KINDS = kindsWith("via-span");
 
 function nativeKind(change: ChangeItem): string {
     return String(

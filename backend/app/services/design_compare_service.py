@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional
 from app.core.config import settings
 from app.services import (
     bom_diff_service,
+    design_compare_occurrences as occurrences,
     document_diff_service,
     fabrication_compare_service,
     project_revision,
@@ -43,15 +44,13 @@ from .design_compare_sources import (
     _list_kicad_sources,
 )
 from .design_compare_semantics import (
-    _diff_designs,
+    _connectivity_changes,
     _summary,
 )
 from .design_compare_nodes import (
-    _group_changes,
     _hydrate_native_targets,
     _node_changes,
     _route_metrics_from_digest,
-    _semantic_with_parser_components,
 )
 from .design_compare_artifacts import (
     _diff_fabrication,
@@ -441,10 +440,6 @@ def _load_or_build_initial_revision(
             "commit": commit,
             "semantic": semantic_index,
             "stackup": {"present": False, "layers": []},
-            "bom_rows": timed(
-                "bom-projection",
-                lambda: _semantic_bom_rows(semantic_index),
-            ),
             "sources": timed("source-list", lambda: _list_kicad_sources(snap)),
             "timings": timings,
         }
@@ -530,8 +525,6 @@ def _load_or_build_pcb_revision(
         if on_progress:
             on_progress(f"PCB and Stackup ready for {commit[:7]}")
         return payload
-
-
 
 
 _FABRICATION_COMPLETE_MARKER = ".prism_complete"
@@ -620,111 +613,22 @@ def _load_or_build_revision(
     )
 
 
-
-
-
-
-def _semantic_bom_rows(semantic_index: Dict[str, Any]) -> List[Dict[str, str]]:
-    """Project BOM rows projected from the already-compiled schematic model.
-
-    Design Comparison used to invoke kicad-cli after kicad-monkey had already
-    parsed and compiled the same schematic hierarchy. Keeping the projection
-    in-process removes that second parser pass and preserves every canonical
-    and custom field exposed by the semantic index.
-    """
-
-    rows: List[Dict[str, str]] = []
-    for component in semantic_index.get("components") or []:
-        reference = str(component.get("reference") or "").strip()
-        if not reference:
-            continue
-        fields = {
-            str(key): "" if value is None else str(value)
-            for key, value in (component.get("fields") or {}).items()
-            if str(key)
-        }
-        if fields.get("kicad_in_bom", "true").strip().casefold() == "false":
-            continue
-        rows.append(
-            {
-                **fields,
-                "Reference": reference,
-                "Value": str(component.get("value") or fields.get("Value") or ""),
-                "Footprint": str(
-                    component.get("footprint") or fields.get("Footprint") or ""
-                ),
-            }
-        )
-    return sorted(rows, key=lambda row: row["Reference"])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _run_ecad_object_delta(
     project_id: str,
     base: str,
     head: str,
 ) -> Dict[str, Any]:
     """Parse both cached snapshots once with ecad-viewer's parser."""
+
+    base_snapshot = _cache_dir(project_id, base) / "snapshot"
+    head_snapshot = _cache_dir(project_id, head) / "snapshot"
+    if not base_snapshot.exists() or not head_snapshot.exists():
+        raise RuntimeError("Design comparison snapshots are not ready for object diff")
+    return _ecad_object_delta(base_snapshot, head_snapshot)
+
+
+def _ecad_object_delta(base_snapshot: Path, head_snapshot: Path) -> Dict[str, Any]:
+    """The parser's object delta between two snapshot directories."""
 
     script = next(
         (
@@ -739,10 +643,6 @@ def _run_ecad_object_delta(
     )
     if script is None:
         raise RuntimeError("ecad-viewer parser diff script is not installed")
-    base_snapshot = _cache_dir(project_id, base) / "snapshot"
-    head_snapshot = _cache_dir(project_id, head) / "snapshot"
-    if not base_snapshot.exists() or not head_snapshot.exists():
-        raise RuntimeError("Design comparison snapshots are not ready for object diff")
     with tempfile.TemporaryDirectory(prefix="prism-ecad-diff-") as temporary:
         output = Path(temporary) / "delta.json"
         process = subprocess.run(
@@ -762,30 +662,6 @@ def _run_ecad_object_delta(
             detail = (process.stderr or process.stdout or "unknown error").strip()
             raise RuntimeError(f"ecad-viewer parser diff failed: {detail}")
         return json.loads(output.read_text(encoding="utf-8"))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _build_revisions(
@@ -1114,13 +990,6 @@ def _build_pcb_revisions(
     return revisions, revision_logs
 
 
-def _revision_bom_rows(revision: Dict[str, Any]) -> List[Dict[str, str]]:
-    rows = revision.get("bom_rows")
-    if isinstance(rows, list):
-        return rows
-    return bom_diff_service.parse_bom_csv(revision.get("bom_csv") or "")
-
-
 def _comparison_bom_fields(project_id: str, head: str) -> List[str]:
     fields = ["Reference", "Value", "Footprint", "Datasheet"]
     try:
@@ -1149,11 +1018,17 @@ def _assemble_initial_comparison(
 
     base_rev = revisions[base]
     head_rev = revisions[head]
-    base_semantic = _semantic_with_parser_components(base_rev, object_delta["base"])
-    head_semantic = _semantic_with_parser_components(head_rev, object_delta["head"])
-    sch_diff = assemble(
+    base_semantic = {
+        **(base_rev.get("semantic") or {}),
+        "components": occurrences.revision_components(object_delta["base"]),
+    }
+    head_semantic = {
+        **(head_rev.get("semantic") or {}),
+        "components": occurrences.revision_components(object_delta["head"]),
+    }
+    connectivity_changes = assemble(
         "schematic-semantic-diff",
-        lambda: _diff_designs(base_semantic, head_semantic),
+        lambda: _connectivity_changes(base_semantic, head_semantic),
     )
     parser_changes = assemble(
         "schematic-object-diff",
@@ -1161,14 +1036,7 @@ def _assemble_initial_comparison(
     )
     schematic_changes = assemble(
         "schematic-change-merge",
-        lambda: [
-            *parser_changes,
-            *[
-                change
-                for change in sch_diff["changes"]
-                if change.get("category") in {"nets", "sheets"}
-            ],
-        ],
+        lambda: [*parser_changes, *connectivity_changes],
     )
     assemble(
         "native-target-hydration",
@@ -1181,8 +1049,8 @@ def _assemble_initial_comparison(
     bom = assemble(
         "bom-diff",
         lambda: bom_diff_service.diff_boms(
-            _semantic_bom_rows(base_semantic),
-            _semantic_bom_rows(head_semantic),
+            occurrences.bom_rows(base_semantic["components"]),
+            occurrences.bom_rows(head_semantic["components"]),
             _comparison_bom_fields(project_id, head),
             include_unchanged=include_unchanged,
         ),
@@ -1228,12 +1096,10 @@ def _assemble_initial_comparison(
         "schematic": {
             "pages": sheets,
             "changes": schematic_changes,
-            "groups": assemble("schematic-grouping", lambda: _group_changes(schematic_changes)),
             "summary": _summary(schematic_changes),
         },
         "pcb": {
             "changes": [],
-            "groups": [],
             "summary": {"added": 0, "removed": 0, "changed": 0},
             "route_metrics": {"base": {}, "compare": {}},
         },
@@ -1310,19 +1176,12 @@ def _complete_comparison(
         "document_diff": document_diff,
         "pcb": {
             "changes": pcb_changes,
-            "groups": assemble("pcb-grouping", lambda: _group_changes(pcb_changes)),
             "summary": _summary(pcb_changes),
             "route_metrics": route_metrics,
         },
         "stackup": stackup,
         "fabrication": fabrication,
     }
-
-
-
-
-
-
 
 
 def _prepare_comparison_bundle(
@@ -1411,9 +1270,6 @@ def _prepare_comparison_bundle(
                     else None
                 ),
                 "changeCount": len((result.get(name) or {}).get("changes") or [])
-                if isinstance(result.get(name), dict)
-                else 0,
-                "groupCount": len((result.get(name) or {}).get("groups") or [])
                 if isinstance(result.get(name), dict)
                 else 0,
             }

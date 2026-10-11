@@ -78,10 +78,10 @@ describe("comparison layer focus", () => {
         expect(focus?.comparison).toEqual(["B.Cu", "F.Cu"]);
     });
 
-    it("normalizes the parser's segment and arc_segment kinds", () => {
+    it("focuses tracks and arcs on their own layer", () => {
         const focus = layerFocusForChanges([
-            routingChange({ object_kind: "segment" }),
-            routingChange({ id: "b", object_kind: "arc_segment" }),
+            routingChange({ object_kind: "track" }),
+            routingChange({ id: "b", object_kind: "arc" }),
         ]);
 
         expect(focus?.reference).toEqual(["F.Cu"]);

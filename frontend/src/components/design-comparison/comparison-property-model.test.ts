@@ -93,7 +93,7 @@ describe("property deltas", () => {
         const segment = (id: string, side: "old" | "new"): ChangeItem => change({
             id,
             label: "VCC",
-            object_kind: "segment",
+            object_kind: "track",
             net: "VCC",
             fields: {
                 Position: side === "old"
@@ -131,7 +131,7 @@ describe("property deltas", () => {
         const segment = (id: string) => change({
             id,
             label: "PHY_D+",
-            object_kind: "segment",
+            object_kind: "track",
             net: "Net-(U16-1D-)",
             reasons: ["net-changed"],
             fields: {
@@ -155,13 +155,13 @@ describe("property deltas", () => {
         const deltas = propertyDeltas([
             change({
                 id: "old-segment",
-                object_kind: "segment",
+                object_kind: "track",
                 net: "VCC",
                 fields: { Width: { old: 0.127, new: null } },
             }),
             change({
                 id: "new-segment",
-                object_kind: "segment",
+                object_kind: "track",
                 net: "VCC",
                 fields: { Width: { old: null, new: 0.2 } },
             }),

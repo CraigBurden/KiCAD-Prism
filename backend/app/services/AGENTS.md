@@ -126,9 +126,13 @@ design-variant contract packet (issue #169), not to this file.
 
 ## Design comparison
 
-`design_compare_service.py` orchestrates; `design_compare_nodes.py` parses;
+`design_compare_service.py` orchestrates; `design_compare_nodes.py` turns
+the parser's object delta into change records; `design_compare_occurrences.py`
+owns a revision's component occurrences (fields, sheet-folded DNP / in-BOM,
+designator identity) and the BOM rows built from them;
 `design_compare_net_pairing.py` decides which nets correspond across
-revisions; `design_compare_semantics.py` classifies and groups;
+revisions; `design_compare_semantics.py` diffs nets, buses and sheet
+instances (grouping into review items is the frontend's);
 `design_compare_artifacts.py` persists output; `design_compare_sources.py`
 resolves revisions. The correctness rules
 for this pipeline are in

@@ -20,12 +20,10 @@ function resultWithDomains(
         schematic: {
             pages: [],
             changes: [],
-            groups: [],
             summary: { added: 0, removed: 0, changed: 0 },
         },
         pcb: {
             changes: [],
-            groups: [],
             summary: { added: 0, removed: 0, changed: 0 },
             route_metrics: { base: {}, compare: {} },
         },
