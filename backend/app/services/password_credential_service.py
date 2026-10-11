@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import bcrypt
 
 from app.core import errors
-from app.core.config import settings
+from app.core.config import MAX_PASSWORD_BYTES, settings
 from app.services import access_service
 from app.services.auth_schema_migrations import AUTH_LEDGER
 from app.services.postgres_database import database
@@ -20,9 +20,6 @@ from app.services.postgres_database import database
 
 _init_lock = threading.Lock()
 _initialized = False
-
-_MAX_PASSWORD_BYTES = 72
-
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -49,9 +46,9 @@ class NoSuchUserError(errors.BadRequest, ValueError):
 
 
 def validate_password_policy(password: str) -> None:
-    if len(password.encode("utf-8")) > _MAX_PASSWORD_BYTES:
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
         raise PasswordPolicyError(
-            f"Password must be at most {_MAX_PASSWORD_BYTES} bytes long."
+            f"Password must be at most {MAX_PASSWORD_BYTES} bytes long."
         )
     minimum = int(settings.PASSWORD_MIN_LENGTH)
     if len(password) < minimum:
