@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tracker_fault_harness import github_issue_url, github_comment_url  # noqa: E402
 from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import history  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
@@ -23,7 +24,6 @@ from app.services.trackers.contracts import (  # noqa: E402
     RemoteVersion,
 )
 from app.services.trackers.create_executor import (  # noqa: E402
-    github_issue_url,
     mount_create_executor,
     set_connect_factory as set_create_connect_factory,
     unmount_create_executor,
@@ -36,7 +36,6 @@ from app.services.trackers.promotion import PromotionActor  # noqa: E402
 from app.services.trackers.provenance import body_hash  # noqa: E402
 from app.services.trackers.reply_executor import (  # noqa: E402
     execute_reply_claimed_op,
-    github_comment_url,
     mount_reply_executor,
     set_connect_factory,
     unmount_reply_executor,
@@ -410,15 +409,11 @@ class ReplyExecutorPostgresTests(unittest.TestCase):
             def get_comment(self, dest, ext_cid, etag=None):  # noqa: ANN001
                 return remote
 
-        def fetch_page(cursor):  # noqa: ANN001
-            return ([remote], None)
+            def recovery_comment_pages(self, dest, issue):  # noqa: ANN001
+                return lambda _cursor: ([remote], None)
 
         with patch("app.services.trackers.reply_executor._comment_adapter", return_value=FakeAdapter()):
-            with patch(
-                "app.services.trackers.reply_executor.comment_page_fetcher_for",
-                return_value=fetch_page,
-            ):
-                execute_reply_claimed_op(sent)
+            execute_reply_claimed_op(sent)
 
         self.assertEqual(self.ops.get(OP_REPLY)["state"], "confirmed")
         link = self.conn.execute(

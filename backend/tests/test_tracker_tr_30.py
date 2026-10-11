@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tracker_fault_harness import github_issue_url  # noqa: E402
 from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import Editor, tombstone_root  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
@@ -25,7 +26,6 @@ from app.services.trackers.contracts import (  # noqa: E402
     RemoteVersion,
 )
 from app.services.trackers.create_executor import (  # noqa: E402
-    github_issue_url,
     mount_create_executor,
     set_connect_factory as set_create_connect_factory,
     unmount_create_executor,

@@ -22,7 +22,7 @@ from app.services.trackers.gitea_identity import GiteaIdentityAdapter, GiteaOAut
 from app.services.trackers.github_identity import GitHubIdentityAdapter, GitHubOAuthApp
 from app.services.trackers.gitlab_identity import GitLabIdentityAdapter, GitLabOAuthApp
 from app.services.trackers.http import TrackerHttp
-from app.services.trackers.identity_service import IdentityService, _provider_of
+from app.services.trackers.identity_service import IdentityService
 from app.services.trackers.migrations import (
     migrate_tracker_webhook_oauth_tables,
     migrate_workspace_tracker_tables,
@@ -106,7 +106,7 @@ class IdentityDispatchTests(unittest.TestCase):
         ]
         for app, adapter_type, provider in cases:
             self.assertIsInstance(service._adapter(app, "cn"), adapter_type)
-            self.assertEqual(_provider_of(app), provider)
+            self.assertEqual(app.provider, provider)
 
 
 class _FakeGitLab:

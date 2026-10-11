@@ -22,21 +22,17 @@ from app.services.trackers.credential_sidecars import (
     webhook_configured,
 )
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.providers import is_issue_provider, issue_adapter_for, kit_for
+from app.services.trackers.providers import host_kit, host_kits, is_issue_provider, issue_adapter_for, kit_for
 from app.services.trackers.secrets import decrypt_secret, encrypt_secret
 from app.services.trackers.store import TrackerStore
 
 # Part of every stored envelope's authenticated data, for every provider.
 CREDENTIAL_FIELD = "github_app"
 BOOTSTRAP_ENV_FIELDS = ("GITHUB_TOKEN",)
-# Which providers can publish issues comes from ``providers`` (one kit each).
-# Hosts without a kit exist so people can link their accounts, and report
+# Hosts and their instance kinds come from ``providers`` (one kit each). Hosts
+# whose kit cannot publish exist so people can link their accounts, and report
 # ``capabilities.issues`` false.
-INSTANCE_KINDS_BY_PROVIDER = {
-    "github": {"github.com", "ghes"},
-    "gitlab": {"gitlab.com", "self-hosted"},
-    "gitea": {"self-hosted"},
-}
+INSTANCE_KINDS_BY_PROVIDER = {kit.provider: set(kit.instance_kinds) for kit in host_kits()}
 ALLOWED_PROVIDERS = set(INSTANCE_KINDS_BY_PROVIDER)
 ALLOWED_INSTANCE_KINDS = set().union(*INSTANCE_KINDS_BY_PROVIDER.values())
 
@@ -605,16 +601,7 @@ class ConnectorService:
             raise ProviderError("invalid_request", "Unsupported tracker provider.")
         if instance_kind not in INSTANCE_KINDS_BY_PROVIDER[provider]:
             raise ProviderError("invalid_request", f"Unsupported {provider} instance kind.")
-        if instance_kind == "ghes" and not (base_url or "").strip():
-            raise ProviderError("invalid_request", "GHES connectors require a base URL.")
-        if provider == "gitlab":
-            from app.services.trackers.gitlab_auth import api_root_for
-
-            api_root_for(instance_kind=instance_kind, base_url=base_url)
-        if provider == "gitea":
-            from app.services.trackers.gitea_identity import web_root_for
-
-            web_root_for(base_url)
+        host_kit(provider).validate_instance(instance_kind, base_url)
 
     def _require(self, conn: Any, connector_id: str) -> dict[str, Any]:
         try:
@@ -711,7 +698,8 @@ def connector_host(row: Mapping[str, Any]) -> str:
     base = str(row.get("base_url") or "").strip()
     if base:
         return urlsplit(base).hostname or base
-    return {"github": "github.com", "gitlab": "gitlab.com"}.get(str(row.get("provider")), "")
+    provider = str(row.get("provider") or "")
+    return host_kit(provider).default_host if provider in INSTANCE_KINDS_BY_PROVIDER else ""
 
 
 def _context(connector_id: str) -> dict[str, str]:

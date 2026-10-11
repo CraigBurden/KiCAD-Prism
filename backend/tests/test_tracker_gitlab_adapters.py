@@ -211,7 +211,7 @@ class GitLabAdapterTests(unittest.TestCase):
             op,
             dest=DEST,
             comment_id="c_1",
-            fetch_page=providers.issue_page_fetcher_for(self.issues, DEST),
+            fetch_page=self.issues.recovery_issue_pages(DEST),
             bot_user_id="900",
         )
         self.assertEqual(outcome.kind, RecoveryKind.FOUND)

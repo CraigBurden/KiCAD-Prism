@@ -18,7 +18,7 @@ from uuid import uuid4
 from app.core.config import Settings, settings as default_settings
 from app.core.roles import Role, normalize_role, role_meets_minimum
 from app.services.trackers.connector_service import ConnectorNotFound, ConnectorService, connector_host
-from app.services.trackers.providers import is_issue_provider
+from app.services.trackers.providers import host_kit, is_issue_provider
 from app.services.trackers.store import TrackerStore
 
 DEFAULT_LABELS = {
@@ -85,7 +85,7 @@ def repo_path_for_host(repo_url: str, host: str, *, provider: str = "github") ->
     if remote_host.casefold().removeprefix("www.") != wanted:
         return None
     path = path.strip("/").removesuffix(".git")
-    if provider == "gitlab":
+    if host_kit(provider).nested_paths:
         pattern = rf"{_PATH_SEGMENT}(/{_PATH_SEGMENT})+"
     else:
         pattern = rf"{_PATH_SEGMENT}/{_PATH_SEGMENT}"

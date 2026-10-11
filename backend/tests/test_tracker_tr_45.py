@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tracker_fault_harness import github_issue_url  # noqa: E402
 from app.services.comments_revisions import Editor, history, set_root_status  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
     ForgeUser,
@@ -26,9 +27,7 @@ from app.services.trackers.contracts import (  # noqa: E402
     UpdateCursor,
 )
 from app.services.trackers.composition import execute_outbound_op  # noqa: E402
-from app.services.trackers.create_executor import (  # noqa: E402
-    github_issue_url,
-)
+from app.services.trackers.github_recovery import RecoveryCandidate  # noqa: E402
 from app.services.trackers.drafts import (  # noqa: E402
     DraftAttribution,
     DraftRenderInput,
@@ -575,14 +574,7 @@ class AdversarialPostgresSuite(unittest.TestCase):
         self.forge.mid_page_502 = True
         self.forge.list_issues_pages = [
             (
-                [
-                    {
-                        "id": 1,
-                        "number": 1,
-                        "body": "no marker",
-                        "user": {"id": int(BOT_ID), "login": BOT_LOGIN},
-                    }
-                ],
+                [RecoveryCandidate(external_id="1", number=1, body="no marker", author_id=BOT_ID)],
                 "page-2",
             ),
             ([], None),

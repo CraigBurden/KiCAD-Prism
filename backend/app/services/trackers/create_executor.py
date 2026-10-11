@@ -37,21 +37,12 @@ from app.services.trackers.github_recovery import (
     recovery_since,
 )
 from app.services.trackers.op_store import EXECUTE_DISPATCH, RECOVERY_DISPATCH, OpStore
-from app.services.trackers.providers import issue_adapter_for, issue_page_fetcher_for
+from app.services.trackers.providers import issue_adapter_for, issue_web_url
 from app.services.trackers.secrets import decrypt_secret
 
 _mounted = False
 _connect_factory: Callable[[], Any] | None = None
 
-
-def github_issue_url(container_path: str, issue_number: int | str) -> str:
-    """Human-facing GitHub issue URL keyed by repo number (R2-H1)."""
-
-    path = (container_path or "").strip().strip("/")
-    if path.count("/") != 1:
-        raise ValueError("container_path must be owner/repo")
-    owner, repo = path.split("/", 1)
-    return f"https://github.com/{owner}/{repo}/issues/{issue_number}"
 
 
 @dataclass(frozen=True)
@@ -342,6 +333,7 @@ def _confirm_create_link(
     ops: OpStore,
     *,
     thread: Mapping[str, Any],
+    connector: Mapping[str, Any],
     issue: RemoteIssue,
     op_id: str,
     fence: int,
@@ -349,7 +341,7 @@ def _confirm_create_link(
 ) -> None:
     external_id = str(issue.externalId)
     number = issue.number
-    url = issue.url or github_issue_url(container_path, number or external_id)
+    url = issue.url or issue_web_url(connector, container_path, number or external_id)
     conn.execute(
         """
         UPDATE tracked_threads
@@ -473,8 +465,7 @@ def _run_create_io(prepared: Mapping[str, Any]) -> Any:
         prepared["op"],
         dest=prepared["destination"],
         comment_id=str(prepared["thread"]["comment_id"]),
-        fetch_page=issue_page_fetcher_for(
-            adapter,
+        fetch_page=adapter.recovery_issue_pages(
             prepared["destination"],
             since=recovery_since(prepared.get("sent_at")),
         ),
@@ -501,6 +492,7 @@ def _finish_create(conn: Any, prepared: Mapping[str, Any], result: Any) -> None:
             conn,
             ops,
             thread=prepared["thread"],
+            connector=prepared["connector"],
             issue=result,
             op_id=op_id,
             fence=fence,
@@ -514,6 +506,7 @@ def _finish_create(conn: Any, prepared: Mapping[str, Any], result: Any) -> None:
             conn,
             ops,
             thread=prepared["thread"],
+            connector=prepared["connector"],
             issue=issue,
             op_id=op_id,
             fence=fence,
@@ -595,7 +588,6 @@ def _recover_create(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
 
 __all__ = [
     "execute_claimed_op",
-    "github_issue_url",
     "mount_create_executor",
     "set_connect_factory",
     "unmount_create_executor",

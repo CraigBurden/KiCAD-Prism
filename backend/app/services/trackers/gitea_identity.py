@@ -14,7 +14,7 @@ import base64
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, ClassVar, Mapping
 from urllib.parse import urlencode, urlsplit
 
 from app.services.trackers.contracts import ForgeUser, IdentityToken
@@ -45,6 +45,7 @@ def web_root_for(base_url: str) -> str:
 class GiteaOAuthApp:
     """OAuth2 application registered on the instance. The secret never appears in repr."""
 
+    provider: ClassVar[str] = "gitea"
     client_id: str
     client_secret: str
     base_url: str

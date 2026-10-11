@@ -32,7 +32,6 @@ from app.services.trackers.contracts import (
     UpdateCursor,
 )
 from app.services.trackers.create_executor import (
-    github_issue_url,
     mount_create_executor,
     set_connect_factory as set_create_connect_factory,
     unmount_create_executor,
@@ -41,8 +40,8 @@ from app.services.trackers.errors import ProviderError
 from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema
 from app.services.trackers.migrations import migrate_workspace_tracker_tables
 from app.services.trackers.op_store import apply_schema as apply_op_schema
+from app.services.trackers.github_recovery import RecoveryCandidate
 from app.services.trackers.reply_executor import (
-    github_comment_url,
     mount_reply_executor,
     set_connect_factory as set_reply_connect_factory,
     unmount_reply_executor,
@@ -239,6 +238,16 @@ class DisposableSchema:
                 pass
 
 
+def github_issue_url(container_path: str, issue_number: int | str) -> str:
+    """github.com issue page for fixtures (the GitHub kit's own form for github.com)."""
+
+    return f"https://github.com/{container_path.strip('/')}/issues/{issue_number}"
+
+
+def github_comment_url(container_path: str, issue_number: int | str, comment_id: int | str) -> str:
+    return f"{github_issue_url(container_path, issue_number)}#issuecomment-{comment_id}"
+
+
 class FakeJobs:
     def __init__(self) -> None:
         self.rows: list[dict] = []
@@ -301,7 +310,7 @@ class StatefulFakeForge:
         self.comment_calls: list[str] = []
         self.throttled_until: str | None = None
         self.auth_lost = False
-        self.list_issues_pages: list[tuple[list[dict], Optional[str]]] | None = None
+        self.list_issues_pages: list[tuple[list[RecoveryCandidate], Optional[str]]] | None = None
         self._list_issues_call = 0
         self.closed_as_duplicate: list[str] = []
 
@@ -664,12 +673,12 @@ class StatefulFakeForge:
 
     # --- recovery page fetchers -----------------------------------------
 
-    def issue_page_fetcher(
+    def recovery_issue_pages(
         self, dest: Destination, *, since: str | None = None
-    ) -> Callable[[Optional[str]], tuple[list[dict], Optional[str]]]:
+    ) -> Callable[[Optional[str]], tuple[list[RecoveryCandidate], Optional[str]]]:
         del since
 
-        def fetch(cursor: Optional[str]) -> tuple[list[dict], Optional[str]]:
+        def fetch(cursor: Optional[str]) -> tuple[list[RecoveryCandidate], Optional[str]]:
             self._scan_count += 1
             self.trace("issue_page_scan", scan=self._scan_count, cursor=cursor)
             if self.delay_accept_until_scan_n and self._scan_count >= self.delay_accept_until_scan_n:
@@ -689,23 +698,18 @@ class StatefulFakeForge:
                 return page
             if self.mid_page_502 and cursor is not None:
                 raise ProviderError("transient", "mid-page 502", status=502, retryable=True)
-            items: list[dict] = []
-            for issue in self._unique_issues():
-                if issue.container.remoteContainerId != dest.remoteContainerId:
-                    continue
-                if issue.author.id != BOT_ID:
-                    continue
-                labels = [] if str(issue.externalId) in self.dropped_labels or str(issue.number) in self.dropped_labels else list(issue.labels)
-                items.append(
-                    {
-                        "id": int(issue.externalId),
-                        "number": issue.number,
-                        "body": issue.body,
-                        "html_url": issue.url,
-                        "labels": [{"name": name} for name in labels],
-                        "user": {"id": int(BOT_ID), "login": BOT_LOGIN},
-                    }
+            # Labels play no part: recovery must find issues whose labels were dropped.
+            items: list[RecoveryCandidate] = [
+                RecoveryCandidate(
+                    external_id=str(issue.externalId),
+                    number=issue.number,
+                    url=issue.url,
+                    body=issue.body or "",
+                    author_id=BOT_ID,
                 )
+                for issue in self._unique_issues()
+                if issue.container.remoteContainerId == dest.remoteContainerId and issue.author.id == BOT_ID
+            ]
             if self.mid_page_502 and cursor is None and items:
                 # Simulate multi-page: first page returns a next cursor.
                 return items[:1], "page-2"
@@ -713,7 +717,7 @@ class StatefulFakeForge:
 
         return fetch
 
-    def comment_page_fetcher(
+    def recovery_comment_pages(
         self, dest: Destination, issue: str
     ) -> Callable[[Optional[str]], tuple[list[RemoteComment], Optional[str]]]:
         def fetch(cursor: Optional[str]) -> tuple[list[RemoteComment], Optional[str]]:
@@ -888,20 +892,11 @@ def install_fake_provider(
     def _adapter(_connector, http=None):  # noqa: ANN001, ARG001
         return forge
 
-    def _issue_pages(adapter, dest, since=None):  # noqa: ANN001, ARG001
-        return forge.issue_page_fetcher(dest, since=since)
-
-    def _comment_pages(adapter, dest, issue):  # noqa: ANN001, ARG001
-        return forge.comment_page_fetcher(dest, issue)
-
     patches = [
         patch("app.services.trackers.create_executor._issue_adapter", _adapter),
         patch("app.services.trackers.reply_executor._comment_adapter", _adapter),
         patch("app.services.trackers.state_executor._issue_adapter", _adapter),
         patch("app.services.trackers.thread_executor._issue_adapter", _adapter),
-        patch("app.services.trackers.create_executor.issue_page_fetcher_for", _issue_pages),
-        patch("app.services.trackers.reply_executor.comment_page_fetcher_for", _comment_pages),
-        patch("app.services.trackers.thread_executor.comment_page_fetcher_for", _comment_pages),
     ]
     for item in patches:
         item.start()

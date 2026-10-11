@@ -9,7 +9,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.trackers import providers  # noqa: E402
-from app.services.trackers.contracts import Destination  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
 from app.services.trackers.inbound import CallableFetcher  # noqa: E402
 from app.services.trackers.provider_registry import (  # noqa: E402
@@ -19,11 +18,6 @@ from app.services.trackers.provider_registry import (  # noqa: E402
 )
 from app.services.trackers.provenance import resolve_editor  # noqa: E402
 from app.services.trackers.state_mutations import supersession_message  # noqa: E402
-
-
-_DEST = Destination(
-    connectorId="cn_1", containerKind="repo", containerPath="acme/board", remoteContainerId="1", generation=1,
-)
 
 
 class ProviderRegistryTests(unittest.TestCase):
@@ -38,14 +32,28 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual(caught.exception.class_, "invalid_request")
         self.assertNotIn("account linking", str(caught.exception))
 
-    def test_recovery_pages_follow_the_adapters_own_forge(self) -> None:
-        class _Adapter:
-            kind = "gitea"
+    def test_gitea_is_a_linking_only_kit(self) -> None:
+        kit = providers.host_kit("gitea")
+        self.assertTrue(kit.linking_only)
+        self.assertEqual(kit.instance_kinds, ("self-hosted",))
+        self.assertFalse(providers.host_kit("gitlab").linking_only)
+        with self.assertRaises(ProviderError):
+            providers.host_kit("bitbucket")
 
-        with self.assertRaises(ProviderError):
-            providers.issue_page_fetcher_for(_Adapter(), _DEST)
-        with self.assertRaises(ProviderError):
-            providers.comment_page_fetcher_for(_Adapter(), _DEST, "1")
+    def test_web_urls_follow_the_connectors_instance(self) -> None:
+        github = {"provider": "github", "instance_kind": "github.com", "base_url": ""}
+        ghes = {"provider": "github", "instance_kind": "ghes", "base_url": "https://ghe.acme.io/api/v3"}
+        gitlab = {"provider": "gitlab", "instance_kind": "self-hosted", "base_url": "https://gitlab.acme.io"}
+        self.assertEqual(providers.issue_web_url(github, "acme/board", 7), "https://github.com/acme/board/issues/7")
+        self.assertEqual(providers.issue_web_url(ghes, "acme/board", 7), "https://ghe.acme.io/acme/board/issues/7")
+        self.assertEqual(
+            providers.comment_web_url(ghes, "acme/board", 7, "99"),
+            "https://ghe.acme.io/acme/board/issues/7#issuecomment-99",
+        )
+        self.assertEqual(
+            providers.comment_web_url(gitlab, "hw/boards/board", 7, "7:99"),
+            "https://gitlab.acme.io/hw/boards/board/-/issues/7#note_99",
+        )
 
     def test_inbound_fetcher_carries_the_destination_provider(self) -> None:
         bundle = TrackerProviderBundle(

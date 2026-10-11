@@ -27,6 +27,7 @@ from app.services.trackers.contracts import (
     assert_no_owner_repo,
 )
 from app.services.trackers.errors import ProviderError
+from app.services.trackers.github_recovery import CommentPageFetcher, make_comment_page_fetcher
 from app.services.trackers.forge_client import ForgeClient, read_outcome
 from app.services.trackers.github_comments import comment_body_hash
 from app.services.trackers.gitlab_auth import GitLabBotAuth, web_root_for
@@ -129,6 +130,11 @@ class GitLabCommentAdapter:
         if next_page:
             return comments, PageCursor(value=next_page, exhausted=False)
         return comments, PageCursor(value="", exhausted=True)
+
+    def recovery_comment_pages(self, dest: Destination, issue: str) -> CommentPageFetcher:
+        """Pages of the issue's comments for a reply recovery scan."""
+
+        return make_comment_page_fetcher(self, dest, issue)
 
     def find_comment_by_marker(
         self,

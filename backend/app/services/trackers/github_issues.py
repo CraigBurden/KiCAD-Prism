@@ -34,6 +34,7 @@ from app.services.trackers.contracts import (
 from app.services.trackers.errors import ProviderError
 from app.services.trackers.forge_client import ForgeClient, read_outcome
 from app.services.trackers.github_auth import API_VERSION, GitHubAppAuth
+from app.services.trackers.github_recovery import IssuePage, IssuePageFetcher, RecoveryCandidate
 from app.services.trackers.http import TrackerHttp
 
 # Fresh poll checkpoints start here; never sent to GitHub as ``since`` (see list_updates).
@@ -156,6 +157,37 @@ class GitHubIssueAdapter:
             cursor = response.next_page()
             if not cursor:
                 return None
+
+    def recovery_issue_pages(self, dest: Destination, *, since: Optional[str] = None) -> IssuePageFetcher:
+        """Pages of the bot's issues as recovery candidates; pull requests are dropped.
+
+        No label filter: a human may have removed Prism's labels before the scan.
+        """
+
+        owner, repo = _owner_repo(dest)
+        first_url = self.auth.url(f"/repos/{owner}/{repo}/issues")
+        params: dict[str, Any] = {"state": "all", "per_page": 100}
+        if self.bot_login:
+            params["creator"] = self.bot_login
+        if since:
+            params["since"] = since
+
+        def fetch(cursor: Optional[str]) -> IssuePage:
+            response = self.client.request("GET", cursor or first_url, params=None if cursor else params)
+            items = [
+                RecoveryCandidate(
+                    external_id=str(item.get("id") or ""),
+                    number=int(item["number"]) if item.get("number") is not None else None,
+                    url=str(item.get("html_url") or item.get("url") or "") or None,
+                    body=str(item.get("body") or ""),
+                    author_id=str((item.get("user") or {}).get("id") or ""),
+                )
+                for item in self.client.json_list(response)
+                if isinstance(item, dict) and not _is_pull_request(item)
+            ]
+            return items, response.next_page()
+
+        return fetch
 
     def get_issue(
         self, dest: Destination, ext_id: str, etag: Optional[str] = None

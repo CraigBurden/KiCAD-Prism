@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tracker_fault_harness import github_issue_url  # noqa: E402
 from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
     ForgeUser,
@@ -22,7 +23,7 @@ from app.services.trackers.contracts import (  # noqa: E402
     RemoteIssue,
     RemoteVersion,
 )
-from app.services.trackers.github_recovery import RecoveryKind, recover_create_issue  # noqa: E402
+from app.services.trackers.github_recovery import RecoveryCandidate, RecoveryKind, recover_create_issue  # noqa: E402
 from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
 from app.services.trackers import jobs as tracker_jobs  # noqa: E402
 from app.services.trackers.markers import build_marker  # noqa: E402
@@ -36,7 +37,6 @@ from app.services.trackers.scheduler import (  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
 from app.services.trackers.create_executor import (  # noqa: E402
     execute_claimed_op,
-    github_issue_url,
     mount_create_executor,
     set_connect_factory,
     unmount_create_executor,
@@ -350,30 +350,21 @@ class CreateExecutorPostgresTests(unittest.TestCase):
 
         payload = _remote_issue(body=f"created\n{marker}")
 
+        def fetch_page(cursor):  # noqa: ANN001
+            candidate = RecoveryCandidate(
+                external_id=ISSUE_ID, number=ISSUE_NUMBER, url=payload.url, body=payload.body, author_id=BOT_ID,
+            )
+            return [candidate], None
+
         class FakeAdapter:
             def get_issue(self, dest, ext_id, etag=None):  # noqa: ANN001
                 return payload
 
-        def fetch_page(cursor):  # noqa: ANN001
-            return (
-                [
-                    {
-                        "id": int(ISSUE_ID),
-                        "number": ISSUE_NUMBER,
-                        "body": payload.body,
-                        "html_url": payload.url,
-                        "user": {"id": int(BOT_ID), "login": BOT_LOGIN},
-                    }
-                ],
-                None,
-            )
+            def recovery_issue_pages(self, dest, *, since=None):  # noqa: ANN001
+                return fetch_page
 
         with patch("app.services.trackers.create_executor._issue_adapter", return_value=FakeAdapter()):
-            with patch(
-                "app.services.trackers.create_executor.issue_page_fetcher_for",
-                return_value=fetch_page,
-            ):
-                execute_claimed_op(sent)
+            execute_claimed_op(sent)
 
         self.assertEqual(self.ops.get(OP_ID)["state"], "confirmed")
         thread = self.conn.execute(
@@ -392,12 +383,12 @@ class CreateExecutorPostgresTests(unittest.TestCase):
         sent = self.ops.get(OP_ID)
         sent["dispatch"] = RECOVERY_DISPATCH
 
-        with patch("app.services.trackers.create_executor._issue_adapter", return_value=object()):
-            with patch(
-                "app.services.trackers.create_executor.issue_page_fetcher_for",
-                return_value=lambda _cursor: ([], None),
-            ):
-                execute_claimed_op(sent)
+        class EmptyForge:
+            def recovery_issue_pages(self, dest, *, since=None):  # noqa: ANN001
+                return lambda _cursor: ([], None)
+
+        with patch("app.services.trackers.create_executor._issue_adapter", return_value=EmptyForge()):
+            execute_claimed_op(sent)
 
         row = self.ops.get(OP_ID)
         self.assertEqual(row["state"], "quarantine")
@@ -594,14 +585,7 @@ class RecoveryScanUnitTests(unittest.TestCase):
             dest=dest,
             comment_id=COMMENT_ID,
             fetch_page=lambda _cursor: (
-                [
-                    {
-                        "id": int(ISSUE_ID),
-                        "number": ISSUE_NUMBER,
-                        "body": f"x\n{marker}",
-                        "user": {"id": int(BOT_ID)},
-                    }
-                ],
+                [RecoveryCandidate(external_id=ISSUE_ID, number=ISSUE_NUMBER, body=f"x\n{marker}", author_id=BOT_ID)],
                 None,
             ),
             bot_user_id=BOT_ID,

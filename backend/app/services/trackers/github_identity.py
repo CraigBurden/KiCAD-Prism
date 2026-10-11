@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, ClassVar, Mapping, Optional, Sequence
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from app.services.trackers.contracts import ForgeUser, IdentityToken
@@ -31,6 +31,7 @@ AUTH_USER = "user"
 class GitHubOAuthApp:
     """Public OAuth App registration. Client secret never appears in repr."""
 
+    provider: ClassVar[str] = "github"
     client_id: str
     client_secret: str
     instance_kind: str = "github.com"
@@ -68,7 +69,7 @@ class GitHubIdentityAdapter:
         self.app = app
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self.api_root = api_root_for(instance_kind=app.instance_kind, base_url=app.base_url)
-        self.web_root = _web_root(instance_kind=app.instance_kind, web_url=app.web_url, base_url=app.base_url)
+        self.web_root = web_root_for(instance_kind=app.instance_kind, web_url=app.web_url, base_url=app.base_url)
         hosts = []
         for url in (self.api_root, self.web_root):
             host = urlsplit(url).hostname
@@ -228,7 +229,9 @@ def _split_scopes(value: Any) -> list[str]:
     return [part for part in text.replace(",", " ").split() if part]
 
 
-def _web_root(*, instance_kind: str, web_url: str, base_url: str) -> str:
+def web_root_for(*, instance_kind: str, base_url: str = "", web_url: str = "") -> str:
+    """Web origin of github.com or a GHES instance (OAuth pages, issue and comment links)."""
+
     kind = (instance_kind or "").strip().casefold()
     explicit = (web_url or "").strip().rstrip("/")
     if explicit:

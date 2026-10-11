@@ -39,6 +39,7 @@ from app.services.trackers.contracts import (
     assert_no_owner_repo,
 )
 from app.services.trackers.errors import ProviderError
+from app.services.trackers.github_recovery import IssuePage, IssuePageFetcher, RecoveryCandidate
 from app.services.trackers.forge_client import ForgeClient, read_outcome
 from app.services.trackers.github_updates import parse_iso8601
 from app.services.trackers.gitlab_auth import GitLabBotAuth, _visibility
@@ -209,7 +210,43 @@ class GitLabIssueAdapter:
 
     # --- recovery -------------------------------------------------------------
 
-    def bot_issue_query(self, dest: Destination, *, since: Optional[str] = None) -> tuple[str, dict[str, Any]]:
+    def recovery_issue_pages(self, dest: Destination, *, since: Optional[str] = None) -> IssuePageFetcher:
+        """Pages of issues the bot authored, oldest update first, as recovery candidates.
+
+        The cursor is GitLab's next-page URL, so a scan can resume or restart.
+        """
+
+        first_url, params = self._bot_issue_query(dest, since=since)
+
+        def fetch(cursor: Optional[str]) -> IssuePage:
+            response = self.client.request("GET", cursor or first_url, params=None if cursor else params)
+            items = [
+                RecoveryCandidate(
+                    external_id=str(item.get("id") or ""),
+                    number=int(item["iid"]) if item.get("iid") is not None else None,
+                    url=str(item.get("web_url") or "") or None,
+                    body=str(item.get("description") or ""),
+                    author_id=str((item.get("author") or {}).get("id") or ""),
+                )
+                for item in self.client.json_list(response)
+                if isinstance(item, dict)
+            ]
+            return items, response.next_page()
+
+        return fetch
+
+    def bot_issue_pages(self, dest: Destination, *, since: Optional[str] = None):
+        """Yield pages of issues the bot authored, oldest update first."""
+
+        url: Optional[str]
+        url, params = self._bot_issue_query(dest, since=since)
+        while url:
+            response = self.client.request("GET", url, params=params)
+            params = None
+            yield [item for item in self.client.json_list(response) if isinstance(item, dict)]
+            url = response.next_page()
+
+    def _bot_issue_query(self, dest: Destination, *, since: Optional[str] = None) -> tuple[str, Optional[dict[str, Any]]]:
         """First-page URL and parameters for issues the bot authored, oldest update first."""
 
         params: dict[str, Any] = {"scope": "all", "order_by": "updated_at", "sort": "asc", "per_page": 100}
@@ -220,16 +257,6 @@ class GitLabIssueAdapter:
         if since:
             params["updated_after"] = since
         return self._project_url(dest, "/issues"), params
-
-    def bot_issue_pages(self, dest: Destination, *, since: Optional[str] = None):
-        """Yield pages of issues the bot authored, oldest update first."""
-
-        url, params = self.bot_issue_query(dest, since=since)
-        while url:
-            response = self.client.request("GET", url, params=params)
-            params = None
-            yield [item for item in self.client.json_list(response) if isinstance(item, dict)]
-            url = response.next_page()
 
     # --- helpers --------------------------------------------------------------
 

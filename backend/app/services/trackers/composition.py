@@ -22,7 +22,6 @@ from app.services.trackers.github_recovery import (
 from app.services.trackers.inbound import apply_destination_hints
 from app.services.trackers.op_store import EXECUTE_DISPATCH, OpStore
 from app.services.trackers.poller import poll_destination_updates
-from app.services.trackers.providers import comment_page_fetcher_for, issue_page_fetcher_for
 from app.services.trackers.provider_registry import (
     DestinationContext,
     ProviderRegistry,
@@ -312,12 +311,12 @@ class TrackerRuntime:
                 reply_id = str(link["reply_id"])
         sent_at = claimed.get("sent_at")
         since = recovery_since(sent_at) if sent_at is not None else None
-        issue_fetch = issue_page_fetcher_for(bundle.issue, dest, since=since)
+        issue_fetch = bundle.issue.recovery_issue_pages(dest, since=since)
         comment_fetch = None
         if op_kind == "add_comment":
             issue_ref = str(thread_row.get("external_number") or thread_row.get("external_id") or "")
             if issue_ref:
-                comment_fetch = comment_page_fetcher_for(bundle.comment, dest, issue_ref)
+                comment_fetch = bundle.comment.recovery_comment_pages(dest, issue_ref)
         outcome = recover_op(
             claimed,
             dest=dest,

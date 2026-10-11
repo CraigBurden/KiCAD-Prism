@@ -37,7 +37,7 @@ from app.services.trackers.markers import build_marker
 from app.services.trackers.op_store import EXECUTE_DISPATCH, RECOVERY_DISPATCH, OpStore
 from app.services.trackers.promotion import DispatchPause, PublicationDenied, evaluate_dispatch
 from app.services.trackers.provenance import body_hash, stored_hash_matches
-from app.services.trackers.providers import comment_adapter_for, comment_page_fetcher_for
+from app.services.trackers.providers import comment_adapter_for, comment_web_url
 from app.services.trackers.reply_mutations import REPLY_OPS, decode_reply_target
 from app.services.trackers.store import TrackerStore, issue_number_for_api
 
@@ -46,19 +46,6 @@ logger = logging.getLogger(__name__)
 _mounted = False
 _connect_factory: Callable[[], Any] | None = None
 
-
-def github_comment_url(
-    container_path: str,
-    issue_number: int | str,
-    comment_id: int | str,
-) -> str:
-    """Human-facing GitHub comment URL keyed by repo issue number (R2-H1)."""
-
-    path = (container_path or "").strip().strip("/")
-    if path.count("/") != 1:
-        raise ValueError("container_path must be owner/repo")
-    owner, repo = path.split("/", 1)
-    return f"https://github.com/{owner}/{repo}/issues/{issue_number}#issuecomment-{comment_id}"
 
 
 @dataclass(frozen=True)
@@ -354,6 +341,7 @@ def _confirm_reply_link(
     op_id: str,
     fence: int,
     ops: OpStore,
+    connector: Mapping[str, Any],
     container_path: str,
     issue_number: str,
 ) -> None:
@@ -370,11 +358,7 @@ def _confirm_reply_link(
             remote_author_id=remote.author.id,
             remote_author_login=remote.author.login,
         )
-    url = remote.url or github_comment_url(
-        container_path,
-        issue_number,
-        remote.externalCommentId,
-    )
+    url = remote.url or comment_web_url(connector, container_path, issue_number, remote.externalCommentId)
     conn.execute(
         """
         UPDATE tracked_replies
@@ -476,6 +460,7 @@ def _execute_reply(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
                 op_id=op_id,
                 fence=fence,
                 ops=ops,
+                connector=ctx.connector,
                 container_path=str(ctx.policy.get("container_path") or ""),
                 issue_number=issue_ref,
             )
@@ -543,6 +528,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
             op_id=op_id,
             fence=fence,
             ops=ops,
+            connector=ctx.connector,
             container_path=str(ctx.policy.get("container_path") or ""),
             issue_number=issue_ref,
         )
@@ -554,7 +540,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
         op,
         dest=ctx.destination,
         reply_id=ctx.reply_id,
-        fetch_page=comment_page_fetcher_for(adapter, ctx.destination, issue_ref),
+        fetch_page=adapter.recovery_comment_pages(ctx.destination, issue_ref),
         bot_user_id=str(ctx.connector.get("bot_forge_user_id") or ""),
     )
     if outcome.kind == RecoveryKind.FOUND and outcome.match is not None:
@@ -569,6 +555,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
                 op_id=op_id,
                 fence=fence,
                 ops=ops,
+                connector=ctx.connector,
                 container_path=str(ctx.policy.get("container_path") or ""),
                 issue_number=issue_ref,
             )
@@ -664,7 +651,6 @@ def _recover_delete(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
 __all__ = [
     "build_reply_body",
     "execute_reply_claimed_op",
-    "github_comment_url",
     "mount_reply_executor",
     "recover_reply_op",
     "set_connect_factory",
