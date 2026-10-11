@@ -7,6 +7,7 @@ serves Git tags and must keep doing so.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -157,9 +158,13 @@ async def check_release_tag(
     tag: str,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    project = authorized_project(user, project_id)
-    exists = forge_publish.tag_exists(str(project.get("repo_url") or ""), tag)
-    return {"tag": tag, "exists": exists}
+    def check() -> dict[str, Any]:
+        project = authorized_project(user, project_id)
+        exists = forge_publish.tag_exists(str(project.get("repo_url") or ""), tag)
+        return {"tag": tag, "exists": exists}
+
+    # Forge calls block for up to a minute; keep them off the event loop.
+    return await asyncio.to_thread(check)
 
 
 @router.get("/{project_id}/release-studio/impedance-template.csv")
@@ -204,6 +209,12 @@ async def create_candidate(
 ):
     """Enqueue a build. Idempotent on ``build_key`` once the closure resolves."""
 
+    return await asyncio.to_thread(_create_candidate, project_id, request, user)
+
+
+def _create_candidate(
+    project_id: str, request: CandidateRequest, user: AuthenticatedUser
+) -> dict[str, Any]:
     project = authorized_project(user, project_id, "design")
     _require_enqueue_identity(request.identity, project)
     job = RELEASE_BUILD.enqueue(
@@ -255,6 +266,11 @@ async def get_candidate(
 async def get_build(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_viewer)
 ):
+    # Polled every few seconds while Publish is open; the forge lookup blocks.
+    return await asyncio.to_thread(_build_detail, project_id, build_id, user)
+
+
+def _build_detail(project_id: str, build_id: str, user: AuthenticatedUser) -> dict[str, Any]:
     project = authorized_project(user, project_id)
     build = _build_or_404(project_id, build_id)
     candidate = store.get_candidate(str(build["candidate_id"])) or {}
@@ -577,6 +593,12 @@ async def publish_build(
 ):
     """Zip the dossier, attach ready selected vendor packs, and create the forge Release."""
 
+    return await asyncio.to_thread(_publish_build, project_id, build_id, request, user)
+
+
+def _publish_build(
+    project_id: str, build_id: str, request: PublishRequest, user: AuthenticatedUser
+) -> dict[str, Any]:
     project = authorized_project(user, project_id, "release")
     build = _build_or_404(project_id, build_id)
     if str(build.get("status") or "") != "succeeded":
