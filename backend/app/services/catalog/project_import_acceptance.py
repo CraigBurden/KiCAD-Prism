@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 import uuid
 
 from app.services.catalog.asset_files import CatalogAssetFiles
@@ -39,6 +40,26 @@ PROJECT_IMPORT_SYMBOL_LABEL_TO_KEY: dict[str, str] = {
     "Power Dissipation (W)": "power_dissipation_w",
     "Rate": "rate",
 }
+
+
+# Metadata the remediation grid requires before a row reads as ready.
+_IMPORT_REQUIRED_METADATA: tuple[tuple[str, str], ...] = (
+    ("value", "Value"),
+    ("manufacturer", "Manufacturer"),
+    ("manufacturer_part_number", "MPN"),
+    ("description", "Description"),
+    ("datasheet", "Datasheet"),
+)
+
+
+def _import_metadata_problems(values: dict[str, Any]) -> list[str]:
+    problems = [
+        f"{label} is required" for key, label in _IMPORT_REQUIRED_METADATA if not str(values.get(key) or "").strip()
+    ]
+    datasheet = urlparse(str(values.get("datasheet") or "").strip())
+    if datasheet.geturl() and (datasheet.scheme.lower() not in {"http", "https"} or not datasheet.netloc):
+        problems.append("Datasheet must be an HTTP(S) URL")
+    return problems
 
 
 class CatalogProjectImportAcceptance:
@@ -173,7 +194,11 @@ class CatalogProjectImportAcceptance:
         if proposal["status"] != "candidate":
             raise ValueError("Project import proposal has already been resolved")
         proposal_id = str(proposal["id"])
-        metadata = normalize_metadata(self.build_normalized_input(proposal, metadata_overrides))
+        normalized_input = self.build_normalized_input(proposal, metadata_overrides)
+        problems = _import_metadata_problems(normalized_input)
+        if problems:
+            raise ValueError("Resolve import metadata before accepting: " + "; ".join(problems))
+        metadata = normalize_metadata(normalized_input)
         candidates_by_type = self._import_assets.group_import_assets(proposal)
         # An asset type may instead be satisfied by an existing catalog asset. That is
         # a reference, not a copy: the same assets row is linked into this revision, so
