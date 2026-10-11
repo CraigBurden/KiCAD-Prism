@@ -5,10 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Optional, TypeVar
 
-from fastapi import APIRouter, Depends, FastAPI
-from fastapi.exception_handlers import request_validation_exception_handler
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core import errors
@@ -76,24 +73,6 @@ def _http_error(exc: Exception) -> errors.DomainError:
         status = 403 if exc.class_ in {"forbidden", "capability_missing"} else 400
         return exc.refusal(409 if exc.class_ == "auth_lost" else status)
     raise exc
-
-
-def _strip_validation_input(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop request ``input`` from 422 bodies so pasted PEM is not echoed."""
-
-    return [{key: value for key, value in item.items() if key != "input"} for item in errors]
-
-
-async def _validation_exception_handler(request, exc: RequestValidationError) -> JSONResponse:
-    if not request.url.path.startswith(_CONNECTOR_PREFIX):
-        return await request_validation_exception_handler(request, exc)
-    return JSONResponse(status_code=422, content={"detail": _strip_validation_input(exc.errors())})
-
-
-def register_validation_redaction(app: FastAPI) -> None:
-    """Strip request bodies from connector validation errors without touching other routes."""
-
-    app.add_exception_handler(RequestValidationError, _validation_exception_handler)
 
 
 async def _run_service(call: Callable[[], T]) -> T:

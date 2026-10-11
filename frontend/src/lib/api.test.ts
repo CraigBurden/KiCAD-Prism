@@ -81,12 +81,12 @@ describe("error bodies", () => {
     expect(ifMatch("reply", "r_1", 4)).toEqual({ "If-Match": '"reply:r_1:4"' });
   });
 
-  it("turns a 422 validation array into one readable message", async () => {
+  it("reads a 422 validation body like any other error (D40)", async () => {
     const error = await apiErrorFrom(
-      jsonResponse(422, { detail: [{ loc: ["body", "url"], msg: "Field required" }, { loc: ["body", "ref"], msg: "Input should be a valid string" }] }),
+      jsonResponse(422, { detail: "url: Field required, ref: Input should be a valid string", code: "validation_error" }),
       "Analysis failed",
     );
-    expect(error.message).toBe("url: Field required, ref: Input should be a valid string");
+    expect(error).toMatchObject({ message: "url: Field required, ref: Input should be a valid string", code: "validation_error" });
   });
 
   it("falls back to the caller's message for a non-JSON proxy page", async () => {
