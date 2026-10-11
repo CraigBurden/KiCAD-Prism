@@ -14,13 +14,12 @@ import {
   blockingImportFindings, importMetadataProblems, isImportFieldRequired,
 } from "@/lib/catalog-field-rules";
 import { PermissionHint } from "@/components/ui/permission-hint";
-import { useHotkeys } from "@/hooks/use-hotkeys";
 import { cn } from "@/lib/utils";
 import type {
   ImportProposalDraft, ProjectComponentImportProposal,
 } from "@/types/catalog";
 import { LibraryAssetLinkPicker } from "./library-asset-link-picker";
-import { useEditHistory } from "./use-edit-history";
+import { useStagedGridEdits } from "./use-staged-grid-edits";
 
 interface LibraryImportRemediationGridProps {
   sessionId: string;
@@ -158,6 +157,18 @@ export function groupProposals(
   });
 }
 
+/** A grouped row stands for one component, so an edit applies to every member. */
+function writeGroupCell(edits: RowEdits, group: ProposalGroup, field: EditableField, value: string): RowEdits {
+  const next = { ...edits };
+  for (const member of group.members) {
+    next[member.id] = {
+      ...next[member.id],
+      metadata: { ...next[member.id]?.metadata, [field]: value },
+    };
+  }
+  return next;
+}
+
 /** Every distinct problem across a group, since all its members get imported. */
 export function groupProblems(group: ProposalGroup, edits: RowEdits): string[] {
   const problems = new Set<string>();
@@ -200,11 +211,19 @@ export function LibraryImportRemediationGrid({
   onShowDetailView,
   onRefresh,
 }: LibraryImportRemediationGridProps) {
-  // Every cell edit, fill-down, and link change pushes the previous state here so a
-  // mis-aimed fill-down across 300 rows is one keystroke to undo. The three
-  // pieces move through one pure reducer (useEditHistory) so history can never
-  // duplicate or desync.
-  const { edits, undoStack, redoStack, commitEdits, replaceEdits, resetHistory, undo, redo } = useEditHistory();
+  // Every cell edit, fill-down, and link change is one undo step, so a
+  // mis-aimed fill-down across 300 rows is one keystroke to undo. Undo, redo,
+  // and save (mod+s) stay live while a cell is focused but stand down while a
+  // dialog such as the command palette is open. `saveDrafts` is declared
+  // below; the binding only calls it on a key press, after render.
+  const {
+    edits, canUndo, canRedo, commit: commitEdits, setCell: setGroupCell, fillDown: fillGroups,
+    replace: replaceEdits, reset: resetHistory, undo, redo,
+  } = useStagedGridEdits({
+    writeCell: writeGroupCell,
+    limit: 50,
+    hotkeys: { enabled: canWrite, onSave: () => void saveDrafts() },
+  });
   const [rawSelected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [accepting, setAccepting] = useState(false);
@@ -267,24 +286,6 @@ export function LibraryImportRemediationGrid({
     return live;
   }, [groups, rawSelected]);
 
-  /** Apply an edit through the history so it can be undone. */
-  /** A grouped row stands for one component, so an edit applies to every member. */
-  const setCell = useCallback(
-    (group: ProposalGroup, field: EditableField, value: string) => {
-      commitEdits((current) => {
-        const next = { ...current };
-        for (const member of group.members) {
-          next[member.id] = {
-            ...next[member.id],
-            metadata: { ...next[member.id]?.metadata, [field]: value },
-          };
-        }
-        return next;
-      });
-    },
-    [commitEdits]
-  );
-
   const setFootprintLink = useCallback(
     (group: ProposalGroup, assetId: string) => {
       commitEdits((current) => {
@@ -304,23 +305,12 @@ export function LibraryImportRemediationGrid({
       const value = effectiveValue(source.representative, field, edits);
       const targetGroups =
         selected.size > 0 ? visibleRows.filter((group) => selected.has(group.key)) : visibleRows;
-      commitEdits((current) => {
-        const next = { ...current };
-        for (const group of targetGroups) {
-          for (const member of group.members) {
-            next[member.id] = {
-              ...next[member.id],
-              metadata: { ...next[member.id]?.metadata, [field]: value },
-            };
-          }
-        }
-        return next;
-      });
+      fillGroups(targetGroups, field, value);
       toast.success(`Filled ${field.replace(/_/g, " ")} into ${targetGroups.length} rows`, {
         description: "Press ⌘Z to undo",
       });
     },
-    [commitEdits, edits, selected, visibleRows]
+    [edits, fillGroups, selected, visibleRows]
   );
 
   const buildDrafts = useCallback(() => {
@@ -449,19 +439,6 @@ export function LibraryImportRemediationGrid({
     [onRefresh, replaceEdits, sessionId]
   );
 
-  // Undo, redo, and save stay live while a cell is focused — the whole point is
-  // to correct a value you just typed — but stand down while a dialog such as
-  // the command palette is open.
-  useHotkeys(
-    [
-      { combo: "mod+z", handler: () => undo(), allowInInputs: true },
-      { combo: "mod+shift+z", handler: () => redo(), allowInInputs: true },
-      { combo: "mod+y", handler: () => redo(), allowInInputs: true },
-      { combo: "mod+s", handler: () => void saveDrafts(), allowInInputs: true },
-    ],
-    { enabled: canWrite },
-  );
-
   const toggleAll = (checked: boolean) => {
     setSelected(checked ? new Set(visibleRows.map((row) => row.key)) : new Set());
   };
@@ -527,7 +504,7 @@ export function LibraryImportRemediationGrid({
             size="icon-sm"
             aria-label="Undo"
             title="Undo (⌘Z)"
-            disabled={!canWrite || undoStack.length === 0}
+            disabled={!canWrite || !canUndo}
             onClick={undo}
           >
             <Undo2 className="h-3.5 w-3.5" />
@@ -537,7 +514,7 @@ export function LibraryImportRemediationGrid({
             size="icon-sm"
             aria-label="Redo"
             title="Redo (⇧⌘Z)"
-            disabled={!canWrite || redoStack.length === 0}
+            disabled={!canWrite || !canRedo}
             onClick={redo}
           >
             <Redo2 className="h-3.5 w-3.5" />
@@ -702,7 +679,7 @@ export function LibraryImportRemediationGrid({
                         disabled={!canWrite}
                         aria-invalid={invalid}
                         aria-label={`${column.label} for ${referenceLabel}`}
-                        onChange={(event) => setCell(group, column.key, event.target.value)}
+                        onChange={(event) => setGroupCell(group, column.key, event.target.value)}
                       />
                       {canWrite ? (
                         <button

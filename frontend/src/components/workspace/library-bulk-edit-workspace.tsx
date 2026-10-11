@@ -15,6 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
+import { useStagedGridEdits } from "./use-staged-grid-edits";
 import {
   applyMetadataBatch,
   approveMetadataBatchFields,
@@ -67,6 +68,16 @@ function cloneStaged(value: StagedRows): StagedRows {
 function componentFieldValue(component: CatalogComponent, field: CatalogMetadataField): string {
   if (field.storage_kind === "extra") return String(component.extra_fields?.[field.storage_key] ?? "");
   return String((component as unknown as Record<string, unknown>)[field.storage_key] ?? "");
+}
+
+/** Stage one cell; a value equal to the component's own drops the edit. */
+function writeStagedCell(base: StagedRows, component: CatalogComponent, field: CatalogMetadataField, value: string): StagedRows {
+  const next = cloneStaged(base);
+  const row = next[component.id] || { expected_revision_id: component.revision_id, patch: {} };
+  const original = componentFieldValue(component, field);
+  if (value === original) delete row.patch[field.key]; else row.patch[field.key] = value;
+  if (Object.keys(row.patch).length) next[component.id] = row; else delete next[component.id];
+  return next;
 }
 
 function MetadataCell({
@@ -311,7 +322,6 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const [panelOpen, setPanelOpen] = useState(true);
   // Archiving a field hides it from every component; the dialog names it.
   const fieldArchiveTarget = useConfirmTarget<CatalogMetadataField>();
-  const [staged, setStaged] = useState<StagedRows>({});
   const [reviewOpen, setReviewOpen] = useState(false);
   const [batch, setBatch] = useState<CatalogMetadataBatch | null>(null);
   const [changeSummary, setChangeSummary] = useState("Bulk update component metadata");
@@ -319,11 +329,19 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState<CatalogMetadataField | null>(null);
   const [activeCell, setActiveCell] = useState<{ row: number; column: number } | null>(null);
-  const undoStack = useRef<StagedRows[]>([]);
-  const redoStack = useRef<StagedRows[]>([]);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const preferencesLoaded = useRef(false);
   const gridViewport = useVirtualViewport();
+  // Undo/redo keys act only while focus is inside the grid's scroll area.
+  const gridScopeRef = useRef<HTMLDivElement | null>(null);
+  const { viewportRef } = gridViewport;
+  const attachGridViewport = useCallback((node: HTMLDivElement | null) => {
+    gridScopeRef.current = node;
+    viewportRef(node);
+  }, [viewportRef]);
+  const {
+    edits: staged, canUndo, canRedo, setCell, paste, reset: resetStaged, undo, redo,
+  } = useStagedGridEdits({ writeCell: writeStagedCell, limit: 100, hotkeys: { enabled: true, scope: gridScopeRef } });
   const isAdmin = canAdministerCatalog(user?.role);
   const canEdit = canWriteCatalog(user?.role);
   // An empty grid means something different when filters are active than when the
@@ -412,28 +430,6 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const lastVisibleRow = Math.min(items.length, Math.ceil((gridViewport.scrollTop + gridViewport.height) / GRID_ROW_HEIGHT) + GRID_OVERSCAN);
   const visibleRows = items.slice(firstVisibleRow, lastVisibleRow);
 
-  const commitStaged = useCallback((next: StagedRows) => {
-    // History bookkeeping lives here, not inside a state updater: React may
-    // invoke an updater more than once, which would duplicate undo entries.
-    if (next === staged) return;
-    undoStack.current.push(cloneStaged(staged));
-    if (undoStack.current.length > 100) undoStack.current.shift();
-    redoStack.current = [];
-    setStaged(next);
-  }, [staged]);
-  const undo = () => { const previous = undoStack.current.pop(); if (!previous) return; redoStack.current.push(cloneStaged(staged)); setStaged(previous); };
-  const redo = () => { const next = redoStack.current.pop(); if (!next) return; undoStack.current.push(cloneStaged(staged)); setStaged(next); };
-
-  const applyCellValue = useCallback((component: CatalogComponent, field: CatalogMetadataField, value: string, base: StagedRows = staged) => {
-    const next = cloneStaged(base);
-    const row = next[component.id] || { expected_revision_id: component.revision_id, patch: {} };
-    const original = componentFieldValue(component, field);
-    if (value === original) delete row.patch[field.key]; else row.patch[field.key] = value;
-    if (Object.keys(row.patch).length) next[component.id] = row; else delete next[component.id];
-    return next;
-  }, [staged]);
-
-  const setCellValue = (component: CatalogComponent, field: CatalogMetadataField, value: string) => commitStaged(applyCellValue(component, field, value));
   const displayValue = (component: CatalogComponent, field: CatalogMetadataField) => staged[component.id]?.patch[field.key] ?? componentFieldValue(component, field);
 
   const navigateCell = (row: number, column: number) => {
@@ -445,16 +441,12 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
   const handleGridPaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
     if (!canEdit || !activeCell) return;
-    const matrix = event.clipboardData.getData("text/plain").replace(/\r/g, "").split("\n").filter((line, index, rows) => line || index < rows.length - 1).map((line) => line.split("\t"));
-    if (!matrix.length) return;
-    event.preventDefault();
-    let next = cloneStaged(staged);
-    matrix.forEach((rowValues, rowOffset) => rowValues.forEach((value, columnOffset) => {
-      const component = items[activeCell.row + rowOffset];
-      const field = visibleFields[activeCell.column + columnOffset];
-      if (component && field && !fieldError(field, value, "bulk", component.identity_kind)) next = applyCellValue(component, field, value, next);
-    }));
-    commitStaged(next);
+    const pasted = paste(
+      event.clipboardData.getData("text/plain"),
+      { rows: items, fields: visibleFields, row: activeCell.row, column: activeCell.column },
+      (component, field, value) => !fieldError(field, value, "bulk", component.identity_kind),
+    );
+    if (pasted) event.preventDefault();
   };
 
   const resizeColumn = (key: string, startX: number, startWidth: number) => {
@@ -535,8 +527,8 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
         )),
       );
       setBatch(completed);
-      setStaged((current) => Object.fromEntries(Object.entries(current).filter(([componentId]) => !appliedComponents.has(componentId))));
-      undoStack.current = []; redoStack.current = []; setRefreshKey((value) => value + 1);
+      resetStaged((current) => Object.fromEntries(Object.entries(current).filter(([componentId]) => !appliedComponents.has(componentId))));
+      setRefreshKey((value) => value + 1);
       toast.success(`${appliedComponents.size} component revisions moved to Awaiting QA`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to apply metadata batch"); } finally { setBusy(false); }
   };
@@ -561,7 +553,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
         <Select value={category} onValueChange={(value) => { setCategory(value); setPage(1); }}><SelectTrigger size="sm" className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem><SelectItem value="uncategorized">Uncategorized</SelectItem>{categories.flatMap((item) => (item.name ? [<SelectItem key={item.name} value={item.name}>{item.name} ({item.count})</SelectItem>] : []))}</SelectContent></Select>
         <Select value={`${sortBy}:${sortDir}`} onValueChange={(value) => { const [key, direction] = value.split(":"); setSortBy(key); setSortDir(direction); setPage(1); }}><SelectTrigger size="sm" className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="updated_at:desc">Recently updated</SelectItem><SelectItem value="mpn:asc">MPN A–Z</SelectItem><SelectItem value="manufacturer:asc">Manufacturer A–Z</SelectItem><SelectItem value="category:asc">Category A–Z</SelectItem></SelectContent></Select>
         {workflow !== "all" || availability !== "all" || validation !== "all" || category !== "all" || query ? <Button size="sm" variant="ghost" onClick={() => { setWorkflow("all"); setAvailability("all"); setValidation("all"); setCategory("all"); setQuery(""); setPage(1); }}><FilterX className="h-3.5 w-3.5" /> Clear filters</Button> : null}
-        <div className="ml-auto flex items-center gap-1"><Button size="icon-sm" variant="ghost" aria-label="Undo metadata edit" disabled={!undoStack.current.length} onClick={undo}><Undo2 className="h-4 w-4" /></Button><Button size="icon-sm" variant="ghost" aria-label="Redo metadata edit" disabled={!redoStack.current.length} onClick={redo}><Redo2 className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => setPanelOpen((value) => !value)}><Columns3 className="h-4 w-4" /> Fields</Button></div>
+        <div className="ml-auto flex items-center gap-1"><Button size="icon-sm" variant="ghost" aria-label="Undo metadata edit" disabled={!canUndo} onClick={undo}><Undo2 className="h-4 w-4" /></Button><Button size="icon-sm" variant="ghost" aria-label="Redo metadata edit" disabled={!canRedo} onClick={redo}><Redo2 className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => setPanelOpen((value) => !value)}><Columns3 className="h-4 w-4" /> Fields</Button></div>
       </div>
     </header>
 
@@ -583,7 +575,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
       <main className="flex min-w-0 flex-1 flex-col p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading components…" : `${items.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${Math.min(page * PAGE_SIZE, total)} of ${total.toLocaleString()}`}</span><span>{visibleFields.length} visible fields · {Object.keys(staged).length} staged components</span></div>
-        <div ref={gridViewport.viewportRef} className={cn("min-h-0 flex-1 overflow-auto border", loading && "opacity-60")} onScroll={gridViewport.onScroll} onPaste={handleGridPaste} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); } if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "y") { event.preventDefault(); redo(); } }}>
+        <div ref={attachGridViewport} className={cn("min-h-0 flex-1 overflow-auto border", loading && "opacity-60")} onScroll={gridViewport.onScroll} onPaste={handleGridPaste}>
           <div role="grid" aria-label="Component metadata" aria-rowcount={items.length + 1} aria-colcount={visibleFields.length + 1} className="min-w-max" style={{ width: IDENTITY_WIDTH + visibleFields.reduce((sum, field) => sum + (preferences.widths[field.key] || DEFAULT_WIDTH), 0) }}>
             <div role="row" aria-rowindex={1} className="sticky top-0 z-20 grid h-10 border-b bg-muted text-xs font-medium" style={{ gridTemplateColumns: gridTemplate }}>
               <div role="columnheader" aria-colindex={1} className="sticky left-0 z-30 flex items-center border-r bg-muted px-3">Component</div>
@@ -592,7 +584,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
             {firstVisibleRow ? <div aria-hidden="true" style={{ height: firstVisibleRow * GRID_ROW_HEIGHT }} /> : null}
             {visibleRows.map((component, visibleRowIndex) => { const rowIndex = firstVisibleRow + visibleRowIndex; return <div key={component.id} role="row" aria-rowindex={rowIndex + 2} className={cn("grid border-b last:border-b-0", staged[component.id] && "bg-primary/5")} style={{ gridTemplateColumns: gridTemplate }}>
               <div role="rowheader" aria-colindex={1} className="sticky left-0 z-10 flex h-9 min-w-0 items-center gap-2 border-r bg-background px-3"><span className="min-w-0 flex-1 truncate text-xs font-medium" title={component.name}>{component.mpn || component.name}</span><Badge variant={component.workflow_stage === "qa_review" ? "warning" : "outline"} className="shrink-0" title="Read-only workflow stage">{WORKFLOW_LABELS[component.workflow_stage]}</Badge><Badge variant="outline" className="shrink-0" title="Read-only revision">v{component.revision}</Badge></div>
-              {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} identityKind={component.identity_kind} readOnly={!canEdit} active={activeCell?.row === rowIndex && activeCell.column === columnIndex} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCellValue(component, field, value)} onActivate={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
+              {visibleFields.map((field, columnIndex) => <MetadataCell key={field.key} value={displayValue(component, field)} field={field} identityKind={component.identity_kind} readOnly={!canEdit} active={activeCell?.row === rowIndex && activeCell.column === columnIndex} rowIndex={rowIndex} columnIndex={columnIndex} pinnedOffset={pinnedOffsets.get(field.key)} onCommit={(value) => setCell(component, field, value)} onActivate={() => setActiveCell({ row: rowIndex, column: columnIndex })} onNavigate={(rowDelta, columnDelta) => navigateCell(rowIndex + rowDelta, columnIndex + columnDelta)} />)}
             </div>; })}
             {lastVisibleRow < items.length ? <div aria-hidden="true" style={{ height: (items.length - lastVisibleRow) * GRID_ROW_HEIGHT }} /> : null}
           </div>
