@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence
 
-from app.services.systems import exposure, system_nets
+from app.services.systems import exposure, links as link_rules, system_nets
 from app.services.systems.drift import pad_sort_key
-from app.services.systems.store import Invalid, SystemStore
+from app.services.systems.store import Invalid
 
 Component = Optional[Mapping[str, Any]]
 
@@ -65,7 +65,7 @@ def pin_facts(end: Mapping[str, Any], component: Component, *, include_missing: 
     pads = exposure.pins_by_pad(component) if component is not None else {}
     out = {}
     for pin in end_pins(end, component):
-        pad = SystemStore.end_pad(end, pin)
+        pad = link_rules.end_pad(end, pin)
         if component is not None and pad not in pads:
             if include_missing:
                 out[pin] = {"pad": pad, "nets": [], "missing": True}
@@ -171,7 +171,7 @@ def findings(harness: Mapping[str, Any], components: Mapping[str, Component],
         power = []
         for side in ("from", "to"):
             end, component = ends[wire[f"{side}_end"]], components.get(wire[f"{side}_end"])
-            pad = SystemStore.end_pad(end, wire[f"{side}_pin"])
+            pad = link_rules.end_pad(end, wire[f"{side}_pin"])
             power.append((exposure.pins_by_pad(component).get(pad) or {}).get("powerNet") if component else None)
         known = all(components.get(wire[f"{side}_end"]) for side in ("from", "to"))
         named_side = system_nets.net_meets_none(net_from, net_to) if known else None

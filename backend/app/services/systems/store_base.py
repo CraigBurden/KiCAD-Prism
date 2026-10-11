@@ -95,19 +95,6 @@ def _given_id(prefix: str, value: Optional[str]) -> str:
     return value
 
 
-LINK_TYPES = ("unspecified", "b2b")
-
-
-def _check_link_type(link_type: str, stack_height_mm: Optional[float]) -> None:
-    if link_type not in LINK_TYPES:
-        raise Invalid(f"type must be one of {', '.join(LINK_TYPES)}")
-    if stack_height_mm is not None:
-        if link_type != "b2b":
-            raise Invalid("stackHeightMm applies to board-to-board links only")
-        if not (0 < float(stack_height_mm) < 1000):
-            raise Invalid("stackHeightMm must be between 0 and 1000 mm")
-
-
 def _port_baseline(port: Mapping[str, Any]) -> dict[str, Any]:
     missing = [key for key in PORT_BASELINE_KEYS if key not in port]
     if missing:

@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from app.services.systems import exposure, harnesses as harnesses_module, subports as subports_module
+from app.services.systems import exposure, harnesses as harnesses_module, links as link_rules, subports as subports_module
 from app.services.systems.drift import pad_sort_key
 from app.services.systems.store import MAX_HARNESS_ENDS, MAX_ROWS, Conflict, Invalid, Mutation, SystemStore
 
@@ -294,7 +294,8 @@ def classify(parsed: Parsed, column_map: Mapping[str, str], board_map: Mapping[s
             continue
         a, b = ends
         entry["from"], entry["to"] = a, b
-        if a["instanceId"] == b["instanceId"] and a["portKey"] == b["portKey"]:
+        if link_rules.same_port(link_rules.End(a["instanceId"], a["portKey"]),
+                                link_rules.End(b["instanceId"], b["portKey"])):
             put("conflict", "same_port")
             continue
 
@@ -554,7 +555,7 @@ class _WireState:
             return None, ("conflict", "end_mate_mismatch")
         if pin not in harnesses_module.end_pins(end, self._component(end) if mated else None):
             return None, ("unresolved", "pin_not_found")
-        if mate is not None and SystemStore.end_pad(end, pin) != mate["pin"]:
+        if mate is not None and link_rules.end_pad(end, pin) != mate["pin"]:
             return None, ("conflict", "pin_map_mismatch")
         return end, None
 

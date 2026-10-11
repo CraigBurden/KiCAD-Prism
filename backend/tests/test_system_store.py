@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-from app.services.systems import store_harnesses, store_instances
+from app.services.systems import store_instances, store_links
 from app.services.systems.store import (
     Conflict,
     Invalid,
@@ -443,7 +443,7 @@ class StoreTest(unittest.TestCase):
     def test_row_and_link_limits(self) -> None:
         sid = self.system()["id"]
         a, b = self.instance(sid, "A"), self.instance(sid, "B")
-        with mock.patch.object(store_harnesses, "MAX_ROWS", 2), mock.patch.object(store_instances, "MAX_LINKS", 1):
+        with mock.patch.object(store_links, "MAX_ROWS", 2), mock.patch.object(store_links, "MAX_LINKS", 1):
             with self.mutate(sid) as change:
                 link = self.store.create_link(change, a_instance_id=a["id"], a_port=port("/r/a"),
                                               b_instance_id=b["id"], b_port=port("/r/b"))

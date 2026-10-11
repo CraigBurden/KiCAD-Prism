@@ -17,7 +17,7 @@ from psycopg.types.json import Jsonb
 from app.services.systems import git_tracking
 from app.services.systems.service_base import Caller, Result, _iso
 from app.services.systems.sources import SourceError, valid_tracked_ref
-from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound, SystemStore
+from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +58,6 @@ def link_document(row: Optional[Mapping[str, Any]]) -> Optional[dict]:
 class GitMixin:
     _git_remote = staticmethod(resolve_remote)
     _git_enqueue_sync = staticmethod(git_tracking.enqueue_sync)
-    _git_enqueue_commit = staticmethod(git_tracking.enqueue_commit)
-
-    def _git_link_row(self, store: SystemStore, system_id: str) -> Optional[dict]:
-        row = store.conn.execute("SELECT * FROM system_git_links WHERE system_id = %s", (system_id,)).fetchone()
-        return dict(row) if row else None
 
     def git_link(self, caller: Caller, system_id: str) -> Optional[dict]:
         with self._tx() as store:
@@ -200,18 +195,6 @@ class GitMixin:
     # ------------------------------------------------------------------
     # Publishing (§21.6, D-P2-46)
 
-    def _publication_git(self, store: SystemStore, system_id: str,
-                         git: Optional[Mapping[str, Any]]) -> Optional[dict]:
-        """The commit a snapshot's revision records, or None. A commit still in flight is a 409, so a
-        linked system's revision never misses a commit that is about to exist."""
-        state = (git or {}).get("state")
-        if state == "queued":
-            raise Conflict("git_commit_pending: the snapshot is still being committed; publish it once it is")
-        if state != "pushed":
-            return None
-        link = self._git_link_row(store, system_id)
-        return {"url": link["url"] if link else None, "branch": git["branch"], "commit": git["commit"]}
-
     def snapshot_for_commit(self, caller: Caller, system_id: str, commit: str) -> str:
         """The snapshot Prism pushed as ``commit``; only those commits can be published."""
         commit = (commit or "").strip().lower()
@@ -227,28 +210,3 @@ class GitMixin:
         if row is None:
             raise NotFound("commit_not_a_snapshot: only a commit Prism pushed for a snapshot can be published")
         return str(row["id"])
-
-    # ------------------------------------------------------------------
-    # Snapshot hooks (``create_snapshot``)
-
-    @staticmethod
-    def _queued_git(previous: Optional[Mapping[str, Any]] = None, caller: Optional[Caller] = None) -> dict:
-        author = (previous or {}).get("author") or {"name": caller.name if caller else "",
-                                                    "email": caller.email if caller else ""}
-        return {"state": "queued", "author": author}
-
-    def _snapshot_git(self, store: SystemStore, system_id: str, caller: Caller) -> Optional[dict]:
-        """The new snapshot's ``git`` status, or a 409 while an outside change waits (§21.3)."""
-        link = self._git_link_row(store, system_id)
-        if link is None:
-            return None
-        if link["outside_commit"]:
-            raise Conflict(f"git_outside_change: {link['outside_commit']} changed {git_tracking.MANIFEST_FILE} "
-                           "outside Prism; import it through review before taking a snapshot")
-        return self._queued_git(caller=caller)
-
-    def _git_quietly(self, enqueue: Any, *args: Any, requested_by: str) -> None:
-        try:
-            enqueue(*args, requested_by=requested_by)
-        except Exception:  # the link or snapshot is stored; a fetch or retry queues it again
-            logger.exception("Could not queue Git work for %s", args)

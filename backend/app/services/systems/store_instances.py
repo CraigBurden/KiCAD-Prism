@@ -1,14 +1,13 @@
-"""Instances, port overrides, poses, links and rows."""
+"""Instances and port overrides."""
 
 from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence
 
-from psycopg.types.json import Jsonb
 
 from app.services.systems.store_base import (
-    MAX_INSTANCES, MAX_LINKS, HARNESS_END_PREFIX, OVERRIDE_STATES, NotFound, Conflict, Invalid, _require_commit,
-    _given_id, _check_link_type, _port_baseline, _iso, _pose_fact, Mutation,
+    MAX_INSTANCES, OVERRIDE_STATES, NotFound, Conflict, Invalid, _require_commit,
+    _given_id, Mutation,
 )
 
 
@@ -269,16 +268,6 @@ class InstancesStore:
         ).fetchall()
         return {row["port_key"]: row["state"] for row in rows}
 
-    def list_mating(self, instance_id: str) -> dict[str, dict]:
-        """CONTRACTS_P2 §15.2: ``port_key -> {mode, axis, quarterTurns, geometryDigest}``."""
-        rows = self.conn.execute(
-            "SELECT port_key, mode, axis, quarter_turns, geometry_digest FROM system_port_mating"
-            " WHERE instance_id = %s",
-            (instance_id,),
-        ).fetchall()
-        return {row["port_key"]: {"mode": row["mode"], "axis": row["axis"], "quarterTurns": int(row["quarter_turns"]),
-                                  "geometryDigest": row["geometry_digest"]} for row in rows}
-
     def overrides_of(self, instance_ids: Sequence[str]) -> dict[str, dict[str, str]]:
         """``list_overrides`` for many instances in one query (SB2-93); every ID gets a map."""
         out: dict[str, dict[str, str]] = {iid: {} for iid in instance_ids}
@@ -306,140 +295,13 @@ class InstancesStore:
         ).fetchall()
         return {row["artifact_key"]: dict(row) for row in rows}
 
-    def mating_of(self, instance_ids: Sequence[str]) -> dict[str, dict[str, dict]]:
-        """``list_mating`` for many instances in one query (SB2-93); every ID gets a map."""
-        out: dict[str, dict[str, dict]] = {iid: {} for iid in instance_ids}
-        if out:
-            for row in self.conn.execute(
-                "SELECT instance_id, port_key, mode, axis, quarter_turns, geometry_digest FROM system_port_mating"
-                " WHERE instance_id = ANY(%s)",
-                (list(out),),
-            ).fetchall():
-                out[row["instance_id"]][row["port_key"]] = {
-                    "mode": row["mode"], "axis": row["axis"], "quarterTurns": int(row["quarter_turns"]),
-                    "geometryDigest": row["geometry_digest"]}
-        return out
-
-    def set_mating(
-        self, change: Mutation, instance_id: str, port_key: str, record: Optional[Mapping[str, Any]]
-    ) -> None:
-        """Store a confirmed/override frame, or clear it (``None``) back to inferred."""
-        self.get_instance(change.system_id, instance_id)
-        before = self.list_mating(instance_id).get(port_key)
-        if record is None:
-            self.conn.execute(
-                "DELETE FROM system_port_mating WHERE instance_id = %s AND port_key = %s", (instance_id, port_key)
-            )
-        else:
-            self.conn.execute(
-                """
-                INSERT INTO system_port_mating (instance_id, port_key, mode, axis, quarter_turns, geometry_digest,
-                                                updated_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (instance_id, port_key) DO UPDATE SET
-                    mode = EXCLUDED.mode, axis = EXCLUDED.axis, quarter_turns = EXCLUDED.quarter_turns,
-                    geometry_digest = EXCLUDED.geometry_digest, updated_by = EXCLUDED.updated_by, updated_at = NOW()
-                """,
-                (instance_id, port_key, record["mode"], record["axis"], int(record.get("quarterTurns") or 0),
-                 record.get("geometryDigest"), change.actor),
-            )
-        after = self.list_mating(instance_id).get(port_key)
-        if before != after:
-            change.audit("mating_updated", {"instanceId": instance_id, "portKey": port_key,
-                                            "before": before, "after": after})
-
-    # ------------------------------------------------------------------
-    # Poses (CONTRACTS_P2 §14.3)
-
-    def list_poses(self, system_id: str) -> dict[str, dict]:
-        """``instance_id -> {translationMm, rotation, source, updatedBy, updatedAt}``; an
-        instance without a row takes its default pose."""
-        rows = self.conn.execute(
-            "SELECT instance_id, translation_mm, rotation, source, updated_by, updated_at FROM system_poses"
-            " WHERE system_id = %s ORDER BY instance_id",
-            (system_id,),
-        ).fetchall()
-        return {row["instance_id"]: {"translationMm": [float(v) for v in row["translation_mm"]],
-                                     "rotation": [float(v) for v in row["rotation"]], "source": row["source"],
-                                     "updatedBy": row["updated_by"], "updatedAt": _iso(row["updated_at"])}
-                for row in rows}
-
-    def set_pose(self, change: Mutation, instance_id: str, pose: Optional[Mapping[str, Any]]) -> None:
-        """Store an instance's pose, or clear it (``None``) back to the default."""
-        self.get_instance(change.system_id, instance_id)
-        before = _pose_fact(self.list_poses(change.system_id).get(instance_id))
-        if pose is None:
-            self.conn.execute("DELETE FROM system_poses WHERE instance_id = %s", (instance_id,))
-        else:
-            self.conn.execute(
-                """
-                INSERT INTO system_poses (instance_id, system_id, translation_mm, rotation, source, updated_by)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (instance_id) DO UPDATE SET
-                    translation_mm = EXCLUDED.translation_mm, rotation = EXCLUDED.rotation,
-                    source = EXCLUDED.source, updated_by = EXCLUDED.updated_by, updated_at = NOW()
-                """,
-                (instance_id, change.system_id, [float(v) for v in pose["translationMm"]],
-                 [float(v) for v in pose["rotation"]], pose["source"], change.actor),
-            )
-        after = _pose_fact(self.list_poses(change.system_id).get(instance_id))
-        if before != after:
-            change.audit("pose_updated", {"instanceId": instance_id, "before": before, "after": after})
-
-    def reset_poses(self, change: Mutation, sources: Sequence[str] = ("manual",)) -> list[str]:
-        """Delete the stored poses with these sources; return the instances reset."""
-        rows = self.conn.execute(
-            "DELETE FROM system_poses WHERE system_id = %s AND source = ANY(%s) RETURNING instance_id",
-            (change.system_id, list(sources)),
-        ).fetchall()
-        reset = sorted(row["instance_id"] for row in rows)
-        if reset:
-            change.audit("poses_reset", {"instanceIds": reset, "sources": sorted(sources)})
-        return reset
-
-    # ------------------------------------------------------------------
-    # Driving mates (CONTRACTS_P2 §14.9)
-
-    def list_driving_mates(self, system_id: str) -> dict[str, str]:
-        """``instance_id -> link_id``: the user's choice of which B2B link places an instance."""
-        rows = self.conn.execute(
-            "SELECT instance_id, link_id FROM system_driving_mates WHERE system_id = %s ORDER BY instance_id",
-            (system_id,),
-        ).fetchall()
-        return {row["instance_id"]: row["link_id"] for row in rows}
-
-    def set_driving_mate(self, change: Mutation, instance_id: str, link_id: Optional[str]) -> None:
-        """Choose the B2B link that places ``instance_id`` (one of its ends), or clear the choice (``None``)."""
-        self.get_instance(change.system_id, instance_id)
-        before = self.list_driving_mates(change.system_id).get(instance_id)
-        if link_id is None:
-            self.conn.execute("DELETE FROM system_driving_mates WHERE instance_id = %s", (instance_id,))
-        else:
-            link = self.get_link(change.system_id, link_id)
-            if link.get("type") != "b2b":
-                raise Invalid("a driving mate must be a board-to-board link")
-            if instance_id not in (link["a_instance_id"], link["b_instance_id"]):
-                raise Invalid("a driving mate must be one of the instance's own links")
-            self.conn.execute(
-                """
-                INSERT INTO system_driving_mates (instance_id, system_id, link_id, updated_by)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (instance_id) DO UPDATE SET
-                    link_id = EXCLUDED.link_id, updated_by = EXCLUDED.updated_by, updated_at = NOW()
-                """,
-                (instance_id, change.system_id, link_id, change.actor),
-            )
-        after = self.list_driving_mates(change.system_id).get(instance_id)
-        if before != after:
-            change.audit("driving_mate_updated", {"instanceId": instance_id, "before": before, "after": after})
-
     def set_override(
         self, change: Mutation, instance_id: str, port_key: str, state: Optional[str]
     ) -> None:
         self.get_instance(change.system_id, instance_id)
         if state is not None and state not in OVERRIDE_STATES:
             raise Invalid(f"unknown override state {state!r}")
-        if state == "hidden" and self._port_is_linked(change.system_id, instance_id, port_key):
+        if state == "hidden" and self.port_is_linked(change.system_id, instance_id, port_key):
             raise Conflict("a port that is an endpoint of a link cannot be hidden")
         before = self.list_overrides(instance_id).get(port_key)
         if state is None:
@@ -461,114 +323,3 @@ class InstancesStore:
                 "port_override_set",
                 {"instanceId": instance_id, "portKey": port_key, "before": before, "after": state},
             )
-
-    def _port_is_linked(self, system_id: str, instance_id: str, port_key: str) -> bool:
-        """A link end or a harness end mates this port, or it has sub-ports (P2 §22.2)."""
-        return self.conn.execute(
-            """
-            SELECT 1 FROM system_subports WHERE instance_id = %s AND port_key = %s
-            UNION ALL
-            SELECT 1 FROM system_links
-            WHERE system_id = %s AND (
-                (a_instance_id = %s AND a_port->>'portKey' = %s)
-                OR (b_instance_id = %s AND b_port->>'portKey' = %s))
-            UNION ALL
-            SELECT 1 FROM system_harness_ends e JOIN system_harnesses h ON h.id = e.harness_id
-            WHERE h.system_id = %s AND e.mates_instance_id = %s AND e.mates_port->>'portKey' = %s
-            LIMIT 1
-            """,
-            (instance_id, port_key, system_id, instance_id, port_key, instance_id, port_key,
-             system_id, instance_id, port_key),
-        ).fetchone() is not None
-
-    # ------------------------------------------------------------------
-    # Links and rows
-
-    def list_links(self, system_id: str) -> list[dict]:
-        links = [
-            dict(row)
-            for row in self.conn.execute(
-                "SELECT * FROM system_links WHERE system_id = %s ORDER BY lower(name), id",
-                (system_id,),
-            ).fetchall()
-        ]
-        rows = self.conn.execute(
-            """
-            SELECT r.* FROM system_link_rows r
-            JOIN system_links l ON l.id = r.link_id
-            WHERE l.system_id = %s
-            ORDER BY r.link_id, r.id
-            """,
-            (system_id,),
-        ).fetchall()
-        by_link: dict[str, list[dict]] = {}
-        for row in rows:
-            by_link.setdefault(row["link_id"], []).append(dict(row))
-        for link in links:
-            link["rows"] = by_link.get(link["id"], [])
-        return links
-
-    def get_link(self, system_id: str, link_id: str) -> dict:
-        if link_id.startswith(HARNESS_END_PREFIX):
-            return self._end_as_link(system_id, link_id)
-        row = self.conn.execute(
-            "SELECT * FROM system_links WHERE system_id = %s AND id = %s", (system_id, link_id)
-        ).fetchone()
-        if row is None:
-            raise NotFound(link_id)
-        link = dict(row)
-        link["rows"] = [
-            dict(r)
-            for r in self.conn.execute(
-                "SELECT * FROM system_link_rows WHERE link_id = %s ORDER BY id", (link_id,)
-            ).fetchall()
-        ]
-        return link
-
-    def create_link(
-        self, change: Mutation, *, a_instance_id: str, a_port: Mapping[str, Any],
-        b_instance_id: str, b_port: Mapping[str, Any], name: str = "",
-        harness: Optional[str] = None, link_id: Optional[str] = None,
-        link_type: str = "unspecified", stack_height_mm: Optional[float] = None,
-        a_subport_id: Optional[str] = None, b_subport_id: Optional[str] = None,
-    ) -> dict:
-        a_baseline, b_baseline = _port_baseline(a_port), _port_baseline(b_port)
-        _check_link_type(link_type, stack_height_mm)
-        if a_instance_id == b_instance_id and a_baseline["portKey"] == b_baseline["portKey"]:
-            raise Invalid("both link ends are the same port")
-        for instance_id, baseline, subport_id in ((a_instance_id, a_baseline, a_subport_id),
-                                                  (b_instance_id, b_baseline, b_subport_id)):
-            self.get_instance(change.system_id, instance_id)
-            if self.exported_port(change.system_id, instance_id, baseline["portKey"], subport_id):
-                raise Conflict("export_port_linked: this port is exported; delete or retarget the export first")
-        count = self.conn.execute(
-            "SELECT count(*) AS n FROM system_links WHERE system_id = %s", (change.system_id,)
-        ).fetchone()["n"]
-        if count >= MAX_LINKS:
-            raise Invalid(f"limit links_per_system ({MAX_LINKS})")
-        link_id = _given_id("slk_", link_id)
-        if link_type == "b2b":
-            self._check_b2b_ports(change.system_id, link_id, ((a_instance_id, a_baseline["portKey"]),
-                                                              (b_instance_id, b_baseline["portKey"])))
-        self.conn.execute(
-            """
-            INSERT INTO system_links
-                (id, system_id, name, harness, a_instance_id, a_port, b_instance_id, b_port, type, stack_height_mm,
-                 a_subport_id, b_subport_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (link_id, change.system_id, name, harness or None, a_instance_id, Jsonb(a_baseline),
-             b_instance_id, Jsonb(b_baseline), link_type, stack_height_mm, a_subport_id, b_subport_id),
-        )
-        change.audit(
-            "link_created",
-            {"linkId": link_id, "name": name, "harness": harness or None, "type": link_type,
-             "a": _audit_end(a_instance_id, a_baseline, a_subport_id),
-             "b": _audit_end(b_instance_id, b_baseline, b_subport_id)},
-        )
-        return self.get_link(change.system_id, link_id)
-
-
-def _audit_end(instance_id: str, baseline: Mapping[str, Any], subport_id: Optional[str]) -> dict:
-    end = {"instanceId": instance_id, "portKey": baseline["portKey"]}
-    return {**end, "subportId": subport_id} if subport_id else end

@@ -17,7 +17,7 @@ from app.services.systems import (
 )
 from app.services.job_kinds import JobKind
 from app.services.systems.placement import poses as poses_module
-from app.services.systems.service_base import Caller, Result
+from app.services.systems.service_base import Caller
 from app.services.systems.store import NotFound
 
 logger = logging.getLogger(__name__)
