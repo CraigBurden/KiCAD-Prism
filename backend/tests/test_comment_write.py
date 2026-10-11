@@ -373,6 +373,64 @@ class WritePermissionMatrixTests(_StoreCase):
         self.assertEqual(moved["permissions"]["canEdit"], True)
 
 
+@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required")
+@unittest.skipUnless(psycopg is not None, "psycopg is required")
+@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+class PublicationWritesTests(_StoreCase):
+    """AC-33: promote/share answer like every other write; share streams once; replies use the DB clock."""
+
+    def _queue(self, action: str):
+        from unittest.mock import patch
+
+        from app.services import comments_store_writes
+        from app.services.trackers.promotion import PromotionResult
+
+        result = PromotionResult(action=action)
+        return (
+            patch.object(comments_store_writes, "enqueue_share_reply", return_value=result),
+            patch.object(comments_store_writes, "manual_promote_root", return_value=result),
+        )
+
+    def test_promote_and_share_return_the_readers_capabilities(self) -> None:  # D27
+        cid = self._root()["id"]
+        _, reply = self.store.add_reply(self.project_id, self.path, cid, "Reply", actor=ADMIN)
+        share, promote = self._queue("enqueued")
+        with share, promote:
+            promoted = self.store.promote_comment(self.project_id, self.path, cid, ADMIN)
+            shared = self.store.share_reply(self.project_id, self.path, cid, reply["id"], ADMIN)
+        for name, thread in (("promote", promoted), ("share", shared)):
+            with self.subTest(name):
+                self.assertTrue(thread["permissions"]["canEdit"])
+                self.assertEqual([r["permissions"]["canEdit"] for r in thread["replies"]], [True])
+
+    def test_share_streams_the_sync_state_clear_only_when_nothing_was_queued(self) -> None:  # D28
+        cid = self._root()["id"]
+        _, reply = self.store.add_reply(self.project_id, self.path, cid, "Reply", actor=ADMIN)
+        for action, expected in (("enqueued", []), ("existing", ["projection"])):
+            share, promote = self._queue(action)
+            with self.subTest(action), share, promote:
+                # A queued op's sync_ops trigger streams the thread (patched out here); the
+                # explicit clear event is only for a share that queued nothing.
+                self.assertEqual(self.streamed(lambda: self.store.share_reply(
+                    self.project_id, self.path, cid, reply["id"], ADMIN)), expected)
+
+    def test_prism_replies_are_stamped_with_the_database_clock(self) -> None:  # D29
+        from unittest.mock import patch
+
+        from app.services import comments_store_writes
+
+        cid = self._root()["id"]
+        with patch.object(comments_store_writes, "_utc_now_iso", return_value="2001-01-01T00:00:00+00:00"):
+            _, reply = self.store.add_reply(self.project_id, self.path, cid, "Reply", actor=OWNER)
+        with self.store._connect() as conn:
+            row = conn.execute(
+                "SELECT updated_at = timestamp AS same FROM comment_replies WHERE id = %s",
+                (reply["id"],),
+            ).fetchone()
+        self.assertFalse(reply["timestamp"].startswith("2001"))
+        self.assertTrue(row["same"])
+
+
 class NoRawCommentWritesOutsideTheWriteModuleTests(unittest.TestCase):
     """Trackers and routes write comment rows only through the write module."""
 
