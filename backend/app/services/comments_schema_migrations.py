@@ -1,9 +1,9 @@
 """Versioned, additive migrations for the ``comments`` schema.
 
-``CommentsStoreService.initialize()`` creates the base tables with
-``CREATE TABLE IF NOT EXISTS`` and then applies these in order under the
-schema advisory lock, recording each in ``comment_schema_migrations`` so a
-restart never re-runs or skips one. Every step must be safe to apply to a
+Step 0 creates the base tables (``comments_store_schema``); the rest build on
+them. :mod:`app.services.schema_ledger` applies them in order under the schema
+advisory lock, recording each in ``comment_schema_migrations`` so a restart
+never re-runs or skips one. Every step must be safe to apply to a
 populated database and safe to apply twice: ``ADD COLUMN IF NOT EXISTS``,
 backfills guarded by ``WHERE ... IS NULL``, indexes ``IF NOT EXISTS``.
 
@@ -13,10 +13,11 @@ search path to the comments schema (or a disposable test schema).
 
 from __future__ import annotations
 
-import logging
 from typing import Callable, List, Tuple
 
 from app.services import comment_live_events, comment_social
+from app.services.comments_store_schema import create_base_tables
+from app.services.schema_ledger import Ledger, Step
 from app.services.trackers import attachment_links
 from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema
 from app.services.trackers.migrations import (
@@ -27,10 +28,6 @@ from app.services.trackers.migrations import (
 )
 from app.services.trackers.op_store import apply_schema as apply_op_schema
 from app.services.trackers.projection_events import apply_schema as apply_tracker_projection_events
-
-logger = logging.getLogger(__name__)
-
-LEDGER_TABLE = "comment_schema_migrations"
 
 
 def _m001_identity_revisions_tombstones(conn) -> None:
@@ -230,6 +227,7 @@ def _m013_rich_content_and_attachments(conn) -> None:
 
 
 MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
+    (0, "base_tables", create_base_tables),
     (1, "identity_revisions_tombstones", _m001_identity_revisions_tombstones),
     (2, "backfill_create_revisions", _m002_backfill_create_revisions),
     (3, "tracked_threads_and_replies", migrate_comments_tracked_links),
@@ -249,35 +247,14 @@ MIGRATIONS: List[Tuple[int, str, Callable[[object], None]]] = [
 ]
 
 
-def applied_versions(conn) -> set[int]:
-    conn.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {LEDGER_TABLE} (
-            version INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-    return {int(row["version"]) for row in conn.execute(f"SELECT version FROM {LEDGER_TABLE}").fetchall()}
+COMMENTS_LEDGER = Ledger(
+    name="comments",
+    schema="comments",
+    table="comment_schema_migrations",
+    steps=tuple(Step(version, name, body) for version, name, body in MIGRATIONS),
+)
 
 
 def apply_comments_migrations(conn) -> List[int]:
-    """Apply every pending migration in order; return the versions applied.
-
-    Runs inside the caller's transaction and advisory lock, so a crash in the
-    middle of a step rolls the step and its ledger row back together.
-    """
-    applied = applied_versions(conn)
-    newly: List[int] = []
-    for version, name, migration in MIGRATIONS:
-        if version in applied:
-            continue
-        logger.info("Applying comments schema migration %s (%s)", version, name)
-        migration(conn)
-        conn.execute(
-            f"INSERT INTO {LEDGER_TABLE}(version, name) VALUES (%s, %s)",
-            (version, name),
-        )
-        newly.append(version)
-    return newly
+    """Apply every pending step in order under the caller's lock; return the versions applied."""
+    return COMMENTS_LEDGER.apply(conn)

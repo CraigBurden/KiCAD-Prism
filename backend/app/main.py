@@ -36,13 +36,11 @@ from app.api.health import router as health_router
 from app.api.plugin import router as plugin_router
 from app.api.git_http import router as git_http_router
 from app.api.agent import router as agent_router
-from app.services import password_credential_service, rate_limit_service, session_store_service
-from app.services.comments_store_service import initialize_comments_store
+from app.services import password_credential_service, session_store_service
+from app.services.schema_head import bring_every_schema_to_head
 from app.services.comment_live_broker import broker as comment_live_broker
 from app.services.component_catalog_service import catalog_service
 from app.services.postgres_database import database
-from app.services.workspace_service import workspace
-from app.services.job_service import jobs
 from app.core.config import settings
 from app.core.security_headers import apply_security_headers
 import os
@@ -186,23 +184,12 @@ async def lifespan(app: FastAPI):
     announce_configuration_warnings()
     configure_git()
     ensure_ssh_dir()
-    initialize_comments_store()
-    catalog_service.initialize()
-    workspace.initialize()
-    jobs.initialize()
-    from app.services.trackers.connector_service import initialize_tracker_connector_service
-    from app.services.trackers.identity_service import initialize_tracker_identity_service
-    from app.services.trackers.github_webhooks import initialize_tracker_webhook_service
+    bring_every_schema_to_head()
     from app.services.trackers.composition import initialize_tracker_composition
 
-    initialize_tracker_connector_service()
-    initialize_tracker_identity_service()
-    initialize_tracker_webhook_service()
     initialize_tracker_composition()
     if settings.AUTH_ENABLED:
-        session_store_service.initialize_session_store()
         session_store_service.prune_expired_sessions()
-        rate_limit_service.initialize_rate_limit_store()
         try:
             seeded = password_credential_service.seed_bootstrap_admins()
             if seeded:

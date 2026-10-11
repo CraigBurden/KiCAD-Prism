@@ -102,7 +102,7 @@ class RoutingContractTests(unittest.TestCase):
     def test_main_registers_admin_connector_routes(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
         self.assertIn("tracker_connectors_router", source)
-        self.assertIn("initialize_tracker_connector_service", source)
+        self.assertIn("bring_every_schema_to_head()", source)
         app = FastAPI()
         app.include_router(connectors_api.router)
         paths = set(app.openapi()["paths"])

@@ -115,11 +115,13 @@ class ReleaseStudioRetentionPostgresTests(unittest.TestCase):
                 name TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE ws_folders (
-                id TEXT PRIMARY KEY
+                id TEXT PRIMARY KEY,
+                parent_id TEXT
             );
             CREATE TABLE ws_projects (
                 id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id)
+                repo_id TEXT NOT NULL REFERENCES ws_repositories(id),
+                folder_id TEXT
             );
             CREATE TABLE ws_project_portfolio (
                 project_id TEXT PRIMARY KEY REFERENCES ws_projects(id)

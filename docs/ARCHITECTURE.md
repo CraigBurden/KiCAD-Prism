@@ -58,6 +58,12 @@ The application separates concerns into PostgreSQL schemas:
 - `catalog`: component metadata, revisions, assets, validation, and release data;
 - `operations`: jobs, leases, logs, artifacts, and runtime coordination.
 
+Each schema's tables change only through a numbered migration ledger
+(`backend/app/services/schema_ledger.py`); the backend brings every ledger to
+head at startup through `schema_head.bring_every_schema_to_head()`, and workers
+reach the same ledgers through the services they initialise. See
+[Upgrades](UPGRADES.md) for the ledger tables and how to add a migration.
+
 SQLite files may still appear inside generated KiCad DBL exports. Those are
 delivery artifacts, not Prism's runtime database.
 

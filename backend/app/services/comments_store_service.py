@@ -52,7 +52,6 @@ from app.services.comments_store_codec import (
 )
 from app.services.comments_store_retry import _retry_on_deadlock
 from app.services.comments_store_media import CommentsStoreMediaMixin
-from app.services.comments_store_schema import create_base_tables
 from app.services.postgres_database import database
 from app.services.trackers.promotion import (
     PromotionActor,
@@ -94,13 +93,7 @@ class CommentsStoreService(CommentsStoreMediaMixin):
             if self._initialized:
                 return
 
-            with self._connect() as conn:
-                conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
-                conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{self.schema}"')
-                conn.execute(f'SET search_path TO "{self.schema}", public')
-                create_base_tables(conn)
-                comments_schema_migrations.apply_comments_migrations(conn)
-                conn.commit()
+            comments_schema_migrations.COMMENTS_LEDGER.migrate(self._connect, schema=self.schema)
 
             self._initialized = True
 
