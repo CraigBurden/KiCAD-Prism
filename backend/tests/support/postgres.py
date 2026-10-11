@@ -263,7 +263,9 @@ def seed_job(conn: Any, job_id: str, kind: str, status: str, **columns: Any) -> 
     _insert(conn, "ws_jobs", {"id": job_id, "kind": kind, "status": status, "created_at": now, "updated_at": now, **columns})
 
 
-def seed_folder(conn: Any, folder_id: str, *, allowed_roles: list[str] | None = None, **columns: Any) -> None:
+def seed_folder(
+    conn: Any, folder_id: str, *, allowed_roles: list[str] | None = None, on_conflict_skip: bool = False, **columns: Any,
+) -> None:
     """A ``ws_folders`` row (top level unless ``parent_id`` is given)."""
 
     from psycopg.types.json import Jsonb
@@ -277,7 +279,7 @@ def seed_folder(conn: Any, folder_id: str, *, allowed_roles: list[str] | None = 
         "updated_at": now,
         **columns,
     }
-    _insert(conn, "ws_folders", values)
+    _insert(conn, "ws_folders", values, " ON CONFLICT DO NOTHING" if on_conflict_skip else "")
 
 
 def seed_project(conn: Any, project_id: str, repo_id: str, **columns: Any) -> None:

@@ -26,6 +26,10 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
     dict_row = None  # type: ignore[assignment]
 
 from app.core.errors import DomainError  # noqa: E402
+from app.services.workspace_schema_migrations import WORKSPACE_LEDGER  # noqa: E402
+from support.postgres import (  # noqa: E402
+    requires_scratch_postgres, scratch_schema, seed_job, seed_project, seed_repository,
+)
 from app.services.workspace_service import (  # noqa: E402
     ProjectHasSignedReleasesError,
     WorkspaceService,
@@ -34,27 +38,6 @@ from app.services.workspace_service import (  # noqa: E402
 
 # A route refuses with an HTTPException or a typed domain error (rendered by the app handler).
 ROUTE_ERRORS = (HTTPException, DomainError)
-
-
-TEST_POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _database_identity(url: str) -> tuple[str, str, int | None, str]:
-    parsed = urlsplit(url)
-    return (
-        parsed.username or "",
-        (parsed.hostname or "").lower(),
-        parsed.port,
-        parsed.path.lstrip("/"),
-    )
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    TEST_POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _database_identity(TEST_POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
-)
 
 
 def _run(coro):
@@ -69,55 +52,17 @@ class _User:
         self.auth_type = "session"
 
 
-@unittest.skipIf(psycopg is None, "psycopg is required")
-@unittest.skipIf(not TEST_POSTGRES_URL, "TEST_POSTGRES_URL must point at an isolated database")
-@unittest.skipIf(
-    SHARED_APPLICATION_DATABASE,
-    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
-)
+@requires_scratch_postgres("workspace delete tests")
 class WorkspaceDeleteProjectTests(unittest.TestCase):
     def setUp(self) -> None:
-        from app.services.workspace_schema_migrations import apply_workspace_migrations
-
-        self.schema = f"ws_del_{uuid.uuid4().hex[:10]}"
-        self.conn = psycopg.connect(TEST_POSTGRES_URL, row_factory=dict_row)
-        self.addCleanup(self.conn.close)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE ws_repositories (id TEXT PRIMARY KEY);
-            CREATE TABLE ws_folders (id TEXT PRIMARY KEY, parent_id TEXT);
-            CREATE TABLE ws_projects (
-                id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id),
-                folder_id TEXT
-            );
-            CREATE TABLE ws_project_portfolio (
-                project_id TEXT PRIMARY KEY REFERENCES ws_projects(id) ON DELETE CASCADE
-            );
-            CREATE TABLE ws_jobs (
-                id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
-                message TEXT NOT NULL DEFAULT '', percent REAL NOT NULL DEFAULT 0,
-                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            """,
-            prepare=False,
-        )
-        apply_workspace_migrations(self.conn)
-        self.conn.commit()
-        self.addCleanup(self._drop)
+        self.scratch = scratch_schema(self, "ws_del", ledgers=(WORKSPACE_LEDGER,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
 
         service = WorkspaceService()
-        schema = self.schema
-
         @contextmanager
         def _connect():
-            conn = psycopg.connect(TEST_POSTGRES_URL, row_factory=dict_row)
+            conn = self.scratch.connect()
             try:
-                conn.execute(f'SET search_path TO "{schema}", public')
                 yield conn
                 if not conn.closed:
                     conn.rollback()
@@ -127,20 +72,12 @@ class WorkspaceDeleteProjectTests(unittest.TestCase):
         self.service = service
         self.service._connect = _connect  # type: ignore[method-assign]
 
-    def _drop(self) -> None:
-        self.conn.rollback()
-        self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-        self.conn.commit()
-
     def _seed_unsigned_history(self) -> str:
         suffix = uuid.uuid4().hex[:8]
         project_id = f"prj_{suffix}"
         repo_id = f"repo_{suffix}"
-        self.conn.execute("INSERT INTO ws_repositories(id) VALUES (%s)", (repo_id,))
-        self.conn.execute(
-            "INSERT INTO ws_projects(id, repo_id) VALUES (%s, %s)",
-            (project_id, repo_id),
-        )
+        seed_repository(self.conn, repo_id)
+        seed_project(self.conn, project_id, repo_id)
         self.conn.execute(
             """
             INSERT INTO ws_release_candidates(
@@ -193,15 +130,9 @@ class WorkspaceDeleteProjectTests(unittest.TestCase):
             "key": f"key_{suffix}",
             "record": f"rel_{suffix}",
         }
-        self.conn.execute("INSERT INTO ws_repositories(id) VALUES (%s)", (ids["repository"],))
-        self.conn.execute(
-            "INSERT INTO ws_projects(id, repo_id) VALUES (%s, %s)",
-            (ids["project"], ids["repository"]),
-        )
-        self.conn.execute(
-            "INSERT INTO ws_jobs(id, kind, status) VALUES (%s, 'release-build', 'queued')",
-            (ids["job"],),
-        )
+        seed_repository(self.conn, ids["repository"])
+        seed_project(self.conn, ids["project"], ids["repository"])
+        seed_job(self.conn, ids["job"], "release-build", "queued")
         for artifact_id, kind in (
             (ids["artifact_dossier"], "release-dossier"),
             (ids["artifact_evidence"], "release-evidence"),

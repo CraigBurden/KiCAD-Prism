@@ -31,11 +31,11 @@ class PublishCase(ExportCase):
         super().setUp()
         from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService
 
-        from system_builder_db import POSTGRES_URL
+        from support.postgres import CATALOG_URL
 
         self.tempdir = tempfile.TemporaryDirectory()
         self.catalog = ComponentCatalogPostgresService(store_root=Path(self.tempdir.name) / "c",
-                                                       database_url=POSTGRES_URL)
+                                                       database_url=CATALOG_URL)
         self.catalog.initialize()
         self.service = SystemService(connect=self.connect, project_loader=self.projects.get,
                                      enqueue=lambda *a, **k: {"job_id": "j", "status": "queued"},

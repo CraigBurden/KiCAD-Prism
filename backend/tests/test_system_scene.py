@@ -25,6 +25,7 @@ from app.services.systems.bundles import BundleSource, BundleUnreadable, mid_pla
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION, _arc_points, extract_interface
 from app.services.systems.placement import poses
 from app.services.systems.scene import asset_id, board_bounds
+from support.postgres import seed_folder
 
 P2 = Path(__file__).resolve().parent / "fixtures" / "system_builder" / "p2" / "sources"
 
@@ -363,8 +364,7 @@ class NestedSceneTest(SceneCase):
 
     def test_a_hidden_child_system_is_one_box(self) -> None:
         admin = {o["displayPath"]: o for o in self.service.scene(ADMIN, self.bus)["occurrences"]}
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]')")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
         self.conn.execute("UPDATE system_projects SET folder_id = 'fld_admins' WHERE id = %s", (self.sid,))
         self.conn.commit()
         scene = self.service.scene(VIEWER, self.bus)

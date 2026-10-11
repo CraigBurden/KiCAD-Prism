@@ -9,6 +9,7 @@ from test_system_assemblies import AssemblyCase
 from test_system_snapshots import VIEWER
 
 from app.services.systems import hierarchy, visibility
+from support.postgres import seed_folder
 
 
 class HierarchyOnceTest(AssemblyCase):
@@ -49,8 +50,7 @@ class HierarchyOnceTest(AssemblyCase):
 
     def test_hidden_systems_names_the_ones_the_role_cannot_see(self) -> None:
         bus = self.bus_with_two_copies()
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]') ON CONFLICT DO NOTHING")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"], on_conflict_skip=True)
         self.conn.execute("UPDATE system_projects SET folder_id = 'fld_admins' WHERE id = %s", (self.sid,))
         self.conn.commit()
         self.assertEqual(visibility.hidden_systems(self.conn, "viewer", {self.sid, bus, "sys_missing"}),

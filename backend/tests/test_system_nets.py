@@ -11,6 +11,7 @@ from test_system_snapshots import DESIGNER, VIEWER
 from app.services.systems import system_nets, validation
 from app.services.systems.store import Invalid
 from app.services.systems.system_nets import Level, name_mismatch, net_meets_none, power_meets_signal
+from support.postgres import seed_folder
 
 
 class JoinRuleTest(unittest.TestCase):
@@ -196,8 +197,7 @@ class NetApiTest(AssemblyCase):
         self.assertIn("PDU", {m["displayPath"] for m in detail["members"]})
 
     def test_hidden_boards_are_redacted_in_nets(self) -> None:
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]') ON CONFLICT DO NOTHING")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"], on_conflict_skip=True)
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = 'prj_pwr'")
         self.conn.commit()
         [summary] = self.service.nets(VIEWER, self.bus, search="VIN_28V")["groups"]
