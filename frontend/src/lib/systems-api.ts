@@ -93,12 +93,7 @@ async function send<T>(
     throw new StaleSystemError((await apiErrorFrom(response, "This system changed; reload it")).message, nextEtag);
   }
   if (!response.ok) {
-    const error = await apiErrorFrom(response, fallback);
-    // System Builder writes a machine reason as the message prefix ("interface_not_ready: ...").
-    if (!error.code && error.status === 409 && error.message.startsWith("interface_not_ready")) {
-      error.code = "interface_not_ready";
-    }
-    throw error;
+    throw await apiErrorFrom(response, fallback);
   }
   const body = response.status === 204 ? (undefined as T) : ((await response.json()) as T);
   return { status: response.status, body, etag: nextEtag };

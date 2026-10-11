@@ -113,12 +113,10 @@ describe("metadata form mapping", () => {
       fields,
       unknownExtras: { leftover: "keep" },
       changeSummary: "Add custom fields",
-      expectedRevisionId: "rev-at-open",
     })).toEqual({
       value: "10k",
       extra_fields: { leftover: "keep", dielectric: "2.2", tolerance: "1%" },
       change_summary: "Add custom fields",
-      expected_revision_id: "rev-at-open",
     });
   });
 });

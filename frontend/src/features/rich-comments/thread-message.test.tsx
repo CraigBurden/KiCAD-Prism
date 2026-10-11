@@ -11,7 +11,11 @@ import { ThreadMessage } from "./thread-message";
 import { ThreadUpdateContext } from "./thread-updates";
 import { latestActivity, useUnreadThreads } from "./unread";
 
-vi.mock("@/lib/api", () => ({ fetchApi: vi.fn(), readApiError: vi.fn() }));
+vi.mock("@/lib/api", async (importOriginal) => ({
+    ifMatch: (await importOriginal<typeof import("@/lib/api")>()).ifMatch,
+    fetchApi: vi.fn(),
+    readApiError: vi.fn(),
+}));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 const mockedFetch = vi.mocked(fetchApi);
@@ -117,8 +121,9 @@ describe("ThreadMessage", () => {
         const [path, init] = mockedFetch.mock.calls[0]!;
         expect(path).toBe("/api/projects/p1/comments/c1");
         expect(JSON.parse(String(init?.body))).toEqual({
-            content: "**OVP** fixed", contentFormat: "md", expectedRevision: 3, mentions: [],
+            content: "**OVP** fixed", contentFormat: "md", mentions: [],
         });
+        expect(init?.headers).toEqual({ "If-Match": '"comment:c1:3"' });
         expect(screen.queryByRole("textbox", { name: "Edit message" })).toBeNull();
     });
 

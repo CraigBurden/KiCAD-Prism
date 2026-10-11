@@ -551,7 +551,7 @@ class SystemApiTest(unittest.TestCase):
             "b": {"instanceId": b.json["id"], "portKey": self.port_key("prj_pay", "J4")},
         })
         self.assertEqual(response.status, 409)
-        self.assertIn("interface_not_ready", response.json["detail"])
+        self.assertEqual(response.json["code"], "interface_not_ready")
 
     # ------------------------------------------------------------------ links and rows
 

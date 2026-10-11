@@ -29,7 +29,7 @@ from app.services.catalog.asset_types import (
     PLACE_REQUIRED_ASSET_TYPES,
     SUPPORTED_ASSET_TYPES,
 )
-from app.services.catalog.conflicts import CatalogConflict, asset_referenced_conflict
+from app.services.catalog.conflicts import asset_referenced_conflict, revision_conflict
 from app.services.catalog.normalization import sanitize_name
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
 from app.services.catalog.revision_kernel import CatalogRevisionKernel
@@ -78,7 +78,9 @@ class CatalogAssetImports:
         _, current = self._revision_kernel.active_revision_row(conn, component_id, released=False)
         if not current:
             raise ValueError("Component not found")
-        self._revision_kernel.assert_expected_revision(str(current["id"]), expected_revision_id)
+        self._revision_kernel.assert_expected_revision(
+            str(current["id"]), expected_revision_id, component_id=component_id,
+        )
 
     # -- pure upload shaping --------------------------------------------------
 
@@ -449,7 +451,7 @@ class CatalogAssetImports:
         if not current:
             raise ValueError("Component not found")
         if str(current["id"]) != expected_revision_id:
-            raise CatalogConflict()
+            raise revision_conflict(component_id=component_id, current_revision_id=str(current["id"]))
         linked = conn.execute(
             "SELECT asset_type FROM revision_assets WHERE revision_id = %s AND asset_id = %s",
             (current["id"], asset_id),

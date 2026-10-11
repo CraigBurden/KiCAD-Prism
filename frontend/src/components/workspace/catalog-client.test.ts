@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/api", () => ({ fetchJson: vi.fn(async () => ({})), fetchBlob: vi.fn(async () => new Blob()) }));
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ifMatch: (await importOriginal<typeof import("@/lib/api")>()).ifMatch,
+  fetchJson: vi.fn(async () => ({})),
+  fetchBlob: vi.fn(async () => new Blob()),
+}));
 
 import { fetchBlob, fetchJson } from "@/lib/api";
 import * as catalog from "./catalog-client";
@@ -18,6 +22,7 @@ function lastCall() {
     method: init?.method ?? "GET",
     body: typeof body === "string" ? JSON.parse(body) : body,
     signal: init?.signal,
+    ifMatch: (init?.headers as Record<string, string> | undefined)?.["If-Match"],
     fallback,
   };
 }
@@ -35,8 +40,6 @@ describe("catalog client", () => {
     ["regenerateComponentPreviews", () => catalog.regenerateComponentPreviews("c"), "/api/catalog/components/c/previews/regenerate", "POST"],
     ["queueComponentValidation", () => catalog.queueComponentValidation("c", signal), "/api/catalog/components/c/validate", "POST"],
     ["getValidationJob", () => catalog.getValidationJob("j 1", signal), "/api/catalog/validation/jobs/j%201", "GET"],
-    ["detachComponentAsset", () => catalog.detachComponentAsset("c", "a1", "r1"), "/api/catalog/components/c/assets/id/a1?expected_revision_id=r1", "DELETE"],
-    ["deleteRepresentation", () => catalog.deleteRepresentation("c", "p1", "r1"), "/api/catalog/components/c/representations/p1?expected_revision_id=r1", "DELETE"],
     ["removeMate", () => catalog.removeMate("c", "m1"), "/api/catalog/components/c/mates-with/m1", "DELETE"],
     ["deleteModuleConnector", () => catalog.deleteModuleConnector("c", "A"), "/api/catalog/components/c/module-connectors/A", "DELETE"],
     ["listMetadataFields", () => catalog.listMetadataFields(), "/api/catalog/metadata/fields", "GET"],
@@ -56,11 +59,7 @@ describe("catalog client", () => {
 
   it.each([
     ["createComponent", () => catalog.createComponent({ kind: "part" }), "/api/catalog/components", "POST", { kind: "part" }],
-    ["patchComponent", () => catalog.patchComponent("c", { value: "1k" }), "/api/catalog/components/c", "PATCH", { value: "1k" }],
-    ["releaseComponent", () => catalog.releaseComponent("c", { workflow_stage: "done" }), "/api/catalog/components/c/release", "POST", { workflow_stage: "done" }],
-    ["linkComponentAsset", () => catalog.linkComponentAsset("c", "symbol", { file_path: "x" }), "/api/catalog/components/c/assets/symbol/link", "POST", { file_path: "x" }],
-    ["createRepresentation", () => catalog.createRepresentation("c", { label: "L" }), "/api/catalog/components/c/representations", "POST", { label: "L" }],
-    ["updateRepresentation", () => catalog.updateRepresentation("c", "p1", { label: "L" }), "/api/catalog/components/c/representations/p1", "PATCH", { label: "L" }],
+    ["releaseComponent unguarded", () => catalog.releaseComponent("c", { workflow_stage: "done" }), "/api/catalog/components/c/release", "POST", { workflow_stage: "done" }],
     ["addMate", () => catalog.addMate("c", "m1"), "/api/catalog/components/c/mates-with", "POST", { componentId: "m1" }],
     ["saveModelAlignment", () => catalog.saveModelAlignment("c", "a1", { scale: 1 }), "/api/catalog/components/c/models/a1/alignment", "PUT", { scale: 1 }],
     ["saveModuleConnector", () => catalog.saveModuleConnector("c", "A", { partId: "p" }), "/api/catalog/components/c/module-connectors/A", "PUT", { partId: "p" }],
@@ -80,6 +79,19 @@ describe("catalog client", () => {
   ])("%s sends its JSON body", async (_, call, url, method, body) => {
     await call();
     expect(lastCall()).toMatchObject({ url, method, body });
+  });
+
+  it.each([
+    ["patchComponent", () => catalog.patchComponent("c", { value: "1k" }, "r1"), "/api/catalog/components/c", "PATCH", { value: "1k" }],
+    ["releaseComponent", () => catalog.releaseComponent("c", { workflow_stage: "done" }, "r1"), "/api/catalog/components/c/release", "POST", { workflow_stage: "done" }],
+    ["linkComponentAsset", () => catalog.linkComponentAsset("c", "symbol", { file_path: "x" }, "r1"), "/api/catalog/components/c/assets/symbol/link", "POST", { file_path: "x" }],
+    ["createRepresentation", () => catalog.createRepresentation("c", { label: "L" }, "r1"), "/api/catalog/components/c/representations", "POST", { label: "L" }],
+    ["updateRepresentation", () => catalog.updateRepresentation("c", "p1", { label: "L" }, "r1"), "/api/catalog/components/c/representations/p1", "PATCH", { label: "L" }],
+    ["detachComponentAsset", () => catalog.detachComponentAsset("c", "a1", "r1"), "/api/catalog/components/c/assets/id/a1", "DELETE", undefined],
+    ["deleteRepresentation", () => catalog.deleteRepresentation("c", "p1", "r1"), "/api/catalog/components/c/representations/p1", "DELETE", undefined],
+  ])("%s sends the component ETag as If-Match", async (_, call, url, method, body) => {
+    await call();
+    expect(lastCall()).toMatchObject({ url, method, body, ifMatch: '"component:c:r1"' });
   });
 
   it("passes the caller's signal through", async () => {
@@ -106,8 +118,8 @@ describe("catalog client", () => {
 
   it("routes asset imports by type", async () => {
     const form = new FormData();
-    await catalog.importComponentAsset("c", "symbol", form);
-    expect(lastCall()).toMatchObject({ url: "/api/catalog/components/c/symbol-import", method: "POST", body: form });
+    await catalog.importComponentAsset("c", "symbol", form, "r1");
+    expect(lastCall()).toMatchObject({ url: "/api/catalog/components/c/symbol-import", method: "POST", body: form, ifMatch: '"component:c:r1"' });
     await catalog.importComponentAsset("c", "footprint", form);
     expect(lastCall().url).toBe("/api/catalog/components/c/footprint-import");
     await catalog.importComponentAsset("c", "3dmodel", form);

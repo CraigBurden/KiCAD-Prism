@@ -40,7 +40,7 @@ class CatalogConflictTypeTests(unittest.TestCase):
 
 
 def _raised_through_route(exc: ValueError) -> DomainError:
-    """What a catalog write route answers: typed conflicts keep 409, other ValueErrors are 400."""
+    """What a catalog write route answers: typed conflicts keep their status, other ValueErrors are 400."""
     try:
         with value_errors_as(400, keep_typed=True):
             raise exc
@@ -52,11 +52,12 @@ def _raised_through_route(exc: ValueError) -> DomainError:
 class CatalogConflictHttpTests(unittest.TestCase):
     def test_conflict_status_does_not_depend_on_wording(self) -> None:
         raised = _raised_through_route(CatalogConflict("head moved"))
-        self.assertEqual(raised.status_code, 409)
-        self.assertEqual(
-            raised.body(),
-            {"detail": {"code": REVISION_CONFLICT_CODE, "message": "head moved"}},
-        )
+        self.assertEqual(raised.status_code, 412)  # D13: a stale revision answers like every guarded write
+        self.assertEqual(raised.body(), {"detail": "head moved", "code": REVISION_CONFLICT_CODE})
+
+    def test_a_stale_revision_carries_the_current_etag(self) -> None:
+        raised = _raised_through_route(revision_conflict(component_id="cmp-1", current_revision_id="rev-2"))
+        self.assertEqual((raised.status_code, raised.headers), (412, {"ETag": '"component:cmp-1:rev-2"'}))
 
     def test_plain_value_error_with_conflict_wording_stays_400(self) -> None:
         raised = _raised_through_route(
@@ -68,15 +69,12 @@ class CatalogConflictHttpTests(unittest.TestCase):
     def test_validation_stays_400(self) -> None:
         raised = _raised_through_route(ValueError("label is required"))
         self.assertEqual(raised.status_code, 400)
-        self.assertEqual(raised.body(), {"detail": "label is required"})
+        self.assertEqual(raised.body(), {"detail": "label is required", "code": "bad_request"})
 
     def test_referenced_conflict_is_409(self) -> None:
         raised = _raised_through_route(asset_referenced_conflict("still attached"))
         self.assertEqual(raised.status_code, 409)
-        self.assertEqual(
-            raised.body(),
-            {"detail": {"code": ASSET_REFERENCED_CODE, "message": "still attached"}},
-        )
+        self.assertEqual(raised.body(), {"detail": "still attached", "code": ASSET_REFERENCED_CODE})  # D14: flat
 
 
 if __name__ == "__main__":

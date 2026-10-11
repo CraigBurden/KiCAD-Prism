@@ -112,8 +112,7 @@ export function MetadataEditDialog({
         fields,
         unknownExtras: parsed.extras,
         changeSummary,
-        expectedRevisionId: session.expectedRevisionId,
-      }));
+      }), session.expectedRevisionId);
       if (!aliveRef.current) return;
       toast.success("Metadata saved as a new revision.");
       onSuccess();

@@ -54,6 +54,14 @@ ALEX2 = Editor(user_id="u_2", kind="user", display="Alex Chen")
 ADMIN = Editor(user_id="u_admin", kind="user", display="Admin")
 
 
+def if_match(kind: str, target: str, revision):
+    """A route's request whose ``If-Match`` names ``revision`` of the target (none when ``None``)."""
+    from starlette.requests import Request
+
+    headers = [] if revision is None else [(b"if-match", f'"{kind}:{target}:{revision}"'.encode())]
+    return Request({"type": "http", "headers": headers})
+
+
 class ProjectionTests(unittest.TestCase):
     def test_legacy_row_projects_as_unowned_and_unpinned(self) -> None:  # F1.legacy_display_name_author
         row = {

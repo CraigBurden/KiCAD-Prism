@@ -6,8 +6,13 @@
  * Each function keeps the error fallback its call site used, so a failed
  * request reads the same as before. URL builders (`…Url`) are for `<img>`,
  * links and downloads the browser fetches itself.
+ *
+ * Single-component writes take the revision the editor opened (`revisionId`)
+ * and send it as `If-Match` (the component ETag). A stale one answers 412
+ * `revision_conflict`; where `revisionId` is optional, omitting it writes
+ * unguarded.
  */
-import { fetchBlob, fetchJson } from "@/lib/api";
+import { fetchBlob, fetchJson, ifMatch } from "@/lib/api";
 import type {
   BulkAcceptResult,
   CatalogAssetSummary,
@@ -47,6 +52,8 @@ const post = (body?: unknown): RequestInit => ({
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 const withSignal = (signal?: AbortSignal): RequestInit | undefined => (signal ? { signal } : undefined);
+const guarded = (componentId: string, revisionId: string | undefined, init: RequestInit): RequestInit =>
+  (revisionId ? { ...init, headers: ifMatch("component", componentId, revisionId) } : init);
 
 type Items<T> = { items: T[] };
 type Categories = { categories: Array<{ name: string; count: number }> };
@@ -65,8 +72,11 @@ export function createComponent(fields: Record<string, unknown>) {
   return fetchJson<CatalogComponent>(`${CATALOG}/components`, post(fields));
 }
 
-export function patchComponent(componentId: string, patch: unknown) {
-  return fetchJson<CatalogComponent>(component(componentId), { method: "PATCH", body: JSON.stringify(patch) });
+export function patchComponent(componentId: string, patch: unknown, revisionId: string) {
+  return fetchJson<CatalogComponent>(
+    component(componentId),
+    guarded(componentId, revisionId, { method: "PATCH", body: JSON.stringify(patch) }),
+  );
 }
 
 export function listCategories() {
@@ -107,8 +117,8 @@ export function verifyComponentAudit(componentId: string, signal?: AbortSignal) 
 }
 
 /** Move a component to a workflow stage (the backend decides whether it may). */
-export function releaseComponent(componentId: string, request: Record<string, unknown>) {
-  return fetchJson<CatalogComponent>(`${component(componentId)}/release`, post(request));
+export function releaseComponent(componentId: string, request: Record<string, unknown>, revisionId?: string) {
+  return fetchJson<CatalogComponent>(`${component(componentId)}/release`, guarded(componentId, revisionId, post(request)));
 }
 
 export function regenerateComponentPreviews(componentId: string) {
@@ -142,7 +152,7 @@ export function catalogPreviewUrl(previewId: string): string {
 // ---------------------------------------------------- assets and representations
 
 /** Attach an uploaded asset; symbols and footprints may ask which entry to import. */
-export function importComponentAsset(componentId: string, assetType: string, form: FormData) {
+export function importComponentAsset(componentId: string, assetType: string, form: FormData, revisionId?: string) {
   const path = assetType === "symbol"
     ? `${component(componentId)}/symbol-import`
     : assetType === "footprint"
@@ -150,17 +160,16 @@ export function importComponentAsset(componentId: string, assetType: string, for
       : `${component(componentId)}/assets/${id(assetType)}`;
   return fetchJson<SelectionRequiredResponse | ImportCompletedResponse | { component: CatalogComponent }>(
     path,
-    { method: "POST", body: form },
+    guarded(componentId, revisionId, { method: "POST", body: form }),
   );
 }
 
-export function linkComponentAsset(componentId: string, assetType: string, link: Record<string, unknown>) {
-  return fetchJson(`${component(componentId)}/assets/${id(assetType)}/link`, post(link));
+export function linkComponentAsset(componentId: string, assetType: string, link: Record<string, unknown>, revisionId?: string) {
+  return fetchJson(`${component(componentId)}/assets/${id(assetType)}/link`, guarded(componentId, revisionId, post(link)));
 }
 
-export function detachComponentAsset(componentId: string, assetId: string, expectedRevisionId: string) {
-  const params = new URLSearchParams({ expected_revision_id: expectedRevisionId });
-  return fetchJson(`${component(componentId)}/assets/id/${id(assetId)}?${params.toString()}`, { method: "DELETE" });
+export function detachComponentAsset(componentId: string, assetId: string, revisionId: string) {
+  return fetchJson(`${component(componentId)}/assets/id/${id(assetId)}`, guarded(componentId, revisionId, { method: "DELETE" }));
 }
 
 export function searchAssets(assetType: string, query: string, limit: number, signal?: AbortSignal) {
@@ -179,21 +188,23 @@ export function browseStoredAssets(assetType: string, query: string, limit: numb
   );
 }
 
-export function createRepresentation(componentId: string, representation: Record<string, unknown>) {
-  return fetchJson(`${component(componentId)}/representations`, post(representation));
+export function createRepresentation(componentId: string, representation: Record<string, unknown>, revisionId: string) {
+  return fetchJson(`${component(componentId)}/representations`, guarded(componentId, revisionId, post(representation)));
 }
 
-export function updateRepresentation(componentId: string, representationId: string, representation: Record<string, unknown>) {
-  return fetchJson(`${component(componentId)}/representations/${id(representationId)}`, {
+export function updateRepresentation(
+  componentId: string, representationId: string, representation: Record<string, unknown>, revisionId: string,
+) {
+  return fetchJson(`${component(componentId)}/representations/${id(representationId)}`, guarded(componentId, revisionId, {
     method: "PATCH",
     body: JSON.stringify(representation),
-  });
+  }));
 }
 
-export function deleteRepresentation(componentId: string, representationId: string, expectedRevisionId: string) {
+export function deleteRepresentation(componentId: string, representationId: string, revisionId: string) {
   return fetchJson(
-    `${component(componentId)}/representations/${id(representationId)}?expected_revision_id=${id(expectedRevisionId)}`,
-    { method: "DELETE" },
+    `${component(componentId)}/representations/${id(representationId)}`,
+    guarded(componentId, revisionId, { method: "DELETE" }),
   );
 }
 

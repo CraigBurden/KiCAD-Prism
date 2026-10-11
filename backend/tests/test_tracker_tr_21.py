@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
+from app.core.errors import DomainError  # noqa: E402
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -96,6 +97,9 @@ def session(role: str, *, user_id: str = "u_1", session_id: str = "sid_1") -> Au
         session_id=session_id,
         user_id=user_id,
     )
+
+
+ROUTE_ERRORS = (HTTPException, DomainError)
 
 
 def run(coro):
@@ -364,7 +368,7 @@ class IdentityOAuthPostgresTests(unittest.TestCase):
         )
         listed_other = run(identity_api.list_identities(self.other))
         self.assertEqual(listed_other, [])
-        with self.assertRaises(HTTPException) as unlink_other:
+        with self.assertRaises(ROUTE_ERRORS) as unlink_other:
             run(identity_api.unlink_identity("cn_gh1", self.other))
         self.assertEqual(unlink_other.exception.status_code, 404)
 

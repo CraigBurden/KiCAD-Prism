@@ -178,7 +178,7 @@ class ServiceCore:
             if instance.get("kind", "board") != "board":
                 raise Conflict(f"the {'module' if instance.get('kind') == 'module' else 'subsystem'}'s catalog revision "
                                "cannot be read; try again")
-            raise Conflict("interface_not_ready: the board interface at this baseline is still being extracted")
+            raise Conflict("The board interface at this baseline is still being extracted", code="interface_not_ready")
         return found
 
     def _require_project(self, store: SystemStore, project_id: str, caller: Caller) -> Any:

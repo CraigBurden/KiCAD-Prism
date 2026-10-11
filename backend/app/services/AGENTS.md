@@ -203,8 +203,10 @@ of these.
 Every root and reply write goes through `comments_store_writes.py`: given the
 caller's `ActorIdentity` it authorizes inside the write's transaction
 (`comment_permissions.py`), mutates, records the revision and the change event,
-and returns the thread with the actor's capabilities (`comment_capabilities.py`).
-Routes only translate HTTP. Row writes shared with the tracker (inbound replies,
+and returns the thread with the actor's capabilities (`comment_capabilities.py`),
+promote and share included. Routes only translate HTTP; the expected revision
+comes from `If-Match` (`comments_revisions.etag`). Every reply is stamped with
+the transaction's `NOW()`. Row writes shared with the tracker (inbound replies,
 system notes, reply `sync_state`) are `comment_write.py`; edits, status and
 tombstones are `comments_revisions.py`, which streams through
 `comment_live_events.record_thread_change`. Do not write `comments` or

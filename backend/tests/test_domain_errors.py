@@ -26,22 +26,27 @@ def _client(raise_error) -> TestClient:
 class DomainErrorClassesTest(unittest.TestCase):
     def test_each_class_fixes_the_status(self) -> None:
         cases = [
-            (errors.BadRequest, 400),
-            (errors.Forbidden, 403),
-            (errors.NotFound, 404),
-            (errors.Conflict, 409),
-            (errors.StaleVersion, 412),
-            (errors.Invalid, 422),
-            (errors.UpstreamFailure, 502),
-            (errors.Unavailable, 503),
+            (errors.BadRequest, 400, "bad_request"),
+            (errors.Forbidden, 403, "forbidden"),
+            (errors.NotFound, 404, "not_found"),
+            (errors.Conflict, 409, "conflict"),
+            (errors.StaleVersion, 412, "stale_version"),
+            (errors.Invalid, 422, "invalid"),
+            (errors.PreconditionRequired, 428, "precondition_required"),
+            (errors.UpstreamFailure, 502, "upstream_failure"),
+            (errors.Unavailable, 503, "unavailable"),
         ]
-        for cls, status in cases:
+        for cls, status, code in cases:
             with self.subTest(cls=cls.__name__):
                 error = cls("message")
                 self.assertEqual(error.status_code, status)
-                # No code unless the error carries one: the body is today's {"detail": ...}.
-                self.assertEqual(error.body(), {"detail": "message"})
+                # D15: every typed error carries a machine code.
+                self.assertEqual(error.body(), {"detail": "message", "code": code})
                 self.assertEqual(str(error), "message")
+
+    def test_the_bridge_gives_every_status_a_code(self) -> None:
+        self.assertEqual(errors.caller_error(ValueError("x"), 400).body(), {"detail": "x", "code": "bad_request"})
+        self.assertEqual(errors.caller_error(ValueError("x"), 500).body(), {"detail": "x", "code": "error"})
 
     def test_a_code_and_extras_sit_beside_detail(self) -> None:
         error = errors.Forbidden("no", code="publication_required", requiredRole="designer")
@@ -51,7 +56,7 @@ class DomainErrorClassesTest(unittest.TestCase):
         error = errors.Conflict("x", code="revision_conflict", status_code=412, currentRevision=3)
         self.assertEqual(error.status_code, 412)
         self.assertEqual(error.body(), {"detail": "x", "code": "revision_conflict", "currentRevision": 3})
-        self.assertEqual((errors.Conflict.status_code, errors.Conflict.code), (409, None))
+        self.assertEqual((errors.Conflict.status_code, errors.Conflict.code), (409, "conflict"))
 
     def test_client_detail_can_differ_from_the_internal_message(self) -> None:
         error = errors.NotFound("sys-123", detail="Not found")
@@ -70,7 +75,7 @@ class HandlerTest(unittest.TestCase):
         response = _client(raise_stale).get("/boom")
         self.assertEqual(response.status_code, 412)
         self.assertEqual(response.headers["etag"], '"sys:s:4"')
-        self.assertEqual(response.json(), {"detail": "System has changed; reload it"})
+        self.assertEqual(response.json(), {"detail": "System has changed; reload it", "code": "stale_version"})
 
     def test_subclasses_defined_by_services_use_the_same_handler(self) -> None:
         class PasswordTooShort(errors.Invalid, ValueError):
@@ -126,7 +131,7 @@ class ValueErrorBridgeTest(unittest.TestCase):
         with self.assertRaises(errors.BadRequest) as caught:
             with errors.value_errors_as(400):
                 raise TypedConflict("changed")
-        self.assertEqual(caught.exception.body(), {"detail": "changed"})
+        self.assertEqual(caught.exception.body(), {"detail": "changed", "code": "bad_request"})
 
     def test_typed_errors_that_are_not_value_errors_pass_through(self) -> None:
         with self.assertRaises(errors.NotFound):
@@ -154,14 +159,14 @@ class CallerErrorsTest(unittest.TestCase):
                 with self.assertRaises(errors.DomainError) as caught:
                     scan(error)
                 self.assertEqual(caught.exception.status_code, status)
-                self.assertEqual(caught.exception.body(), {"detail": str(error)})
+                self.assertEqual(caught.exception.body()["detail"], str(error))
 
     def test_unexpected_exceptions_get_a_fixed_message_not_their_text(self) -> None:
         with self.assertLogs("app.core.errors", level="ERROR"):
             with self.assertRaises(errors.DomainError) as caught:
                 with errors.caller_errors((ValueError, 400), unexpected="Analysis failed"):
                     raise OSError("/srv/prism/secret path")
-        self.assertEqual((caught.exception.status_code, caught.exception.body()), (500, {"detail": "Analysis failed"}))
+        self.assertEqual((caught.exception.status_code, caught.exception.body()), (500, {"detail": "Analysis failed", "code": "error"}))
 
     def test_http_and_domain_errors_are_never_swallowed_as_unexpected(self) -> None:
         from fastapi import HTTPException
@@ -172,6 +177,36 @@ class CallerErrorsTest(unittest.TestCase):
         with self.assertRaises(errors.NotFound):
             with errors.caller_errors(unexpected="Workflow failed to start"):
                 raise errors.NotFound("Folder not found")
+
+
+class PreconditionsTest(unittest.TestCase):
+    """D13: one conflict shape. ``If-Match`` names the version; 428 when a required one is missing."""
+
+    def test_etag_round_trips(self) -> None:
+        from app.core import preconditions
+
+        tag = preconditions.etag("component", "cmp-1", "rev-2")
+        self.assertEqual(tag, '"component:cmp-1:rev-2"')
+        self.assertEqual(preconditions.parse_if_match(tag, "component", "cmp-1"), "rev-2")
+        self.assertEqual(preconditions.parse_if_match('W/"reply:r_1:4"', "reply", "r_1"), "4")
+
+    def test_missing_is_428_when_required_and_none_when_optional(self) -> None:
+        from app.core import preconditions
+
+        with self.assertRaises(errors.PreconditionRequired) as caught:
+            preconditions.parse_if_match(None, "comment", "c_1")
+        self.assertEqual(caught.exception.body(), {"detail": "If-Match is required", "code": "precondition_required"})
+        self.assertIsNone(preconditions.parse_if_match("  ", "comment", "c_1", required=False))
+
+    def test_another_resources_tag_is_never_current(self) -> None:
+        from app.core import preconditions
+
+        for raw in ('"comment:c_2:3"', '"reply:c_1:3"', "*", "garbage"):
+            with self.subTest(raw=raw):
+                self.assertEqual(preconditions.parse_if_match(raw, "comment", "c_1"), preconditions.STALE)
+        self.assertEqual(preconditions.int_version(preconditions.STALE), -1)
+        self.assertEqual(preconditions.int_version("7"), 7)
+        self.assertIsNone(preconditions.int_version(None))
 
 
 class RoutersRenderNoExceptionTextTest(unittest.TestCase):

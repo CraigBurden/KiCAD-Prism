@@ -7,11 +7,13 @@
  * `fetchBlob` and `fetchChecked` throw `ApiHttpError` for any non-OK status,
  * so a caller never parses an error body itself.
  *
- * Error bodies (see `backend/app/core/errors.py`): `{"detail": "<message>",
- * "code"?: ..., ...extra}`; catalog conflicts send `{"detail": {code, message}}`,
- * some tracker routes nest the whole object under `detail`, and FastAPI
- * validation sends `detail` as an array. Non-JSON bodies (a proxy's 502 page)
- * fall back to the caller's message.
+ * Error bodies (see `backend/app/core/errors.py`) have one shape:
+ * `{"detail": "<message>", "code": "<code>", ...extra}`. FastAPI's own request
+ * validation sends `detail` as an array, which is read into one message.
+ * Non-JSON bodies (a proxy's 502 page) fall back to the caller's message.
+ *
+ * Guarded writes send the ETag they read as `If-Match` (`ifMatch`). A stale one
+ * answers 412 (`isStale`), a missing one 428.
  *
  * Raw `fetch` is only for non-Prism endpoints (GitHub releases, the local
  * KiCad agent) and immutable static assets.
@@ -20,8 +22,7 @@
 type ValidationEntry = { loc?: unknown[]; msg?: string };
 
 export interface ApiErrorPayload {
-  detail?: string | { code?: string; message?: string; detail?: string } | ValidationEntry[];
-  message?: string;
+  detail?: string | ValidationEntry[];
   code?: string;
   [key: string]: unknown;
 }
@@ -53,12 +54,12 @@ export class ApiHttpError extends Error {
     return this.status === 404;
   }
 
-  /** The write contradicts newer state: reload, then retry deliberately. */
+  /** The write contradicts state no ETag describes: reload, then retry deliberately. */
   get isConflict(): boolean {
-    return this.status === 409 || this.code === "revision_conflict";
+    return this.status === 409;
   }
 
-  /** A guarded write carried an old version (System Builder's ETag, 412). */
+  /** A guarded write's `If-Match` named an old version (412): reload, then retry. */
   get isStale(): boolean {
     return this.status === 412;
   }
@@ -78,25 +79,16 @@ function parseApiErrorPayload(raw: unknown, fallback: string): ParsedApiError {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { message: fallback, payload: {} };
   }
-  const { detail, message, code, ...rest } = raw as ApiErrorPayload;
-  if (Array.isArray(detail)) {
-    const text = detail
-      .map((entry) => `${entry.loc?.slice(-1)?.[0] || "Field"}: ${entry.msg}`)
-      .join(", ");
-    return { message: text || fallback, code: nonEmpty(code), payload: rest };
-  }
-  if (detail && typeof detail === "object") {
-    // Catalog conflicts send {"detail": {code, message}}; some tracker routes nest
-    // the whole body ({"detail": {detail, code, ...}}). Either way the object's
-    // fields are the error's fields.
-    const { detail: inner, message: innerMessage, code: innerCode, ...innerRest } = detail as Record<string, unknown>;
-    return {
-      message: nonEmpty(inner) ?? nonEmpty(innerMessage) ?? nonEmpty(message) ?? fallback,
-      code: nonEmpty(innerCode) ?? nonEmpty(code),
-      payload: { ...rest, ...innerRest },
-    };
-  }
-  return { message: nonEmpty(detail) ?? nonEmpty(message) ?? fallback, code: nonEmpty(code), payload: rest };
+  const { detail, code, ...rest } = raw as ApiErrorPayload;
+  const message = Array.isArray(detail)
+    ? detail.map((entry) => `${entry.loc?.slice(-1)?.[0] || "Field"}: ${entry.msg}`).join(", ")
+    : detail;
+  return { message: nonEmpty(message) ?? fallback, code: nonEmpty(code), payload: rest };
+}
+
+/** The `If-Match` header for a guarded write: the resource's ETag `"<kind>:<id>:<version>"`. */
+export function ifMatch(kind: "comment" | "reply" | "component", id: string, version: string | number): Record<string, string> {
+  return { "If-Match": `"${kind}:${id}:${version}"` };
 }
 
 export async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

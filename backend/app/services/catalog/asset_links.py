@@ -190,7 +190,7 @@ class CatalogAssetLinks:
         if not current:
             raise ValueError("Component not found")
         current_id = str(current["id"])
-        self._revision_kernel.assert_expected_revision(current_id, expected_revision_id)
+        self._revision_kernel.assert_expected_revision(current_id, expected_revision_id, component_id=component_id)
         asset_type = str(asset["asset_type"])
         asset_id = str(asset["id"])
         existing = conn.execute(

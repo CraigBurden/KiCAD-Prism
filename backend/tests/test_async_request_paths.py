@@ -259,7 +259,7 @@ class CatalogUploadsDoNotBlockTheLoopTests(unittest.TestCase):
 
         async def scenario() -> tuple[bool, dict]:
             upload = asyncio.create_task(
-                catalog_admin_api.import_symbol_library("cmp", _Upload(), "", "", "", "", user)
+                catalog_admin_api.import_symbol_library("cmp", _Upload(), "", "", "", request=Request({"type": "http", "headers": []}), user=user)
             )
             await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
             probe_finished = await _lightweight_probe_completes_while(upload)
@@ -278,7 +278,7 @@ class CatalogUploadsDoNotBlockTheLoopTests(unittest.TestCase):
             catalog_admin_api.catalog_service, "import_symbol_library", side_effect=ValueError("Uploaded library has no symbols")
         ):
             with self.assertRaises(ROUTE_ERRORS) as ctx:
-                asyncio.run(catalog_admin_api.import_symbol_library("cmp", _Upload(), "", "", "", "", user))
+                asyncio.run(catalog_admin_api.import_symbol_library("cmp", _Upload(), "", "", "", request=Request({"type": "http", "headers": []}), user=user))
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(ctx.exception.detail, "Uploaded library has no symbols")
 

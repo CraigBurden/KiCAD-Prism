@@ -7,13 +7,13 @@ import io
 from itertools import chain
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.errors import caller_errors, value_errors_as
 from app.core.config import settings
-from app.core import policy
+from app.core import policy, preconditions
 from app.core.policy import require_owner_or_admin
 from app.core.security import (
     AuthenticatedUser,
@@ -98,7 +98,6 @@ class UpdateComponentMetadataRequest(BaseModel):
     power_dissipation_w: str | None = None
     rate: str | None = None
     sap_code: str | None = None
-    expected_revision_id: str = Field(min_length=1)
     change_summary: str = "Update component metadata"
     extra_fields: dict[str, str] | None = None
 
@@ -111,7 +110,6 @@ class CreateRepresentationRequest(BaseModel):
     is_default: bool = False
     source_internal_part_number: str = ""
     provenance: dict[str, Any] = Field(default_factory=dict)
-    expected_revision_id: str = Field(min_length=1)
     change_summary: str = "Add component representation"
 
 
@@ -121,7 +119,6 @@ class UpdateRepresentationRequest(BaseModel):
     footprint_asset_id: str | None = None
     display_order: int | None = None
     is_default: bool | None = None
-    expected_revision_id: str = Field(min_length=1)
     change_summary: str = "Update component representation"
 
 
@@ -163,7 +160,6 @@ class ReleaseStatusRequest(BaseModel):
     workflow_stage: str = ""
     self_approval_override_reason: str = ""
     review_note: str = ""
-    expected_revision_id: str = ""
     expected_manifest_hash: str = ""
 
 
@@ -912,14 +908,20 @@ def get_catalog_asset_content(asset_id: str, user: AuthenticatedUser = Depends(r
     )
 
 
+def _revision(request: Request, component_id: str, *, required: bool = True) -> str:
+    """The component revision ``If-Match`` names (``"component:<id>:<revision id>"``); "" when optional and absent."""
+    return preconditions.if_match(request, "component", component_id, required=required) or ""
+
+
 @router.patch("/components/{component_id}")
 def update_catalog_component(
     component_id: str,
     payload: UpdateComponentMetadataRequest,
+    request: Request,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     request_data = payload.model_dump()
-    expected_revision_id = str(request_data.pop("expected_revision_id") or "")
+    expected_revision_id = _revision(request, component_id)
     change_summary = str(request_data.pop("change_summary") or "Update component metadata")
     updates: dict[str, Any] = {
         key: value
@@ -943,6 +945,7 @@ def update_catalog_component(
 def create_component_representation(
     component_id: str,
     payload: CreateRepresentationRequest,
+    request: Request,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     with value_errors_as(400, keep_typed=True):
@@ -955,7 +958,7 @@ def create_component_representation(
             make_default=payload.is_default,
             source_internal_part_number=payload.source_internal_part_number,
             provenance=payload.provenance,
-            expected_revision_id=payload.expected_revision_id,
+            expected_revision_id=_revision(request, component_id),
             actor=user.email,
             change_summary=payload.change_summary,
         )
@@ -966,13 +969,12 @@ def update_component_representation(
     component_id: str,
     representation_id: str,
     payload: UpdateRepresentationRequest,
+    request: Request,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     updates = {
         key: value
-        for key, value in payload.model_dump(
-            exclude={"expected_revision_id", "change_summary"}
-        ).items()
+        for key, value in payload.model_dump(exclude={"change_summary"}).items()
         if value is not None
     }
     with value_errors_as(400, keep_typed=True):
@@ -980,7 +982,7 @@ def update_component_representation(
             component_id,
             representation_id,
             updates=updates,
-            expected_revision_id=payload.expected_revision_id,
+            expected_revision_id=_revision(request, component_id),
             actor=user.email,
             change_summary=payload.change_summary,
         )
@@ -990,14 +992,14 @@ def update_component_representation(
 def delete_component_representation(
     component_id: str,
     representation_id: str,
-    expected_revision_id: str = Query(...),
+    request: Request,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     with value_errors_as(400, keep_typed=True):
         return catalog_service.delete_representation(
             component_id,
             representation_id,
-            expected_revision_id=expected_revision_id,
+            expected_revision_id=_revision(request, component_id),
             actor=user.email,
         )
 
@@ -1008,7 +1010,7 @@ async def import_symbol_library(
     file: UploadFile = File(...),
     target_library: str = Form(default=""),
     selected_symbol: str = Form(default=""),
-    counterpart_asset_id: str = Form(default=""), expected_revision_id: str = Form(default=""),
+    counterpart_asset_id: str = Form(default=""), *, request: Request,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     payload = await file.read()
@@ -1025,7 +1027,7 @@ async def import_symbol_library(
             target_library=target_library or component_id,
             selected_symbol=selected_symbol,
             counterpart_asset_id=counterpart_asset_id,
-            actor=user.email, expected_revision_id=expected_revision_id,
+            actor=user.email, expected_revision_id=_revision(request, component_id, required=False),
         )
 
 
@@ -1035,7 +1037,7 @@ async def import_footprint(
     file: UploadFile = File(...),
     target_library: str = Form(default=""),
     selected_footprint: str = Form(default=""),
-    counterpart_asset_id: str = Form(default=""), expected_revision_id: str = Form(default=""),
+    counterpart_asset_id: str = Form(default=""), *, request: Request,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     payload = await file.read()
@@ -1051,7 +1053,7 @@ async def import_footprint(
             target_library=target_library or "Prism_Footprints",
             selected_footprint=selected_footprint,
             counterpart_asset_id=counterpart_asset_id,
-            actor=user.email, expected_revision_id=expected_revision_id,
+            actor=user.email, expected_revision_id=_revision(request, component_id, required=False),
         )
 
 
@@ -1060,7 +1062,7 @@ async def import_auxiliary_asset(
     component_id: str,
     asset_type: str,
     file: UploadFile = File(...),
-    target_library: str = Form(default=""), expected_revision_id: str = Form(default=""),
+    target_library: str = Form(default=""), *, request: Request,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     payload = await file.read()
@@ -1075,7 +1077,7 @@ async def import_auxiliary_asset(
             upload_name=file.filename or f"{asset_type}.bin",
             payload=payload,
             target_library=target_library or "Prism_Assets",
-            actor=user.email, expected_revision_id=expected_revision_id,
+            actor=user.email, expected_revision_id=_revision(request, component_id, required=False),
         )
 
 
@@ -1093,14 +1095,14 @@ def detach_component_asset(
 def detach_component_asset_by_id(
     component_id: str,
     asset_id: str,
-    expected_revision_id: str = Query(...),
+    request: Request,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     with value_errors_as(400, keep_typed=True):
         return catalog_service.detach_asset_by_id(
             component_id,
             asset_id,
-            expected_revision_id=expected_revision_id,
+            expected_revision_id=_revision(request, component_id),
             actor=user.email,
         )
 
@@ -1116,6 +1118,7 @@ def delete_catalog_component(component_id: str, user: AuthenticatedUser = Depend
 def transition_release_status(
     component_id: str,
     payload: ReleaseStatusRequest,
+    request: Request,
     user: AuthenticatedUser = Depends(require_catalog_reader),
 ):
     with value_errors_as(400, keep_typed=True):
@@ -1139,7 +1142,7 @@ def transition_release_status(
             self_approval_override_reason=override_reason,
             review_note=payload.review_note,
             actor_role=user.role,
-            expected_revision_id=payload.expected_revision_id,
+            expected_revision_id=_revision(request, component_id, required=False),
             expected_manifest_hash=payload.expected_manifest_hash,
         )
     if not component:
@@ -1454,13 +1457,13 @@ class LinkAssetRequest(BaseModel):
     target_library: str = ""
     target_name: str = ""
     counterpart_asset_id: str = ""
-    expected_revision_id: str = ""
 
 @router.post("/components/{component_id}/assets/{asset_type}/link")
 def link_library_asset(
     component_id: str,
     asset_type: str,
     payload: LinkAssetRequest,
+    request: Request,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
@@ -1472,5 +1475,5 @@ def link_library_asset(
             target_library=payload.target_library,
             target_name=payload.target_name,
             counterpart_asset_id=payload.counterpart_asset_id,
-            actor=user.email, expected_revision_id=payload.expected_revision_id,
+            actor=user.email, expected_revision_id=_revision(request, component_id, required=False),
         )

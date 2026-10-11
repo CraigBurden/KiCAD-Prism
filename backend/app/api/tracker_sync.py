@@ -52,18 +52,11 @@ def _permission_response(exc: CommentPermissionError) -> JSONResponse:
 
 
 def _publication_response(exc: PublicationDenied) -> JSONResponse:
-    # This route family always sends requiredRole, null included.
-    return JSONResponse(
-        status_code=403,
-        content={"detail": exc.detail, "code": exc.code, "requiredRole": exc.required_role},
-    )
+    return error_response(exc)
 
 
 def _dispatch_response(exc: DispatchPause) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": exc.message, "code": exc.reason, "pausedReason": exc.reason},
-    )
+    return error_response(exc.refusal())
 
 
 def _live_thread_for_comment(conn, project_id: str, comment_id: str) -> dict | None:

@@ -34,7 +34,7 @@ from app.services.trackers.promotion import (  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
 from app.services.trackers.publication_policy import PublicationPolicyService  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
-from tests.test_tracker_tr_01 import DisposableSchemaStore, POSTGRES_URL, SHARED_APPLICATION_DATABASE, psycopg  # noqa: E402
+from tests.test_tracker_tr_01 import DisposableSchemaStore, POSTGRES_URL, SHARED_APPLICATION_DATABASE, if_match, psycopg  # noqa: E402
 from tests.test_tracker_tr_03 import body, run, session  # noqa: E402
 from tests.test_tracker_tr_05 import TwoCommitPcb  # noqa: E402
 from tests.test_tracker_tr_23 import _settings  # noqa: E402
@@ -448,10 +448,7 @@ class PromotionPostgresTests(unittest.TestCase):
     def test_downgrade_on_linked_thread_enqueues_update_not_unlink(self) -> None:
         comment_id = self._seed_linked_thread()
         designer = session("designer", user_id="u_designer")
-        updated = run(comments_api.update_comment(
-            "prj_a",
-            comment_id,
-            comments_api.UpdateCommentRequest(severity="info", expectedRevision=1),
+        updated = run(comments_api.update_comment("prj_a", comment_id, comments_api.UpdateCommentRequest(severity="info"), if_match("comment", comment_id, 1),
             designer,
         ))
         self.assertEqual(updated["tracker"]["linkState"], "linked")

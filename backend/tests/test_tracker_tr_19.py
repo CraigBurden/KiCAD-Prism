@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
+from app.core.errors import DomainError  # noqa: E402
 from fastapi.exceptions import RequestValidationError
 from pydantic import SecretStr
 
@@ -95,6 +96,9 @@ def session(role: str, *, user_id: str = "u_admin") -> AuthenticatedUser:
     )
 
 
+ROUTE_ERRORS = (HTTPException, DomainError)
+
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -117,7 +121,7 @@ class RoutingContractTests(unittest.TestCase):
         from app.core.security import require_admin
 
         for role in ("viewer", "designer"):
-            with self.assertRaises(HTTPException) as caught:
+            with self.assertRaises(ROUTE_ERRORS) as caught:
                 run(require_admin(session(role, user_id=f"u_{role}")))
             self.assertEqual(caught.exception.status_code, 403)
         run(require_admin(session("admin")))
@@ -315,7 +319,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
         self.assertFalse(failed["writesEnabled"])
         self.assertFalse(failed["test"]["writesEnabled"])
         self.assertTrue(failed["paused"])
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(ROUTE_ERRORS) as caught:
             run(connectors_api.resume_connector("cn_gh1", self.admin))
         self.assertEqual(caught.exception.status_code, 403)
 
@@ -376,7 +380,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
         listed = run(connectors_api.list_connector_repositories("cn_gh1", self.admin))
         self.assertEqual([item["fullName"] for item in listed], ["krishna-swaroop/prism-tracker-acceptance"])
         run(connectors_api.revoke_connector("cn_gh1", self.admin))
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(ROUTE_ERRORS) as caught:
             run(connectors_api.list_connector_repositories("cn_gh1", self.admin))
         self.assertIn(caught.exception.status_code, (409, 502, 503))
 
@@ -445,7 +449,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
             """
         )
         self.conn.commit()
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(ROUTE_ERRORS) as caught:
             run(connectors_api.delete_connector("cn_gh1", self.admin))
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("linked thread", json.dumps(caught.exception.detail))
@@ -479,7 +483,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
             "SELECT action FROM tracker_audit WHERE connector_id = 'cn_gh1' ORDER BY id"
         ).fetchall()
         self.assertIn("connector.delete", [row["action"] for row in audit])
-        with self.assertRaises(HTTPException) as missing:
+        with self.assertRaises(ROUTE_ERRORS) as missing:
             run(connectors_api.get_connector("cn_gh1", self.admin))
         self.assertEqual(missing.exception.status_code, 404)
 
@@ -531,7 +535,7 @@ class ConnectorAdminApiTests(unittest.TestCase):
 
     def test_create_rejects_existing_connector_id(self) -> None:
         self._create()
-        with self.assertRaises(HTTPException) as caught:
+        with self.assertRaises(ROUTE_ERRORS) as caught:
             run(
                 connectors_api.create_connector(
                     connectors_api.CreateConnectorRequest(
@@ -544,7 +548,8 @@ class ConnectorAdminApiTests(unittest.TestCase):
                 )
             )
         self.assertEqual(caught.exception.status_code, 400)
-        self.assertIn("already exists", caught.exception.detail["message"])
+        self.assertIn("already exists", caught.exception.detail)
+        self.assertEqual(caught.exception.body()["code"], "invalid_request")  # D14: flat, the class is the code
 
     def test_validation_errors_do_not_echo_private_key(self) -> None:
         from types import SimpleNamespace
