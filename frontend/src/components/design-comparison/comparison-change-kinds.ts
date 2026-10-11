@@ -1,9 +1,9 @@
 /**
  * Every native object kind a comparison change can name, in one table.
  *
- * The backend normalises the parser's spellings once (`segment` is `track`,
- * `global_label` is `label`, …; `_PARSER_KIND_NAMES` in
- * `backend/app/services/design_compare_nodes.py`), so the kinds below are the
+ * The parser emits canonical kinds only (`segment` is `track`, `global_label`
+ * is `label`, …; `CANONICAL_KINDS` in
+ * `backend/design-compare-parser/ecad-parse.mjs`), so the kinds below are the
  * only ones a `ChangeItem.object_kind` or visual-target `kind` carries. The
  * backend still decides a change's category and primary/secondary class.
  *

@@ -133,7 +133,7 @@ describe("change-kind table", () => {
         expect(kindNoun("not_in_table", 2)).toBe("not in tables");
     });
 
-    it("carries only the backend's canonical spellings", () => {
+    it("carries only the parser's canonical kinds, not its form names (CANONICAL_KINDS in ecad-parse.mjs)", () => {
         for (const raw of ["segment", "arc_segment", "drawing", "footprint_zone", "global_label", "hierarchical_label"]) {
             expect(CHANGE_KINDS[raw]).toBeUndefined();
         }

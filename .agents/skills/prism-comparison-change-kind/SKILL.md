@@ -22,12 +22,14 @@ every consumer.
 
 A new object kind is three hops:
 
-1. Parse it in `scripts/ecad-parse.mjs` (the parser owns kind names). If the
-   parser's spelling is not the canonical one, map it once in
-   `_PARSER_KIND_NAMES` in `backend/app/services/design_compare_nodes.py`;
-   nothing downstream knows raw spellings. Derive the base and comparison
-   revisions independently; absence on one side remains absence.
-2. Classify it in `_node_classification` in the same file: category and
+1. Parse it in `backend/design-compare-parser/ecad-parse.mjs` (the parser owns
+   kind names). If the parser's form name is not the canonical kind, map it in
+   `CANONICAL_KINDS` there; the index emits canonical kinds only, so nothing
+   downstream knows raw spellings. Test it with `npm test` in that folder.
+   Derive the base and comparison revisions independently; absence on one side
+   remains absence.
+2. Classify it in `_node_classification` in
+   `backend/app/services/design_compare_nodes.py`: category and
    primary/secondary are the backend's.
 3. Add one row to
    `frontend/src/components/design-comparison/comparison-change-kinds.ts`

@@ -43,16 +43,14 @@ if str(BACKEND_ROOT) not in sys.path:
 
 SCHEMA = "prism.object_delta_agreement_m2"
 
-# The sidecar's vocabulary, which the Node index is mapped onto for
-# comparison. `pad`, `group`, `sheet` and `sheet_pin` have no sidecar
+# The sidecar's vocabulary, which the Node index's canonical kinds are mapped
+# onto for comparison. `pad`, `group`, `sheet` and `sheet_pin` have no sidecar
 # equivalent at all -- they are objects the current pipeline never sees, and
 # the plan predicted they would show up here as new detections.
 KIND_MAP = {
     "symbol": "symbol",
     "pin": "pin",
     "label": "label",
-    "global_label": "label",
-    "hierarchical_label": "label",
     "junction": "junction",
     "wire": "wire",
     "bus": "wire",
@@ -61,11 +59,10 @@ KIND_MAP = {
     "bus_entry": "graphic",
     "image": "graphic",
     "footprint": "footprint",
-    "segment": "track",
-    "arc_segment": "arc",
+    "track": "track",
+    "arc": "arc",
     "via": "via",
     "zone": "zone",
-    "footprint_zone": "zone",
 }
 
 STATUS_MAP = {"added": "added", "removed": "removed", "modified": "changed"}
