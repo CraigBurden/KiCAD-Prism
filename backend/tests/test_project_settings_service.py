@@ -189,34 +189,69 @@ class StoredSettingsTests(unittest.TestCase):
                     conn.execute("DELETE FROM ws_repositories WHERE id=%s", (repo_id,))
                     conn.commit()
 
-    def test_upgrade_imports_a_prism_written_file_once_and_leaves_it(self) -> None:
-        (self.checkout / ".prism.json").write_text(
-            json.dumps(
-                {
-                    "paths": {"pcb": "top.kicad_pcb"},
-                    "projects": {"top.kicad_pro": {"paths": {"designOutputs": "Out"}}},
-                }
-            ),
-            encoding="utf-8",
-        )
-        written = (self.checkout / ".prism.json").read_bytes()
+    def _import_twice(self) -> tuple[int, int]:
         with workspace._connect() as conn:
             conn.execute(
                 "UPDATE ws_projects SET path_settings_checked=FALSE WHERE repo_id=%s", (self.repo_id,)
             )
-            imported = project_settings_service.import_working_tree_settings(conn, workspace._abs_clone_path)
-            again = project_settings_service.import_working_tree_settings(conn, workspace._abs_clone_path)
+            dirtied: list = []
+            imported = project_settings_service.import_working_tree_settings(
+                conn, workspace._abs_clone_path, dirtied
+            )
+            again = project_settings_service.import_working_tree_settings(conn, workspace._abs_clone_path, dirtied)
             conn.commit()
-        self.assertGreaterEqual(imported, 1)
-        self.assertEqual(again, 0)
+        self.assertEqual(len(dirtied), 1 if imported else 0)  # one shared file, listed once
+        project_settings_service.restore_committed_prism_json(dirtied)
         project_settings_service.invalidate()
+        return imported, again
+
+    def test_upgrade_imports_a_prism_written_file_once_and_restores_the_committed_one(self) -> None:
+        # D3: the dirtied tracked file blocked Sync until someone restored it by hand.
+        committed = (self.checkout / ".prism.json").read_bytes()
+        (self.checkout / ".prism.json").write_text(
+            json.dumps(
+                {
+                    "paths": {"pcb": "top.kicad_pcb"},
+                    "projects": {
+                        "top.kicad_pro": {"paths": {"designOutputs": "Out"}},
+                        "base.kicad_pro": {"project_name": "Base"},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        imported, again = self._import_twice()
+        self.assertEqual((imported, again), (2, 0))
         self.assertEqual(
             project_settings_service.stored_settings(str(self.checkout), "top.kicad_pro"),
             {"designOutputs": "Out"},
         )
-        self.assertIsNone(project_settings_service.stored_settings(str(self.checkout), "base.kicad_pro"))
-        self.assertEqual((self.checkout / ".prism.json").read_bytes(), written)
+        self.assertEqual(
+            project_settings_service.stored_settings(str(self.checkout), "base.kicad_pro"),
+            {"project_name": "Base"},
+        )
+        self.assertEqual((self.checkout / ".prism.json").read_bytes(), committed)
+        self.assertEqual(_git(self.checkout, "status", "--porcelain"), "")
 
+    def test_upgrade_leaves_a_file_it_imported_nothing_from(self) -> None:
+        # Only other projects' namespaces changed: not this workspace's writes.
+        edited = json.dumps({"paths": {"pcb": "top.kicad_pcb"}, "projects": {"other.kicad_pro": {"x": 1}}})
+        (self.checkout / ".prism.json").write_text(edited, encoding="utf-8")
+        self.assertEqual(self._import_twice(), (0, 0))
+        self.assertEqual((self.checkout / ".prism.json").read_text(encoding="utf-8"), edited)
+
+    def test_upgrade_imports_an_untracked_file_and_leaves_it(self) -> None:
+        # An untracked file never blocks a fast-forward (Sync ignores untracked files).
+        _git(self.checkout, "rm", "-q", "--cached", ".prism.json")
+        _git(self.checkout, "commit", "-qm", "untrack")
+        written = json.dumps({"description": "Fixture"})
+        (self.checkout / ".prism.json").write_text(written, encoding="utf-8")
+        self.assertEqual(self._import_twice(), (2, 0))
+        self.assertEqual(
+            project_settings_service.stored_settings(str(self.checkout), "top.kicad_pro"),
+            {"description": "Fixture"},
+        )
+        self.assertEqual((self.checkout / ".prism.json").read_text(encoding="utf-8"), written)
 
 if __name__ == "__main__":
     unittest.main()

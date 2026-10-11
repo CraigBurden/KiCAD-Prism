@@ -30,7 +30,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from psycopg.types.json import Jsonb
 
@@ -179,12 +179,35 @@ def prism_written_settings(checkout: Path, anchor: Optional[str]) -> Dict[str, A
     }
 
 
-def import_working_tree_settings(conn: Any, abs_clone_path: Callable[[str], str]) -> int:
+def restore_committed_prism_json(checkouts: Iterable[Path]) -> None:
+    """Put each checkout's tracked ``.prism.json`` back to ``HEAD`` (D3).
+
+    Call after the import's transaction committed, so the values are stored
+    before the file loses them. An untracked file is left alone: Sync ignores
+    untracked files.
+    """
+
+    for checkout in checkouts:
+        if _committed_prism_json(checkout) in (None, {}):
+            continue
+        restored = subprocess.run(
+            ["git", "-C", str(checkout), "checkout", "HEAD", "--", ".prism.json"],
+            capture_output=True, text=True, check=False,
+        )
+        if restored.returncode != 0:
+            logger.warning("Could not restore %s/.prism.json: %s", checkout, restored.stderr.strip())
+
+
+def import_working_tree_settings(
+    conn: Any, abs_clone_path: Callable[[str], str], restore: Optional[List[Path]] = None
+) -> int:
     """Copy Prism-written ``.prism.json`` values into the database, once per project.
 
-    Runs after the workspace migrations. The file is left as it is (it may hold
-    a user's edits); the stored copy wins from now on. Returns how many
-    projects received settings.
+    Runs after the workspace migrations. Checkouts whose file supplied values
+    are appended to ``restore`` once, after every project sharing the file was
+    read; pass them to ``restore_committed_prism_json`` after the commit, so
+    Sync fast-forwards again (D3). A file nothing was imported from stays as
+    it is. Returns how many projects received settings.
     """
 
     rows = conn.execute(
@@ -193,6 +216,7 @@ def import_working_tree_settings(conn: Any, abs_clone_path: Callable[[str], str]
            WHERE NOT p.path_settings_checked"""
     ).fetchall()
     imported = 0
+    dirtied: Dict[str, Path] = {}
     for row in rows:
         checkout = Path(_checkout_path(abs_clone_path(row["clone_path"]), row["relative_path"]))
         found = prism_written_settings(checkout, row["project_file_rel"]) if checkout.is_dir() else {}
@@ -203,6 +227,9 @@ def import_working_tree_settings(conn: Any, abs_clone_path: Callable[[str], str]
                 (Jsonb(merged), row["id"]),
             )
             imported += 1
+            dirtied[str(checkout)] = checkout
         else:
             conn.execute("UPDATE ws_projects SET path_settings_checked=TRUE WHERE id=%s", (row["id"],))
+    if restore is not None:
+        restore.extend(dirtied.values())
     return imported
