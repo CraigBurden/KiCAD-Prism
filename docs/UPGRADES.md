@@ -315,6 +315,28 @@ the team shares the settings, or restore the committed version with
 `git -C <checkout> checkout -- .prism.json` (or delete an untracked file). The
 values stay in Prism's database either way.
 
+## Release Studio configurations in a monorepo subproject
+
+Earlier releases read a monorepo subproject's committed Release Studio
+configurations from the repository root's `.prism/release-studio/configurations/`
+at a commit, with repository-relative file references. A subproject now reads
+only its own folder, `<subproject>/.prism/release-studio/configurations/`, where
+Settings saves it, with references relative to the subproject. Root-level files
+no longer show for a subproject. A candidate that already captured its
+configuration snapshot keeps building from that snapshot.
+
+To keep such a configuration, move it into the subproject and make its
+references relative to the subproject folder:
+
+```sh
+git mv .prism/release-studio/configurations/release.yaml \
+       alpha/.prism/release-studio/configurations/release.yaml
+# edit: board: alpha/board.kicad_pcb  ->  board: board.kicad_pcb
+```
+
+Or open it in Settings for the subproject and save it again. A project at the
+repository root is unaffected.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)
