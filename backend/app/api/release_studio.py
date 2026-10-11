@@ -724,7 +724,7 @@ def _require_enqueue_identity(identity: dict[str, Any], project: dict[str, Any])
             detail="Tag, Document Name, and date are required before a build can start.",
         )
     with caller_errors((forge_publish.ForgePublishError, 400)):
-        forge_publish._require_tag(tag)
+        forge_publish.require_tag(tag)
     if forge_publish.tag_exists(str(project.get("repo_url") or ""), tag):
         raise HTTPException(
             status_code=409,
