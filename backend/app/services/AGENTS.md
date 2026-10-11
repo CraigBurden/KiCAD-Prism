@@ -152,10 +152,16 @@ parsed artifacts in process (immutable, LRU by size; callers must not mutate
 them, and the test suite verifies that). `systems/drift.py` is the pure
 drift engine; `systems/detection.py` resolves tips after a fetch and applies
 its outcome. Project sync queues detection after every successful fetch.
-`systems/reconcile.py` validates and applies review decisions, and
-`systems/validation.py` computes the §7.2 findings. Documents are built
-unredacted and redacted for the reader last by `systems/redaction.py`, which is
-what lets `systems/icd.py` render frozen snapshots and diffs for any reader.
+`systems/reconcile.py` validates and applies review decisions.
+`systems/loaded.py` is one system as one transaction reads it: rows, interfaces,
+tree, net level, placement and each caller's restricted set, each computed once.
+Service reads build a `LoadedSystem` instead of re-reading rows or re-resolving
+the hierarchy. `validation.report(loaded, mates=, scene_key=)` returns the whole
+report, waivers included, in the order `validation.STAGES` declares; the
+catalog's mate pairs are an input. Documents are built unredacted (`_build`) and
+leave the service only through `_for_reader`/`_report_for_reader`
+(`systems/redaction.py`); that is what lets a snapshot freeze one document and
+`systems/icd.py` render frozen snapshots and diffs for any reader.
 `systems/csv_import.py` parses, classifies and writes connection CSV imports;
 `systems/generators.py` proposes rows and never writes. A change to what the
 extractor reports must bump `EXTRACTOR_VERSION`, since it keys the cache.

@@ -13,6 +13,7 @@ from app.services.systems import (
 )
 from app.services.systems.manifest_schema import digests as manifest_digests
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
+from app.services.systems.loaded import LoadedSystem
 from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound, StaleVersion, SystemStore, new_id
 from app.services.systems.service_base import Caller, Result, logger, _iso, MAX_LAYOUT_ENTRIES
 from app.services.systems.service_documents import rename_doc
@@ -77,17 +78,19 @@ class ReviewsMixin:
         return self._visibility(store, system_id, caller, store.list_instances(system_id, kinds=SystemStore.ALL_KINDS))
 
     def _visibility(self, store: SystemStore, system_id: str, caller: Caller,
-                    instances: Sequence[Mapping[str, Any]]) -> redaction.Restricted:
+                    instances: Sequence[Mapping[str, Any]], tree: Any = ...) -> redaction.Restricted:
         """Restricted boards (by today's access to their project) and the assembly export ends
         whose source board inside the child is hidden from ``caller``, for live instance rows or
-        a frozen document's instances. An export that does not resolve hides its nets too."""
+        a frozen document's instances. An export that does not resolve hides its nets too.
+        ``tree`` is the instances' resolved tree (None when it breaks a limit) when already known."""
 
         members = [{"id": i["id"], "kind": i.get("kind") or "board",
                     "project_id": i.get("project_id") or i.get("projectId")} for i in instances]
-        try:
-            tree = hierarchy.resolve(system_id, instances, self._child_loader(store))
-        except hierarchy.HierarchyError:
-            tree = None
+        if tree is ...:
+            try:
+                tree = hierarchy.resolve(system_id, instances, self._child_loader(store))
+            except hierarchy.HierarchyError:
+                tree = None
         projects = {m["project_id"] for m in members if m["kind"] == "board" and m["project_id"]}
         projects |= {o.project_id for o in (tree.boards if tree else ()) if o.project_id}
         access = visibility.project_access(store.conn, projects, caller.role)
@@ -298,10 +301,10 @@ class ReviewsMixin:
         # SB2-94: build from one consistent read of ``version`` without the system lock, so editors
         # are not queued behind the build; then lock only to check nothing changed and store it.
         with self._tx(consistent=True) as store:
-            system = self._system(store, system_id, caller)
-            if int(system["version"]) != int(version):
-                raise StaleVersion(int(system["version"]))
-            built, _instances, _jobs = self._build(store, system)
+            loaded = self._load(store, system_id, caller)
+            if int(loaded.version) != int(version):
+                raise StaleVersion(int(loaded.version))
+            built = self._built(loaded)
             # The read keys (SB2-98) describe the live system, not what a snapshot freezes.
             document = json.loads(json.dumps({k: v for k, v in built.items() if k not in ("sceneKey", "netsKey")},
                                              default=_iso))
@@ -480,10 +483,10 @@ class ReviewsMixin:
                 # The canvas as frozen in the snapshot's manifest; older snapshots have none (default layout).
                 manifest = store.get_snapshot(system_id, snapshot_id).get("manifest") or {}
                 return document, meta["name"], None, (manifest.get("layout") or {}).get("positions") or {}
-            built, _instances, _jobs = self._build(store, system)
-            restricted = self._restricted_instances(store, system_id, caller)
+            loaded = LoadedSystem(store, system, self)
+            document = self._for_reader(loaded, caller, self._built(loaded))
             positions = store.get_layout(system_id)
-        return redaction.redact_document(built, restricted), "live", system["version"], positions
+        return document, "live", system["version"], positions
 
     def icd(
         self, caller: Caller, system_id: str, fmt: str, snapshot_id: Optional[str] = None, depth: str = "own",
@@ -507,15 +510,16 @@ class ReviewsMixin:
         findings as ``xlsx`` bytes or ``csv`` text, redacted for the reader like the trays."""
 
         with self._tx(consistent=True) as store:
-            system = self._system(store, system_id, caller)
-            built, _instances, _jobs = self._build(store, system)
-            restricted = self._restricted_instances(store, system_id, caller)
+            loaded = self._load(store, system_id, caller)
+            system = loaded.system
+            built = self._built(loaded)
+            restricted = loaded.restricted(caller)
             reviews = [self._review_doc(store, review, review["instance_id"] in restricted, restricted)
                        for review in store.list_reviews(system_id, status="open")]
             links = store.drift_links(system_id)
             renames = [rename_doc(r, len(renames_module.covered(links, r["instance_id"], r["net"])))
                        for r in store.list_renames(system_id, ("open", "applied"))]
-        document = redaction.redact_document({**built, "renames": renames}, restricted)
+            document = self._for_reader(loaded, caller, {**built, "renames": renames})
         generated = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         parts = report_io.sections(document, reviews, version=system["version"], generated_at=generated,
                                    renames=document["renames"])
@@ -525,9 +529,9 @@ class ReviewsMixin:
     def _icd_levels(self, caller: Caller, system_id: str, snapshot_id: Optional[str]) -> list[dict]:
         """Each visible subsystem level, redacted for the reader (§5.4), in tree order."""
         with self._tx() as store:
-            self._system(store, system_id, caller)
+            loaded = self._load(store, system_id, caller)
             if snapshot_id is None:
-                tree = self._tree(store, system_id)
+                tree = loaded.tree
             else:
                 manifest = store.get_snapshot_manifest(system_id, snapshot_id)
                 if not manifest:
@@ -564,11 +568,11 @@ class ReviewsMixin:
         """
 
         with self._tx() as store:
-            system = self._system(store, system_id, caller)
+            loaded = self._load(store, system_id, caller)
             before = store.get_snapshot(system_id, snapshot_id)["document"]
             if against == "live":
-                after = json.loads(json.dumps(self._build(store, system)[0], default=_iso))
-                restricted = self._restricted_instances(store, system_id, caller)
+                after = json.loads(json.dumps(self._built(loaded), default=_iso))
+                restricted = loaded.restricted(caller)
             else:
                 try:
                     after = store.get_snapshot(system_id, against)["document"]

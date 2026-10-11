@@ -16,19 +16,20 @@ WAIT_S = 10.0
 
 
 class LockScopeTest(ExportCase):
-    def hold_builds(self):
-        """Patch ``_build`` so each call signals ``built`` and then waits for ``go``."""
+    def hold_builds(self, method: str = "_build"):
+        """Patch ``method`` (the document build, or the export response) so each call signals ``built``
+        and then waits for ``go``."""
         built, go = threading.Event(), threading.Event()
-        original = self.service._build
+        original = getattr(self.service, method)
 
-        def slow(store, system):
-            result = original(store, system)
+        def slow(*args, **kwargs):
+            result = original(*args, **kwargs)
             built.set()
             if not go.wait(WAIT_S):
                 raise AssertionError("the test never released the build")
             return result
 
-        return built, go, mock.patch.object(self.service, "_build", side_effect=slow)
+        return built, go, mock.patch.object(self.service, method, side_effect=slow)
 
     def run_in_thread(self, fn):
         outcome: dict = {}
@@ -78,7 +79,7 @@ class LockScopeTest(ExportCase):
         self.assertEqual(self.version(), version)  # a snapshot never bumps the version
 
     def test_an_edit_during_an_export_response_build_goes_through(self) -> None:
-        built, go, patch = self.hold_builds()
+        built, go, patch = self.hold_builds("_export_entries")  # AC-16: the response reads the entry only
         with patch:
             thread, outcome = self.run_in_thread(lambda: self.export())
             self.assertTrue(built.wait(WAIT_S))  # the export is committed; its response is being built

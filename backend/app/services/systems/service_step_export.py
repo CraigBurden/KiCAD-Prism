@@ -20,6 +20,7 @@ from typing import Any, Optional
 from app.services.kicad_tools import KicadTool, kicad_cli
 from app.services.systems import step_assembly, visibility
 from app.services.systems.placement import poses as poses_module
+from app.services.systems.loaded import LoadedSystem
 from app.services.systems.service_base import Caller
 from app.services.systems.store import Conflict, NotFound, SystemStore
 
@@ -174,11 +175,10 @@ class StepExportMixin:
         from app.services.catalog.models import alignment_matrix
 
         system_id = system["id"]
-        tree = self._tree(store, system_id)
+        loaded = LoadedSystem(store, system, self)
+        tree, placement = loaded.tree, loaded.placement
         shown = {o["path"]: o for o in self._hierarchy_view(store, caller, system_id, tree)["occurrences"]}
-        level = self._net_level(store, system_id, tree)
-        placement, extents = self._placement(store, system_id, tree, level)
-        interface_of, _component_of = self._occurrence_lookups(store, extents)
+        interface_of, _component_of = self._occurrence_lookups(store, loaded.extents)
         root = step_assembly.Assembly(str(system["name"]))
         nodes: dict[str, step_assembly.Assembly] = {"": root}
         boards: list[tuple] = []
@@ -224,16 +224,16 @@ class StepExportMixin:
                 continue
             parent.children.append(step_assembly.Leaf(name, step, _multiply(local, alignment_matrix(model["alignment"])),
                                                       product=name))
-        root.children += self._step_harnesses(store, (tree, level, placement, extents), cut, skipped)
+        root.children += self._step_harnesses(loaded, cut, skipped)
         return root, boards, skipped
 
-    def _step_harnesses(self, store: SystemStore, placed: tuple, cut: list[str], skipped: list[dict]) -> list:
+    def _step_harnesses(self, loaded: LoadedSystem, cut: list[str], skipped: list[dict]) -> list:
         """Every level's routed harnesses as tubes in the system's frame (§25), as the System 3D view
         draws them. A harness of a restricted subsystem, or with an end on one, is skipped."""
         def hidden(path: Optional[str]) -> bool:
             return bool(path) and any(path == c or path.startswith(f"{c}/") for c in cut)
 
-        routes, _matrices = self._harness_routes(store, placed, root_only=False)
+        routes, _matrices = self._harness_routes(loaded, root_only=False)
         tubes = []
         for harness, routed in routes:
             name = harness["name"] or harness["id"]

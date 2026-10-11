@@ -74,9 +74,10 @@ class HarnessesMixin:
         """``GET …/placement`` (SB2-39): the root level's solve (§14.9), by instance ID, without the scene's
         bundle reads (which can queue builds)."""
         with self._tx() as store:
-            version = int(self._system(store, system_id, caller)["version"])
-            solved = self._placement(store, system_id)[0]["results"].get("")
-            chosen = store.list_driving_mates(system_id)
+            loaded = self._load(store, system_id, caller)
+            version = int(loaded.version)
+            solved = loaded.placement["results"].get("")
+            chosen = loaded.driving
 
         def iid(path: str) -> str:
             return path.rsplit("/", 1)[-1]
@@ -201,18 +202,11 @@ class HarnessesMixin:
                         interfaces: Optional[Mapping[str, dict]] = None) -> dict[str, Optional[dict]]:
         """``end ID -> mated component`` (None when it no longer resolves). Ends whose board
         interface is not extracted yet, and unmated ends, are left out."""
-        out: dict[str, Optional[dict]] = {}
-        for end in harness["ends"]:
-            if not end["mates_instance_id"] or not end["mates_port"]:
-                continue
-            if interfaces is not None:
-                interface = interfaces.get(end["mates_instance_id"])
-            else:
-                interface = self._instance_interface(store, store.get_instance(harness["system_id"], end["mates_instance_id"]))
-            if interface is None:
-                continue
-            out[end["id"]] = exposure.component_by_key(interface, end["mates_port"]["portKey"])
-        return out
+        if interfaces is None:
+            interfaces = {end["mates_instance_id"]: self._instance_interface(
+                store, store.get_instance(harness["system_id"], end["mates_instance_id"]))
+                for end in harness["ends"] if end["mates_instance_id"] and end["mates_port"]}
+        return harnesses_module.end_components(harness, interfaces)
 
     @staticmethod
     def _harness_doc(harness: Mapping[str, Any], components: Mapping[str, Optional[dict]]) -> dict:
