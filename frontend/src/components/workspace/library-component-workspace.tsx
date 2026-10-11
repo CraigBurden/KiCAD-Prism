@@ -53,7 +53,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/api";
-import { canWriteCatalog, workflowStage } from "@/lib/roles";
+import { canAdministerCatalog, canReviewCatalogQa, canWriteCatalog, workflowStage } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
@@ -856,12 +856,12 @@ export function LibraryComponentWorkspace({
   const historical = Boolean(currentComponent && activeComponent && currentComponent.revision_id !== activeComponent.revision_id);
   const canMutate = Boolean(!historical && canWriteCatalog(user?.role));
   const sameActorApproval = Boolean(
-    user?.role === "admin" &&
+    canAdministerCatalog(user?.role) &&
     currentComponent &&
     (transitionTarget === "done" || transitionTarget === "released") &&
     (workflowStage(currentComponent) === "qa_review" || workflowStage(currentComponent) === "done") &&
     currentComponent.created_by &&
-    currentComponent.created_by === user.email
+    currentComponent.created_by === user?.email
   );
   const decisionNoteRequired = Boolean(
     currentComponent && transitionTarget && workflowStage(currentComponent) === "qa_review" && (transitionTarget === "done" || transitionTarget === "in_progress")
@@ -1016,7 +1016,7 @@ export function LibraryComponentWorkspace({
             <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
             You have read-only access to this component. Editing metadata and attaching
             assets need the Designer or Admin role.
-            {user?.role === "qa" ? " QA Review actions remain available on the workflow panel." : ""}
+            {canReviewCatalogQa(user?.role) ? " QA Review actions remain available on the workflow panel." : ""}
           </div>
         ) : null}
         {historical ? (

@@ -13,7 +13,15 @@ from pydantic import BaseModel, Field
 
 from app.api.catalog_errors import raise_catalog_value_error
 from app.core.config import settings
-from app.core.security import AuthenticatedUser, require_catalog_browser, require_catalog_reader, require_catalog_writer
+from app.core import policy
+from app.core.policy import require_owner_or_admin
+from app.core.security import (
+    AuthenticatedUser,
+    require_catalog_admin,
+    require_catalog_browser,
+    require_catalog_reader,
+    require_catalog_writer,
+)
 from app.services.component_catalog_service import catalog_service
 from app.services.catalog import workflow_policy
 from app.services.catalog_job_service import catalog_jobs
@@ -307,16 +315,14 @@ def create_project_import_session(
     payload: ProjectImportRequest,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    visible_projects = {str(project["id"]) for project in workspace.get_all_projects(user.role)}
+    visible_projects = {str(project["id"]): project for project in workspace.get_all_projects(user.role)}
     if payload.scope in {"component", "project"} and payload.project_id not in visible_projects:
         raise HTTPException(status_code=404, detail="Project not found")
     try:
         selected_project_ids = sorted(visible_projects) if payload.scope == "all-projects" else [payload.project_id]
         project_revisions: dict[str, str] = {}
         for project_id in selected_project_ids:
-            project = workspace.get_project_by_id(project_id)
-            if not project:
-                continue
+            project = visible_projects[project_id]
             location = project_revision.locate(project)
             requested_ref = payload.source_revision if project_id == payload.project_id and payload.source_revision else "HEAD"
             project_revisions[project_id] = project_revision.resolve_commit(location, requested_ref)
@@ -344,8 +350,7 @@ def _folder_snapshot_for_user(snapshot_id: str, user: AuthenticatedUser) -> dict
     snapshot = artifact_store.get_snapshot(snapshot_id)
     if not snapshot:
         raise HTTPException(status_code=404, detail="Folder snapshot not found")
-    if user.role != "admin" and str(snapshot.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Folder snapshot access denied")
+    require_owner_or_admin(user, snapshot.get("created_by"), detail="Folder snapshot access denied")
     return snapshot
 
 
@@ -504,8 +509,7 @@ def get_project_import_session(
     session = catalog_service.get_project_import_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Import session not found")
-    if user.role != "admin" and str(session.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Import session access denied")
+    require_owner_or_admin(user, session.get("created_by"), detail="Import session access denied")
     return session
 
 
@@ -514,8 +518,7 @@ def get_catalog_job(job_id: str, user: AuthenticatedUser = Depends(require_catal
     job = catalog_jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Catalog job not found")
-    if user.role != "admin" and str(job.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Catalog job access denied")
+    require_owner_or_admin(user, job.get("created_by"), detail="Catalog job access denied")
     return {**job, "events": catalog_jobs.events(job_id)}
 
 
@@ -524,7 +527,7 @@ def list_project_import_sessions(user: AuthenticatedUser = Depends(require_catal
     return {
         "items": catalog_service.list_project_import_sessions(
             created_by=user.email,
-            include_all=user.role == "admin",
+            include_all=policy.role_allows(user.role, "admin"),
         )
     }
 
@@ -533,8 +536,7 @@ def _import_session_for_user(session_id: str, user: AuthenticatedUser) -> dict[s
     session = catalog_service.get_project_import_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Import session not found")
-    if user.role != "admin" and str(session.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Import session access denied")
+    require_owner_or_admin(user, session.get("created_by"), detail="Import session access denied")
     return session
 
 
@@ -554,8 +556,7 @@ def _project_import_proposal_for_user(proposal_id: str, user: AuthenticatedUser)
     session = catalog_service.get_project_import_session(str(proposal["session_id"]))
     if not session:
         raise HTTPException(status_code=404, detail="Import session not found")
-    if user.role != "admin" and str(session.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Import proposal access denied")
+    require_owner_or_admin(user, session.get("created_by"), detail="Import proposal access denied")
     return proposal
 
 
@@ -1184,7 +1185,7 @@ def transition_release_status(
         if not _can_transition_workflow(user, current_stage, next_stage):
             raise HTTPException(status_code=403, detail="Catalog workflow transition not allowed for this role")
         override_reason = payload.self_approval_override_reason.strip()
-        if override_reason and user.role != "admin":
+        if override_reason and not policy.role_allows(user.role, "catalog_admin"):
             raise HTTPException(status_code=403, detail="Only administrators may override two-person approval")
         component = catalog_service.set_release_status(
             component_id,
@@ -1283,26 +1284,18 @@ def get_preview_job(job_id: str, user: AuthenticatedUser = Depends(require_catal
 
 
 @router.post("/artifacts/maintenance", status_code=202)
-def run_artifact_maintenance(user: AuthenticatedUser = Depends(require_catalog_writer)):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Administrator access required")
+def run_artifact_maintenance(user: AuthenticatedUser = Depends(require_catalog_admin)):
     job = _enqueue_catalog_job("artifact_maintenance", {}, actor=user.email)
     return {"job_id": job["id"], "status": job["status"]}
 
 
 # ─── Component metadata field registry and bulk editing ────────────────────
 
-def _require_field_admin(user: AuthenticatedUser) -> None:
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Administrator access required to manage metadata field definitions")
-
-
 def _metadata_batch_for_user(batch_id: str, user: AuthenticatedUser) -> dict[str, Any]:
     batch = catalog_service.get_metadata_batch(batch_id)
     if not batch:
         raise HTTPException(status_code=404, detail="Metadata batch not found")
-    if user.role != "admin" and str(batch.get("created_by") or "").casefold() != user.email.casefold():
-        raise HTTPException(status_code=403, detail="Metadata batch access denied")
+    require_owner_or_admin(user, batch.get("created_by"), detail="Metadata batch access denied")
     return batch
 
 
@@ -1316,8 +1309,7 @@ def list_metadata_fields(
 
 
 @router.post("/metadata/fields", status_code=201)
-def create_metadata_field(payload: MetadataFieldRequest, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _require_field_admin(user)
+def create_metadata_field(payload: MetadataFieldRequest, user: AuthenticatedUser = Depends(require_catalog_admin)):
     try:
         return catalog_service.create_metadata_field(payload.model_dump(), actor=user.email)
     except ValueError as exc:
@@ -1325,8 +1317,7 @@ def create_metadata_field(payload: MetadataFieldRequest, user: AuthenticatedUser
 
 
 @router.patch("/metadata/fields/{field_id}")
-def update_metadata_field(field_id: str, payload: MetadataFieldRequest, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _require_field_admin(user)
+def update_metadata_field(field_id: str, payload: MetadataFieldRequest, user: AuthenticatedUser = Depends(require_catalog_admin)):
     try:
         return catalog_service.update_metadata_field(field_id, payload.model_dump(exclude_unset=True), actor=user.email)
     except ValueError as exc:
@@ -1334,8 +1325,7 @@ def update_metadata_field(field_id: str, payload: MetadataFieldRequest, user: Au
 
 
 @router.post("/metadata/fields/{field_id}/archive")
-def archive_metadata_field(field_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _require_field_admin(user)
+def archive_metadata_field(field_id: str, user: AuthenticatedUser = Depends(require_catalog_admin)):
     try:
         return catalog_service.set_metadata_field_archived(field_id, True, actor=user.email)
     except ValueError as exc:
@@ -1343,8 +1333,7 @@ def archive_metadata_field(field_id: str, user: AuthenticatedUser = Depends(requ
 
 
 @router.post("/metadata/fields/{field_id}/restore")
-def restore_metadata_field(field_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _require_field_admin(user)
+def restore_metadata_field(field_id: str, user: AuthenticatedUser = Depends(require_catalog_admin)):
     try:
         return catalog_service.set_metadata_field_archived(field_id, False, actor=user.email)
     except ValueError as exc:
@@ -1406,8 +1395,7 @@ def get_metadata_batch(batch_id: str, user: AuthenticatedUser = Depends(require_
 
 
 @router.post("/metadata/batches/{batch_id}/approve-fields")
-def approve_metadata_batch_fields(batch_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    _require_field_admin(user)
+def approve_metadata_batch_fields(batch_id: str, user: AuthenticatedUser = Depends(require_catalog_admin)):
     _metadata_batch_for_user(batch_id, user)
     try:
         return catalog_service.approve_metadata_batch_fields(batch_id, actor=user.email)
@@ -1439,8 +1427,7 @@ def get_metadata_job(job_id: str, user: AuthenticatedUser = Depends(require_cata
     job = catalog_jobs.get(job_id, "catalog_metadata_batch")
     if not job:
         raise HTTPException(status_code=404, detail="Metadata job not found")
-    if user.role != "admin" and str(job.get("created_by") or "").casefold() != user.email.casefold():
-        raise HTTPException(status_code=403, detail="Metadata job access denied")
+    require_owner_or_admin(user, job.get("created_by"), detail="Metadata job access denied")
     return job
 
 

@@ -20,6 +20,7 @@ import {
 } from "./project-section-cache";
 
 import { VISUALIZER_DESIGN_SEARCH_SLOT_ID } from "@/lib/design-search";
+import { canAdministerWorkspace, canCommentOnProjects, canManageProjects } from "@/lib/roles";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { projectLastUpdated } from "@/lib/project-dates";
 import { UsedInPanel } from "@/features/system-builder/used-in-panel";
@@ -136,7 +137,8 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [branches, setBranches] = useState<ProjectBranch[]>([]);
     const [branchesLoading, setBranchesLoading] = useState(false);
     const [branchError, setBranchError] = useState<string | null>(null);
-    const canMutateProject = user?.role === "admin" || user?.role === "designer";
+    const canMutateProject = canManageProjects(user?.role);
+    const canComment = canCommentOnProjects(user?.role);
 
     // Helper function to get display name
     const selectedBranchRef = searchParams.get('branch');
@@ -632,7 +634,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                     <Suspense fallback={null}>
                         <TrackerSettingsDialog
                             projectId={projectId}
-                            isAdmin={user?.role === "admin"}
+                            isAdmin={canAdministerWorkspace(user?.role)}
                             open={trackerSettingsOpen}
                             onOpenChange={setTrackerSettingsOpen}
                         />
@@ -799,7 +801,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
                                             onViewCommit={handleViewCommit}
                                             onOpenVisualizer={handleOpenCommitVisualizer}
                                             canCompareDiffs
-                                            canComment={canMutateProject}
+                                            canComment={canComment}
                                             active={activeSection === "history"}
                                         />
                                     </Suspense>

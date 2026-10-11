@@ -274,7 +274,7 @@ function RailThread({
                             {comment.elementRef || "Whole comparison"}
                         </div>
                     </div>
-                    {canComment && (
+                    {canComment && comment.permissions?.canResolve !== false && (
                         <Button
                             variant="ghost"
                             size="icon"

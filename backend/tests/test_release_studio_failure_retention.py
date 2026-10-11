@@ -160,7 +160,7 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             patch.object(api, "get_project_for_role_or_404"),
             patch.object(api, "_build_or_404", return_value=build),
             patch.object(api.store, "get_candidate", return_value=candidate),
-            patch.object(api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
+            patch.object(api, "authorized_project", return_value={"repo_url": ""}),
             patch.object(api.store, "build_members", return_value=[]),
             patch.object(api.store, "build_evidence", return_value=[]),
             patch.object(api.store, "build_fingerprints", return_value={}),

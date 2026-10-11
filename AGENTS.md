@@ -171,6 +171,11 @@ invariant, not the tool workaround.
 - Never add a project lookup that ignores the caller's role.
   `backend/app/api/projects.py` carries an explicit warning: a role-blind helper
   is one import away from an access-control bypass. Use the role-aware function.
+- Who may do what is decided once, in `backend/app/core/policy.py`. Routes
+  ask it (through the `require_*` dependencies, `authorized_project`, or
+  `require_owner_or_admin`) instead of comparing roles or emails inline. A
+  policy change regenerates the frontend matrix with
+  `scripts/export_role_matrix.py`.
 - Derive audit identity from the authenticated session, never from a
   request-supplied name.
 - Never fail open. A limiter, auth, or provider outage denies the request;

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/card";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { isAbortError, watchPrismJob, type PrismJobStatus } from "@/lib/jobs";
+import { canManageProjects } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
 import { dnpVisibilityNotice } from "./design-variants/dnp-visibility";
@@ -188,7 +189,7 @@ export function WebGpu3dTab({
     /** The one model left visible by "Show only", or null. */
     const [isolated, setIsolated] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<PrismSemanticContextMenuDetail | null>(null);
-    const canGenerate = user?.role === "admin" || user?.role === "designer";
+    const canGenerate = canManageProjects(user?.role);
     const isStackup = workspace === "stackup";
 
     const commitQuery = useMemo(

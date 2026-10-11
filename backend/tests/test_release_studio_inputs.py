@@ -359,8 +359,8 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(
-                self.api.workspace,
-                "get_project_by_id",
+                self.api,
+                "authorized_project",
                 return_value={"path": "/tmp/project", "repo_url": "https://github.com/org/repo.git"},
             ),
             patch("app.release_studio.source.discover_source", return_value={"board": "board.kicad_pcb"}),
@@ -391,8 +391,8 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(
-                self.api.workspace,
-                "get_project_by_id",
+                self.api,
+                "authorized_project",
                 return_value={"path": "/tmp/project", "repo_url": "https://github.com/org/repo.git"},
             ),
             patch("app.release_studio.source.discover_source", return_value=discovered),
@@ -451,7 +451,7 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(self.api.jobs, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults") as persist,
-            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
+            patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
             patch.object(self.api.forge_publish, "tag_exists", return_value=False),
         ):
             payload = asyncio.run(self.api.create_candidate("proj", request, user=self.user))
@@ -473,7 +473,7 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(self.api.jobs, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults", side_effect=RuntimeError("db down")),
-            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
+            patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
             patch.object(self.api.forge_publish, "tag_exists", return_value=False),
         ):
             payload = asyncio.run(self.api.create_candidate("proj", request, user=self.user))
@@ -485,8 +485,8 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(
-                self.api.workspace,
-                "get_project_by_id",
+                self.api,
+                "authorized_project",
                 return_value={"repo_url": "https://github.com/org/repo.git"},
             ),
             patch.object(self.api.forge_publish, "tag_exists", return_value=True) as exists,
@@ -506,7 +506,7 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
     def test_source_rejects_short_commit(self) -> None:
         import asyncio
 
-        with patch.object(self.api, "get_project_for_role_or_404"):
+        with patch.object(self.api, "authorized_project", return_value={}):
             with self.assertRaises(HTTPException) as caught:
                 asyncio.run(self.api.get_source("proj", commit_sha="abc", user=self.user))
         self.assertEqual(caught.exception.status_code, 400)

@@ -46,7 +46,7 @@ class HostMountSourceTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertIn("TrackerSettingsDialog", page)
-        self.assertIn('isAdmin={user?.role === "admin"}', page)
+        self.assertIn('isAdmin={canAdministerWorkspace(user?.role)}', page)
         self.assertIn("ProjectTrackerSettingsPanel", dialog)
         self.assertIn('settingsHref("code-hosts")', dialog)
 

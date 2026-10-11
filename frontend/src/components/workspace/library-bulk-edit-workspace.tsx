@@ -17,7 +17,7 @@ import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog"
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { fieldError, type IdentityKind } from "@/lib/catalog-field-rules";
-import { canWriteCatalog } from "@/lib/roles";
+import { canAdministerCatalog, canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
@@ -306,7 +306,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const csvInputRef = useRef<HTMLInputElement>(null);
   const preferencesLoaded = useRef(false);
   const gridViewport = useVirtualViewport();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = canAdministerCatalog(user?.role);
   const canEdit = canWriteCatalog(user?.role);
   // An empty grid means something different when filters are active than when the
   // catalog itself is empty, and the fix differs too.

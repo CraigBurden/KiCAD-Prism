@@ -27,7 +27,8 @@ from typing import Optional, Protocol
 from fastapi import HTTPException
 
 from app.core.roles import Role, role_meets_minimum
-from app.core.security import AuthenticatedUser, _has_scope
+from app.core.policy import has_scope
+from app.core.security import AuthenticatedUser
 from app.services import access_service
 
 DEFAULT_PROMOTE_MIN_ROLE: Role = "designer"
@@ -176,7 +177,7 @@ def require_write_scope(user: AuthenticatedUser) -> None:
     """Bearer callers need ``api:write``; session cookies carry no scopes."""
     if user.auth_type == "session":
         return
-    if _has_scope(user, "api:write"):
+    if has_scope(user, "api:write"):
         return
     raise CommentPermissionError("scope_required", "api:write scope required")
 
