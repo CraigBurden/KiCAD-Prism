@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.release_studio.jobset import WORKFLOW_OUTPUT_IDS as _WORKFLOW_OUTPUT_IDS
-from app.services import kicad_jobset_service, path_config_service, semantic_index_service
+from app.services import kicad_jobset_service, path_config_service, project_settings_service, semantic_index_service
 from app.services.workspace_service import workspace
 from app.services.job_artifact_service import job_artifacts
 from app.services.job_runtime import JobContext, JobResult
@@ -96,10 +96,8 @@ def resolved_paths_for(
 
 
 def save_path_config_for(project: Any, config: path_config_service.PathConfig) -> None:
-    """Persist a project's path configuration under its own anchor."""
-    path_config_service.save_path_config(
-        _project_path_of(project), config, anchor=project_anchor(project)
-    )
+    """Store a project's path configuration in Prism, never in its checkout."""
+    project_settings_service.save(project, config)
 
 
 def thumbnail_url_for_row(row: dict) -> Optional[str]:

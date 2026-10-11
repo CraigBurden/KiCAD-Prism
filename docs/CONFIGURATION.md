@@ -228,8 +228,24 @@ Supported path fields:
 - `readme`
 - `jobset`
 
-Resolution order is explicit `.prism.json`, auto-detection, then conventional
-fallbacks. Paths are relative to the registered project root.
+### Settings edited in Prism
+
+Settings changed in Prism's project properties (paths, display name,
+description) are stored in the workspace database, not written into the
+checkout. Prism's checkout is a read-only mirror of the remote; a file written
+into it would block every later Sync fast-forward. To share settings with the
+team, commit them to `.prism.json` in the repository.
+
+Resolution order, highest first:
+
+1. Settings stored in Prism for the project.
+2. The `.prism.json` in the checkout (`projects.<project file>` over the shared
+   block).
+3. Auto-detection.
+4. Conventional fallbacks.
+
+Paths are relative to the registered project root. A past revision is read with
+that revision's committed `.prism.json`.
 
 The schema currently accepts `workflows`, `portfolio`, and additional fields for
 forward compatibility. Arbitrary `workflows` entries are not executed as

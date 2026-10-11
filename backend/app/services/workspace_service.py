@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.policy import folder_visibility_params, folder_visible, folder_visible_sql
 from app.core.roles import Role
 from app.services.postgres_database import database
+from app.services.project_settings_service import import_working_tree_settings
 from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
 from app.services.systems.store import SystemStore
 from app.services.systems.visibility import visible_systems
@@ -104,7 +105,10 @@ class WorkspaceService:
         with self._lock:
             if self._initialized:
                 return
-            WORKSPACE_LEDGER.migrate(self._connect, after=(self._backfill_origin,))
+            WORKSPACE_LEDGER.migrate(
+                self._connect,
+                after=(self._backfill_origin, lambda conn: import_working_tree_settings(conn, self._abs_clone_path)),
+            )
             self._initialized = True
             logger.info("Workspace service initialized in PostgreSQL schema workspace")
 
@@ -415,7 +419,7 @@ class WorkspaceService:
             "schematic_rel", "pcb_rel", "thumbnail_rel", "jobset_rel",
             "thumbnail_source", "thumbnail_digest", "thumbnail_media_type",
             "thumbnail_size_bytes",
-            "has_3d_model", "has_ibom", "last_modified", "prism_json_hash",
+            "has_3d_model", "has_ibom", "last_modified", "prism_json_hash", "path_settings",
         }
         fields = {k: v for k, v in kwargs.items() if k in allowed}
         if not fields:

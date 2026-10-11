@@ -1820,6 +1820,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 (52, "system_parts_collisions"),
                 (53, "system_step_exports"),
                 (54, "system_harness_outputs"),
+                (55, "project_path_settings"),
             ],
         )
 

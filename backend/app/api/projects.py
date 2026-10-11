@@ -27,6 +27,7 @@ from app.services import (
     project_metadata_service,
     project_revision,
     project_service,
+    project_settings_service,
     semantic_index_service,
     semantic_visualizer_service,
 )
@@ -1911,7 +1912,9 @@ async def get_project_config(project_id: str, user: AuthenticatedUser = Depends(
     anchor = project_service.project_anchor(project)
     config = project_service.path_config_for(project)
     resolved = project_service.resolved_paths_for(project, config)
-    explicit_config = path_config_service._load_prism_config(project.path, anchor)
+    explicit_config = path_config_service._load_prism_config(
+        project.path, anchor
+    ) or project_settings_service.stored_settings(project.path, anchor)
     effective_config = config.model_copy(deep=True)
     if not effective_config.project_name:
         effective_config.project_name = project.display_name
@@ -1951,7 +1954,7 @@ async def update_project_config(
 ):
     """
     Update path configuration for a project.
-    Saves configuration to .prism.json file.
+    Stores it in the workspace database; the checkout is never written.
     """
     project = get_project_for_role_or_404(project_id, user.role)
 
@@ -2012,7 +2015,7 @@ async def update_project_name(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     """
-    Update the display name for a project in .prism.json.
+    Update the display name for a project (stored in Prism, not the checkout).
     """
     project = get_project_for_role_or_404(project_id, user.role)
     
@@ -2026,7 +2029,7 @@ async def update_project_name(
     # Update project name
     config.project_name = display_name
     
-    # Save to .prism.json
+    # Stored in Prism; the checkout's .prism.json is never written.
     project_service.save_path_config_for(project, config)
     await asyncio.to_thread(workspace.update_project, project_id, display_name=display_name)
     
@@ -2067,7 +2070,7 @@ async def update_project_description(
     if not updated:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Also persist to .prism.json for compatibility
+    # Keep the stored path configuration's description in step.
     config = project_service.path_config_for(project)
     config.description = next_description
     project_service.save_path_config_for(project, config)

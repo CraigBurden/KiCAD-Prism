@@ -84,11 +84,10 @@ class NamespacedPrismConfig(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.addCleanup(path_config_service.clear_config_cache)
 
-    def test_settings_saved_for_one_project_do_not_move_its_sibling(self) -> None:
-        path_config_service.save_path_config(
-            str(self.root),
-            path_config_service.PathConfig(pcb="top.kicad_pcb"),
-            anchor="top.kicad_pro",
+    def test_settings_namespaced_for_one_project_do_not_move_its_sibling(self) -> None:
+        (self.root / ".prism.json").write_text(
+            json.dumps({"projects": {"top.kicad_pro": {"paths": {"pcb": "top.kicad_pcb"}}}}),
+            encoding="utf-8",
         )
         top = path_config_service.get_path_config(str(self.root), anchor="top.kicad_pro")
         base = path_config_service.get_path_config(str(self.root), anchor="base.kicad_pro")
@@ -111,14 +110,6 @@ class NamespacedPrismConfig(unittest.TestCase):
         config = path_config_service.get_path_config(str(self.root), anchor="top.kicad_pro")
         self.assertEqual(config.pcb, "base.kicad_pcb")
         self.assertEqual(config.project_name, "Fixture")
-
-    def test_saving_without_an_anchor_keeps_the_flat_shape(self) -> None:
-        path_config_service.save_path_config(
-            str(self.root), path_config_service.PathConfig(pcb="top.kicad_pcb")
-        )
-        written = json.loads((self.root / ".prism.json").read_text(encoding="utf-8"))
-        self.assertEqual(written["paths"]["pcb"], "top.kicad_pcb")
-        self.assertNotIn("projects", written)
 
 
 class FindsTheProjectFileTheViewerShouldRender(unittest.TestCase):
