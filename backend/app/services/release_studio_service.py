@@ -17,7 +17,6 @@ from typing import Any, Iterator, Mapping, Sequence
 
 from app.release_studio.canonical import sha256_canonical
 from app.services.postgres_database import database
-from app.services.workspace_schema_migrations import apply_workspace_migrations
 
 CANDIDATE_STATUSES = ("draft", "building", "built", "failed", "superseded", "frozen")
 
@@ -39,13 +38,6 @@ def connect() -> Iterator[Any]:
     with database.connection() as conn:
         conn.execute("SET search_path TO workspace, public")
         yield conn
-
-
-def initialize() -> None:
-    with connect() as conn:
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
-        apply_workspace_migrations(conn)
-        conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -1291,7 +1283,6 @@ __all__ = [
     "get_configuration",
     "get_source_defaults",
     "save_source_defaults",
-    "initialize",
     "latest_build",
     "list_builds",
     "list_audit_events",

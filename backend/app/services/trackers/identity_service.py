@@ -610,24 +610,12 @@ def _decode_payload(token: str, settings: Settings) -> dict[str, Any]:
     return payload
 
 
-def initialize_tracker_identity_service() -> None:
-    from app.services.postgres_database import database
-    from app.services.workspace_schema_migrations import apply_workspace_migrations
-
-    with database.connection() as conn:
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
-        conn.execute("SET search_path TO workspace, public")
-        apply_workspace_migrations(conn)
-        conn.commit()
-
-
 __all__ = [
     "IdentityNotFound",
     "IdentityService",
     "OAuthStateError",
     "build_oauth_return_url",
     "bump_user_cache",
-    "initialize_tracker_identity_service",
     "user_cache_version",
     "validate_relative_return_to",
 ]

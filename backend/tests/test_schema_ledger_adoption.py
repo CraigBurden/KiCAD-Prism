@@ -197,8 +197,9 @@ class SchemaLedgerAdoptionTests(unittest.TestCase):
         self._sql(OLD_AUTH_DDL)
         self._run(SEED_LEDGERED_SCHEMAS)
         self._sql(OLD_ARTIFACT_DDL)
+        # Workspace triggers name their tables unqualified, as the backend's search path does.
         self._sql(
-            "INSERT INTO workspace.ws_repositories (id, name, url, clone_path, cloned_at) "
+            "SET search_path TO workspace, public; INSERT INTO workspace.ws_repositories (id, name, url, clone_path, cloned_at) "
             "VALUES ('repo_1', 'board', 'https://example.com/board.git', 'board', NOW())"
         )
         self._sql(

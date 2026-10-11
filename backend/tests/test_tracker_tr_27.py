@@ -90,7 +90,7 @@ class RoutingContractTests(unittest.TestCase):
     def test_main_registers_webhook_route(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
         self.assertIn("tracker_webhooks_router", source)
-        self.assertIn("initialize_tracker_webhook_service", source)
+        self.assertIn("bring_every_schema_to_head()", source)
         app = FastAPI()
         app.include_router(webhooks_api.router)
         self.assertIn("/api/trackers/webhooks/{provider}/{connector_id}", set(app.openapi()["paths"]))

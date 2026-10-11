@@ -702,16 +702,3 @@ def connector_host(row: Mapping[str, Any]) -> str:
         return urlsplit(base).hostname or base
     provider = str(row.get("provider") or "")
     return host_kit(provider).default_host if provider in INSTANCE_KINDS_BY_PROVIDER else ""
-
-
-def initialize_tracker_connector_service() -> None:
-    """Ensure workspace tracker tables exist. Credentials stay in admin records."""
-
-    from app.services.postgres_database import database
-    from app.services.trackers.migrations import migrate_workspace_tracker_tables
-
-    with database.connection() as conn:
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("prism-schema",))
-        conn.execute("SET search_path TO workspace, public")
-        migrate_workspace_tracker_tables(conn)
-        conn.commit()
