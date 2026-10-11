@@ -42,16 +42,20 @@ admin-only, project-scoped, and OAuth endpoints with different dependencies.
   `backend/app/core/errors.py` (`NotFound`, `Conflict`, `Invalid`,
   `Forbidden`, `StaleVersion`, ... or a service subclass of one) with a
   message written for the caller. The app-wide handler renders it as
-  `{"detail": message, "code"?: ..., ...extra}` with the class's status and
-  any headers; do not catch it in the router or build the body yourself.
+  `{"detail": message, "code": ..., ...extra}` (the one error body; every
+  class has a default `code`, pass a specific one when the client branches on
+  it) with the class's status and any headers; do not catch it in the router
+  or build the body yourself.
 - Do not write `detail=str(exc)`. A service that still refuses with a
   built-in exception (`ValueError`, `LookupError`, `RuntimeError`) goes
   through `errors.caller_errors(...)` / `errors.value_errors_as(status)` with
   the route's status; anything else propagates, and its text never reaches
   the client. A catch-all keeps a fixed message (`unexpected=`).
-- Keep each domain's status and body shape: System Builder answers a stale
-  ETag with 412, comments/catalog/trackers carry a revision and answer 409;
-  catalog conflicts keep `{"detail": {code, message}}`.
+- Guarded writes take `If-Match` (`backend/app/core/preconditions.py`): the
+  route reads the version with `if_match(request, kind, id, required=...)`,
+  the service raises its `StaleVersion` (412, current `ETag` header) when it
+  moved on, and a missing required header is 428. Do not carry a revision in
+  the body. 409 is for conflicts no ETag describes.
 - The browser reads every response through `frontend/src/lib/api.ts`
   (`fetchJson`, `fetchText`, `fetchBlob`, `fetchChecked`), which throws
   `ApiHttpError` with `code`, `payload` and `isAuth`/`isPermission`/
