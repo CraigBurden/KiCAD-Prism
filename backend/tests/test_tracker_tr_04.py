@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import DomainError, error_response  # noqa: E402
 from app.api import comments as comments_api  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.services import comments_revisions  # noqa: E402
@@ -39,7 +40,11 @@ def session(role="viewer", *, user_id="u_1", name="Priya"):
 
 
 def run(coro):
-    return asyncio.run(coro)
+    """Await a route; a typed refusal comes back as the response the app handler sends."""
+    try:
+        return asyncio.run(coro)
+    except DomainError as exc:
+        return error_response(exc)
 
 
 def body(response: JSONResponse) -> dict:

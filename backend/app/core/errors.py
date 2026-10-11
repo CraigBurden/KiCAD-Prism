@@ -145,6 +145,14 @@ _VALUE_ERROR_CLASSES: dict[int, type[DomainError]] = {
 }
 
 
+def from_value_error(error: ValueError, status_code: int = 400) -> DomainError:
+    """The typed error for a bare ``ValueError`` an older service raised for the caller."""
+
+    if isinstance(error, DomainError):
+        return error
+    return _VALUE_ERROR_CLASSES.get(status_code, BadRequest)(str(error), status_code=status_code)
+
+
 @contextmanager
 def value_errors_as(status_code: int = 400) -> Iterator[None]:
     """Render a bare ``ValueError`` from the wrapped service call as ``status_code``.
@@ -159,9 +167,7 @@ def value_errors_as(status_code: int = 400) -> Iterator[None]:
     except DomainError:
         raise
     except ValueError as error:
-        raise _VALUE_ERROR_CLASSES.get(status_code, BadRequest)(
-            str(error), status_code=status_code
-        ) from error
+        raise from_value_error(error, status_code) from error
 
 
 __all__ = [
@@ -175,6 +181,7 @@ __all__ = [
     "Unavailable",
     "UpstreamFailure",
     "error_response",
+    "from_value_error",
     "install_error_handlers",
     "value_errors_as",
 ]

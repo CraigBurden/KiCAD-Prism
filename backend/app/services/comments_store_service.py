@@ -720,7 +720,7 @@ class CommentsStoreService(CommentsStoreMediaMixin):
                 if row is None:
                     return None
                 if _anchor_already_pinned(row):
-                    raise ValueError("anchor fields are immutable")
+                    raise comments_revisions.AnchorImmutable()
                 params: List[object] = [
                     commit, source_revision_key, "manual", ANCHOR_STATE_PINNED,
                     _optional_str(file_path) or row.get("file_path"),
@@ -751,7 +751,7 @@ class CommentsStoreService(CommentsStoreMediaMixin):
                     if latest is None:
                         return None
                     if _anchor_already_pinned(latest):
-                        raise ValueError("anchor fields are immutable")
+                        raise comments_revisions.AnchorImmutable()
                     raise comments_revisions.RevisionConflict(
                         "root", comment_id, int(latest["revision"] or 1),
                     )

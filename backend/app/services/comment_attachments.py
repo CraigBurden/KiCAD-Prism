@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
 from app.core.config import settings
+from app.core import errors
 
 PENDING_TTL = timedelta(hours=24)
 MAX_IMAGE_PIXELS = 64_000_000
@@ -62,13 +63,11 @@ _FILE_TYPES = {
 }
 
 
-class AttachmentError(ValueError):
-    """An upload or reference was refused; ``code`` is stable for clients."""
+class AttachmentError(errors.Invalid, ValueError):
+    """An upload or reference was refused (422 unless the route says otherwise); ``code`` is stable for clients."""
 
     def __init__(self, detail: str, code: str) -> None:
-        super().__init__(detail)
-        self.detail = detail
-        self.code = code
+        super().__init__(detail, code=code)
 
 
 @dataclass(frozen=True)

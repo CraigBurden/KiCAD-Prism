@@ -15,6 +15,7 @@ from typing import Any, Optional
 from git import Repo
 from git.exc import GitCommandError
 
+from app.core import errors
 from app.services import (
     comment_anchor_bindings,
     path_config_service,
@@ -30,13 +31,11 @@ SOURCE_MANUAL = "manual"
 NOT_PROMOTABLE_UNPINNED = "unpinned_anchor"
 
 
-class AnchorValidationError(Exception):
+class AnchorValidationError(errors.Invalid):
     """A displayed revision the server will not store (HTTP 422)."""
 
     def __init__(self, detail: str, *, code: str = "unknown_revision"):
-        super().__init__(detail)
-        self.detail = detail
-        self.code = code
+        super().__init__(detail, code=code)
 
 
 @dataclass(frozen=True)

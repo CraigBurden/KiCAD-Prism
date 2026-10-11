@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from app.api._helpers import get_project_for_role_or_404
+from app.core.errors import error_response
 from app.core.security import AuthenticatedUser, require_comment_writer, require_viewer
 from app.services import comment_permissions, comment_social
 from app.services.comment_permissions import ActorIdentity, CommentAction, CommentPermissionError
@@ -48,27 +49,21 @@ def _promote_min_role(project_id: str) -> str:
 
 
 def _permission_response(exc: CommentPermissionError) -> JSONResponse:
-    body = {"detail": exc.detail, "code": exc.code}
-    if exc.required_role:
-        body["requiredRole"] = exc.required_role
-    return JSONResponse(status_code=exc.status_code, content=body)
+    return error_response(exc)
 
 
 def _publication_response(exc: PublicationDenied) -> JSONResponse:
+    # This route family always sends requiredRole, null included.
     return JSONResponse(
         status_code=403,
-        content={
-            "detail": str(exc),
-            "code": exc.code,
-            "requiredRole": exc.required_role,
-        },
+        content={"detail": exc.detail, "code": exc.code, "requiredRole": exc.required_role},
     )
 
 
 def _dispatch_response(exc: DispatchPause) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"detail": str(exc), "code": exc.reason, "pausedReason": exc.reason},
+        content={"detail": exc.message, "code": exc.reason, "pausedReason": exc.reason},
     )
 
 

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from app.core import errors
 from app.services import comment_live_events
 
 ROOT = "root"
@@ -34,14 +35,26 @@ ORIGIN_PRISM = "prism"
 ORIGIN_REMOTE = "remote"
 
 
-class RevisionConflict(Exception):
-    """The target moved on since the revision the caller edited."""
+class RevisionConflict(errors.Conflict):
+    """The target moved on since the revision the caller edited (409 with ``currentRevision``)."""
 
     def __init__(self, target_kind: str, target_id: str, current_revision: Optional[int]):
-        super().__init__(f"{target_kind} {target_id} is at revision {current_revision}")
+        super().__init__(
+            f"{target_kind} {target_id} is at revision {current_revision}",
+            detail="Comment changed since the revision you edited",
+            code="revision_conflict",
+            currentRevision=current_revision,
+        )
         self.target_kind = target_kind
         self.target_id = target_id
         self.current_revision = current_revision
+
+
+class AnchorImmutable(errors.Invalid, ValueError):
+    """A change tried to move a comment's anchor (422 ``anchor_immutable``)."""
+
+    def __init__(self) -> None:
+        super().__init__("anchor fields are immutable", code="anchor_immutable")
 
 
 @dataclass(frozen=True)

@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import DomainError, error_response  # noqa: E402
 from app.services.trackers.connector_runtime import credential_context  # noqa: E402
 from app.services.trackers.create_executor import _comment_dict_from_row  # noqa: E402
 from app.services.trackers.connector_service import _context as connector_context  # noqa: E402
@@ -140,9 +141,12 @@ class StatusChangeEnqueuesSetStateTests(unittest.TestCase):
         with patch.object(comments_api, "comments_store", store), \
                 patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")), \
                 patch.object(comments_api, "_with_permissions", side_effect=lambda comment, *a, **k: comment):
-            return asyncio.run(comments_api.update_comment(
-                "prj", "c_1", comments_api.UpdateCommentRequest(status=status, expectedRevision=4), user,
-            ))
+            try:
+                return asyncio.run(comments_api.update_comment(
+                    "prj", "c_1", comments_api.UpdateCommentRequest(status=status, expectedRevision=4), user,
+                ))
+            except DomainError as exc:
+                return error_response(exc)
 
     def test_status_patch_passes_promotion_actor(self) -> None:
         calls: list[dict] = []
@@ -437,7 +441,10 @@ class ReplyAndRootMutationsCarryActorTests(unittest.TestCase):
         with patch.object(comments_api, "comments_store", store), \
                 patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")), \
                 patch.object(comments_api, "_with_permissions", side_effect=lambda comment, *a, **k: comment):
-            return asyncio.run(coro_factory(comments_api, user))
+            try:
+                return asyncio.run(coro_factory(comments_api, user))
+            except DomainError as exc:
+                return error_response(exc)
 
     def _store(self, calls):
         row = {"id": "c_1", "authorUserId": "u_a", "authorKind": "user", "status": "OPEN", "revision": 2, "replies": []}
