@@ -8,6 +8,7 @@ receives, so a refactor of the write path cannot drop or add one.
 
 from __future__ import annotations
 
+import re
 import sys
 import tempfile
 import unittest
@@ -28,6 +29,7 @@ from tests.test_tracker_tr_01 import (  # noqa: E402
     psycopg,
 )
 
+APP = Path(__file__).resolve().parents[1] / "app"
 AUTHOR = Editor(user_id="u_a", kind="user", display="Author")
 
 
@@ -226,6 +228,32 @@ class ReplySyncStateTests(_StoreCase):
         self.assertEqual(self._kinds_after(before), in_tx)
         reply = self.store.get_reply(self.project_id, cid, reply_id)
         self.assertNotIn("syncState", reply)
+
+
+class NoRawCommentWritesOutsideTheWriteModuleTests(unittest.TestCase):
+    """Trackers and routes write comment rows only through the write module."""
+
+    WRITE = re.compile(r"(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(comments|comment_replies)\b", re.IGNORECASE)
+    ALLOWED = {
+        "services/comment_write.py",
+        "services/comments_revisions.py",
+        "services/comments_store_writes.py",
+        "services/comments_store_service.py",  # project deletion (hard delete)
+        "services/comments_store_codec.py",  # comments.json import
+        "services/comments_schema_migrations.py",
+        "services/comments_store_schema.py",
+    }
+
+    def test_only_the_write_module_writes_comment_rows(self) -> None:
+        offenders = []
+        for path in sorted(APP.rglob("*.py")):
+            rel = path.relative_to(APP).as_posix()
+            if rel in self.ALLOWED:
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if self.WRITE.search(line):
+                    offenders.append(f"{rel}:{number}: {line.strip()}")
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":
