@@ -46,8 +46,8 @@ changes ungrouped; grouping happens here only.
 domain, reviewer noun and traits (wiring, copper, via span, component child,
 rule, …). The other review modules derive their kind sets from it, so a new
 kind is one row plus the parser (see
-`.agents/skills/prism-comparison-change-kind/SKILL.md`). Kinds arrive in the
-backend's canonical spelling; never add a parser spelling here.
+`.agents/skills/prism-comparison-change-kind/SKILL.md`). Kinds arrive as the
+parser's canonical kinds; never add a parser form name here.
 
 **Presentation** — `comparison-presentation-shell.tsx`,
 `design-comparison-workspace.tsx`, `differences-pane.tsx`,

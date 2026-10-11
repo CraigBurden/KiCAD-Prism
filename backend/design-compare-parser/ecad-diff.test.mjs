@@ -379,3 +379,15 @@ test("recreated board objects with identical authored content are not review cha
     assert.equal(result.counts.ignored, 6);
     assert.equal(result.counts.unchanged, 6);
 });
+
+test("a label that changes type is a modification under its canonical kind", () => {
+    const label = (form) => index_document(
+        `(kicad_sch (${form} "SDA" (shape bidirectional) (at 5 5 0) (uuid "aaaa-0201")))`,
+        "root.kicad_sch",
+    ).objects;
+    const result = diff_indexes(label("global_label"), label("hierarchical_label"));
+    assert.deepEqual(
+        result.changes.map((change) => [change.kind, change.status]),
+        [["label", "modified"]],
+    );
+});

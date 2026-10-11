@@ -613,6 +613,11 @@ def _load_or_build_revision(
     )
 
 
+# The Node parser package (ecad-parse/ecad-diff and the vendored parser). It sits in
+# backend/, so the image's `COPY backend/ .` carries it to /app/design-compare-parser.
+_PARSER_PACKAGE = Path(__file__).parents[2] / "design-compare-parser"
+
+
 def _run_ecad_object_delta(
     project_id: str,
     base: str,
@@ -630,18 +635,8 @@ def _run_ecad_object_delta(
 def _ecad_object_delta(base_snapshot: Path, head_snapshot: Path) -> Dict[str, Any]:
     """The parser's object delta between two snapshot directories."""
 
-    script = next(
-        (
-            candidate
-            for candidate in (
-                Path(__file__).parents[3] / "scripts" / "ecad-diff.mjs",
-                Path(__file__).parents[2] / "scripts" / "ecad-diff.mjs",
-            )
-            if candidate.exists()
-        ),
-        None,
-    )
-    if script is None:
+    script = _PARSER_PACKAGE / "ecad-diff.mjs"
+    if not script.exists():
         raise RuntimeError("ecad-viewer parser diff script is not installed")
     with tempfile.TemporaryDirectory(prefix="prism-ecad-diff-") as temporary:
         output = Path(temporary) / "delta.json"

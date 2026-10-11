@@ -17,7 +17,7 @@
  * special case for components.
  *
  * Usage:
- *   node scripts/ecad-diff.mjs <base-snapshot> <head-snapshot> [--out FILE]
+ *   node backend/design-compare-parser/ecad-diff.mjs <base-snapshot> <head-snapshot> [--out FILE]
  *                              [--summary-only]
  */
 

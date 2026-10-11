@@ -62,13 +62,13 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
                 "status": "modified",
                 "base": {
                     "uuid": "graphic-1",
-                    "kind": "drawing",
+                    "kind": "graphic",
                     "documentPath": "board.kicad_pcb",
                     "layer": {"name": "F.SilkS", "knockout": False},
                 },
                 "compare": {
                     "uuid": "graphic-1",
-                    "kind": "drawing",
+                    "kind": "graphic",
                     "documentPath": "board.kicad_pcb",
                     "layer": {"name": "B.SilkS", "knockout": False},
                     "layers": [{"canonical_name": "User.Drawings"}],
@@ -125,9 +125,9 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
             ("sheet", "root.kicad_sch", None, "sheets", "primary"),
             ("zone", "board.kicad_pcb", "F.Cu", "zones", "primary"),
             ("pad", "board.kicad_pcb", "F.Cu", "components", "primary"),
-            ("drawing", "board.kicad_pcb", "Edge.Cuts", "graphics", "primary"),
+            ("graphic", "board.kicad_pcb", "Edge.Cuts", "graphics", "primary"),
             ("footprint_graphic", "board.kicad_pcb", "F.Fab", "graphics", "primary"),
-            ("drawing", "board.kicad_pcb", "Dwgs.User", "graphics", "secondary"),
+            ("graphic", "board.kicad_pcb", "Dwgs.User", "graphics", "secondary"),
             ("group", "board.kicad_pcb", None, "other", "secondary"),
             ("net_class", "board.kicad_pro", None, "rules", "primary"),
             ("board_constraint", "board.kicad_pro", None, "rules", "primary"),
@@ -266,10 +266,10 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
         self.assertEqual(target["sheetPath"], "/Power/")
         self.assertEqual(target["kind"], "symbol")
         self.assertEqual(target["at"], [10, 20])
-    def test_modified_parser_segment_is_a_two_sided_native_track(self) -> None:
+    def test_modified_track_is_two_sided(self) -> None:
         base = {
             "uuid": "track-1",
-            "kind": "segment",
+            "kind": "track",
             "documentPath": "board.kicad_pcb",
             "layer": "B.Cu",
             "net": "/Expansion/PMOD_A7",

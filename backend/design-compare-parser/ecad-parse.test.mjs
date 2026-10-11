@@ -15,7 +15,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { index_document, index_snapshot } from "./ecad-parse.mjs";
+import { CANONICAL_KINDS, index_document, index_snapshot } from "./ecad-parse.mjs";
 
 const SCHEMATIC = `
 (kicad_sch
@@ -251,7 +251,7 @@ test("nested footprint zones and graphics are independently indexed", () => {
     const zone = board.byUuid.get("ffffffff-0000-0000-0000-000000000000");
     const graphic = board.byUuid.get("eeeeeeee-0000-0000-0000-000000000000");
 
-    assert.equal(zone.kind, "footprint_zone");
+    assert.equal(zone.kind, "zone");
     assert.equal(zone.parentUuid, "aaaaaaaa-0000-0000-0000-000000000000");
     assert.equal(zone.refdes, "R1");
     assert.equal(graphic.kind, "footprint_graphic");
@@ -461,7 +461,7 @@ test("structured graphic layers cross the object boundary as names", () => {
     const drawing = pcb().byUuid.get(
         "12121212-0000-0000-0000-000000000000",
     );
-    assert.equal(drawing.kind, "drawing");
+    assert.equal(drawing.kind, "graphic");
     assert.equal(drawing.layer, "F.SilkS");
 });
 
@@ -594,4 +594,17 @@ test("ECAD_INDEX_CACHE=0 disables the cache", () => {
         if (previous === undefined) delete process.env.ECAD_INDEX_CACHE;
         else process.env.ECAD_INDEX_CACHE = previous;
     }
+});
+
+test("the index names objects by canonical kind only", () => {
+    const labels = index_document(`(kicad_sch
+  (label "A" (at 1 1 0) (uuid "aaaa-0101"))
+  (global_label "B" (shape input) (at 2 2 0) (uuid "aaaa-0102"))
+  (hierarchical_label "C" (shape input) (at 3 3 0) (uuid "aaaa-0103"))
+)`, "root.kicad_sch");
+    const objects = [...sch().objects, ...pcb().objects, ...labels.objects];
+    const raw = new Set(Object.keys(CANONICAL_KINDS));
+    assert.deepEqual(objects.filter((object) => raw.has(object.kind)).map((object) => object.kind), []);
+    assert.deepEqual(labels.objects.map((object) => object.kind), ["label", "label", "label"]);
+    assert.deepEqual(labels.forms, { label: 1, global_label: 1, hierarchical_label: 1 });
 });

@@ -23,6 +23,7 @@ for candidate in (REPO_ROOT / "backend", REPO_ROOT):
         break
 
 ComponentCatalogService: Any = None
+replace_revision_preview_outputs: Any = None
 PLACE_REQUIRED_ASSET_TYPES = ("symbol", "footprint")
 PREVIEW_KIND_SYMBOL = "symbol"
 PREVIEW_KIND_FOOTPRINT = "footprint"
@@ -31,14 +32,18 @@ MAX_REPORTED_ERRORS = 100
 
 
 def _load_catalog_runtime() -> None:
-    global ComponentCatalogService
+    global ComponentCatalogService, replace_revision_preview_outputs
     try:
+        from app.services.catalog.preview_pipeline import (  # noqa: PLC0415
+            replace_revision_preview_outputs as loaded_replace_outputs,
+        )
         from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService  # noqa: PLC0415
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "Backend Python dependencies are not available. Run inside the backend container."
         ) from exc
     ComponentCatalogService = ComponentCatalogPostgresService
+    replace_revision_preview_outputs = loaded_replace_outputs
 
 
 @dataclass
@@ -196,8 +201,6 @@ def _relink_revision_preview_outputs(
     service: Any,
     conn: Any,
     revision_id: str,
-    *,
-    now: str,
 ) -> int:
     changed = 0
     assets = [
@@ -220,20 +223,7 @@ def _relink_revision_preview_outputs(
             latest_by_kind.setdefault(str(preview["kind"]), dict(preview))
         if not latest_by_kind:
             continue
-        conn.execute(
-            "DELETE FROM revision_preview_outputs WHERE revision_id = %s AND asset_id = %s AND (kind = %s OR kind LIKE %s)",
-            (revision_id, str(asset["id"]), kind, f"{kind}:unit%"),
-        )
-        for preview_kind, preview in latest_by_kind.items():
-            conn.execute(
-                """
-                INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (revision_id, asset_id, kind)
-                DO UPDATE SET preview_id = excluded.preview_id, generated_at = excluded.generated_at
-                """,
-                (revision_id, str(asset["id"]), preview_kind, str(preview["id"]), now),
-            )
+        replace_revision_preview_outputs(conn, revision_id, str(asset["id"]), kind, list(latest_by_kind.values()))
         changed += 1
     return changed
 
@@ -384,8 +374,6 @@ def _relink_components(
     commit_batch: int,
     limit: int,
 ) -> None:
-    from app.services.catalog.normalization import utc_now_iso  # noqa: PLC0415
-
     component_ids = _load_target_components(conn, limit=limit)
     stats.components_seen = len(component_ids)
     pending = 0
@@ -397,7 +385,7 @@ def _relink_components(
             if not component:
                 continue
             revision_id = str(component["current_revision_id"])
-            changed = _relink_revision_preview_outputs(service, conn, revision_id, now=utc_now_iso())
+            changed = _relink_revision_preview_outputs(service, conn, revision_id)
             if changed:
                 stats.components_relinked += 1
             pending += 1

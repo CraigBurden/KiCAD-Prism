@@ -20,7 +20,7 @@
  * groups by net and needs a position for tracks too.
  *
  * Usage:
- *   node scripts/ecad-parse.mjs <snapshot-dir> [--out FILE] [--summary-only]
+ *   node backend/design-compare-parser/ecad-parse.mjs <snapshot-dir> [--out FILE] [--summary-only]
  */
 
 import { createHash } from "node:crypto";
@@ -31,6 +31,31 @@ import { fileURLToPath } from "node:url";
 import { BoardParser, SchematicParser } from "./vendor/kicad-sexpr-parser.mjs";
 
 export const SCHEMA = "prism.ecad_object_index_v1";
+
+// The parser names a few objects after their KiCad form (`segment`,
+// `global_label`, ...). Design comparison reviews each under one canonical kind,
+// and the index emits only those, so no consumer knows the raw spellings. The
+// form still tells objects apart in the diff: it is folded into the object's
+// hash, so a label that changes type keeps reading as a modification, and the
+// reconciliation below counts by form.
+export const CANONICAL_KINDS = Object.freeze({
+    arc_segment: "arc",
+    segment: "track",
+    drawing: "graphic",
+    footprint_zone: "zone",
+    global_label: "label",
+    hierarchical_label: "label",
+});
+
+function canonical_kind(form) {
+    return CANONICAL_KINDS[form] ?? form;
+}
+
+/** The value an object's hash covers: the parser's value plus its form when the
+ * kind no longer names it. */
+function with_form(value, form) {
+    return canonical_kind(form) === form ? value : { ...value, "@form": form };
+}
 
 // Bump when the shape of a cached index (below) changes in a way the automatic
 // source hash below cannot see. The source hash already invalidates the cache
@@ -140,7 +165,11 @@ function _write_index_cache(root, signature, payload) {
     }
 }
 
-/** Mirrors design_compare_service._GENERATED_PARTS. */
+/** Directories a walk never enters. The backend's rule for what is generated is
+ * project_revision.is_generated: design comparison materializes each snapshot
+ * through its COMPARE_INPUTS source set, so a snapshot arrives with generated
+ * files already left out and this set changes nothing there. It only keeps a
+ * command-line run over a working tree out of VCS, tool and cache folders. */
 const GENERATED_PARTS = new Set([
     ".cache",
     ".git",
@@ -904,6 +933,7 @@ function index_schematic(text, documentPath, timings) {
     timings.parserMs += performance.now() - parseStarted;
     const objects = [];
     const anonymous = {};
+    const forms = {};
 
     const push = (item, kind, extra = {}, childKeys = []) => {
         if (!item?.uuid) {
@@ -913,12 +943,13 @@ function index_schematic(text, documentPath, timings) {
             anonymous[kind] = (anonymous[kind] ?? 0) + 1;
             return;
         }
+        forms[kind] = (forms[kind] ?? 0) + 1;
         objects.push(
             entry({
                 uuid: item.uuid,
-                kind,
+                kind: canonical_kind(kind),
                 documentPath,
-                hash: shallow_hash(schematic_hash_value(item), childKeys),
+                hash: shallow_hash(with_form(schematic_hash_value(item), kind), childKeys),
                 ...extra,
             }),
         );
@@ -1105,6 +1136,7 @@ function index_schematic(text, documentPath, timings) {
     return {
         objects,
         anonymous,
+        forms,
         collections: {
             symbols: (schematic.symbols ?? []).length,
             sheets: (schematic.sheets ?? []).length,
@@ -1257,6 +1289,7 @@ function index_board(text, documentPath, timings) {
     timings.parserMs += performance.now() - parseStarted;
     const objects = [];
     const anonymous = {};
+    const forms = {};
     const netsByCode = new Map((board.nets ?? []).map((net) => [net.number, net.name]));
     const routeMetrics = {};
 
@@ -1319,10 +1352,11 @@ function index_board(text, documentPath, timings) {
             anonymous[kind] = (anonymous[kind] ?? 0) + 1;
             return;
         }
+        forms[kind] = (forms[kind] ?? 0) + 1;
         objects.push(
             entry({
                 uuid,
-                kind,
+                kind: canonical_kind(kind),
                 documentPath,
                 // Copper objects carry a numeric net-table code in the raw
                 // parser object. KiCad freely renumbers that table on save,
@@ -1330,9 +1364,12 @@ function index_board(text, documentPath, timings) {
                 // connectivity edit still changes both this hash and the
                 // projected `net` field used by the diff classifier.
                 hash: shallow_hash(
-                    Object.prototype.hasOwnProperty.call(extra, "net")
-                        ? { ...item, net: extra.net }
-                        : item,
+                    with_form(
+                        Object.prototype.hasOwnProperty.call(extra, "net")
+                            ? { ...item, net: extra.net }
+                            : item,
+                        kind,
+                    ),
                     childKeys,
                 ),
                 ...extra,
@@ -1556,6 +1593,7 @@ function index_board(text, documentPath, timings) {
     return {
         objects,
         anonymous,
+        forms,
         routeMetrics,
         collections: {
             footprints: (board.footprints ?? []).length,
@@ -1636,6 +1674,9 @@ export function index_snapshot(root) {
     const objects = [];
     const collections = {};
     const anonymous = {};
+    // Objects per parser form (before canonical kinds merge them); the
+    // reconciliation counts collections against these.
+    const byForm = {};
     const routeMetrics = {};
     // `parserMs` is the parser alone; `parseMs` is parser plus building the
     // index on top of it. Keeping them apart is what makes this comparable
@@ -1679,6 +1720,11 @@ export function index_snapshot(root) {
         for (const [key, value] of Object.entries(result.anonymous ?? {})) {
             anonymous[key] = (anonymous[key] ?? 0) + value;
         }
+        // Project and design-rule indexes emit canonical kinds only.
+        const forms = result.forms ?? Object.groupBy(result.objects, (object) => object.kind);
+        for (const [key, value] of Object.entries(forms)) {
+            byForm[key] = (byForm[key] ?? 0) + (Array.isArray(value) ? value.length : value);
+        }
         for (const [net, value] of Object.entries(result.routeMetrics ?? {})) {
             const metric = (routeMetrics[net] ??= {
                 routeLengthMm: 0,
@@ -1720,7 +1766,7 @@ export function index_snapshot(root) {
         documents,
         objects,
         routeMetrics,
-        counts: { total: objects.length, byKind, anonymous },
+        counts: { total: objects.length, byKind, byForm, anonymous },
         collections,
     };
     _write_index_cache(root, signature, payload);
@@ -1752,6 +1798,7 @@ export function index_snapshot(root) {
  * never names cannot appear in a diff -- so every collection is reconciled
  * explicitly and anything deliberately not indexed says why.
  */
+// Parser collection -> the parser forms it indexes as.
 const RECONCILIATION = {
     net_classes: ["net_class"],
     net_class_assignments: ["net_class_assignment"],
@@ -1806,7 +1853,7 @@ export function reconcile(report) {
             continue;
         }
         const indexed = kinds.reduce(
-            (total, kind) => total + (report.counts.byKind[kind] ?? 0),
+            (total, kind) => total + (report.counts.byForm[kind] ?? 0),
             0,
         );
         const skipped = kinds.reduce(

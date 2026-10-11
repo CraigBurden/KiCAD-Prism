@@ -110,6 +110,31 @@ npm run test:viewer
 npm run build
 ```
 
+### Native geometry crate
+
+When `kicad-prism-viewer/native/prism-kicad-native/` changed (the toolchain is
+pinned in its `rust-toolchain.toml`; CI and the image also set
+`GEOMETER_SDK_DIR` to the SDK pinned in `backend/Dockerfile`):
+
+```bash
+cd kicad-prism-viewer/native/prism-kicad-native
+cargo fmt --check
+cargo test --release --locked
+cargo clippy --release --locked -- -D warnings
+```
+
+### Design compare parser
+
+The object index and object delta the design comparison runs on Node
+(`backend/design-compare-parser/`, no dependencies):
+
+```bash
+cd backend/design-compare-parser
+npm test
+cd ../..
+python3 -m unittest scripts.test_compare_object_delta
+```
+
 ### Compose configuration
 
 ```bash

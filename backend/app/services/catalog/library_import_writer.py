@@ -1,0 +1,404 @@
+"""The catalog writes behind the bulk library-import CLIs.
+
+``scripts/import_database_library.py`` and ``scripts/import_footprint_library.py``
+read a KiCad library and plan its components; every row they write goes through
+this module. It inserts an imported component with its first revision, links
+assets and previews, adds representations, seals the revision (manifest hash and
+audit event) and, for a trusted database-library import, releases it.
+
+A bulk import differs from :class:`~app.services.catalog.component_writer.CatalogComponentWriter`
+on purpose, and these differences are today's import behaviour:
+
+* each batch runs in catalog migration mode (:meth:`begin_batch`), which the
+  revision-preview immutability guards require;
+* slugs are allocated by the caller's batch (:meth:`allocate_slug`), without the
+  writer's slug and identity advisory locks;
+* a complete database-library row is released directly (:meth:`release_trusted`)
+  instead of going through the release workflow.
+
+The metadata columns and their order are the component writer's. Nothing here
+commits; the CLIs commit per batch.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Iterable
+import uuid
+
+from app.services.catalog.asset_registry import CatalogAssetRegistry
+from app.services.catalog.component_writer import METADATA_INSERT_COLUMNS, metadata_column_values
+from app.services.catalog.metadata_normalization import IDENTITY_KIND_MPN, IDENTITY_KIND_PROVISIONAL_IPN
+from app.services.catalog.metadata_schema import CatalogMetadataSchema
+from app.services.catalog.normalization import slugify
+from app.services.catalog.revision_kernel import REVISION_MANIFEST_A3, CatalogRevisionKernel
+from app.services.catalog.runtime import CatalogRuntime
+
+
+IMPORT_SOURCE = "import"
+IMPORT_CHANGE_KIND = "import"
+
+#: Every catalog table a ``--replace-catalog`` import empties.
+CATALOG_TABLES = (
+    "asset_validation_findings",
+    "asset_validation_runs",
+    "revision_validation_evidence_links",
+    "revision_preview_outputs",
+    "revision_previews",
+    "asset_preview_versions",
+    "asset_previews",
+    "revision_assets",
+    "revision_representations",
+    "inventory_levels",
+    "component_release_records",
+    "component_review_decisions",
+    "catalog_audit_events",
+    "catalog_metadata_batch_items",
+    "catalog_metadata_batches",
+    "component_usage",
+    "project_component_import_proposals",
+    "project_component_import_sessions",
+    "component_heads",
+    "component_revisions",
+    "components",
+    "assets",
+    "catalog_meta",
+)
+
+
+def _json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+class CatalogLibraryImportWriter:
+    """Write imported components, their assets and representations."""
+
+    def __init__(self, runtime: CatalogRuntime, revisions: CatalogRevisionKernel) -> None:
+        self._runtime = runtime
+        self._revisions = revisions
+
+    # -- batches -------------------------------------------------------------
+
+    @staticmethod
+    def begin_batch(conn: Any) -> None:
+        """Enter catalog migration mode. ``SET LOCAL`` ends with the transaction,
+        so call this again after every commit or rollback."""
+        conn.execute("SET LOCAL prism.catalog_migration = 'on'")
+
+    @staticmethod
+    def clear_catalog(conn: Any) -> None:
+        tables = ", ".join(f'"{table}"' for table in CATALOG_TABLES)
+        conn.execute(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE")
+
+    @staticmethod
+    def register_extra_fields(conn: Any, keys: Iterable[str], *, actor: str) -> None:
+        """Label the extra-field keys the import's rows carry."""
+        CatalogMetadataSchema().ensure_extra_field_definitions(conn, sorted(keys), actor=actor)
+
+    @staticmethod
+    def allocate_slug(used_slugs: set[str], base: str, *, conn: Any = None) -> str:
+        """A slug unused in this batch (and, given ``conn``, in the catalog)."""
+        slug = slugify(base or "component")
+        candidate = slug
+        counter = 2
+        while True:
+            if candidate not in used_slugs:
+                taken = conn is not None and conn.execute(
+                    "SELECT 1 FROM components WHERE slug = %s LIMIT 1", (candidate,)
+                ).fetchone()
+                used_slugs.add(candidate)
+                if not taken:
+                    return candidate
+            candidate = f"{slug}-{counter}"
+            counter += 1
+
+    # -- assets --------------------------------------------------------------
+
+    def register_asset(
+        self,
+        conn: Any,
+        *,
+        asset_type: str,
+        canonical_path: Path,
+        target_library: str,
+        target_name: str,
+        source_group: str,
+        runtime_store_root: Path | None,
+    ) -> dict[str, Any]:
+        """Register a canonical file; with ``runtime_store_root`` the row records
+        the path the running service will see instead of the local one."""
+        local_path = canonical_path.resolve()
+        asset = CatalogAssetRegistry.register_asset(
+            self._runtime,
+            conn,
+            asset_type=asset_type,
+            canonical_path=local_path,
+            target_library=target_library,
+            target_name=target_name,
+            source_group=source_group,
+        )
+        if runtime_store_root is None:
+            runtime_path = str(local_path)
+        else:
+            relative = local_path.relative_to(self._runtime.store_root.resolve())
+            runtime_path = str((runtime_store_root / relative).as_posix())
+        if str(asset["canonical_path"]) != runtime_path:
+            conn.execute("UPDATE assets SET canonical_path = %s WHERE id = %s", (runtime_path, asset["id"]))
+            asset = dict(asset)
+            asset["canonical_path"] = runtime_path
+        return asset
+
+    # -- components ----------------------------------------------------------
+
+    @staticmethod
+    def insert_component(
+        conn: Any,
+        metadata: dict[str, Any],
+        *,
+        slug: str,
+        now: str,
+        actor: str,
+        change_summary: str,
+        external_source: str = "",
+        external_id: str = "",
+    ) -> tuple[str, str]:
+        """An imported component and its open version-1 revision; returns ``(component_id, revision_id)``.
+
+        ``metadata`` is normalized (``normalize_metadata``). As in the component
+        writer, only a provisional part records its identity source and only a
+        manufacturer part its normalized manufacturer.
+        """
+        component_id = str(uuid.uuid4())
+        revision_id = str(uuid.uuid4())
+        identity_kind = metadata["identity_kind"]
+        conn.execute(
+            """
+            INSERT INTO components (
+                id, slug, identity_kind, identity_source, normalized_manufacturer,
+                normalized_part_number, source, external_source, external_id, is_active, current_revision_id,
+                released_revision_id, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, %s, '', %s, %s)
+            """,
+            (
+                component_id,
+                slug,
+                identity_kind,
+                metadata["identity_source"] if identity_kind == IDENTITY_KIND_PROVISIONAL_IPN else "",
+                metadata["normalized_manufacturer"] if identity_kind == IDENTITY_KIND_MPN else "",
+                metadata["normalized_part_number"],
+                IMPORT_SOURCE,
+                external_source,
+                external_id,
+                revision_id,
+                now,
+                now,
+            ),
+        )
+        columns = ", ".join(METADATA_INSERT_COLUMNS)
+        placeholders = ", ".join("%s" for _ in range(len(METADATA_INSERT_COLUMNS) + 3))
+        conn.execute(
+            f"""
+            INSERT INTO component_revisions (
+                id, component_id, version, parent_revision_id, change_kind, change_summary, created_by,
+                manifest_hash, manifest_schema, release_status, {columns},
+                keywords, extra_fields, search_document, created_at, updated_at
+            )
+            VALUES (%s, %s, 1, '', %s, %s, %s, '', %s, 'open', {placeholders}, %s, %s)
+            """,
+            (
+                revision_id,
+                component_id,
+                IMPORT_CHANGE_KIND,
+                change_summary,
+                actor,
+                REVISION_MANIFEST_A3,
+                *metadata_column_values(metadata),
+                now,
+                now,
+            ),
+        )
+        return component_id, revision_id
+
+    @staticmethod
+    def link_asset(
+        conn: Any,
+        revision_id: str,
+        asset: dict[str, Any],
+        *,
+        required: bool,
+        now: str,
+        bind_ready_previews: bool = False,
+    ) -> None:
+        """Attach an asset; ``bind_ready_previews`` also binds a symbol's or
+        footprint's newest ready preview of each kind to the revision."""
+        conn.execute(
+            """
+            INSERT INTO revision_assets (revision_id, asset_type, asset_id, required, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (revision_id, asset_id)
+            DO UPDATE SET required = excluded.required, updated_at = excluded.updated_at
+            """,
+            (revision_id, asset["asset_type"], asset["id"], 1 if required else 0, now, now),
+        )
+        if bind_ready_previews and asset["asset_type"] in {"symbol", "footprint"}:
+            conn.execute(
+                """
+                INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
+                SELECT %s, latest.asset_id, latest.kind, latest.id, %s
+                FROM (
+                    SELECT DISTINCT ON (asset_id, kind) id, asset_id, kind
+                    FROM asset_preview_versions
+                    WHERE asset_id = %s AND status = 'ready'
+                    ORDER BY asset_id, kind, created_at DESC, id DESC
+                ) latest
+                ON CONFLICT (revision_id, asset_id, kind)
+                DO UPDATE SET preview_id = EXCLUDED.preview_id, generated_at = EXCLUDED.generated_at
+                """,
+                (revision_id, now, asset["id"]),
+            )
+
+    @staticmethod
+    def bind_preview(conn: Any, revision_id: str, asset_id: str, preview: dict[str, Any], now: str) -> None:
+        """Bind a generated preview to the revision on both preview tables.
+
+        ``revision_preview_outputs`` is what the catalog UI reads, but the
+        ``remote_component_heads`` projection resolves ``footprint_preview_id``
+        from ``revision_previews``. Writing only one leaves the preview missing
+        from either the workspace or the KiCad Remote Symbol Panel.
+        """
+        preview_id = str(preview["id"])
+        kind = str(preview["kind"])
+        conn.execute(
+            """
+            INSERT INTO revision_preview_outputs (revision_id, asset_id, kind, preview_id, generated_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (revision_id, asset_id, kind)
+            DO UPDATE SET preview_id = excluded.preview_id, generated_at = excluded.generated_at
+            """,
+            (revision_id, asset_id, kind, preview_id, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO revision_previews (revision_id, asset_id, kind, preview_id, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (revision_id, asset_id, kind) DO NOTHING
+            """,
+            (revision_id, asset_id, kind, preview_id, now),
+        )
+
+    @staticmethod
+    def add_representation(
+        conn: Any,
+        revision_id: str,
+        *,
+        label: str,
+        symbol_asset_id: str | None,
+        footprint_asset_id: str | None,
+        is_default: bool,
+        display_order: int,
+        source_internal_part_number: str,
+        provenance: dict[str, Any],
+        now: str,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO revision_representations (
+                id, revision_id, label, symbol_asset_id, footprint_asset_id, is_default,
+                display_order, source_internal_part_number, provenance_json, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                str(uuid.uuid4()),
+                revision_id,
+                label,
+                symbol_asset_id,
+                footprint_asset_id,
+                1 if is_default else 0,
+                display_order,
+                source_internal_part_number,
+                _json(provenance),
+                now,
+                now,
+            ),
+        )
+
+    def seal(
+        self,
+        conn: Any,
+        *,
+        component_id: str,
+        revision_id: str,
+        now: str,
+        actor: str,
+        change_summary: str,
+    ) -> str:
+        """Record the finished revision's manifest hash and its ``component.created`` event."""
+        manifest_hash = self._revisions.revision_manifest_hash(conn, revision_id)
+        conn.execute(
+            "UPDATE component_revisions SET manifest_hash = %s, updated_at = %s WHERE id = %s",
+            (manifest_hash, now, revision_id),
+        )
+        self._revisions.append_audit_event(
+            conn,
+            component_id=component_id,
+            revision_id=revision_id,
+            event_type="component.created",
+            actor=actor,
+            details={
+                "change_kind": IMPORT_CHANGE_KIND,
+                "change_summary": change_summary,
+                "manifest_hash": manifest_hash,
+            },
+        )
+        return manifest_hash
+
+    def release_trusted(
+        self,
+        conn: Any,
+        *,
+        component_id: str,
+        revision_id: str,
+        now: str,
+        actor: str,
+        release_label: str,
+    ) -> None:
+        """Release a sealed import revision as a trusted import, outside the release workflow."""
+        manifest_hash = self._revisions.revision_manifest_hash(conn, revision_id)
+        conn.execute(
+            """
+            UPDATE component_revisions
+            SET manifest_hash = %s, release_status = 'released', updated_at = %s
+            WHERE id = %s
+            """,
+            (manifest_hash, now, revision_id),
+        )
+        conn.execute(
+            "UPDATE components SET released_revision_id = %s, updated_at = %s WHERE id = %s",
+            (revision_id, now, component_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO component_release_records (
+                id, component_id, revision_id, release_label, manifest_hash, released_by,
+                approval_decision_id, validation_json, policy_json, created_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, '', '{}', %s, %s)
+            ON CONFLICT(component_id, revision_id, manifest_hash) DO NOTHING
+            """,
+            (
+                str(uuid.uuid4()), component_id, revision_id, release_label,
+                manifest_hash, actor, _json({"trusted_import": True}), now,
+            ),
+        )
+        self._revisions.append_audit_event(
+            conn,
+            component_id=component_id,
+            revision_id=revision_id,
+            event_type="component.released",
+            actor=actor,
+            details={"manifest_hash": manifest_hash, "trusted_import": True},
+        )
+
+
+__all__ = ["CATALOG_TABLES", "IMPORT_SOURCE", "CatalogLibraryImportWriter"]

@@ -18,19 +18,6 @@ from .design_compare_occurrences import component_uid, is_power_symbol
 from .design_compare_semantics import _native_item
 
 
-_PARSER_KIND_NAMES = {
-    "arc_segment": "arc",
-    # The parser calls a straight PCB track a segment. Normalize it at the
-    # comparison boundary so every downstream consumer (native grouping,
-    # routing emphasis, and layer focus) sees one canonical routing kind.
-    "segment": "track",
-    "drawing": "graphic",
-    "footprint_zone": "zone",
-    "global_label": "label",
-    "hierarchical_label": "label",
-}
-
-
 _SCHEMATIC_NET_OBJECT_KINDS = {
     "wire",
     "bus",
@@ -44,7 +31,7 @@ _SCHEMATIC_NET_OBJECT_KINDS = {
 }
 
 
-_PCB_COPPER_OBJECT_KINDS = {"track", "segment", "arc", "via"}
+_PCB_COPPER_OBJECT_KINDS = {"track", "arc", "via"}
 
 
 _PRIMARY_CONSTRAINT_KINDS = {
@@ -76,7 +63,6 @@ _SCHEMATIC_PROJECT_KINDS = {"erc_exclusion", "erc_pin_rule", "project_metadata"}
 
 _NET_AGGREGATE_OBJECT_KINDS = {
     "track",
-    "segment",
     "arc",
     "via",
     "wire",
@@ -245,14 +231,15 @@ def _node_change(change: Dict[str, Any]) -> Dict[str, Any]:
     before = change.get("base") or {}
     after = change.get("compare") or {}
     active = after or before or change
-    parser_kind = str(active.get("kind") or change.get("kind") or "")
-    native_kind = _PARSER_KIND_NAMES.get(parser_kind, parser_kind)
+    # The parser emits canonical kinds (`track`, `label`, ...; CANONICAL_KINDS in
+    # backend/design-compare-parser/ecad-parse.mjs).
+    native_kind = str(active.get("kind") or change.get("kind") or "")
     document_path = str(active.get("documentPath") or change.get("documentPath") or "")
     domain = (
         "schematic"
-        if parser_kind in _SCHEMATIC_PROJECT_KINDS
+        if native_kind in _SCHEMATIC_PROJECT_KINDS
         else "pcb"
-        if parser_kind in _CONSTRAINT_KINDS
+        if native_kind in _CONSTRAINT_KINDS
         or document_path.endswith((".kicad_pcb", ".kicad_pro", ".kicad_dru"))
         else "schematic"
     )
@@ -464,9 +451,7 @@ def _hydrate_native_targets(
                 {
                     "page": native_page,
                     "documentPath": native_page,
-                    "kind": _PARSER_KIND_NAMES.get(
-                        str(native.get("kind") or ""), native.get("kind")
-                    ),
+                    "kind": native.get("kind"),
                     "parentSourceId": native.get("parentUuid"),
                     "at": native.get("at"),
                 }
