@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import (
-    exports as exports_module, exposure, redaction, sources,
-    renames as renames_module, subports as subports_module, validation, visibility,
+    exports as exports_module, exposure, links as link_rules, redaction, sources,
+    renames as renames_module, validation, visibility,
 )
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.jobs import (
@@ -528,9 +528,8 @@ class DocumentsMixin:
     @staticmethod
     def _require_subport(store: SystemStore, system_id: str, instance_id: str, port: Mapping[str, Any],
                          subport_id: Optional[str]) -> None:
-        if subport_id is not None and subport_id not in {
-                s["id"] for s in subports_module.on_connector(store.list_subports(system_id), instance_id, port)}:
-            raise Invalid("subportId is not a sub-port of this connector")
+        if subport_id is not None:
+            link_rules.check_subport(store.list_subports(system_id), instance_id, port, subport_id)
 
     def update_export(
         self, caller: Caller, system_id: str, version: int, export_id: str, fields: Mapping[str, Any],

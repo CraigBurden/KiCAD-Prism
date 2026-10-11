@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
-from app.services.systems import csv_import
+from app.services.systems import csv_import, links as link_rules
 from app.services.systems import service as system_service
 from app.services.systems.service import Caller, Result
 from app.services.systems.store import MAX_ROWS
@@ -824,11 +824,9 @@ async def create_link(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    for end in (body.a, body.b):
-        if (end.portKey is None) == (end.exportId is None):
-            raise HTTPException(status_code=422, detail="each link end takes exactly one of portKey or exportId")
-    if body.a.instanceId == body.b.instanceId and body.a.key() == body.b.key():
-        raise HTTPException(status_code=422, detail="both link ends are the same port")
+    problem = link_rules.request_problem([body.a.model_dump(), body.b.model_dump()])
+    if problem:
+        raise HTTPException(status_code=422, detail=problem)
     result = await _run(lambda: system_service.service.create_link(
         _caller(user), system_id, version, a=body.a.as_end(), b=body.b.as_end(),
         name=body.name, harness=body.harness, link_type=body.type, stack_height_mm=body.stackHeightMm,

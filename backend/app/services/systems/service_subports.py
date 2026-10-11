@@ -143,14 +143,6 @@ class SubportsMixin:
         change.audit(kind, {"instanceId": instance_id, "portKey": work["port"]["portKey"], "subportId": draft["id"],
                             "name": draft["name"], "pads": list(draft["pads"]), "moves": list(moves)})
 
-    def _end_pads(self, store: SystemStore, system_id: str, link: Mapping[str, Any], end: str,
-                  pins: Mapping[str, Any], subports: Optional[Sequence[Mapping[str, Any]]] = None) -> set[str]:
-        """The pads a link end may use (§22.2): its sub-port's, the remainder's, or every pad."""
-        found = subports_module.on_connector(subports if subports is not None else store.list_subports(system_id),
-                                             link[f"{end}_instance_id"], link[f"{end}_port"])
-        return subports_module.end_pads(pins, found, link.get(f"{end}_subport_id")) if found else set(pins)
-
-
 def _sorted(pads: Sequence[Any]) -> list[str]:
     return sorted({str(pad) for pad in pads}, key=pad_sort_key) if len(set(pads)) == len(pads) else [str(p) for p in pads]
 

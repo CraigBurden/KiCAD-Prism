@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import (
-    drift, exposure, generators, harnesses as harnesses_module, mating as mating_module, modules, redaction,
-    subports as subports_module,
+    drift, exposure, generators, harnesses as harnesses_module, links as link_rules, mating as mating_module, modules, redaction,
 )
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.placement import poses as placement_poses
@@ -627,14 +626,11 @@ class HarnessesMixin:
                     override = store.list_overrides(instance["id"]).get(component["portKey"])
                     if not exposure.is_exposed(component, override):
                         raise Conflict("port is not exposed on this board")
-                    if link_type == "b2b" and (component.get("export") or {}).get("subport"):
-                        raise Conflict("port_split: this export is part of a connector in its subsystem; a "
-                                       "board-to-board link mates a whole connector")
+                    if link_type == "b2b":
+                        link_rules.check_whole_connector(component)
                     baseline = exposure.port_baseline(component)
                     subport_id = end.get("subportId")
-                    if subport_id is not None and subport_id not in {
-                            s["id"] for s in subports_module.on_connector(all_subports, instance["id"], baseline)}:
-                        raise Invalid("subportId is not a sub-port of this connector")
+                    link_rules.check_subport(all_subports, instance["id"], baseline, subport_id)
                     baselines.append(baseline)
                     subport_ids.append(subport_id)
                 link = store.create_link(
@@ -656,10 +652,8 @@ class HarnessesMixin:
                 if fields.get("type") == "b2b":
                     for end in ("a", "b"):
                         found = self._instance_interface(store, store.get_instance(system_id, link[f"{end}_instance_id"]))
-                        component = exposure.component_by_key(found, link[f"{end}_port"]["portKey"]) if found else None
-                        if component and (component.get("export") or {}).get("subport"):
-                            raise Conflict("port_split: this export is part of a connector in its subsystem; a "
-                                           "board-to-board link mates a whole connector")
+                        link_rules.check_whole_connector(
+                            exposure.component_by_key(found, link[f"{end}_port"]["portKey"]) if found else None)
                 store.update_link(
                     change, link_id, name=fields.get("name"), harness=fields.get("harness", ...),
                     link_type=fields.get("type"), stack_height_mm=fields.get("stackHeightMm", ...),
@@ -694,7 +688,7 @@ class HarnessesMixin:
                     pins[end] = exposure.pins_by_pad(component)
                     references[end] = component["reference"]
                 all_subports = store.list_subports(system_id)
-                allowed = {end: self._end_pads(store, system_id, link, end, pins[end], all_subports) for end in ("a", "b")}
+                allowed = {end: link_rules.end_pads(link, end, pins[end], all_subports) for end in ("a", "b")}
                 captured = []
                 for row in rows:
                     item = dict(row)
@@ -727,7 +721,7 @@ class HarnessesMixin:
                 pins[end] = exposure.pins_by_pad(component)
             all_subports = store.list_subports(system_id)
             for end in ("a", "b"):
-                allowed = self._end_pads(store, system_id, link, end, pins[end], all_subports)
+                allowed = link_rules.end_pads(link, end, pins[end], all_subports)
                 pins[end] = {pad: facts for pad, facts in pins[end].items() if pad in allowed}
         body = generators.generate(generator, pins["a"], pins["b"], link["rows"], options)
         return Result({"linkId": link_id, **body}, system_id, system["version"])
