@@ -447,6 +447,11 @@ def _import_plans(
             if writer.identity_holder(conn, metadata):
                 stats.components_skipped_existing += 1
                 continue
+            # Custom required fields live in the catalog, so they are checked here rather than at plan time.
+            if missing := writer.missing_custom_fields(conn, metadata):
+                stats.skipped_files += 1
+                stats.skipped_missing_fields.append({"footprint": plan.relative_path, "missing": missing})
+                continue
 
             now = _utc_now_iso()
             footprint_key = (plan.target_library, plan.target_name)

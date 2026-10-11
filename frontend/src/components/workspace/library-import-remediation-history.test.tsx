@@ -5,7 +5,7 @@ vi.mock("./catalog-client");
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 
 import * as catalog from "./catalog-client";
-import type { ProjectComponentImportProposal } from "@/types/catalog";
+import type { CatalogMetadataField, ProjectComponentImportProposal } from "@/types/catalog";
 import { LibraryImportRemediationGrid } from "./library-import-remediation-grid";
 
 // The remediation grid's staged edits: per-keystroke commits, fill-down,
@@ -82,5 +82,64 @@ describe("remediation grid staged history", () => {
         });
         expect(undoButton()).toBeDisabled();
         expect(redoButton()).toBeDisabled();
+    });
+});
+
+const APPROVAL: CatalogMetadataField = {
+    id: "field-1", key: "approval_ref", label: "Approval Ref", description: "", group: "custom", type: "text",
+    unit: "", enum_values: [], storage_kind: "extra", storage_key: "approval_ref", built_in: false, required: true,
+    display_order: 100, archived: false, created_by: "", updated_by: "", created_at: "", updated_at: "",
+};
+
+describe("remediation grid custom fields (D43)", () => {
+    const withFields = (scanned: Record<string, string>) => PROPOSALS.map((row) => ({
+        ...row,
+        metadata: { ...row.metadata, datasheet: "https://x.test/d.pdf", fields: scanned },
+        assets: [
+            { asset_type: "symbol" as const, filename: "R.kicad_sym", sha256: "a", size_bytes: 1, target_library: "L", target_name: "R", source_path: "R.kicad_sym" },
+            { asset_type: "footprint" as const, filename: "R.kicad_mod", sha256: "b", size_bytes: 1, target_library: "L", target_name: "R", source_path: "R.kicad_mod" },
+        ],
+    }));
+
+    it("shows an editable, flagged column that blocks import until filled, then sends it with the symbol's fields", async () => {
+        vi.mocked(catalog.bulkAcceptProposals).mockResolvedValue({ accepted: 1, failed: 0, results: [] } as never);
+        render(
+            <LibraryImportRemediationGrid
+                sessionId="s1" proposals={withFields({ Tolerance: "1%" })} customFields={[APPROVAL]}
+                canWrite onShowDetailView={vi.fn()} onRefresh={vi.fn()}
+            />,
+        );
+        expect(screen.getByRole("button", { name: /Import all ready \(0\)/ })).toBeDisabled();
+        expect(input("Approval Ref", "R1")).toHaveAttribute("aria-invalid", "true");
+
+        fireEvent.change(input("Approval Ref", "R1"), { target: { value: "QA-7" } });
+        fireEvent.click(screen.getByRole("button", { name: /Import all ready \(1\)/ }));
+
+        await waitFor(() => expect(catalog.bulkAcceptProposals).toHaveBeenCalled());
+        const [, items] = vi.mocked(catalog.bulkAcceptProposals).mock.calls[0];
+        expect(items).toEqual([
+            expect.objectContaining({
+                proposal_id: "p1",
+                metadata_overrides: expect.objectContaining({ extra_fields: { Tolerance: "1%", approval_ref: "QA-7" } }),
+            }),
+        ]);
+    });
+
+    it("saves an edited custom value in the draft's extra_fields", async () => {
+        vi.mocked(catalog.saveProposalDrafts).mockResolvedValue(undefined as never);
+        const onRefresh = vi.fn();
+        render(
+            <LibraryImportRemediationGrid
+                sessionId="s1" proposals={withFields({})} customFields={[APPROVAL]}
+                canWrite onShowDetailView={vi.fn()} onRefresh={onRefresh}
+            />,
+        );
+        fireEvent.change(input("Approval Ref", "R2"), { target: { value: "QA-8" } });
+        fireEvent.keyDown(document.body, { key: "s", ctrlKey: true });
+
+        await waitFor(() => expect(onRefresh).toHaveBeenCalled());
+        expect(catalog.saveProposalDrafts).toHaveBeenCalledWith("s1", {
+            p2: { metadata_overrides: { extra_fields: { approval_ref: "QA-8" } } },
+        });
     });
 });

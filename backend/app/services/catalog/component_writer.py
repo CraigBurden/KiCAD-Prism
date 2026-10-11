@@ -15,7 +15,7 @@ import uuid
 
 from app.services.catalog.component_identity import ComponentIdentity, find_identity_holder
 from app.services.catalog.conflicts import revision_conflict
-from app.services.catalog.field_rules import custom_field_errors
+from app.services.catalog.field_rules import custom_field_errors, missing_custom_fields
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import (
     IDENTITY_KIND_MPN,
@@ -206,6 +206,23 @@ class CatalogComponentWriter:
         ):
             raise ValueError("A component with this manufacturer-part identity already exists")
 
+    def missing_custom_fields(self, conn: Any, metadata: dict[str, Any]) -> list[str]:
+        """Labels of the active custom required fields that normalized ``metadata`` leaves blank."""
+        return [
+            str(field.get("label") or field.get("key"))
+            for field in missing_custom_fields(
+                self._metadata_schema.list_fields(conn), metadata, identity_kind=metadata["identity_kind"]
+            )
+        ]
+
+    def assert_custom_fields_present(self, conn: Any, metadata: dict[str, Any]) -> None:
+        """Refuse normalized ``metadata`` that leaves a custom required field blank (``"<Label>: Required"``)."""
+        errors = custom_field_errors(
+            self._metadata_schema.list_fields(conn), metadata, identity_kind=metadata["identity_kind"]
+        )
+        if errors:
+            raise ValueError("; ".join(errors))
+
     def upsert_metadata_row(
         self,
         conn: Any,
@@ -379,11 +396,13 @@ class CatalogComponentWriter:
         """A new component. A ``module`` (CONTRACTS_P2 §3.5) takes its kind before its first revision is
         sealed, so the sealed revision already carries its (symbol-derived) interface."""
         component_id = str(uuid.uuid4())
+        metadata = normalize_metadata(payload)
+        self.assert_custom_fields_present(conn, metadata)
         _component_id, revision_id = self.upsert_metadata_row(
             conn,
             runtime,
             component_id=component_id,
-            metadata=normalize_metadata(payload),
+            metadata=metadata,
             now=utc_now_iso(),
             existing_component_id=None,
             actor=actor,
@@ -440,11 +459,7 @@ class CatalogComponentWriter:
         metadata = merge_metadata_patch(component, revision, updates)
         if metadata_matches_revision(revision, metadata):
             return ""
-        errors = custom_field_errors(
-            self._metadata_schema.list_fields(conn), metadata, identity_kind=metadata["identity_kind"]
-        )
-        if errors:
-            raise ValueError("; ".join(errors))
+        self.assert_custom_fields_present(conn, metadata)
         _, revision_id = self.upsert_metadata_row(
             conn,
             runtime,

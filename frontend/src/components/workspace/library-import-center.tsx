@@ -16,6 +16,7 @@ import { PermissionHint } from "@/components/ui/permission-hint";
 import { cn } from "@/lib/utils";
 import { LibraryImportRemediationDialog, type ProposalRemediation } from "./library-import-remediation-dialog";
 import { LibraryImportRemediationGrid } from "./library-import-remediation-grid";
+import { useImportCustomFields } from "./library-import-custom-fields";
 import { LibraryFolderDiscoveryDialog } from "./library-folder-discovery-dialog";
 import { isAbortError, useImportSessionProposals } from "./library-import-session-proposals";
 import {
@@ -143,6 +144,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const [reviewMode, setReviewMode] = useState<"grid" | "cards">("grid");
   // The grid is wide; collapsing the session rail gives it back ~15rem.
   const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
+  const customFields = useImportCustomFields();
   const canWrite = canWriteCatalog(user?.role);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const selectedSession = useMemo(
@@ -543,6 +545,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
               <LibraryImportRemediationGrid
                 sessionId={selectedSession.id}
                 proposals={proposals}
+                customFields={customFields}
                 canWrite={canWrite}
                 onShowDetailView={() => setReviewMode("cards")}
                 onRefresh={async () => {
@@ -601,6 +604,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       <LibraryImportRemediationDialog
         key={remediationProposal?.id ?? "none"}
         proposal={remediationProposal}
+        customFields={customFields}
         open={remediationProposal !== null}
         submitting={proposalActionId === remediationProposal?.id}
         onOpenChange={(nextOpen) => { if (!nextOpen && !proposalActionId) setRemediationProposal(null); }}

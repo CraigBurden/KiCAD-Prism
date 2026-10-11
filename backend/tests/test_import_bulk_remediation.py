@@ -419,6 +419,31 @@ class ImportBulkRemediationTests(unittest.TestCase):
         assert updated is not None
         self.assertEqual((updated["value"], updated["extra_fields"][field["storage_key"]]), ("22k", "QA-18"))
 
+    def test_create_enforces_custom_required_fields_on_the_server(self) -> None:
+        # D44: manual create (POST /components) refuses a blank custom required field.
+        field = self._required_custom_field()
+        payload = {
+            "value": "10k",
+            "description": "Resistor",
+            "datasheet": "https://example.test/rc.pdf",
+            "manufacturer": "Yageo",
+            "manufacturer_part_number": f"RC0603-CREATE-{uuid.uuid4().hex[:8]}",
+        }
+        with self.assertRaisesRegex(ValueError, "Approval Ref: Required"):
+            self.service.create_manual_component(actor="tester@example.com", **payload)
+        self.assertEqual(
+            self.service.match_component_identities(
+                [{"manufacturer": "Yageo", "mpn": payload["manufacturer_part_number"]}]
+            ),
+            [None],
+        )
+
+        created = self.service.create_manual_component(
+            actor="tester@example.com", extra_fields={field["storage_key"]: "QA-19"}, **payload
+        )
+        self.component_ids.append(str(created["id"]))
+        self.assertEqual(created["extra_fields"][field["storage_key"]], "QA-19")
+
     def test_retired_identity_is_matched_and_blocks_import_with_its_reason(self) -> None:
         mpn = f"RC0603-RETIRED-{uuid.uuid4().hex[:8]}"
         _, seed = self._stage_proposal(reference="R8", mpn=mpn)

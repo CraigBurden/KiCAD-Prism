@@ -77,7 +77,8 @@ Components call it; component tests fake it (`vi.mock("./catalog-client")`) and
 superseded reads),
 `library-import-remediation-dialog.tsx`, `library-import-remediation-grid.tsx`
 (both take readiness from `frontend/src/lib/catalog-field-rules.ts`, the rules
-the server enforces on accept),
+the server enforces on accept, and edit custom field values through
+`library-import-custom-fields.ts`),
 `library-folder-discovery-dialog.tsx`. Import produces proposals that a human
 remediates before acceptance; the grid is the remediation surface.
 

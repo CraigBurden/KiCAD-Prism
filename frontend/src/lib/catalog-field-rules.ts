@@ -18,6 +18,14 @@ interface RuleField {
   enum_values?: readonly string[];
 }
 
+/** A metadata field definition as the import surfaces read it. */
+interface CustomRuleField extends RuleField {
+  label: string;
+  storage_key: string;
+  built_in?: boolean;
+  archived?: boolean;
+}
+
 interface ImportFinding {
   code: string;
   severity: string;
@@ -81,6 +89,29 @@ export function importMetadataProblems(values: Readonly<Record<string, string | 
   for (const item of IMPORT_RULES.fields) {
     const verdict = fieldVerdict({ key: item.fieldKey, type: item.type }, values[item.key], "import", "mpn");
     if (verdict) problems.push(`${item.label} ${IMPORT_RULES.messages[verdict]}`);
+  }
+  return problems;
+}
+
+/** The active custom fields an import can fill (custom values live in `extra_fields`). */
+export function importCustomFields<T extends CustomRuleField>(fields: readonly T[]): T[] {
+  return fields.filter((field) => !field.built_in && !field.archived);
+}
+
+/**
+ * Why `extraFields` (keyed by storage key) cannot be accepted: one
+ * "<Label> is required" per custom required field left blank. Presence only,
+ * as the server's `custom_import_problems`.
+ */
+export function customImportProblems(
+  fields: readonly CustomRuleField[],
+  extraFields: Readonly<Record<string, string | undefined>>,
+): string[] {
+  const problems: string[] = [];
+  for (const field of importCustomFields(fields)) {
+    if (fieldVerdict(field, extraFields[field.storage_key], "editor", "mpn") === "required") {
+      problems.push(`${field.label || field.key} ${IMPORT_RULES.messages.required}`);
+    }
   }
   return problems;
 }

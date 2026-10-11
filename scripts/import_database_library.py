@@ -159,6 +159,7 @@ class ImportStats:
     hard_conflicts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     release_refused: list[dict[str, Any]] = field(default_factory=list)  # kept as drafts by a release gate
+    skipped_missing_fields: list[dict[str, Any]] = field(default_factory=list)  # {"key", "missing": [labels]}
 
 
 # Actor recorded on revisions this importer creates. Downstream tooling uses it
@@ -808,16 +809,17 @@ def _import_groups(
 
     # Register the preserved database columns once up front so they appear as
     # labelled fields rather than as opaque keys in the extra-fields blob.
-    discovered_keys = {
-        key
-        for group in groups
-        for key in group.metadata.get("extra_fields", {})
-    }
+    discovered_keys = {key for group in groups for key in group.metadata.get("extra_fields", {})}
     if discovered_keys:
         writer.register_extra_fields(target_conn, discovered_keys, actor=DATABASE_LIBRARY_IMPORT_ACTOR)
 
     for group in groups:
         try:
+            # A custom required field the row leaves blank skips it, as import acceptance refuses it.
+            if missing := writer.missing_custom_fields(target_conn, group.metadata):
+                stats.skipped_rows += 1
+                stats.skipped_missing_fields.append({"key": list(group.key), "missing": missing})
+                continue
             now = _utc_now_iso()
             component_id, revision_id = writer.insert_component(
                 target_conn,
@@ -878,11 +880,7 @@ def _import_groups(
                 change_summary="Imported grouped database-library component",
             )
 
-            if (
-                release_imported
-                and group.identity_kind == "mpn"
-                and default_complete
-            ):
+            if release_imported and group.identity_kind == "mpn" and default_complete:
                 try:
                     writer.release_trusted(
                         target_conn,
@@ -1270,7 +1268,7 @@ def main() -> int:
                 release_imported=not args.no_release,
                 commit_batch=max(50, args.commit_batch),
             )
-            if stats.components_created != len(groups):
+            if stats.components_created + len(stats.skipped_missing_fields) != len(groups):
                 fatal_error = True
                 _record_error(
                     stats,
