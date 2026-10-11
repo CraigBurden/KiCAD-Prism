@@ -30,16 +30,14 @@ from __future__ import annotations
 import ast
 import json
 import math
-import os
-import platform
 import re
-import shutil
-import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+
+from app.services.kicad_tools import KicadTool, ToolError, ToolTimeout, kicad_cli
 
 # Coordinates are quantised before comparison. KiCad plots at 4.6 format
 # (nanometre resolution); 0.1 µm is two orders of magnitude finer than any
@@ -1446,79 +1444,33 @@ def compare_directories(
 
 # ── Generation ─────────────────────────────────────────────────────────────
 
-def _cli_command() -> str:
-    """Locate kicad-cli without importing at module load.
-
-    Fabrication compare must stay importable on machines that do not have
-    KiCad installed; resolution happens only when an export is requested.
-    """
-
-    env_path = os.environ.get("KICAD_CLI_PATH")
-    if env_path and os.path.exists(env_path):
-        return env_path
-
-    cli_name = "kicad-cli.exe" if platform.system() == "Windows" else "kicad-cli"
-    if shutil.which(cli_name):
-        return cli_name
-
-    system = platform.system()
-    paths_to_check: list[str] = []
-    if system == "Darwin":
-        paths_to_check = [
-            "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
-            os.path.expanduser("~/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"),
-        ]
-    elif system == "Windows":
-        program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
-        kicad_root = Path(program_files) / "KiCad"
-        if kicad_root.exists():
-            versions = sorted([d for d in kicad_root.iterdir() if d.is_dir()], reverse=True)
-            for version in versions:
-                candidate = version / "bin" / "kicad-cli.exe"
-                if candidate.exists():
-                    paths_to_check.append(str(candidate))
-        paths_to_check.append(f"{program_files}\\KiCad\\8.0\\bin\\kicad-cli.exe")
-        paths_to_check.append(f"{program_files}\\KiCad\\7.0\\bin\\kicad-cli.exe")
-    elif system == "Linux":
-        paths_to_check = [
-            "/usr/bin/kicad-cli",
-            "/usr/local/bin/kicad-cli",
-            "/var/lib/flatpak/exports/bin/org.kicad.KiCad",
-        ]
-
-    for path in paths_to_check:
-        if os.path.exists(path):
-            return path
-    return cli_name
-
-
 def _export(
     kind: str,
     pcb_path: Path,
     output_dir: Path,
     *extra: str,
+    tool: Optional[KicadTool] = None,
     timeout: float = 300.0,
 ) -> Tuple[bool, str]:
     """Run one `kicad-cli pcb export <kind>` into `output_dir`."""
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    command = [
-        _cli_command(), "pcb", "export", kind,
-        *extra, "--output", str(output_dir), str(pcb_path),
-    ]
+    args = ["pcb", "export", kind, *extra, "--output", str(output_dir), str(pcb_path)]
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
-    except FileNotFoundError:
-        return (False, "kicad-cli is not available")
-    except subprocess.TimeoutExpired:
+        completed = (tool or kicad_cli()).run(args, timeout=timeout)
+    except ToolTimeout:
         return (False, f"{kind} export timed out after {timeout:.0f}s")
-    if completed.returncode != 0:
+    except ToolError:
+        return (False, "kicad-cli is not available")
+    if not completed.ok:
         detail = (completed.stderr or completed.stdout or "").strip().splitlines()
         return (False, detail[-1] if detail else f"exit code {completed.returncode}")
     return (True, "")
 
 
-def export_gerbers(pcb_path: Path, output_dir: Path) -> Tuple[bool, str]:
+def export_gerbers(
+    pcb_path: Path, output_dir: Path, *, tool: Optional[KicadTool] = None
+) -> Tuple[bool, str]:
     """Plot the Gerber package for one revision of a board.
 
     Plot options are deliberately left at the board's own settings: the point of
@@ -1526,10 +1478,12 @@ def export_gerbers(pcb_path: Path, output_dir: Path) -> Tuple[bool, str]:
     would defeat it.
     """
 
-    return _export("gerbers", pcb_path, output_dir)
+    return _export("gerbers", pcb_path, output_dir, tool=tool)
 
 
-def export_drill(pcb_path: Path, output_dir: Path) -> Tuple[bool, str]:
+def export_drill(
+    pcb_path: Path, output_dir: Path, *, tool: Optional[KicadTool] = None
+) -> Tuple[bool, str]:
     """Write the NC drill program alongside the Gerbers.
 
     Plated and non-plated holes are kept in one mixed program, which is the
@@ -1539,5 +1493,5 @@ def export_drill(pcb_path: Path, output_dir: Path) -> Tuple[bool, str]:
 
     return _export(
         "drill", pcb_path, output_dir,
-        "--format", "excellon", "--excellon-units", "mm",
+        "--format", "excellon", "--excellon-units", "mm", tool=tool,
     )

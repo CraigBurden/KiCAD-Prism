@@ -96,7 +96,7 @@ def _build_ready_preview_index(service: Any, conn: Any) -> dict[str, set[str]]:
     index: dict[str, set[str]] = defaultdict(set)
     for row in rows:
         kind = str(row["kind"])
-        expected = service.previews.generator_identity(service.runtime, kind)["generator_fingerprint"]
+        expected = service.previews.generator_identity(kind)["generator_fingerprint"]
         if str(row["generator_fingerprint"]) != expected:
             continue
         file_path = Path(str(row["file_path"] or ""))
@@ -128,7 +128,7 @@ def _generate_asset_previews(service: Any, asset: dict[str, Any]) -> AssetGenera
     asset_type = str(asset["asset_type"])
     try:
         if asset_type == "symbol":
-            status, result = service.previews.render_symbol_units(service.runtime, asset)
+            status, result = service.previews.render_symbol_units(asset)
             if status != PREVIEW_STATUS_READY or not isinstance(result, list):
                 return AssetGenerationResult(
                     asset_id=asset_id,
@@ -143,7 +143,7 @@ def _generate_asset_previews(service: Any, asset: dict[str, Any]) -> AssetGenera
                 ],
             )
         if asset_type == "footprint":
-            status, result = service.previews.render_footprint(service.runtime, asset)
+            status, result = service.previews.render_footprint(asset)
             if status != PREVIEW_STATUS_READY or not isinstance(result, bytes):
                 return AssetGenerationResult(
                     asset_id=asset_id,

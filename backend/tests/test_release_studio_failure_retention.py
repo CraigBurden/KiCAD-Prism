@@ -16,6 +16,8 @@ from app.api import release_studio as api
 from app.services import release_studio_build_service as build_service
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_runtime import JobCancelled, JobContext
+from app.services.kicad_tools import KicadTools
+from tests.kicad_tool_fakes import FakeTool
 
 
 class _FencedJobService:
@@ -179,7 +181,8 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
     def test_post_start_failure_marks_attempt_and_publishes_diagnostic_evidence(self) -> None:
         context = self._context(payload={"author": "operator-1"})
         closure = self.root / "closure"
-        closure.mkdir()
+        (closure / "hardware").mkdir(parents=True)
+        (closure / "hardware" / "board.kicad_pcb").write_text("(kicad_pcb)")
         build = {"id": "build-post-start", "candidate_id": "candidate-post-start", "status": "running"}
         failed: list[dict[str, object]] = []
         candidate = {
@@ -195,14 +198,12 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
         def fail_build(build_id, **kwargs):  # noqa: ANN001 - service seam
             failed.append({"id": build_id, "status": "failed", **kwargs})
 
+        def explode(args, **_kwargs):  # noqa: ANN001 - FakeTool handler
+            raise RuntimeError("tool token=post-start-secret failed")
+
         with (
             patch.object(build_service.store, "start_build", return_value=build),
             patch.object(build_service.store, "fail_build", side_effect=fail_build),
-            patch.object(
-                build_service,
-                "run_step_catalogue",
-                side_effect=RuntimeError("tool token=post-start-secret failed"),
-            ),
         ):
             with self.assertRaisesRegex(RuntimeError, "post-start-secret"):
                 build_service.execute_build(
@@ -211,6 +212,7 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                     closure_root=closure,
                     config={"board": "hardware/board.kicad_pcb"},
                     artifacts=JobArtifactService(root=self.root),
+                    tools=KicadTools(cli=FakeTool(explode)),
                 )
 
         self.assertEqual(len(failed), 1)
@@ -229,7 +231,8 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
     def test_cancellation_marks_build_cancelled_and_retains_log_evidence(self) -> None:
         context = self._context(payload={"author": "operator-1"})
         closure = self.root / "closure-cancelled"
-        closure.mkdir()
+        (closure / "hardware").mkdir(parents=True)
+        (closure / "hardware" / "board.kicad_pcb").write_text("(kicad_pcb)")
         build = {"id": "build-cancelled", "candidate_id": "candidate-cancelled", "status": "running"}
         cancelled: list[dict[str, object]] = []
         candidate = {
@@ -237,7 +240,13 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             "config_key": "production", "variant": "", "build_key": "d" * 64,
             "technical_config_digest": "e" * 64, "input_closure_digest": "f" * 64,
         }
-        self.service.status = "cancel_requested"
+        def cancel_mid_step(args, **_kwargs):  # noqa: ANN001 - FakeTool handler
+            # What a cancel request looks like to a running tool: the poll it
+            # was handed by execute_build raises.
+            self.service.status = "cancel_requested"
+            cli.cancel()
+
+        cli = FakeTool(cancel_mid_step)
 
         with (
             patch.object(build_service.store, "start_build", return_value=build),
@@ -247,16 +256,13 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                     {"id": build_id, "status": "cancelled", **kwargs}
                 ),
             ),
-            patch.object(
-                build_service, "run_step_catalogue",
-                side_effect=JobCancelled("Cancellation requested"),
-            ),
         ):
             with self.assertRaises(JobCancelled):
                 build_service.execute_build(
                     context, candidate=candidate, closure_root=closure,
                     config={"board": "hardware/board.kicad_pcb"},
                     artifacts=JobArtifactService(root=self.root),
+                    tools=KicadTools(cli=cli),
                 )
 
         self.assertEqual(cancelled[0]["status"], "cancelled")

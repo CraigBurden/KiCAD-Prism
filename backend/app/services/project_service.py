@@ -3,7 +3,6 @@ import hashlib
 import json
 import shutil
 import datetime
-import subprocess
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -147,11 +146,6 @@ def _workspace_row_to_project(row: dict) -> Project:
     )
 
 # Workflow Jobs
-def _find_cli_path():
-    """Keep the legacy lookup seam while delegating to the jobset service."""
-
-    return kicad_jobset_service.find_kicad_cli_path()
-
 def webgpu_artifact_key(row: dict, commit: str | None, *, force: bool = False) -> str:
     """The ``webgpu_3d`` job key for a project row at ``commit`` (or its workspace).
 
@@ -545,7 +539,6 @@ def run_kicad_workflow_job_v3(context: JobContext) -> JobResult:
         workflow_type=workflow_type,
         author=author,
         routing="repository",
-        cli_path=_find_cli_path(),
         # Keep the old project_service.Repo patch seam for the legacy handler
         # while the generic service remains independently testable.
         repository_factory=Repo,

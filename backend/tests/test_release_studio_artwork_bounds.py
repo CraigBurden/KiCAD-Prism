@@ -1,24 +1,21 @@
-"""Layer and drill-map plots are bounded and isolated like every other kicad-cli run.
+"""Layer and drill-map plots are bounded like every other kicad-cli run.
 
 They used to call kicad-cli with no timeout and the worker's own temp dir, so a
 wedged plot held the build forever and three concurrent plots shared one
-KiCad instance lock.
+KiCad instance lock. Isolation now belongs to the kicad-cli tool itself
+(``test_kicad_tools``); these tests pin that each plot states a timeout and
+that an expired one costs the sheet, not the document set.
 """
 
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from app.release_studio.documents import artwork
-
-
-class _Refused:
-    returncode = 1
-    stdout = ""
-    stderr = "refused"
+from app.services.kicad_tools import ToolResult, ToolTimeout
+from tests.kicad_tool_fakes import FakeTool
 
 
 class ArtworkPlotBoundsTests(unittest.TestCase):
@@ -26,35 +23,26 @@ class ArtworkPlotBoundsTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
-        self.calls: list[dict] = []
 
-    def _runner(self, argv, **kwargs):  # noqa: ANN001
-        self.calls.append(kwargs)
-        return _Refused()
-
-    def _assert_bounded_and_isolated(self) -> None:
-        self.assertTrue(self.calls)
-        for call in self.calls:
-            self.assertGreater(call.get("timeout") or 0, 0)
-            env = call.get("env") or {}
-            self.assertIn("TMPDIR", env)
-            self.assertNotEqual(env["TMPDIR"], os.environ.get("TMPDIR"))
-            self.assertEqual(env["XDG_RUNTIME_DIR"], env["TMPDIR"])
-
-    def test_layer_plots_have_a_timeout_and_their_own_temp_dir(self) -> None:
+    def test_layer_plots_state_a_timeout(self) -> None:
+        tool = FakeTool(lambda args, **_: ToolResult(1, "", "refused"))
         with self.assertRaises(artwork.ArtworkError):
-            artwork.acquire(
-                "kicad-cli", self.root / "b.kicad_pcb", ("F.Cu",), self.root / "w",
-                runner=self._runner,
-            )
-        self._assert_bounded_and_isolated()
+            artwork.acquire(tool, self.root / "b.kicad_pcb", ("F.Cu",), self.root / "w")
+        self.assertEqual(len(tool.calls), 3)
+        self.assertTrue(all(call["timeout"] == artwork.PLOT_TIMEOUT_SECONDS for call in tool.calls))
 
-    def test_the_drill_map_has_a_timeout_and_its_own_temp_dir(self) -> None:
+    def test_the_drill_map_states_a_timeout(self) -> None:
+        tool = FakeTool(lambda args, **_: ToolResult(1, "", "refused"))
         with self.assertRaises(artwork.ArtworkError):
-            artwork.acquire_drill_map(
-                "kicad-cli", self.root / "b.kicad_pcb", self.root / "w", runner=self._runner,
-            )
-        self._assert_bounded_and_isolated()
+            artwork.acquire_drill_map(tool, self.root / "b.kicad_pcb", self.root / "w")
+        self.assertEqual(tool.calls[0]["timeout"], artwork.PLOT_TIMEOUT_SECONDS)
+
+    def test_an_expired_plot_is_an_artwork_error(self) -> None:
+        def expire(args, **_kwargs):
+            raise ToolTimeout("kicad-cli timed out after 600s: pcb export drill", 600)
+
+        with self.assertRaisesRegex(artwork.ArtworkError, "timed out"):
+            artwork.acquire_drill_map(FakeTool(expire), self.root / "b.kicad_pcb", self.root / "w")
 
 
 if __name__ == "__main__":

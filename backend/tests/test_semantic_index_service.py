@@ -497,13 +497,11 @@ class SemanticIndexServiceTests(unittest.TestCase):
             root = Path(temporary)
             helper = root / "prism-kicad-native"
             helper.write_bytes(b"helper-a")
-            with patch.dict(
-                semantic_visualizer_service.os.environ,
-                {"PRISM_KICAD_NATIVE_PATH": str(helper)},
-                clear=False,
-            ), patch(
+            with patch(
                 "app.services.semantic_viewer_runtime.settings.PRISM_PCB_GEOMETRY_BACKEND",
                 "rust",
+            ), patch(
+                "app.core.config.settings.PRISM_KICAD_NATIVE_PATH", str(helper)
             ), patch(
                 "app.services.semantic_viewer_runtime.find_viewer_repo_root",
                 return_value=root,

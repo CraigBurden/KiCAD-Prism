@@ -7,7 +7,7 @@ Configuration can be set via:
 
 See .env.example for available configuration options.
 """
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 import os
@@ -676,6 +676,26 @@ class Settings(PipelineSettings):
     IMPORT_ALLOW_INSECURE_HTTP: bool = Field(
         default=False,
         description="Allow http:// repository URLs during project import",
+    )
+
+    # ===========================================
+    # KiCad tools (located by app.services.kicad_tools)
+    # ===========================================
+    KICAD_CLI_PATH: str = Field(
+        default="",
+        validation_alias=AliasChoices("KICAD_CLI_PATH", "KICAD_CLI"),
+        description=(
+            "kicad-cli every KiCad job runs. Empty: kicad-cli on PATH, then the usual "
+            "install locations. KICAD_CLI is accepted as a legacy name."
+        ),
+    )
+    KICAD_CRUNCHER_PATH: str = Field(
+        default="",
+        description="kicad-cruncher for Release Studio assembly views and vendor packs. Empty: PATH.",
+    )
+    PRISM_KICAD_NATIVE_PATH: str = Field(
+        default="/usr/local/bin/prism-kicad-native",
+        description="Native PCB geometry helper used by the experimental Rust backend.",
     )
 
     # ===========================================

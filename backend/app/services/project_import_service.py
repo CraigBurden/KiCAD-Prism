@@ -6,7 +6,6 @@ Handles Type-1 (single project) and Type-2 (multiple projects) imports.
 import os
 import hashlib
 import mimetypes
-import subprocess
 import shutil
 import tempfile
 from pathlib import Path
@@ -19,6 +18,7 @@ from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError
 from app.services.job_service import jobs as v3_jobs
+from app.services.kicad_tools import kicad_cli
 from app.services.project_import_followups import (
     retry_import_follow_ups,
     schedule_import_follow_ups,
@@ -471,27 +471,11 @@ def generate_thumbnail_for_project(
                 logs_list.append(f"No .kicad_pcb file found to generate thumbnail for {project_path}")
             return False
         
-        # Check standard paths for kicad-cli
-        cli_path = "kicad-cli"
-        # Check environment variable
-        for var in ("KICAD_CLI_PATH", "KICAD_CLI"):
-            val = os.environ.get(var, "").strip()
-            if val and os.path.exists(val):
-                cli_path = val
-                break
-        else:
-            # Check standard Mac path
-            mac_path = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
-            if os.path.exists(mac_path):
-                cli_path = mac_path
-            else:
-                # Check PATH
-                which_cli = shutil.which("kicad-cli")
-                if which_cli:
-                    cli_path = which_cli
-
+        cli = kicad_cli()
         if logs_list is not None:
-            logs_list.append(f"Generating thumbnail using {cli_path} for PCB: {pcb_file}")
+            logs_list.append(
+                f"Generating thumbnail using {cli.executable()} for PCB: {pcb_file}"
+            )
 
         # Render into a scratch directory outside the checkout. Nothing this
         # function does may leave a file inside the user's working tree.
@@ -507,7 +491,6 @@ def generate_thumbnail_for_project(
 
 
         cmd = [
-            cli_path,
             "pcb",
             "render",
             "--quality", "high",
@@ -520,14 +503,8 @@ def generate_thumbnail_for_project(
             pcb_file
         ]
         
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False
-        )
-        
+        result = cli.run(cmd, timeout=120)
+
         if result.returncode != 0:
             if logs_list is not None:
                 logs_list.append(f"kicad-cli render failed (code {result.returncode}): {result.stderr[:400]}")

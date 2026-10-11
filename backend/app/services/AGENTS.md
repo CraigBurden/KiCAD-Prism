@@ -62,6 +62,13 @@ the checkout. Do not add another `rev-parse --show-toplevel`, `.git` walk-up or
 `git archive | tar` next to a caller. Remote transport (credentials, pinned host
 keys, ls-remote) is `git_remote_access.py`.
 
+## KiCad tools
+
+`kicad_tools.py` is the only place that locates or starts `kicad-cli` and
+`kicad-cruncher` (Settings `KICAD_CLI_PATH`, `KICAD_CRUNCHER_PATH`). Callers take
+a `KicadTool` and state a timeout; do not add `subprocess` calls or path lookups
+for them elsewhere. `kicad_tool_replay.py` records and replays runs for tests.
+
 ## Design variants
 
 `project_source_snapshot.py` resolves a working tree or an exact commit

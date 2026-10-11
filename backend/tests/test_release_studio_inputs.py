@@ -13,7 +13,8 @@ from app.release_studio.impedance import TEMPLATE_CSV, parse_impedance_csv
 from app.release_studio.inputs import synthesize_configuration
 from app.release_studio.ipc import OTHER, public_ipc_payload
 from app.release_studio.source import apply_source_defaults, discover_source
-from app.release_studio.steps import isolated_cli_env
+from app.services.kicad_tools import isolated_env
+from tests.kicad_tool_fakes import FakeTool
 
 
 class IpcOptionTests(unittest.TestCase):
@@ -40,7 +41,7 @@ class IpcOptionTests(unittest.TestCase):
 
 class IsolatedCliEnvTests(unittest.TestCase):
     def test_points_temp_and_runtime_at_the_scratch_dir(self) -> None:
-        env = isolated_cli_env(
+        env = isolated_env(
             Path("/tmp/kicad-cli-test"),
             base={"PATH": "/usr/bin", "TMPDIR": "/tmp"},
         )
@@ -53,7 +54,7 @@ class IsolatedCliEnvTests(unittest.TestCase):
     def test_default_variant_is_omitted_from_bom_and_positions(self) -> None:
         captured: list[list[str]] = []
 
-        def run(argv, cwd, timeout_seconds):  # noqa: ARG001
+        def run(argv, **_kwargs):
             captured.append([str(part) for part in argv])
             out = Path(argv[argv.index("--output") + 1])
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -71,11 +72,10 @@ class IsolatedCliEnvTests(unittest.TestCase):
                 board_rel="board.kicad_pcb",
                 schematic_rel="board.kicad_sch",
                 output_root=root / "out",
-                cli_path="/usr/bin/kicad-cli",
+                tool=FakeTool(run),
                 variant="default",
                 bom_preset="Grouped By Value",
                 only=("bom", "positions"),
-                runner=run,
             )
         self.assertEqual(len(captured), 2)
         for argv in captured:
@@ -91,7 +91,7 @@ class IsolatedCliEnvTests(unittest.TestCase):
     def test_custom_bom_preset_still_uses_the_named_preset_flag(self) -> None:
         captured: list[list[str]] = []
 
-        def run(argv, cwd, timeout_seconds):  # noqa: ARG001
+        def run(argv, **_kwargs):
             captured.append([str(part) for part in argv])
             out = Path(argv[argv.index("--output") + 1])
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -108,10 +108,9 @@ class IsolatedCliEnvTests(unittest.TestCase):
                 board_rel="",
                 schematic_rel="board.kicad_sch",
                 output_root=root / "out",
-                cli_path="/usr/bin/kicad-cli",
+                tool=FakeTool(run),
                 bom_preset="My House BOM",
                 only=("bom",),
-                runner=run,
             )
         bom = captured[0]
         self.assertIn("--preset", bom)

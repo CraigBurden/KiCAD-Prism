@@ -20,6 +20,7 @@ from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
 from app.release_studio.documents.inputs import DocumentInputs
 from app.release_studio.pipeline import PipelineTracker
 from app.release_studio.steps import DOCUMENT_STEP_SPEC, StepOutput
+from app.services.kicad_tools import KicadTool
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +32,9 @@ def with_documents(
     config: Mapping[str, Any],
     candidate: Mapping[str, Any],
     output_root: Path,
-    cli_path: str | None,
+    cli: KicadTool | None,
     staging: Path,
-    cruncher_path: str | None = None,
+    cruncher: KicadTool | None = None,
     repo_root: Path | None = None,
     project_relpath: str | None = None,
     assembly_views: Mapping[str, Any] | None = None,
@@ -63,8 +64,8 @@ def with_documents(
             config=config,
             candidate=candidate,
             output_root=output_root,
-            cli_path=cli_path,
-            cruncher_path=cruncher_path,
+            cli=cli,
+            cruncher=cruncher,
             staging=staging,
             repo_root=repo_root,
             repo_url=repo_url,
@@ -195,8 +196,8 @@ def _gather_document_inputs(
     config: Mapping[str, Any],
     candidate: Mapping[str, Any],
     output_root: Path,
-    cli_path: str | None,
-    cruncher_path: str | None,
+    cli: KicadTool | None,
+    cruncher: KicadTool | None,
     staging: Path,
     repo_root: Path | None,
     repo_url: str,
@@ -361,8 +362,8 @@ def _gather_document_inputs(
         bom_headers=bom_headers,
         bom_rows=bom_rows,
         board=board if board and board.is_file() else None,
-        cli_path=cli_path,
-        cruncher_path=cruncher_path,
+        cli=cli,
+        cruncher=cruncher,
         workdir=staging / "artwork",
     )
     return inputs, warnings, projections

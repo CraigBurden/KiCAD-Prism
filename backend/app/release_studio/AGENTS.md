@@ -43,6 +43,13 @@ as a spurious change in a customer's release comparison.**
 | `projections.py` · `semantic.py` · `impedance.py` | Derived views over the build. |
 | `ipc.py` | Worker process boundary. |
 
+Every `kicad-cli` and `kicad-cruncher` run goes through the tools
+`execute_build` hands down (`backend/app/services/kicad_tools.py`): discovery,
+per-process isolation, timeout, tee and cancellation live there, not at the
+call site. Tests replace them with a fake or with the replay adapter
+(`backend/app/services/kicad_tool_replay.py`);
+`backend/tests/test_release_studio_replay_build.py` runs a whole build that way.
+
 Entry point is `backend/app/services/release_studio_build_service.py`
 (`run_release_studio_build_job`), dispatched from
 `backend/app/services/job_handlers.py`.

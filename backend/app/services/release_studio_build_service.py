@@ -59,8 +59,6 @@ from app.release_studio.steps import (
     StepExecutionError,
     StepOutput,
     gerber_manifest_gaps,
-    resolve_cli_path,
-    resolve_cruncher_path,
     run_step_catalogue,
 )
 from app.release_studio.vendors import generate_vendor_outputs, resolve_vendor_ids
@@ -68,6 +66,7 @@ from app.services import project_revision
 from app.services import release_studio_service as store
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_runtime import JobCancelled, JobContext, JobResult
+from app.services.kicad_tools import KicadTool, KicadTools
 
 logger = logging.getLogger(__name__)
 
@@ -842,18 +841,20 @@ def execute_build(
     closure_root: Path,
     config: Mapping[str, Any],
     artifacts: JobArtifactService | None = None,
-    cli_path: str | None = None,
-    cruncher_path: str | None = None,
+    tools: KicadTools | None = None,
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
     """Run the catalogue, assemble the dossier, and publish it under the fence.
 
+    ``tools`` defaults to the installed kicad-cli and kicad-cruncher. Every run
+    polls the job's cancellation, so a cancelled build stops its current tool.
     ``repo_root`` is the source repository.  The closure is materialized from
     Git objects and has no ``.git`` of its own, so anything that needs commit
     metadata -- the date a sheet states -- has to ask the repository.
     """
 
     artifact_service = artifacts or JobArtifactService()
+    tools = (tools or KicadTools.resolve()).with_cancel(context.check_cancelled)
     build = store.start_build(
         candidate["id"], job_id=context.job_id, fence=context.fence
     )
@@ -919,7 +920,7 @@ def execute_build(
                     schematic_rel=schematic_rel,
                     output_root=output_root,
                     variant=variant,
-                    cli_path=cli_path,
+                    tool=tools.cli,
                     only=only,
                     progress=lambda **kwargs: context.progress(**kwargs),
                     on_step=_on_catalogue_step,
@@ -939,7 +940,8 @@ def execute_build(
                 with_bom_preset=True,
             )
             tracker.start("cruncher-assembly", message="Rendering assembly views")
-            if cruncher_path and board_path is not None and board_path.is_file():
+            cruncher = tools.cruncher
+            if cruncher is not None and board_path is not None and board_path.is_file():
                 from app.release_studio.documents.artwork import acquire_board_views
 
                 cruncher_pool = ThreadPoolExecutor(
@@ -949,7 +951,7 @@ def execute_build(
                     lambda: _timed(
                         "cruncher-assembly",
                         lambda: acquire_board_views(
-                            cruncher_path,
+                            cruncher,
                             board_path,
                             context.staging_dir / "artwork" / "cruncher",
                         ),
@@ -960,7 +962,7 @@ def execute_build(
                 tracker.skip(
                     "cruncher-assembly",
                     reason="kicad-cruncher is not available"
-                    if not cruncher_path
+                    if cruncher is None
                     else "no board in the closure",
                 )
             if cruncher_future is not None:
@@ -989,7 +991,7 @@ def execute_build(
                     closure_root=closure_root,
                     output_root=output_root,
                     variant=variant,
-                    cruncher_path=cruncher_path,
+                    cruncher=cruncher,
                     tracker=tracker,
                 ),
             )
@@ -1035,8 +1037,8 @@ def execute_build(
             config=config,
             candidate=candidate,
             output_root=output_root,
-            cli_path=cli_path,
-            cruncher_path=cruncher_path,
+            cli=tools.cli,
+            cruncher=tools.cruncher,
             staging=context.staging_dir,
             repo_root=repo_root,
             project_relpath=str(candidate.get("project_relpath") or "") or None,
@@ -1230,7 +1232,7 @@ def _run_vendors(
     closure_root: Path,
     output_root: Path,
     variant: str,
-    cruncher_path: str | None,
+    cruncher: KicadTool | None,
     tracker: PipelineTracker,
 ) -> tuple[tuple[StepOutput, ...], dict[str, bytes]]:
     """Generate configured vendor packs after the assembly Cruncher load."""
@@ -1245,7 +1247,7 @@ def _run_vendors(
         closure_root=closure_root,
         output_root=output_root,
         variant=variant,
-        cruncher_path=cruncher_path,
+        cruncher=cruncher,
     )
     by_id = {output.step_id: output for output in outputs}
     for vendor_id in vendor_ids:
@@ -1521,8 +1523,6 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         candidate=candidate,
         closure_root=Path(candidate["_closure_root"]),
         config=candidate["_config"],
-        cli_path=_cli_path_or_none(),
-        cruncher_path=_cruncher_path_or_none(),
         repo_root=repo_root,
     )
     build = result["build"]
@@ -1540,22 +1540,6 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         artifact=result["artifacts"][0],
         sidecar_artifacts=(result["artifacts"][1],),
     )
-
-
-def _cli_path_or_none() -> str | None:
-    try:
-        return resolve_cli_path()
-    except StepExecutionError:
-        return None
-
-
-def _cruncher_path_or_none() -> str | None:
-    """A missing Cruncher costs the assembly views, not the build."""
-
-    try:
-        return resolve_cruncher_path()
-    except StepExecutionError:
-        return None
 
 
 __all__ = [

@@ -257,11 +257,11 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         def generate_footprint(_asset: object, _run: object) -> tuple[str, bytes]:
             return PREVIEW_STATUS_READY, FIXTURE_PREVIEW_SVG
 
-        def preview_identity(_runtime: object, kind: str) -> dict[str, str]:
+        def preview_identity(kind: str) -> dict[str, str]:
             return _fixture_preview_identity(kind)
 
         def preserve_symbol_upload(
-            _runtime: object,
+            _kicad: object,
             _upload_name: str,
             payload: bytes,
         ) -> bytes:

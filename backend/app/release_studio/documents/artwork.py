@@ -18,9 +18,7 @@ import hashlib
 import io
 import os
 import re
-import subprocess
 import sys
-import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -28,26 +26,19 @@ from typing import Any, Callable, Mapping, Sequence
 
 from app.core.config import settings
 from app.release_studio.documents.layout import Artwork, Rect
+from app.services.kicad_tools import KicadTool, ToolError, ToolResult
 
 #: Layer and drill-map plots: bounded so a wedged plot fails one sheet.
 PLOT_TIMEOUT_SECONDS = 600
 
 
-def _plot_isolated(runner, argv: Sequence[str]):
-    """Run one plot with a timeout and its own temp dir (KiCad's instance lock)."""
+def _run_tool(tool: KicadTool, args: Sequence[str], timeout: float, **kwargs: Any) -> ToolResult:
+    """Run one acquisition; a tool failure or timeout costs this view only."""
 
-    from app.release_studio.steps import isolated_cli_env
-
-    with tempfile.TemporaryDirectory(prefix="kicad-cli-") as scratch:
-        try:
-            return runner(
-                argv, capture_output=True, text=True, timeout=PLOT_TIMEOUT_SECONDS,
-                env=isolated_cli_env(Path(scratch)),
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ArtworkError(
-                f"kicad-cli {' '.join(argv[1:4])} timed out after {PLOT_TIMEOUT_SECONDS}s"
-            ) from exc
+    try:
+        return tool.run(args, timeout=timeout, **kwargs)
+    except ToolError as exc:
+        raise ArtworkError(str(exc)) from exc
 
 _SVG_OPEN = re.compile(r"<svg\b[^>]*>", re.IGNORECASE | re.DOTALL)
 _SVG_CLOSE = re.compile(r"</svg\s*>\s*$", re.IGNORECASE)
@@ -153,14 +144,13 @@ class AcquiredArtwork:
 
 
 def acquire(
-    cli_path: str,
+    cli: KicadTool,
     board: Path,
     layers: Sequence[str],
     workdir: Path,
     *,
     variant: str = "",
     black_and_white: bool = True,
-    runner=subprocess.run,
 ) -> AcquiredArtwork:
     """Plot *layers* of *board* to SVG and PDF via ``kicad-cli``.
 
@@ -189,7 +179,7 @@ def acquire(
 
     def _plot(fmt: str, out: Path, extra: tuple[str, ...]) -> None:
         argv = [
-            cli_path, "pcb", "export", fmt,
+            "pcb", "export", fmt,
             "--layers", ",".join(layers),
             # `--mode-single` makes `--output` a file rather than a directory.
             "--mode-single",
@@ -207,21 +197,12 @@ def acquire(
             argv.extend(["--variant", variant])
         argv.append(str(board))
 
-        result = _plot_isolated(runner, argv)
-        if getattr(result, "returncode", 1) != 0:
-            # kicad-cli reports argument errors on stdout, so a stderr-only
-            # message would be empty exactly when it is most needed.
-            detail = " ".join(
-                part.strip()
-                for part in (
-                    getattr(result, "stderr", "") or "",
-                    getattr(result, "stdout", "") or "",
-                )
-                if part and part.strip()
-            )
+        result = _run_tool(cli, argv, PLOT_TIMEOUT_SECONDS)
+        if not result.ok:
+            # kicad-cli reports argument errors on stdout; detail() keeps both.
             raise ArtworkError(
                 f"kicad-cli pcb export {fmt} failed for layers {','.join(layers)}: "
-                f"{detail[:400]}"
+                f"{result.detail()[:400]}"
             )
         if not out.is_file():
             raise ArtworkError(f"kicad-cli produced no {fmt} for layers {','.join(layers)}")
@@ -393,13 +374,12 @@ class BoardRender:
 
 
 def acquire_board_render(
-    cli_path: str,
+    cli: KicadTool,
     board: Path,
     workdir: Path,
     *,
     width: int = 1200,
     height: int = 900,
-    runner=subprocess.run,
     timeout_seconds: int = 600,
 ) -> BoardRender:
     """Render the board the way the project thumbnail is rendered.
@@ -413,7 +393,7 @@ def acquire_board_render(
     workdir.mkdir(parents=True, exist_ok=True)
     out = workdir / "board.png"
     argv = [
-        cli_path, "pcb", "render",
+        "pcb", "render",
         "--quality", "high",
         "--floor",
         "--perspective",
@@ -423,21 +403,9 @@ def acquire_board_render(
         "-o", str(out),
         str(board),
     ]
-    try:
-        result = runner(argv, capture_output=True, text=True, timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as exc:
-        raise ArtworkError(
-            f"kicad-cli pcb render timed out after {timeout_seconds}s"
-        ) from exc
-    if getattr(result, "returncode", 1) != 0 or not out.is_file():
-        detail = " ".join(
-            part.strip()
-            for part in (
-                getattr(result, "stderr", "") or "", getattr(result, "stdout", "") or ""
-            )
-            if part and part.strip()
-        )
-        raise ArtworkError(f"kicad-cli pcb render failed: {detail[:400]}")
+    result = _run_tool(cli, argv, timeout_seconds)
+    if not result.ok or not out.is_file():
+        raise ArtworkError(f"kicad-cli pcb render failed: {result.detail()[:400]}")
 
     payload = out.read_bytes()
     from PIL import Image as PILImage
@@ -453,13 +421,12 @@ def acquire_board_render(
 
 
 def acquire_testpoint_views(
-    cruncher_path: str,
+    cruncher: KicadTool,
     board: Path,
     workdir: Path,
     *,
     designators: Sequence[str] = (),
     sides: Sequence[str] = ("top", "bottom"),
-    runner=subprocess.run,
     timeout_seconds: int = 900,
 ) -> dict[str, AcquiredArtwork]:
     """Render the testpoint views, keyed ``"testpoint-<side>"``.
@@ -511,10 +478,9 @@ def acquire_testpoint_views(
     # renderer is allowed to remove.
     viewport = _cruncher_board_viewport(staged_board, PCB_SVG_TESTPOINT_CONFIG)
     _run_pcb_svg(
-        cruncher_path, staged_board, views, workdir,
+        cruncher, staged_board, views, workdir,
         config_path=PCB_SVG_TESTPOINT_CONFIG,
         project_dir=source_board.parent,
-        runner=runner,
         timeout_seconds=timeout_seconds,
     )
     return {
@@ -597,14 +563,13 @@ def _stage_testpoint_board(
 
 
 def acquire_board_views(
-    cruncher_path: str,
+    cruncher: KicadTool,
     board: Path,
     workdir: Path,
     *,
     kinds: Sequence[str] = ("assembly",),
     sides: Sequence[str] = ("top", "bottom"),
     config_path: Path | None = None,
-    runner=subprocess.run,
     timeout_seconds: int = 900,
 ) -> dict[str, AcquiredArtwork]:
     """Render every requested view in **one** Cruncher invocation.
@@ -632,13 +597,8 @@ def acquire_board_views(
 
     workdir.mkdir(parents=True, exist_ok=True)
     _run_pcb_svg(
-        cruncher_path,
-        board,
-        list(wanted.values()),
-        workdir,
-        config_path=config_path,
-        runner=runner,
-        timeout_seconds=timeout_seconds,
+        cruncher, board, list(wanted.values()), workdir,
+        config_path=config_path, timeout_seconds=timeout_seconds,
     )
     viewport = _cruncher_board_viewport(board, config_path or PCB_SVG_CONFIG)
     return {
@@ -648,13 +608,12 @@ def acquire_board_views(
 
 
 def acquire_assembly_view(
-    cruncher_path: str,
+    cruncher: KicadTool,
     board: Path,
     side: str,
     workdir: Path,
     *,
     config_path: Path | None = None,
-    runner=subprocess.run,
     timeout_seconds: int = 900,
 ) -> AcquiredArtwork:
     """Render one assembly view with ``kicad-cruncher pcb-svg``.
@@ -683,27 +642,21 @@ def acquire_assembly_view(
 
     workdir.mkdir(parents=True, exist_ok=True)
     _run_pcb_svg(
-        cruncher_path,
-        board,
-        [view],
-        workdir,
-        config_path=config_path,
-        runner=runner,
-        timeout_seconds=timeout_seconds,
+        cruncher, board, [view], workdir,
+        config_path=config_path, timeout_seconds=timeout_seconds,
     )
     viewport = _cruncher_board_viewport(board, config_path or PCB_SVG_CONFIG)
     return _read_assembly_view(workdir, side, view, viewport)
 
 
 def _run_pcb_svg(
-    cruncher_path: str,
+    cruncher: KicadTool,
     board: Path,
     views: Sequence[str],
     workdir: Path,
     *,
     config_path: Path | None,
     project_dir: Path | None = None,
-    runner,
     timeout_seconds: int,
 ) -> None:
     """Invoke ``kicad-cruncher pcb-svg`` for *views* and check it succeeded."""
@@ -714,7 +667,7 @@ def _run_pcb_svg(
 
     named = ",".join(views)
     argv = [
-        cruncher_path, "pcb-svg", str(board),
+        "pcb-svg", str(board),
         "--config", str(config),
         "--views", named,
         "--output", str(workdir),
@@ -722,28 +675,13 @@ def _run_pcb_svg(
     # KiCad resolves ``${KIPRJMOD}/packages3D/...`` against the project
     # directory that contains the board.  Without this binding Geometer cannot
     # open STEPs that are already present in the closed tree.
-    env = os.environ.copy()
-    env["KIPRJMOD"] = str(
+    kiprjmod = str(
         (Path(project_dir) if project_dir is not None else Path(board).resolve().parent)
         .resolve()
     )
-    try:
-        result = runner(
-            argv, capture_output=True, text=True, timeout=timeout_seconds, env=env
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ArtworkError(
-            f"kicad-cruncher pcb-svg timed out after {timeout_seconds}s for {named}"
-        ) from exc
-    if getattr(result, "returncode", 1) != 0:
-        detail = " ".join(
-            part.strip()
-            for part in (
-                getattr(result, "stderr", "") or "", getattr(result, "stdout", "") or ""
-            )
-            if part and part.strip()
-        )
-        raise ArtworkError(f"kicad-cruncher pcb-svg failed for {named}: {detail[:400]}")
+    result = _run_tool(cruncher, argv, timeout_seconds, env={"KIPRJMOD": kiprjmod})
+    if not result.ok:
+        raise ArtworkError(f"kicad-cruncher pcb-svg failed for {named}: {result.detail()[:400]}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -991,11 +929,9 @@ def _configure_cairo_library_path() -> None:
 
 
 def acquire_drill_map(
-    cli_path: str,
+    cli: KicadTool,
     board: Path,
     workdir: Path,
-    *,
-    runner=subprocess.run,
 ) -> AcquiredArtwork:
     """Plot the drill map -- hole symbols, outline, and symbol key.
 
@@ -1016,22 +952,14 @@ def acquire_drill_map(
         target = workdir / fmt
         target.mkdir(parents=True, exist_ok=True)
         argv = [
-            cli_path, "pcb", "export", "drill",
+            "pcb", "export", "drill",
             "--generate-map", "--map-format", fmt,
             "--output", f"{target}/",
             str(board),
         ]
-        result = _plot_isolated(runner, argv)
-        if getattr(result, "returncode", 1) != 0:
-            detail = " ".join(
-                part.strip()
-                for part in (
-                    getattr(result, "stderr", "") or "",
-                    getattr(result, "stdout", "") or "",
-                )
-                if part and part.strip()
-            )
-            raise ArtworkError(f"kicad-cli pcb export drill failed: {detail[:400]}")
+        result = _run_tool(cli, argv, PLOT_TIMEOUT_SECONDS)
+        if not result.ok:
+            raise ArtworkError(f"kicad-cli pcb export drill failed: {result.detail()[:400]}")
         found = sorted(target.glob(f"*drl_map.{fmt}"))
         if not found:
             raise ArtworkError(f"kicad-cli produced no drill map in {fmt}")
