@@ -24,7 +24,6 @@ export const HIDDEN_LAYER_BITS = 128;
 // 1/0, mask and silkscreen opacity, 1 when the occurrence explodes itself).
 // With w = 0 (the default) the renderer's layer offsets apply as they are.
 export const NO_EXPLODE = Object.freeze([0, 1, 1, 0]);
-export const BARREL_RECORD_STRIDE = 48; // dimensions vec4f, span vec2f (+pad), ids vec4u
 
 export const OCCURRENCE_WGSL = `
 struct Occurrence {
@@ -136,27 +135,6 @@ export function packOccurrences(matrices, hiddenLayers = [], explode = []) {
     data.set(normalMatrix(model), base + 16);
     if (hiddenLayers[index]) words.set(hiddenLayerWords(hiddenLayers[index]), base + 32);
     data.set(explode[index] || NO_EXPLODE, base + 36);
-  });
-  return data;
-}
-
-
-/** Pack barrel records (bundle manifest units: mm, KiCad y down) for the storage buffer. */
-export function packBarrels(records) {
-  const data = new ArrayBuffer(Math.max(1, records.length) * BARREL_RECORD_STRIDE);
-  const view = new DataView(data);
-  records.forEach((record, index) => {
-    const offset = index * BARREL_RECORD_STRIDE;
-    view.setFloat32(offset, record.centerMm[0] / 1000, true);
-    view.setFloat32(offset + 4, -record.centerMm[1] / 1000, true);
-    view.setFloat32(offset + 8, Math.min(record.drillWidthMm, record.drillHeightMm) / 2000, true);
-    view.setFloat32(offset + 12, Math.max(record.outerWidthMm, record.outerHeightMm) / 2000, true);
-    view.setFloat32(offset + 16, record.startZMm / 1000, true);
-    view.setFloat32(offset + 20, record.endZMm / 1000, true);
-    view.setUint32(offset + 32, record.netId || 0, true);
-    view.setUint32(offset + 36, record.objectFeatureId || 0, true);
-    view.setUint32(offset + 40, record.startLayerId || 0, true);
-    view.setUint32(offset + 44, record.endLayerId || 0, true);
   });
   return data;
 }
