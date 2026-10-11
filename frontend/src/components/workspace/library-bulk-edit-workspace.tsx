@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { pollUntil } from "@/lib/server-state";
+import { pollUntil, useServerState } from "@/lib/server-state";
 import {
   Archive, ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, Columns3, Download,
   Eye, EyeOff, FilePenLine, FilterX, GripVertical, Loader2, Pencil, Pin, Plus, Redo2,
@@ -297,16 +297,58 @@ function BatchReviewDialog({
   </Dialog>;
 }
 
+const METADATA_GRID_KEY = ["catalog", "metadata-grid"] as const;
+const NO_COMPONENTS: CatalogComponent[] = [];
+
+interface MetadataGridQuery {
+  page: number;
+  sortBy: string;
+  sortDir: string;
+  fields: string[];
+  query: string;
+  workflow: string;
+  availability: string;
+  validation: string;
+  category: string;
+}
+
+/**
+ * One grid page per filter/sort/page/visible-field combination, through
+ * server state. A new combination keeps the previous rows on screen (dimmed
+ * by `loading`) until it answers; a failed read is a toast.
+ */
+function useMetadataGrid({ page, sortBy, sortDir, fields, query, workflow, availability, validation, category }: MetadataGridQuery) {
+  const gridParams = useMemo(() => {
+    const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE), sort_by: sortBy, sort_dir: sortDir });
+    fields.forEach((fieldKey) => params.append("field", fieldKey));
+    if (query) params.set("q", query);
+    if (workflow !== "all") params.set("workflow_stage", workflow);
+    if (availability !== "all") params.set("availability_state", availability);
+    if (validation !== "all") params.set("validation_status", validation);
+    if (category !== "all") params.set("category", category === "uncategorized" ? "" : category);
+    return params.toString();
+  }, [availability, category, fields, page, query, sortBy, sortDir, validation, workflow]);
+  const grid = useServerState(
+    [...METADATA_GRID_KEY, gridParams],
+    (signal) => getMetadataGrid(new URLSearchParams(gridParams), signal),
+    { keepPrevious: true, onError: (error) => toast.error(error.message || "Failed to load metadata grid") },
+  );
+  return {
+    items: grid.data?.items ?? NO_COMPONENTS,
+    pages: grid.data?.pages ?? 1,
+    total: grid.data?.total ?? 0,
+    loading: grid.loading || grid.fetching,
+    refresh: grid.refresh,
+  };
+}
+
 // react-doctor-disable-next-line no-giant-component - spreadsheet grid, field preferences, and batch lifecycle share one page state
 export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
-  const [items, setItems] = useState<CatalogComponent[]>([]);
   const [fields, setFields] = useState<CatalogMetadataField[]>([]);
   const [preferences, setPreferences] = useState<CatalogMetadataGridPreferences>({ visible: [], order: [], widths: {}, pinned: [] });
   const visibleFieldKeySet = useMemo(() => new Set(preferences.visible), [preferences.visible]);
   const pinnedFieldKeySet = useMemo(() => new Set(preferences.pinned), [preferences.pinned]);
   const [page, setPage] = useState(1);
-  const [pages, setPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [workflow, setWorkflow] = useState("all");
@@ -316,8 +358,6 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const [categories, setCategories] = useState<Array<{ name: string; count: number }>>([]);
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortDir, setSortDir] = useState("desc");
-  const [loading, setLoading] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [fieldQuery, setFieldQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
@@ -377,22 +417,9 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
   useEffect(() => { void loadFieldsAndPreferences(); }, [loadFieldsAndPreferences]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE), sort_by: sortBy, sort_dir: sortDir });
-    preferences.visible.forEach((fieldKey) => params.append("field", fieldKey));
-    if (debouncedQuery) params.set("q", debouncedQuery);
-    if (workflow !== "all") params.set("workflow_stage", workflow);
-    if (availability !== "all") params.set("availability_state", availability);
-    if (validation !== "all") params.set("validation_status", validation);
-    if (category !== "all") params.set("category", category === "uncategorized" ? "" : category);
-    void getMetadataGrid(params, controller.signal)
-      .then((response) => { setItems(response.items); setPages(response.pages); setTotal(response.total); })
-      .catch((error) => { if (!controller.signal.aborted) toast.error(error instanceof Error ? error.message : "Failed to load metadata grid"); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [availability, category, debouncedQuery, page, preferences.visible, refreshKey, sortBy, sortDir, validation, workflow]);
+  const { items, pages, total, loading, refresh: refreshGrid } = useMetadataGrid({
+    page, sortBy, sortDir, fields: preferences.visible, query: debouncedQuery, workflow, availability, validation, category,
+  });
 
   useEffect(() => {
     if (!preferencesLoaded.current) return;
@@ -528,7 +555,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
       );
       setBatch(completed);
       resetStaged((current) => Object.fromEntries(Object.entries(current).filter(([componentId]) => !appliedComponents.has(componentId))));
-      setRefreshKey((value) => value + 1);
+      void refreshGrid();
       toast.success(`${appliedComponents.size} component revisions moved to Awaiting QA`);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to apply metadata batch"); } finally { setBusy(false); }
   };
@@ -541,7 +568,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => void exportCsv()}><Download className="h-3.5 w-3.5" /> Export CSV</Button>
           {canEdit ? <Button size="sm" variant="outline" onClick={() => csvInputRef.current?.click()}><Upload className="h-3.5 w-3.5" /> Import CSV</Button> : null}
-          <Button size="sm" variant="outline" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
+          <Button size="sm" variant="outline" onClick={() => void refreshGrid()} disabled={loading}><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh</Button>
           {canEdit ? <Button size="sm" onClick={() => { setBatch(null); setReviewOpen(true); }} disabled={!Object.keys(staged).length}><Check className="h-3.5 w-3.5" /> Review changes <Badge variant="secondary">{Object.keys(staged).length}</Badge></Button> : null}
         </div>
       </div>

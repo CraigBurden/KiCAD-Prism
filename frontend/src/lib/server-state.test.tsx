@@ -201,6 +201,23 @@ describe("useServerState", () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it("hands every failed read to onError, but not an abort", async () => {
+    const store = new ServerStateStore();
+    const onError = vi.fn();
+    const { load, calls } = manualLoad<string>();
+    const { result } = renderRead(store, ["failing"], load, { onError });
+    await act(async () => calls[0].reject(new Error("offline")));
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "offline" }));
+    act(() => {
+      void result.current.refresh();
+    });
+    act(() => {
+      void result.current.refresh();
+    });
+    await act(async () => calls[1].reject(new DOMException("aborted", "AbortError")));
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   it("hands every successful response to onData", async () => {
     const store = new ServerStateStore();
     const onData = vi.fn();
@@ -332,6 +349,17 @@ describe("retention (D22)", () => {
     expect(result.current).toMatchObject({ data: "page one", placeholder: true, loading: false, fetching: true });
     await act(async () => calls[1].resolve("page two"));
     expect(result.current).toMatchObject({ data: "page two", placeholder: false });
+  });
+
+  it("keepPrevious keeps the previous data when the new key's read fails", async () => {
+    const store = new ServerStateStore();
+    const { load, calls } = manualLoad<string>();
+    const { result, rerender } = renderRead(store, ["page", 1], load, { keepPrevious: true });
+    await act(async () => calls[0].resolve("page one"));
+    rerender({ readKey: ["page", 2], readOptions: { keepPrevious: true } });
+    await act(async () => calls[1].reject(new Error("offline")));
+    expect(result.current).toMatchObject({ data: "page one", placeholder: true, loading: false });
+    expect(result.current.error?.message).toBe("offline");
   });
 
   it("without keepPrevious a key change starts empty", async () => {

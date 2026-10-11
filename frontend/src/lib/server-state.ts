@@ -52,12 +52,14 @@ export interface ServerReadOptions<T> {
   whileVisible?: boolean;
   /** Called with every successful response, after it is published. */
   onData?: (data: T) => void;
+  /** Called with every failed read (not an abort), after it is published. */
+  onError?: (error: Error) => void;
   /**
    * How long the key's data is kept after its last observer leaves.
    * `Infinity` keeps it until `forgetServerState`; 0 forgets it at once.
    */
   retainMs?: number;
-  /** On a key change, show the previous key's data until the new key has some. */
+  /** On a key change, show the previous key's data until the new key has some (also if its read fails). */
   keepPrevious?: boolean;
 }
 
@@ -126,6 +128,7 @@ function startPoll(tick: (signal: AbortSignal) => Promise<void>, options: PollOp
 interface Observer {
   load: (signal: AbortSignal) => Promise<unknown>;
   onData?: (data: unknown) => void;
+  onError?: (error: Error) => void;
   stopPoll?: () => void;
 }
 
@@ -289,8 +292,8 @@ export class ServerStateStore {
     entry.controller = controller;
     const owns = () => entry.sequence === sequence && !controller.signal.aborted;
     if (!entry.snapshot.fetching) this.publish(entry, { ...entry.snapshot, fetching: true });
-    const pending = observer
-      .load(controller.signal)
+    // A load that throws synchronously fails the read like a rejection.
+    const pending = new Promise<unknown>((resolve) => resolve(observer.load(controller.signal)))
       .then(
         (data) => {
           if (!owns()) return;
@@ -299,12 +302,14 @@ export class ServerStateStore {
         },
         (error: unknown) => {
           if (!owns() || isAbort(error)) return;
+          const failure = asError(error);
           this.publish(entry, {
             data: entry.snapshot.data,
-            error: asError(error),
+            error: failure,
             fetching: false,
             stale: entry.snapshot.data !== undefined,
           });
+          for (const each of [...entry.observers]) each.onError?.(failure);
         },
       )
       .finally(() => {
@@ -343,9 +348,11 @@ export function useServerState<T>(
   const id = key ? JSON.stringify(key) : null;
   const loadRef = useRef(load);
   const onDataRef = useRef(options.onData);
+  const onErrorRef = useRef(options.onError);
   useEffect(() => {
     loadRef.current = load;
     onDataRef.current = options.onData;
+    onErrorRef.current = options.onError;
   });
   const { pollMs, whileVisible, retainMs, keepPrevious } = options;
 
@@ -355,6 +362,7 @@ export function useServerState<T>(
       const observer: Observer = {
         load: (signal) => loadRef.current(signal),
         onData: (data) => onDataRef.current?.(data as T),
+        onError: (error) => onErrorRef.current?.(error),
       };
       const poll = pollMs ? { intervalMs: pollMs, whileVisible } : undefined;
       return store.observe(JSON.parse(id) as ServerKey, observer, listener, poll, retainMs);
@@ -374,9 +382,7 @@ export function useServerState<T>(
   if (keepPrevious && id !== null && snapshot.data !== undefined && (shown?.id !== id || shown.data !== snapshot.data)) {
     setShown({ id, data: snapshot.data });
   }
-  const placeholder = Boolean(
-    keepPrevious && id !== null && snapshot.data === undefined && snapshot.error === null && shown && shown.id !== id,
-  );
+  const placeholder = Boolean(keepPrevious && id !== null && snapshot.data === undefined && shown && shown.id !== id);
   const data = placeholder ? shown?.data : snapshot.data;
 
   return {
