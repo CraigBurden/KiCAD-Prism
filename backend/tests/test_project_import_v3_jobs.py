@@ -434,7 +434,7 @@ class AccessFailureErrorCodeTests(unittest.TestCase):
             progress=lambda **values: None,
         )
         with mock.patch.object(
-            project_import_service, "resolve_remote_access", side_effect=error
+            project_import_service.git_remote_access, "resolve_remote_access", side_effect=error
         ):
             with self.assertRaises(BaseException) as caught:
                 project_import_service.run_project_analyze_job_v3(context)
