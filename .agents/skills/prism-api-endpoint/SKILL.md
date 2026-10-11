@@ -38,9 +38,24 @@ admin-only, project-scoped, and OAuth endpoints with different dependencies.
   shared across modules. Do not move models merely for consistency.
 - Keep request models narrow and make validation failures actionable without
   exposing exception or database detail.
-- Preserve established domain errors where the caller can act on them. Follow
-  the target router's error-translation pattern, and never expose unexpected
-  exception detail to the caller.
+- Refuse a request by raising a typed domain error from
+  `backend/app/core/errors.py` (`NotFound`, `Conflict`, `Invalid`,
+  `Forbidden`, `StaleVersion`, ... or a service subclass of one) with a
+  message written for the caller. The app-wide handler renders it as
+  `{"detail": message, "code"?: ..., ...extra}` with the class's status and
+  any headers; do not catch it in the router or build the body yourself.
+- Do not write `detail=str(exc)`. A service that still refuses with a
+  built-in exception (`ValueError`, `LookupError`, `RuntimeError`) goes
+  through `errors.caller_errors(...)` / `errors.value_errors_as(status)` with
+  the route's status; anything else propagates, and its text never reaches
+  the client. A catch-all keeps a fixed message (`unexpected=`).
+- Keep each domain's status and body shape: System Builder answers a stale
+  ETag with 412, comments/catalog/trackers carry a revision and answer 409;
+  catalog conflicts keep `{"detail": {code, message}}`.
+- The browser reads every response through `frontend/src/lib/api.ts`
+  (`fetchJson`, `fetchText`, `fetchBlob`, `fetchChecked`), which throws
+  `ApiHttpError` with `code`, `payload` and `isAuth`/`isPermission`/
+  `isConflict`/`isStale`. Do not call `fetch` for a Prism URL.
 
 ## Long-running operations
 

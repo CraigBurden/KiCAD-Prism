@@ -181,7 +181,9 @@ invariant, not the tool workaround.
 - Never fail open. A limiter, auth, or provider outage denies the request;
   `backend/app/services/rate_limit_service.py` documents why.
 - Never put exception detail in an error response. Database errors can carry
-  credentials (`backend/app/api/health.py`).
+  credentials (`backend/app/api/health.py`). Services refuse with typed errors
+  that one handler renders (`backend/app/core/errors.py`); the browser reads
+  them only through `frontend/src/lib/api.ts`.
 - Never pin Git host keys with `accept-new`
   (`backend/app/services/git_remote_access.py`).
 
