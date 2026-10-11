@@ -45,8 +45,10 @@ catalog job kinds are delegated through the `HANDLERS` registry in
 `backend/app/services/catalog_worker_tasks.py`. Jobs are claimed from PostgreSQL
 with leases and fencing (`backend/app/services/job_service.py`,
 `backend/app/services/job_runtime.py`) and executed by
-`backend/app/prism_worker.py` or the catalog worker. The browser polls job
-state.
+`backend/app/prism_worker.py` or the catalog worker. The browser waits on a
+job only through `frontend/src/lib/jobs.ts` (`watchPrismJob` on
+`/api/jobs/{id}`; `frontend/src/hooks/use-job-watcher.ts` ties a watch to a
+component's lifetime).
 
 The authenticated application has two main routes plus a catch-all, all in
 `frontend/src/App.tsx`. The root route mounts
