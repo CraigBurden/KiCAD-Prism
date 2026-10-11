@@ -424,7 +424,7 @@ the pooled `search_path` is restored.
 | Class | HTTP / condition | Effect on op | Effect on link |
 | --- | --- | --- | --- |
 | `rate_limited` | 403/429 with rate-limit headers, secondary-limit body | reschedule at `resume_at` | none |
-| `auth_lost` | 401, installation revoked, token refresh failure | `paused:auth` | `inaccessible` |
+| `auth_lost` | 401, installation revoked, token refresh failure | `paused:auth` (connector `paused_reason` `auth_lost`, status `revoked`) | `inaccessible` |
 | `forbidden` | 403 without rate-limit headers | `paused:forbidden` | `inaccessible` |
 | `not_found_uncertain` | 404 | retry/recover per D2/D7 | `inaccessible` until proven |
 | `gone_confirmed` | 410 | `failed:target_gone` | `deleted` |
