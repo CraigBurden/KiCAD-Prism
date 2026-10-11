@@ -16,8 +16,8 @@ collaborator that holds a reference back to the facade.
 
 | Layer | Modules |
 | --- | --- |
-| Foundation (pure) | `workflow_policy.py`, `normalization.py`, `metadata_normalization.py`, `metadata_descriptors.py`, `metadata_schema.py`, `asset_types.py`, `runtime.py` (paths and process-local caches), `kicad_cli.py`, `signed_urls.py`, `placement_payloads.py`, `metadata_csv.py`, `inventory_csv.py` (parsing), `inventory_policy.py`, `conflicts.py` |
-| Persistence (PostgreSQL) | `postgres_runtime.py`, `postgres_schema.py`, `postgres_projections.py`, `postgres_integrity.py`, `locking.py`, `revision_kernel.py`, `asset_registry.py`, `asset_files.py`, `preview_store.py`, `metadata_fields.py`, `metadata_grid.py`, `metadata_batches.py`, `project_import_matching.py`, `provider_tokens.py` |
+| Foundation (pure) | `workflow_policy.py`, `field_rules.py`, `normalization.py`, `metadata_normalization.py`, `metadata_descriptors.py`, `metadata_schema.py`, `asset_types.py`, `runtime.py` (paths and process-local caches), `kicad_cli.py`, `signed_urls.py`, `placement_payloads.py`, `metadata_csv.py`, `inventory_csv.py` (parsing), `inventory_policy.py`, `conflicts.py` |
+| Persistence (PostgreSQL) | `postgres_runtime.py`, `postgres_schema.py`, `postgres_projections.py`, `postgres_integrity.py`, `locking.py`, `revision_kernel.py`, `asset_registry.py`, `asset_files.py`, `preview_store.py`, `metadata_fields.py`, `metadata_grid.py`, `metadata_batches.py`, `component_identity.py`, `project_import_matching.py`, `provider_tokens.py` |
 | Domain operations | components: `component_writer.py`, `component_read_models.py`, `component_queries.py`, `component_history.py`, `revision_comparison.py`, `revision_finalization.py`, `representations.py`, `remote_heads.py` · assets: `asset_browser.py`, `asset_links.py`, `asset_imports.py`, `preview_renderer.py`, `preview_pipeline.py` · metadata: `metadata_batch_staging.py`, `metadata_batch_application.py`, `metadata_batch_workflow.py`, `metadata_csv_import.py` · imports: `project_import_sessions.py`, `project_import_assets.py`, `project_import_acceptance.py` · validation and release: `klc_validation.py`, `release_workflow.py`, `health.py` · provider: `placement.py`, `dbl_export.py` |
 | Wiring | `collaborators.py` (one named graph per service instance; does not import the facade) |
 | Facades | `system_items_facade.py`: modules, assemblies, "mates with" and model alignment (CONTRACTS_P2 §3, §18). Exposed as `catalog_service.system_items`; owns its transactions over the shared writer, revision kernel and finalizer, and takes a connection factory rather than the compatibility facade. |
@@ -53,6 +53,17 @@ rationale are recorded in `docs/CATALOG_DECOMPOSITION_HANDOFF.md`.
   kernel import it; the frontend's offered transitions are generated from it
   into `frontend/src/lib/catalog-workflow-policy.generated.ts` and
   `backend/tests/test_workflow_policy.py` fails on drift.
+- Field validity and import readiness have one definition (`field_rules.py`):
+  which fields are required for an identity kind, which contexts check value
+  shape, and which import findings block. Batch staging, import scans and
+  import acceptance call it; the frontend renders the same verdicts from
+  `frontend/src/lib/catalog-field-rules.generated.ts` through
+  `frontend/src/lib/catalog-field-rules.ts`, and
+  `backend/tests/test_catalog_field_rules.py` fails on drift. Both test suites
+  run the hand-written case table `frontend/src/lib/catalog-field-rules.cases.json`.
+- Component identity is normalized and looked up in one place
+  (`component_identity.py`): the writer's uniqueness check, import acceptance,
+  folder discovery and usage indexing all see active and retired holders alike.
 - Write-conflict classification is `CatalogConflict.code`. HTTP 409 bodies are
   `{code, message}` (`conflicts.py`, `backend/app/api/catalog_errors.py`).
 - Canonical asset paths under the store root (`asset_files.py`, `runtime.py`).
