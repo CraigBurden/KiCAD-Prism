@@ -560,6 +560,28 @@ impl AnalyticProducer for TemporaryPrismProducer {
                 .is_some_and(|value| value.edge_plating),
         };
 
+        let footprints = footprints
+            .iter()
+            .map(|footprint| analytic::Footprint {
+                source_uid: source_uid(
+                    "footprint",
+                    footprint.uuid.as_deref(),
+                    footprint.source_range.start,
+                ),
+                reference: footprint
+                    .reference
+                    .clone()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| footprint.library_link.clone()),
+                layer: footprint.layer.clone().unwrap_or_else(|| "F.Cu".to_owned()),
+                position_nm: point_to_nm(Point::new(
+                    footprint.at_x.unwrap_or_default(),
+                    footprint.at_y.unwrap_or_default(),
+                )),
+                angle_deg: footprint.angle.unwrap_or_default(),
+            })
+            .collect();
+
         Ok(analytic::Document {
             schema: analytic::SCHEMA,
             contract_revision: analytic::CONTRACT_REVISION,
@@ -596,6 +618,7 @@ impl AnalyticProducer for TemporaryPrismProducer {
                     source_ordinal: net.source_ordinal,
                 })
                 .collect(),
+            footprints,
             operations,
             drills,
             diagnostics,

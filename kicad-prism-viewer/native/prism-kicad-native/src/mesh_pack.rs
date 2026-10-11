@@ -87,6 +87,16 @@ pub struct FeatureRecord {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FootprintRecord {
+    pub uid: String,
+    pub reference: String,
+    pub layer: String,
+    pub position_mm: [f64; 2],
+    pub angle_deg: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BarrelRecord {
     pub source_uid: String,
     pub object_feature_id: u32,
@@ -161,6 +171,7 @@ pub struct MeshPack {
     pub layers: Vec<LayerRecord>,
     pub nets: Vec<NetRecord>,
     pub object_features: Vec<FeatureRecord>,
+    pub footprints: Vec<FootprintRecord>,
     pub barrels: Vec<BarrelRecord>,
     pub bbox: SceneBounds,
     pub tiles: Vec<TileRecord>,
@@ -543,6 +554,20 @@ pub fn compile_semantic(
         layers,
         nets: with_null_net(nets),
         object_features: with_null_feature(features),
+        footprints: document
+            .footprints
+            .iter()
+            .map(|footprint| FootprintRecord {
+                uid: footprint.source_uid.clone(),
+                reference: footprint.reference.clone(),
+                layer: footprint.layer.clone(),
+                position_mm: [
+                    nm_to_mm(footprint.position_nm[0]),
+                    nm_to_mm(footprint.position_nm[1]),
+                ],
+                angle_deg: footprint.angle_deg,
+            })
+            .collect(),
         barrels,
         bbox,
         tiles: tile_records,
@@ -1427,6 +1452,7 @@ mod tests {
                 source_layer(3, "In2.Cu"),
             ],
             nets: Vec::new(),
+            footprints: Vec::new(),
             operations: Vec::new(),
             drills: vec![
                 plated_drill("through", "via", vec![0, 2, 3, 1]),
