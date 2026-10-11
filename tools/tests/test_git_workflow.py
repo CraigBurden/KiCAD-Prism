@@ -99,6 +99,19 @@ def test_an_unreachable_agent_cannot_offer_targets():
     assert out.error == "gone"
 
 
+def test_a_new_branch_whose_remotes_cannot_be_listed_is_local_only():
+    # D7: the branch exists; say it stayed local and why, as the push path does.
+    out = workflow(FakeAgent(remotes=AgentUnavailable("gone"))).new_branch_targets("/r")
+    assert out.kind == gw.LOCAL_ONLY
+    assert out.error == "gone"
+    assert not out.ok
+
+
+def test_a_new_branch_is_offered_the_same_targets_as_a_push():
+    assert workflow(FakeAgent(remotes=REMOTES)).new_branch_targets("/r").kind == gw.NEEDS_REMOTE
+    assert workflow(FakeAgent(remotes=None)).new_branch_targets("/r").kind == gw.NO_REMOTE
+
+
 def test_publish_sets_the_upstream_on_the_chosen_remote():
     agent = FakeAgent(push={"ok": True})
     assert workflow(agent).publish("/r", "upstream").ok

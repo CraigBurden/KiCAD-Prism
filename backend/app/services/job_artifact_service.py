@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -56,6 +57,33 @@ class JobArtifactService:
             temporary,
             kind=kind,
             artifact_key=artifact_key,
+            media_type="application/json",
+            schema_version=schema_version,
+            generator_version=generator_version,
+            readiness=readiness,
+        )
+
+    def prepare_ended_json(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        kind: str,
+        artifact_key: str,
+        schema_version: str = "",
+        generator_version: str = "",
+        readiness: str = "ready",
+    ) -> PreparedArtifact:
+        """A JSON object for an ended job, written by its end hook (no fence,
+        no staging directory: the attempt is over)."""
+
+        encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        stored = self.store.put_stream(io.BytesIO(encoded), staging_dir=self.root / "ended")
+        return PreparedArtifact(
+            kind=kind,
+            artifact_key=artifact_key,
+            digest=stored.digest,
+            object_path=str(stored.path),
+            size_bytes=stored.size_bytes,
             media_type="application/json",
             schema_version=schema_version,
             generator_version=generator_version,

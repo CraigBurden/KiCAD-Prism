@@ -87,7 +87,17 @@ Some features keep their own rows next to the job (a Release Studio build
 attempt). Their kind declares an end hook: success settles the row inside the
 job's completion transaction, the runner and the supervisor call the hook after
 any other terminal transition, and the prism worker sweeps once a minute for
-rows whose job's process died before it could settle them.
+rows whose job's process died before it could settle them. A design
+comparison's hook relabels the domains its partial result still shows as
+building as `failed` when its process died (an unfenced publish that applies
+only to an ended job). Nothing traps SIGTERM; a cancel that kills the runner is
+settled by the hook.
+
+`/api/jobs/{id}` (status, events, artifact, cancel) is authorised by the job's
+subject, never by who queued it, because enqueue deduplicates a second request
+onto the first job: project jobs follow the project, System jobs the System,
+import and analyze jobs anyone who may import, catalog jobs the catalog roles;
+only a job with none of these is its requester's or an admin's.
 
 ## Project ingestion
 

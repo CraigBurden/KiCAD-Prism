@@ -1677,10 +1677,54 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
     )
 
 
+def settle_comparison_end(job: Dict[str, Any]) -> bool:
+    """End hook: an ended comparison still showing late domains as building
+    (its process died after the partial result) republishes them as failed,
+    as version 2, the way a failure inside the handler does (D19).
+
+    Unfenced, because the attempt is over; applies only while the job's result
+    is the partial one it read. Returns whether it published. Idempotent. The
+    runner traps no SIGTERM (D20): a cancel that kills it is settled here.
+    """
+
+    metadata = dict(job.get("result_metadata") or {})
+    if job.get("status") not in {"failed", "cancelled"} or metadata.get("result_version") != 1:
+        return False
+    path = Path(str(job.get("result_path") or ""))
+    if not job.get("result_digest") or not path.is_file():
+        return False
+    failed = _late_domains_failed(json.loads(path.read_text(encoding="utf-8")))
+    payload = dict(job.get("payload") or {})
+    artifact = job_artifacts.prepare_ended_json(
+        failed,
+        kind="design_compare",
+        artifact_key=str(payload.get("artifact_key") or job.get("artifact_key") or ""),
+        schema_version=str(failed.get("schema") or ""),
+        generator_version=semantic_index_service.generator_cache_tag(),
+        readiness="partial",
+    )
+    domains = failed["readiness"]["domains"]
+    details = {
+        **metadata,
+        "result_version": 2,
+        "ready_domains": [domain for domain, status in domains.items() if status == "ready"],
+        "readiness": failed["readiness"],
+    }
+    return v3_jobs.publish_ended_result(
+        str(job["job_id"]), artifact.__dict__, expected_digest=str(job["result_digest"]), details=details
+    )
+
+
+def _unsettled_comparisons() -> list[str]:
+    return v3_jobs.ended_job_ids("design_compare", result_metadata={"result_version": 1})
+
+
 DESIGN_COMPARE = JobKind(
     "design_compare",
     run_design_compare_job_v3,
     resources={"prism_worker": 1, "design_compare": 1, "semantic_compile": 2},
     lock=repository_lock("read"),
+    settle=settle_comparison_end,
+    orphans=_unsettled_comparisons,
 )
 JOB_KINDS = (DESIGN_COMPARE,)

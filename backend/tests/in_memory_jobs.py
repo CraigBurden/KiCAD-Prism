@@ -191,6 +191,34 @@ class InMemoryJobService:
         )
         return True
 
+    def publish_ended_result(
+        self,
+        job_id: str,
+        artifact: Mapping[str, Any],
+        *,
+        expected_digest: str,
+        details: Mapping[str, Any],
+    ) -> bool:
+        row = self.rows.get(job_id)
+        if row is None or row["status"] not in {"failed", "cancelled"} or row.get("result_digest") != expected_digest:
+            return False
+        self.artifacts.append({**dict(artifact), "job_id": job_id, "fence": row["fence"], "ended": True})
+        row.update(
+            result_path=artifact["object_path"],
+            result_digest=artifact["digest"],
+            result_metadata=dict(details),
+        )
+        return True
+
+    def ended_job_ids(self, kind: str, *, result_metadata: Mapping[str, Any], limit: int = 100) -> list[str]:
+        return [
+            job_id
+            for job_id, row in self.rows.items()
+            if row["kind"] == kind
+            and row["status"] in {"failed", "cancelled"}
+            and all((row.get("result_metadata") or {}).get(k) == v for k, v in result_metadata.items())
+        ][:limit]
+
     def _complete(
         self,
         job_id: str,

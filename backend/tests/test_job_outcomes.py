@@ -289,23 +289,31 @@ class DesignCompareOutcomeTests(unittest.TestCase):
         "bom": {"changes": [{"ref": "R1"}]},
     }
 
-    def test_a_pcb_stage_failure_marks_the_late_domains_failed(self) -> None:
+    LATE_FAILED = {
+        "schematic": "ready",
+        "bom": "ready",
+        "pcb": "failed",
+        "stackup": "failed",
+        "fabrication": "failed",
+    }
+
+    def setUp(self) -> None:
         from app.services import design_compare_service as service
         from app.services import project_revision
 
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        root = Path(tmp.name)
-        jobs = InMemoryJobService()
-        job_id = jobs.enqueue(
+        self.root = Path(tmp.name)
+        self.service = service
+        self.jobs = InMemoryJobService()
+        self.job_id = self.jobs.enqueue(
             "design_compare",
             {"project_id": "project", "base": "base", "head": "head", "artifact_key": "k"},
         )["job_id"]
-        jobs.claim(WORKER_A, worker_pool="prism")
-        with (
-            mock.patch.object(service, "job_artifacts", JobArtifactService(root=root / "jobs")),
-            mock.patch.object(service, "job_state_root", return_value=root / "jobs"),
-            mock.patch.object(service, "v3_jobs", jobs),
+        self.patches = _Stack([
+            mock.patch.object(service, "job_artifacts", JobArtifactService(root=self.root / "jobs")),
+            mock.patch.object(service, "job_state_root", return_value=self.root / "jobs"),
+            mock.patch.object(service, "v3_jobs", self.jobs),
             mock.patch.object(service, "_project_anchor", return_value=""),
             mock.patch.object(
                 service.project_revision,
@@ -329,28 +337,83 @@ class DesignCompareOutcomeTests(unittest.TestCase):
                 "assemble_initial",
                 return_value=(copy.deepcopy(self.INITIAL), {"schematic_changes": []}),
             ),
-            mock.patch.object(
-                service.ComparisonStages, "pcb_revisions", side_effect=RuntimeError("PCB worker failed")
-            ),
-        ):
-            run_attempt(jobs, job_id, WORKER_A, service.run_design_compare_job_v3, state_root=root / "jobs")
+        ])
 
-        row = jobs.rows[job_id]
-        self.assertEqual(row["status"], "failed")
+    def _attempt(self, pcb_stage: Any) -> int:
+        self.jobs.claim(WORKER_A, worker_pool="prism")
+        with self.patches, mock.patch.object(
+            self.service.ComparisonStages, "pcb_revisions", side_effect=pcb_stage
+        ):
+            return run_attempt(
+                self.jobs, self.job_id, WORKER_A, self.service.run_design_compare_job_v3,
+                state_root=self.root / "jobs",
+            )
+
+    def _published(self) -> dict[str, Any]:
+        row = self.jobs.rows[self.job_id]
+        return json.loads(Path(row["result_path"]).read_text(encoding="utf-8"))
+
+    def _assert_late_domains_failed(self) -> None:
+        row = self.jobs.rows[self.job_id]
         self.assertEqual(row["result_metadata"]["result_version"], 2)
-        published = json.loads(Path(row["result_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(row["result_metadata"]["ready_domains"], ["schematic", "bom"])
+        published = self._published()
         self.assertEqual(published["readiness"]["stage"], "background-failed")
-        self.assertEqual(
-            published["readiness"]["domains"],
-            {
-                "schematic": "ready",
-                "bom": "ready",
-                "pcb": "failed",
-                "stackup": "failed",
-                "fabrication": "failed",
-            },
-        )
+        self.assertEqual(published["readiness"]["domains"], self.LATE_FAILED)
         self.assertEqual(published["schematic"], self.INITIAL["schematic"])
+
+    def test_a_pcb_stage_failure_marks_the_late_domains_failed(self) -> None:
+        self._attempt(RuntimeError("PCB worker failed"))
+
+        self.assertEqual(self.jobs.rows[self.job_id]["status"], "failed")
+        self._assert_late_domains_failed()
+
+    def test_a_crash_after_the_partial_result_marks_the_late_domains_failed(self) -> None:
+        # D19: the OOM killer leaves no handler running; the end hook relabels.
+        exit_code = self._attempt(ProcessKilled())
+        self.assertEqual(self.jobs.rows[self.job_id]["result_metadata"]["result_version"], 1)
+        with self.patches:
+            supervise_exit(self.jobs, self.job_id, WORKER_A, exit_code)
+
+        self.assertEqual(self.jobs.rows[self.job_id]["status"], "failed")
+        self._assert_late_domains_failed()
+
+    def test_a_cancel_that_kills_the_runner_marks_the_late_domains_failed(self) -> None:
+        def cancelled(*_args: Any, **_kwargs: Any) -> None:
+            self.jobs.request_cancel(self.job_id)
+            raise ProcessKilled()  # the supervisor's SIGTERM; no trap (D20)
+
+        exit_code = self._attempt(cancelled)
+        with self.patches:
+            supervise_exit(self.jobs, self.job_id, WORKER_A, exit_code)
+
+        self.assertEqual(self.jobs.rows[self.job_id]["status"], "cancelled")
+        self._assert_late_domains_failed()
+
+    def test_the_sweep_relabels_a_comparison_its_supervisor_never_settled(self) -> None:
+        from app.services.job_handlers import sweep_job_ends
+
+        self._attempt(ProcessKilled())
+        row = self.jobs.rows[self.job_id]
+        self.jobs._end(row, "failed")  # ended by another process without settling
+        with self.patches:
+            sweep_job_ends(self.jobs)
+            sweep_job_ends(self.jobs)  # idempotent: nothing left to relabel
+
+        self._assert_late_domains_failed()
+        relabels = [a for a in self.jobs.artifacts if a.get("ended")]
+        self.assertEqual(len(relabels), 1)
+
+    def test_a_retry_wait_keeps_the_partial_result(self) -> None:
+        # The next attempt republishes; only an ended job is relabelled.
+        self._attempt(ProcessKilled())
+        row = self.jobs.rows[self.job_id]
+        row.update(status="retry_wait", lease_owner="", lease_live=False)
+        with self.patches:
+            self.service.settle_comparison_end(self.jobs.get(self.job_id))
+
+        self.assertEqual(row["result_metadata"]["result_version"], 1)
+        self.assertEqual(self._published()["readiness"]["domains"]["pcb"], "building")
 
 
 @unittest.skipUnless(os.environ.get("PRISM_DATABASE_URL"), "PRISM_DATABASE_URL is required")

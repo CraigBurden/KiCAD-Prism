@@ -1088,9 +1088,17 @@ class PrismDialog(wx.Dialog):
         and publishing on the user's behalf puts a name on a shared remote that they
         may not have meant to create.
         """
-        targets = self.git.publish_targets(repo)
-        if targets.kind == git_workflow.FAILED:
-            return ""  # cannot ask; keeping it local is the safe answer
+        targets = self.git.new_branch_targets(repo)
+        if targets.kind == git_workflow.LOCAL_ONLY:
+            # Cannot ask; keeping it local is the safe answer, and the user is told.
+            prompts.tell(
+                self,
+                "'%s' was created here, but its remotes could not be listed, so it "
+                "stays on this computer:\n\n%s\n\nYou can publish it later from the panel."
+                % (branch, targets.error),
+                "Branch created",
+            )
+            return ""
         if targets.kind == git_workflow.NO_REMOTE:
             # Say so. The user asked for a branch expecting to be asked where it goes,
             # and silence here reads as the question having been answered for them.

@@ -29,6 +29,7 @@ NEEDS_SETTLE = "needs_settle"  # uncommitted work must be settled first; `error`
 BLOCKED = "blocked"  # the switch cannot happen at all; `error` says why
 NOTHING = "nothing"  # nothing to choose from
 NEEDS_BRANCH = "needs_branch"  # HEAD is detached: the work needs a branch to land on
+LOCAL_ONLY = "local_only"  # a new branch stays local: its remotes could not be listed; `error` says why
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,17 @@ class GitWorkflow:
         if not remotes:
             return Outcome(NO_REMOTE)
         return Outcome(NEEDS_REMOTE, remotes=remotes)
+
+    def new_branch_targets(self, repo) -> Outcome:
+        """Where can a branch that was just created go? publish_targets, except
+        that remotes the agent could not list mean the branch stays on this
+        computer (LOCAL_ONLY, with why): the branch exists, so this is not a
+        failure, but the user is told, as a push in the same state tells them.
+        """
+        targets = self.publish_targets(repo)
+        if targets.kind == FAILED:
+            return Outcome(LOCAL_ONLY, error=targets.error)
+        return targets
 
     def publish(self, repo, remote) -> Outcome:
         """Push the current branch to `remote` and track it there."""

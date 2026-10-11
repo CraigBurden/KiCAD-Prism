@@ -306,14 +306,12 @@ dirty, and Sync stopped fast-forwarding the project.
 These settings now live in the workspace database (migration 55,
 `project_path_settings`). On the first start after upgrading, Prism reads each
 checkout's `.prism.json` once. If the file is untracked, or a tracked file
-differs from `HEAD`, the values that differ are copied into the database. The
-file itself is left in place, because it may hold edits nobody committed.
+differs from `HEAD`, the values that differ are copied into the database.
 
-A checkout that was already dirty this way still blocks Sync until the file is
-cleaned up. Once the upgrade has imported it, either commit the file upstream so
-the team shares the settings, or restore the committed version with
-`git -C <checkout> checkout -- .prism.json` (or delete an untracked file). The
-values stay in Prism's database either way.
+Once those values are stored, Prism restores a tracked file it dirtied to the
+committed version, so Sync fast-forwards again without a manual step. A file
+that supplied no values, and an untracked file (which never blocks Sync), are
+left in place. To share the settings with the team, commit them upstream.
 
 ## Release Studio configurations in a monorepo subproject
 

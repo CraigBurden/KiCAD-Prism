@@ -14,12 +14,13 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from app.api import agent, catalog_admin, jobs
+from app.api import _helpers, agent, catalog_admin, jobs
 from app.core.security import AuthenticatedUser, require_admin
 
 
 DESIGNER = AuthenticatedUser(email="designer@example.com", name="Designer", role="designer")
 OTHER = AuthenticatedUser(email="other@example.com", name="Other", role="designer")
+VIEWER = AuthenticatedUser(email="viewer@example.com", name="Viewer", role="viewer")
 ADMIN = AuthenticatedUser(email="admin@example.com", name="Admin", role="admin")
 
 
@@ -77,6 +78,42 @@ class JobRequesterTests(unittest.TestCase):
     def test_requester_match_ignores_email_case(self) -> None:
         job = {"job_id": "job-1", "worker_pool": "prism", "project_id": None, "requested_by": "DESIGNER@example.com"}
         self.assertEqual(self._get(job, DESIGNER)["job_id"], "job-1")
+
+    def test_a_deduplicated_import_is_readable_by_a_second_designer(self) -> None:
+        # D6: enqueue hands a second requester the first requester's job id.
+        for kind in ("project_import", "project_analyze"):
+            job = {"job_id": "job-1", "kind": kind, "worker_pool": "prism", "project_id": None,
+                   "requested_by": "designer@example.com", "payload": {}}
+            self.assertEqual(self._get(job, OTHER)["job_id"], "job-1")
+
+    def test_an_import_stays_closed_to_roles_that_cannot_import(self) -> None:
+        job = {"job_id": "job-1", "kind": "project_import", "worker_pool": "prism", "project_id": None,
+               "requested_by": "designer@example.com", "payload": {}}
+        with self.assertRaises(HTTPException) as ctx:
+            self._get(job, VIEWER)
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_a_system_job_follows_the_system(self) -> None:
+        job = {"job_id": "job-1", "kind": "system_collision_check", "worker_pool": "prism", "project_id": None,
+               "requested_by": "designer@example.com", "payload": {"systemId": "sys-1"}}
+        with patch.object(_helpers, "_system_visible", return_value=True) as visible:
+            self.assertEqual(self._get(job, VIEWER)["job_id"], "job-1")
+        visible.assert_called_once_with("sys-1", "viewer")
+        with patch.object(_helpers, "_system_visible", return_value=False):
+            with self.assertRaises(HTTPException) as ctx:
+                self._get(job, OTHER)
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_a_second_designer_cancels_a_shared_system_job(self) -> None:
+        job = {"job_id": "job-1", "kind": "system_step_export", "worker_pool": "prism", "project_id": None,
+               "requested_by": "designer@example.com", "payload": {"systemId": "sys-1"}}
+        with patch.object(jobs.jobs, "get", return_value=job), patch.object(
+            jobs.jobs, "request_cancel", return_value="cancel_requested"
+        ), patch.object(_helpers, "_system_visible", return_value=True):
+            self.assertEqual(asyncio.run(jobs.cancel_job("job-1", OTHER))["status"], "cancel_requested")
+            with self.assertRaises(HTTPException) as ctx:
+                asyncio.run(jobs.cancel_job("job-1", VIEWER))
+        self.assertEqual(ctx.exception.status_code, 403)
 
     def test_benchmark_metrics_uses_the_admin_dependency(self) -> None:
         route = next(r for r in jobs.router.routes if getattr(r, "path", "") == "/benchmark-metrics")

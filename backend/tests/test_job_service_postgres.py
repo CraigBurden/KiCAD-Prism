@@ -403,6 +403,45 @@ class JobServicePostgresTests(unittest.TestCase):
         self.assertEqual(outcome, "cancelled")
         self.assertEqual(self.service.get(queued["job_id"])["status"], "cancelled")
 
+    def _artifact(self, name: str, body: bytes, readiness: str = "partial") -> dict:
+        path, digest, size = self.write_artifact_file(name, body)
+        return {"kind": self.kind, "artifact_key": "ended", "digest": digest, "object_path": path,
+                "media_type": "application/json", "size_bytes": size, "readiness": readiness}
+
+    def test_an_ended_job_result_is_replaced_once_and_never_while_running(self) -> None:
+        queued = self.enqueue("ended")
+        claim = self.service.claim("worker-a", worker_pool=self.pool)
+        fence = int(claim["fence"])
+        partial = self._artifact("partial.json", b"partial")
+        self.assertTrue(self.service.publish_partial_artifact(
+            queued["job_id"], "worker-a", fence, partial, stage="s", message="m", percent=50,
+            details={"result_version": 1},
+        ))
+        relabel = self._artifact("failed.json", b"failed")
+        # Running: an end hook must not overwrite a live attempt's result.
+        self.assertFalse(self.service.publish_ended_result(
+            queued["job_id"], relabel, expected_digest=partial["digest"], details={"result_version": 2}))
+        self.assertEqual(self.service.ended_job_ids(self.kind, result_metadata={"result_version": 1}), [])
+        self.service.fail(queued["job_id"], "worker-a", fence, error_code="x", error_message="x")
+        self.assertEqual(self.service.ended_job_ids(self.kind, result_metadata={"result_version": 1}),
+                         [queued["job_id"]])
+
+        self.assertTrue(self.service.publish_ended_result(
+            queued["job_id"], relabel, expected_digest=partial["digest"], details={"result_version": 2}))
+        self.assertFalse(self.service.publish_ended_result(
+            queued["job_id"], relabel, expected_digest=partial["digest"], details={"result_version": 2}))
+        job = self.service.get(queued["job_id"])
+        self.assertEqual((job["status"], job["result_digest"], job["result_metadata"]),
+                         ("failed", relabel["digest"], {"result_version": 2}))
+        self.assertEqual(self.service.ended_job_ids(self.kind, result_metadata={"result_version": 1}), [])
+        with database.connection() as conn:
+            conn.execute("SET search_path TO workspace, public")
+            row = conn.execute(
+                "SELECT source_job_id, source_fence FROM ws_artifacts WHERE kind = %s AND digest = %s",
+                (self.kind, relabel["digest"]),
+            ).fetchone()
+        self.assertEqual((str(row["source_job_id"]), int(row["source_fence"])), (queued["job_id"], fence))
+
     def test_completed_sidecars_share_the_authoritative_fence(self) -> None:
         queued = self.enqueue("sidecar-bundle")
         claim = self.service.claim("worker-a", worker_pool=self.pool)
