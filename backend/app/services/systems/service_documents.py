@@ -16,7 +16,7 @@ class DocumentsMixin:
     def document(self, caller: Caller, system_id: str, *, include_validation: bool = False) -> Result:
         with self._tx() as store:
             loaded = self._load(store, system_id, caller)
-            built = self._built(loaded)
+            built = self._build(loaded)
             restricted = loaded.restricted(caller)
             board_total = self._loaded_board_total(loaded)  # SB2-101
             dropped = ("reviewRowIds",) if include_validation else ("validation", "reviewRowIds")
@@ -36,7 +36,7 @@ class DocumentsMixin:
 
         with self._tx() as store:
             loaded = self._load(store, system_id, caller)
-            report = self._report_for_reader(loaded, caller, self._built(loaded)["validation"])
+            report = self._report_for_reader(loaded, caller, self._build(loaded)["validation"])
         return Result(report, system_id, loaded.version)
 
     def _reader_report(self, caller: Caller, system_id: str, version: int) -> dict:
@@ -45,7 +45,7 @@ class DocumentsMixin:
             loaded = self._load(store, system_id, caller)
             if int(loaded.version) != int(version):
                 raise StaleVersion(int(loaded.version), system_id)
-            return self._report_for_reader(loaded, caller, self._built(loaded)["validation"])
+            return self._report_for_reader(loaded, caller, self._build(loaded)["validation"])
 
     # ------------------------------------------------------------------
     # Finding waivers (SB2-100, SB2-113)

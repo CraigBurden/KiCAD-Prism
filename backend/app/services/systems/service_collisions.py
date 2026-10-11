@@ -71,7 +71,7 @@ class CollisionsMixin:
         with self._tx(consistent=True) as store:
             loaded = self._load(store, system_id, CHECKER)
             system = loaded.system
-            built = self._built(loaded)
+            built = self._build(loaded)
             bodies, gaps, exempt = self._collision_bodies(loaded)
         found = collisions.check(bodies, exempt)
         result = {"collisions": found, "notEvaluated": gaps,
@@ -80,6 +80,7 @@ class CollisionsMixin:
         with self._tx() as store:
             store.record_collision_check(system_id, scene_key=built["sceneKey"], version=system["version"],
                                          result=result, job_id=job_id)
+        self.refresh_finding_counts([system_id])  # SYS-V22 reads the stored check (D12)
         return result
 
     def _collision_bodies(self, loaded: Any) -> tuple[list, list, set]:

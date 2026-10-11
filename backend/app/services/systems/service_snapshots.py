@@ -45,7 +45,7 @@ class SnapshotsMixin:
             loaded = self._load(store, system_id, caller)
             if int(loaded.version) != int(version):
                 raise StaleVersion(int(loaded.version), system_id)
-            built = self._built(loaded)
+            built = self._build(loaded)
             # The read keys (SB2-98) describe the live system, not what a snapshot freezes.
             document = json.loads(json.dumps({k: v for k, v in built.items() if k not in ("sceneKey", "netsKey")},
                                              default=_iso))
@@ -228,7 +228,7 @@ class SnapshotsMixin:
                 manifest = store.get_snapshot(system_id, snapshot_id).get("manifest") or {}
                 return document, meta["name"], None, (manifest.get("layout") or {}).get("positions") or {}
             loaded = LoadedSystem(store, system, self)
-            document = self._for_reader(loaded, caller, self._built(loaded))
+            document = self._for_reader(loaded, caller, self._build(loaded))
             positions = store.get_layout(system_id)
         return document, "live", system["version"], positions
 
@@ -256,7 +256,7 @@ class SnapshotsMixin:
         with self._tx(consistent=True) as store:
             loaded = self._load(store, system_id, caller)
             system = loaded.system
-            built = self._built(loaded)
+            built = self._build(loaded)
             restricted = loaded.restricted(caller)
             reviews = [self._review_doc(store, review, review["instance_id"] in restricted, restricted)
                        for review in store.list_reviews(system_id, status="open")]
@@ -315,7 +315,7 @@ class SnapshotsMixin:
             loaded = self._load(store, system_id, caller)
             before = store.get_snapshot(system_id, snapshot_id)["document"]
             if against == "live":
-                after = json.loads(json.dumps(self._built(loaded), default=_iso))
+                after = json.loads(json.dumps(self._build(loaded), default=_iso))
                 restricted = loaded.restricted(caller)
             else:
                 try:

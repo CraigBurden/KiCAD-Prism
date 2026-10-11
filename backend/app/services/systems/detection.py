@@ -342,6 +342,10 @@ def run_source_check_job(context: Any) -> Any:
         results = [detector.check_instance(str(payload["instance_id"]), force=bool(payload.get("force")))]
     else:
         results = detector.check_repository(str(payload["repository_id"]))
+    from app.services.systems.service import service as system_service
+
+    # D12: the checks commit outside the system service; refresh the counts of the systems they changed.
+    system_service.refresh_stale_counts(instance_ids=[result.instance_id for result in results])
     counts: dict[str, int] = {}
     for result in results:
         counts[result.outcome] = counts.get(result.outcome, 0) + 1

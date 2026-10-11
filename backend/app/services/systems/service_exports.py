@@ -28,7 +28,7 @@ class ExportsMixin:
     def list_exports(self, caller: Caller, system_id: str) -> list[dict]:
         with self._tx() as store:
             loaded = self._load(store, system_id, caller)
-            return self._for_reader(loaded, caller, self._built(loaded))["exports"]
+            return self._for_reader(loaded, caller, self._build(loaded))["exports"]
 
     def create_export(
         self, caller: Caller, system_id: str, version: int, *, name: str, description: str,

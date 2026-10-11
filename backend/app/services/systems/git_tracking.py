@@ -449,12 +449,20 @@ def enqueue_due_fetches(connect: Connect, *, interval_seconds: int, limit: int =
     return len(rows)
 
 
+def _refresh_counts(system_id: str) -> None:
+    """D12: an import review opened or closed here bumps the version outside the system service."""
+    from app.services.systems.service import service as system_service
+
+    system_service.refresh_stale_counts(system_ids=[system_id])
+
+
 def run_sync_job(context: Any) -> Any:
     from app.services.job_runtime import JobResult
     from app.services.systems.jobs import workspace_connection
 
     context.progress(stage="system-git-sync", message="Fetching the system repository", percent=10, force=True)
     outcome = sync(workspace_connection, str(context.payload["systemId"]))
+    _refresh_counts(str(context.payload["systemId"]))
     return JobResult(message=f"System repository: {outcome['outcome']}", details=outcome)
 
 
@@ -465,6 +473,7 @@ def run_commit_job(context: Any) -> Any:
     context.progress(stage="system-git-commit", message="Committing the snapshot", percent=10, force=True)
     state = commit_snapshot(workspace_connection, str(context.payload["systemId"]),
                             str(context.payload["snapshotId"]))
+    _refresh_counts(str(context.payload["systemId"]))
     return JobResult(message=f"Snapshot commit: {state['state']}", details=state)
 
 
