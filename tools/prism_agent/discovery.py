@@ -19,8 +19,9 @@ from __future__ import annotations
 import json
 import os
 import sys
-import urllib.request
 from pathlib import Path
+
+from . import loopback
 
 APP_NAME = "kicad-prism"
 ENDPOINT_FILE = "agent.json"
@@ -170,13 +171,11 @@ def running_agent() -> dict | None:
     # The pid may have been recycled by an unrelated process, so confirm something
     # is actually listening and answering as us.
     try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{data['port']}/health", timeout=2
-        ) as resp:
-            if json.loads(resp.read()).get("ok"):
-                return data
-    except (OSError, ValueError):
-        pass
+        answer = loopback.call(data["port"], "GET", "/health", timeout=2)
+    except (loopback.Refused, loopback.Unreachable, TypeError, ValueError):
+        return None
+    if isinstance(answer, dict) and answer.get("ok"):
+        return data
     return None
 
 

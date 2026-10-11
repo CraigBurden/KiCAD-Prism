@@ -403,11 +403,9 @@ class PrismDialog(wx.Dialog):
                 project = None
                 # Only fetch the project when the versions are compatible; an outdated
                 # agent or plugin renders its own card instead of a project view.
-                running = health.get("version", "")
-                if not version.agent_too_old(running):
-                    verdict, _ = version.server_verdict(health.get("server_plugin"))
-                    if verdict != "required":
-                        project = client.project(board_path)
+                verdict = version.health_verdict(health)
+                if version.usable(verdict[0]):
+                    project = client.project(board_path)
                 # Stashes come along for the ride. The sync row needs the count on
                 # every render, and _rebuild re-renders on every collapse/expand, so
                 # reading them inline would put an HTTP round-trip on the UI thread
@@ -428,6 +426,7 @@ class PrismDialog(wx.Dialog):
                         gitignore = {}
                 payload = {
                     "health": health,
+                    "verdict": verdict,
                     "project": project,
                     "stashes": stashes,
                     "gitignore": gitignore,
@@ -480,7 +479,9 @@ class PrismDialog(wx.Dialog):
         # backend. The icon says which, and stays out of the way otherwise.
         self._set_server_icon(bool(health.get("backend_reachable")))
 
-        if version.agent_too_old(running):
+        # Computed once, on the worker, from the same /health payload.
+        verdict, download_url = payload["verdict"]
+        if verdict == "agent_outdated":
             self.data = None
             self.changes = None
             self._render_outdated_agent(running)
@@ -490,9 +491,7 @@ class PrismDialog(wx.Dialog):
         # The plugin follows the server it talks to. "required" means this plugin is
         # older than the server can serve, so there's no point rendering a UI whose calls
         # will fail.
-        self.verdict, self.download_url = version.server_verdict(
-            health.get("server_plugin")
-        )
+        self.verdict, self.download_url = verdict, download_url
         if self.verdict == "required":
             self.data = None
             self.changes = None

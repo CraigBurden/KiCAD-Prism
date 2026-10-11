@@ -1,10 +1,11 @@
-"""The agent and plugin ship separate copies of the profile registry.
+"""The modules the agent and plugin both need are vendored, byte for byte.
 
 The plugin is installed into KiCad's plugin directory on its own and cannot
-import the agent package, so prism_agent/profiles.py is mirrored in
-kicad_plugin/profiles.py. If the two drift on any config-relevant field, the
-plugin computes a different config dir or port than the agent and never finds
-it. These tests fail the moment they diverge.
+import the agent package, so the few modules both sides depend on exist in both
+packages: the profile registry (how they find each other), the compatibility
+rules (version.py), and the loopback client. A copy that drifted would have the
+plugin compute a different config dir than the agent, or the two disagree on
+which versions work together. These tests fail the moment any copy diverges.
 """
 
 from __future__ import annotations
@@ -37,6 +38,28 @@ def _load_plugin_profiles():
 
 
 plugin_profiles = _load_plugin_profiles()
+
+# Every module that exists in both packages. Each copy must be identical: edit one,
+# copy it over the other.
+VENDORED = ("profiles.py", "version.py", "loopback.py")
+
+
+def test_every_vendored_module_is_byte_identical():
+    for name in VENDORED:
+        agent = (TOOLS / "prism_agent" / name).read_bytes()
+        plugin = (TOOLS / "kicad_plugin" / name).read_bytes()
+        assert agent == plugin, f"{name} differs between prism_agent and kicad_plugin"
+
+
+def test_the_vendored_modules_are_standalone():
+    """The plugin copies run inside KiCad's Python, beside nothing of the agent's.
+    A project import in one of them would work in the agent and fail in the plugin."""
+    import re
+
+    for name in VENDORED:
+        text = (TOOLS / "prism_agent" / name).read_text(encoding="utf-8")
+        assert not re.search(r"^\s*from \.", text, re.M), name
+        assert not re.search(r"^\s*import (prism_agent|kicad_plugin)", text, re.M), name
 
 
 def test_the_two_registries_are_identical():

@@ -54,7 +54,8 @@ def test_a_broken_connection_is_agent_unavailable(monkeypatch, error):
     def boom(*_args, **_kwargs):
         raise error
 
-    monkeypatch.setattr(agent_client.urllib.request, "urlopen", boom)
+    # The one loopback client opens every request through urllib.request.urlopen.
+    monkeypatch.setattr(agent_client.loopback.urllib.request, "urlopen", boom)
 
     with pytest.raises(agent_client.AgentUnavailable):
         agent_client.AgentClient().health()

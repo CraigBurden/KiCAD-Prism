@@ -45,7 +45,7 @@ def test_the_version_comes_from_the_plugin_source(packager):
 
     resolved = packager.resolve_version()
     assert resolved == constant(TOOLS / "kicad_plugin" / "version.py")
-    assert resolved == constant(TOOLS / "prism_agent" / "server.py")
+    assert resolved == constant(TOOLS / "prism_agent" / "version.py")
 
 
 def test_a_plugin_and_agent_that_disagree_fail_the_build(packager, tmp_path, monkeypatch):
@@ -59,7 +59,7 @@ def test_a_plugin_and_agent_that_disagree_fail_the_build(packager, tmp_path, mon
     plugin_src.mkdir()
     agent_src.mkdir()
     (plugin_src / "version.py").write_text('VERSION = "0.5.0"\n', encoding="utf-8")
-    (agent_src / "server.py").write_text('VERSION = "0.4.0"\n', encoding="utf-8")
+    (agent_src / "version.py").write_text('VERSION = "0.4.0"\n', encoding="utf-8")
 
     monkeypatch.setattr(packager, "PLUGIN_SRC", plugin_src)
     monkeypatch.setattr(packager, "TOOLS", tmp_path)

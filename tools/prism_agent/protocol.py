@@ -185,11 +185,11 @@ def is_stale() -> bool:
         # There is no text command to read back from a compiled applet, unlike
         # Windows' registry value, so staleness is tracked by version instead: does
         # this bundle carry the marker the agent that built it would have written.
-        from .server import VERSION
+        from . import version
 
         marker = _mac_version_marker(_mac_app_bundle())
         try:
-            return marker.read_text(encoding="utf-8").strip() != VERSION
+            return marker.read_text(encoding="utf-8").strip() != version.VERSION
         except OSError:
             return True  # a bundle from before this marker existed: rebuild it once
 
@@ -400,9 +400,9 @@ def _register_macos() -> None:
                     % (args[1], plist, (step.stderr or step.stdout or "").strip())
                 )
 
-        from .server import VERSION
+        from . import version
 
-        _mac_version_marker(staged).write_text(VERSION, encoding="utf-8")
+        _mac_version_marker(staged).write_text(version.VERSION, encoding="utf-8")
         _swap_bundle(staged, bundle)
     except OSError as exc:
         raise RegistrationError("Couldn't write %s: %s" % (bundle, exc)) from exc
