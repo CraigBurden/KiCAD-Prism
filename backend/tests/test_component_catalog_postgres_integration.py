@@ -778,7 +778,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             baseline = conn.execute(
                 "SELECT name FROM catalog_schema_versions WHERE version = 0"
             ).fetchone()
-            self.assertEqual(pending_catalog_migrations(conn), [])
+            self.assertEqual(CATALOG_LEDGER.pending(conn), [])
         self.assertEqual(str(baseline["name"]), "baseline")
 
     def test_component_head_projection_and_streaming_csv_follow_current_revision(self) -> None:

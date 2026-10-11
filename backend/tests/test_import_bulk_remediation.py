@@ -8,37 +8,16 @@ copies of the same 0603.
 
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import unittest
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService  # noqa: E402
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _database_identity(url: str) -> tuple[str, str, int | None, str]:
-    parsed = urlsplit(url)
-    return (
-        parsed.username or "",
-        (parsed.hostname or "").lower(),
-        parsed.port,
-        parsed.path.lstrip("/"),
-    )
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _database_identity(POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
-)
+from support.postgres import CATALOG_URL, requires_scratch_postgres  # noqa: E402
 
 SYMBOL_BODY = """(kicad_symbol_lib (version 20240101) (generator prism-test)
   (symbol "R_Test" (pin_numbers hide) (in_bom yes) (on_board yes)
@@ -55,12 +34,7 @@ FOOTPRINT_BODY = """(footprint "R_0603" (version 20240101) (generator prism-test
 """
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for PostgreSQL integration tests")
-@unittest.skipIf(
-    SHARED_APPLICATION_DATABASE,
-    "Import remediation tests require a dedicated PostgreSQL database; "
-    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
-)
+@requires_scratch_postgres("import remediation tests")
 class ImportBulkRemediationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -68,7 +42,7 @@ class ImportBulkRemediationTests(unittest.TestCase):
         self.component_ids: list[str] = []
         self.service = ComponentCatalogPostgresService(
             store_root=self.root / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         self.service.initialize()
 

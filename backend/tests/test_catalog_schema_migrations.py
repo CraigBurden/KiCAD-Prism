@@ -176,14 +176,14 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
         """D8: the catalog baseline is ledger step 0, run once, ahead of step 1."""
         self.assertEqual(MIGRATIONS[0][:2], (0, "baseline"))
         conn = FakeConnection(ledger_exists=False)
-        apply_catalog_migrations(conn)
+        CATALOG_LEDGER.apply(conn)
         statements = conn.statements
         base = next(i for i, s in enumerate(statements) if "CREATE TABLE IF NOT EXISTS components" in s)
         widen = next(i for i, s in enumerate(statements) if "ALTER COLUMN" in s)
         self.assertLess(base, widen)
         self.assertFalse([s for s in statements if "catalog_schema_migrations" in s])
         conn.statements.clear()
-        apply_catalog_migrations(conn)
+        CATALOG_LEDGER.apply(conn)
         self.assertFalse([s for s in conn.statements if "CREATE TABLE IF NOT EXISTS components" in s])
 
     def test_renumbered_row_moves_instead_of_replaying(self) -> None:
