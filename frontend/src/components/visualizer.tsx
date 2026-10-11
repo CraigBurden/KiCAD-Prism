@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useLayoutEffect, useMemo, useReducer } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Cpu, Box, FileText, CircuitBoard, Layers3, PackageCheck, MessageSquare, MessageSquarePlus, type LucideIcon } from "lucide-react";
@@ -47,6 +47,16 @@ import {
     variantSearchParams,
 } from "./design-variants/variant-selection";
 import { DesignVariantSelector } from "./design-variants/variant-selector";
+import {
+    VIEWER_TABS,
+    commentModeAvailable,
+    consumeElementEscape,
+    elementModes,
+    initialViewerModes,
+    viewerKeyIntent,
+    viewerModesReducer,
+    type VisualizerTab,
+} from "./viewer-modes";
 import { usePrismCrossProbe } from "@/hooks/use-prism-cross-probe";
 import {
     projectAssemblyState,
@@ -70,7 +80,7 @@ import type {
     EcadCommentAnchorResolution,
 } from "@/types/ecad-viewer";
 import type { PrismSelection, PrismSelectionContext, PrismSemanticIndex } from "@/types/prism-selection";
-import type { Comment, CommentContext, CommentLocation, MentionCandidate } from "@/types/comments";
+import type { Comment, CommentContext, MentionCandidate } from "@/types/comments";
 
 interface VisualizerProps {
     projectId: string;
@@ -79,21 +89,15 @@ interface VisualizerProps {
     active?: boolean;
 }
 
-type VisualizerTab = "sch" | "pcb" | "3d" | "bom" | "stackup" | "assembly";
-type ViewerRightRailTab = "selection" | "comments";
-
-/**
- * Toolbar order is also the shortcut order: pressing 1 through 6 selects the
- * nth tab, so the two must be defined together and never drift apart.
- */
-const VISUALIZER_TABS: { id: VisualizerTab; label: string; icon: LucideIcon }[] = [
-    { id: "sch", label: "Schematic", icon: Cpu },
-    { id: "pcb", label: "PCB", icon: CircuitBoard },
-    { id: "3d", label: "3D", icon: Box },
-    { id: "bom", label: "BOM", icon: FileText },
-    { id: "stackup", label: "Stackup", icon: Layers3 },
-    { id: "assembly", label: "Assembly Assistant", icon: PackageCheck },
-];
+/** The toolbar follows VIEWER_TABS, which is also the 1–6 shortcut order. */
+const TAB_LABELS: Record<VisualizerTab, { label: string; icon: LucideIcon }> = {
+    sch: { label: "Schematic", icon: Cpu },
+    pcb: { label: "PCB", icon: CircuitBoard },
+    "3d": { label: "3D", icon: Box },
+    bom: { label: "BOM", icon: FileText },
+    stackup: { label: "Stackup", icon: Layers3 },
+    assembly: { label: "Assembly Assistant", icon: PackageCheck },
+};
 
 function selectionContextForTab(tab: VisualizerTab): PrismSelectionContext {
     if (tab === "pcb") return "PCB";
@@ -115,13 +119,6 @@ const buildViewerKey = (
     projectId: string,
     commit: string | null | undefined,
 ) => `${kind}:${projectId}:${commit ?? "latest"}`;
-
-interface PendingCommentElement {
-    elementId?: string;
-    elementRef?: string;
-    elementType?: string;
-    relativePoint?: [number, number];
-}
 
 function applyCommentMode(viewer: ECadViewerElement | null, enabled: boolean): void {
     if (!viewer) return;
@@ -340,16 +337,11 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // Open on the tab a caller asked for (e.g. clicking a changed .kicad_pcb in
     // the history file list), read once on mount; defaults to the schematic.
     const [searchParams, setSearchParams] = useSearchParams();
-    const [activeTab, setActiveTab] = useState<VisualizerTab>(() => {
-        const requested = searchParams.get("tab");
-        return requested === "pcb"
-            || requested === "3d"
-            || requested === "bom"
-            || requested === "stackup"
-            || requested === "assembly"
-            ? requested
-            : "sch";
-    });
+    // Tab, comment mode, the comment draft, the selected comment and the right
+    // rail, and the rules between them (viewer-modes.ts).
+    const [modes, dispatchMode] = useReducer(viewerModesReducer, searchParams.get("tab"), initialViewerModes);
+    const activeTab = modes.tab;
+    const setActiveTab = useCallback((tab: VisualizerTab) => dispatchMode({ type: "tab", tab }), []);
     const [threeDActivated, setThreeDActivated] = useState(false);
     /**
      * Whether the PCB tab has ever been opened.
@@ -373,8 +365,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const [semanticIndexLoading, setSemanticIndexLoading] = useState(true);
     const [semanticIndexError, setSemanticIndexError] = useState<string | null>(null);
     const [semanticIndexRetryToken, setSemanticIndexRetryToken] = useState(0);
-    const [rightRailTab, setRightRailTab] =
-        useState<ViewerRightRailTab | null>(null);
+    const rightRailTab = modes.rightRail;
     const [schematicLeftInset, setSchematicLeftInset] = useState(0);
     const [pcbLeftInset, setPcbLeftInset] = useState(0);
     const [rightRailInset, setRightRailInset] = useState(0);
@@ -391,14 +382,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const { comments, setComments, refresh: refreshComments, status: commentConnectionStatus, error: commentsError,
         hasLoaded: commentsLoaded } = useLiveComments(projectId, { kind: "canvas", revision: commit ?? undefined });
     const [commentMarkerResolutions, setCommentMarkerResolutions] = useState<Record<string, EcadCommentAnchorResolution>>({});
-    const [commentMode, setCommentMode] = useState(false);
-    const [showCommentForm, setShowCommentForm] = useState(false);
-    const [pendingLocation, setPendingLocation] = useState<CommentLocation | null>(null);
-    const [pendingContext, setPendingContext] = useState<CommentContext | null>(null);
-    // The pending comment element is read only when the comment submits,
-    // never on screen.
-    const pendingElementRef = useRef<PendingCommentElement | null>(null);
-    const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
+    const { commentMode, draft: commentDraft, selectedCommentId } = modes;
     // Focus is an imperative viewer request, not render state. It is retried
     // when a tab/page change publishes the next set of overlay resolutions.
     const pendingCommentFocusRef = useRef<string | null>(null);
@@ -1097,15 +1081,10 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     const highlightsVisibleInActiveView = highlightedNets.length > 0 && activeViewContext !== null;
     const inspectorHasContent = (globalSelection !== null && selectionVisibleInActiveView) || highlightsVisibleInActiveView;
 
+    // Nothing for this view (cleared, or a single-view selection that
+    // belongs to the other view) closes the selection panel; comments stay.
     useEffect(() => {
-        if (inspectorHasContent) {
-            setRightRailTab("selection");
-        } else {
-            // Nothing for this view (cleared, or a single-view selection
-            // that belongs to the other view): close the selection panel so it
-            // does not linger. Leave other rail tabs (comments) alone.
-            setRightRailTab((tab) => (tab === "selection" ? null : tab));
-        }
+        dispatchMode({ type: "inspector", hasContent: inspectorHasContent });
     }, [inspectorHasContent]);
 
     // Routed length / layers / counts for the selected net, read from the
@@ -1286,21 +1265,21 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     }, [activeTab, activeSchematicPage, comments, pcbReadyGeneration, pcbViewerElement,
         schematicReadyGeneration, schematicViewerElement, focusPendingComment]);
 
-    // Mirror comment mode onto whichever viewer is currently active.
+    // Apply the modes to each element: comment mode only on its own tab, and
+    // the board stops measuring while comment mode is on.
+    const schematicModes = elementModes(modes, "sch");
+    const pcbModes = elementModes(modes, "pcb");
     useEffect(() => {
-        applyCommentMode(schematicViewerElement, commentMode && activeTab === "sch");
-        applyCommentMode(pcbViewerElement, commentMode && activeTab === "pcb");
-    }, [activeTab, commentMode, pcbViewerElement, schematicViewerElement]);
-
-    // One click mode at a time on the board: comment mode ends measuring, and
-    // turning measure mode on (button or key) ends comment mode.
+        applyCommentMode(schematicViewerElement, schematicModes.commentMode);
+    }, [schematicModes.commentMode, schematicViewerElement]);
     useEffect(() => {
-        if (commentMode) pcbViewerElement?.setMeasureMode?.(false);
-    }, [commentMode, pcbViewerElement]);
+        applyCommentMode(pcbViewerElement, pcbModes.commentMode);
+        if (pcbModes.endMeasure) pcbViewerElement?.setMeasureMode?.(false);
+    }, [pcbModes.commentMode, pcbModes.endMeasure, pcbViewerElement]);
     useEffect(() => {
         if (!pcbViewerElement) return;
         const onMeasureMode = (event: Event) => {
-            if ((event as CustomEvent<{ on: boolean }>).detail?.on) setCommentMode(false);
+            dispatchMode({ type: "measure-mode", on: Boolean((event as CustomEvent<{ on: boolean }>).detail?.on) });
         };
         pcbViewerElement.addEventListener("ecad-viewer:measure-mode", onMeasureMode);
         return () => pcbViewerElement.removeEventListener("ecad-viewer:measure-mode", onMeasureMode);
@@ -1311,7 +1290,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
         const commentId = commentIdFromOverlayHit(detail);
         if (!commentId) return;
         const viewer = detail.context === "SCH" ? schematicViewerRef.current : pcbViewerRef.current;
-        setSelectedCommentId(commentId);
+        dispatchMode({ type: "select-comment", id: commentId });
         setCommentCardScreenPosition(
             worldToViewportScreen(viewer, detail.x, detail.y),
         );
@@ -1319,11 +1298,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
     const handleCommentAreaEvent = useCallback((event: Event) => {
         const detail = (event as CustomEvent<EcadCommentAreaDetail>).detail;
-        setCommentMode(false);
-        setPendingContext(detail.context);
-        setPendingLocation(commentLocationFromArea(detail));
-        pendingElementRef.current = null;
-        setShowCommentForm(true);
+        dispatchMode({ type: "comment-area", context: detail.context, location: commentLocationFromArea(detail) });
     }, []);
 
     useEffect(() => {
@@ -1345,22 +1320,23 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     }, [handleCommentAreaEvent, openCommentCardForOverlayHit, pcbViewerElement, schematicViewerElement]);
 
     const submitComment = useCallback(async (payload: CommentFormSubmitPayload) => {
-        if (!pendingLocation || !pendingContext) return;
+        if (!commentDraft) return;
+        const { context, location, element } = commentDraft;
         setIsSubmittingComment(true);
         try {
             const response = await fetchApi(`/api/projects/${projectId}/comments`, {
                 method: "POST",
                 body: JSON.stringify({
-                    context: pendingContext,
-                    location: pendingLocation,
+                    context,
+                    location,
                     content: payload.content,
                     contentFormat: payload.contentFormat,
                     author: user?.name,
-                    elementId: pendingElementRef.current?.elementId,
-                    elementRef: pendingElementRef.current?.elementRef,
-                    elementType: pendingElementRef.current?.elementType,
-                    ...(pendingElementRef.current?.relativePoint
-                        ? { metadata: { anchorRelativePoint: pendingElementRef.current.relativePoint } }
+                    elementId: element?.elementId,
+                    elementRef: element?.elementRef,
+                    elementType: element?.elementType,
+                    ...(element?.relativePoint
+                        ? { metadata: { anchorRelativePoint: element.relativePoint } }
                         : {}),
                     commentClass: payload.commentClass,
                     severity: payload.severity,
@@ -1371,16 +1347,13 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             if (!response.ok) throw new Error(await readApiError(response, "Failed to post comment"));
             const created = normalizeComment(await response.json() as Comment);
             setComments((prev) => [...prev, created]);
-            setShowCommentForm(false);
-            setPendingLocation(null);
-            setPendingContext(null);
-            pendingElementRef.current = null;
+            dispatchMode({ type: "close-draft" });
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to post comment");
         } finally {
             setIsSubmittingComment(false);
         }
-    }, [commit, pendingContext, pendingLocation, projectId, setComments, user?.name]);
+    }, [commit, commentDraft, projectId, setComments, user?.name]);
 
     const resolveComment = useCallback(async (commentId: string, resolved: boolean) => {
         try {
@@ -1424,7 +1397,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             });
             if (!response.ok) throw new Error(await readApiError(response, "Failed to delete comment"));
             setComments((prev) => prev.filter((entry) => entry.id !== commentId));
-            setSelectedCommentId((current) => (current === commentId ? null : current));
+            dispatchMode({ type: "comment-deleted", id: commentId });
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to delete comment");
         }
@@ -1503,19 +1476,19 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     }, [commit, projectId, refreshComments]);
 
     const handleCommentClick = useCallback((comment: Comment) => {
-        setSelectedCommentId(comment.id);
+        dispatchMode({ type: "select-comment", id: comment.id });
         if (comment.anchorResolution?.state === "unresolved") {
             toast.message("This comment's anchor needs review on this revision.");
             return;
         }
         const targetTab: VisualizerTab = comment.context === "SCH" ? "sch" : "pcb";
-        setActiveTab((current) => (current === targetTab ? current : targetTab));
+        setActiveTab(targetTab);
         const viewer = targetTab === "sch" ? schematicViewerRef.current : pcbViewerRef.current;
         const location = commentCurrentLocation(comment);
         if (location.page) viewer?.switchPage(location.page);
         pendingCommentFocusRef.current = comment.id;
         focusPendingComment(commentMarkerResolutions, activeTab, activeSchematicPage);
-    }, [activeSchematicPage, activeTab, commentMarkerResolutions, focusPendingComment]);
+    }, [activeSchematicPage, activeTab, commentMarkerResolutions, focusPendingComment, setActiveTab]);
 
     const selectedComment = useMemo(
         () => comments.find((entry) => entry.id === selectedCommentId) ?? null,
@@ -1532,98 +1505,35 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 || (target instanceof HTMLElement && target.isContentEditable)
             ) return;
 
-            if (event.key === "Escape") {
-                // Insets take Escape first: the preview, then every inset;
-                // only an Escape with no insets open clears the selection.
+            const intent = viewerKeyIntent(event, activeTab, canModifyComments);
+            if (!intent) return;
+            if (intent.kind === "escape") {
                 const viewer = activeTab === "sch"
                     ? schematicViewerRef.current
                     : activeTab === "pcb" ? pcbViewerRef.current : null;
-                if (viewer?.escapeInsets?.()) {
-                    event.preventDefault();
-                    return;
-                }
-                // Then measure mode: its points, then the mode itself.
-                if (activeTab === "pcb" && viewer?.escapeMeasure?.()) {
+                if (consumeElementEscape(activeTab, viewer)) {
                     event.preventDefault();
                     return;
                 }
                 clearSelectionAndHighlights();
-                setRightRailTab(null);
-                setCommentMode(false);
-                setShowCommentForm(false);
-                setSelectedCommentId(null);
                 lastSelectionRef.current = null;
+                dispatchMode({ type: "escape" });
                 return;
             }
-            // Number keys jump straight to a tab. Modifiers are excluded so the
-            // browser keeps Cmd/Ctrl+1..9 for its own tab switching.
-            if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
-                const tabIndex = Number.parseInt(event.code.startsWith("Digit") ? event.code.slice(5) : event.key, 10);
-                if (Number.isInteger(tabIndex) && tabIndex >= 1 && tabIndex <= VISUALIZER_TABS.length) {
-                    setActiveTab(VISUALIZER_TABS[tabIndex - 1].id);
-                    event.preventDefault();
-                    return;
-                }
-            }
-            if (
-                canModifyComments
-                && (activeTab === "sch" || activeTab === "pcb")
-                && event.key.toLowerCase() === "c"
-                && !event.metaKey
-                && !event.ctrlKey
-                && !event.altKey
-            ) {
-                const selection = lastSelectionRef.current;
-                if (selection && selection.x !== undefined && selection.y !== undefined) {
-                    setCommentMode(false);
-                    setPendingContext(activeTab === "sch" ? "SCH" : "PCB");
-                    setPendingLocation({
-                        x: selection.x,
-                        y: selection.y,
-                        layer: selection.layer ?? "",
-                        page: selection.page,
-                        // Element comments use marker-at-center only; do not
-                        // treat the selected item bbox as an area comment.
-                    });
-                    pendingElementRef.current = {
-                        elementId: selection.uuid,
-                        elementRef: selection.reference,
-                        elementType: selection.itemType,
-                        relativePoint: selection.bounds && selection.bounds[2] > 0 && selection.bounds[3] > 0
-                            ? [
-                                Math.max(0, Math.min(1, (selection.x - selection.bounds[0]) / selection.bounds[2])),
-                                Math.max(0, Math.min(1, (selection.y - selection.bounds[1]) / selection.bounds[3])),
-                            ]
-                            : undefined,
-                    };
-                    setShowCommentForm(true);
-                } else {
-                    // No selection: C toggles commenting mode, so pressing it
-                    // again turns it back off.
-                    setCommentMode((enabled) => !enabled);
-                }
+            if (intent.kind === "tab") {
+                dispatchMode({ type: "tab", tab: intent.tab });
                 event.preventDefault();
                 return;
             }
-            if (activeTab === "sch") {
-                const bracketDirection = event.key === "[" || event.code === "BracketLeft"
-                    ? -1
-                    : event.key === "]" || event.code === "BracketRight"
-                        ? 1
-                        : null;
-                if (bracketDirection) {
-                    const handled = schematicViewerRef.current?.navigateSchematicPage?.(
-                        bracketDirection,
-                    );
-                    if (handled) event.preventDefault();
-                    return;
-                }
-                if (event.altKey && (event.key === "Backspace" || event.key === "Delete")) {
-                    const handled = schematicViewerRef.current?.navigateSchematicParent?.();
-                    if (handled) event.preventDefault();
-                    return;
-                }
+            if (intent.kind === "comment") {
+                dispatchMode({ type: "comment-key", selection: lastSelectionRef.current });
+                event.preventDefault();
+                return;
             }
+            const handled = intent.kind === "schematic-page"
+                ? schematicViewerRef.current?.navigateSchematicPage?.(intent.direction)
+                : schematicViewerRef.current?.navigateSchematicParent?.();
+            if (handled) event.preventDefault();
         };
         // Capture before the embedded canvas can consume bracket/backspace keys.
         // ecad-viewer still receives every key Prism does not handle.
@@ -1660,20 +1570,20 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             />
             {/* Toolbar */}
             <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b bg-muted/20 px-2 py-1">
-                {VISUALIZER_TABS.map((tab, index) => {
-                    const Icon = tab.icon;
+                {VIEWER_TABS.map((tab, index) => {
+                    const { label, icon: Icon } = TAB_LABELS[tab];
                     return (
                         <Button
-                            key={tab.id}
-                            variant={activeTab === tab.id ? "secondary" : "ghost"}
+                            key={tab}
+                            variant={activeTab === tab ? "secondary" : "ghost"}
                             size="sm"
-                            data-visualizer-tab={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            title={`${tab.label} (${index + 1})`}
+                            data-visualizer-tab={tab}
+                            onClick={() => setActiveTab(tab)}
+                            title={`${label} (${index + 1})`}
                             className="text-xs h-8"
                         >
                             <Icon className="w-3 h-3 mr-2" />
-                            {tab.label}
+                            {label}
                         </Button>
                     );
                 })}
@@ -1687,7 +1597,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                         onRetry={() => { void generateSemanticIdentity(); }}
                     />
                 )}
-                {(activeTab === "sch" || activeTab === "pcb") && canModifyComments && (
+                {commentModeAvailable(activeTab, canModifyComments) && (
                     <Button
                         variant={commentMode ? "default" : "ghost"}
                         size="sm"
@@ -1697,7 +1607,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 : "h-8 text-xs"
                         }
                         aria-pressed={commentMode}
-                        onClick={() => setCommentMode((enabled) => !enabled)}
+                        onClick={() => dispatchMode({ type: "toggle-comment-mode" })}
                     >
                         <MessageSquarePlus className="mr-2 h-3 w-3" />
                         Commenting Mode
@@ -1715,9 +1625,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 <Button
                     variant={rightRailTab === "comments" ? "secondary" : "ghost"}
                     size="sm"
-                    onClick={() => setRightRailTab((tab) =>
-                        tab === "comments" ? null : "comments"
-                    )}
+                    onClick={() => dispatchMode({ type: "toggle-rail", tab: "comments" })}
                     className="text-xs h-8"
                     aria-pressed={rightRailTab === "comments"}
                 >
@@ -1911,8 +1819,8 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                     : null,
                             },
                         ]}
-                        onTabChange={setRightRailTab}
-                        onClose={() => setRightRailTab(null)}
+                        onTabChange={(tab) => dispatchMode({ type: "rail", tab })}
+                        onClose={() => dispatchMode({ type: "rail", tab: null })}
                         onVisibleWidthChange={setRightRailInset}
                         ariaLabel="Viewer details"
                         resizable={
@@ -1938,7 +1846,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                             <CommentPanel
                                 projectId={projectId}
                                 comments={comments}
-                                onClose={() => setRightRailTab(null)}
+                                onClose={() => dispatchMode({ type: "rail", tab: null })}
                                 onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
                                 onReply={replyToComment}
                                 onDelete={deleteComment}
@@ -1968,7 +1876,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                                 onInspectHighlightedNet={inspectHighlighted}
                                 onRemoveHighlightedNet={removeHighlighted}
                                 onOpenChange={(open) => {
-                                    if (!open) setRightRailTab(null);
+                                    if (!open) dispatchMode({ type: "rail", tab: null });
                                 }}
                                 onClear={clearSelectionAndHighlights}
                                 onImportComponent={globalSelection?.kind === "net" ? undefined : handleImportSelectedComponent}
@@ -1989,20 +1897,15 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                 </div>
             </div>
 
-            {showCommentForm && pendingLocation && <CommentForm
+            {commentDraft && <CommentForm
                 projectId={projectId}
                 // Each pin is its own draft, so each is its own component.
-                key={`${pendingLocation.x}:${pendingLocation.y}`}
+                key={`${commentDraft.location.x}:${commentDraft.location.y}`}
                 isOpen
-                onClose={() => {
-                    setShowCommentForm(false);
-                    setPendingLocation(null);
-                    setPendingContext(null);
-                    pendingElementRef.current = null;
-                }}
+                onClose={() => dispatchMode({ type: "close-draft" })}
                 onSubmit={(payload) => void submitComment(payload)}
-                location={pendingLocation}
-                context={pendingContext ?? "SCH"}
+                location={commentDraft.location}
+                context={commentDraft.context}
                 isSubmitting={isSubmittingComment}
                 mentionCandidates={mentionCandidates}
             />}
@@ -2014,7 +1917,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
                     comment={selectedComment}
                     screenPosition={commentCardScreenPosition}
                     canModify={canModifyComments}
-                    onClose={() => setSelectedCommentId(null)}
+                    onClose={() => dispatchMode({ type: "select-comment", id: null })}
                     onResolve={(commentId, resolved) => void resolveComment(commentId, resolved)}
                     onReply={replyToComment}
                     onDelete={deleteComment}
