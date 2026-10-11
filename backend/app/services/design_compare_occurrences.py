@@ -7,6 +7,12 @@ lets a hierarchical sheet mark everything inside it DNP or excluded from the
 BOM, and those sheet flags are folded on here, along the occurrence's path, the
 way the project semantic index folds them (``semantic_index_variants``).
 
+Fields take the project BOM's mapping and column names
+(``semantic_index_service._canonical_fields``): aliases fold into Manufacturer,
+Manufacturer Part Number, Vendor, ..., and the folded flags become the
+``DNP`` / ``In BOM`` Yes/No columns, so a comparison BOM reads like the
+project BOM.
+
 The BOM diff, net matching (a terminal's parent part) and the review rows'
 component identity all read this module, so they see one answer.
 """
@@ -97,6 +103,29 @@ def _ancestor_flags(
     return [sheets[segment] for segment in segments if segment in sheets]
 
 
+# The flags reach the project mapping under kicad-monkey's names; the mapping
+# turns them into the DNP / In BOM columns, so the raw names are not kept.
+_RAW_FLAGS = ("kicad_dnp", "kicad_in_bom")
+
+
+def _bom_fields(
+    properties: Mapping[str, Any], *, dnp: bool, in_bom: bool
+) -> Dict[str, str]:
+    parameters = {
+        key: "" if value is None else str(value) for key, value in properties.items()
+    }
+    parameters["kicad_dnp"] = "true" if dnp else "false"
+    parameters["kicad_in_bom"] = "true" if in_bom else "false"
+    fields = semantic_index_service._canonical_fields(
+        {
+            "parameters": parameters,
+            "value": properties.get("Value"),
+            "footprint": properties.get("Footprint"),
+        }
+    )
+    return {key: value for key, value in fields.items() if key not in _RAW_FLAGS}
+
+
 def revision_components(side: Mapping[str, Any]) -> List[Dict[str, Any]]:
     """One component per symbol occurrence of a parsed revision.
 
@@ -140,12 +169,7 @@ def revision_components(side: Mapping[str, Any]) -> List[Dict[str, Any]]:
                 sheet["excludeFromBom"] for sheet in ancestors
             )
             footprint = footprints.get(reference)
-            fields = {
-                key: "" if value is None else str(value)
-                for key, value in properties.items()
-            }
-            fields["kicad_in_bom"] = "true" if in_bom else "false"
-            fields["kicad_dnp"] = "true" if dnp else "false"
+            fields = _bom_fields(properties, dnp=dnp, in_bom=in_bom)
             components.append(
                 {
                     "componentUid": component_uid(reference),
@@ -187,7 +211,7 @@ def bom_rows(components: Iterable[Mapping[str, Any]]) -> List[Dict[str, str]]:
             for key, value in (component.get("fields") or {}).items()
             if str(key)
         }
-        if fields.get("kicad_in_bom", "true").strip().casefold() == "false":
+        if fields.get("In BOM", "Yes").strip().casefold() == "no":
             continue
         rows.append(
             {
