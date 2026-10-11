@@ -1,5 +1,6 @@
 import type React from "react";
 import type { PrismSelection } from "@/types/prism-selection";
+import type { SystemScene } from "@/types/system";
 
 export interface PrismSemanticViewerSelectionDetail {
     selection: PrismSelection | null;
@@ -199,7 +200,7 @@ export interface PrismSemanticViewerElement extends HTMLElement {
     showNetLayers?: () => void;
     setNetIsolation?: (enabled: boolean) => void;
     /** mode="system" (SB2-31e): the system to show, a `prism.system_scene.a0` descriptor. Safe before ready. */
-    setSystemScene?: (descriptor: unknown) => void;
+    setSystemScene?: (descriptor: SystemScene) => void;
     /** mode="system": light system nets on every board they reach; the report also arrives as `prism-semantic-viewer:emphasis`. */
     setNetEmphasis?: (sets: readonly PrismSystemSceneEmphasisSet[]) => PrismSystemSceneEmphasisResult[];
     /** mode="system": frame a lit set's copper (or all), on one placement or all; false when nothing is lit there. */
@@ -324,9 +325,28 @@ export interface PrismSystemSceneEmphasisResult {
     unresolved: { occurrence: string; net: string; reason: "not-drawn" | "loading" | "restricted" | "unknown-net" }[];
 }
 
+/** `prism-semantic-viewer:error`: the viewer could not start or load. */
+export interface PrismSemanticViewerErrorDetail {
+    error?: { message?: string } | string;
+}
+
 declare global {
     interface HTMLElementTagNameMap {
         "prism-semantic-viewer": PrismSemanticViewerElement;
+    }
+
+    interface HTMLElementEventMap {
+        /** A click selected something (mode="system": with its placement), or nothing. */
+        "prism-semantic-viewer:selectionchange": CustomEvent<{ selection: PrismSystemViewerSelection | null }>;
+        "prism-semantic-viewer:viewstatechange": CustomEvent<PrismSemanticViewState>;
+        "prism-semantic-viewer:emphasis": CustomEvent<{ results: PrismSystemSceneEmphasisResult[] }>;
+        "prism-semantic-viewer:error": CustomEvent<PrismSemanticViewerErrorDetail>;
+        /** The board is visible; detail is the viewer's performance milestone. */
+        "prism-semantic-viewer:ready": CustomEvent<Record<string, unknown>>;
+        "prism-semantic-viewer:performance": CustomEvent<Record<string, unknown>>;
+        "prism-semantic-viewer:contextmenu": CustomEvent<PrismSemanticContextMenuDetail>;
+        "prism-semantic-viewer:move": CustomEvent<PrismSystemSceneMoveState>;
+        "prism-semantic-viewer:harness": CustomEvent<PrismSystemSceneHarnessState>;
     }
 
     namespace JSX {
