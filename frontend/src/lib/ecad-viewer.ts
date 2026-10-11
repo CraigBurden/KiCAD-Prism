@@ -159,7 +159,7 @@ export class EcadViewer {
     #subscribers = new Set<() => void>();
     #handlers = new Map<EventName, Set<(detail: never) => void>>();
     #unbind: (() => void) | null = null;
-    #pollTimer: number | undefined;
+    #pollTimer: ReturnType<typeof setTimeout> | undefined;
     #rootToken = 0;
     #restToken = 0;
     #root: { revisionKey: string; source: EcadSource; restCount: number; done: Promise<void> } | null = null;
@@ -202,7 +202,7 @@ export class EcadViewer {
         const previous = this.#element;
         this.#unbind?.();
         this.#unbind = null;
-        window.clearTimeout(this.#pollTimer);
+        this.#stopPoll();
         this.#rootToken += 1;
         this.#restToken += 1;
         this.#root = null;
@@ -226,6 +226,12 @@ export class EcadViewer {
         this.onAttach?.(element, previous);
         this.#notify();
     };
+
+    /** Let go of the element: listeners, the layer re-read and any load in flight stop. */
+    dispose(): void {
+        this.attach(null);
+        this.#stopPoll();
+    }
 
     /**
      * Load a revision's sources: the first is the root sheet, the rest are
@@ -496,8 +502,16 @@ export class EcadViewer {
         this.#refreshView();
     }
 
+    #stopPoll() {
+        if (this.#pollTimer !== undefined) clearTimeout(this.#pollTimer);
+        this.#pollTimer = undefined;
+    }
+
     #pollPcb(element: ECadViewerElement, attempt: number) {
-        this.#pollTimer = window.setTimeout(() => {
+        this.#pollTimer = setTimeout(() => {
+            this.#pollTimer = undefined;
+            // A test environment (or page) torn down under a pending re-read has no window left.
+            if (typeof window === "undefined") return;
             if (this.#element !== element || attempt >= PCB_POLL_ATTEMPTS) return;
             const pcbViewState = element.getPcbViewState?.() ?? null;
             if (pcbViewState?.layers?.length) {
@@ -545,6 +559,12 @@ export class EcadViewerPair {
 
     get(view: EcadView): EcadViewer {
         return view === "sch" ? this.sch : this.pcb;
+    }
+
+    /** Let go of both elements (unlinking them) and stop their timers. */
+    dispose(): void {
+        this.pcb.dispose();
+        this.sch.dispose();
     }
 
     /** One handler on both elements, told which one fired. */

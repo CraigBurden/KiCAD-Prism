@@ -201,6 +201,7 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // The schematic and board elements, their load and readiness, and the
     // inset links between them (lib/ecad-viewer.ts).
     const [viewers] = useState(() => new EcadViewerPair({ inset3d: insetScene3d, onLoadError: reportLoadError }));
+    useEffect(() => () => viewers.dispose(), [viewers]);
     const sch = useEcadViewer(viewers.sch);
     const pcb = useEcadViewer(viewers.pcb);
     const [schematicContent, setSchematicContent] = useState<string | null>(null);

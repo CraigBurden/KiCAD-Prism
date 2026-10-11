@@ -19,12 +19,22 @@ const pcbState = (layers: EcadPcbViewState["layers"]): EcadPcbViewState => ({
     highlightTracks: false,
 });
 
-afterEach(() => vi.useRealTimers());
+// Every adapter a test makes lets go of its element afterwards, so no re-read outlives the test.
+const made: Array<{ dispose(): void }> = [];
+function track<T extends { dispose(): void }>(adapter: T): T {
+    made.push(adapter);
+    return adapter;
+}
+
+afterEach(() => {
+    made.splice(0).forEach((adapter) => adapter.dispose());
+    vi.useRealTimers();
+});
 
 describe("EcadViewer readiness", () => {
     it("loads the root, waits for paint, and reports ready once", async () => {
         const element = fakeEcadViewer();
-        const viewer = new EcadViewer("sch");
+        const viewer = track(new EcadViewer("sch"));
         const ready = vi.fn();
         viewer.on("ready", ready);
         viewer.attach(element);
@@ -39,7 +49,7 @@ describe("EcadViewer readiness", () => {
 
     it("appends the other sheets after the root and is ready only then", async () => {
         const element = fakeEcadViewer();
-        const viewer = new EcadViewer("sch");
+        const viewer = track(new EcadViewer("sch"));
         viewer.attach(element);
         viewer.load("rev-1", [root, sub]);
         await settle();
@@ -51,7 +61,7 @@ describe("EcadViewer readiness", () => {
 
     it("re-appends without reloading the root when only the other sheets change", async () => {
         const element = fakeEcadViewer();
-        const viewer = new EcadViewer("sch");
+        const viewer = track(new EcadViewer("sch"));
         viewer.attach(element);
         viewer.load("rev-1", [root, sub]);
         await settle();
@@ -67,7 +77,7 @@ describe("EcadViewer readiness", () => {
     it("retries a failed paint a frame later, and reports a second failure", async () => {
         const element = fakeEcadViewer();
         const onLoadError = vi.fn();
-        const viewer = new EcadViewer("sch", { onLoadError });
+        const viewer = track(new EcadViewer("sch", { onLoadError }));
         element.replaceSources.mockRejectedValueOnce(new Error("Image not ready"));
         viewer.attach(element);
         viewer.load("rev-1", [root]);
@@ -83,7 +93,7 @@ describe("EcadViewer readiness", () => {
 
     it("drops a load whose element went away", async () => {
         const element = fakeEcadViewer();
-        const viewer = new EcadViewer("sch");
+        const viewer = track(new EcadViewer("sch"));
         const ready = vi.fn();
         viewer.on("ready", ready);
         viewer.attach(element);
@@ -96,7 +106,7 @@ describe("EcadViewer readiness", () => {
 
     it("cancels an append that a newer one replaced", async () => {
         const element = fakeEcadViewer();
-        const viewer = new EcadViewer("sch");
+        const viewer = track(new EcadViewer("sch"));
         const ready = vi.fn();
         viewer.on("ready", ready);
         viewer.attach(element);
@@ -109,11 +119,43 @@ describe("EcadViewer readiness", () => {
 });
 
 describe("EcadViewer state", () => {
+    it("stops re-reading the board when it lets go of the element", async () => {
+        vi.useFakeTimers();
+        const element = fakeEcadViewer({ pcb: pcbState([]) });
+        const viewer = track(new EcadViewer("pcb", { whenDefined: () => new Promise(() => {}) }));
+        viewer.attach(element);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(vi.getTimerCount()).toBe(1);
+        viewer.attach(null);
+        expect(vi.getTimerCount()).toBe(0);
+        const reads = vi.mocked(element.getPcbViewState!).mock.calls.length;
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(vi.mocked(element.getPcbViewState!).mock.calls.length).toBe(reads);
+
+        viewer.attach(element);
+        expect(vi.getTimerCount()).toBe(1);
+        viewer.dispose();
+        expect(vi.getTimerCount()).toBe(0);
+        expect(viewer.getSnapshot().element).toBeNull();
+    });
+
+    it("drops the re-read of a replaced element", async () => {
+        vi.useFakeTimers();
+        const viewer = track(new EcadViewer("pcb", { whenDefined: () => new Promise(() => {}) }));
+        const first = fakeEcadViewer({ pcb: pcbState([]) });
+        viewer.attach(first);
+        viewer.attach(fakeEcadViewer({ pcb: pcbState([]) }));
+        expect(vi.getTimerCount()).toBe(1);
+        const reads = vi.mocked(first.getPcbViewState!).mock.calls.length;
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(vi.mocked(first.getPcbViewState!).mock.calls.length).toBe(reads);
+    });
+
     it("re-reads the board until its layers appear (the first view-state reports none)", async () => {
         vi.useFakeTimers();
         const state = pcbState([]);
         const element = fakeEcadViewer({ pcb: state });
-        const viewer = new EcadViewer("pcb", { whenDefined: () => new Promise(() => {}) });
+        const viewer = track(new EcadViewer("pcb", { whenDefined: () => new Promise(() => {}) }));
         viewer.attach(element);
         expect(viewer.getSnapshot().pcbViewState?.layers).toEqual([]);
         state.layers.push({ name: "F.Cu", color: "#c83434", visible: true, highlighted: false });
@@ -127,7 +169,7 @@ describe("EcadViewer state", () => {
     it("gives up re-reading after 41 tries", async () => {
         vi.useFakeTimers();
         const element = fakeEcadViewer({ pcb: pcbState([]) });
-        const viewer = new EcadViewer("pcb", { whenDefined: () => new Promise(() => {}) });
+        const viewer = track(new EcadViewer("pcb", { whenDefined: () => new Promise(() => {}) }));
         viewer.attach(element);
         await vi.advanceTimersByTimeAsync(150 * 60);
         // One read on attach, then one per try.
@@ -136,7 +178,7 @@ describe("EcadViewer state", () => {
 
     it("mirrors the modes and the measure points from the element's events", () => {
         const element = fakeEcadViewer({ insets: true, measure: true });
-        const viewer = new EcadViewer("pcb");
+        const viewer = track(new EcadViewer("pcb"));
         viewer.attach(element);
         const changes = vi.fn();
         viewer.subscribe(changes);
@@ -152,7 +194,7 @@ describe("EcadViewer state", () => {
     });
 
     it("reports what an older element lacks", () => {
-        const viewer = new EcadViewer("pcb");
+        const viewer = track(new EcadViewer("pcb"));
         viewer.attach(fakeEcadViewer());
         expect(viewer.getSnapshot()).toMatchObject({ insetsAvailable: false, measureAvailable: false });
         viewer.setInsetMode(true);
@@ -161,7 +203,7 @@ describe("EcadViewer state", () => {
     it("keeps the active page while the element reports the same one", () => {
         const pages = [{ projectPath: "/root", sheetPath: "/", filename: "root.kicad_sch", depth: 0, active: true }];
         const element = fakeEcadViewer({ pages });
-        const viewer = new EcadViewer("sch");
+        const viewer = track(new EcadViewer("sch"));
         viewer.attach(element);
         const first = viewer.getSnapshot().activePage;
         expect(first).toEqual({ projectPath: "/root", filename: "root.kicad_sch", page: undefined });
@@ -171,7 +213,7 @@ describe("EcadViewer state", () => {
     });
 
     it("keeps subscribers across an element swap and decodes the event", () => {
-        const viewer = new EcadViewer("sch");
+        const viewer = track(new EcadViewer("sch"));
         const selection = vi.fn();
         viewer.on("selection", selection);
         const first = fakeEcadViewer();
@@ -188,7 +230,7 @@ describe("EcadViewer state", () => {
 describe("EcadViewerPair linking", () => {
     it("enables insets, gives the board the 3D scene and links the two as peers", () => {
         const inset3d = {} as EcadInsetScene3D;
-        const pair = new EcadViewerPair({ inset3d });
+        const pair = track(new EcadViewerPair({ inset3d }));
         const sch = fakeEcadViewer();
         const pcb = fakeEcadViewer();
         pair.sch.attach(sch);
@@ -206,7 +248,7 @@ describe("EcadViewerPair linking", () => {
     });
 
     it("tells one handler which element fired", () => {
-        const pair = new EcadViewerPair();
+        const pair = track(new EcadViewerPair());
         const sch = fakeEcadViewer({ insets: true });
         const pcb = fakeEcadViewer({ insets: true });
         pair.sch.attach(sch);
