@@ -774,3 +774,19 @@ class PromoteTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 promote(Path(directory), assume_yes=True, dry_run=True)
             self.assertIn("Run the installer first", str(ctx.exception))
+
+
+class FrontendNginxTests(unittest.TestCase):
+    def test_backend_route_prefixes_are_proxied(self):
+        # A prefix missing here falls through to the SPA and returns index.html.
+        config = (REPOSITORY_ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
+        for prefix in ("/api/", "/git/", "/oauth/", "/remote-provider/"):
+            with self.subTest(prefix=prefix):
+                self.assertIn(f"location {prefix} {{", config)
+
+    def test_git_location_streams_pack_data(self):
+        config = (REPOSITORY_ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
+        block = config.split("location /git/ {", 1)[1].split("}", 1)[0]
+        for directive in ("proxy_request_buffering off;", "proxy_buffering off;", "client_max_body_size"):
+            with self.subTest(directive=directive):
+                self.assertIn(directive, block)

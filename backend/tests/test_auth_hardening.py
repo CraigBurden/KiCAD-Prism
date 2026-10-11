@@ -89,6 +89,32 @@ class AuthConfigurationFailClosedTests(unittest.TestCase):
                 errors = self._settings(SESSION_SECRET=secret).auth_configuration_errors()
                 self.assertTrue(any("SESSION_SECRET" in error for error in errors))
 
+    def test_bootstrap_password_below_policy_blocks_startup(self) -> None:
+        bootstrap = {
+            "PASSWORD_AUTH_ENABLED": True,
+            "BOOTSTRAP_ADMIN_USERS_STR": "admin@example.com",
+            "PASSWORD_MIN_LENGTH": 12,
+        }
+        errors = self._settings(**bootstrap, BOOTSTRAP_ADMIN_PASSWORD="short-pass").auth_configuration_errors()
+        self.assertTrue(any("BOOTSTRAP_ADMIN_PASSWORD" in e and "12" in e for e in errors), errors)
+        with self.assertRaises(RuntimeError):
+            self._settings(**bootstrap, BOOTSTRAP_ADMIN_PASSWORD="short-pass").validate_auth_configuration()
+
+        too_long = self._settings(**bootstrap, BOOTSTRAP_ADMIN_PASSWORD="x" * 73).auth_configuration_errors()
+        self.assertTrue(any("72 bytes" in e for e in too_long), too_long)
+
+        ok = self._settings(**bootstrap, BOOTSTRAP_ADMIN_PASSWORD="long-enough-pass").auth_configuration_errors()
+        self.assertEqual(ok, [])
+
+    def test_bootstrap_password_is_ignored_when_it_would_not_be_seeded(self) -> None:
+        for overrides in (
+            {"PASSWORD_AUTH_ENABLED": False, "BOOTSTRAP_ADMIN_USERS_STR": "admin@example.com"},
+            {"PASSWORD_AUTH_ENABLED": True, "BOOTSTRAP_ADMIN_USERS_STR": ""},
+        ):
+            with self.subTest(**overrides):
+                errors = self._settings(**overrides, BOOTSTRAP_ADMIN_PASSWORD="short").auth_configuration_errors()
+                self.assertFalse(any("BOOTSTRAP_ADMIN_PASSWORD" in e for e in errors), errors)
+
     def test_external_issuer_without_audience_is_rejected(self) -> None:
         errors = self._settings(
             OAUTH_EXTERNAL_JWT_ISSUER_URL="https://issuer.example.com"
