@@ -22,6 +22,7 @@ from app.services.trackers.create_executor import _comment_dict_from_row  # noqa
 from app.services.trackers.connector_service import _context as connector_context  # noqa: E402
 from app.services.trackers.drafts import board_name_from_comment, render_context_block_lines  # noqa: E402
 from app.services.trackers.executor_support import workspace_schema  # noqa: E402
+from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
 from app.services.trackers.promotion import load_policy_row  # noqa: E402
 from support.postgres import CATALOG_URL, comments_store_on, requires_scratch_postgres, scratch_schema, set_path  # noqa: E402
 
@@ -38,20 +39,13 @@ class WorkerSearchPathPolicyTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.comments_schema = scratch_schema(self, "c46").name
-        workspace = scratch_schema(self, "w46")
+        workspace = scratch_schema(self, "w46", then=(migrate_workspace_tracker_tables,))
         self.workspace_schema, self.conn = workspace.name, workspace.conn
         self.conn.execute(
-            f"""
-            CREATE TABLE "{self.workspace_schema}".tracker_connectors (
-                id TEXT PRIMARY KEY, paused BOOLEAN NOT NULL DEFAULT FALSE, provider TEXT NOT NULL DEFAULT 'github'
-            );
-            CREATE TABLE "{self.workspace_schema}".project_trackers (
-                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, connector_id TEXT NOT NULL,
-                promote_min_role TEXT NOT NULL DEFAULT 'designer', visibility TEXT NOT NULL DEFAULT 'private'
-            );
-            INSERT INTO "{self.workspace_schema}".tracker_connectors (id) VALUES ('cn_a');
-            INSERT INTO "{self.workspace_schema}".project_trackers (id, project_id, connector_id)
-            VALUES ('pt_a', 'prj_a', 'cn_a');
+            """
+            INSERT INTO tracker_connectors (id, provider, instance_kind) VALUES ('cn_a', 'github', 'github.com');
+            INSERT INTO project_trackers (id, project_id, connector_id, container_kind, container_path, remote_container_id)
+            VALUES ('pt_a', 'prj_a', 'cn_a', 'repo', 'acme/a', '1');
             """
         )
         # The worker's order: comments first, workspace second.
