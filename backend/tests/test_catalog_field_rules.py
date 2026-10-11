@@ -48,6 +48,14 @@ class FieldRulesCaseTableTests(unittest.TestCase):
             with self.subTest(case=case):
                 self.assertEqual(import_metadata_problems(case["values"]), case["problems"])
 
+    def test_custom_import_problems(self) -> None:
+        for case in CASES["customImports"]:
+            with self.subTest(case=case):
+                self.assertEqual(
+                    custom_import_problems(case["fields"], {"extra_fields": case["extra_fields"]}),
+                    case["problems"],
+                )
+
     def test_blocking_import_findings(self) -> None:
         for case in CASES["findings"]:
             with self.subTest(case=case):

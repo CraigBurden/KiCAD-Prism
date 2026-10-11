@@ -69,5 +69,33 @@
       "linked": ["footprint"],
       "blocking": ["symbol_not_resolved"]
     }
+  ],
+  "customImports": [
+    {
+      "fields": [
+        { "key": "approval", "label": "Approval", "storage_kind": "extra", "storage_key": "Approval", "required": true },
+        { "key": "lot", "label": "Lot", "type": "number", "storage_kind": "extra", "storage_key": "lot", "required": true },
+        { "key": "old", "label": "Old", "storage_kind": "extra", "storage_key": "old", "required": true, "archived": true },
+        { "key": "note", "label": "Note", "storage_kind": "extra", "storage_key": "note", "required": false }
+      ],
+      "extra_fields": { "Approval": "  ", "lot": "not a number" },
+      "problems": ["Approval is required"]
+    },
+    {
+      "fields": [
+        { "key": "approval", "label": "Approval", "storage_kind": "extra", "storage_key": "Approval", "required": true },
+        { "key": "value", "label": "Value", "storage_kind": "column", "storage_key": "value", "required": true, "built_in": true }
+      ],
+      "extra_fields": { "Approval": "QA-1" },
+      "problems": []
+    },
+    {
+      "fields": [
+        { "key": "approval", "label": "Approval", "storage_kind": "extra", "storage_key": "Approval", "required": true },
+        { "key": "lot", "label": "Lot", "storage_kind": "extra", "storage_key": "lot", "required": true }
+      ],
+      "extra_fields": {},
+      "problems": ["Approval is required", "Lot is required"]
+    }
   ]
 }

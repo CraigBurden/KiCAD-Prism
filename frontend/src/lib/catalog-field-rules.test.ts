@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import cases from "./catalog-field-rules.cases.json";
 import {
   blockingImportFindings,
+  customImportProblems,
   fieldError,
   fieldVerdict,
   importMetadataProblems,
@@ -25,6 +26,10 @@ describe("catalog field rules case table", () => {
 
   it.each(cases.imports)("import problems for %#", (testCase) => {
     expect(importMetadataProblems(testCase.values)).toEqual(testCase.problems);
+  });
+
+  it.each(cases.customImports)("custom import problems for %#", (testCase) => {
+    expect(customImportProblems(testCase.fields, testCase.extra_fields)).toEqual(testCase.problems);
   });
 
   it.each(cases.findings)("blocking findings for %#", (testCase) => {
