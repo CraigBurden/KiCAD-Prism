@@ -7,7 +7,7 @@
  * reload and retry deliberately rather than overwrite someone's work.
  */
 
-import { ApiHttpError, fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { ApiHttpError, apiErrorFrom, fetchApi, fetchJson, fetchText } from "@/lib/api";
 import type { PaginatedComponents } from "@/types/catalog";
 import type { PrismSemanticIndex } from "@/types/prism-selection";
 import type {
@@ -90,15 +90,15 @@ async function send<T>(
   const response = await fetchApi(url, { ...rest, headers });
   const nextEtag = response.headers.get("ETag");
   if (response.status === 412) {
-    throw new StaleSystemError(await readApiError(response, "This system changed; reload it"), nextEtag);
+    throw new StaleSystemError((await apiErrorFrom(response, "This system changed; reload it")).message, nextEtag);
   }
   if (!response.ok) {
-    let code: string | undefined;
-    const message = await readApiError(response.clone(), fallback);
-    if (response.status === 409 && message.startsWith("interface_not_ready")) {
-      code = "interface_not_ready";
+    const error = await apiErrorFrom(response, fallback);
+    // System Builder writes a machine reason as the message prefix ("interface_not_ready: ...").
+    if (!error.code && error.status === 409 && error.message.startsWith("interface_not_ready")) {
+      error.code = "interface_not_ready";
     }
-    throw new ApiHttpError(response.status, message, code);
+    throw error;
   }
   const body = response.status === 204 ? (undefined as T) : ((await response.json()) as T);
   return { status: response.status, body, etag: nextEtag };
@@ -475,9 +475,7 @@ export function icdUrl(systemId: string, format: "csv" | "html", snapshotId?: st
 
 /** The live ICD as HTML, read through the API client (a framed navigation carries no credentials). */
 export async function getIcdHtml(systemId: string): Promise<string> {
-  const response = await fetchApi(icdUrl(systemId, "html"));
-  if (!response.ok) throw new Error(await readApiError(response, "The ICD could not be generated"));
-  return response.text();
+  return fetchText(icdUrl(systemId, "html"), undefined, "The ICD could not be generated");
 }
 
 /** SB2-107: open reviews and findings, one sheet per section (P2 §8.6). */
