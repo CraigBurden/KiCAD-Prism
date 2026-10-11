@@ -1,13 +1,16 @@
-"""Filesystem paths, symbol parsing, and immutable catalog asset writes."""
+"""Filesystem paths and immutable catalog asset writes.
+
+KiCad text is read by ``app.services.kicad_library_reader``; the symbol helpers
+here keep the catalog's historical names for it.
+"""
 
 from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
-import re
 from typing import Any
 
-from app.services.catalog.metadata_normalization import dedupe
+from app.services import kicad_library_reader
 from app.services.catalog.normalization import sanitize_name, sha256_bytes
 from app.services.catalog.runtime import CatalogRuntime
 
@@ -17,14 +20,12 @@ STEP_SUFFIXES = frozenset({".step", ".stp"})
 
 def discover_symbol_names_in_text(text: str) -> list[str]:
     """Top-level symbol names in a ``.kicad_sym`` payload, unit blocks excluded."""
-    matches = re.findall(r'\(symbol\s+"([^"]+)"', text)
-    filtered = [name for name in matches if not re.search(r"_\d+_\d+$", name)]
-    return dedupe(filtered or matches)
+    return kicad_library_reader.symbol_names(text)
 
 
 def discover_footprint_name_in_text(text: str) -> str:
-    match = re.search(r'\(footprint\s+"([^"]+)"', text)
-    return match.group(1) if match else ""
+    """The footprint's declared name (``footprint`` or legacy ``module``), or ``""``."""
+    return kicad_library_reader.footprint_name(text)
 
 
 def content_type_for_asset(asset_type: str, file_path: Path) -> str:
@@ -63,87 +64,15 @@ class CatalogAssetFiles:
 
     @staticmethod
     def extract_top_level_symbol_blocks(text: str) -> list[tuple[str, str]]:
-        blocks: list[tuple[str, str]] = []
-        depth = 0
-        start: int | None = None
-        name = ""
-        in_string = False
-        escape = False
-        i = 0
-        while i < len(text):
-            ch = text[i]
-            if in_string:
-                if escape:
-                    escape = False
-                elif ch == "\\":
-                    escape = True
-                elif ch == '"':
-                    in_string = False
-                i += 1
-                continue
-            if ch == '"':
-                in_string = True
-                i += 1
-                continue
-            if ch == "(":
-                if depth == 1 and text.startswith("(symbol", i):
-                    start = i
-                    j = i + len("(symbol")
-                    while j < len(text) and text[j].isspace():
-                        j += 1
-                    if j < len(text) and text[j] == '"':
-                        j += 1
-                        k = j
-                        escaped = False
-                        chars: list[str] = []
-                        while k < len(text):
-                            current = text[k]
-                            if escaped:
-                                chars.append(current)
-                                escaped = False
-                            elif current == "\\":
-                                escaped = True
-                            elif current == '"':
-                                break
-                            else:
-                                chars.append(current)
-                            k += 1
-                        name = "".join(chars)
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-                if start is not None and depth == 1:
-                    blocks.append((name, text[start : i + 1]))
-                    start = None
-                    name = ""
-            i += 1
-        return blocks
+        return kicad_library_reader.top_level_symbol_blocks(text)
 
     @staticmethod
     def symbol_header(text: str) -> tuple[str, str]:
-        version_match = re.search(r"\(version\s+([^)]+)\)", text)
-        version = version_match.group(1) if version_match else "20211014"
-        generator_match = re.search(r"\(generator\s+([^)]+)\)", text)
-        generator = generator_match.group(1) if generator_match else '"KiCAD Prism"'
-        return version, generator
+        return kicad_library_reader.library_header(text)
 
     @staticmethod
     def single_symbol_payload(text: str, selected_symbol: str) -> bytes:
-        blocks = CatalogAssetFiles.extract_top_level_symbol_blocks(text)
-        blocks_dict = dict(blocks)
-        base_block = blocks_dict.get(selected_symbol)
-        if not base_block:
-            raise ValueError("Selected symbol was not found in the library")
-
-        escaped_name = re.escape(selected_symbol)
-        unit_pattern = re.compile(rf"^{escaped_name}_\d+_\d+$")
-        unit_blocks = [b for n, b in blocks if unit_pattern.match(n)]
-        all_blocks_text = "\n  ".join([base_block] + unit_blocks)
-        version, generator = CatalogAssetFiles.symbol_header(text)
-        return (
-            f"(kicad_symbol_lib (version {version}) (generator {generator})\n"
-            f"  {all_blocks_text}\n)\n"
-        ).encode("utf-8")
+        return kicad_library_reader.single_symbol_library(text, selected_symbol)
 
     @staticmethod
     def write_canonical_file(runtime: CatalogRuntime, destination: Path, payload: bytes) -> Path:
