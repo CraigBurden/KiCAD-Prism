@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
 from app.core.config import settings
-from app.core.roles import Role, role_matches_allowed_role
+from app.core.policy import folder_visibility_params, folder_visible, folder_visible_sql
+from app.core.roles import Role
 from app.services.postgres_database import database
 from app.services.workspace_schema_migrations import apply_workspace_migrations
 from app.services.systems.store import SystemStore
@@ -266,15 +267,9 @@ class WorkspaceService:
 
     @staticmethod
     def _is_folder_visible(row: Dict[str, Any], user_role: Optional[Role]) -> bool:
-        if user_role is None:
-            return True
-        if row.get("visibility_mode") != "roles":
-            return True
         raw_allowed = row.get("allowed_roles") or []
         allowed = json.loads(raw_allowed) if isinstance(raw_allowed, str) else raw_allowed
-        if not allowed:
-            return True
-        return role_matches_allowed_role(user_role, allowed)
+        return folder_visible(user_role, row.get("visibility_mode"), allowed)
 
     # ------------------------------------------------------------------
     # Repository CRUD
@@ -465,10 +460,9 @@ class WorkspaceService:
     ) -> Optional[Dict[str, Any]]:
         """Resolve and authorize a project in one PostgreSQL query."""
 
-        viewer_fallback = user_role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
                        r.name AS parent_repo, r.import_type,
                        r.origin_url, r.origin_owner,
@@ -476,16 +470,10 @@ class WorkspaceService:
                 FROM ws_projects p
                 JOIN ws_repositories r ON r.id = p.repo_id
                 LEFT JOIN ws_folders f ON f.id = p.folder_id
-                WHERE p.id = %s
-                  AND (
-                    f.id IS NULL
-                    OR f.visibility_mode IS DISTINCT FROM 'roles'
-                    OR jsonb_array_length(COALESCE(f.allowed_roles, '[]'::jsonb)) = 0
-                    OR COALESCE(f.allowed_roles, '[]'::jsonb) ? %s
-                    OR (%s AND COALESCE(f.allowed_roles, '[]'::jsonb) ? 'viewer')
-                  )
+                WHERE p.id = %(project_id)s
+                  AND {folder_visible_sql("f")}
                 """,
-                (project_id, user_role, viewer_fallback),
+                {"project_id": project_id, **folder_visibility_params(user_role)},
             ).fetchone()
         return self._project_row_to_dict(row) if row else None
 
@@ -1117,18 +1105,13 @@ class WorkspaceService:
     def get_bootstrap_data(self, user_role: Optional[Role] = None) -> Dict[str, Any]:
         role = user_role or "admin"
         bypass_visibility = user_role is None
-        viewer_fallback = role in {"viewer", "qa"}
         with self._connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 WITH visible_folders AS (
                     SELECT f.*
                     FROM ws_folders f
-                    WHERE %s
-                       OR f.visibility_mode IS DISTINCT FROM 'roles'
-                       OR jsonb_array_length(COALESCE(f.allowed_roles, '[]'::jsonb)) = 0
-                       OR COALESCE(f.allowed_roles, '[]'::jsonb) ? %s
-                       OR (%s AND COALESCE(f.allowed_roles, '[]'::jsonb) ? 'viewer')
+                    WHERE %(bypass)s OR {folder_visible_sql("f")}
                 ),
                 project_rows AS (
                     SELECT p.*, r.clone_path AS repo_clone_path, r.url AS repo_url,
@@ -1139,7 +1122,7 @@ class WorkspaceService:
                     JOIN ws_repositories r ON r.id = p.repo_id
                     LEFT JOIN ws_folders f ON f.id = p.folder_id
                     WHERE f.id IS NULL
-                       OR %s
+                       OR %(bypass)s
                        OR f.id IN (SELECT id FROM visible_folders)
                 ),
                 folder_counts AS (
@@ -1169,7 +1152,7 @@ class WorkspaceService:
                         1
                     ) AS version
                 """,
-                (bypass_visibility, role, viewer_fallback, bypass_visibility),
+                {"bypass": bypass_visibility, **folder_visibility_params(role)},
             ).fetchone()
             systems = visible_systems(conn, None if bypass_visibility else role)
         projects = [

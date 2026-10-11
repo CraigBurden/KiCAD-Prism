@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from app.api._helpers import get_project_for_role_or_404
+from app.api._helpers import authorized_project, get_project_for_role_or_404
 from app.core.security import (
     AuthenticatedUser,
     require_designer,
@@ -31,7 +31,6 @@ from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
 from app.services.job_service import jobs
-from app.services.workspace_service import workspace
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 logger = logging.getLogger(__name__)
@@ -94,10 +93,9 @@ async def get_source(
 ):
     """Discover KiCad files, variants, and BOM presets at an immutable commit."""
 
-    get_project_for_role_or_404(project_id, user.role)
+    project = authorized_project(user, project_id)
     if not _is_full_git_sha(commit_sha):
         raise HTTPException(status_code=400, detail="commit_sha must be a full 40-character hexadecimal Git SHA")
-    project = workspace.get_project_by_id(project_id) or {}
     repo_root = Path(str(project.get("path") or project.get("clone_path") or ""))
     for _ in range(6):
         if (repo_root / ".git").exists():
@@ -157,8 +155,7 @@ async def check_release_tag(
     tag: str,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    get_project_for_role_or_404(project_id, user.role)
-    project = workspace.get_project_by_id(project_id) or {}
+    project = authorized_project(user, project_id)
     exists = forge_publish.tag_exists(str(project.get("repo_url") or ""), tag)
     return {"tag": tag, "exists": exists}
 
@@ -205,8 +202,7 @@ async def create_candidate(
 ):
     """Enqueue a build. Idempotent on ``build_key`` once the closure resolves."""
 
-    get_project_for_role_or_404(project_id, user.role)
-    project = workspace.get_project_by_id(project_id) or {}
+    project = authorized_project(user, project_id, "design")
     _require_enqueue_identity(request.identity, project)
     job = jobs.enqueue(
         "release_studio_build",
@@ -262,11 +258,10 @@ async def get_candidate(
 async def get_build(
     project_id: str, build_id: str, user: AuthenticatedUser = Depends(require_viewer)
 ):
-    get_project_for_role_or_404(project_id, user.role)
+    project = authorized_project(user, project_id)
     build = _build_or_404(project_id, build_id)
     candidate = store.get_candidate(str(build["candidate_id"])) or {}
     configuration = _candidate_configuration(project_id, candidate)
-    project = workspace.get_project_by_id(project_id) or {}
     try:
         forge = forge_publish.describe_forge(str(project.get("repo_url") or "")).to_dict()
     except forge_publish.ForgePublishError as exc:
@@ -585,7 +580,7 @@ async def publish_build(
 ):
     """Zip the dossier, attach ready selected vendor packs, and create the forge Release."""
 
-    get_project_for_role_or_404(project_id, user.role)
+    project = authorized_project(user, project_id, "release")
     build = _build_or_404(project_id, build_id)
     if str(build.get("status") or "") != "succeeded":
         raise HTTPException(status_code=409, detail="Only a successful build can be published")
@@ -604,7 +599,6 @@ async def publish_build(
             status_code=409,
             detail=approvals.get("blocked_reason") or "This build is not clear to publish",
         )
-    project = workspace.get_project_by_id(project_id) or {}
     try:
         zip_bytes = forge_publish.dossier_tar_to_zip(_artifact_bytes(build.get("dossier_artifact_id")))
         filename = forge_publish.release_zip_filename(

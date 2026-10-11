@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.api._helpers import authorize_job_read
-from app.core.roles import CATALOG_WRITE_ROLES, role_meets_minimum
+from app.core import policy
 from app.core.security import AuthenticatedUser, require_admin, require_viewer
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
@@ -22,12 +22,7 @@ router = APIRouter(dependencies=[Depends(require_viewer)])
 
 def _authorize_cancel(job: dict, user: AuthenticatedUser) -> None:
     authorize_job_read(job, user)
-    if job.get("worker_pool") == "catalog":
-        if user.role not in CATALOG_WRITE_ROLES:
-            raise HTTPException(status_code=403, detail="Catalog write access required")
-        return
-    if not role_meets_minimum(user.role, "designer"):
-        raise HTTPException(status_code=403, detail="Designer role required")
+    policy.authorize(user, "catalog_write" if job.get("worker_pool") == "catalog" else "design")
 
 
 # Progress a running job publishes into its payload for early readers: the

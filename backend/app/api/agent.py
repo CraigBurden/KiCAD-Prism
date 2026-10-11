@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
+from app.core import policy
 from app.core.policy import require_owner_or_admin
 from app.core.security import AuthenticatedUser, get_current_user, refuse_provider_token, require_viewer
 from app.services import agent_auth_service
@@ -178,7 +179,7 @@ async def list_tokens(
     ``all_users`` is honored only for admins; anyone else always sees just their
     own, regardless of the flag.
     """
-    email = None if (all_users and user.role == "admin") else user.email
+    email = None if (all_users and policy.role_allows(user.role, "admin")) else user.email
     # A catalog read; keep it off the event loop like every other store call.
     return await asyncio.to_thread(agent_auth_service.list_agent_tokens, email=email)
 

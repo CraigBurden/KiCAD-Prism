@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import sys
 import unittest
@@ -13,8 +14,8 @@ from fastapi.params import Form as FormParam
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api import catalog_admin  # noqa: E402
-from app.api.catalog_admin import _can_transition_workflow, _require_field_admin  # noqa: E402
-from app.core.security import AuthenticatedUser  # noqa: E402
+from app.api.catalog_admin import _can_transition_workflow  # noqa: E402
+from app.core.security import AuthenticatedUser, require_catalog_admin  # noqa: E402
 from app.services import catalog_worker_tasks  # noqa: E402
 from app.services.catalog.conflicts import (  # noqa: E402
     ASSET_REFERENCED_CODE,
@@ -32,9 +33,9 @@ class CatalogAdminPermissionTests(unittest.TestCase):
             email="designer@example.com", name="Designer", role="designer"
         )
 
-        _require_field_admin(admin)
+        self.assertIs(asyncio.run(require_catalog_admin(admin)), admin)
         with self.assertRaises(HTTPException) as raised:
-            _require_field_admin(designer)
+            asyncio.run(require_catalog_admin(designer))
         self.assertEqual(raised.exception.status_code, 403)
 
     def test_metadata_worker_applies_only_requested_items(self) -> None:

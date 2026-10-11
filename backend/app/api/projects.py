@@ -13,9 +13,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from app.api._helpers import get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
+from app.api._helpers import authorized_project, get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
 from app.core.config import settings
-from app.core.roles import role_meets_minimum
+from app.core import policy
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services import (
     derived_assets,
@@ -924,9 +924,9 @@ def _resolve_thumbnail_file(project, row: Optional[dict]) -> Optional[Path]:
 
 @router.get("/{project_id}/thumbnail")
 async def get_project_thumbnail(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    project = get_project_for_role_or_404(project_id, user.role)
     # Use cached thumbnail path from DB, fallback to filesystem detection
-    row = workspace.get_project_by_id(project_id)
+    row = authorized_project(user, project_id)
+    project = _row_to_project(row)
     abs_path = _resolve_thumbnail_file(project, row)
     if abs_path is not None and abs_path.is_file():
         return _thumbnail_response(
@@ -948,8 +948,8 @@ async def get_project_thumbnail_version(
     thumbnail_digest: str,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    project = get_project_for_role_or_404(project_id, user.role)
-    row = await asyncio.to_thread(workspace.get_project_by_id, project_id)
+    row = await asyncio.to_thread(authorized_project, user, project_id)
+    project = _row_to_project(row)
     if (
         not row
         or not row.get("thumbnail_rel")
@@ -1266,8 +1266,8 @@ async def delete_project_endpoint(project_id: str, user: AuthenticatedUser = Dep
     Admins always cascade associated workspace and release-studio listings.
     Designers can delete a project that has no signed release records.
     """
-    get_project_for_role_or_404(project_id, user.role)
-    force = role_meets_minimum(user.role, "admin")
+    authorized_project(user, project_id, "design")
+    force = policy.role_allows(user.role, "admin")
     try:
         deletion = await asyncio.to_thread(project_deletion.delete_project, project_id, force=force)
     except ProjectHasSignedReleasesError as exc:

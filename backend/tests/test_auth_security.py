@@ -12,7 +12,8 @@ from fastapi import HTTPException
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api.settings import UpsertRoleRequest, upsert_access_user  # noqa: E402
-from app.core.roles import normalize_role, role_matches_allowed_role  # noqa: E402
+from app.core.policy import folder_visible  # noqa: E402
+from app.core.roles import normalize_role  # noqa: E402
 from app.core.security import (  # noqa: E402
     AuthenticatedUser,
     require_admin,
@@ -29,8 +30,8 @@ class AuthSecurityTests(unittest.TestCase):
     def test_legacy_catalog_roles_normalize_onto_the_current_model(self) -> None:
         self.assertEqual(normalize_role("Component_Designer"), "designer")
         self.assertEqual(normalize_role("component_qa"), "qa")
-        self.assertTrue(role_matches_allowed_role("qa", ["viewer"]))
-        self.assertFalse(role_matches_allowed_role("qa", ["designer"]))
+        self.assertTrue(folder_visible("qa", "roles", ["viewer"]))
+        self.assertFalse(folder_visible("qa", "roles", ["designer"]))
 
     def test_qa_does_not_get_project_mutation_access(self) -> None:
         user = AuthenticatedUser(email="qa@example.com", name="QA", role="qa")

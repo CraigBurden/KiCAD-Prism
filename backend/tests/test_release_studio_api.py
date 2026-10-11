@@ -67,7 +67,7 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(self.api.jobs, "enqueue", side_effect=enqueue),
-            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": "https://github.com/org/repo.git"}),
+            patch.object(self.api, "authorized_project", return_value={"repo_url": "https://github.com/org/repo.git"}),
             patch.object(self.api.forge_publish, "tag_exists", return_value=False),
         ):
             first = _run(self.api.create_candidate(
@@ -101,8 +101,8 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(
-                self.api.workspace,
-                "get_project_by_id",
+                self.api,
+                "authorized_project",
                 return_value={"path": "/srv/private/board", "relative_path": "board"},
             ),
             patch(
@@ -141,8 +141,8 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
                 return_value={"id": "candidate-1", "commit_sha": "a" * 40},
             ),
             patch.object(
-                self.api.workspace,
-                "get_project_by_id",
+                self.api,
+                "authorized_project",
                 return_value={"name": "board", "repo_url": "https://github.com/org/repo.git"},
             ),
             patch.object(self.api, "_artifact_bytes", return_value=b"tar-bytes"),
@@ -198,7 +198,7 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
             "dossier_artifact_id": "dossier-1",
         }
         with (
-            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api, "authorized_project", return_value={}),
             patch.object(self.api, "_build_or_404", return_value=build),
             patch.object(
                 self.api.store,
@@ -234,7 +234,7 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
             "dossier_artifact_id": "dossier-1",
         }
         with (
-            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api, "authorized_project", return_value={}),
             patch.object(self.api, "_build_or_404", return_value=build),
             patch.object(
                 self.api.store,
@@ -259,7 +259,7 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
     def test_publish_refuses_a_failed_build(self) -> None:
         user = _User("designer@example.com")
         with (
-            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api, "authorized_project", return_value={}),
             patch.object(
                 self.api,
                 "_build_or_404",
@@ -282,7 +282,7 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
         user = _User("designer@example.com")
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.api.workspace, "get_project_by_id", return_value={"repo_url": ""}),
+            patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
             patch.object(self.api.jobs, "enqueue") as enqueue,
         ):
             with self.assertRaises(HTTPException) as caught:
@@ -301,8 +301,8 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(
-                self.api.workspace,
-                "get_project_by_id",
+                self.api,
+                "authorized_project",
                 return_value={"repo_url": "https://github.com/org/repo.git"},
             ),
             patch.object(self.api.forge_publish, "tag_exists", return_value=True),
@@ -331,7 +331,7 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
             "dossier_artifact_id": "dossier-1",
         }
         with (
-            patch.object(self.api, "get_project_for_role_or_404"),
+            patch.object(self.api, "authorized_project", return_value={}),
             patch.object(self.api, "_build_or_404", return_value=build),
             patch.object(
                 self.api.store,
