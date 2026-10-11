@@ -1302,7 +1302,14 @@ def build_packed_semantic_gltf_scene(
 def _reconcile_packed_net_metadata(
     topology: dict[str, Any], payload: dict[str, Any]
 ) -> None:
-    """Apply topology-owned names to native board-net IDs without touching meshes."""
+    """Apply topology-owned names to native board-net IDs without touching meshes.
+
+    Board nets the topology knows as one net (one name an alias of the other)
+    are not renamed into duplicates: the first keeps its id and the others are
+    listed in ``payload["netMerges"]`` (board id -> kept id), which the scene
+    manifest module applies to the net table, the features, the barrels and
+    the tile vertices.
+    """
 
     topology_by_name: dict[str, dict[str, Any]] = {}
     for net in topology.get("nets", []) or []:
@@ -1313,6 +1320,8 @@ def _reconcile_packed_net_metadata(
             if alias:
                 topology_by_name.setdefault(str(alias), net)
 
+    kept_by_name: dict[str, dict[str, Any]] = {}
+    merges: dict[str, int] = {}
     for packed_net in payload.get("nets", []) or []:
         if int(packed_net.get("id") or 0) == 0:
             continue
@@ -1321,6 +1330,12 @@ def _reconcile_packed_net_metadata(
         if topology_net is None:
             continue
         canonical_name = str(topology_net.get("name") or board_name)
+        kept = kept_by_name.get(canonical_name)
+        if kept is not None:
+            merges[str(int(packed_net["id"]))] = int(kept["id"])
+            if board_name and board_name != canonical_name and board_name not in kept["aliases"]:
+                kept["aliases"].append(board_name)
+            continue
         aliases = [
             str(value)
             for value in topology_net.get("aliases", []) or []
@@ -1334,6 +1349,9 @@ def _reconcile_packed_net_metadata(
             topology_net.get("net_class") or packed_net.get("netClass") or ""
         )
         packed_net["aliases"] = aliases
+        kept_by_name[canonical_name] = packed_net
+    if merges:
+        payload["netMerges"] = merges
 
 
 def _component_manifest_entries(

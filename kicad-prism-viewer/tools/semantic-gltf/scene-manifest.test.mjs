@@ -57,17 +57,18 @@ async function meshPack() {
   };
 }
 
-/** One PRSMTL01 tile: a triangle on net 1, feature 1. */
-function packedTile() {
+/** One PRSMTL01 tile: a triangle on `netId`, feature 1. */
+function packedTile(netId = 1) {
   const header = Buffer.alloc(24);
   header.write("PRSMTL01", 0, "ascii");
   header.writeUInt32LE(1, 8);
   header.writeUInt32LE(3, 12);
   header.writeUInt32LE(3, 16);
   const positions = new Float32Array([0, 0, 0, 0.01, 0, 0, 0, 0, 0.01]);
-  const ids = new Uint32Array([1, 1, 1]);
+  const nets = new Uint32Array([netId, netId, netId]);
+  const features = new Uint32Array([1, 1, 1]);
   const indices = new Uint32Array([0, 1, 2]);
-  return Buffer.concat([header, ...[positions, ids, ids, indices].map((array) => Buffer.from(array.buffer))]);
+  return Buffer.concat([header, ...[positions, nets, features, indices].map((array) => Buffer.from(array.buffer))]);
 }
 
 test("a Rust mesh pack and one packed tile become a checked manifest", async () => {
@@ -94,6 +95,39 @@ test("a Rust mesh pack and one packed tile become a checked manifest", async () 
   assert.deepEqual(manifest.netToTiles, { 1: [manifest.tiles[0].id] });
   const glb = await fs.readFile(path.join(root, "scene", manifest.tiles[0].path));
   assert.equal(glb.subarray(0, 4).toString("ascii"), "glTF");
+});
+
+test("board nets merged into one topology net are one net in the scene, tiles included", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "scene-manifest-merge-"));
+  const base = await meshPack();
+  const duplicate = {
+    ...base.nets[1], id: 2, uid: "net_2", name: "GND",
+    metrics: { traceLengthMm: 2, layers: ["B.Cu"], objectCounts: { track: 1 } },
+    boundsMm: [5, 5, 0, 6, 6, 1],
+  };
+  const pack = {
+    ...base,
+    nets: [...base.nets.slice(0, 2).map((net) => (net.id === 1
+      ? { ...net, metrics: { traceLengthMm: 1, layers: ["F.Cu"], objectCounts: { track: 2 } }, boundsMm: [0, 0, 0, 1, 1, 1] }
+      : net)), duplicate],
+    objectFeatures: base.objectFeatures.map((feature) => (feature.id === 1 ? { ...feature, netId: 2 } : feature)),
+    tiles: base.tiles.map((tile) => ({ ...tile, netIds: [2] })),
+    netMerges: { 2: 1 },
+  };
+  await fs.writeFile(path.join(root, "tile.bin"), packedTile(2));
+  await fs.writeFile(path.join(root, "pack.json"), JSON.stringify(pack));
+  await run(process.execPath, [
+    path.resolve("tools/semantic-gltf/build.mjs"),
+    path.join(root, "pack.json"),
+    path.join(root, "scene"),
+  ], { PRISM_SEMANTIC_GLTF_WORKERS: "1" });
+  const manifest = JSON.parse(await fs.readFile(path.join(root, "scene", "scene.manifest.json"), "utf8"));
+  assert.deepEqual(manifest.nets.map((net) => net.id), [0, 1]);
+  assert.deepEqual(manifest.nets[1].metrics, { traceLengthMm: 3, layers: ["B.Cu", "F.Cu"], objectCounts: { track: 3 } });
+  assert.deepEqual(manifest.nets[1].boundsMm, [0, 0, 0, 6, 6, 1]);
+  assert.equal(manifest.objectFeatures[1].netId, 1);
+  assert.deepEqual(manifest.tiles[0].netIds, [1]);
+  assert.deepEqual(manifest.netToTiles, { 1: [manifest.tiles[0].id] });
 });
 
 test("packed tiles are drawn by the face their layer's stackup frame names", async () => {

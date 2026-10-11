@@ -18,6 +18,7 @@ import {
   addTiles,
   manifestFromMeshPack,
   manifestFromSemanticInput,
+  meshPackNetRemap,
   meshPackTileSurfaceSign,
   validateSceneManifest,
 } from "./scene-manifest.mjs";
@@ -143,10 +144,12 @@ async function runPackedMain(input, inputPath, outputDir, metrics) {
   const startedAt = performance.now();
   const progress = createProgress(startedAt);
   const packRoot = path.dirname(inputPath);
+  const netRemap = meshPackNetRemap(input);
   const tiles = (input.tiles || []).map((tile) => ({
     ...tile,
     packedPath: path.resolve(packRoot, String(tile.path || "")),
     surfaceSign: meshPackTileSurfaceSign(input, tile),
+    netRemap,
   }));
   progress(
     `packed input tiles=${tiles.length} features=${(input.objectFeatures || []).length - 1} ` +
@@ -369,7 +372,7 @@ async function buildTileFile(tile, options) {
   let geometry;
   if (tile.packedPath) {
     const readStart = performance.now();
-    geometry = await readPackedTileGeometry(tile.packedPath, tile.surfaceSign === -1 ? -1 : 1);
+    geometry = await readPackedTileGeometry(tile.packedPath, tile.surfaceSign === -1 ? -1 : 1, tile.netRemap);
     metrics.packed_read_ms = elapsedMs(readStart);
   } else {
     const earcutStart = performance.now();
@@ -448,7 +451,7 @@ function createMetrics() {
   };
 }
 
-async function readPackedTileGeometry(filePath, normalY = 1) {
+async function readPackedTileGeometry(filePath, normalY = 1, netRemap = {}) {
   const source = await fs.readFile(filePath);
   const bytes = source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
   const view = new DataView(bytes);
@@ -487,7 +490,9 @@ async function readPackedTileGeometry(filePath, normalY = 1) {
   return {
     positions,
     normals,
-    netIds: Float32Array.from(sourceNetIds),
+    netIds: Object.keys(netRemap).length
+      ? Float32Array.from(sourceNetIds, (id) => netRemap[id] ?? id)
+      : Float32Array.from(sourceNetIds),
     objectFeatureIds: Float32Array.from(sourceFeatureIds),
     indices,
   };

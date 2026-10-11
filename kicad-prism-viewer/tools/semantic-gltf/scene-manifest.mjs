@@ -68,10 +68,60 @@ function layerFromMeshPack(layer) {
   };
 }
 
+/**
+ * The net id each packed net id is drawn as. Board nets the topology knows as
+ * one net are merged (see _reconcile_packed_net_metadata): `pack.netMerges`
+ * maps a merged board id to the id it keeps.
+ */
+export function meshPackNetRemap(pack) {
+  return Object.fromEntries(Object.entries(pack.netMerges || {}).map(([from, to]) => [Number(from), Number(to)]));
+}
+
+function mergeBounds(left, right) {
+  if (!left) return right ?? null;
+  if (!right) return left;
+  return [0, 1, 2].map((axis) => Math.min(left[axis], right[axis]))
+    .concat([3, 4, 5].map((axis) => Math.max(left[axis], right[axis])));
+}
+
+function mergeNet(kept, merged) {
+  const counts = { ...(kept.metrics?.objectCounts || {}) };
+  for (const [kind, count] of Object.entries(merged.metrics?.objectCounts || {})) counts[kind] = (counts[kind] || 0) + count;
+  const layerBounds = { ...(kept.layerBoundsMm || {}) };
+  for (const [layerId, bounds] of Object.entries(merged.layerBoundsMm || {})) {
+    layerBounds[layerId] = mergeBounds(layerBounds[layerId], bounds);
+  }
+  return {
+    ...kept,
+    metrics: {
+      ...kept.metrics,
+      traceLengthMm: Number(kept.metrics?.traceLengthMm || 0) + Number(merged.metrics?.traceLengthMm || 0),
+      layers: [...new Set([...(kept.metrics?.layers || []), ...(merged.metrics?.layers || [])])].sort(),
+      objectCounts: counts,
+    },
+    boundsMm: mergeBounds(kept.boundsMm, merged.boundsMm),
+    layerBoundsMm: layerBounds,
+  };
+}
+
+function mergeNets(nets, remap) {
+  const byId = new Map(nets.map((net) => [net.id, net]));
+  for (const [from, to] of Object.entries(remap)) {
+    const merged = byId.get(Number(from));
+    const kept = byId.get(to);
+    if (!merged || !kept) throw new Error(`mesh pack merges unknown net ${from} into ${to}`);
+    byId.set(to, mergeNet(kept, merged));
+    byId.delete(Number(from));
+  }
+  return nets.filter((net) => byId.has(net.id)).map((net) => byId.get(net.id));
+}
+
 /** The manifest for a Rust mesh pack; tiles are added with addTiles. */
 export function manifestFromMeshPack(pack, { tileSize, meshoptLevel }) {
   if (pack.schema !== MESH_PACK_SCHEMA) throw new Error(`expected ${MESH_PACK_SCHEMA}, got ${pack.schema}`);
   const layers = (pack.layers || []).map(layerFromMeshPack);
+  const remap = meshPackNetRemap(pack);
+  const netId = (id) => remap[id] ?? id;
   return {
     schema: SCENE_MANIFEST_SCHEMA,
     version: 0,
@@ -79,10 +129,10 @@ export function manifestFromMeshPack(pack, { tileSize, meshoptLevel }) {
     geometryRevision: pack.geometryRevision,
     coordinateSystem: pack.coordinateSystem,
     layers,
-    nets: pack.nets || [],
-    objectFeatures: pack.objectFeatures || [],
+    nets: mergeNets(pack.nets || [], remap),
+    objectFeatures: (pack.objectFeatures || []).map((feature) => ({ ...feature, netId: netId(feature.netId) })),
     components: [],
-    barrels: pack.barrels || [],
+    barrels: (pack.barrels || []).map((barrel) => ({ ...barrel, netId: netId(barrel.netId) })),
     geometryCompiler: {
       compilerVersion: "prism-native-semantic-pack-v1",
       sourceGeometryRevision: pack.sourceGeometryRevision,
