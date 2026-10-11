@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import type {
     ECadViewerElement,
     EcadMeasureState,
+    EcadPcbObjectVisibilityKind,
     EcadPcbViewState,
     EcadSchematicPageState,
 } from "@/types/ecad-viewer";
@@ -24,11 +25,11 @@ export interface FakeEcadViewerOptions {
 export class FakeEcadViewer extends HTMLElement implements ECadViewerElement {
     readonly isReady = true;
     ready: Promise<void> = Promise.resolve();
-    readonly setVariant = vi.fn((_name: string | null) => true);
+    readonly setVariant = vi.fn<ECadViewerElement["setVariant"]>(() => true);
     readonly getVariant = vi.fn((): string | null => null);
     readonly getVariants = vi.fn(() => []);
-    readonly replaceSources = vi.fn(async (_update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }) => undefined);
-    readonly appendSources = vi.fn(async (_update: { revisionKey: string; sources: Array<{ filename: string; content: string }> }) => undefined);
+    readonly replaceSources = vi.fn<ECadViewerElement["replaceSources"]>(async () => undefined);
+    readonly appendSources = vi.fn<ECadViewerElement["appendSources"]>(async () => undefined);
     readonly setActive = vi.fn();
     readonly setViewportInsets = vi.fn();
     readonly clearSelection = vi.fn();
@@ -108,7 +109,7 @@ export function fakeEcadViewer(options: FakeEcadViewerOptions = {}): FakeEcadVie
         const state = options.pcb;
         // Like the element, hand out a fresh snapshot each time.
         viewer.getPcbViewState = vi.fn(() => (state ? { ...state, objectVisibility: { ...state.objectVisibility } } : null));
-        viewer.setPcbObjectVisibility = vi.fn((kind, visible) => {
+        viewer.setPcbObjectVisibility = vi.fn((kind: EcadPcbObjectVisibilityKind, visible: boolean) => {
             if (state) state.objectVisibility[kind] = visible;
         });
     }

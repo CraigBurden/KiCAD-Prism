@@ -1,11 +1,9 @@
 import {
     useCallback,
-    useEffect,
     useLayoutEffect,
     useMemo,
     useRef,
     useState,
-    useSyncExternalStore,
     type PointerEvent as ReactPointerEvent,
     type ReactNode,
 } from "react";
@@ -38,16 +36,12 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
-import type {
-    ECadViewerElement,
-    EcadPcbLayerState,
-    EcadPcbViewState,
-    EcadSchematicPageState,
-} from "@/types/ecad-viewer";
+import { useEcadViewer, type EcadViewer, type PcbLayerPreset } from "@/lib/ecad-viewer";
+import type { EcadPcbLayerState, EcadSchematicPageState } from "@/types/ecad-viewer";
 
 type EcadViewerControlsProps = {
     context: "SCH" | "PCB";
-    viewer: ECadViewerElement | null;
+    viewer: EcadViewer | null;
     onVisibleWidthChange?: (width: number) => void;
 };
 
@@ -71,23 +65,13 @@ const pcbPresets = [
  * the other document. Mirrors the element's state and its change event, so
  * the I key and this toggle always agree.
  */
-export function useInsetMode(viewer: ECadViewerElement | null) {
-    const subscribe = useCallback(
-        (notify: () => void) => {
-            if (!viewer) return () => {};
-            viewer.addEventListener("ecad-viewer:inset-mode", notify);
-            return () => viewer.removeEventListener("ecad-viewer:inset-mode", notify);
-        },
-        [viewer],
-    );
-    const on = useSyncExternalStore(subscribe, () => viewer?.insetMode ?? false);
-    const toggle = useCallback(() => {
-        viewer?.setInsetMode?.(!(viewer.insetMode ?? false));
-    }, [viewer]);
-    return { on, toggle, available: Boolean(viewer?.setInsetMode) };
+function useInsetMode(viewer: EcadViewer | null) {
+    const { insetMode: on, insetsAvailable: available } = useEcadViewer(viewer);
+    const toggle = useCallback(() => viewer?.setInsetMode(!on), [on, viewer]);
+    return { on, toggle, available };
 }
 
-function InsetModeToggle({ viewer }: { viewer: ECadViewerElement | null }) {
+function InsetModeToggle({ viewer }: { viewer: EcadViewer | null }) {
     const { on, toggle, available } = useInsetMode(viewer);
     if (!available) return null;
     return (
@@ -111,48 +95,8 @@ export function EcadViewerControls({
     onVisibleWidthChange,
 }: EcadViewerControlsProps) {
     const [section, setSection] = useState<"layers" | "objects">("layers");
-    const [pcbState, setPcbState] = useState<EcadPcbViewState | null>(null);
-
-    // Schematic page state belongs to SchematicPageTree, which owns its own
-    // refresh so it can be mounted anywhere a viewer exists.
-    const refresh = useCallback(() => {
-        if (!viewer || context === "SCH") return;
-        setPcbState(viewer.getPcbViewState?.() ?? null);
-    }, [context, viewer]);
-
-    useEffect(() => {
-        refresh();
-        viewer?.addEventListener("ecad-viewer:view-state-change", refresh);
-
-        // Board paint can finish after the first view-state-change (which still
-        // reports null layers). Re-poll briefly until layers appear.
-        let cancelled = false;
-        let attempts = 0;
-        let timer: number | undefined;
-        if (context === "PCB" && viewer) {
-            const poll = () => {
-                if (cancelled || attempts++ > 40) return;
-                const state = viewer.getPcbViewState?.() ?? null;
-                if (state?.layers?.length) {
-                    setPcbState(state);
-                    return;
-                }
-                timer = window.setTimeout(poll, 150);
-            };
-            timer = window.setTimeout(poll, 150);
-        }
-
-        return () => {
-            cancelled = true;
-            if (timer !== undefined) window.clearTimeout(timer);
-            viewer?.removeEventListener("ecad-viewer:view-state-change", refresh);
-        };
-    }, [context, refresh, viewer]);
-
-    const mutatePcb = useCallback((action: () => void) => {
-        action();
-        setPcbState(viewer?.getPcbViewState?.() ?? null);
-    }, [viewer]);
+    const { pcbViewState } = useEcadViewer(viewer);
+    const pcbState = context === "PCB" ? pcbViewState : null;
 
     return (
         <ViewerSideRail
@@ -167,7 +111,7 @@ export function EcadViewerControls({
             )}
             onVisibleWidthChange={onVisibleWidthChange}
         >
-            {context === "SCH" && <SchematicPageTree viewer={viewer} />}
+            {context === "SCH" && <ViewerPageTree viewer={viewer} />}
 
             {context === "PCB" && (
                 <>
@@ -180,7 +124,7 @@ export function EcadViewerControls({
                         <>
                             <div className="border-b p-3">
                                 <Select
-                                    onValueChange={(value) => mutatePcb(() => viewer?.applyPcbLayerPreset?.(value as Parameters<NonNullable<ECadViewerElement["applyPcbLayerPreset"]>>[0]))}
+                                    onValueChange={(value) => viewer?.applyPcbLayerPreset(value as PcbLayerPreset)}
                                 >
                                     <SelectTrigger className="w-full">
                                         <SelectValue placeholder="Layer preset" />
@@ -196,12 +140,8 @@ export function EcadViewerControls({
                                 <div className="p-2">
                                     <PcbLayerList
                                         layers={pcbState?.layers ?? []}
-                                        onToggleVisibility={(name, visible) => mutatePcb(
-                                            () => viewer?.setPcbLayerVisibility?.(name, visible),
-                                        )}
-                                        onHighlight={(name) => mutatePcb(
-                                            () => viewer?.setPcbLayerHighlight?.(name),
-                                        )}
+                                        onToggleVisibility={(name, visible) => viewer?.setPcbLayerVisibility(name, visible)}
+                                        onHighlight={(name) => viewer?.setPcbLayerHighlight(name)}
                                     />
                                 </div>
                             </ScrollArea>
@@ -220,7 +160,7 @@ export function EcadViewerControls({
                                         key={kind}
                                         label={label}
                                         value={pcbState?.objectOpacity[kind] ?? 1}
-                                        onChange={(value) => mutatePcb(() => viewer?.setPcbObjectOpacity?.(kind, value))}
+                                        onChange={(value) => viewer?.setPcbObjectOpacity(kind, value)}
                                     />
                                 ))}
                                 <Separator />
@@ -238,13 +178,13 @@ export function EcadViewerControls({
                                         key={kind}
                                         label={label}
                                         checked={pcbState?.objectVisibility[kind] ?? false}
-                                        onChange={(checked) => mutatePcb(() => viewer?.setPcbObjectVisibility?.(kind, checked))}
+                                        onChange={(checked) => viewer?.setPcbObjectVisibility(kind, checked)}
                                     />
                                 ))}
                                 <RailCheckbox
                                     label="Highlight connected track"
                                     checked={pcbState?.highlightTracks ?? true}
-                                    onChange={(checked) => mutatePcb(() => viewer?.setPcbTrackHighlight?.(checked))}
+                                    onChange={(checked) => viewer?.setPcbTrackHighlight(checked)}
                                 />
                             </div>
                         </ScrollArea>
@@ -555,34 +495,31 @@ type SchematicNavigatorPage = EcadSchematicPageState & {
     statusLabel?: string;
 };
 
+/** The tree over a viewer's own pages: a click switches the element's page. */
+function ViewerPageTree({ viewer }: { viewer: EcadViewer | null }) {
+    const { schematicPages } = useEcadViewer(viewer);
+    return (
+        <SchematicPageTree
+            pages={schematicPages}
+            onNavigate={(page) => viewer?.switchPage(page.projectPath)}
+            onParent={() => viewer?.navigateSchematicParent()}
+        />
+    );
+}
+
 export function SchematicPageTree({
-    viewer,
-    pages: controlledPages,
+    pages,
     hasChanges,
     onNavigate,
+    onParent,
 }: {
-    viewer: ECadViewerElement | null;
-    pages?: SchematicNavigatorPage[];
+    pages: SchematicNavigatorPage[];
     hasChanges?: (page: EcadSchematicPageState) => boolean;
     onNavigate?: (page: SchematicNavigatorPage) => void;
+    /** The parent-sheet action, when the element navigates itself; otherwise `onNavigate` gets the parent page. */
+    onParent?: () => void;
 }) {
-    const [viewerPages, setViewerPages] = useState<EcadSchematicPageState[]>([]);
     const [query, setQuery] = useState("");
-    const pages: SchematicNavigatorPage[] = controlledPages ?? viewerPages;
-
-    const refresh = useCallback(() => {
-        if (!controlledPages) {
-            setViewerPages(viewer?.getSchematicPages?.() ?? []);
-        }
-    }, [controlledPages, viewer]);
-
-    useEffect(() => {
-        refresh();
-        viewer?.addEventListener("ecad-viewer:view-state-change", refresh);
-        return () => {
-            viewer?.removeEventListener("ecad-viewer:view-state-change", refresh);
-        };
-    }, [refresh, viewer]);
 
     const visiblePages = useMemo(() => {
         const normalized = query.trim().toLocaleLowerCase();
@@ -636,11 +573,8 @@ export function SchematicPageTree({
                         disabled={!parentPage}
                         onClick={() => {
                             if (!parentPage) return;
-                            if (!controlledPages) {
-                                viewer?.navigateSchematicParent?.();
-                                refresh();
-                            }
-                            onNavigate?.(parentPage);
+                            if (onParent) onParent();
+                            else onNavigate?.(parentPage);
                         }}
                     >
                         <Undo2 className="mr-2 size-3.5 shrink-0" />
@@ -670,13 +604,7 @@ export function SchematicPageTree({
                                 page.active ? "border-primary bg-accent text-accent-foreground" : "border-transparent text-muted-foreground",
                             )}
                             style={{ paddingLeft: `${0.5 + Math.min(page.depth, 6) * 0.75}rem` }}
-                            onClick={() => {
-                                if (!controlledPages) {
-                                    viewer?.switchPage(page.projectPath);
-                                    refresh();
-                                }
-                                onNavigate?.(page);
-                            }}
+                            onClick={() => onNavigate?.(page)}
                             aria-current={page.active ? "page" : undefined}
                         >
                             <span className="min-w-6 shrink-0 font-mono text-[10px] text-muted-foreground">

@@ -265,10 +265,13 @@ export class EcadViewer {
         });
     }
 
-    /** Apply a design variant once the element is defined; `pending` without one. */
-    async syncVariant(variant: string | null): Promise<ViewerVariantSync> {
+    /**
+     * Apply a design variant once the element is defined (`pending` without
+     * one); null when `isCurrent` says the request was superseded meanwhile.
+     */
+    async syncVariant(variant: string | null, isCurrent: () => boolean = () => true): Promise<ViewerVariantSync | null> {
         await this.#defined();
-        return syncViewerVariant(this.#element, variant);
+        return isCurrent() ? syncViewerVariant(this.#element, variant) : null;
     }
 
     setInsetMode(on: boolean): void {
@@ -571,6 +574,10 @@ export class EcadViewerPair {
     }
 }
 
-export function useEcadViewer(viewer: EcadViewer): EcadViewerState {
-    return useSyncExternalStore(viewer.subscribe, viewer.getSnapshot);
+const subscribeNothing = () => () => {};
+const emptyState = () => EMPTY_STATE;
+
+/** The element's state as React sees it; an empty state without a viewer. */
+export function useEcadViewer(viewer: EcadViewer | null): EcadViewerState {
+    return useSyncExternalStore(viewer?.subscribe ?? subscribeNothing, viewer?.getSnapshot ?? emptyState);
 }

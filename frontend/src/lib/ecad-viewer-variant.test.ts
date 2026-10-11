@@ -2,13 +2,14 @@
  * VAR-16: the bridge must call the vendored variant API, must not mask an
  * outdated bundle, and must report the element's actual state.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
     syncViewerVariant,
     viewerVariantNotice,
     type ViewerVariantSync,
 } from "./ecad-viewer-variant";
+import { fakeEcadViewer } from "@/test/fake-ecad-viewer";
 import type { ECadViewerElement } from "@/types/ecad-viewer";
 
 function element(
@@ -16,13 +17,11 @@ function element(
         known?: boolean;
         applied?: string | null;
     } = {},
-): { element: ECadViewerElement; setVariant: ReturnType<typeof vi.fn> } {
-    const setVariant = vi.fn(() => behavior.known ?? true);
-    const stub = {
-        setVariant,
-        getVariant: vi.fn(() => behavior.applied ?? null),
-    };
-    return { element: stub as unknown as ECadViewerElement, setVariant };
+) {
+    const fake = fakeEcadViewer();
+    fake.setVariant.mockImplementation(() => behavior.known ?? true);
+    fake.getVariant.mockImplementation(() => behavior.applied ?? null);
+    return { element: fake, setVariant: fake.setVariant };
 }
 
 describe("syncViewerVariant", () => {
