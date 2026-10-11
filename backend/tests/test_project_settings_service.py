@@ -143,9 +143,31 @@ class StoredSettingsTests(unittest.TestCase):
         stored = project_settings_service.stored_settings(str(self.checkout), "top.kicad_pro")
         self.assertEqual(stored, {"pcb": "alt.kicad_pcb", "description": "Plate"})
 
-    def test_a_directory_outside_the_projects_root_has_no_stored_settings(self) -> None:
-        with patch.object(project_settings_service, "_load_index", side_effect=AssertionError("no DB read")):
-            self.assertIsNone(project_settings_service.stored_settings(tempfile.gettempdir(), None))
+    def test_a_revision_snapshot_directory_has_no_stored_settings(self) -> None:
+        top = self._project(self.top_id)
+        project_service.save_path_config_for(top, path_config_service.PathConfig(pcb="alt.kicad_pcb"))
+        with tempfile.TemporaryDirectory() as snapshot:
+            self.assertIsNone(project_settings_service.stored_settings(snapshot, "top.kicad_pro"))
+
+    def test_an_adopted_checkout_outside_the_projects_root_keeps_its_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as elsewhere:
+            adopted = _repository(Path(elsewhere).resolve() / "adopted", None)
+            repo_id = workspace.register_repository(
+                name="adopted", url=str(adopted), clone_path_abs=str(adopted)
+            )
+            try:
+                project_id = workspace.register_project(
+                    repo_id=repo_id, name="adopted", relative_path=".", project_file_rel="top.kicad_pro"
+                )
+                project = self._project(project_id)
+                project_service.save_path_config_for(project, path_config_service.PathConfig(pcb="alt.kicad_pcb"))
+                self.assertEqual(project_service.path_config_for(project).pcb, "alt.kicad_pcb")
+                self.assertFalse((adopted / ".prism.json").exists())
+            finally:
+                with workspace._connect() as conn:
+                    conn.execute("DELETE FROM ws_projects WHERE repo_id=%s", (repo_id,))
+                    conn.execute("DELETE FROM ws_repositories WHERE id=%s", (repo_id,))
+                    conn.commit()
 
     def test_upgrade_imports_a_prism_written_file_once_and_leaves_it(self) -> None:
         (self.checkout / ".prism.json").write_text(

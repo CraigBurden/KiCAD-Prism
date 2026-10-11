@@ -14,10 +14,11 @@ Resolution, highest first:
 3. Auto-detection, then the defaults (``path_config_service``).
 
 ``path_config_service.get_path_config`` asks ``stored_settings`` for every
-path under the projects root (where every Prism checkout lives), so workers,
-routes and path-only callers all see the same result. Any other directory --
-a temporary revision snapshot, a test fixture -- has no stored settings, gets
-the committed configuration only, and costs no database read.
+checkout path, so workers, routes and path-only callers all see the same
+result. Checkouts are not all under the projects root (an adopted folder stays
+where the user keeps it), so the lookup is by registered checkout path; a
+temporary revision snapshot matches no project and gets the committed
+configuration only. The index is one query, cached per process for a short TTL.
 """
 
 from __future__ import annotations
@@ -42,12 +43,6 @@ _INDEX_TTL_SECONDS = 2.0
 _index: Dict[Tuple[str, str], Dict[str, Any]] = {}
 _index_loaded_at: Optional[float] = None
 _index_lock = threading.Lock()
-
-
-def _managed_root() -> Path:
-    from app.core.config import settings
-
-    return Path(settings.KICAD_PROJECTS_ROOT).resolve()
 
 
 def _key(project_path: str, anchor: Optional[str]) -> Tuple[str, str]:
@@ -86,8 +81,6 @@ def stored_settings(project_path: str, anchor: Optional[str] = None) -> Optional
     """Settings stored in Prism for the project at ``project_path``/``anchor``."""
 
     global _index, _index_loaded_at
-    if not Path(project_path).resolve().is_relative_to(_managed_root()):
-        return None
     with _index_lock:
         now = time.monotonic()
         if _index_loaded_at is None or now - _index_loaded_at > _INDEX_TTL_SECONDS:
