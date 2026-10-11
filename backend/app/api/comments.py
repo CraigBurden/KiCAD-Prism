@@ -17,8 +17,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.api._helpers import get_project_for_role_or_404
 from app.core.security import AuthenticatedUser, require_comment_writer, require_designer, require_viewer
-from app.core.roles import normalize_role
 from app.services import access_service, comment_attachments, comment_permissions, comment_social
+from app.services.comment_capabilities import with_capabilities
 from app.services.comment_anchor_service import (
     AnchorValidationError,
     resolve_canvas_anchor,
@@ -26,8 +26,7 @@ from app.services.comment_anchor_service import (
     resolve_manual_pin,
     resolve_displayed_bindings,
 )
-from app.services.comment_permissions import ActorIdentity, AuthoredObject, CommentAction, CommentPermissionError
-from app.services.comments_revisions import Editor
+from app.services.comment_permissions import ActorIdentity, CommentAction, CommentPermissionError
 from app.services.comments_store_service import (
     COMMENT_CLASSES,
     COMMENT_SEVERITIES,
@@ -35,8 +34,6 @@ from app.services.comments_store_service import (
     DEFAULT_COMMENT_SEVERITY,
     comments_store,
 )
-from app.services.trackers.projections import can_retry_projection
-from app.services.trackers.promotion import PromotionActor
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 T = TypeVar("T")
@@ -226,53 +223,6 @@ def _read_actor(user: AuthenticatedUser) -> Optional[ActorIdentity]:
         return None
 
 
-def _editor(actor: ActorIdentity) -> Editor:
-    return Editor(user_id=actor.actor_id, kind=actor.actor_kind, display=actor.display_name)
-
-
-def _promotion_actor(actor: ActorIdentity) -> PromotionActor:
-    """The actor whose role decides whether a linked thread's change reaches the forge."""
-    return PromotionActor(user_id=actor.actor_id, role=actor.role, kind=actor.actor_kind)
-
-
-def _authored(value: dict) -> AuthoredObject:
-    return AuthoredObject(
-        author_user_id=value.get("authorUserId"),
-        author_kind=str(value.get("authorKind") or comment_permissions.ACTOR_KIND_LEGACY),
-    )
-
-
-def _with_permissions(comment: dict, actor: ActorIdentity) -> dict:
-    comment_social.personalize(comment, actor.actor_id)
-    tracker = comment.get("tracker") or {}
-    promote_role = normalize_role(tracker.get("promoteMinRole")) or "designer"
-    linked = bool(tracker.get("linkState"))
-    capabilities = comment_permissions.capabilities(
-        actor, _authored(comment), linked=linked, promote_min_role=promote_role,
-    )
-    capabilities["canPublish"] = (
-        bool(tracker.get("promoteMinRole"))
-        and not linked
-        and (comment.get("anchor") or {}).get("state") == "pinned"
-        and comment_permissions.allowed(
-            CommentAction.PROMOTE, actor, promote_min_role=promote_role,
-        )
-    )
-    capabilities["canRetry"] = can_retry_projection(tracker) and comment_permissions.allowed(
-        CommentAction.RETRY, actor, linked=linked, promote_min_role=promote_role,
-    )
-    comment["permissions"] = capabilities
-    can_share = linked and comment_permissions.allowed(
-        CommentAction.SHARE, actor, promote_min_role=promote_role,
-    )
-    for reply in comment.get("replies", []):
-        reply_caps = comment_permissions.capabilities(actor, _authored(reply))
-        reply_caps["canPublish"] = False
-        reply_caps["canShare"] = can_share and (reply.get("sync") or {}).get("state") == "unsynced_local"
-        reply["permissions"] = reply_caps
-    return comment
-
-
 async def _run_mutation(write: Callable[[], T]) -> T:
     """Run a blocking write off the event loop. Its refusals (permission, publication,
     revision conflict, anchor, attachment) are typed errors the app handler renders."""
@@ -401,8 +351,7 @@ async def get_comments(
             )
         actor = _read_actor(user)
         listing["comments"] = [
-            _with_permissions(comment, actor) if actor is not None else comment_social.personalize(comment, None)
-            for comment in listing["comments"]
+            with_capabilities(comment, actor) for comment in listing["comments"]
         ]
         return listing
 
@@ -433,7 +382,7 @@ async def get_comment_thread(
             [comment] = resolve_displayed_bindings(project, [comment], displayed, bindings)
         actor = _read_actor(user)
         if comment is not None:
-            comment = _with_permissions(comment, actor) if actor is not None else comment_social.personalize(comment, None)
+            comment = with_capabilities(comment, actor)
         return {"comment": comment, "cursor": cursor}
 
     try:
@@ -466,8 +415,7 @@ async def get_comparison_comments(
         )
         actor = _read_actor(user)
         listing["comments"] = [
-            _with_permissions(comment, actor) if actor is not None else comment_social.personalize(comment, None)
-            for comment in listing["comments"]
+            with_capabilities(comment, actor) for comment in listing["comments"]
         ]
         return listing
 
@@ -531,22 +479,18 @@ async def create_comparison_comment(
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
         actor = _actor(user)
-        comment_permissions.authorize(CommentAction.CREATE, actor)
         anchor = resolve_comparison_anchor(
             project, base_commit=request.baseCommit, compare_commit=request.compareCommit,
             selected_side=request.selectedSide, file_path=request.filePath, context=domain,
         )
-        created = comments_store.create_comment(
+        return comments_store.create_comment(
             project_id=project.id,
             project_path=project.path,
             context=domain,
             location={"x": 0.0, "y": 0.0, "layer": "", "page": request.filePath or ""},
             content=content,
             content_format=content_format,
-            author=actor.display_name,
-            author_user_id=actor.actor_id,
-            author_kind=actor.actor_kind,
-            promotion_actor=_promotion_actor(actor),
+            actor=actor,
             element_id=request.semanticItemId,
             element_ref=request.semanticItemRef,
             element_type=anchor_kind,
@@ -566,7 +510,6 @@ async def create_comparison_comment(
             selected_side=anchor.selected_side,
             project_relative_path=anchor.project_relative_path,
         )
-        return _with_permissions(created, actor)
 
     return await _run_mutation(write)
 
@@ -604,21 +547,18 @@ async def create_comment(
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
         actor = _actor(user)
-        comment_permissions.authorize(CommentAction.CREATE, actor)
         anchor = resolve_canvas_anchor(
             project, revision=request.revision.model_dump() if request.revision else None,
             context=context,
         )
-        created = comments_store.create_comment(
+        return comments_store.create_comment(
             project_id=project.id,
             project_path=project.path,
             context=context,
             location=location,
             content=content,
             content_format=content_format,
-            author=actor.display_name,
-            author_user_id=actor.actor_id,
-            author_kind=actor.actor_kind,
+            actor=actor,
             element_id=request.elementId,
             element_ref=request.elementRef,
             element_type=request.elementType,
@@ -631,9 +571,7 @@ async def create_comment(
             anchor_revision_key=anchor.source_revision_key,
             anchor_source=anchor.source,
             project_relative_path=anchor.project_relative_path,
-            promotion_actor=_promotion_actor(actor),
         )
-        return _with_permissions(created, actor)
 
     return await _run_mutation(write)
 
@@ -662,21 +600,12 @@ async def update_comment(
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_comment(project.id, project.path, comment_id)
-        if current is None:
-            return None
-        if has_edit:
-            comment_permissions.authorize(CommentAction.EDIT, actor, target=_authored(current))
-        if status is not None:
-            comment_permissions.authorize(CommentAction.RESOLVE, actor)
-        updated = comments_store.patch_comment(
-            project.id, project.path, comment_id, _editor(actor),
+        return comments_store.patch_comment(
+            project.id, project.path, comment_id, actor=_actor(user),
             expected_revision=request.expectedRevision, content=content, severity=severity,
             comment_class=comment_class, mentions=request.mentions, status=status,
-            promotion_actor=_promotion_actor(actor), content_format=content_format,
+            content_format=content_format,
         )
-        return _with_permissions(updated, actor) if updated else None
 
     updated_comment = await _run_mutation(write)
 
@@ -696,19 +625,11 @@ async def pin_comment(
     """An admin may pin a legacy or worktree comment once, to an exact commit."""
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        if not actor.is_admin:
-            raise CommentPermissionError("legacy_admin_only", "Only an admin can pin a comment")
-        current = comments_store.get_comment(project.id, project.path, comment_id)
-        if current is None:
-            return None
-        anchor = resolve_manual_pin(project, commit=request.commit, context=current["context"])
-        updated = comments_store.pin_comment_anchor(
-            project.id, project.path, comment_id, _editor(actor), commit=anchor.commit or request.commit,
-            source_revision_key=anchor.source_revision_key, file_path=anchor.file_path,
-            project_relative_path=anchor.project_relative_path, expected_revision=request.expectedRevision,
+        return comments_store.pin_comment_anchor(
+            project.id, project.path, comment_id, actor=_actor(user), commit=request.commit,
+            resolve=lambda context: resolve_manual_pin(project, commit=request.commit, context=context),
+            expected_revision=request.expectedRevision,
         )
-        return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
     if result is None:
@@ -738,21 +659,15 @@ async def reattach_comment(
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_comment(project.id, project.path, comment_id)
-        if current is None or current.get("scope") != "canvas":
-            return None
-        comment_permissions.authorize(CommentAction.EDIT, actor, target=_authored(current))
-        anchor = resolve_canvas_anchor(
-            project, revision={"commit": request.commit}, context=current["context"],
+        return comments_store.reattach_comment(
+            project.id, project.path, comment_id, actor=_actor(user),
+            commit=request.commit, location=location,
+            element_id=request.elementId, relative_point=relative_point,
+            resolve=lambda context: resolve_canvas_anchor(
+                project, revision={"commit": request.commit}, context=context,
+            ),
+            expected_revision=request.expectedRevision,
         )
-        updated = comments_store.reattach_comment(
-            project.id, project.path, comment_id,
-            commit=anchor.commit or request.commit, location=location,
-            element_id=request.elementId, relative_point=relative_point, file_path=anchor.file_path,
-            editor=_editor(actor), expected_revision=request.expectedRevision,
-        )
-        return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
     if result is None:
@@ -774,26 +689,17 @@ async def add_reply(
     content_format = _content_format(request.contentFormat)
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        comment_permissions.authorize(CommentAction.REPLY, actor)
         result = comments_store.add_reply(
             project_id=project.id,
             project_path=project.path,
             comment_id=comment_id,
             content=content,
             content_format=content_format,
-            author=actor.display_name,
-            author_user_id=actor.actor_id,
-            author_kind=actor.actor_kind,
-            promotion_actor=_promotion_actor(actor),
+            actor=_actor(user),
         )
         if result is None:
             return None
         comment, reply = result
-        comment = _with_permissions(comment, actor)
-        reply_caps = comment_permissions.capabilities(actor, _authored(reply))
-        reply_caps["canPublish"] = False
-        reply["permissions"] = reply_caps
         return {"comment": comment, "reply": reply}
 
     result = await _run_mutation(write)
@@ -817,17 +723,10 @@ async def update_reply(
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_reply(project.id, comment_id, reply_id)
-        if current is None:
-            return None
-        comment_permissions.authorize(CommentAction.EDIT, actor, target=_authored(current))
-        updated = comments_store.edit_reply(
-            project.id, project.path, comment_id, reply_id, content, _editor(actor),
-            expected_revision=request.expectedRevision, promotion_actor=_promotion_actor(actor),
-            content_format=content_format,
+        return comments_store.edit_reply(
+            project.id, project.path, comment_id, reply_id, content, actor=_actor(user),
+            expected_revision=request.expectedRevision, content_format=content_format,
         )
-        return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
     if result is None:
@@ -845,16 +744,10 @@ async def delete_reply(
 ):
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_reply(project.id, comment_id, reply_id)
-        if current is None:
-            return None
-        comment_permissions.authorize(CommentAction.DELETE, actor, target=_authored(current))
-        updated = comments_store.delete_reply(
-            project.id, project.path, comment_id, reply_id, _editor(actor),
-            expected_revision=expectedRevision, promotion_actor=_promotion_actor(actor),
+        return comments_store.delete_reply(
+            project.id, project.path, comment_id, reply_id, actor=_actor(user),
+            expected_revision=expectedRevision,
         )
-        return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
     if result is None:
@@ -871,13 +764,10 @@ async def _set_reaction(
 
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        comment_permissions.authorize(CommentAction.REPLY, actor)
-        updated = comments_store.set_reaction(
+        return comments_store.set_reaction(
             project.id, project.path, comment_id, reply_id,
-            user_id=actor.actor_id, user_display=actor.display_name, reaction=reaction, present=present,
+            actor=_actor(user), reaction=reaction, present=present,
         )
-        return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
     if result is None:
@@ -914,18 +804,12 @@ async def delete_comment(
     """
     def write():
         project = get_project_for_role_or_404(project_id, user.role)
-        actor = _actor(user)
-        current = comments_store.get_comment(project.id, project.path, comment_id)
-        if current is None:
-            return False
-        comment_permissions.authorize(CommentAction.DELETE, actor, target=_authored(current))
         return comments_store.delete_comment(
             project_id=project.id,
             project_path=project.path,
             comment_id=comment_id,
-            editor=_editor(actor),
             expected_revision=expectedRevision,
-            promotion_actor=_promotion_actor(actor),
+            actor=_actor(user),
         )
 
     deleted = await _run_mutation(write)

@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Optional, Protocol, Sequence
 from uuid import uuid4
 
-from app.services.comments_revisions import Editor, edit_reply, record_revision
+from app.services import comment_write
+from app.services.comments_revisions import Editor, edit_reply
 from app.services.trackers import attachment_links
 from app.services.trackers.contracts import (
     CommentRead,
@@ -376,36 +377,14 @@ def _insert_remote_reply(
     comment: RemoteComment,
     store: TrackerStore,
 ) -> str:
-    reply_id = f"r_{uuid4().hex[:8]}"
     author_display, author_kind, origin = remote_reply_author(comment.author)
     body = _canonical_body(conn, thread, comment.body or "")
-    conn.execute(
-        """
-        INSERT INTO comment_replies (
-            id, comment_id, project_id, author, author_kind, origin, content, revision, timestamp, updated_at,
-            content_format
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1, NOW(), NOW(), %s)
-        """,
-        (
-            reply_id,
-            str(thread["comment_id"]),
-            str(thread["project_id"]),
-            author_display,
-            author_kind,
-            origin,
-            body,
-            attachment_links.inbound_format(body),
-        ),
-    )
-    record_revision(
+    reply_id = comment_write.insert_reply(
         conn,
         project_id=str(thread["project_id"]),
-        target_kind="reply",
-        target_id=reply_id,
-        revision=1,
-        change_kind="create",
-        editor=Editor(user_id=None, kind=author_kind, display=author_display, origin=origin),
+        comment_id=str(thread["comment_id"]),
         content=body,
+        editor=Editor(user_id=None, kind=author_kind, display=author_display, origin=origin),
         content_format=attachment_links.inbound_format(body),
     )
     link_id = f"trl_{uuid4().hex[:8]}"

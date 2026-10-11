@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.core.config import settings
+from app.services import comment_write
 from app.services.trackers.contracts import Destination, RemoteComment
 from app.services.trackers.drafts import escape_generated_text, guard_generated_text_no_email
 from app.services.trackers import attachment_links
@@ -305,10 +306,9 @@ def _confirm_reply_link(
         """,
         (url, reply_id),
     )
-    conn.execute(
-        "UPDATE comment_replies SET sync_state = NULL WHERE id = %s",
-        (reply_id,),
-    )
+    # Streamed by this transaction's link rows and the op confirm below,
+    # through the tracker projection trigger.
+    comment_write.set_reply_sync_state(conn, reply_id=reply_id, state=None, streamed_by_caller=True)
     ops.confirm(op_id, fence, external_result_id=str(remote.externalCommentId))
 
 

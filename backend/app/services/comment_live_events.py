@@ -104,6 +104,20 @@ def record_change(
     return cursor
 
 
+def record_thread_change(conn: Any, *, project_id: str, comment_id: str, change_kind: str) -> int:
+    """``record_change`` for a root, reading its scope and comparison pair."""
+    root = conn.execute(
+        "SELECT scope, base_commit, compare_commit FROM comments WHERE project_id = %s AND id = %s",
+        (project_id, comment_id),
+    ).fetchone()
+    if root is None:
+        raise ValueError(f"Comment root missing for {comment_id}")
+    return record_change(
+        conn, project_id=project_id, comment_id=comment_id, scope=root["scope"],
+        base_commit=root["base_commit"], compare_commit=root["compare_commit"], change_kind=change_kind,
+    )
+
+
 def changes_after(conn: Any, project_id: str, after: int, *, limit: int = 200) -> list[dict[str, Any]]:
     if after < 0 or not 1 <= limit <= 500:
         raise ValueError("invalid comment change cursor or limit")

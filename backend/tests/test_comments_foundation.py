@@ -66,8 +66,9 @@ class CommentPermissionsTests(unittest.TestCase):
                  "id": "c1", "authorUserId": "real-id", "authorKind": "user", "replies": [],
              }) as create:
             asyncio.run(comments_api.create_comment("p1", request, user))
-        self.assertEqual(create.call_args.kwargs["author"], "Real Name")
-        self.assertEqual(create.call_args.kwargs["author_user_id"], "real-id")
+        actor = create.call_args.kwargs["actor"]
+        self.assertEqual((actor.display_name, actor.actor_id), ("Real Name", "real-id"))
+        self.assertNotIn("author", create.call_args.kwargs)
 
 
 @unittest.skipUnless(TEST_DSN, "TEST_POSTGRES_URL is required for disposable PostgreSQL tests")
