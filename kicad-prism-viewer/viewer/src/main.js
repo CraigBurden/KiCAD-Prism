@@ -20,6 +20,7 @@ import {
 } from "./component-visibility.js";
 import { escapeHtml } from "./escape-html.js";
 import { findNetByName } from "./net-emphasis.js";
+import { hasCommandModifier, isTypingTarget } from "./key-target.js";
 import { componentDraws } from "./component-models.js";
 import { loadGltf, loadGltfModels } from "./gltf-loader.js";
 import { add, boundsRadius, clamp, cross, mat4Multiply, scale } from "./math.js";
@@ -5707,10 +5708,13 @@ function projectBoardPoint(local, model) {
 
 function handleKey(event) {
   if (!viewerIsActive()) return;
-  if (event.target instanceof HTMLInputElement) {
-    if (event.key === "Escape") event.target.blur();
+  // The listener is on the window: never take keys typed into the host page's
+  // fields (#678), or the browser's and OS's own Cmd/Ctrl shortcuts.
+  if (isTypingTarget(event)) {
+    if (event.key === "Escape" && event.target instanceof HTMLInputElement) event.target.blur();
     return;
   }
+  if (hasCommandModifier(event)) return;
   const key = event.key.toLowerCase();
   if (state.workspace === "schematic") {
     if (key === "/") {
