@@ -691,18 +691,6 @@ async def import_project(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/jobs/{job_id}")
-async def get_job_status(job_id: str):
-    """
-    Get the status of an import job.
-    """
-    status = await asyncio.to_thread(project_service.get_job_status, job_id)
-    if not status:
-        status = await asyncio.to_thread(project_import_service.get_job_status, job_id)
-    if not status:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return status
-
 @router.post("/{project_id}/sync", dependencies=[Depends(require_designer)])
 async def sync_project_endpoint(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """

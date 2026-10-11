@@ -815,31 +815,9 @@ ACCESS_FAILURE_REASONS = frozenset(
 )
 
 
-def get_job_status(job_id: str) -> Optional[dict]:
-    """Get the current status of an import or workflow job."""
-    v3_job = v3_jobs.get(job_id)
-    if v3_job:
-        metadata = dict(v3_job.get("result_metadata") or {})
-        error_message = v3_job.get("error_message") or None
-        return {
-            **v3_job,
-            **metadata,
-            "type": v3_job.get("kind"),
-            "error": error_message,
-            # Lets the dialog offer the right fix without matching on prose.
-            "access_failure": _is_access_failure(error_message),
-            "logs": [],
-        }
-    return workspace.get_job(job_id)
-
-
 def _is_access_failure(error_message: Optional[str]) -> bool:
-    """Whether a failure is one the user can fix by granting Prism access.
-
-    The worker records only the exception's message, so the reason is recovered
-    by matching the phrases `git_failures` writes rather than by plumbing a new
-    column through the job table for a purely presentational hint.
-    """
+    """Whether a failure is one the user can fix by granting Prism access,
+    matched on the phrases `git_failures` writes into the message."""
     if not error_message:
         return False
     text = error_message.casefold()
@@ -858,12 +836,8 @@ def _is_access_failure(error_message: Optional[str]) -> bool:
 GIT_ACCESS_ERROR_CODE = "git_access"
 
 
-def _classify_access_failure(
-    handler: Callable[[JobContext], JobResult],
-) -> Callable[[JobContext], JobResult]:
-    """Record an access failure as the job's error code, so a status reader
-    can offer the guided fix without matching on the message."""
-
+def _classify_access_failure(handler: Callable[[JobContext], JobResult]) -> Callable[[JobContext], JobResult]:
+    """Fail access failures with GIT_ACCESS_ERROR_CODE so status readers need not parse prose."""
     @wraps(handler)
     def run(context: JobContext) -> JobResult:
         try:

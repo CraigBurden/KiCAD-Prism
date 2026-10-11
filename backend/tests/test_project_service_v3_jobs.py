@@ -38,60 +38,6 @@ class ProjectServiceV3JobTests(unittest.TestCase):
 
         self.assertNotEqual(keys("top.kicad_pro"), keys("base.kicad_pro"))
 
-    def test_job_status_preserves_authoritative_queue_status(self) -> None:
-        with mock.patch.object(
-            project_service.v3_jobs,
-            "get",
-            return_value={
-                "job_id": "job-webgpu",
-                "kind": "webgpu_3d",
-                "status": "completed",
-                "stage": "completed",
-                "result_metadata": {
-                    "schema": "prism.webgpu_3d_status_a0",
-                    "status": "ready",
-                    "available": True,
-                },
-                "error_message": "",
-            },
-        ):
-            status = project_service.get_job_status("job-webgpu")
-
-        self.assertEqual(status["status"], "completed")
-        self.assertEqual(status["stage"], "completed")
-        self.assertEqual(status["schema"], "prism.webgpu_3d_status_a0")
-        self.assertTrue(status["available"])
-
-    def test_job_status_merges_staged_payload_for_pollers(self) -> None:
-        with mock.patch.object(
-            project_service.v3_jobs,
-            "get",
-            return_value={
-                "job_id": "job-webgpu",
-                "kind": "webgpu_3d",
-                "status": "running",
-                "stage": "compile-assets",
-                "payload": {
-                    "bundle_url": "/api/projects/p1/webgpu-3d/manifest/source/build",
-                    "readiness_stage": "board-ready",
-                    "readiness": {
-                        "stage": "board-ready",
-                        "progress": 35,
-                        "revision": "rev-1",
-                    },
-                    "logs": ["Published staged bundle: board-ready (board)"],
-                },
-                "result_metadata": {},
-                "error_message": "",
-            },
-        ):
-            status = project_service.get_job_status("job-webgpu")
-
-        self.assertEqual(status["status"], "running")
-        self.assertEqual(status["readiness_stage"], "board-ready")
-        self.assertIn("bundle_url", status)
-        self.assertEqual(len(status["logs"]), 1)
-
     def test_thumbnail_url_is_content_versioned_when_digest_is_available(self) -> None:
         self.assertEqual(
             project_service.thumbnail_url_for_row(

@@ -449,38 +449,6 @@ def _workspace_row_to_project(row: dict) -> Project:
         portfolio=row.get("portfolio"),
     )
 
-def get_job_status(job_id: str):
-    v3_job = v3_jobs.get(job_id)
-    if v3_job:
-        metadata = dict(v3_job.get("result_metadata") or {})
-        payload_compat = dict(v3_job.get("payload") or {})
-        staged_keys = (
-            "bundle_url",
-            "readiness",
-            "readiness_stage",
-            "sourceRevisionKey",
-            "source_fingerprint",
-            "status_selector",
-            "commit",
-        )
-        staged_fields = {
-            key: payload_compat[key]
-            for key in staged_keys
-            if key in payload_compat and payload_compat[key] is not None
-        }
-        logs = payload_compat.get("logs")
-        if not isinstance(logs, list):
-            logs = []
-        return {
-            **metadata,
-            **staged_fields,
-            **v3_job,
-            "type": v3_job.get("kind"),
-            "error": v3_job.get("error_message") or None,
-            "logs": logs,
-        }
-    return workspace.get_job(job_id)
-
 # Workflow Jobs
 def _find_cli_path():
     """Keep the legacy lookup seam while delegating to the jobset service."""
