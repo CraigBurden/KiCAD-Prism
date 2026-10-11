@@ -2,7 +2,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from app.core.roles import Role
+from app.core.roles import CATALOG_READ_ROLES, Role
+from app.core.security import AuthenticatedUser
 from app.services.workspace_service import workspace
 from app.services import project_service
 
@@ -22,6 +23,21 @@ def get_project_for_role_or_404(project_id: str, role: Role) -> project_service.
     if not row:
         raise HTTPException(status_code=404, detail="Project not found")
     return _row_to_project(row)
+
+
+def authorize_job_read(job: dict, user: AuthenticatedUser) -> None:
+    """Who may see a job: project jobs follow the project, catalog jobs the
+    catalog roles, everything else its requester or an admin."""
+    project_id = job.get("project_id")
+    if project_id:
+        get_project_for_role_or_404(str(project_id), user.role)
+        return
+    if job.get("worker_pool") == "catalog":
+        if user.role not in CATALOG_READ_ROLES:
+            raise HTTPException(status_code=403, detail="Catalog read access required")
+        return
+    if user.role != "admin" and job.get("requested_by") not in {"", user.email}:
+        raise HTTPException(status_code=403, detail="Job access denied")
 
 
 def _row_to_project(row: dict) -> project_service.Project:
