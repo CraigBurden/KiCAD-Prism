@@ -162,7 +162,19 @@ def _has_scope(user: AuthenticatedUser, *required_scopes: str) -> bool:
     return "*" in scopes or any(scope in scopes for scope in required_scopes)
 
 
+def refuse_provider_token(user: AuthenticatedUser) -> None:
+    """KiCad remote-provider tokens are for the remote-symbol routes only.
+
+    They carry their user's role, so without this a token minted for KiCad's
+    symbol chooser would read every project, comment, system and release the
+    user can.
+    """
+    if user.auth_type == "kicad_provider":
+        raise HTTPException(status_code=403, detail="KiCad remote-provider tokens can only read remote symbols")
+
+
 async def require_viewer(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    refuse_provider_token(user)
     return user
 
 

@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.roles import Role
-from app.core.security import AuthenticatedUser, get_current_user, guest_user, require_admin
+from app.core.security import AuthenticatedUser, guest_user, require_admin, require_viewer
 from app.core.session import (
     OIDC_TRANSACTION_COOKIE_NAME,
     SESSION_COOKIE_NAME,
@@ -315,7 +315,7 @@ async def login_with_password(
 @router.post("/password/change")
 async def change_own_password(
     request: ChangePasswordRequest,
-    user: AuthenticatedUser = Depends(get_current_user),
+    user: AuthenticatedUser = Depends(require_viewer),
 ):
     """Change the signed-in user's own local password."""
     if not password_auth_enabled():
@@ -339,18 +339,18 @@ async def change_own_password(
 
 
 @router.get("/me", response_model=UserSession)
-async def get_current_session_user(user: AuthenticatedUser = Depends(get_current_user)):
+async def get_current_session_user(user: AuthenticatedUser = Depends(require_viewer)):
     return _build_user_session(user)
 
 
 @router.get("/sessions", response_model=list[ActiveSession])
-async def list_my_sessions(user: AuthenticatedUser = Depends(get_current_user)):
+async def list_my_sessions(user: AuthenticatedUser = Depends(require_viewer)):
     """Every live browser session for the signed-in account."""
     return [ActiveSession(**item) for item in session_store_service.list_sessions(user.email)]
 
 
 @router.post("/sessions/revoke-others")
-async def revoke_other_sessions(user: AuthenticatedUser = Depends(get_current_user)):
+async def revoke_other_sessions(user: AuthenticatedUser = Depends(require_viewer)):
     """Sign out everywhere except the browser making this request."""
     revoked = _revoke_account_sessions(
         user.email, reason="user_revoked_others", keep_session_id=user.session_id

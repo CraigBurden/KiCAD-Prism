@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from app.core.security import AuthenticatedUser, get_current_user, require_viewer
+from app.core.security import AuthenticatedUser, get_current_user, refuse_provider_token, require_viewer
 from app.services import agent_auth_service
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -88,6 +88,7 @@ async def authorize(
         next_url = str(request.url)
         login_url = f"{_base_url(request).rstrip('/')}/?next={quote(next_url, safe='')}"
         return RedirectResponse(login_url, status_code=302)
+    refuse_provider_token(user)
 
     if user.auth_type == "guest":
         # Auth is off; nothing to authorize.
@@ -130,6 +131,7 @@ async def authorize_submit(
         code_challenge_method=code_challenge_method,
     )
     user = await get_current_user(request)
+    refuse_provider_token(user)
     if user.auth_type == "guest":
         raise HTTPException(status_code=400, detail="Sign-in is not required on this server")
 
