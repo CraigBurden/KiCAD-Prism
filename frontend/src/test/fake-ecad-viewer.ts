@@ -43,9 +43,9 @@ export class FakeEcadViewer extends HTMLElement implements ECadViewerElement {
     readonly switchPage = vi.fn();
     readonly getScreenLocation = vi.fn(() => null);
     readonly requestCrossProbe = vi.fn(async () => ({ ok: true as const, targetContext: "PCB" as const, generation: 1 }));
-    enableInsets?: () => void;
-    setInsetPeer?: (peer: ECadViewerElement | null) => void;
-    setInset3D?: ECadViewerElement["setInset3D"];
+    readonly enableInsets = vi.fn();
+    readonly setInsetPeer = vi.fn<NonNullable<ECadViewerElement["setInsetPeer"]>>();
+    readonly setInset3D = vi.fn<NonNullable<ECadViewerElement["setInset3D"]>>();
     insetMode?: boolean;
     setInsetMode?: (on: boolean) => void;
     measureMode?: boolean;
@@ -85,9 +85,6 @@ function register(): string {
 export function fakeEcadViewer(options: FakeEcadViewerOptions = {}): FakeEcadViewer {
     register();
     const viewer = new FakeEcadViewer();
-    viewer.enableInsets = vi.fn();
-    viewer.setInsetPeer = vi.fn();
-    viewer.setInset3D = vi.fn();
     if (options.insets) {
         viewer.insetMode = false;
         viewer.setInsetMode = vi.fn((on: boolean) => {
