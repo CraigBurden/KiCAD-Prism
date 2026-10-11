@@ -363,7 +363,6 @@ class ReleaseBuildRowFencingTests(unittest.TestCase):
         from app.services.postgres_database import database
 
         jobs.initialize()
-        store.initialize()
         self.store = store
         from app.services import release_build_attempts
 
