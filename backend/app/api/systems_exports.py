@@ -31,5 +31,5 @@ async def create_exports(
 ):
     version = _expected_version(request, system_id)
     items = [item.model_dump() for item in body.exports]
-    result = await _run(system_id, lambda: system_service.service.create_exports(_caller(user), system_id, version, items))
+    result = await _run(lambda: system_service.service.create_exports(_caller(user), system_id, version, items))
     return _respond(result, response, status_code=201)

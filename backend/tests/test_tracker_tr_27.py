@@ -19,6 +19,7 @@ from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.api import tracker_webhooks as webhooks_api  # noqa: E402
 from app.services.trackers.github_webhooks import (  # noqa: E402
@@ -92,6 +93,7 @@ class RoutingContractTests(unittest.TestCase):
         self.assertIn("tracker_webhooks_router", source)
         self.assertIn("bring_every_schema_to_head()", source)
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(webhooks_api.router)
         self.assertIn("/api/trackers/webhooks/{provider}/{connector_id}", set(app.openapi()["paths"]))
 

@@ -9,6 +9,7 @@ from test_system_api import _request
 from test_system_git import GitCase
 from test_system_publish import PublishCase
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import service as service_module
 from app.services.systems.store import Conflict, Invalid, NotFound
@@ -62,6 +63,7 @@ class CommitPublishTest(GitCase, PublishCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         path = f"/api/systems/{self.sid}/git/commits/{pushed['commit']}/publish"
         self.assertEqual(_request(app, "POST", path, body={"ipn": self.ipn}, user="viewer").status, 403)

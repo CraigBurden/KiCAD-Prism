@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from fastapi import FastAPI, HTTPException
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import project_import_followups as followups
 from app.core.security import AuthenticatedUser, get_current_user, require_designer
 
@@ -69,6 +70,7 @@ async def _post(app, path: str) -> tuple[int, bytes]:
 class ProjectImportFollowUpApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_viewer_is_rejected_before_scheduler(self) -> None:
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(followups.router, prefix="/api/projects")
         app.dependency_overrides[get_current_user] = lambda: VIEWER
         try:
@@ -100,6 +102,7 @@ class ProjectImportFollowUpApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_designer_request_reaches_scheduler_with_actor(self) -> None:
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(followups.router, prefix="/api/projects")
         outcomes = [
             {

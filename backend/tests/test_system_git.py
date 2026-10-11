@@ -20,6 +20,7 @@ from test_system_snapshots import DESIGNER, SnapshotCase
 from fastapi import FastAPI
 from test_system_api import _request
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import git_tracking
 from app.services.systems import service as service_module
@@ -380,6 +381,7 @@ class GitApiTest(GitCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
 
     def call(self, method: str, path: str, **kwargs):

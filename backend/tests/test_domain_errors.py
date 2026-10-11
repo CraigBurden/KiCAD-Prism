@@ -7,11 +7,13 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.core import errors
 
 
 def _client(raise_error) -> TestClient:
     app = FastAPI()
+    install_error_handlers(app)
     errors.install_error_handlers(app)
 
     @app.get("/boom")
@@ -22,29 +24,34 @@ def _client(raise_error) -> TestClient:
 
 
 class DomainErrorClassesTest(unittest.TestCase):
-    def test_each_class_fixes_status_and_default_code(self) -> None:
+    def test_each_class_fixes_the_status(self) -> None:
         cases = [
-            (errors.BadRequest, 400, "bad_request"),
-            (errors.Forbidden, 403, "forbidden"),
-            (errors.NotFound, 404, "not_found"),
-            (errors.Conflict, 409, "conflict"),
-            (errors.StaleVersion, 412, "stale_version"),
-            (errors.Invalid, 422, "invalid"),
-            (errors.UpstreamFailure, 502, "upstream_failure"),
-            (errors.Unavailable, 503, "unavailable"),
+            (errors.BadRequest, 400),
+            (errors.Forbidden, 403),
+            (errors.NotFound, 404),
+            (errors.Conflict, 409),
+            (errors.StaleVersion, 412),
+            (errors.Invalid, 422),
+            (errors.UpstreamFailure, 502),
+            (errors.Unavailable, 503),
         ]
-        for cls, status, code in cases:
+        for cls, status in cases:
             with self.subTest(cls=cls.__name__):
                 error = cls("message")
-                self.assertEqual((error.status_code, error.code), (status, code))
-                self.assertEqual(error.body(), {"detail": "message", "code": code})
+                self.assertEqual(error.status_code, status)
+                # No code unless the error carries one: the body is today's {"detail": ...}.
+                self.assertEqual(error.body(), {"detail": "message"})
                 self.assertEqual(str(error), "message")
+
+    def test_a_code_and_extras_sit_beside_detail(self) -> None:
+        error = errors.Forbidden("no", code="publication_required", requiredRole="designer")
+        self.assertEqual(error.body(), {"detail": "no", "code": "publication_required", "requiredRole": "designer"})
 
     def test_overrides_do_not_leak_into_the_class(self) -> None:
         error = errors.Conflict("x", code="revision_conflict", status_code=412, currentRevision=3)
         self.assertEqual(error.status_code, 412)
         self.assertEqual(error.body(), {"detail": "x", "code": "revision_conflict", "currentRevision": 3})
-        self.assertEqual((errors.Conflict.status_code, errors.Conflict.code), (409, "conflict"))
+        self.assertEqual((errors.Conflict.status_code, errors.Conflict.code), (409, None))
 
     def test_client_detail_can_differ_from_the_internal_message(self) -> None:
         error = errors.NotFound("sys-123", detail="Not found")
@@ -63,7 +70,7 @@ class HandlerTest(unittest.TestCase):
         response = _client(raise_stale).get("/boom")
         self.assertEqual(response.status_code, 412)
         self.assertEqual(response.headers["etag"], '"sys:s:4"')
-        self.assertEqual(response.json(), {"detail": "System has changed; reload it", "code": "stale_version"})
+        self.assertEqual(response.json(), {"detail": "System has changed; reload it"})
 
     def test_subclasses_defined_by_services_use_the_same_handler(self) -> None:
         class PasswordTooShort(errors.Invalid, ValueError):

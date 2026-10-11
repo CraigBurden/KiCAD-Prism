@@ -18,13 +18,13 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 @router.post("/{system_id}/collisions", status_code=202)
 async def request_collision_check(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """P2 §24.2: queue a collision check of the placed system; 202 ``{jobId}``."""
-    return await _run(system_id, lambda: system_service.service.request_collision_check(_caller(user), system_id))
+    return await _run(lambda: system_service.service.request_collision_check(_caller(user), system_id))
 
 
 @router.get("/{system_id}/collisions")
 async def collision_check(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """P2 §24.2: the last check, whether it is current, and its SYS-V22 findings."""
-    return await _run(system_id, lambda: system_service.service.collision_check(_caller(user), system_id))
+    return await _run(lambda: system_service.service.collision_check(_caller(user), system_id))
 
 
 class WaiverRequest(BaseModel):
@@ -38,7 +38,7 @@ async def waive_finding(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.waive_finding(
+    result = await _run(lambda: system_service.service.waive_finding(
         _caller(user), system_id, version, body.findingKey, body.note,
     ))
     return _respond(result, response, status_code=201)
@@ -56,7 +56,7 @@ async def waive_findings(
 ):
     """SB2-113: several findings waived with one note, in one version."""
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.waive_findings(
+    result = await _run(lambda: system_service.service.waive_findings(
         _caller(user), system_id, version, body.findingKeys, body.note,
     ))
     return _respond(result, response, status_code=201)
@@ -65,7 +65,7 @@ async def waive_findings(
 @router.delete("/{system_id}/waivers/{waiver_id}", dependencies=[Depends(require_designer)])
 async def unwaive_finding(system_id: str, waiver_id: str, request: Request, user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
-    return _no_content(await _run(system_id, lambda: system_service.service.unwaive_finding(
+    return _no_content(await _run(lambda: system_service.service.unwaive_finding(
         _caller(user), system_id, version, waiver_id,
     )))
 
@@ -73,7 +73,7 @@ async def unwaive_finding(system_id: str, waiver_id: str, request: Request, user
 @router.get("/{system_id}/report.{fmt}")
 async def findings_report(system_id: str, fmt: Literal["xlsx", "csv"], user: AuthenticatedUser = Depends(require_viewer)):
     """P2 §8.6: open reviews and findings, one sheet per section (``csv``: one titled block each)."""
-    content, name, version = await _run(system_id, lambda: system_service.service.report(_caller(user), system_id, fmt))
+    content, name, version = await _run(lambda: system_service.service.report(_caller(user), system_id, fmt))
     stem = _UNSAFE_FILENAME.sub("-", name).strip("-.") or "system"
     headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "ETag": etag(system_id, version),
                "Content-Disposition": f'attachment; filename="{stem}-report.{fmt}"'}

@@ -282,7 +282,7 @@ class DocumentsMixin:
         with self._tx(consistent=True) as store:
             loaded = self._load(store, system_id, caller)
             if int(loaded.version) != int(version):
-                raise StaleVersion(int(loaded.version))
+                raise StaleVersion(int(loaded.version), system_id)
             return self._report_for_reader(loaded, caller, self._built(loaded)["validation"])
 
     def waive_finding(self, caller: Caller, system_id: str, version: int, finding_key: str, note: str) -> Result:

@@ -1,16 +1,18 @@
 """Typed domain errors and the one place they become HTTP responses.
 
 A service refuses a request by raising a ``DomainError`` subclass. The class
-fixes the status and a default machine ``code``; the message is written for the
-caller, so it may reach the client. Routers do not translate these: the handler
-``install_error_handlers`` registers renders every one the same way::
+fixes the status; the message is written for the caller, so it may reach the
+client. Routers do not translate these: the handler ``install_error_handlers``
+registers renders every one the same way::
 
     {"detail": "<message>", "code": "<code>", ...extra}
 
 ``detail`` keeps FastAPI's key so every existing reader (browser, KiCad panel,
-scripts) keeps working; ``code`` and any extra fields (``currentRevision``,
-``requiredRole`` ...) sit beside it. ``headers`` (an ``ETag`` on a stale write)
-are sent with the response.
+scripts) keeps working. ``code`` is present when the error carries one (the
+comment, tracker and catalog errors do; a plain ``NotFound`` does not), and
+extra fields (``currentRevision``, ``requiredRole`` ...) sit beside it.
+``headers`` (an ``ETag`` on a stale write) are sent with the response. A domain
+whose clients read an older body shape overrides ``body()`` (catalog conflicts).
 
 Status codes stay with the domain that owns them: System Builder answers a
 stale whole-system ETag with 412 (``StaleVersion``); comments, catalog and
@@ -35,7 +37,7 @@ class DomainError(Exception):
     """A refusal the caller can act on. Subclasses fix the status."""
 
     status_code: int = 400
-    code: str = "bad_request"
+    code: str | None = None
     default_detail: str = "Request refused"
 
     def __init__(
@@ -58,14 +60,16 @@ class DomainError(Exception):
         self.extra = extra
 
     def body(self) -> dict[str, Any]:
-        return {"detail": self.detail, "code": self.code, **self.extra}
+        body: dict[str, Any] = {"detail": self.detail}
+        if self.code:
+            body["code"] = self.code
+        return {**body, **self.extra}
 
 
 class BadRequest(DomainError):
     """Bad request."""
 
     status_code = 400
-    code = "bad_request"
     default_detail = "Bad request"
 
 
@@ -73,7 +77,6 @@ class Forbidden(DomainError):
     """Forbidden."""
 
     status_code = 403
-    code = "forbidden"
     default_detail = "Forbidden"
 
 
@@ -81,7 +84,6 @@ class NotFound(DomainError):
     """Not found."""
 
     status_code = 404
-    code = "not_found"
     default_detail = "Not found"
 
 
@@ -89,7 +91,6 @@ class Conflict(DomainError):
     """The request contradicts the current state."""
 
     status_code = 409
-    code = "conflict"
     default_detail = "Conflict"
 
 
@@ -97,7 +98,6 @@ class StaleVersion(DomainError):
     """The resource changed since the caller read it."""
 
     status_code = 412
-    code = "stale_version"
     default_detail = "The resource changed; reload it"
 
 
@@ -105,7 +105,6 @@ class Invalid(DomainError):
     """Invalid request."""
 
     status_code = 422
-    code = "invalid"
     default_detail = "Invalid request"
 
 
@@ -113,7 +112,6 @@ class UpstreamFailure(DomainError):
     """An upstream service failed."""
 
     status_code = 502
-    code = "upstream_failure"
     default_detail = "An upstream service failed"
 
 
@@ -121,7 +119,6 @@ class Unavailable(DomainError):
     """Service unavailable."""
 
     status_code = 503
-    code = "unavailable"
     default_detail = "Service unavailable"
 
 

@@ -303,7 +303,7 @@ class ReviewsMixin:
         with self._tx(consistent=True) as store:
             loaded = self._load(store, system_id, caller)
             if int(loaded.version) != int(version):
-                raise StaleVersion(int(loaded.version))
+                raise StaleVersion(int(loaded.version), system_id)
             built = self._built(loaded)
             # The read keys (SB2-98) describe the live system, not what a snapshot freezes.
             document = json.loads(json.dumps({k: v for k, v in built.items() if k not in ("sceneKey", "netsKey")},

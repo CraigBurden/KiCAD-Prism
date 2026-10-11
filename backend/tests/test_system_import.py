@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from system_builder_db import FixtureSystemCase
 from test_system_api import _request
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import csv_import, icd
 from app.services.systems import service as service_module
@@ -274,6 +275,7 @@ class ImportApiTest(ImportCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
 
     def call(self, method: str, path: str, **kwargs):

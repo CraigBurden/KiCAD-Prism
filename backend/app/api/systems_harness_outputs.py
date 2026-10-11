@@ -25,7 +25,7 @@ async def set_coverings(system_id: str, harness_id: str, request: Request, respo
     """P2 §26.1: replace the harness's coverings."""
     version = _expected_version(request, system_id)
     coverings = [c.model_dump() for c in body]
-    result = await _run(system_id, lambda: system_service.service.set_coverings(
+    result = await _run(lambda: system_service.service.set_coverings(
         _caller(user), system_id, version, harness_id, coverings))
     return _respond(result, response)
 
@@ -33,7 +33,7 @@ async def set_coverings(system_id: str, harness_id: str, request: Request, respo
 @router.get("/{system_id}/harnesses/{harness_id}/outputs/{name}")
 async def harness_output(system_id: str, harness_id: str, name: str, user: AuthenticatedUser = Depends(require_viewer)):
     """P2 §26.2: a drawing (SVG/PDF), wiring list or BOM (CSV) or WireViz YAML of one harness."""
-    content, media, filename = await _run(system_id, lambda: system_service.service.harness_output(
+    content, media, filename = await _run(lambda: system_service.service.harness_output(
         _caller(user), system_id, harness_id, name))
     return Response(content, media_type=media, headers={
         "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",

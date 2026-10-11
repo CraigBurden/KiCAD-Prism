@@ -29,6 +29,7 @@ from fastapi import FastAPI
 
 from system_builder_fixtures import build_fixture_repo
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import interface_cache
 from app.core.security import AuthenticatedUser, get_current_user
@@ -96,6 +97,7 @@ class RoutingTest(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
         self.assertIn('app.include_router(systems_router, prefix="/api/systems"', source)
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         paths = set(app.openapi()["paths"])
         for path in ("/api/systems", "/api/systems/{system_id}",
@@ -201,6 +203,7 @@ class SystemApiTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
 
     def tearDown(self) -> None:

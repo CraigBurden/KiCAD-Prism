@@ -14,6 +14,9 @@ from typing import TYPE_CHECKING, Any, Iterator, Mapping, Optional, Sequence
 
 from psycopg.types.json import Jsonb
 
+from app.core import errors
+from app.services.systems.visibility import etag
+
 if TYPE_CHECKING:
     from app.services.systems.store import SystemStore
 
@@ -34,31 +37,38 @@ OVERRIDE_STATES = frozenset({"hidden", "promoted"})
 PORT_BASELINE_KEYS = ("portKey", "memberKeys", "reference", "libId", "footprint", "pinCount")
 
 
-class SystemStoreError(Exception):
-    """Base class; each subclass maps to one HTTP status in the API layer."""
+class SystemStoreError(errors.DomainError):
+    """Base class. Each subclass is a typed domain error (``app.core.errors``) with one status."""
 
 
-class NotFound(SystemStoreError):
-    """404."""
+class NotFound(SystemStoreError, errors.NotFound):
+    """404. Only a message written as "... not found" reaches the caller; an id never does."""
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(message, detail=message if message.endswith("not found") else "Not found")
 
 
-class StaleVersion(SystemStoreError):
-    """412: the caller's ETag version is not the current one."""
+class StaleVersion(SystemStoreError, errors.StaleVersion):
+    """412: the caller's ETag version is not the current one. The response carries the current ETag."""
 
-    def __init__(self, current: int) -> None:
-        super().__init__(f"system is at version {current}")
+    def __init__(self, current: int, system_id: str = "") -> None:
+        super().__init__(
+            f"system is at version {current}",
+            detail="System has changed; reload it",
+            headers={"ETag": etag(system_id, current)},
+        )
         self.current = current
 
 
-class Conflict(SystemStoreError):
+class Conflict(SystemStoreError, errors.Conflict):
     """409: the request is well formed but contradicts current state."""
 
 
-class Invalid(SystemStoreError):
+class Invalid(SystemStoreError, errors.Invalid):
     """422: schema or limit violation."""
 
 
-class Forbidden(SystemStoreError):
+class Forbidden(SystemStoreError, errors.Forbidden):
     """403: the caller may see the system but not this whole artifact."""
 
 
@@ -213,7 +223,7 @@ class StoreCore:
         if row["archived_at"] is not None and not archived_ok:
             raise Conflict("system_archived: this system is archived and read-only")
         if expected_version is not None and int(expected_version) != int(row["version"]):
-            raise StaleVersion(int(row["version"]))
+            raise StaleVersion(int(row["version"]), system_id)
         change = Mutation(self, system_id, actor, int(row["version"]))
         yield change
         if not bump:

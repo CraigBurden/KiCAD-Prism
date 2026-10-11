@@ -39,6 +39,7 @@ from fastapi import FastAPI
 from system_builder_fixtures import build_fixture_repo, expected_steps, fixture_system
 from test_system_api import _request
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services import job_service, project_import_service, workspace_service
 from app.services.job_handlers import get_job_handler, load_builtin_job_handlers
@@ -185,6 +186,7 @@ class ReplayTest(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
         self.build_fixture_system()
 

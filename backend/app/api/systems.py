@@ -19,7 +19,7 @@ from app.core.security import AuthenticatedUser, require_designer, require_viewe
 from app.services.systems import csv_import
 from app.services.systems import service as system_service
 from app.services.systems.service import Caller, Result
-from app.services.systems.store import MAX_ROWS, Conflict, Forbidden, Invalid, NotFound, StaleVersion
+from app.services.systems.store import MAX_ROWS
 from app.services.systems.visibility import etag
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
@@ -185,25 +185,10 @@ def _expected_version(request: Request, system_id: str) -> int:
     return int(match.group(2))
 
 
-async def _run(system_id: Optional[str], call: Callable[[], T]) -> T:
-    try:
-        return await asyncio.to_thread(call)
-    except StaleVersion as error:
-        current = etag(system_id or "", error.current)
-        raise HTTPException(
-            status_code=412, detail="System has changed; reload it", headers={"ETag": current}
-        ) from None
-    except NotFound as error:
-        message = str(error)
-        raise HTTPException(
-            status_code=404, detail=message if message.endswith("not found") else "Not found"
-        ) from None
-    except Conflict as error:
-        raise HTTPException(status_code=409, detail=str(error)) from None
-    except Invalid as error:
-        raise HTTPException(status_code=422, detail=str(error)) from None
-    except Forbidden as error:
-        raise HTTPException(status_code=403, detail=str(error)) from None
+async def _run(call: Callable[[], T]) -> T:
+    """Run a blocking service call off the event loop; its typed errors render through the app handler."""
+
+    return await asyncio.to_thread(call)
 
 
 def _respond(result: Result, response: Response, status_code: int = 200) -> Any:
@@ -222,14 +207,14 @@ def _no_content(result: Result) -> Response:
 
 @router.get("")
 async def list_systems(user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(None, lambda: system_service.service.list_systems(_caller(user)))
+    return await _run(lambda: system_service.service.list_systems(_caller(user)))
 
 
 @router.post("", dependencies=[Depends(require_designer)])
 async def create_system(
     body: CreateSystemRequest, response: Response, user: AuthenticatedUser = Depends(require_viewer)
 ):
-    result = await _run(None, lambda: system_service.service.create_system(
+    result = await _run(lambda: system_service.service.create_system(
         _caller(user), name=body.name, description=body.description, folder_id=body.folderId,
     ))
     return _respond(result, response, 201)
@@ -239,7 +224,7 @@ async def create_system(
 async def get_system(system_id: str, response: Response, include: Optional[str] = None,
                      user: AuthenticatedUser = Depends(require_viewer)):
     validation = "validation" in (include or "").split(",")  # SB2-98: findings in the same read
-    result = await _run(system_id, lambda: system_service.service.document(_caller(user), system_id,
+    result = await _run(lambda: system_service.service.document(_caller(user), system_id,
                                                                            include_validation=validation))
     response.headers["Cache-Control"] = "private, no-cache"
     return _respond(result, response)
@@ -258,7 +243,7 @@ async def update_system(
         fields["description"] = ""
     if "optionalRules" in fields and fields["optionalRules"] is None:
         fields["optionalRules"] = []
-    result = await _run(system_id, lambda: system_service.service.update_system(
+    result = await _run(lambda: system_service.service.update_system(
         _caller(user), system_id, version, fields,
     ))
     return _respond(result, response)
@@ -268,7 +253,7 @@ async def update_system(
 async def delete_system(system_id: str, request: Request, user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
     # D-P2-31: 200 with {deleted, archived, references}; a referenced system is archived instead.
-    return await _run(system_id, lambda: system_service.service.delete_system(_caller(user), system_id, version))
+    return await _run(lambda: system_service.service.delete_system(_caller(user), system_id, version))
 
 
 # ---------------------------------------------------------------------------
@@ -284,14 +269,14 @@ async def add_instance(
     if body.kind in ("assembly", "module", "part"):
         if body.componentId is None or body.projectId is not None:
             raise HTTPException(status_code=422, detail=f"a catalog {body.kind} instance takes componentId, not projectId")
-        result = await _run(system_id, lambda: system_service.service.add_catalog_instance(
+        result = await _run(lambda: system_service.service.add_catalog_instance(
             _caller(user), system_id, version, kind=body.kind, label=body.label, component_id=body.componentId,
             revision_id=body.revisionId, follow=body.follow,
         ))
         return _respond(result, response, 201)
     if body.projectId is None:
         raise HTTPException(status_code=422, detail="a board instance takes projectId")
-    result = await _run(system_id, lambda: system_service.service.add_instance(
+    result = await _run(lambda: system_service.service.add_instance(
         _caller(user), system_id, version, project_id=body.projectId, label=body.label,
         baseline_commit=body.baselineCommit, tracked_ref=body.trackedRef, pinned=body.pinned,
     ))
@@ -308,7 +293,7 @@ async def update_instance(
     for key in ("label", "pinned"):
         if key in fields and fields[key] is None:
             raise HTTPException(status_code=422, detail=f"{key} cannot be null")
-    result = await _run(system_id, lambda: system_service.service.update_instance(
+    result = await _run(lambda: system_service.service.update_instance(
         _caller(user), system_id, version, instance_id, fields,
     ))
     return _respond(result, response)
@@ -321,7 +306,7 @@ async def remove_instance(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.remove_instance(
+    result = await _run(lambda: system_service.service.remove_instance(
         _caller(user), system_id, version, instance_id, cascade=cascade == "links",
     ))
     return _no_content(result)
@@ -342,7 +327,7 @@ async def list_nets(
     an exact match, so a click on a trace resolves to at most one group.
     With ``members`` (SB2-33), each group lists its visible board nets as ``{occurrence, net}``.
     """
-    return await _run(system_id, lambda: system_service.service.nets(
+    return await _run(lambda: system_service.service.nets(
         _caller(user), system_id, search=search, occurrence=occurrence, net=net, members=members, limit=limit,
         offset=offset,
     ))
@@ -350,19 +335,19 @@ async def list_nets(
 
 @router.get("/{system_id}/nets/{group_id}")
 async def get_net(system_id: str, group_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.net(_caller(user), system_id, group_id))
+    return await _run(lambda: system_service.service.net(_caller(user), system_id, group_id))
 
 
 @router.get("/{system_id}/hierarchy")
 async def get_hierarchy(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """P2 §11: the occurrence tree, redacted for the reader."""
-    return await _run(system_id, lambda: system_service.service.hierarchy(_caller(user), system_id))
+    return await _run(lambda: system_service.service.hierarchy(_caller(user), system_id))
 
 
 @router.get("/{system_id}/scene")
 async def get_scene(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """P2 §20: every occurrence placed, with the board bundles that draw it."""
-    return await _run(system_id, lambda: system_service.service.scene(_caller(user), system_id))
+    return await _run(lambda: system_service.service.scene(_caller(user), system_id))
 
 
 @router.get("/{system_id}/instances/{instance_id}/interface")
@@ -370,7 +355,7 @@ async def get_interface(
     system_id: str, instance_id: str, commit: Optional[str] = Query(default=None, max_length=40),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    state, body = await _run(system_id, lambda: system_service.service.interface(
+    state, body = await _run(lambda: system_service.service.interface(
         _caller(user), system_id, instance_id, commit,
     ))
     if state == "queued":
@@ -382,7 +367,7 @@ async def get_interface(
 async def check_instance(
     system_id: str, instance_id: str, user: AuthenticatedUser = Depends(require_viewer),
 ):
-    body = await _run(system_id, lambda: system_service.service.check_now(
+    body = await _run(lambda: system_service.service.check_now(
         _caller(user), system_id, instance_id,
     ))
     return JSONResponse(status_code=202, content=body)
@@ -397,7 +382,7 @@ async def set_port_override(
     response: Response, user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.set_override(
+    result = await _run(lambda: system_service.service.set_override(
         _caller(user), system_id, version, instance_id, port_key, body.state,
     ))
     return _respond(result, response)
@@ -415,7 +400,7 @@ class MatingRequest(BaseModel):
 
 @router.get("/{system_id}/instances/{instance_id}/mating")
 async def get_mating(system_id: str, instance_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.mating(_caller(user), system_id, instance_id))
+    return await _run(lambda: system_service.service.mating(_caller(user), system_id, instance_id))
 
 
 @router.put("/{system_id}/instances/{instance_id}/mating/{port_key:path}", dependencies=[Depends(require_designer)])
@@ -425,7 +410,7 @@ async def set_mating(
 ):
     version = _expected_version(request, system_id)
     fields = body.model_dump()
-    result = await _run(system_id, lambda: system_service.service.set_mating(
+    result = await _run(lambda: system_service.service.set_mating(
         _caller(user), system_id, version, instance_id, port_key, fields,
     ))
     return _respond(result, response)
@@ -437,7 +422,7 @@ async def clear_mating(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.set_mating(
+    result = await _run(lambda: system_service.service.set_mating(
         _caller(user), system_id, version, instance_id, port_key, None,
     ))
     return _respond(result, response)
@@ -454,7 +439,7 @@ class PoseRequest(BaseModel):
 
 @router.get("/{system_id}/poses")
 async def get_poses(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.poses(_caller(user), system_id))
+    return await _run(lambda: system_service.service.poses(_caller(user), system_id))
 
 
 @router.put("/{system_id}/poses/{instance_id}", dependencies=[Depends(require_designer)])
@@ -464,7 +449,7 @@ async def set_pose(
 ):
     version = _expected_version(request, system_id)
     fields = body.model_dump()
-    result = await _run(system_id, lambda: system_service.service.set_pose(
+    result = await _run(lambda: system_service.service.set_pose(
         _caller(user), system_id, version, instance_id, fields,
     ))
     return _respond(result, response)
@@ -476,7 +461,7 @@ async def clear_pose(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.set_pose(
+    result = await _run(lambda: system_service.service.set_pose(
         _caller(user), system_id, version, instance_id, None,
     ))
     return _respond(result, response)
@@ -498,7 +483,7 @@ async def set_poses(
 ):
     version = _expected_version(request, system_id)
     poses = [item.model_dump() for item in body.poses]
-    result = await _run(system_id, lambda: system_service.service.set_poses(
+    result = await _run(lambda: system_service.service.set_poses(
         _caller(user), system_id, version, poses, body.clear,
     ))
     return _respond(result, response)
@@ -506,12 +491,12 @@ async def set_poses(
 
 @router.get("/{system_id}/placement")
 async def get_placement(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.placement(_caller(user), system_id))
+    return await _run(lambda: system_service.service.placement(_caller(user), system_id))
 
 
 @router.get("/{system_id}/links/{link_id}/mate")
 async def get_link_mate(system_id: str, link_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.link_mate(_caller(user), system_id, link_id))
+    return await _run(lambda: system_service.service.link_mate(_caller(user), system_id, link_id))
 
 
 class DrivingMateRequest(BaseModel):
@@ -520,7 +505,7 @@ class DrivingMateRequest(BaseModel):
 
 @router.get("/{system_id}/driving-mates")
 async def get_driving_mates(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.driving_mates(_caller(user), system_id))
+    return await _run(lambda: system_service.service.driving_mates(_caller(user), system_id))
 
 
 @router.put("/{system_id}/driving-mates/{instance_id}", dependencies=[Depends(require_designer)])
@@ -529,7 +514,7 @@ async def set_driving_mate(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.set_driving_mate(
+    result = await _run(lambda: system_service.service.set_driving_mate(
         _caller(user), system_id, version, instance_id, body.linkId,
     ))
     return _respond(result, response)
@@ -541,7 +526,7 @@ async def clear_driving_mate(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.set_driving_mate(
+    result = await _run(lambda: system_service.service.set_driving_mate(
         _caller(user), system_id, version, instance_id, None,
     ))
     return _respond(result, response)
@@ -552,7 +537,7 @@ async def reset_poses(
     system_id: str, request: Request, response: Response, user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.reset_poses(_caller(user), system_id, version))
+    result = await _run(lambda: system_service.service.reset_poses(_caller(user), system_id, version))
     return _respond(result, response)
 
 
@@ -644,7 +629,7 @@ class HarnessFromLabelRequest(BaseModel):
 
 @router.get("/{system_id}/harnesses")
 async def list_harnesses(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.list_harnesses(_caller(user), system_id))
+    return await _run(lambda: system_service.service.list_harnesses(_caller(user), system_id))
 
 
 @router.post("/{system_id}/harnesses", dependencies=[Depends(require_designer)])
@@ -652,7 +637,7 @@ async def create_harness(system_id: str, body: CreateHarnessRequest, request: Re
                          user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
     fields = body.model_dump()
-    result = await _run(system_id, lambda: system_service.service.create_harness(_caller(user), system_id, version, fields))
+    result = await _run(lambda: system_service.service.create_harness(_caller(user), system_id, version, fields))
     return _respond(result, response, 201)
 
 
@@ -660,7 +645,7 @@ async def create_harness(system_id: str, body: CreateHarnessRequest, request: Re
 async def harness_from_label(system_id: str, body: HarnessFromLabelRequest, request: Request, response: Response,
                              user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.harness_from_label(
+    result = await _run(lambda: system_service.service.harness_from_label(
         _caller(user), system_id, version, body.label))
     return _respond(result, response, 201)
 
@@ -670,7 +655,7 @@ async def update_harness(system_id: str, harness_id: str, body: UpdateHarnessReq
                          response: Response, user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
     fields = {key: getattr(body, key) for key in body.model_fields_set}
-    result = await _run(system_id, lambda: system_service.service.update_harness(
+    result = await _run(lambda: system_service.service.update_harness(
         _caller(user), system_id, version, harness_id, fields))
     return _respond(result, response)
 
@@ -679,7 +664,7 @@ async def update_harness(system_id: str, harness_id: str, body: UpdateHarnessReq
 async def delete_harness(system_id: str, harness_id: str, request: Request,
                          user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.delete_harness(_caller(user), system_id, version, harness_id))
+    result = await _run(lambda: system_service.service.delete_harness(_caller(user), system_id, version, harness_id))
     return _no_content(result)
 
 
@@ -688,7 +673,7 @@ async def add_harness_end(system_id: str, harness_id: str, body: HarnessEndReque
                           response: Response, user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
     fields = body.model_dump()
-    result = await _run(system_id, lambda: system_service.service.add_harness_end(
+    result = await _run(lambda: system_service.service.add_harness_end(
         _caller(user), system_id, version, harness_id, fields))
     return _respond(result, response, 201)
 
@@ -704,7 +689,7 @@ async def update_harness_end(system_id: str, harness_id: str, end_id: str, body:
         fields["part"] = body.part.model_dump()
     if fields.get("contact") is not None:
         fields["contact"] = body.contact.model_dump()
-    result = await _run(system_id, lambda: system_service.service.update_harness_end(
+    result = await _run(lambda: system_service.service.update_harness_end(
         _caller(user), system_id, version, harness_id, end_id, fields))
     return _respond(result, response)
 
@@ -713,14 +698,14 @@ async def update_harness_end(system_id: str, harness_id: str, end_id: str, body:
 async def delete_harness_end(system_id: str, harness_id: str, end_id: str, request: Request, response: Response,
                              user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.delete_harness_end(
+    result = await _run(lambda: system_service.service.delete_harness_end(
         _caller(user), system_id, version, harness_id, end_id))
     return _respond(result, response)
 
 
 @router.get("/{system_id}/harnesses/{harness_id}/ends/{end_id}/suggestions")
 async def end_suggestions(system_id: str, harness_id: str, end_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.end_suggestions(_caller(user), system_id, harness_id, end_id))
+    return await _run(lambda: system_service.service.end_suggestions(_caller(user), system_id, harness_id, end_id))
 
 
 @router.put("/{system_id}/harnesses/{harness_id}/wires", dependencies=[Depends(require_designer)])
@@ -728,7 +713,7 @@ async def replace_wires(system_id: str, harness_id: str, body: list[WireRequest]
                         response: Response, user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
     wires = [wire.as_input() for wire in body]
-    result = await _run(system_id, lambda: system_service.service.replace_wires(
+    result = await _run(lambda: system_service.service.replace_wires(
         _caller(user), system_id, version, harness_id, wires))
     return _respond(result, response)
 
@@ -738,7 +723,7 @@ async def replace_harness_nodes(system_id: str, harness_id: str, body: list[Harn
                                 response: Response, user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
     nodes = [node.as_input() for node in body]
-    result = await _run(system_id, lambda: system_service.service.replace_nodes(
+    result = await _run(lambda: system_service.service.replace_nodes(
         _caller(user), system_id, version, harness_id, nodes))
     return _respond(result, response)
 
@@ -746,7 +731,7 @@ async def replace_harness_nodes(system_id: str, harness_id: str, body: list[Harn
 @router.post("/{system_id}/harnesses/{harness_id}/generate")
 async def generate_wires(system_id: str, harness_id: str, body: GenerateWiresRequest,
                          user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.generate_wires(
+    return await _run(lambda: system_service.service.generate_wires(
         _caller(user), system_id, harness_id, body.fromEnd, body.toEnd, body.generator, body.options))
 
 
@@ -754,7 +739,7 @@ async def generate_wires(system_id: str, harness_id: str, body: GenerateWiresReq
 async def harness_to_link(system_id: str, harness_id: str, request: Request, response: Response,
                           user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.harness_to_link(
+    result = await _run(lambda: system_service.service.harness_to_link(
         _caller(user), system_id, version, harness_id))
     return _respond(result, response, 201)
 
@@ -763,7 +748,7 @@ async def harness_to_link(system_id: str, harness_id: str, request: Request, res
 async def link_to_harness(system_id: str, link_id: str, request: Request, response: Response,
                           user: AuthenticatedUser = Depends(require_viewer)):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.link_to_harness(
+    result = await _run(lambda: system_service.service.link_to_harness(
         _caller(user), system_id, version, link_id))
     return _respond(result, response, 201)
 
@@ -774,7 +759,7 @@ async def link_to_harness(system_id: str, link_id: str, request: Request, respon
 
 @router.get("/{system_id}/exports")
 async def list_exports(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.list_exports(_caller(user), system_id))
+    return await _run(lambda: system_service.service.list_exports(_caller(user), system_id))
 
 
 @router.post("/{system_id}/exports", dependencies=[Depends(require_designer)])
@@ -785,7 +770,7 @@ async def create_export(
     version = _expected_version(request, system_id)
     if (body.portKey is None) == (body.childExportId is None):
         raise HTTPException(status_code=422, detail="give exactly one of portKey or childExportId")
-    result = await _run(system_id, lambda: system_service.service.create_export(
+    result = await _run(lambda: system_service.service.create_export(
         _caller(user), system_id, version, name=body.name, description=body.description,
         instance_id=body.instanceId, port_key=body.portKey, child_export_id=body.childExportId,
         subport_id=body.subportId,
@@ -802,7 +787,7 @@ async def update_export(
     fields = {key: getattr(body, key) for key in body.model_fields_set}
     if "instanceId" in fields and fields.get("portKey") is None:
         raise HTTPException(status_code=422, detail="retargeting needs portKey")
-    result = await _run(system_id, lambda: system_service.service.update_export(
+    result = await _run(lambda: system_service.service.update_export(
         _caller(user), system_id, version, export_id, fields,
     ))
     return _respond(result, response)
@@ -813,7 +798,7 @@ async def delete_export(
     system_id: str, export_id: str, request: Request, user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.delete_export(
+    result = await _run(lambda: system_service.service.delete_export(
         _caller(user), system_id, version, export_id,
     ))
     return _no_content(result)
@@ -824,7 +809,7 @@ async def export_interface(
     system_id: str, snapshot: Optional[str] = Query(default=None, max_length=100),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    return await _run(system_id, lambda: system_service.service.export_interface(
+    return await _run(lambda: system_service.service.export_interface(
         _caller(user), system_id, snapshot,
     ))
 
@@ -844,7 +829,7 @@ async def create_link(
             raise HTTPException(status_code=422, detail="each link end takes exactly one of portKey or exportId")
     if body.a.instanceId == body.b.instanceId and body.a.key() == body.b.key():
         raise HTTPException(status_code=422, detail="both link ends are the same port")
-    result = await _run(system_id, lambda: system_service.service.create_link(
+    result = await _run(lambda: system_service.service.create_link(
         _caller(user), system_id, version, a=body.a.as_end(), b=body.b.as_end(),
         name=body.name, harness=body.harness, link_type=body.type, stack_height_mm=body.stackHeightMm,
     ))
@@ -862,7 +847,7 @@ async def update_link(
         fields["name"] = ""
     if fields.get("type", "") is None:
         raise HTTPException(status_code=422, detail="type cannot be null")
-    result = await _run(system_id, lambda: system_service.service.update_link(
+    result = await _run(lambda: system_service.service.update_link(
         _caller(user), system_id, version, link_id, fields,
     ))
     return _respond(result, response)
@@ -873,7 +858,7 @@ async def delete_link(
     system_id: str, link_id: str, request: Request, user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.delete_link(
+    result = await _run(lambda: system_service.service.delete_link(
         _caller(user), system_id, version, link_id,
     ))
     return _no_content(result)
@@ -887,7 +872,7 @@ async def replace_rows(
 ):
     version = _expected_version(request, system_id)
     rows = [row.model_dump() for row in body]
-    result = await _run(system_id, lambda: system_service.service.replace_rows(
+    result = await _run(lambda: system_service.service.replace_rows(
         _caller(user), system_id, version, link_id, rows,
     ))
     return _respond(result, response)
@@ -898,7 +883,7 @@ async def generate_rows(
     system_id: str, link_id: str, body: GenerateRequest, response: Response,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    result = await _run(system_id, lambda: system_service.service.generate_rows(
+    result = await _run(lambda: system_service.service.generate_rows(
         _caller(user), system_id, link_id, body.generator, body.options,
     ))
     return _respond(result, response)
@@ -910,7 +895,7 @@ async def generate_rows(
 
 @router.get("/{system_id}/validation")
 async def get_validation(system_id: str, response: Response, user: AuthenticatedUser = Depends(require_viewer)):
-    result = await _run(system_id, lambda: system_service.service.validation_report(_caller(user), system_id))
+    result = await _run(lambda: system_service.service.validation_report(_caller(user), system_id))
     return _respond(result, response)
 
 
@@ -920,7 +905,7 @@ async def list_reviews(
     status: Optional[Literal["open", "applied", "kept_pinned", "superseded", "closed"]] = Query(default=None),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    return await _run(system_id, lambda: system_service.service.list_reviews(_caller(user), system_id, status))
+    return await _run(lambda: system_service.service.list_reviews(_caller(user), system_id, status))
 
 
 @router.post(
@@ -931,7 +916,7 @@ async def decide_review_item(
     response: Response, user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.decide(
+    result = await _run(lambda: system_service.service.decide(
         _caller(user), system_id, version, review_id, item_id, body.decision, body.payload,
     ))
     return _respond(result, response)
@@ -943,7 +928,7 @@ async def keep_review_pinned(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.keep_pinned(
+    result = await _run(lambda: system_service.service.keep_pinned(
         _caller(user), system_id, version, review_id,
     ))
     return _respond(result, response)
@@ -958,11 +943,11 @@ async def rebase_instance(
     if (body.commit is None) == (body.revisionId is None):
         raise HTTPException(status_code=422, detail="give exactly one of commit or revisionId")
     if body.revisionId is not None:
-        result = await _run(system_id, lambda: system_service.service.rebase_child(
+        result = await _run(lambda: system_service.service.rebase_child(
             _caller(user), system_id, version, instance_id, body.revisionId,
         ))
         return _respond(result, response)
-    state, outcome = await _run(system_id, lambda: system_service.service.rebase(
+    state, outcome = await _run(lambda: system_service.service.rebase(
         _caller(user), system_id, version, instance_id, body.commit,
     ))
     if state == "queued":
@@ -998,7 +983,7 @@ async def create_snapshot(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.create_snapshot(
+    result = await _run(lambda: system_service.service.create_snapshot(
         _caller(user), system_id, version, body.name, body.note,
     ))
     return _respond(result, response, status_code=201)
@@ -1006,12 +991,12 @@ async def create_snapshot(
 
 @router.get("/{system_id}/snapshots")
 async def list_snapshots(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.list_snapshots(_caller(user), system_id))
+    return await _run(lambda: system_service.service.list_snapshots(_caller(user), system_id))
 
 
 @router.get("/{system_id}/snapshots/{snapshot_id}")
 async def get_snapshot(system_id: str, snapshot_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.get_snapshot(_caller(user), system_id, snapshot_id))
+    return await _run(lambda: system_service.service.get_snapshot(_caller(user), system_id, snapshot_id))
 
 
 @router.post("/{system_id}/snapshots/{snapshot_id}/publish", dependencies=[Depends(require_designer)])
@@ -1019,7 +1004,7 @@ async def publish_snapshot(
     system_id: str, snapshot_id: str, body: PublishRequest, user: AuthenticatedUser = Depends(require_viewer),
 ):
     """P2 §3.3: publish as a catalog ``assembly`` revision. 201 when new, 200 when already published."""
-    created, publication = await _run(system_id, lambda: system_service.service.publish_snapshot(
+    created, publication = await _run(lambda: system_service.service.publish_snapshot(
         _caller(user), system_id, snapshot_id, ipn=body.ipn, name=body.name,
         description=body.description, manufacturer=body.manufacturer,
     ))
@@ -1029,7 +1014,7 @@ async def publish_snapshot(
 @router.get("/{system_id}/snapshots/{snapshot_id}/manifest")
 async def snapshot_manifest(system_id: str, snapshot_id: str, user: AuthenticatedUser = Depends(require_viewer)):
     """P2 §11: the frozen ``prism.system_manifest.v1``, whole or 403."""
-    return await _run(system_id, lambda: system_service.service.snapshot_manifest(
+    return await _run(lambda: system_service.service.snapshot_manifest(
         _caller(user), system_id, snapshot_id,
     ))
 
@@ -1040,7 +1025,7 @@ async def diff_snapshot(
     against: str = Query(default="live", min_length=1, max_length=100),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    return await _run(system_id, lambda: system_service.service.diff_snapshot(
+    return await _run(lambda: system_service.service.diff_snapshot(
         _caller(user), system_id, snapshot_id, against,
     ))
 
@@ -1050,7 +1035,7 @@ async def live_icd(
     system_id: str, fmt: Literal["csv", "html"], depth: Literal["own", "all"] = Query(default="own"),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    content, name, version = await _run(system_id, lambda: system_service.service.icd(
+    content, name, version = await _run(lambda: system_service.service.icd(
         _caller(user), system_id, fmt, None, depth,
     ))
     return _icd_response(content, name, fmt, "live", version, system_id)
@@ -1061,7 +1046,7 @@ async def snapshot_icd(
     system_id: str, snapshot_id: str, fmt: Literal["csv", "html"],
     depth: Literal["own", "all"] = Query(default="own"), user: AuthenticatedUser = Depends(require_viewer),
 ):
-    content, name, _version = await _run(system_id, lambda: system_service.service.icd(
+    content, name, _version = await _run(lambda: system_service.service.icd(
         _caller(user), system_id, fmt, snapshot_id, depth,
     ))
     return _icd_response(content, name, fmt, snapshot_id, None, system_id)
@@ -1079,7 +1064,7 @@ async def upload_import(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     raw = await file.read(csv_import.MAX_UPLOAD_BYTES + 1)
-    return await _run(system_id, lambda: system_service.service.upload_import(
+    return await _run(lambda: system_service.service.upload_import(
         _caller(user), system_id, filename=file.filename or "", raw=raw, delimiter=delimiter,
     ))
 
@@ -1089,7 +1074,7 @@ async def preview_import(
     system_id: str, import_id: str, body: ImportMapRequest, response: Response,
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    result = await _run(system_id, lambda: system_service.service.preview_import(
+    result = await _run(lambda: system_service.service.preview_import(
         _caller(user), system_id, import_id, body.columnMap, body.boardMap, body.delimiter,
     ))
     return _respond(result, response)
@@ -1101,7 +1086,7 @@ async def commit_import(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     version = _expected_version(request, system_id)
-    result = await _run(system_id, lambda: system_service.service.commit_import(
+    result = await _run(lambda: system_service.service.commit_import(
         _caller(user), system_id, version, import_id, body.columnMap, body.boardMap, body.delimiter,
     ))
     return _respond(result, response)
@@ -1118,14 +1103,14 @@ async def get_history(
     limit: int = Query(default=100, ge=1, le=500),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    return await _run(system_id, lambda: system_service.service.history(
+    return await _run(lambda: system_service.service.history(
         _caller(user), system_id, cursor=cursor, limit=limit,
     ))
 
 
 @router.get("/{system_id}/layout")
 async def get_layout(system_id: str, user: AuthenticatedUser = Depends(require_viewer)):
-    return await _run(system_id, lambda: system_service.service.get_layout(_caller(user), system_id))
+    return await _run(lambda: system_service.service.get_layout(_caller(user), system_id))
 
 
 @router.put("/{system_id}/layout", dependencies=[Depends(require_designer)])
@@ -1133,7 +1118,7 @@ async def put_layout(
     system_id: str, body: LayoutRequest, user: AuthenticatedUser = Depends(require_viewer),
 ):
     positions = {key: value.model_dump() for key, value in body.positions.items()}
-    return await _run(system_id, lambda: system_service.service.put_layout(
+    return await _run(lambda: system_service.service.put_layout(
         _caller(user), system_id, positions,
     ))
 
