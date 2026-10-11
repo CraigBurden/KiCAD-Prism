@@ -139,8 +139,7 @@ class StatusChangeEnqueuesSetStateTests(unittest.TestCase):
 
         user = AuthenticatedUser(email="a@x", name="Admin", role=role, session_id="sid", user_id="u_a")
         with patch.object(comments_api, "comments_store", store), \
-                patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")), \
-                patch.object(comments_api, "_with_permissions", side_effect=lambda comment, *a, **k: comment):
+                patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")):
             try:
                 return asyncio.run(comments_api.update_comment(
                     "prj", "c_1", comments_api.UpdateCommentRequest(status=status, expectedRevision=4), user,
@@ -163,9 +162,9 @@ class StatusChangeEnqueuesSetStateTests(unittest.TestCase):
         updated = self._run_patch(Store())
         self.assertEqual(updated["status"], "OPEN")
         self.assertEqual(len(calls), 1)
-        actor = calls[0].get("promotion_actor")
+        actor = calls[0].get("actor")
         self.assertIsNotNone(actor, "status change must carry the actor so enqueue_set_state runs")
-        self.assertEqual((actor.user_id, actor.role), ("u_a", "admin"))
+        self.assertEqual((actor.actor_id, actor.role), ("u_a", "admin"))
         self.assertEqual(calls[0].get("expected_revision"), 4)
 
     def test_publication_denied_on_status_is_a_403_not_a_500(self) -> None:
@@ -439,8 +438,7 @@ class ReplyAndRootMutationsCarryActorTests(unittest.TestCase):
 
         user = AuthenticatedUser(email="a@x", name="Admin", role="admin", session_id="sid", user_id="u_a")
         with patch.object(comments_api, "comments_store", store), \
-                patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")), \
-                patch.object(comments_api, "_with_permissions", side_effect=lambda comment, *a, **k: comment):
+                patch.object(comments_api, "get_project_for_role_or_404", return_value=SimpleNamespace(id="prj", path="")):
             try:
                 return asyncio.run(coro_factory(comments_api, user))
             except DomainError as exc:
@@ -473,9 +471,9 @@ class ReplyAndRootMutationsCarryActorTests(unittest.TestCase):
 
     def _assert_actor(self, calls, name):
         self.assertEqual([c[0] for c in calls], [name])
-        actor = calls[0][1].get("promotion_actor")
+        actor = calls[0][1].get("actor")
         self.assertIsNotNone(actor, f"{name} must carry the actor so the outbound op is enqueued")
-        self.assertEqual((actor.user_id, actor.role), ("u_a", "admin"))
+        self.assertEqual((actor.actor_id, actor.role), ("u_a", "admin"))
 
     def test_reply_edit_passes_promotion_actor(self) -> None:
         calls: list = []

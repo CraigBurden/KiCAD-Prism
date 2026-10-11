@@ -58,8 +58,9 @@ class ReactionApiTests(unittest.TestCase):
             result = asyncio.run(comments_api.add_comment_reaction("p1", "c1", "eyes", "r1", self.user))
         kwargs = store.call_args.kwargs
         self.assertEqual(store.call_args.args[3], "r1")
-        self.assertEqual((kwargs["user_id"], kwargs["present"]), ("rev-id", True))
-        self.assertTrue(result["reactions"][0]["mine"])
+        self.assertEqual((kwargs["actor"].actor_id, kwargs["present"]), ("rev-id", True))
+        # The store personalizes the thread it returns for that actor.
+        self.assertIs(result, thread)
 
 @unittest.skipUnless(TEST_DSN, "TEST_POSTGRES_URL is required for disposable PostgreSQL tests")
 class SocialPostgresTests(unittest.TestCase):
