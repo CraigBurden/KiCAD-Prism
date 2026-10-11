@@ -151,6 +151,21 @@ describe("SemanticViewer selection in", () => {
         expect(element.selectHarness).toHaveBeenCalledTimes(4);
     });
 
+    it("leaves no retry pending once it lets go of the element", async () => {
+        vi.useFakeTimers();
+        const viewer = new SemanticViewer(() => Promise.resolve());
+        const element = fakeSemanticViewer();
+        element.harnessesDrawn = false;
+        viewer.attach(element);
+        viewer.show({ type: "harness", id: "shn_1" });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(vi.getTimerCount()).toBe(1);
+        viewer.dispose();
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(element.selectHarness).toHaveBeenCalledTimes(1);
+    });
+
     it("gives up after 15 retries", async () => {
         vi.useFakeTimers();
         const viewer = new SemanticViewer(() => Promise.resolve());

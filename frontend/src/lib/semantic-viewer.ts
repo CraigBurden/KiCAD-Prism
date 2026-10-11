@@ -71,6 +71,7 @@ export class SemanticViewer {
     #handlers = new Map<EventName, Set<(detail: never) => void>>();
     #unbind: (() => void) | null = null;
     #showToken = 0;
+    #retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(private readonly whenDefined: () => Promise<unknown> = () => customElements.whenDefined("prism-semantic-viewer")) {}
 
@@ -106,6 +107,7 @@ export class SemanticViewer {
         this.#unbind?.();
         this.#unbind = null;
         this.#showToken += 1;
+        this.#stopRetry();
         this.#element = element;
         this.#state = { ...EMPTY_STATE, element };
         if (element) this.#unbind = this.#bind(element);
@@ -151,6 +153,7 @@ export class SemanticViewer {
      */
     show(action: SemanticViewerAction, isCurrent: () => boolean = () => true): void {
         const token = ++this.#showToken;
+        this.#stopRetry();
         this.#whenDefined((element) => {
             if (action.type !== "harness") element.selectHarness?.(null);
             if (action.type === "board") {
@@ -159,7 +162,11 @@ export class SemanticViewer {
             } else if (action.type === "harness") {
                 const attempt = (left: number) => {
                     if (token !== this.#showToken || !isCurrent() || element.selectHarness?.(action.id) !== false || left === 0) return;
-                    window.setTimeout(() => attempt(left - 1), HARNESS_RETRY_MS);
+                    this.#retryTimer = setTimeout(() => {
+                        this.#retryTimer = undefined;
+                        // A test environment (or page) torn down under a pending retry has no window left.
+                        if (typeof window !== "undefined") attempt(left - 1);
+                    }, HARNESS_RETRY_MS);
                 };
                 attempt(HARNESS_RETRY_ATTEMPTS);
             } else if (action.type === "parts") {
@@ -219,6 +226,17 @@ export class SemanticViewer {
     toggleHelp(): void {
         const element = this.#element;
         element?.setHelpVisible?.(!element.isHelpVisible?.());
+    }
+
+    /** Let go of the element: listeners and any pending harness retry stop. */
+    dispose(): void {
+        this.attach(null);
+        this.#stopRetry();
+    }
+
+    #stopRetry() {
+        if (this.#retryTimer !== undefined) clearTimeout(this.#retryTimer);
+        this.#retryTimer = undefined;
     }
 
     /** Run `command` on the element once the bundle has defined it; undefined without an element. */
