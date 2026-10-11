@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import Editor, record_revision  # noqa: E402
 from app.services.trackers.inbox_store import (  # noqa: E402
     CHECKPOINT_KINDS,
@@ -21,10 +17,7 @@ from app.services.trackers.inbox_store import (  # noqa: E402
     StaleHintFence,
     apply_schema as apply_inbox_schema,
 )
-from app.services.trackers.migrations import (  # noqa: E402
-    WORKSPACE_WEBHOOK_OAUTH_VERSION,
-    migrate_workspace_tracker_tables,
-)
+from app.services.trackers.migrations import WORKSPACE_WEBHOOK_OAUTH_VERSION  # noqa: E402
 from app.services.trackers.op_store import (  # noqa: E402
     EXECUTE_DISPATCH,
     OP_KINDS,

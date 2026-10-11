@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
-import os
 import shutil
 import tempfile
 import unittest

@@ -6,16 +6,13 @@ import json
 import os
 import sys
 import unittest
-import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import Settings  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.credential_sidecars import (  # noqa: E402
     load_oauth_client,
     load_webhook_secret,

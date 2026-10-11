@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import tempfile
 from pathlib import Path
 import sys
 import unittest
+from support.repo import commit_all, init_repo  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1].parent
@@ -124,10 +124,8 @@ class ModuleSizeTests(unittest.TestCase):
                 "private_catalog_uses": [],
                 "module_line_ceilings": {"service.py": 1300, "old.py": 1400},
             }), encoding="utf-8")
-            git = ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com"]
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run([*git, "add", "."], cwd=root, check=True)
-            subprocess.run([*git, "commit", "-qm", "base"], cwd=root, check=True)
+            init_repo(root)
+            commit_all(root, "base")
             _private, base_ceilings = size_gate.load_baseline_at_ref(root, "HEAD", baseline_path) or ({}, {})
 
             self.assertEqual(

@@ -1,6 +1,5 @@
 """Review regressions: source identity, structural discovery, and reuse."""
 import json
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +9,7 @@ from unittest.mock import patch
 from app.services import variant_catalog_service as catalog
 from app.services import semantic_index_service as index
 from app.services.variant_source_scan import scan_source
+from support.repo import commit_all, git, init_repo  # noqa: E402
 
 
 def board(name):
@@ -61,13 +61,11 @@ class CatalogSnapshotTests(unittest.TestCase):
         catalog._discover_cached.cache_clear()
 
     def git(self, *args):
-        return subprocess.check_output(['git', '-C', str(self.root), *args], stderr=subprocess.DEVNULL, text=True).strip()
+        return git(self.root, *args)
 
     def commit(self):
-        self.git('init')
-        self.git('add', '.')
-        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'fixture')
-        return self.git('rev-parse', 'HEAD')
+        init_repo(self.root)
+        return commit_all(self.root, 'fixture')
 
     def names(self, commit=None):
         return [v['name'] for v in catalog.discover_variant_catalog(self.project, commit)['variants']]

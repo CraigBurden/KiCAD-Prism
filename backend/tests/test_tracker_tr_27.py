@@ -6,13 +6,10 @@ import asyncio
 import hashlib
 import hmac
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
 from pydantic import SecretStr

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,27 +12,19 @@ from unittest.mock import patch
 from app.core.config import settings
 from app.services import path_config_service, project_service, project_settings_service
 from app.services.workspace_service import workspace
+from support.repo import git, init_repo  # noqa: E402
 
 DATABASE_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
 
-def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
-    ).stdout.strip()
-
-
 def _repository(root: Path, prism_json: dict | None) -> Path:
-    root.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(root)], check=True)
-    for key, value in (("user.name", "Test"), ("user.email", "test@example.invalid")):
-        _git(root, "config", key, value)
+    init_repo(root)
     for name in ("top.kicad_pro", "top.kicad_pcb", "base.kicad_pro", "base.kicad_pcb", "alt.kicad_pcb"):
         (root / name).write_text("{}" if name.endswith("_pro") else "(kicad_pcb)", encoding="utf-8")
     if prism_json is not None:
         (root / ".prism.json").write_text(json.dumps(prism_json), encoding="utf-8")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-qm", "seed")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "seed")
     return root
 
 
@@ -154,7 +145,7 @@ class StoredSettingsTests(unittest.TestCase):
         # The sibling sharing the directory keeps the committed configuration.
         self.assertEqual(project_service.path_config_for(self._project(self.base_id)).pcb, "top.kicad_pcb")
         self.assertEqual((self.checkout / ".prism.json").read_bytes(), before)
-        self.assertEqual(_git(self.checkout, "status", "--porcelain"), "")
+        self.assertEqual(git(self.checkout, "status", "--porcelain"), "")
 
     def test_saves_merge_into_what_is_already_stored(self) -> None:
         top = self._project(self.top_id)
@@ -231,7 +222,7 @@ class StoredSettingsTests(unittest.TestCase):
             {"project_name": "Base"},
         )
         self.assertEqual((self.checkout / ".prism.json").read_bytes(), committed)
-        self.assertEqual(_git(self.checkout, "status", "--porcelain"), "")
+        self.assertEqual(git(self.checkout, "status", "--porcelain"), "")
 
     def test_upgrade_leaves_a_file_it_imported_nothing_from(self) -> None:
         # Only other projects' namespaces changed: not this workspace's writes.
@@ -242,8 +233,8 @@ class StoredSettingsTests(unittest.TestCase):
 
     def test_upgrade_imports_an_untracked_file_and_leaves_it(self) -> None:
         # An untracked file never blocks a fast-forward (Sync ignores untracked files).
-        _git(self.checkout, "rm", "-q", "--cached", ".prism.json")
-        _git(self.checkout, "commit", "-qm", "untrack")
+        git(self.checkout, "rm", "-q", "--cached", ".prism.json")
+        git(self.checkout, "commit", "-qm", "untrack")
         written = json.dumps({"description": "Fixture"})
         (self.checkout / ".prism.json").write_text(written, encoding="utf-8")
         self.assertEqual(self._import_twice(), (2, 0))

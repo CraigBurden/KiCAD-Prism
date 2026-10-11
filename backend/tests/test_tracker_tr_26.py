@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
 import uuid
@@ -11,12 +10,10 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tracker_fault_harness import StatefulFakeForge, github_issue_url, install_fake_provider  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
     ForgeUser,
     IssueContainerRef,
@@ -24,11 +21,10 @@ from app.services.trackers.contracts import (  # noqa: E402
     RemoteVersion,
 )
 from app.services.trackers.github_recovery import RecoveryCandidate, RecoveryKind, recover_create_issue  # noqa: E402
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore  # noqa: E402
 from app.services.trackers import jobs as tracker_jobs  # noqa: E402
 from app.services.trackers.markers import build_marker  # noqa: E402
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import RECOVERY_DISPATCH, OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import RECOVERY_DISPATCH, OpStore  # noqa: E402
 from app.services.trackers.scheduler import (  # noqa: E402
     DISPATCH_KIND,
     reset_scheduler_throttle,

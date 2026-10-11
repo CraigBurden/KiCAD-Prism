@@ -34,12 +34,15 @@ def git_env(**extra: str) -> dict[str, str]:
     return {**os.environ, **GIT_ENV, **extra}
 
 
-def git(cwd: str | Path, *args: str, check: bool = True, date: str | None = None) -> str:
-    """Run ``git args`` in ``cwd`` and return stripped stdout. ``date`` fixes both commit dates."""
+def git(cwd: str | Path | None, *args: str, check: bool = True, date: str | None = None) -> str:
+    """Run ``git args`` in ``cwd`` and return stripped stdout. ``date`` fixes both commit dates.
+
+    ``cwd=None`` is for commands that name every path they touch (``clone``, ``--git-dir``).
+    """
 
     env = git_env(**({"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date} if date else {}))
     result = subprocess.run(
-        ["git", *args], cwd=str(cwd), env=env, check=check, capture_output=True, text=True
+        ["git", *args], cwd=None if cwd is None else str(cwd), env=env, check=check, capture_output=True, text=True
     )
     return result.stdout.strip()
 
@@ -54,6 +57,14 @@ def write_files(root: str | Path, files: Mapping[str, str | bytes]) -> None:
             target.write_text(content, encoding="utf-8")
 
 
+def set_identity(path: str | Path) -> None:
+    """Record the fixed identity in ``path``'s own config (a clone, or code under test committing there)."""
+
+    git(path, "config", "user.name", AUTHOR_NAME)
+    git(path, "config", "user.email", AUTHOR_EMAIL)
+    git(path, "config", "commit.gpgsign", "false")
+
+
 def init_repo(
     path: str | Path,
     files: Mapping[str, str | bytes] | None = None,
@@ -66,9 +77,7 @@ def init_repo(
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
     git(path, "init", "-q", "-b", branch)
-    git(path, "config", "user.name", AUTHOR_NAME)
-    git(path, "config", "user.email", AUTHOR_EMAIL)
-    git(path, "config", "commit.gpgsign", "false")
+    set_identity(path)
     if not files:
         return None
     write_files(path, files)
@@ -128,5 +137,6 @@ __all__ = [
     "git_env",
     "init_repo",
     "project_repo",
+    "set_identity",
     "write_files",
 ]

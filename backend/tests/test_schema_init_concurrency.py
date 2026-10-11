@@ -14,7 +14,6 @@ connection, which is what separate worker processes have.
 
 from __future__ import annotations
 
-import os
 import tempfile
 import threading
 import unittest

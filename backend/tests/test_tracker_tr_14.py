@@ -3,39 +3,33 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.job_handlers import (  # noqa: E402
     get_job_handler,
     load_builtin_job_handlers,
     registered_job_kinds,
 )
 from app.services.job_runtime import JobCancelled, RetryableJobError  # noqa: E402
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
 from app.services.trackers.jobs import (  # noqa: E402
     _handle_claimed_op,
     _record_executor_outcome,
     run_tracker_dispatch_job,
 )
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
 from app.services.trackers.op_store import (  # noqa: E402
     EXECUTE_DISPATCH,
     RECOVERY_DISPATCH,
     OpStore,
     StaleFence,
-    apply_schema as apply_op_schema,
 )
 from app.services.trackers.scheduler import (  # noqa: E402
     DISPATCH_KIND,

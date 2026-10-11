@@ -10,11 +10,8 @@ which is the same starting state at a fraction of the cost (CI plan item 3). Eac
 
 from __future__ import annotations
 
-import os
-import subprocess
 import tempfile
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace

@@ -17,11 +17,8 @@ test's isolated one; it calls the same ``extract_and_store``.
 
 from __future__ import annotations
 
-import os
-import subprocess
 import tempfile
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace

@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -29,20 +28,13 @@ from app.services.systems.visibility import etag
 from app.services.systems.service_base import Caller
 from app.services.systems.service_git import Remote
 from app.services.systems.store import Conflict, Invalid, NotFound
+from support.repo import GIT_ENV, git
 
 AUTHOR = Caller(role="designer", email="ada@example.com", name="Ada Lovelace")
-_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_TERMINAL_PROMPT": "0",
-        "GIT_AUTHOR_NAME": "Outside", "GIT_AUTHOR_EMAIL": "outside@example.com",
-        "GIT_COMMITTER_NAME": "Outside", "GIT_COMMITTER_EMAIL": "outside@example.com"}
-
-
-def git(*args: str) -> str:
-    return subprocess.run(["git", *args], env={**os.environ, **_ENV}, check=True, capture_output=True,
-                          text=True).stdout.strip()
 
 
 def local_remote(url: str) -> Remote:
-    heads = git("ls-remote", "--symref", url, "HEAD")
+    heads = git(None, "ls-remote", "--symref", url, "HEAD")
     default = next((line.split()[1].removeprefix("refs/heads/") for line in heads.splitlines()
                     if line.startswith("ref:")), None)
     return Remote(url=url, dedup_key=url, default_branch=default)
@@ -55,15 +47,15 @@ class GitCase(SnapshotCase):
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name)
         for patcher in (
-            mock.patch.dict(os.environ, _ENV),
+            mock.patch.dict(os.environ, GIT_ENV),  # production code must override this identity
             mock.patch.object(git_tracking.settings, "PRISM_SYSTEM_REPOS_ROOT", str(self.root / "clones")),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.upstream = self.root / "upstream.git"
-        git("init", "--quiet", "--bare", "--initial-branch=main", str(self.upstream))
+        git(None, "init", "--quiet", "--bare", "--initial-branch=main", str(self.upstream))
         self.author = self.root / "author"
-        git("clone", "--quiet", str(self.upstream), str(self.author))
+        git(None, "clone", "--quiet", str(self.upstream), str(self.author))
         self.queued: list[tuple] = []
         self.service._git_remote = local_remote
         self.service._git_enqueue_sync = lambda *a, **k: self.queued.append(("sync", *a)) or {"id": "job_s"}
@@ -72,16 +64,16 @@ class GitCase(SnapshotCase):
     # ------------------------------------------------------------------ helpers
 
     def outside_commit(self, path: str, text: str, message: str = "outside") -> str:
-        git("-C", str(self.author), "pull", "--quiet", "--ff-only", "origin", "main") if self.branch_exists() else None
+        git(self.author, "pull", "--quiet", "--ff-only", "origin", "main") if self.branch_exists() else None
         target = self.author / path
         target.write_text(text)
-        git("-C", str(self.author), "add", path)
-        git("-C", str(self.author), "commit", "--quiet", "-m", message)
-        git("-C", str(self.author), "push", "--quiet", "origin", "HEAD:main")
-        return git("-C", str(self.author), "rev-parse", "HEAD")
+        git(self.author, "add", path)
+        git(self.author, "commit", "--quiet", "-m", message)
+        git(self.author, "push", "--quiet", "origin", "HEAD:main")
+        return git(self.author, "rev-parse", "HEAD")
 
     def branch_exists(self) -> bool:
-        return bool(git("ls-remote", str(self.upstream), "refs/heads/main"))
+        return bool(git(None, "ls-remote", str(self.upstream), "refs/heads/main"))
 
     def link(self, branch: str | None = None) -> dict:
         result = self.service.set_git_link(DESIGNER, self.sid, self.version(), str(self.upstream), branch)
@@ -95,10 +87,10 @@ class GitCase(SnapshotCase):
         return git_tracking.commit_snapshot(self.connect, self.sid, snapshot["id"])
 
     def show(self, rev: str) -> str:
-        return git("--git-dir", str(self.upstream), "show", "-s", "--format=%an <%ae>|%cn <%ce>|%P|%B", rev)
+        return git(None, "--git-dir", str(self.upstream), "show", "-s", "--format=%an <%ae>|%cn <%ce>|%P|%B", rev)
 
     def remote_manifest(self) -> dict:
-        return json.loads(git("--git-dir", str(self.upstream), "show", f"main:{git_tracking.MANIFEST_FILE}"))
+        return json.loads(git(None, "--git-dir", str(self.upstream), "show", f"main:{git_tracking.MANIFEST_FILE}"))
 
     def meta(self, snapshot_id: str) -> dict:
         return next(s for s in self.service.list_snapshots(DESIGNER, self.sid) if s["id"] == snapshot_id)
@@ -120,9 +112,9 @@ class CommitOnSnapshotTest(GitCase):
                                                            "branch": "main"})
 
         manifest = self.service.snapshot_manifest(DESIGNER, self.sid, snapshot["id"])
-        written = git("--git-dir", str(self.upstream), "show", f"main:{git_tracking.MANIFEST_FILE}") + "\n"
+        written = git(None, "--git-dir", str(self.upstream), "show", f"main:{git_tracking.MANIFEST_FILE}") + "\n"
         self.assertEqual(written.encode(), git_tracking.manifest_bytes(manifest))
-        self.assertEqual(git("--git-dir", str(self.upstream), "show", "main:README.md"), "the avionics stack")
+        self.assertEqual(git(None, "--git-dir", str(self.upstream), "show", "main:README.md"), "the avionics stack")
         author, committer, parent, message = self.show(state["commit"]).split("|", 3)
         self.assertEqual(author, "Ada Lovelace <ada@example.com>")
         self.assertEqual(committer, "KiCAD Prism <prism@kicad-prism.invalid>")
@@ -131,7 +123,7 @@ class CommitOnSnapshotTest(GitCase):
                                           f"Prism-Snapshot: {snapshot['id']}")
         link = self.service.git_link(DESIGNER, self.sid)
         self.assertEqual(link["tip"], state["commit"])
-        self.assertEqual(link["knownBlob"], git("--git-dir", str(self.upstream), "rev-parse",
+        self.assertEqual(link["knownBlob"], git(None, "--git-dir", str(self.upstream), "rev-parse",
                                                 f"main:{git_tracking.MANIFEST_FILE}"))
 
         second = self.take("PDR")
@@ -151,7 +143,7 @@ class CommitOnSnapshotTest(GitCase):
         state = self.commit(self.take("CDR"))
         self.assertEqual(state["state"], "pushed")
         self.assertEqual(self.show(state["commit"]).split("|")[2], "", "no parent")
-        self.assertEqual(git("--git-dir", str(self.upstream), "rev-parse", "refs/heads/systems"), state["commit"])
+        self.assertEqual(git(None, "--git-dir", str(self.upstream), "rev-parse", "refs/heads/systems"), state["commit"])
 
     def test_an_unlinked_system_has_no_git_status_and_queues_nothing(self) -> None:
         self.assertEqual(self.take("CDR")["git"], None)
@@ -173,7 +165,7 @@ class CommitOnSnapshotTest(GitCase):
             state = self.commit(snapshot)
         self.assertEqual(state["state"], "pushed")
         self.assertEqual(self.show(state["commit"]).split("|")[2], raced[0])
-        self.assertEqual(git("--git-dir", str(self.upstream), "show", "main:NOTES.md"), "harness notes")
+        self.assertEqual(git(None, "--git-dir", str(self.upstream), "show", "main:NOTES.md"), "harness notes")
         self.assertNotEqual(first["commit"], raced[0])
 
     def test_an_older_snapshot_never_lands_over_a_newer_one(self) -> None:
@@ -210,10 +202,10 @@ class OutsideChangeTest(GitCase):
     def test_removing_the_manifest_outside_is_an_outside_change(self) -> None:
         self.link()
         self.commit(self.take("CDR"))
-        git("-C", str(self.author), "pull", "--quiet", "origin", "main")
-        git("-C", str(self.author), "rm", "--quiet", git_tracking.MANIFEST_FILE)
-        git("-C", str(self.author), "commit", "--quiet", "-m", "remove")
-        git("-C", str(self.author), "push", "--quiet", "origin", "HEAD:main")
+        git(self.author, "pull", "--quiet", "origin", "main")
+        git(self.author, "rm", "--quiet", git_tracking.MANIFEST_FILE)
+        git(self.author, "commit", "--quiet", "-m", "remove")
+        git(self.author, "push", "--quiet", "origin", "HEAD:main")
         self.assertEqual(git_tracking.sync(self.connect, self.sid)["outcome"], "outside_change")
 
 

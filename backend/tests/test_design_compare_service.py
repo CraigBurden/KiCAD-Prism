@@ -4,7 +4,6 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-import subprocess
 from unittest import mock
 
 from app.core.config import Settings, settings
@@ -13,6 +12,7 @@ from app.services import bom_diff_service, design_compare_service, semantic_inde
 from app.services import project_revision as project_revision_module
 from app.services.design_compare_benchmark import DesignCompareBenchmark
 from tests.design_compare_fixtures import InMemoryComparisonPublisher
+from support.repo import git, init_repo  # noqa: E402
 
 
 class DesignCompareServiceTests(unittest.TestCase):
@@ -108,21 +108,16 @@ class DesignCompareServiceTests(unittest.TestCase):
             root = Path(temporary) / "repo"
             destination = Path(temporary) / "snapshot"
             root.mkdir()
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "config", "maintenance.auto", "false"], check=True)
-            subprocess.run(["git", "-C", str(root), "config", "gc.auto", "0"], check=True)
-            subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True)
-            subprocess.run(
-                ["git", "-C", str(root), "config", "user.email", "test@example.invalid"],
-                check=True,
-            )
+            init_repo(root)
+            git(root, "config", "maintenance.auto", "false")
+            git(root, "config", "gc.auto", "0")
             (root / "board.kicad_pro").write_text("{}", encoding="utf-8")
             (root / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
             manufacturing = root / "Manufacturing-Outputs"
             manufacturing.mkdir()
             (manufacturing / "board.step").write_bytes(b"large-model")
-            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
-            subprocess.run(["git", "-C", str(root), "commit", "-qm", "fixture"], check=True)
+            git(root, "add", ".")
+            git(root, "commit", "-qm", "fixture")
 
             design_compare_service._snapshot_commit(root, "HEAD", destination, None)
 
@@ -336,15 +331,10 @@ class DesignCompareServiceTests(unittest.TestCase):
     def test_revision_resolution_returns_full_immutable_sha(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True)
-            subprocess.run(
-                ["git", "-C", str(root), "config", "user.email", "test@example.invalid"],
-                check=True,
-            )
+            init_repo(root)
             (root / "board.kicad_pro").write_text("{}", encoding="utf-8")
-            subprocess.run(["git", "-C", str(root), "add", "board.kicad_pro"], check=True)
-            subprocess.run(["git", "-C", str(root), "commit", "-qm", "fixture"], check=True)
+            git(root, "add", "board.kicad_pro")
+            git(root, "commit", "-qm", "fixture")
             resolved = design_compare_service._resolve_revision(root, "HEAD")
             self.assertRegex(resolved, r"^[0-9a-f]{40}$")
             with self.assertRaises(ValueError):

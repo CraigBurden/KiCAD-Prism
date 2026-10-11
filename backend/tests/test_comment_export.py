@@ -4,18 +4,14 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import tempfile
 import unittest
-import uuid
-from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 from app.core.config import settings
 from app.services import comment_attachments, comment_bundle, comment_export
 from app.services.comments_revisions import Editor
-from app.services.comments_store_service import CommentsStoreService
 from support.postgres import (  # noqa: E402
     requires_scratch_postgres,
     scratch_schema,

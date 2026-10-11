@@ -7,10 +7,8 @@ pending report, and that a step which fails takes its ledger row with it.
 
 from __future__ import annotations
 
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator

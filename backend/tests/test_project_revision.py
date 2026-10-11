@@ -4,19 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
 from app.services import project_revision
-
-
-def _git(root: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(root), *args], check=True, capture_output=True, text=True
-    ).stdout.strip()
+from support.repo import git, init_repo  # noqa: E402
 
 
 class ProjectRevisionTests(unittest.TestCase):
@@ -25,15 +19,9 @@ class ProjectRevisionTests(unittest.TestCase):
         self.base = Path(self._tmp.name).resolve()
         self.repo = self.base / "mono"
         self.repo.mkdir()
-        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
-        for key, value in (
-            ("maintenance.auto", "false"),
-            ("gc.auto", "0"),
-            ("user.name", "Test"),
-            ("user.email", "test@example.invalid"),
-            ("core.symlinks", "true"),
-        ):
-            _git(self.repo, "config", key, value)
+        init_repo(self.repo)
+        for key, value in (("maintenance.auto", "false"), ("gc.auto", "0"), ("core.symlinks", "true")):
+            git(self.repo, "config", key, value)
         board = self.repo / "boards" / "a"
         board.mkdir(parents=True)
         (board / "a.kicad_pro").write_text("{}", encoding="utf-8")
@@ -61,9 +49,9 @@ class ProjectRevisionTests(unittest.TestCase):
         os.symlink("../../shared/lib.kicad_sym", board / "lib.kicad_sym")
         os.symlink("/etc/hosts", board / "escape.kicad_sch")
         os.symlink("../../../outside.kicad_sch", board / "climb.kicad_sch")
-        _git(self.repo, "add", "-A")
-        _git(self.repo, "commit", "-qm", "fixture")
-        self.commit = _git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", "fixture")
+        self.commit = git(self.repo, "rev-parse", "HEAD")
         self.row = {
             "id": "prj_a",
             "path": str(board),
@@ -224,8 +212,8 @@ class ProjectRevisionTests(unittest.TestCase):
         defaults = project_revision.path_config_at(root_project, "HEAD")
         self.assertEqual(defaults.designOutputs, project_revision.path_config_service.DEFAULT_PATHS["designOutputs"])
         (self.repo / ".prism.json").write_text("{not json", encoding="utf-8")
-        _git(self.repo, "add", ".prism.json")
-        _git(self.repo, "commit", "-qm", "broken")
+        git(self.repo, "add", ".prism.json")
+        git(self.repo, "commit", "-qm", "broken")
         with self.assertRaises(ValueError):
             project_revision.path_config_at(root_project, "HEAD")
 

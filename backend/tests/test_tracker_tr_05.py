@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -30,14 +28,7 @@ from support.postgres import (  # noqa: E402
     comments_store,
     comments_store_on,
 )
-
-
-def git(cwd: str, *args: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", cwd, *args],
-        text=True,
-        stderr=subprocess.DEVNULL,
-    ).strip()
+from support.repo import commit_all, git, init_repo  # noqa: E402
 
 
 def write(path: Path, text: str) -> None:
@@ -60,16 +51,10 @@ class TwoCommitPcb:
         write(pcb, "(kicad_pcb (version 20240101) A)\n")
         write(sch, "(kicad_sch (version 20240101) (uuid a1) (sheet (property \"Sheetname\" \"Port\") (property \"Sheetfile\" \"Port.kicad_sch\")))\n")
         write(self.project_dir / "Port.kicad_sch", "(kicad_sch (version 20240101) (uuid port))\n")
-        git(str(root), "init", "-b", "main")
-        git(str(root), "config", "user.email", "test@example.com")
-        git(str(root), "config", "user.name", "Test")
-        git(str(root), "add", ".")
-        git(str(root), "commit", "-m", "A")
-        self.sha_a = git(str(root), "rev-parse", "HEAD")
+        init_repo(root)
+        self.sha_a = commit_all(root, "A")
         write(pcb, "(kicad_pcb (version 20240101) B)\n")
-        git(str(root), "add", ".")
-        git(str(root), "commit", "-m", "B")
-        self.sha_b = git(str(root), "rev-parse", "HEAD")
+        self.sha_b = commit_all(root, "B")
         self.project = SimpleNamespace(
             id="prj_test",
             path=str(self.project_dir),

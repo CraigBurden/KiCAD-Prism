@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +22,7 @@ from app.release_studio.config import (
     validate_org_extends,
 )
 from app.services.project_revision import ProjectLocation
+from support.repo import git, init_repo, set_identity  # noqa: E402
 
 
 _MIN_CONFIG = """
@@ -72,53 +72,23 @@ def _config_with_file_reference(field: str, relative: str) -> str:
 
 
 def _commit_temp_repo(root: Path, message: str) -> str:
-    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "r6@example.com"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "R6"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", message],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
-    return subprocess.check_output(
-        ["git", "rev-parse", "HEAD"],
-        cwd=root,
-        text=True,
-    ).strip()
+    init_repo(root)
+    git(root, "add", ".")
+    git(root, "commit", "-m", message)
+    return git(root, "rev-parse", "HEAD")
 
 
 class ConfigurationAuthoringTests(unittest.TestCase):
     def _checkout_with_remote(self, root: Path) -> tuple[Path, Path]:
         remote = root / "remote.git"
         checkout = root / "checkout"
-        subprocess.run(
-            ["git", "init", "--bare", "--initial-branch=main", str(remote)],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "clone", str(remote), str(checkout)],
-            check=True,
-            capture_output=True,
-        )
+        git(None, "init", "--bare", "--initial-branch=main", str(remote))
+        git(None, "clone", str(remote), str(checkout))
         _write_design_files(checkout)
-        subprocess.run(["git", "config", "user.email", "seed@example.com"], cwd=checkout, check=True)
-        subprocess.run(["git", "config", "user.name", "Seed"], cwd=checkout, check=True)
-        subprocess.run(["git", "add", "."], cwd=checkout, check=True)
-        subprocess.run(["git", "commit", "-m", "design"], cwd=checkout, check=True, capture_output=True)
-        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=checkout, check=True, capture_output=True)
+        set_identity(checkout)
+        git(checkout, "add", ".")
+        git(checkout, "commit", "-m", "design")
+        git(checkout, "push", "-u", "origin", "main")
         return checkout, remote
 
     def test_studio_publishes_then_fast_forwards_the_clean_mirror(self) -> None:
@@ -149,23 +119,12 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                 )
 
             self.assertRegex(saved["commit_sha"], r"^[0-9a-f]{40}$")
-            committed = subprocess.run(
-                ["git", f"--git-dir={remote}", "show", "main:.prism/release-studio/configurations/default.yaml"],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
+            committed = git(None, f"--git-dir={remote}", "show", "main:.prism/release-studio/configurations/default.yaml")
             self.assertIn("schema: prism.release-studio.configuration/1", committed)
-            local_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
-            remote_head = subprocess.check_output(["git", f"--git-dir={remote}", "rev-parse", "main"], text=True).strip()
+            local_head = git(checkout, "rev-parse", "HEAD")
+            remote_head = git(None, f"--git-dir={remote}", "rev-parse", "main")
             self.assertEqual(local_head, remote_head)
-            changed = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=checkout,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
+            changed = git(checkout, "status", "--porcelain")
             self.assertIn("?? unrelated.txt", changed)
 
     def test_a_rejected_push_leaves_no_local_configuration_commit(self) -> None:
@@ -174,7 +133,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, remote = self._checkout_with_remote(root)
-            old_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            old_head = git(checkout, "rev-parse", "HEAD")
             hook = remote / "hooks" / "pre-receive"
             hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
             hook.chmod(0o755)
@@ -191,7 +150,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                     )
 
             self.assertEqual(
-                subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip(),
+                git(checkout, "rev-parse", "HEAD"),
                 old_head,
             )
             self.assertFalse(
@@ -204,11 +163,11 @@ class ConfigurationAuthoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, _remote = self._checkout_with_remote(root)
-            stale_tip = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            stale_tip = git(checkout, "rev-parse", "HEAD")
             (checkout / "board.kicad_pcb").write_text("newer design\n", encoding="utf-8")
-            subprocess.run(["git", "add", "board.kicad_pcb"], cwd=checkout, check=True)
-            subprocess.run(["git", "commit", "-m", "newer design"], cwd=checkout, check=True, capture_output=True)
-            subprocess.run(["git", "push"], cwd=checkout, check=True, capture_output=True)
+            git(checkout, "add", "board.kicad_pcb")
+            git(checkout, "commit", "-m", "newer design")
+            git(checkout, "push")
 
             with patch(
                 "app.services.project_revision.locate_id",
@@ -229,7 +188,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, _remote = self._checkout_with_remote(root)
-            base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+            base = git(checkout, "rev-parse", "HEAD")
             document = parse_configuration_yaml(_MIN_CONFIG)
             row = {
                 "config_key": "default",
@@ -270,9 +229,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, _remote = self._checkout_with_remote(root)
-            old_head = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
-            ).strip()
+            old_head = git(checkout, "rev-parse", "HEAD")
             path = str(_blocking_git_bin(root / "git-bin")) + os.pathsep + os.environ["PATH"]
             with (
                 patch.dict(os.environ, {"PATH": path}),
@@ -291,7 +248,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                     )
 
             self.assertEqual(
-                subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip(),
+                git(checkout, "rev-parse", "HEAD"),
                 old_head,
             )
             self.assertFalse(
@@ -305,9 +262,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             checkout, _remote = self._checkout_with_remote(root)
-            old_head = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=checkout, text=True
-            ).strip()
+            old_head = git(checkout, "rev-parse", "HEAD")
 
             def cancel() -> None:
                 raise JobCancelled("stop")
@@ -326,7 +281,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                     )
 
             self.assertEqual(
-                subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip(),
+                git(checkout, "rev-parse", "HEAD"),
                 old_head,
             )
 
@@ -814,34 +769,13 @@ variants: null
         with tempfile.TemporaryDirectory(dir=workspace) as temporary:
             root = Path(temporary)
             _write_design_files(root)
-            subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "config", "user.email", "r6@example.com"],
-                cwd=root,
-                check=True,
-                capture_output=True,
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "R6"],
-                cwd=root,
-                check=True,
-                capture_output=True,
-            )
+            init_repo(root)
             config_dir = root / ".prism" / "release-studio" / "configurations"
             config_dir.mkdir(parents=True)
             (config_dir / "default.yaml").write_text(_MIN_CONFIG, encoding="utf-8")
-            subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
-            subprocess.run(
-                ["git", "commit", "-m", "add config"],
-                cwd=root,
-                check=True,
-                capture_output=True,
-            )
-            commit = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"],
-                cwd=root,
-                text=True,
-            ).strip()
+            git(root, "add", ".")
+            git(root, "commit", "-m", "add config")
+            commit = git(root, "rev-parse", "HEAD")
 
             from_checkout = load_configuration_from_checkout(root, "default")
             from_commit = load_configuration_at_commit(root, commit, "default")

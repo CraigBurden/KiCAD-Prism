@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.job_handlers import load_builtin_job_handlers, registered_job_kinds  # noqa: E402
 from app.services.job_runtime import RetryableJobError  # noqa: E402
 from app.services.trackers.composition import (  # noqa: E402
@@ -28,10 +24,10 @@ from app.services.trackers.composition import unmount_outbound_executor  # noqa:
 from app.services.trackers.connector_runtime import ConnectorRuntime, install_connector_runtime  # noqa: E402
 from tracker_fault_harness import StatefulFakeForge, forge_runtime  # noqa: E402
 from app.services.trackers.contracts import RemoteChange, UpdateCursor  # noqa: E402
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore  # noqa: E402
 from app.services.trackers.jobs import run_tracker_dispatch_job, run_tracker_poll_job, run_tracker_sweep_job  # noqa: E402
 from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers import scheduler as tracker_scheduler  # noqa: E402
 from app.services.trackers.scheduler import (  # noqa: E402
     DISPATCH_KIND,

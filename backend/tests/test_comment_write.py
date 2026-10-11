@@ -12,7 +12,6 @@ import re
 import sys
 import tempfile
 import unittest
-import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

@@ -5,11 +5,8 @@ from __future__ import annotations
 import asyncio
 import io
 import json
-import os
 import tempfile
 import unittest
-import uuid
-from contextlib import contextmanager
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -18,7 +15,6 @@ from pydantic import SecretStr
 from app.api import comment_attachment_links as public_api
 from app.core.config import settings
 from app.services import comment_attachments
-from app.services.comments_store_service import CommentsStoreService
 from app.services.trackers import attachment_links
 from app.services.trackers.contracts import Destination
 from app.services.trackers.gitlab_auth import GitLabBotAuth, GitLabBotCredentials

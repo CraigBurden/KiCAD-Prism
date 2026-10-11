@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,7 +14,6 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.contracts import Destination  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
 from app.services.trackers.github_auth import GitHubAppAuth, GitHubAppCredentials  # noqa: E402
@@ -32,15 +29,14 @@ from app.services.trackers.github_recovery import (  # noqa: E402
     scan_issue_pages,
 )
 from app.services.trackers.http import TrackerHttp  # noqa: E402
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore  # noqa: E402
 from app.services.trackers.markers import (  # noqa: E402
     build_marker,
     extract_markers,
     parse_marker,
     validate_marker,
 )
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.scheduler import (  # noqa: E402
     DISPATCH_KIND,
     hints_applier_mounted,

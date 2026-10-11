@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import history  # noqa: E402
 from app.services.trackers.contracts import RemoteChange, UpdateCursor  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
@@ -28,9 +24,8 @@ from app.services.trackers.inbound import (  # noqa: E402
     CallableFetcher,
     apply_destination_hints,
 )
-from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.poller import poll_destination_updates, scope_key  # noqa: E402
 from app.services.trackers.provenance import body_hash  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402

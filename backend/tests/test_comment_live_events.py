@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import os
 import threading
 import unittest
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from app.services import comment_live_events

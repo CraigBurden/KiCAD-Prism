@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import tempfile
 import unittest
@@ -11,7 +10,6 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 

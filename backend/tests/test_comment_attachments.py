@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import io
-import os
 import tempfile
 import unittest
 import uuid
-from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -20,7 +18,6 @@ from app.core.security import AuthenticatedUser
 from app.services import comment_attachments
 from app.services.comment_attachments import AttachmentError
 from app.services.comments_revisions import Editor
-from app.services.comments_store_service import CommentsStoreService
 from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
 
 

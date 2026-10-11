@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import history  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
     ForgeUser,
@@ -26,10 +23,9 @@ from app.services.trackers.inbound import (  # noqa: E402
     assert_inbound_suppresses_outbound,
     fetch_then_apply_hint,
 )
-from app.services.trackers.inbox_store import InboxStore, StaleHintFence, apply_schema as apply_inbox_schema  # noqa: E402
+from app.services.trackers.inbox_store import InboxStore, StaleHintFence  # noqa: E402
 from app.services.trackers.markers import build_marker  # noqa: E402
-from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.provenance import (  # noqa: E402
     body_hash,
     classify_comment_change,

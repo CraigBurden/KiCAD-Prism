@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
 from app.core.errors import DomainError  # noqa: E402
@@ -23,7 +20,6 @@ from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import tracker_connectors as connectors_api  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
 from app.services.trackers.migrations import (  # noqa: E402

@@ -8,10 +8,8 @@ boards as Git repositories, and their interfaces are real extractions.
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace

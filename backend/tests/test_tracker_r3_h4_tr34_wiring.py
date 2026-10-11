@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from pydantic import SecretStr
@@ -18,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import tracker_sync as sync_api  # noqa: E402
 from app.core.config import Settings  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comment_permissions import ActorIdentity  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
 from app.services.trackers.contracts import Moved  # noqa: E402

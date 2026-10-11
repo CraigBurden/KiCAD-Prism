@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 import uuid
-from contextlib import contextmanager
 
 from app.services import comment_live_events
 from app.services.comments_revisions import Editor
-from app.services.comments_store_service import CommentsStoreService
 from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
 
 

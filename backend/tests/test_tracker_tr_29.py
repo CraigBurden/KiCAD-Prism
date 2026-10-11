@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tracker_fault_harness import StatefulFakeForge, github_comment_url, github_issue_url, install_fake_provider  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import history  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
     ForgeUser,

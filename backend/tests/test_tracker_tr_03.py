@@ -10,11 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -29,6 +27,7 @@ from app.api import comments as comments_api  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from tests.test_tracker_tr_01 import if_match  # noqa: E402
 from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
+from support.repo import commit_all, init_repo  # noqa: E402
 
 
 def session(role="viewer", *, user_id="u_1", name="Priya"):
@@ -55,16 +54,10 @@ def seed_two_commit_board(root: str) -> tuple[str, str]:
     path = Path(root)
     (path / "board.kicad_pro").write_text("{}\n")
     (path / "board.kicad_pcb").write_text("(kicad_pcb (version 20240101) A)\n")
-    subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "A"], cwd=root, check=True, capture_output=True)
-    sha_a = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    init_repo(root)
+    sha_a = commit_all(root, "A")
     (path / "board.kicad_pcb").write_text("(kicad_pcb (version 20240101) B)\n")
-    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "B"], cwd=root, check=True, capture_output=True)
-    sha_b = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    sha_b = commit_all(root, "B")
     return sha_a, sha_b
 
 

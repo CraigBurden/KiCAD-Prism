@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import shutil
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +16,7 @@ from app.release_studio.closure import (
     materialize_input_closure,
     resource_root_digest,
 )
+from support.repo import commit_all, git, init_repo  # noqa: E402
 
 
 GIT = shutil.which("git")
@@ -30,17 +30,17 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         self.repo = self.root / "monorepo"
         self.nested = self.root / "nested-library"
         self.submodule = self.root / "board-library"
-        self._init_repo(self.nested)
+        init_repo(self.nested)
         (self.nested / "nested-footprint.kicad_mod").write_text(
             "(footprint nested)", encoding="utf-8"
         )
-        self.nested_commit = self._commit(self.nested, "nested library")
+        self.nested_commit = commit_all(self.nested, "nested library")
 
-        self._init_repo(self.submodule)
+        init_repo(self.submodule)
         (self.submodule / "submodule-footprint.kicad_mod").write_text(
             "(footprint submodule)", encoding="utf-8"
         )
-        self._git(
+        git(
             self.submodule,
             "-c",
             "protocol.file.allow=always",
@@ -50,9 +50,9 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             str(self.nested),
             "nested",
         )
-        self.submodule_commit = self._commit(self.submodule, "board library")
+        self.submodule_commit = commit_all(self.submodule, "board library")
 
-        self._init_repo(self.repo)
+        init_repo(self.repo)
         (self.repo / "common/footprints/Common.pretty").mkdir(parents=True)
         (self.repo / "common/symbols").mkdir(parents=True)
         (self.repo / "common/footprints/Common.pretty/common.kicad_mod").write_text(
@@ -90,7 +90,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             encoding="utf-8",
         )
         (self.repo / "hardware/board/model.step").write_bytes(self.lfs_pointer())
-        self._git(
+        git(
             self.repo,
             "-c",
             "protocol.file.allow=always",
@@ -100,7 +100,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             str(self.submodule),
             "vendor/board-library",
         )
-        self._git(
+        git(
             self.repo,
             "-c",
             "protocol.file.allow=always",
@@ -115,7 +115,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         (self.repo / ".prism/release-studio/project.yaml").write_text(
             "closure: whole-tree\n", encoding="utf-8"
         )
-        self.commit = self._commit(self.repo, "release fixture")
+        self.commit = commit_all(self.repo, "release fixture")
 
     def tearDown(self) -> None:
         self._temporary.cleanup()
@@ -124,7 +124,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         payload = b"small hydrated STEP payload\n"
         source_lfs_path = self.repo / "hardware/board/model.step"
         clone = self.root / "monorepo-independent-clone"
-        self._git(
+        git(
             self.root,
             "-c",
             "protocol.file.allow=always",
@@ -135,12 +135,12 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             str(self.repo),
             str(clone),
         )
-        self.assertEqual(self._git(clone, "rev-parse", "HEAD").strip(), self.commit)
+        self.assertEqual(git(clone, "rev-parse", "HEAD").strip(), self.commit)
         # Clone-local submodule URL/config state may contain different host
         # paths, but the recorded commit tree and gitlinks must be identical.
         self.assertEqual(
-            self._git(self.repo, "ls-tree", "-r", "--full-tree", self.commit),
-            self._git(clone, "ls-tree", "-r", "--full-tree", self.commit),
+            git(self.repo, "ls-tree", "-r", "--full-tree", self.commit),
+            git(clone, "ls-tree", "-r", "--full-tree", self.commit),
         )
         source_lfs_path.write_bytes(payload)
         clone_lfs_path = clone / "hardware/board/model.step"
@@ -223,7 +223,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             '(uri "/tmp/host-only-footprints") (options "") (descr "")))\n',
             encoding="utf-8",
         )
-        hostile_commit = self._commit(self.repo, "host path")
+        hostile_commit = commit_all(self.repo, "host path")
         # Recorded, and not fatal: the closure still materializes, so a
         # documentation build is never refused over a library table.
         closure = materialize_input_closure(
@@ -251,7 +251,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         self.repo.joinpath("hardware/board/model.step").write_bytes(
             b"small hydrated STEP payload\n"
         )
-        commit = self._commit(self.repo, "clean closure")
+        commit = commit_all(self.repo, "clean closure")
         closure = materialize_input_closure(
             self.repo,
             commit,
@@ -270,7 +270,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             '(uri "${KIPRJMOD}/libraries/absent.pretty") (options "") (descr "")))\n',
             encoding="utf-8",
         )
-        commit = self._commit(self.repo, "missing footprint library")
+        commit = commit_all(self.repo, "missing footprint library")
         closure = materialize_input_closure(
             self.repo,
             commit,
@@ -302,7 +302,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             '(model "${KICAD9_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603.step"))\n',
             encoding="utf-8",
         )
-        commit = self._commit(self.repo, "stock 3d model reference")
+        commit = commit_all(self.repo, "stock 3d model reference")
 
         closure = materialize_input_closure(
             self.repo,
@@ -350,7 +350,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             '(model "${KIPRJMOD}/packages3D/BUK9K18-40E,115.stp"))\n',
             encoding="utf-8",
         )
-        commit = self._commit(self.repo, "comma in a model filename")
+        commit = commit_all(self.repo, "comma in a model filename")
 
         closure = materialize_input_closure(
             self.repo,
@@ -382,7 +382,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
             '(model "${KIPRJMOD}/packages3D/Absent.STEP"))\n',
             encoding="utf-8",
         )
-        commit = self._commit(self.repo, "stale model path")
+        commit = commit_all(self.repo, "stale model path")
 
         closure = materialize_input_closure(
             self.repo,
@@ -440,7 +440,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         subsheets.joinpath("detached.kicad_sch").write_text(
             '(kicad_sch (model "${KIPRJMOD}/model.step"))\n', encoding="utf-8"
         )
-        commit = self._commit(self.repo, "archive and hierarchy")
+        commit = commit_all(self.repo, "archive and hierarchy")
 
         closure = materialize_input_closure(
             self.repo, commit, self.root / "scoped", relative_path="hardware/board"
@@ -459,13 +459,13 @@ class ReleaseStudioClosureTests(unittest.TestCase):
 
     def test_symlink_and_regular_file_are_distinct_closure_inputs(self) -> None:
         repository = self.root / "link-repo"
-        self._init_repo(repository)
+        init_repo(repository)
         (repository / "payload.txt").write_text("same bytes", encoding="utf-8")
         (repository / "entry.txt").write_text("payload.txt", encoding="utf-8")
-        regular_commit = self._commit(repository, "regular entry")
+        regular_commit = commit_all(repository, "regular entry")
         (repository / "entry.txt").unlink()
         (repository / "entry.txt").symlink_to("payload.txt")
-        symlink_commit = self._commit(repository, "symlink entry")
+        symlink_commit = commit_all(repository, "symlink entry")
 
         regular = materialize_input_closure(
             repository, regular_commit, self.root / "regular"
@@ -501,7 +501,7 @@ class ReleaseStudioClosureTests(unittest.TestCase):
         self.assertTrue(resource_digest)
         copied_toolchain = self.root / "pinned-kicad-copy/footprints"
         shutil.copytree(toolchain, copied_toolchain)
-        pinned_commit = self._commit(self.repo, "pinned resource")
+        pinned_commit = commit_all(self.repo, "pinned resource")
         closure = materialize_input_closure(
             self.repo,
             pinned_commit,
@@ -564,34 +564,11 @@ class ReleaseStudioClosureTests(unittest.TestCase):
                 },
             )
 
-    def _init_repo(self, path: Path) -> None:
-        path.mkdir(parents=True, exist_ok=True)
-        self._git(path, "init", "--quiet", "--initial-branch=main")
-        self._git(path, "config", "user.name", "Release Studio Fixture")
-        self._git(path, "config", "user.email", "release-studio@example.test")
-
-    def _commit(self, path: Path, message: str) -> str:
-        self._git(path, "add", "--all")
-        self._git(path, "commit", "--quiet", "-m", message)
-        return self._git(path, "rev-parse", "HEAD").strip()
-
-    def _git(self, path: Path, *args: str) -> str:
-        process = subprocess.run(
-            [GIT or "git", "-C", str(path), *args],
-            check=False,
-            capture_output=True,
-            text=True,
-            shell=False,
-        )
-        if process.returncode:
-            self.fail(f"git {' '.join(args)} failed:\n{process.stdout}\n{process.stderr}")
-        return process.stdout
-
     def _status(self, path: Path) -> str:
-        return self._git(path, "status", "--porcelain")
+        return git(path, "status", "--porcelain")
 
     def _blob_sha(self, commit: str) -> str:
-        return self._git(
+        return git(
             self.repo,
             "rev-parse",
             f"{commit}:hardware/board/model.step",
@@ -662,7 +639,7 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
-            self._init_repo(repo)
+            init_repo(repo)
             (repo / "board.kicad_pcb").write_text(
                 '(kicad_pcb (version 20240108)\n'
                 '  (property "Reference" "${REFERENCE}")\n'
@@ -671,32 +648,11 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
                 ')\n',
                 encoding="utf-8",
             )
-            commit = self._commit(repo, "board with text variables")
+            commit = commit_all(repo, "board with text variables")
 
             closure = materialize_input_closure(repo, commit, root / "out")
             self.assertTrue(closure.input_closure_digest)
             self.assertEqual(closure.library_references, ())
-
-    def _init_repo(self, path: Path) -> None:
-        path.mkdir(parents=True, exist_ok=True)
-        self._git(path, "init", "--quiet", "--initial-branch=main")
-        self._git(path, "config", "user.name", "Release Studio Fixture")
-        self._git(path, "config", "user.email", "release-studio@example.test")
-
-    def _commit(self, path: Path, message: str) -> str:
-        self._git(path, "add", "--all")
-        self._git(path, "commit", "--quiet", "-m", message)
-        return self._git(path, "rev-parse", "HEAD").strip()
-
-    def _git(self, path: Path, *args: str) -> str:
-        process = subprocess.run(
-            [GIT or "git", "-C", str(path), *args],
-            check=True,
-            capture_output=True,
-            text=True,
-            shell=False,
-        )
-        return process.stdout
 
     def test_a_jobset_special_execute_command_does_not_break_the_closure(self) -> None:
         """The reference jobset's plugin command must not fail a hermetic board.
@@ -710,14 +666,14 @@ class PathReferenceDiscriminationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
-            self._init_repo(repo)
+            init_repo(repo)
             (repo / "board.kicad_pcb").write_text("(kicad_pcb (version 20240108))\n")
             (repo / "Outputs.kicad_jobset").write_text(
                 '{"jobs": [{"id": "x", "type": "special_execute", "settings": '
                 '{"command": "python \\"${KICAD9_3RD_PARTY}plugins/ibom.py\\" '
                 '--dest-dir \\"${JOBSET_OUTPUT_WORK_PATH}.\\""}}], "outputs": []}\n'
             )
-            commit = self._commit(repo, "jobset with a plugin command")
+            commit = commit_all(repo, "jobset with a plugin command")
 
             closure = materialize_input_closure(repo, commit, root / "out")
             self.assertTrue(closure.input_closure_digest)

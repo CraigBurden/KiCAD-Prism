@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -22,12 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import tracker_sync as sync_api  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comment_permissions import resolve_actor  # noqa: E402
 from app.services.trackers.health import aggregate_connector_health, aggregate_project_health  # noqa: E402
-from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema  # noqa: E402
 from app.services.trackers.migrations import migrate_workspace_tracker_tables  # noqa: E402
-from app.services.trackers.op_store import OpStore, apply_schema as apply_op_schema  # noqa: E402
+from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.projections import (  # noqa: E402
     attach_tracker_projection,
     can_retry_projection,

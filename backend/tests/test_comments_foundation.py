@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import tempfile
 import unittest
 import uuid
-from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -23,7 +21,6 @@ from app.services.comment_permissions import (
     authorize,
 )
 from app.services.comments_revisions import Editor, RevisionConflict
-from app.services.comments_store_service import CommentsStoreService
 from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on, set_path  # noqa: E402
 
 

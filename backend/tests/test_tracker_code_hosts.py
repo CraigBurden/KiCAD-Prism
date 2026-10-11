@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import json
 import unittest
-import uuid
 from contextlib import contextmanager
 from urllib.parse import parse_qs, urlsplit
 
 from app.api import tracker_identity as identity_api
-from app.services import comments_schema_migrations
 from app.services.trackers.connector_service import ConnectorService
 from app.services.trackers.contracts import ForgeUser, IdentityToken
 from app.services.trackers.errors import ProviderError
