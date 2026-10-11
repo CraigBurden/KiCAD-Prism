@@ -2,7 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { PrismSemanticViewerElement } from "@/types/prism-semantic-viewer";
+import { SemanticViewer } from "@/lib/semantic-viewer";
+import { fakeSemanticViewer, type FakeSemanticViewer } from "@/test/fake-semantic-viewer";
 import type { SystemScene } from "@/types/system";
 
 import { memorySystem } from "./session/memory-session";
@@ -13,14 +14,16 @@ import { useHarnessNodes } from "./use-harness-nodes";
 
 const scene = { harnesses: [{ id: "hrn_1", level: null, nodes: [] }] } as unknown as SystemScene;
 
-function harnessEvent(viewer: EventTarget, detail: Record<string, unknown>) {
+function harnessEvent(element: FakeSemanticViewer, detail: Record<string, unknown>) {
   act(() => {
-    viewer.dispatchEvent(new CustomEvent("prism-semantic-viewer:harness", { detail }));
+    element.emit("prism-semantic-viewer:harness", detail);
   });
 }
 
 /** The hook in a session over an in-memory system; answers what the session saved. */
-function renderNodes(viewer: PrismSemanticViewerElement) {
+function renderNodes(element: FakeSemanticViewer) {
+  const viewer = new SemanticViewer();
+  viewer.attach(element);
   const document = systemDocument([]);
   const memory = memorySystem(document);
   const session = new SystemSession("sys_1", memory.transport, { document, etag: memory.etag() });
@@ -31,7 +34,7 @@ function renderNodes(viewer: PrismSemanticViewerElement) {
 
 describe("useHarnessNodes in Route mode (D-P2-53)", () => {
   it("saves a breakout where an Alt-drag on the harness is released", async () => {
-    const viewer = new EventTarget() as unknown as PrismSemanticViewerElement;
+    const viewer = fakeSemanticViewer();
     const memory = renderNodes(viewer);
     const picked = { harness: { id: "hrn_1", level: null, name: "PERF-01" }, segment: null, pointMm: [1, 2, 3], node: null, editable: true };
     harnessEvent(viewer, { phase: "select", ...picked });
@@ -43,7 +46,7 @@ describe("useHarnessNodes in Route mode (D-P2-53)", () => {
   });
 
   it("saves a waypoint where a drag on the harness is released, on the segment it started on", async () => {
-    const viewer = new EventTarget() as unknown as PrismSemanticViewerElement;
+    const viewer = fakeSemanticViewer();
     const memory = renderNodes(viewer);
     const picked = { harness: { id: "hrn_1", level: null, name: "PERF-01" }, pointMm: [5, 0, 0], node: null, editable: true,
       segment: { id: "seg", from: "end_a", to: "end_b", samplesMm: [[0, 0, 0], [10, 0, 0]] } };

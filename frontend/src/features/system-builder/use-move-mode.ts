@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import type { PrismSemanticViewerElement, PrismSystemSceneMoveState } from "@/types/prism-semantic-viewer";
+import type { SemanticViewer } from "@/lib/semantic-viewer";
+import type { PrismSystemSceneMoveState } from "@/types/prism-semantic-viewer";
 import type { SystemScene } from "@/types/system";
 
 import { stackMove, stackOf, stackUndo } from "./scene-stack";
@@ -20,7 +21,7 @@ type Origin = { instanceId: string; pose: MoveTarget["pose"]; source: MoveTarget
  * The viewer only previews; a released drag or Enter ("commit") stores the
  * target's pose with If-Match, and a failed save puts the board back.
  */
-export function useMoveMode(viewer: PrismSemanticViewerElement | null, scene: SystemScene | null) {
+export function useMoveMode(viewer: SemanticViewer, scene: SystemScene | null) {
   const [move, setMove] = useState<PrismSystemSceneMoveState | null>(null);
   // Bumped whenever the view saves, cancels or changes target: the move panel starts over.
   const [epoch, setEpoch] = useState(0);
@@ -37,7 +38,7 @@ export function useMoveMode(viewer: PrismSemanticViewerElement | null, scene: Sy
   const savePose = async (target: MoveTarget) => {
     const saved = await edit("pose", (system) => system.setPose(target.instanceId, target.pose));
     if (saved) markMoved(target.instanceId);
-    else viewer?.cancelMove?.();
+    else viewer.cancelMove();
   };
   /** A save of a board in a mated stack asks first (D-P2-18); any other saves at once. */
   const requestSave = async (target: MoveTarget) => {
@@ -51,9 +52,7 @@ export function useMoveMode(viewer: PrismSemanticViewerElement | null, scene: Sy
   });
 
   useEffect(() => {
-    if (!viewer) return;
-    const onMove = (event: Event) => {
-      const state = (event as CustomEvent<PrismSystemSceneMoveState>).detail;
+    const off = viewer.on("move", (state) => {
       setMove(state);
       const target = state.enabled ? state.target : null;
       setOrigin((current) => {
@@ -67,9 +66,8 @@ export function useMoveMode(viewer: PrismSemanticViewerElement | null, scene: Sy
       // Start the panel over when the view's state changed under it; a re-read during
       // typing ("sync" with an unsaved preview) keeps what is typed.
       if (state.phase !== "preview" && !(state.phase === "sync" && state.target?.unsaved)) setEpoch((count) => count + 1);
-    };
-    viewer.addEventListener("prism-semantic-viewer:move", onMove);
-    return () => viewer.removeEventListener("prism-semantic-viewer:move", onMove);
+    });
+    return () => off();
   }, [viewer]);
 
   return {
@@ -100,14 +98,14 @@ export function useMoveMode(viewer: PrismSemanticViewerElement | null, scene: Sy
       const undo = stackUndo(scene, poses);
       const done = await edit("pose", (system) => system.setPoses({ poses }), `${target.displayPath} moved with its stack`);
       if (!done) {
-        viewer?.cancelMove?.();
+        viewer.cancelMove();
         return;
       }
       setOrigin((current) => (current?.instanceId === target.instanceId ? { ...current, moved: true, undo: current.undo ?? undo } : current));
     },
     cancelPending: () => {
       setPending(null);
-      viewer?.cancelMove?.();
+      viewer.cancelMove();
     },
     /** Drop the stored pose of a board whose mated position was overridden: it goes back onto its mate. */
     snapBack: async (target: MoveTarget) => {
@@ -116,7 +114,7 @@ export function useMoveMode(viewer: PrismSemanticViewerElement | null, scene: Sy
     },
     /** Drop an unsaved preview; after saved moves, store the pose the target had when it was picked. */
     revert: async () => {
-      viewer?.cancelMove?.();
+      viewer.cancelMove();
       const target = move?.target;
       if (!origin?.moved || !target || origin.instanceId !== target.instanceId) return;
       if (origin.undo) {

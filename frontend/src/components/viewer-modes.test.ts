@@ -66,6 +66,7 @@ describe("initial tab", () => {
             draft: null,
             selectedCommentId: null,
             rightRail: null,
+            mounted: { pcb: tab === "pcb", "3d": tab === "3d" || tab === "stackup" },
         });
     });
 });
@@ -143,7 +144,31 @@ describe("tab keys", () => {
     });
 
     it("a tab change keeps every mode", () => {
-        expect(viewerModesReducer(busy("sch"), { type: "tab", tab: "3d" })).toEqual(busy("3d"));
+        expect(viewerModesReducer(busy("sch"), { type: "tab", tab: "3d" }))
+            .toEqual({ ...busy("3d"), mounted: { pcb: false, "3d": true } });
+    });
+});
+
+describe("mounted views", () => {
+    it.each([
+        ["pcb", { pcb: true, "3d": false }],
+        ["3d", { pcb: false, "3d": true }],
+        ["stackup", { pcb: false, "3d": true }],
+        ["bom", { pcb: false, "3d": false }],
+        ["assembly", { pcb: false, "3d": false }],
+    ] as const)("visiting %s mounts %o, and leaving keeps it", (tab, mounted) => {
+        const visited = viewerModesReducer(modes(), { type: "tab", tab });
+        expect(visited.mounted).toEqual(mounted);
+        expect(viewerModesReducer(visited, { type: "tab", tab: "sch" }).mounted).toEqual(mounted);
+    });
+
+    it("mounts the board for insets and the 3D tab for an inset's 3D view, once", () => {
+        const board = viewerModesReducer(modes(), { type: "mount", view: "pcb" });
+        expect(board.mounted).toEqual({ pcb: true, "3d": false });
+        expect(board.tab).toBe("sch");
+        const both = viewerModesReducer(board, { type: "mount", view: "3d" });
+        expect(both.mounted).toEqual({ pcb: true, "3d": true });
+        expect(viewerModesReducer(both, { type: "mount", view: "3d" })).toBe(both);
     });
 });
 

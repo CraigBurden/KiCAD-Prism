@@ -41,6 +41,13 @@ export interface ViewerModes {
     draft: CommentDraft | null;
     selectedCommentId: string | null;
     rightRail: ViewerRightRailTab | null;
+    /**
+     * Views mounted so far; once mounted a view stays mounted. The board
+     * mounts on its first visit (its parse runs on the main thread) or when
+     * schematic insets need it; the 3D tab on its first visit (3D or stackup)
+     * or when a PCB inset asks for the 3D board.
+     */
+    mounted: { pcb: boolean; "3d": boolean };
 }
 
 export type ViewerModeInput =
@@ -60,12 +67,23 @@ export type ViewerModeInput =
     | { type: "rail"; tab: ViewerRightRailTab | null }
     | { type: "toggle-rail"; tab: ViewerRightRailTab }
     /** Whether the selection inspector has something for the active view. */
-    | { type: "inspector"; hasContent: boolean };
+    | { type: "inspector"; hasContent: boolean }
+    /** A view needed in the background: insets turned on, or the 3D board for an inset. */
+    | { type: "mount"; view: "pcb" | "3d" };
+
+function mountTab(mounted: ViewerModes["mounted"], tab: VisualizerTab): ViewerModes["mounted"] {
+    if (tab === "pcb" && !mounted.pcb) return { ...mounted, pcb: true };
+    if ((tab === "3d" || tab === "stackup") && !mounted["3d"]) return { ...mounted, "3d": true };
+    return mounted;
+}
 
 /** Opens on the tab a caller asked for (`?tab=`), else the schematic. */
 export function initialViewerModes(requestedTab: string | null): ViewerModes {
     const tab = VIEWER_TABS.find((candidate) => candidate === requestedTab) ?? "sch";
-    return { tab, commentMode: false, draft: null, selectedCommentId: null, rightRail: null };
+    return {
+        tab, commentMode: false, draft: null, selectedCommentId: null, rightRail: null,
+        mounted: mountTab({ pcb: false, "3d": false }, tab),
+    };
 }
 
 function isCadTab(tab: VisualizerTab): tab is ViewerElementKind {
@@ -102,7 +120,7 @@ function draftFromSelection(
 export function viewerModesReducer(state: ViewerModes, input: ViewerModeInput): ViewerModes {
     switch (input.type) {
         case "tab":
-            return state.tab === input.tab ? state : { ...state, tab: input.tab };
+            return state.tab === input.tab ? state : { ...state, tab: input.tab, mounted: mountTab(state.mounted, input.tab) };
         case "escape":
             return { ...state, commentMode: false, draft: null, selectedCommentId: null, rightRail: null };
         case "comment-key": {
@@ -145,6 +163,8 @@ export function viewerModesReducer(state: ViewerModes, input: ViewerModeInput): 
             // panel, never the comments.
             if (input.hasContent) return state.rightRail === "selection" ? state : { ...state, rightRail: "selection" };
             return state.rightRail === "selection" ? { ...state, rightRail: null } : state;
+        case "mount":
+            return state.mounted[input.view] ? state : { ...state, mounted: { ...state.mounted, [input.view]: true } };
     }
 }
 

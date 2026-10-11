@@ -6,12 +6,13 @@ import { Scene3dTab } from "./scene-3d-tab";
 import { renderInSession } from "./session/memory-session";
 import type { SystemTabProps } from "./system-tab-content";
 import { instance, systemDocument } from "./test-fixtures";
+import { defineFakeSemanticViewer, mountedSemanticViewer } from "@/test/fake-semantic-viewer";
 import type { SystemScene, SystemSceneAsset, SystemSceneOccurrence } from "@/types/system";
 
 afterEach(() => vi.unstubAllGlobals());
 
 // The viewer bundle defines the element; the tab waits for it before driving it.
-if (!customElements.get("prism-semantic-viewer")) customElements.define("prism-semantic-viewer", class extends HTMLElement {});
+defineFakeSemanticViewer();
 
 const box = { minMm: [0, -90, -0.8], maxMm: [132, 0, 0.8] };
 const occurrence = (label: string, patch: Partial<SystemSceneOccurrence> = {}): SystemSceneOccurrence => ({
@@ -89,11 +90,9 @@ describe("Scene3dTab", () => {
     vi.stubGlobal("fetch", fetchMock);
     const loads = renderTab();
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
-    element.setMoveMode = vi.fn();
+    const element = mountedSemanticViewer();
     // The tab listens once the element is there; give its effects a turn.
     await act(async () => undefined);
-    element.cancelMove = vi.fn();
     fireEvent.click(screen.getByRole("button", { name: /Move/ }));
     expect(element.setMoveMode).toHaveBeenCalledWith(true, { route: false });
 
@@ -129,9 +128,8 @@ describe("Scene3dTab", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderTab();
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
+    const element = mountedSemanticViewer();
     await act(async () => undefined);
-    element.cancelMove = vi.fn();
     const picked = { translationMm: [1, 2, 3], rotation: [0, 0, 0, 1] };
     const send = (phase: string, pose: unknown, unsaved: boolean) => act(() => {
       element.dispatchEvent(new CustomEvent("prism-semantic-viewer:move", { detail: {
@@ -166,9 +164,8 @@ describe("Scene3dTab", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderTab();
     await screen.findByTitle(/^2 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
+    const element = mountedSemanticViewer();
     await act(async () => undefined);
-    element.cancelMove = vi.fn();
     const send = (phase: string, pose: unknown, unsaved: boolean) => act(() => {
       element.dispatchEvent(new CustomEvent("prism-semantic-viewer:move", { detail: {
         phase, allowed: true, enabled: true, space: "world", dragging: false,
@@ -217,9 +214,7 @@ describe("Scene3dTab", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderTab();
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
-    element.setNetEmphasis = vi.fn(() => []);
-    element.frameParts = vi.fn(() => true);
+    const element = mountedSemanticViewer();
     await act(async () => undefined);
     const select = (selection: unknown) => act(() => {
       element.dispatchEvent(new CustomEvent("prism-semantic-viewer:selectionchange", { detail: { selection } }));
@@ -263,10 +258,7 @@ describe("Scene3dTab", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderTab();
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
-    element.setSelection = vi.fn();
-    element.setNetEmphasis = vi.fn(() => []);
-    element.frameNetEmphasis = vi.fn(() => true);
+    const element = mountedSemanticViewer();
     await act(async () => undefined);
     const field = screen.getByRole("combobox", { name: "Find component or net" });
     fireEvent.focusIn(field); // SB2-98: the system-net index loads when the search opens
@@ -305,9 +297,8 @@ describe("Scene3dTab", () => {
     const tray = document.body.appendChild(document.createElement("div"));
     renderTab({ netsSlot: tray });
     await screen.findByTitle(/^4 boards/);
-    const element = document.querySelector("prism-semantic-viewer") as unknown as HTMLElement & Record<string, unknown>;
-    element.setNetEmphasis = vi.fn(() => [{ key: "g1", color: "#14ff33", lit: 1, unresolved: [] }]);
-    element.frameNetEmphasis = vi.fn(() => true);
+    const element = mountedSemanticViewer();
+    element.setNetEmphasis.mockReturnValue([{ key: "g1", color: "#14ff33", lit: 1, unresolved: [] }]);
     expect(tray.querySelector("[aria-label='Search system nets']")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Search system nets"), { target: { value: "gnd" } });
     fireEvent.click(await screen.findByRole("button", { name: "Show" }));
