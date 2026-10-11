@@ -26,18 +26,32 @@ a general alpha compatibility guarantee. Read the release notes for the exact
 release before relying on an image-only rollback; if the release changed data
 incompatibly, restoring the matching backup is required.
 
-Workspace, catalog, and comment schemas carry numbered ledgers applied at
-startup under an advisory lock:
+Every schema Prism owns carries a numbered ledger. One module,
+[`schema_ledger.py`](../backend/app/services/schema_ledger.py), runs them all: it
+takes the schema's advisory lock, applies the steps a database has not recorded,
+renumbers branch-era rows and adopts legacy markers. At startup
+[`schema_head.py`](../backend/app/services/schema_head.py) brings every ledger to
+head in dependency order:
 
 | Schema | Ledger | Migrations |
 | --- | --- | --- |
 | `workspace` | `workspace.ws_schema_migrations` | [`workspace_schema_migrations.py`](../backend/app/services/workspace_schema_migrations.py) (registry), bodies under [`workspace_migrations/`](../backend/app/services/workspace_migrations/) |
+| `workspace` (auth tables) | `workspace.auth_schema_migrations` | [`auth_schema_migrations.py`](../backend/app/services/auth_schema_migrations.py) |
 | `comments` | `comments.comment_schema_migrations` | [`comments_schema_migrations.py`](../backend/app/services/comments_schema_migrations.py) |
 | `catalog` | `catalog.catalog_schema_versions` | [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py) |
+| `operations` | `operations.artifact_schema_migrations` | [`artifact_schema_migrations.py`](../backend/app/services/artifact_schema_migrations.py) |
+
+The auth and artifact ledgers, and step 0 of the workspace and comments ledgers,
+hold DDL that earlier releases ran on every start outside any ledger. Each of
+those steps is safe on a database that already has it, so an existing
+installation runs them once on upgrade and records them; no manual step is
+needed.
 
 Derived state sits outside those ledgers on purpose. Component-head projections,
 search indexes and integrity guards are rebuilt whenever their definition version
-changes, which a run-once ledger cannot express. They rebuild from authoritative
+changes, which a run-once ledger cannot express. The catalog's baseline (its
+epoch guard, base tables and metadata-field seed) is reconciled on every start
+ahead of its numbered steps for the same reason. They rebuild from authoritative
 data, so they are not schema-migrated and are omitted from the standard
 `prism_backup.py` archive. Include them separately when faster recovery is worth
 the additional storage.

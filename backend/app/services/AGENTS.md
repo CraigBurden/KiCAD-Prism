@@ -27,6 +27,19 @@ Do not extend the inheritance split casually. When adding a cohesive capability,
 first consider a narrow collaborator with a public API that both workers and
 HTTP handlers can use; avoid creating another caller of private catalog methods.
 
+## Schema migrations
+
+Every PostgreSQL schema changes only through a numbered ledger.
+`schema_ledger.py` is the one runner (ledger table, lock, renumbering, legacy
+adoption, pending report); `schema_head.py` lists the ledgers in dependency
+order and is what startup calls. Steps live per schema:
+`workspace_schema_migrations.py` (bodies in `workspace_migrations/`),
+`auth_schema_migrations.py`, `comments_schema_migrations.py`,
+`catalog_schema_migrations.py`, `artifact_schema_migrations.py`. Add a step
+rather than DDL in a service (see `docs/UPGRADES.md`); the one exception is the
+catalog baseline and derived projections, reconciled on every start by
+`ComponentCatalogPostgresService.initialize`.
+
 ## Catalog jobs
 
 `catalog_worker_tasks.py` holds the `HANDLERS` table — the catalog worker's
