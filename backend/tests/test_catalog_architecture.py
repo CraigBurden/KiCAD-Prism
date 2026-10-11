@@ -5,6 +5,10 @@ import tempfile
 from pathlib import Path
 import sys
 import unittest
+
+# CI runs this module with `python -m unittest backend.tests.<name>` from the repository
+# root, where backend/tests is not on sys.path (pytest adds it).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from support.repo import commit_all, init_repo  # noqa: E402
 
 
