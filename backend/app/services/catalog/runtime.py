@@ -34,8 +34,6 @@ class CatalogRuntime:
 
     initialization_lock: threading.Lock
     initialized: bool
-    kicad_cli: str | None
-    kicad_cli_version: str | None
     category_cache: list[dict[str, Any]] | None
     category_cache_ts: float
     category_cache_ttl: float
@@ -68,8 +66,6 @@ class CatalogRuntime:
 
         self.initialization_lock = threading.Lock()
         self.initialized = False
-        self.kicad_cli = None
-        self.kicad_cli_version = None
         self.category_cache = None
         self.category_cache_ts = 0.0
         self.category_cache_ttl = 60.0

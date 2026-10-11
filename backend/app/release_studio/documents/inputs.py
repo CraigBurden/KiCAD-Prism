@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
+from app.services.kicad_tools import KicadTool
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,8 +38,8 @@ class DocumentInputs:
     bom_rows: Sequence[Sequence[str]] = ()
     sheet_size: str | None = None
     board: Path | None = None
-    cli_path: str | None = None
-    cruncher_path: str | None = None
+    cli: KicadTool | None = None
+    cruncher: KicadTool | None = None
     workdir: Path | None = None
 
     @classmethod
@@ -64,8 +65,8 @@ class DocumentInputs:
         bom_rows: Sequence[Sequence[str]] | None = None,
         sheet_size: str | None = None,
         board: Path | None = None,
-        cli_path: str | None = None,
-        cruncher_path: str | None = None,
+        cli: KicadTool | None = None,
+        cruncher: KicadTool | None = None,
         workdir: Path | None = None,
     ) -> DocumentInputs:
         """Pack the historical ``compose`` keyword arguments into one record."""
@@ -94,7 +95,7 @@ class DocumentInputs:
             bom_rows=tuple(tuple(row) for row in (bom_rows or ())),
             sheet_size=sheet_size,
             board=board,
-            cli_path=cli_path,
-            cruncher_path=cruncher_path,
+            cli=cli,
+            cruncher=cruncher,
             workdir=workdir,
         )

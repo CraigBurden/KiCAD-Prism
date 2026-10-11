@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import logging
 import re
-import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
 
+from app.services.kicad_tools import KicadTool, kicad_cli
 from app.services.systems import step_assembly, visibility
 from app.services.systems.placement import poses as poses_module
 from app.services.systems.service_base import Caller
@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 STEP_JOB_KIND = "system_step_export"
 BOARD_TIMEOUT_S = 900
 PARALLEL_BOARDS = 3  # kicad-cli processes at once; each is one CPU-heavy export
-_versions: dict[str, str] = {}
 
 
 def _step_root() -> Path:
@@ -37,17 +36,9 @@ def _step_root() -> Path:
     return semantic_store_root().parent / "system-step"
 
 
-def _cli() -> str:
-    from app.services.kicad_jobset_service import find_kicad_cli_path
-
-    return find_kicad_cli_path()
-
-
-def _cli_version(cli: str) -> str:
-    if cli not in _versions:
-        out = subprocess.run([cli, "version"], capture_output=True, text=True, timeout=60)
-        _versions[cli] = re.sub(r"[^0-9A-Za-z.]+", "-", out.stdout.strip()) or "unknown"
-    return _versions[cli]
+def _cli_version(cli: KicadTool) -> str:
+    """The cache key's KiCad version: a new KiCad re-exports every board."""
+    return re.sub(r"[^0-9A-Za-z.]+", "-", cli.version()) or "unknown"
 
 
 def _shifted(matrix: list[float], z: float) -> list[float]:
@@ -63,11 +54,11 @@ def _multiply(a: list[float], b: list[float]) -> list[float]:
     return [sum(a[k * 4 + row] * b[col * 4 + k] for k in range(4)) for col in range(4) for row in range(4)]
 
 
-def board_step(project: Any, commit: str) -> Path:
+def board_step(project: Any, commit: str, *, tool: Optional[KicadTool] = None) -> Path:
     """The board's STEP at ``commit`` (§25), exported once per commit and KiCad version."""
     from app.services import project_revision
 
-    cli = _cli()
+    cli = tool or kicad_cli()
     target = _step_root() / str(project.id) / f"{commit}-{_cli_version(cli)}.step"
     if target.is_file():
         return target
@@ -78,8 +69,8 @@ def board_step(project: Any, commit: str) -> Path:
         if not pcb.is_file():
             raise RuntimeError(f"No board file in {commit[:12]}")
         out = revision.root.parent / "board.step"
-        done = subprocess.run([cli, "pcb", "export", "step", "--force", "--subst-models", "-o", str(out), str(pcb)],
-                              capture_output=True, text=True, timeout=BOARD_TIMEOUT_S)
+        done = cli.run(["pcb", "export", "step", "--force", "--subst-models", "-o", str(out), str(pcb)],
+                       timeout=BOARD_TIMEOUT_S)
         if done.returncode != 0 or not out.is_file():
             lines = [line for line in (done.stderr or done.stdout or "").splitlines() if line.strip()]
             raise RuntimeError(lines[-1] if lines else f"kicad-cli exited {done.returncode}")

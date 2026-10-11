@@ -117,6 +117,22 @@ default; override at build time with
 `docker compose build --build-arg KICAD_BASE_IMAGE=...`. The public
 source-build and release targets are Linux AMD64.
 
+Prism finds its KiCad tools the same way for every job (release builds,
+jobsets, catalog previews, board statistics, thumbnails, fabrication
+comparison, system STEP export). The image already has them on `PATH`; set
+these only for a host run or a pinned install:
+
+```env
+# kicad-cli. Empty: PATH, then the usual KiCad install locations.
+# A set path is used as given, with no fallback. KICAD_CLI is a legacy name.
+KICAD_CLI_PATH=
+# kicad-cruncher, for release assembly views and vendor packs. Empty: PATH.
+KICAD_CRUNCHER_PATH=
+```
+
+Each kicad-cli run gets its own temporary directory (KiCad's instance lock)
+and a timeout set by the job that runs it.
+
 ### Experimental PCB geometry
 
 `PRISM_PCB_GEOMETRY_BACKEND=legacy` is the normal release and source default.
@@ -124,7 +140,8 @@ The image containing a Rust helper does not activate it. Select `rust` only
 for a deliberate experiment; `python-copper` is also experimental. Rust rejects
 missing helpers, identity mismatches, unsupported geometry, and helper errors
 instead of silently falling back. Set `PRISM_KICAD_NATIVE_TIMEOUT_SECONDS` to
-bound helper execution (default 300 seconds).
+bound helper execution (default 300 seconds). `PRISM_KICAD_NATIVE_PATH` names
+the helper (default `/usr/local/bin/prism-kicad-native`, where the image puts it).
 
 Rollback by setting the backend to `legacy` and recreating the API and general
 worker containers so they receive the new environment. Direct host experiments

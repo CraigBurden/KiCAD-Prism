@@ -8,15 +8,15 @@ upload zip.
 
 from __future__ import annotations
 
-import os
 import shutil
-import subprocess
 import time
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
-from .registry import CruncherRunner, VendorArtifacts
+from app.services.kicad_tools import KicadTool, ToolError
+
+from .registry import VendorArtifacts
 
 #: Pinned BOM/PnP configuration. Hashed into ``toolchain_digest`` by
 #: ``documents.renderer_resource_digest`` so editing it moves ``build_key``
@@ -47,11 +47,10 @@ class JlcpcbProfile:
     def generate(
         self,
         *,
-        cruncher_path: str,
+        cruncher: KicadTool,
         design_file: Path,
         output_root: Path,
         variant: str = "",
-        runner: CruncherRunner | None = None,
         timeout_seconds: int = 900,
     ) -> VendorArtifacts:
         workdir = output_root / "_vendor_work" / self.id
@@ -59,9 +58,7 @@ class JlcpcbProfile:
             shutil.rmtree(workdir)
         workdir.mkdir(parents=True)
 
-        execute = runner or _default_runner
-        env = os.environ.copy()
-        env["KIPRJMOD"] = str(design_file.resolve().parent)
+        env = {"KIPRJMOD": str(design_file.resolve().parent)}
         argv_record: list[str] = []
         started = time.perf_counter()
 
@@ -77,22 +74,21 @@ class JlcpcbProfile:
         stdout_parts: list[str] = []
         stderr_parts: list[str] = []
         for _label, destination, parts in commands:
-            argv = [cruncher_path, *parts, str(design_file), "-o", str(destination)]
+            argv = [*parts, str(design_file), "-o", str(destination)]
             if variant:
                 argv.extend(("--variant", variant))
-            argv_record.append(" ".join(_normalize_argv(argv, design_file, output_root)))
-            result = execute(
-                argv,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-                env=env,
-                cwd=str(design_file.parent),
+            argv_record.append(
+                " ".join(["kicad-cruncher", *_normalize_argv(argv, design_file, output_root)])
             )
-            code = int(getattr(result, "returncode", 1) or 0)
-            stdout_parts.append(getattr(result, "stdout", "") or "")
-            stderr_parts.append(getattr(result, "stderr", "") or "")
-            if code != 0:
+            try:
+                result = cruncher.run(
+                    argv, timeout=timeout_seconds, env=env, cwd=design_file.parent
+                )
+            except ToolError as exc:
+                raise VendorGenerateError(f"kicad-cruncher {' '.join(parts[:2])}: {exc}") from exc
+            stdout_parts.append(result.stdout)
+            stderr_parts.append(result.stderr)
+            if not result.ok:
                 detail = (stderr_parts[-1] or stdout_parts[-1]).strip()
                 raise VendorGenerateError(
                     f"kicad-cruncher {' '.join(parts[:2])} failed: {detail[:400]}"
@@ -163,15 +159,9 @@ def _normalize_argv(argv: Sequence[str], design_file: Path, output_root: Path) -
             normalized.append(VENDOR_CONFIG.name)
         elif part.startswith(str(output_root)):
             normalized.append(Path(part).relative_to(output_root).as_posix())
-        elif part.endswith("kicad-cruncher") or part.endswith("kicad-cruncher.exe"):
-            normalized.append("kicad-cruncher")
         else:
             normalized.append(part)
     return normalized
-
-
-def _default_runner(*args: Any, **kwargs: Any) -> Any:
-    return subprocess.run(*args, **kwargs)
 
 
 JLCPCB_PROFILE = JlcpcbProfile()

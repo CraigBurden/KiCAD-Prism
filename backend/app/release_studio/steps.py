@@ -14,18 +14,15 @@ genuine tool failure fails the step.
 from __future__ import annotations
 
 import json
-import os
 import shlex
-import shutil
-import subprocess
-import tempfile
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+
+from app.services.kicad_tools import KicadTool, ToolError
 
 
 DEFAULT_CLI_TIMEOUT_SECONDS = 900
@@ -288,39 +285,6 @@ class StepExecutionError(RuntimeError):
     """A catalogue step failed for a reason that is not a design violation."""
 
 
-def resolve_cli_path(explicit: str | None = None) -> str:
-    """Return the kicad-cli executable, preferring an explicit override."""
-
-    if explicit:
-        return explicit
-    configured = os.environ.get("KICAD_CLI_PATH", "").strip()
-    if configured:
-        return configured
-    found = shutil.which("kicad-cli")
-    if found:
-        return found
-    raise StepExecutionError("kicad-cli is not available on PATH")
-
-
-def resolve_cruncher_path(explicit: str | None = None) -> str:
-    """Return the kicad-cruncher executable that renders the assembly views.
-
-    Resolved the same way as ``kicad-cli`` and pinned by the same image, so the
-    tool that draws the assembly sheets is identified by ``toolchain_digest``
-    like every other part of the toolchain.
-    """
-
-    if explicit:
-        return explicit
-    configured = os.environ.get("KICAD_CRUNCHER_PATH", "").strip()
-    if configured:
-        return configured
-    found = shutil.which("kicad-cruncher")
-    if found:
-        return found
-    raise StepExecutionError("kicad-cruncher is not available on PATH")
-
-
 def selected_steps(
     *,
     board: Path | None,
@@ -348,21 +312,17 @@ def run_step_catalogue(
     schematic_rel: str | None,
     output_root: Path,
     variant: str = "",
-    cli_path: str | None = None,
+    tool: KicadTool | None,
     only: Sequence[str] | None = None,
     timeout_seconds: int = DEFAULT_CLI_TIMEOUT_SECONDS,
     progress: Any = None,
     on_step: Any = None,
-    runner: Any = None,
     bom_preset: str = "",
 ) -> tuple[StepOutput, ...]:
-    """Run the catalogue against a materialized closure.
+    """Run the catalogue against a materialized closure with ``tool`` (kicad-cli)."""
 
-    ``runner`` is injected by tests; it defaults to :func:`subprocess.run`.
-    """
-
-    cli = resolve_cli_path(cli_path)
-    execute = runner or _default_runner
+    if tool is None:
+        raise StepExecutionError("kicad-cli is not available on PATH")
     board = (closure_root / board_rel) if board_rel else None
     schematic = (closure_root / schematic_rel) if schematic_rel else None
     if board is not None and not board.is_file():
@@ -379,7 +339,7 @@ def run_step_catalogue(
     # while DRC/ERC still held the design. One process at a time.
     run = partial(
         _run_one,
-        cli=cli,
+        tool=tool,
         closure_root=closure_root,
         board=board,
         schematic=schematic,
@@ -388,7 +348,6 @@ def run_step_catalogue(
         output_root=output_root,
         variant=variant,
         timeout_seconds=timeout_seconds,
-        execute=execute,
         bom_preset=bom_preset,
     )
     results: dict[str, StepOutput] = {}
@@ -444,7 +403,7 @@ def run_step_catalogue(
 def _run_one(
     spec: StepSpec,
     *,
-    cli: str,
+    tool: KicadTool,
     closure_root: Path,
     board: Path | None,
     schematic: Path | None,
@@ -453,7 +412,6 @@ def _run_one(
     output_root: Path,
     variant: str,
     timeout_seconds: int,
-    execute: Any,
     bom_preset: str = "",
 ) -> StepOutput:
     destination = output_root / spec.output_name
@@ -477,7 +435,7 @@ def _run_one(
         "out": spec.output_name,
         "variant": variant,
     }
-    argv = [cli, *(part.format(**substitutions) for part in spec.argv)]
+    argv = [part.format(**substitutions) for part in spec.argv]
     normalized = ["kicad-cli", *(part.format(**normalized_substitutions) for part in spec.argv)]
     if spec.variant_flag and variant and variant.casefold() != "default":
         argv.extend(("--variant", variant))
@@ -488,8 +446,12 @@ def _run_one(
         normalized.extend(extra)
 
     started = time.perf_counter()
-    print(f"[{spec.step_id}] $ {shlex.join(str(part) for part in argv)}", flush=True)
-    result = execute(argv, closure_root, timeout_seconds)
+    print(f"[{spec.step_id}] $ {shlex.join([tool.executable(), *argv])}", flush=True)
+    try:
+        # Tee'd to the worker stdout: that is the build's live log.
+        result = tool.run(argv, cwd=closure_root, timeout=timeout_seconds, tee=True)
+    except ToolError as exc:
+        raise StepExecutionError(str(exc)) from exc
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     files = _collect_outputs(destination, spec)
     # A directory export writes one file per layer, so "some output exists" says
@@ -579,89 +541,6 @@ def _collect_outputs(destination: Path, spec: StepSpec) -> tuple[Path, ...]:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class _RunResult:
-    returncode: int
-    stdout: str
-    stderr: str
-
-
-def isolated_cli_env(scratch: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Give each kicad-cli its own temp/runtime dir for the instance lock."""
-
-    env = dict(base if base is not None else os.environ)
-    temp = str(scratch)
-    env["TMPDIR"] = temp
-    env["TMP"] = temp
-    env["TEMP"] = temp
-    env["XDG_RUNTIME_DIR"] = temp
-    return env
-
-
-def _run_cli_process(
-    argv: Sequence[str],
-    cwd: Path,
-    timeout_seconds: int,
-    *,
-    env: Mapping[str, str],
-    start_new_session: bool = False,
-) -> _RunResult:
-    try:
-        process = subprocess.Popen(
-            list(argv),
-            cwd=str(cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            env=dict(env),
-            start_new_session=start_new_session,
-            close_fds=True,
-        )
-    except OSError as exc:
-        raise StepExecutionError(f"kicad-cli could not be executed: {exc}") from exc
-
-    stdout_chunks: list[str] = []
-    stderr_chunks: list[str] = []
-
-    def _pump(stream: Any, bucket: list[str]) -> None:
-        if stream is None:
-            return
-        for line in iter(stream.readline, ""):
-            bucket.append(line)
-            print(line, end="", flush=True)
-
-    readers = (
-        threading.Thread(target=_pump, args=(process.stdout, stdout_chunks), daemon=True),
-        threading.Thread(target=_pump, args=(process.stderr, stderr_chunks), daemon=True),
-    )
-    for thread in readers:
-        thread.start()
-    try:
-        returncode = process.wait(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as exc:  # pragma: no cover - timing dependent
-        process.kill()
-        process.wait()
-        raise StepExecutionError(
-            f"kicad-cli timed out after {timeout_seconds}s: {' '.join(argv[:4])}"
-        ) from exc
-    for thread in readers:
-        thread.join(timeout=5)
-    return _RunResult(returncode, "".join(stdout_chunks), "".join(stderr_chunks))
-
-
-def _default_runner(argv: Sequence[str], cwd: Path, timeout_seconds: int) -> _RunResult:
-    """Run kicad-cli and tee its output to the worker stdout for the live log."""
-
-    with tempfile.TemporaryDirectory(prefix="kicad-cli-") as scratch:
-        return _run_cli_process(
-            argv,
-            cwd,
-            timeout_seconds,
-            env=isolated_cli_env(Path(scratch)),
-        )
-
-
 def evidence_counts(report: Mapping[str, Any]) -> dict[str, int]:
     """Count violations by severity in a canonicalized DRC/ERC report.
 
@@ -702,8 +581,6 @@ __all__ = [
     "StepSpec",
     "evidence_counts",
     "gerber_manifest_gaps",
-    "isolated_cli_env",
-    "resolve_cli_path",
     "run_step_catalogue",
     "selected_steps",
 ]

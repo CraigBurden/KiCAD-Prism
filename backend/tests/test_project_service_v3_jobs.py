@@ -6,8 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from app.services import project_service, semantic_visualizer_service
+from app.services import kicad_jobset_service, project_service, semantic_visualizer_service
 from app.services.job_runtime import PreparedArtifact
+from app.services.kicad_tools import ToolResult
+from tests.kicad_tool_fakes import FakeTool
 
 
 class ProjectServiceV3JobTests(unittest.TestCase):
@@ -212,9 +214,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                 progress=lambda **values: progress_updates.append(values),
             )
             project = SimpleNamespace(path=str(project_root))
-            process = mock.Mock()
-            process.stdout = ["first line\n", "second line\n"]
-            process.wait.return_value = 0
+            tool = FakeTool(lambda args, **_: ToolResult(0, "first line\nsecond line\n"))
             repository = mock.Mock()
             repository.is_dirty.return_value = False
 
@@ -239,11 +239,7 @@ class ProjectServiceV3JobTests(unittest.TestCase):
                     "resolve_paths",
                     return_value=SimpleNamespace(jobset_path=str(jobset)),
                 ),
-                mock.patch.object(
-                    project_service.subprocess,
-                    "Popen",
-                    return_value=process,
-                ) as popen,
+                mock.patch.object(kicad_jobset_service, "kicad_cli", return_value=tool),
                 mock.patch.object(project_service, "Repo", return_value=repository),
             ):
                 result = project_service.run_kicad_workflow_job_v3(context)
@@ -251,8 +247,8 @@ class ProjectServiceV3JobTests(unittest.TestCase):
         self.assertEqual(result.message, "Workflow completed successfully")
         self.assertEqual(result.details["workflow_type"], "design")
         self.assertEqual(progress_updates[-1]["stage"], "git-sync")
-        command = popen.call_args.args[0]
-        self.assertEqual(command[1:3], ["jobset", "run"])
+        command = tool.calls[0]["args"]
+        self.assertEqual(command[0:2], ["jobset", "run"])
         self.assertIn("28dab1d3-7bf2-4d8a-9723-bcdd14e1d814", command)
         repository.git.add.assert_not_called()
 

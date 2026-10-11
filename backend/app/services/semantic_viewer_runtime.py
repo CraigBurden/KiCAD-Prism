@@ -40,9 +40,9 @@ def generator_inputs(viewer_root: Path) -> list[Path]:
 def update_native_geometry_fingerprint(hasher) -> None:
     """Add the selected PCB backend and native helper identity to a hash."""
     geometry_backend = settings.PRISM_PCB_GEOMETRY_BACKEND
-    helper_path = Path(
-        os.environ.get("PRISM_KICAD_NATIVE_PATH", "/usr/local/bin/prism-kicad-native")
-    )
+    from app.services.kicad_tools import native_geometry_helper
+
+    helper_path = native_geometry_helper()
     hasher.update(geometry_backend.encode("utf-8"))
     hasher.update(str(helper_path).encode("utf-8"))
     if geometry_backend == "rust" and helper_path.is_file():

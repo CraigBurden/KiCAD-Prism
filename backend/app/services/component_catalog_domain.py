@@ -54,7 +54,6 @@ from app.services.catalog.asset_types import (
     PREVIEW_KIND_SYMBOL,
     SUPPORTED_ASSET_TYPES,
 )
-from app.services.catalog.kicad_cli import KicadCliRunner
 from app.services.catalog.locking import CatalogLockOperations, NoopCatalogLocks
 from app.services.catalog.metadata_batch_application import CatalogMetadataBatchApplication
 from app.services.catalog.metadata_batches import CatalogMetadataBatches
@@ -343,12 +342,6 @@ class ComponentCatalogDomainService:
     def previews(self) -> CatalogPreviewPipeline:
         return self._preview_pipeline
 
-    def _resolve_kicad_cli(self) -> str | None:
-        return KicadCliRunner.resolve(self._runtime_for_compat())
-
-    def _run_kicad_cli(self, args: list[str]) -> tuple[bool, str]:
-        return KicadCliRunner.run(self._runtime_for_compat(), args)
-
     def _preview_output_path(self, asset_id: str, kind: str) -> Path:
         return self._preview_pipeline.preview_output_path(self._runtime_for_compat(), asset_id, kind)
 
@@ -358,7 +351,7 @@ class ComponentCatalogDomainService:
         )
 
     def _preview_generator_identity(self, kind: str) -> dict[str, str]:
-        return self._preview_pipeline.generator_identity(self._runtime_for_compat(), kind)
+        return self._preview_pipeline.generator_identity(kind)
 
     def _asset_root(self, asset_type: str) -> Path:
         return self._asset_files.asset_root(self._runtime_for_compat(), asset_type)
@@ -1487,19 +1480,6 @@ class ComponentCatalogDomainService:
             source_group=source_group,
         )
 
-    def _generate_symbol_preview(self, asset: dict[str, Any]) -> tuple[str, bytes | str]:
-        """Compatibility single-unit renderer used by existing test/custom adapters."""
-        return self._preview_renderer.generate_symbol_preview(asset, self._run_kicad_cli)
-
-    def _generate_symbol_preview_units(
-        self,
-        asset: dict[str, Any],
-    ) -> tuple[str, list[tuple[int, bytes]] | str]:
-        return self._preview_renderer.generate_symbol_preview_units(asset, self._run_kicad_cli)
-
-    def _generate_footprint_preview(self, asset: dict[str, Any]) -> tuple[str, bytes | str]:
-        return self._preview_renderer.generate_footprint_preview(asset, self._run_kicad_cli)
-
     def _store_preview_version(
         self,
         conn: Any,
@@ -1616,11 +1596,6 @@ class ComponentCatalogDomainService:
             )
             conn.commit()
         return {"component": self.get_component(component_id)}
-
-    def _normalize_symbol_upload(self, upload_name: str, payload: bytes) -> bytes:
-        return self._asset_imports.normalize_symbol_upload(
-            self._runtime_for_compat(), upload_name, payload
-        )
 
     def import_symbol_library(
         self,

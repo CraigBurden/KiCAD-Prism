@@ -414,7 +414,9 @@ def _import_symbols(
             if skip_upgrade:
                 normalized = payload
             else:
-                normalized = CatalogAssetImports.normalize_symbol_upload(service.runtime, symbol_file.name, payload)
+                from app.services.kicad_tools import kicad_cli  # noqa: PLC0415
+
+                normalized = CatalogAssetImports.normalize_symbol_upload(kicad_cli(), symbol_file.name, payload)
             text = normalized.decode("utf-8", errors="ignore")
             symbols = _discover_symbol_names_in_text(text)
             parsed_blocks = service.asset_files.extract_top_level_symbol_blocks(text)

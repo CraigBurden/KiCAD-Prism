@@ -37,11 +37,6 @@
       "count": 1
     },
     {
-      "path": "backend/tests/test_catalog_preview_generation.py",
-      "symbol": "_generate_footprint_preview",
-      "count": 1
-    },
-    {
       "path": "backend/tests/test_catalog_workflow_clone.py",
       "symbol": "_normalize_workflow_stage",
       "count": 6

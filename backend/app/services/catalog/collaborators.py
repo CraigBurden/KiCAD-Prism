@@ -47,6 +47,7 @@ from app.services.catalog.representations import CatalogRepresentations
 from app.services.catalog.revision_comparison import CatalogRevisionComparison
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
 from app.services.catalog.revision_kernel import CatalogRevisionKernel
+from app.services.kicad_tools import KicadTool, kicad_cli
 
 
 @dataclass(frozen=True)
@@ -121,14 +122,20 @@ def build_catalog_collaborators(
     asset_files: CatalogAssetFiles | None = None,
     asset_registry: CatalogAssetRegistry | None = None,
     metadata_schema: CatalogMetadataSchema | None = None,
+    kicad: KicadTool | None = None,
 ) -> CatalogCollaborators:
-    """Construct an independent collaborator graph around ``catalog_locks``."""
+    """Construct an independent collaborator graph around ``catalog_locks``.
+
+    ``kicad`` is the kicad-cli the previews and symbol upgrades run; it
+    defaults to the installed one.
+    """
 
     preview_renderer = preview_renderer or CatalogPreviewRenderer()
     preview_store = preview_store or CatalogPreviewStore()
     asset_files = asset_files or CatalogAssetFiles()
     asset_registry = asset_registry or CatalogAssetRegistry()
     metadata_schema = metadata_schema or CatalogMetadataSchema()
+    kicad = kicad or kicad_cli()
     revision_kernel = CatalogRevisionKernel(catalog_locks)
     revision_comparison = CatalogRevisionComparison(revision_kernel)
     component_history_reads = CatalogComponentHistoryReads(revision_kernel)
@@ -136,12 +143,13 @@ def build_catalog_collaborators(
     component_queries = CatalogComponentQueries(component_read_models)
     asset_browser = CatalogAssetBrowser()
     preview_pipeline = CatalogPreviewPipeline(
-        catalog_locks, revision_kernel, component_read_models, preview_renderer, preview_store
+        catalog_locks, revision_kernel, component_read_models, preview_renderer, preview_store,
+        kicad=kicad,
     )
     revision_finalizer = CatalogRevisionFinalizer(revision_kernel, preview_pipeline)
     asset_links = CatalogAssetLinks(revision_kernel, preview_pipeline, revision_finalizer)
     asset_imports = CatalogAssetImports(
-        revision_kernel, asset_links, revision_finalizer, asset_files, asset_registry
+        revision_kernel, asset_links, revision_finalizer, asset_files, asset_registry, kicad=kicad
     )
     representations = CatalogRepresentations(revision_kernel, revision_finalizer)
     component_writer = CatalogComponentWriter(

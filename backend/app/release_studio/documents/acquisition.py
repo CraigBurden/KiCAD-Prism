@@ -24,6 +24,7 @@ from app.release_studio.documents.artwork import (
     acquire_drill_map,
     acquire_testpoint_views,
 )
+from app.services.kicad_tools import KicadTool
 
 logger = logging.getLogger(__name__)
 
@@ -137,8 +138,8 @@ class AcquisitionRequest:
     workdir: Path | None
     layer_pages: tuple[str, ...]
     variant: str = ""
-    cli_path: str | None = None
-    cruncher_path: str | None = None
+    cli: KicadTool | None = None
+    cruncher: KicadTool | None = None
     designators: tuple[str, ...] = ()
     acquirer: Callable[..., AcquiredArtwork] | None = None
     drill_acquirer: Callable[..., AcquiredArtwork] | None = None
@@ -177,14 +178,14 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
 
     jobs: dict[str, Callable[[], Any]] = {}
     board = request.board
-    cli_path = request.cli_path
+    cli = request.cli
     workdir = request.workdir
-    if board is not None and cli_path and workdir is not None:
+    if board is not None and cli and workdir is not None:
         fetch = request.acquirer or acquire
         for layer in request.layer_pages:
             jobs[layer_artwork_key(layer)] = partial(
                 fetch,
-                cli_path,
+                cli,
                 board,
                 # The outline travels with every layer: a copper plot with no
                 # board edge cannot be located on the board it came from.
@@ -194,25 +195,25 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
             )
         jobs[BOARD_RENDER_KEY] = partial(
             request.board_render_acquirer or acquire_board_render,
-            cli_path,
+            cli,
             board,
             workdir / "render",
         )
         jobs[DRILL_ARTWORK_KEY] = partial(
             request.drill_acquirer or acquire_drill_map,
-            cli_path,
+            cli,
             board,
             workdir / DRILL_ARTWORK_KEY,
         )
     else:
         warnings.append("kicad-cli unavailable: sheets composed without board artwork")
 
-    if board is not None and request.cruncher_path and workdir is not None:
+    if board is not None and request.cruncher and workdir is not None:
         # One invocation for every assembly view: loading the board dominates
         # the cost and Cruncher writes them all from a single load.
         jobs[_CRUNCHER_JOB] = partial(
             request.assembly_acquirer or acquire_board_views,
-            request.cruncher_path,
+            request.cruncher,
             board,
             workdir / "cruncher",
         )
@@ -247,13 +248,13 @@ def acquire_views(request: AcquisitionRequest) -> AcquisitionResult:
     # idle ones.
     if (
         board is not None
-        and request.cruncher_path
+        and request.cruncher
         and workdir is not None
         and not testpoint
     ):
         try:
             testpoint_views = (request.testpoint_acquirer or acquire_testpoint_views)(
-                request.cruncher_path,
+                request.cruncher,
                 board,
                 workdir / "testpoints",
                 designators=tuple(request.designators or ()),

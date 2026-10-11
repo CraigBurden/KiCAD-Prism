@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
@@ -34,18 +33,15 @@ def _discover_symbol_files(input_path: Path) -> list[Path]:
 
 
 def _find_kicad_cli(explicit: str) -> str | None:
-    candidates = [
-        explicit,
-        shutil.which("kicad-cli") or "",
-        "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
-        str(Path.home() / "Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"),
-        "/usr/bin/kicad-cli",
-        "/usr/local/bin/kicad-cli",
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).exists():
-            return candidate
-    return None
+    """``--kicad-cli`` if it exists, else Prism's own lookup (KICAD_CLI_PATH, PATH, install dirs)."""
+    if explicit and Path(explicit).exists():
+        return explicit
+    backend = Path(__file__).resolve().parents[1] / "backend"
+    if str(backend) not in sys.path:
+        sys.path.insert(0, str(backend))
+    from app.services.kicad_tools import locate_kicad_cli  # noqa: PLC0415
+
+    return locate_kicad_cli()
 
 
 def _run_kicad_cli_split(kicad_cli: str, source: Path, destination: Path, *, dry_run: bool) -> tuple[bool, str, int]:
