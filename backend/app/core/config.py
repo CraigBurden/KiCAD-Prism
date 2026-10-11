@@ -16,6 +16,9 @@ import re
 from app.core.pipeline_config import PipelineSettings
 
 
+# bcrypt ignores everything past 72 bytes, so longer passwords are rejected.
+MAX_PASSWORD_BYTES = 72
+
 # Placeholders that appear in this repository's examples and in copy-pasted guides.
 # None of them may sign a real session.
 _WEAK_SESSION_SECRETS = {
@@ -973,6 +976,8 @@ class Settings(PipelineSettings):
         if not self.PRISM_DATABASE_URL.strip():
             errors.append("PRISM_DATABASE_URL is required to store revocable sessions")
 
+        errors.extend(self._bootstrap_admin_password_errors())
+
         if self.OAUTH_EXTERNAL_JWT_ISSUER_URL.strip() and not self.OAUTH_EXTERNAL_JWT_AUDIENCE.strip():
             errors.append(
                 "OAUTH_EXTERNAL_JWT_AUDIENCE is required whenever OAUTH_EXTERNAL_JWT_ISSUER_URL is set; "
@@ -984,6 +989,20 @@ class Settings(PipelineSettings):
                 errors.append("CORS_ORIGINS_STR must not contain '*' because Prism sends credentials")
 
         return errors
+
+    def _bootstrap_admin_password_errors(self) -> List[str]:
+        """The seed password must pass the same policy seeding enforces, or no admin is created."""
+        seed = self.BOOTSTRAP_ADMIN_PASSWORD.strip()
+        if not (self.PASSWORD_AUTH_ENABLED and seed and self.BOOTSTRAP_ADMIN_USERS):
+            return []
+        if len(seed.encode("utf-8")) > MAX_PASSWORD_BYTES:
+            return [f"BOOTSTRAP_ADMIN_PASSWORD must be at most {MAX_PASSWORD_BYTES} bytes long"]
+        if len(seed) < self.PASSWORD_MIN_LENGTH:
+            return [
+                f"BOOTSTRAP_ADMIN_PASSWORD is {len(seed)} characters; PASSWORD_MIN_LENGTH "
+                f"requires at least {self.PASSWORD_MIN_LENGTH}"
+            ]
+        return []
 
     def validate_auth_configuration(self) -> None:
         """Fail closed at startup rather than serving an unauthenticated admin console."""

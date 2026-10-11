@@ -200,8 +200,8 @@ async def lifespan(app: FastAPI):
                     "afterwards.",
                     ", ".join(seeded),
                 )
-        except Exception:
-            logger.exception("Failed to seed bootstrap admin password")
+        except Exception as exc:
+            logger.exception("Failed to seed bootstrap admin password: %s", exc)
     if settings.PRISM_COMMENT_LIVE_ENABLED:
         live_origins = [*settings.CORS_ORIGINS, settings.PUBLIC_BASE_URL]
         if not any(
