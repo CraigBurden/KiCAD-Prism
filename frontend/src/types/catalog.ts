@@ -364,9 +364,22 @@ export interface ProjectComponentImportProposal {
   draft?: ImportProposalDraft;
 }
 
+/** Accept-request metadata: the remediable built-in fields, plus custom field values. */
+export interface ImportMetadataOverrides {
+  value?: string;
+  manufacturer?: string;
+  manufacturer_part_number?: string;
+  description?: string;
+  datasheet?: string;
+  package_name?: string;
+  /** Custom field values by storage key. On accept this replaces the symbol's own fields, so it carries them too. */
+  extra_fields?: Record<string, string>;
+}
+
 /** Unaccepted remediation edits, persisted server-side so they survive a reload. */
 export interface ImportProposalDraft {
-  metadata_overrides?: Record<string, string>;
+  /** `extra_fields` here holds only the custom values the reviewer edited. */
+  metadata_overrides?: ImportMetadataOverrides;
   asset_selections?: Record<string, string[]>;
   /** asset_type -> existing catalog asset id, linked by reference rather than copied. */
   asset_links?: Record<string, string>;
