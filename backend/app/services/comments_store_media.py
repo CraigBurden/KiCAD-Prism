@@ -1,4 +1,4 @@
-"""Attachment, reaction, history and anchor-binding reads for the comments store.
+"""Attachment, history and anchor-binding reads for the comments store.
 
 A mixin so ``comments_store_service`` stays within the production-module size
 limit; every method runs against the same connection and bootstrap helpers.
@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from app.services import comment_attachments, comment_bundle, comment_live_events, comment_social, comments_revisions
-from app.services.comments_store_retry import _retry_on_deadlock
+from app.services import comment_attachments, comment_bundle, comments_revisions
 
 
 class CommentsStoreMediaMixin:
@@ -82,34 +81,3 @@ class CommentsStoreMediaMixin:
                 "location": location, "relativePoint": row["relative_point"],
             })
         return bindings
-
-    @_retry_on_deadlock
-    def set_reaction(
-        self, project_id: str, project_path: str, comment_id: str, reply_id: Optional[str], *,
-        user_id: str, user_display: str, reaction: str, present: bool,
-    ) -> Optional[Dict]:
-        """Toggle one reader's reaction on a root or reply; None when it is gone."""
-        self.initialize()
-        with self._connect() as conn:
-            with conn.transaction():
-                self._bootstrap_project_if_needed(conn, project_id, project_path)
-                root = conn.execute(
-                    """SELECT scope, base_commit, compare_commit FROM comments
-                       WHERE project_id = %s AND id = %s AND deleted_at IS NULL""",
-                    (project_id, comment_id),
-                ).fetchone()
-                if root is None:
-                    return None
-                if reply_id is not None and self._live_reply(conn, project_id, comment_id, reply_id) is None:
-                    return None
-                changed = comment_social.set_reaction(
-                    conn, project_id=project_id, comment_id=comment_id, target_id=reply_id or comment_id,
-                    user_id=user_id, user_display=user_display, reaction=reaction, present=present,
-                )
-                if changed:
-                    comment_live_events.record_change(
-                        conn, project_id=project_id, comment_id=comment_id,
-                        scope=root["scope"], change_kind="upsert",
-                        base_commit=root["base_commit"], compare_commit=root["compare_commit"],
-                    )
-                return self._get_comment_with_replies(conn, project_id, comment_id)

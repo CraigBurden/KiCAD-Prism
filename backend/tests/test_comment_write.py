@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services import comment_live_events  # noqa: E402
+from app.services.comment_permissions import ActorIdentity, CommentPermissionError  # noqa: E402
 from app.services.comments_revisions import Editor  # noqa: E402
 from app.services.trackers.contracts import ForgeUser, RemoteComment, RemoteVersion  # noqa: E402
 from app.services.trackers.op_store import OpStore  # noqa: E402
@@ -228,6 +229,148 @@ class ReplySyncStateTests(_StoreCase):
         self.assertEqual(self._kinds_after(before), in_tx)
         reply = self.store.get_reply(self.project_id, cid, reply_id)
         self.assertNotIn("syncState", reply)
+
+
+def _identity(actor_id: str, role: str, kind: str = "user") -> ActorIdentity:
+    return ActorIdentity(actor_id=actor_id, actor_kind=kind, display_name=actor_id, role=role, auth_type="session")
+
+
+OWNER = _identity("u_a", "viewer")
+OTHER = _identity("u_b", "designer")
+ADMIN = _identity("u_admin", "admin")
+GUEST_ADMIN = _identity("guest:local", "admin", "guest")
+SERVICE_ADMIN = _identity("service:ci", "admin", "service")
+
+
+@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required")
+@unittest.skipUnless(psycopg is not None, "psycopg is required")
+@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+class WritePermissionMatrixTests(_StoreCase):
+    """Who may write what, checked by the store inside the write's transaction.
+
+    A refused write leaves no revision and streams nothing.
+    """
+
+    def _refused(self, write, code: str) -> None:
+        before = self._cursor()
+        with self.assertRaises(CommentPermissionError) as raised:
+            write()
+        self.assertEqual(raised.exception.code, code)
+        self.assertEqual(self._kinds_after(before), [])
+
+    def _thread(self, author: ActorIdentity = OWNER) -> tuple[str, str]:
+        root = self.store.create_comment(self.project_id, self.path, "PCB", {"x": 1, "y": 2}, "Root", actor=author)
+        comment, reply = self.store.add_reply(self.project_id, self.path, root["id"], "Reply", actor=author)
+        return root["id"], reply["id"]
+
+    def test_create_and_reply_record_the_actor_and_return_its_capabilities(self) -> None:
+        root = self.store.create_comment(self.project_id, self.path, "PCB", {"x": 1, "y": 2}, "Root", actor=OWNER)
+        self.assertEqual((root["author"], root["authorUserId"], root["authorKind"]), ("u_a", "u_a", "user"))
+        self.assertEqual(root["permissions"]["canEdit"], True)
+        self.assertEqual(root["permissions"]["canResolve"], False)
+        comment, reply = self.store.add_reply(self.project_id, self.path, root["id"], "Reply", actor=OTHER)
+        self.assertEqual(reply["authorUserId"], "u_b")
+        self.assertEqual(reply["permissions"], {
+            "canReply": True, "canEdit": True, "canDelete": True, "canResolve": True, "canPublish": False,
+        })
+        self.assertEqual(comment["permissions"]["canEdit"], False)
+        self.assertEqual([r["permissions"]["canEdit"] for r in comment["replies"]], [True])
+
+    def test_edit_and_delete_are_owner_or_admin(self) -> None:
+        cid, rid = self._thread()
+        refused = [
+            ("edit root", lambda: self.store.patch_comment(self.project_id, self.path, cid, actor=OTHER, content="x")),
+            ("delete root", lambda: self.store.delete_comment(self.project_id, self.path, cid, actor=OTHER)),
+            ("edit reply", lambda: self.store.edit_reply(self.project_id, self.path, cid, rid, "x", actor=OTHER)),
+            ("delete reply", lambda: self.store.delete_reply(self.project_id, self.path, cid, rid, actor=OTHER)),
+            ("reattach", lambda: self.store.reattach_comment(
+                self.project_id, self.path, cid, actor=OTHER, commit="b" * 40, location={"x": 0, "y": 0},
+                element_id=None, relative_point=None, expected_revision=1)),
+        ]
+        for name, write in refused:
+            with self.subTest(name):
+                self._refused(write, "not_owner")
+        self.assertEqual(self.streamed(lambda: self.store.edit_reply(
+            self.project_id, self.path, cid, rid, "owner edit", actor=OWNER)), ["upsert"])
+        self.assertEqual(self.streamed(lambda: self.store.patch_comment(
+            self.project_id, self.path, cid, actor=ADMIN, content="admin edit")), ["upsert"])
+        self.assertEqual(self.streamed(lambda: self.store.delete_comment(
+            self.project_id, self.path, cid, actor=OWNER)), ["delete", "upsert"])
+
+    def test_legacy_and_remote_rows(self) -> None:
+        legacy = self.store.create_comment(self.project_id, self.path, "PCB", {"x": 1, "y": 2}, "Old", "Someone")
+        self._refused(lambda: self.store.patch_comment(
+            self.project_id, self.path, legacy["id"], actor=OWNER, content="x"), "legacy_admin_only")
+        self.store.patch_comment(self.project_id, self.path, legacy["id"], actor=ADMIN, content="admin")
+        with self.store._connect() as conn:
+            from app.services import comment_write
+
+            remote = comment_write.insert_reply(
+                conn, project_id=self.project_id, comment_id=legacy["id"], content="forge",
+                editor=Editor(user_id=None, kind="remote", display="octo", origin="remote"),
+            )
+            conn.commit()
+        self._refused(lambda: self.store.edit_reply(
+            self.project_id, self.path, legacy["id"], remote, "x", actor=ADMIN), "remote_object_read_only")
+
+    def test_status_needs_designer(self) -> None:
+        cid, _ = self._thread()
+        self._refused(lambda: self.store.patch_comment(
+            self.project_id, self.path, cid, actor=OWNER, status="RESOLVED"), "status_role_required")
+        # The owner may edit, but an edit and a status change are one write: both or neither.
+        self._refused(lambda: self.store.patch_comment(
+            self.project_id, self.path, cid, actor=OWNER, content="x", status="RESOLVED"), "status_role_required")
+        self.assertEqual(self.store.get_comment(self.project_id, self.path, cid)["content"], "Root")
+        resolved = self.store.patch_comment(self.project_id, self.path, cid, actor=OTHER, status="RESOLVED")
+        self.assertEqual(resolved["status"], "RESOLVED")
+
+    def test_pin_is_admin_only(self) -> None:
+        cid, _ = self._thread()
+        self._refused(lambda: self.store.pin_comment_anchor(
+            self.project_id, self.path, cid, actor=OWNER, commit="a" * 40), "legacy_admin_only")
+        pinned = self.store.pin_comment_anchor(self.project_id, self.path, cid, actor=ADMIN, commit="a" * 40)
+        self.assertEqual(pinned["anchor"]["state"], "pinned")
+
+    def test_publication_refusals(self) -> None:
+        cid, rid = self._thread()
+        for actor, code in ((GUEST_ADMIN, "publication_required"), (OWNER, "publication_required")):
+            with self.subTest(actor.actor_kind, role=actor.role):
+                self._refused(lambda: self.store.promote_comment(self.project_id, self.path, cid, actor), code)
+        for actor, code in ((GUEST_ADMIN, "publication_required"), (SERVICE_ADMIN, "publication_required"),
+                            (OWNER, "status_role_required")):
+            with self.subTest("share", kind=actor.actor_kind):
+                self._refused(lambda: self.store.share_reply(self.project_id, self.path, cid, rid, actor), code)
+
+    def test_missing_targets_are_none_before_permission(self) -> None:
+        cid, _ = self._thread()
+        self.assertIsNone(self.store.patch_comment(self.project_id, self.path, "c_gone", actor=OTHER, content="x"))
+        self.assertFalse(self.store.delete_comment(self.project_id, self.path, "c_gone", actor=OTHER))
+        self.assertIsNone(self.store.edit_reply(self.project_id, self.path, cid, "r_gone", "x", actor=OTHER))
+        self.assertIsNone(self.store.share_reply(self.project_id, self.path, cid, "r_gone", GUEST_ADMIN))
+        self.assertIsNone(self.store.promote_comment(self.project_id, self.path, "c_gone", ADMIN))
+
+    def test_anchor_resolution_runs_only_after_permission(self) -> None:
+        from app.api import comments  # noqa: F401  (imports the anchor service without its import cycle)
+        from app.services.comment_anchor_service import ResolvedAnchor
+
+        cid, _ = self._thread()
+        resolved: list[str] = []
+
+        def resolve(context: str):
+            resolved.append(context)
+            return ResolvedAnchor(state="pinned", commit="c" * 40, source="client", source_revision_key=None,
+                                  file_path="board.kicad_pcb", project_relative_path=None)
+
+        self._refused(lambda: self.store.reattach_comment(
+            self.project_id, self.path, cid, actor=OTHER, commit="b" * 40, location={"x": 0, "y": 0},
+            element_id=None, relative_point=None, expected_revision=1, resolve=resolve), "not_owner")
+        self.assertEqual(resolved, [])
+        moved = self.store.reattach_comment(
+            self.project_id, self.path, cid, actor=OWNER, commit="b" * 40, location={"x": 0, "y": 0},
+            element_id=None, relative_point=None, expected_revision=1, resolve=resolve)
+        self.assertEqual(resolved, ["PCB"])
+        self.assertEqual(self.store.get_anchor_bindings(self.project_id, [cid])[cid][0]["commit"], "c" * 40)
+        self.assertEqual(moved["permissions"]["canEdit"], True)
 
 
 class NoRawCommentWritesOutsideTheWriteModuleTests(unittest.TestCase):

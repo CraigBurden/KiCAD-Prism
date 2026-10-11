@@ -173,10 +173,20 @@ of these.
 
 ## Comments and issue publication
 
-`comments_store_service.py` owns local discussion writes; `comments_revisions.py`
-and `comment_anchor_bindings.py` preserve revision and binding history.
+Every root and reply write goes through `comments_store_writes.py`: given the
+caller's `ActorIdentity` it authorizes inside the write's transaction
+(`comment_permissions.py`), mutates, records the revision and the change event,
+and returns the thread with the actor's capabilities (`comment_capabilities.py`).
+Routes only translate HTTP. Row writes shared with the tracker (inbound replies,
+system notes, reply `sync_state`) are `comment_write.py`; edits, status and
+tombstones are `comments_revisions.py`, which streams through
+`comment_live_events.record_thread_change`. Do not write `comments` or
+`comment_replies` anywhere else (`backend/tests/test_comment_write.py` enforces it).
+`comments_store_service.py` holds reads, JSON import/export and project
+deletion; `comment_anchor_bindings.py` preserves binding history.
 `comment_live_events.py` appends durable metadata in the same transaction as a
-mutation; `comment_live_broker.py` wakes socket readers. Keep HTTP snapshots as
+mutation (tracker tables stream through the trigger in
+`trackers/projection_events.py`); `comment_live_broker.py` wakes socket readers. Keep HTTP snapshots as
 content authority and never let a tracker failure prevent local discussion.
 
 `trackers/connector_runtime.py` turns a connector into its one status and its

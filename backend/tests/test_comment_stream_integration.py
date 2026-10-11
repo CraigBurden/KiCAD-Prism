@@ -151,7 +151,7 @@ class CommentStreamIntegrationTests(unittest.TestCase):
         import threading
         from unittest.mock import patch
 
-        from app.services import comments_store_service as css
+        from app.services import comments_store_writes as css
         from app.services.trackers.promotion import PromotionActor
 
         created = self.store.create_comment(

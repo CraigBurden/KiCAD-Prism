@@ -106,7 +106,8 @@ then `run_project_import_job_v3`) →
 
 **Comment on a project or comparison**
 `backend/app/api/comments.py` →
-`backend/app/services/comments_store_service.py` ·
+`backend/app/services/comments_store_writes.py` (writes: authorize, mutate, stream) ·
+`backend/app/services/comments_store_service.py` (reads) ·
 `backend/app/services/comments_url_service.py` →
 `frontend/src/components/comment-panel.tsx` →
 `frontend/src/lib/comment-overlays.ts` (overlay shaping) →
