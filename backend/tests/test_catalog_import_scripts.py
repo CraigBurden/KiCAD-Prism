@@ -60,6 +60,7 @@ SYMBOL_LIBRARY = """(kicad_symbol_lib (version 20231120) (generator "test")
 FOOTPRINT = """(footprint "{name}" (version 20240108) (generator "test") (layer "F.Cu")
   (descr "SOIC, 8-Leads, test body")
   (property "Reference" "REF**" (at 0 0 0) (layer "F.SilkS"))
+  (property "Datasheet" "https://example.test/acme.pdf" (at 0 0 0) (layer "F.Fab"))
   (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))
 )
 """
@@ -67,6 +68,8 @@ FOOTPRINT = """(footprint "{name}" (version 20240108) (generator "test") (layer 
 
 @unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for PostgreSQL integration tests")
 class CatalogImportScriptTests(unittest.TestCase):
+    maxDiff = None
+
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
@@ -74,8 +77,18 @@ class CatalogImportScriptTests(unittest.TestCase):
         self.store = self.root / "store"
         self.service = ComponentCatalogPostgresService(store_root=self.store, database_url=POSTGRES_URL)
         self.service.initialize()
+        self.field_ids = {str(field["id"]) for field in self.service.list_metadata_fields()}
 
     def tearDown(self) -> None:
+        # The imports label their extra fields; a field left active changes other suites' exports.
+        for field in self.service.list_metadata_fields():
+            if str(field["id"]) not in self.field_ids:
+                self.service.set_metadata_field_archived(str(field["id"]), True, actor="integration-test@local")
+        # Database-library imports are CERN imports; other suites in this database count
+        # those, so they are removed the way an operator would (reset_prism_catalog.py).
+        with self.service.connection() as conn:
+            _load_script("reset_prism_catalog")._delete_cern_imports(conn, dry_run=False)
+            conn.commit()
         with self.service.connection() as conn:
             ids = [str(row["id"]) for row in conn.execute(
                 "SELECT c.id FROM components c JOIN component_revisions r ON r.component_id = c.id "
@@ -248,12 +261,12 @@ class CatalogImportScriptTests(unittest.TestCase):
                 "released_revision_id", "name", "mpn", "manufacturer", "package_name", "category",
             )},
             {
-                "slug": f"acme{self.token}-soic", "identity_kind": "mpn", "identity_source": "",
+                "slug": f"acme{self.token}-soic-8", "identity_kind": "mpn", "identity_source": "",
                 "normalized_manufacturer": "acme", "source": "import", "external_source": "", "external_id": "",
                 "change_kind": "import", "change_summary": "Imported from footprint library",
                 "created_by": "system:import_footprint_library", "release_status": "open",
                 "released_revision_id": "", "name": name, "mpn": name, "manufacturer": "Acme",
-                "package_name": "SOIC", "category": "Sensors",
+                "package_name": "SOIC-8", "category": "Sensors",
             },
         )
         self.assertTrue(component["manifest_hash"])

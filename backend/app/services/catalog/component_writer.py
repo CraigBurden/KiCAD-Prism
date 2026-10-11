@@ -81,7 +81,7 @@ METADATA_INSERT_COLUMNS: tuple[str, ...] = (
 _METADATA_COLUMNS = METADATA_INSERT_COLUMNS
 
 
-def _metadata_column_values(metadata: dict[str, Any]) -> tuple[Any, ...]:
+def metadata_column_values(metadata: dict[str, Any]) -> tuple[Any, ...]:
     """Column values in ``_METADATA_COLUMNS`` order followed by keywords, extras, search text."""
     return (
         *(metadata[column] for column in _METADATA_COLUMNS),
@@ -242,7 +242,7 @@ class CatalogComponentWriter:
                 SET {assignments}, keywords = %s, extra_fields = %s, search_document = %s, updated_at = %s
                 WHERE id = %s
                 """,
-                (*_metadata_column_values(metadata), now, revision["id"]),
+                (*metadata_column_values(metadata), now, revision["id"]),
             )
             conn.execute(
                 """
@@ -324,7 +324,7 @@ class CatalogComponentWriter:
                 "",
                 REVISION_MANIFEST_A3,
                 "open",
-                *_metadata_column_values(metadata),
+                *metadata_column_values(metadata),
                 now,
                 now,
             ),
@@ -436,5 +436,6 @@ __all__ = [
     "SOURCE_MANUAL",
     "CatalogComponentWriter",
     "merge_metadata_patch",
+    "metadata_column_values",
     "metadata_matches_revision",
 ]
