@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { fetchJson } from "@/lib/api";
+import { getReleaseQueue } from "./catalog-client";
 import {
   VALIDATION_BADGE_TITLE,
   VALIDATION_BADGE_VARIANT,
@@ -164,7 +164,7 @@ export function LibraryReleaseQueue({ onOpenComponent }: { onOpenComponent: (com
       page: String(page),
       page_size: String(PAGE_SIZE),
     });
-    void fetchJson<CatalogReleaseQueueResponse>(`/api/catalog/release-queue?${params.toString()}`, { signal: controller.signal })
+    void getReleaseQueue(params, controller.signal)
       .then((response) => {
         if (controller.signal.aborted) return;
         setItems(response.items);

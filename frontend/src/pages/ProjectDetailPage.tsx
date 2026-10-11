@@ -7,6 +7,7 @@ import { ArrowLeft, FileText, History, Box, FolderOpen, ChevronLeft, ChevronRigh
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
+import { invalidateServerState, useServerState } from "@/lib/server-state";
 import { cn } from "@/lib/utils";
 import { User } from "@/types/auth";
 import {
@@ -81,6 +82,9 @@ interface ProjectBranchesResponse {
     branches: ProjectBranch[];
 }
 
+const NO_BRANCHES: ProjectBranch[] = [];
+const projectBranchesKey = (projectId: string) => ["project", projectId, "branches"] as const;
+
 interface WorkflowJobResponse {
     job_id: string;
 }
@@ -134,9 +138,20 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [refreshKey, setRefreshKey] = useState(0);
     const [pathConfigOpen, setPathConfigOpen] = useState(false);
     const [trackerSettingsOpen, setTrackerSettingsOpen] = useState(false);
-    const [branches, setBranches] = useState<ProjectBranch[]>([]);
-    const [branchesLoading, setBranchesLoading] = useState(false);
-    const [branchError, setBranchError] = useState<string | null>(null);
+    // One poller per project, kept fresh while the tab is visible. It does not
+    // restart when the section, branch or commit changes.
+    const branchesRead = useServerState(
+        projectId ? projectBranchesKey(projectId) : null,
+        (signal) => fetchJson<ProjectBranchesResponse>(
+            `/api/projects/${projectId}/branches`,
+            { signal },
+            "Failed to load branches"
+        ),
+        { pollMs: 30_000, whileVisible: true },
+    );
+    const branches = branchesRead.data?.branches ?? NO_BRANCHES;
+    const branchesLoading = branchesRead.loading;
+    const branchError = branchesRead.error?.message ?? null;
     const canMutateProject = canManageProjects(user?.role);
     const canComment = canCommentOnProjects(user?.role);
 
@@ -168,6 +183,11 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
     const [viewerPin, setViewerPin] = useState<{ key: string; commit: string } | null>(null);
     const viewerCommit = currentCommit
         || (viewerPin?.key === viewerSelectionKey ? viewerPin.commit : activeCommit);
+    // On the visualizers without a pinned commit, the viewer holds the commit it
+    // opened on; a newer branch head is offered, not loaded.
+    if (activeSection === "visualizers" && !currentCommit && activeCommit && viewerPin?.key !== viewerSelectionKey) {
+        setViewerPin({ key: viewerSelectionKey, commit: activeCommit });
+    }
     const newerViewerRevisionAvailable = activeSection === "visualizers" && !currentCommit
         && !!activeCommit && !!viewerCommit && activeCommit !== viewerCommit;
     const comparisonUrl = useMemo(
@@ -263,6 +283,7 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
             toast.success(job.message || "Sync completed", { id: toastId });
             // Refresh project data and readme without full reload
             setRefreshKey((prev) => prev + 1);
+            void invalidateServerState(projectBranchesKey(projectId));
         } catch (err) {
             const message = err instanceof Error ? err.message : "Sync failed";
             toast.error(message, { id: toastId });
@@ -271,70 +292,6 @@ export function ProjectDetailPage({ user }: { user: User | null }) {
         }
     };
 
-    useEffect(() => {
-        if (!projectId) {
-            setBranches([]);
-            return;
-        }
-
-        const controller = new AbortController();
-        let cancelled = false;
-        let inFlight = false;
-        let firstLoad = true;
-        setBranchesLoading(true);
-        setBranchError(null);
-
-        const fetchBranches = async () => {
-            if (inFlight) return;
-            inFlight = true;
-            try {
-                const data = await fetchJson<ProjectBranchesResponse>(
-                    `/api/projects/${projectId}/branches`,
-                    { signal: controller.signal },
-                    "Failed to load branches"
-                );
-                if (!cancelled) {
-                    const received = data.branches || [];
-                    setBranches(received);
-                    if (activeSection === "visualizers" && !currentCommit) {
-                        const chosen = received.find((branch) => branch.ref === selectedBranchRef)
-                            || received.find((branch) => branch.is_current) || received[0];
-                        if (chosen?.commit) {
-                            const key = `${projectId}:${selectedBranchRef || chosen.ref}:`;
-                            setViewerPin((previous) => previous?.key === key
-                                ? previous : { key, commit: chosen.commit });
-                        }
-                    }
-                    setBranchError(null);
-                }
-            } catch (err) {
-                if (!cancelled) {
-                    setBranchError(err instanceof Error ? err.message : "Failed to load branches");
-                }
-            } finally {
-                if (!cancelled) {
-                    if (firstLoad) setBranchesLoading(false);
-                }
-                firstLoad = false;
-                inFlight = false;
-            }
-        };
-
-        void fetchBranches();
-        const timer = window.setInterval(() => {
-            if (document.visibilityState === "visible") void fetchBranches();
-        }, 30_000);
-        const onVisible = () => {
-            if (document.visibilityState === "visible") void fetchBranches();
-        };
-        document.addEventListener("visibilitychange", onVisible);
-        return () => {
-            cancelled = true;
-            controller.abort();
-            window.clearInterval(timer);
-            document.removeEventListener("visibilitychange", onVisible);
-        };
-    }, [projectId, refreshKey, activeSection, currentCommit, selectedBranchRef]);
 
     useEffect(() => {
         if (!projectId) {

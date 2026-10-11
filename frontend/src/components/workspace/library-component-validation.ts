@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { fetchJson } from "@/lib/api";
+import { getValidationJob, queueComponentValidation } from "./catalog-client";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
 import { watchPrismJob, type PrismJobStatus } from "@/lib/jobs";
 import type { CatalogComponent } from "@/types/catalog";
@@ -18,7 +18,7 @@ export type CatalogValidationOutcome =
   | { kind: "failed"; error: string }
   | { kind: "cancelled"; message: string };
 
-type CatalogValidationJobPayload = {
+export type CatalogValidationJobPayload = {
   component?: unknown;
   errors?: unknown;
   result?: {
@@ -91,10 +91,7 @@ export async function resolveCatalogValidationResult(
   let errors = collectErrors(job.result_metadata);
   if (!component) {
     try {
-      const legacy = await fetchJson<CatalogValidationJobPayload>(
-        `/api/catalog/validation/jobs/${encodeURIComponent(job.job_id)}`,
-        { signal },
-      );
+      const legacy = await getValidationJob(job.job_id, signal);
       component = readComponent(legacy);
       if (!errors.length) errors = collectErrors(legacy);
     } catch (reason) {
@@ -176,10 +173,7 @@ export function useLibraryComponentValidation({
     runningControllerRef.current = controller;
     setActiveRun({ componentId: originatingId, controller });
     try {
-      const queued = await fetchJson<{ job_id: string }>(
-        `/api/catalog/components/${encodeURIComponent(originatingId)}/validate`,
-        { method: "POST", signal: controller.signal },
-      );
+      const queued = await queueComponentValidation(originatingId, controller.signal);
       if (controller.signal.aborted || componentIdRef.current !== originatingId) return;
       toast.message("KLC validation started.");
       let lastNotice = "";

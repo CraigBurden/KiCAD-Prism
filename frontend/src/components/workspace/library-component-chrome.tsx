@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { LibraryPreviewViewport } from "./library-preview-viewport";
+import { catalogPreviewUrl } from "./catalog-client";
 
 export const shortHash = (value: string, length = 10) => (value ? value.slice(0, length) : "—");
 
@@ -96,7 +97,7 @@ export function PreviewImage({ previewId, label }: { previewId: string; label: s
   return (
     <LibraryPreviewViewport viewportKey={previewId} className="h-64">
       <img
-        src={`/api/catalog/previews/${encodeURIComponent(previewId)}`}
+        src={catalogPreviewUrl(previewId)}
         alt={label}
         draggable={false}
         className="pointer-events-none h-full w-full select-none object-contain p-3"

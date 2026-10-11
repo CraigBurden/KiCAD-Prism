@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { bulkAcceptProposals, importProposalsCsv, importProposalsCsvUrl, saveProposalDrafts } from "./catalog-client";
 import {
   blockingImportFindings, importMetadataProblems, isImportFieldRequired,
 } from "@/lib/catalog-field-rules";
@@ -17,7 +17,7 @@ import { PermissionHint } from "@/components/ui/permission-hint";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { cn } from "@/lib/utils";
 import type {
-  BulkAcceptResult, ImportProposalDraft, ProjectComponentImportProposal,
+  ImportProposalDraft, ProjectComponentImportProposal,
 } from "@/types/catalog";
 import { LibraryAssetLinkPicker } from "./library-asset-link-picker";
 import { useEditHistory } from "./use-edit-history";
@@ -342,11 +342,7 @@ export function LibraryImportRemediationGrid({
     if (dirtyCount === 0) return;
     setSaving(true);
     try {
-      await fetchJson<{ saved: number }>(
-        `/api/catalog/import-sessions/${sessionId}/proposals/drafts`,
-        { method: "PUT", body: JSON.stringify({ drafts: buildDrafts() }) },
-        "Failed to save import edits"
-      );
+      await saveProposalDrafts(sessionId, buildDrafts());
       resetHistory();
       // Saved edits are no longer pending, so a stale selection would leave the
       // "Import selected" count disagreeing with the checkboxes.
@@ -382,11 +378,7 @@ export function LibraryImportRemediationGrid({
           };
         }));
 
-        const result = await fetchJson<BulkAcceptResult>(
-          `/api/catalog/import-sessions/${sessionId}/proposals/bulk-accept`,
-          { method: "POST", body: JSON.stringify({ items }) },
-          "Failed to accept import rows"
-        );
+        const result = await bulkAcceptProposals(sessionId, items);
 
         replaceEdits((current) => {
           const next = { ...current };
@@ -432,7 +424,7 @@ export function LibraryImportRemediationGrid({
   );
 
   const exportCsv = useCallback(() => {
-    window.location.href = `/api/catalog/import-sessions/${sessionId}/proposals.csv`;
+    window.location.href = importProposalsCsvUrl(sessionId);
   }, [sessionId]);
 
   const importCsv = useCallback(
@@ -440,14 +432,7 @@ export function LibraryImportRemediationGrid({
       if (!file) return;
       setSaving(true);
       try {
-        const form = new FormData();
-        form.append("file", file, file.name);
-        const response = await fetchApi(
-          `/api/catalog/import-sessions/${sessionId}/proposals.csv`,
-          { method: "POST", body: form }
-        );
-        if (!response.ok) throw new Error(await readApiError(response, "Failed to import CSV"));
-        const result = (await response.json()) as { saved: number; skipped_unknown_rows: number };
+        const result = await importProposalsCsv(sessionId, file);
         replaceEdits(() => ({}));
         await onRefresh();
         toast.success(

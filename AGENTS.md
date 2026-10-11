@@ -187,7 +187,9 @@ invariant, not the tool workaround.
 - Never put exception detail in an error response. Database errors can carry
   credentials (`backend/app/api/health.py`). Services refuse with typed errors
   that one handler renders (`backend/app/core/errors.py`); the browser reads
-  them only through `frontend/src/lib/api.ts`.
+  them only through `frontend/src/lib/api.ts`. A read a component keeps fresh
+  (abort, stale responses, polling while visible, invalidation by key) goes
+  through `frontend/src/lib/server-state.ts`.
 - Never pin Git host keys with `accept-new`
   (`backend/app/services/git_remote_access.py`).
 

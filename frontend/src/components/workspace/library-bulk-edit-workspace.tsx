@@ -15,14 +15,32 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConfirmDialog, useConfirmTarget } from "@/components/ui/confirm-dialog";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
-import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import {
+  applyMetadataBatch,
+  approveMetadataBatchFields,
+  archiveMetadataField,
+  createMetadataBatch,
+  createMetadataField,
+  exportMetadataCsv,
+  getMetadataBatch,
+  getMetadataGrid,
+  getMetadataGridPreferences,
+  getMetadataJob,
+  listCategories,
+  listMetadataFields,
+  metadataBatchReportUrl,
+  previewMetadataCsv,
+  restoreMetadataField,
+  saveMetadataGridPreferences,
+  updateMetadataField,
+} from "./catalog-client";
 import { fieldError, type IdentityKind } from "@/lib/catalog-field-rules";
 import { canAdministerCatalog, canWriteCatalog } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
   CatalogComponent, CatalogMetadataBatch, CatalogMetadataField, CatalogMetadataFieldType,
-  CatalogMetadataGridPreferences, CatalogMetadataGridResponse, WorkflowStage,
+  CatalogMetadataGridPreferences, WorkflowStage,
 } from "@/types/catalog";
 
 const PAGE_SIZE = 100;
@@ -246,7 +264,7 @@ function BatchReviewDialog({
           {batch.skipped_unchanged_rows ? <Badge variant="secondary">{batch.skipped_unchanged_rows.toLocaleString()} unchanged skipped</Badge> : null}
           {batch.items.some((item) => item.validation_status === "invalid" || item.validation_status === "conflict") ? <Badge variant="destructive">{batch.items.filter((item) => ["invalid", "conflict"].includes(item.validation_status)).length} blocked</Badge> : null}
           {batch.unknown_fields.length ? <Badge variant="warning">{batch.unknown_fields.length} new fields</Badge> : null}
-          <a className="ml-auto text-primary underline-offset-4 hover:underline" href={`/api/catalog/metadata/batches/${batch.id}/report.csv`}>Download report</a>
+          <a className="ml-auto text-primary underline-offset-4 hover:underline" href={metadataBatchReportUrl(batch.id)}>Download report</a>
         </div>
         {batch.unknown_fields.length ? <div className="border border-warning/50 bg-warning/10 p-3 text-xs"><p className="font-medium">CSV proposes: {batch.unknown_fields.map((field) => field.label).join(", ")}</p><p className="mt-1 text-muted-foreground">These will be registered as text fields before the batch can run.</p>{isAdmin ? <Button className="mt-2" size="sm" variant="outline" onClick={onApproveFields} disabled={busy}>Approve new fields</Button> : <p className="mt-2 text-warning">An administrator must approve these definitions.</p>}</div> : null}
         <ScrollArea className="min-h-0 flex-1 border">
@@ -320,9 +338,9 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const loadFieldsAndPreferences = useCallback(async () => {
     try {
       const [fieldResponse, layout, categoryResponse] = await Promise.all([
-        fetchJson<{ items: CatalogMetadataField[] }>("/api/catalog/metadata/fields?include_archived=true"),
-        fetchJson<CatalogMetadataGridPreferences>("/api/catalog/metadata/grid-preferences"),
-        fetchJson<{ categories: Array<{ name: string; count: number }> }>("/api/catalog/categories"),
+        listMetadataFields({ includeArchived: true }),
+        getMetadataGridPreferences(),
+        listCategories(),
       ]);
       setFields(fieldResponse.items);
       setCategories(categoryResponse.categories);
@@ -350,7 +368,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
     if (availability !== "all") params.set("availability_state", availability);
     if (validation !== "all") params.set("validation_status", validation);
     if (category !== "all") params.set("category", category === "uncategorized" ? "" : category);
-    void fetchJson<CatalogMetadataGridResponse>(`/api/catalog/metadata/grid?${params.toString()}`, { signal: controller.signal })
+    void getMetadataGrid(params, controller.signal)
       .then((response) => { setItems(response.items); setPages(response.pages); setTotal(response.total); })
       .catch((error) => { if (!controller.signal.aborted) toast.error(error instanceof Error ? error.message : "Failed to load metadata grid"); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
@@ -360,7 +378,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   useEffect(() => {
     if (!preferencesLoaded.current) return;
     const timer = window.setTimeout(() => {
-      void fetchJson("/api/catalog/metadata/grid-preferences", { method: "PUT", body: JSON.stringify(preferences) }).catch(() => undefined);
+      void saveMetadataGridPreferences(preferences).catch(() => undefined);
     }, 400);
     return () => window.clearTimeout(timer);
   }, [preferences]);
@@ -456,21 +474,21 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const saveField = async (draft: FieldDraft) => {
     setBusy(true);
     try {
-      const body = JSON.stringify({ key: draft.key, label: draft.label, description: draft.description, type: draft.type, unit: draft.unit, enum_values: draft.enumValues.split(",").map((value) => value.trim()).filter(Boolean), required: draft.required });
-      await fetchJson(editingField ? `/api/catalog/metadata/fields/${editingField.id}` : "/api/catalog/metadata/fields", { method: editingField ? "PATCH" : "POST", body });
+      const body = { key: draft.key, label: draft.label, description: draft.description, type: draft.type, unit: draft.unit, enum_values: draft.enumValues.split(",").map((value) => value.trim()).filter(Boolean), required: draft.required };
+      await (editingField ? updateMetadataField(editingField.id, body) : createMetadataField(body));
       setFieldDialogOpen(false); setEditingField(null); await loadFieldsAndPreferences(); toast.success("Metadata field saved");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to save metadata field"); } finally { setBusy(false); }
   };
 
   const archiveField = async (field: CatalogMetadataField) => {
     fieldArchiveTarget.clear();
-    try { await fetchJson(`/api/catalog/metadata/fields/${field.id}/${field.archived ? "restore" : "archive"}`, { method: "POST" }); await loadFieldsAndPreferences(); } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to update field"); }
+    try { await (field.archived ? restoreMetadataField(field.id) : archiveMetadataField(field.id)); await loadFieldsAndPreferences(); } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to update field"); }
   };
 
   const validateSpreadsheet = async () => {
     setBusy(true);
     try {
-      const created = await fetchJson<CatalogMetadataBatch>("/api/catalog/metadata/batches", { method: "POST", body: JSON.stringify({ change_summary: changeSummary, items: Object.entries(staged).map(([component_id, row]) => ({ component_id, ...row })) }) });
+      const created = await createMetadataBatch({ change_summary: changeSummary, items: Object.entries(staged).map(([component_id, row]) => ({ component_id, ...row })) });
       setBatch(created);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to validate metadata changes"); } finally { setBusy(false); }
   };
@@ -478,10 +496,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   const uploadCsv = async (file: File) => {
     setBusy(true); setReviewOpen(true);
     try {
-      const form = new FormData(); form.append("file", file); form.append("change_summary", `Import metadata from ${file.name}`);
-      const response = await fetchApi("/api/catalog/metadata/import-csv/preview", { method: "POST", body: form });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to preview CSV"));
-      const preview = await response.json() as CatalogMetadataBatch;
+      const preview = await previewMetadataCsv(file, `Import metadata from ${file.name}`);
       setBatch(preview);
       if (preview.total_items === 0) {
         toast.info(`No metadata changes found. ${Number(preview.skipped_unchanged_rows || 0).toLocaleString()} unchanged rows were skipped.`);
@@ -491,30 +506,26 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
 
   const exportCsv = async () => {
     try {
-      const params = new URLSearchParams();
-      visibleFields.forEach((field) => params.append("field", field.key));
-      const response = await fetchApi(`/api/catalog/metadata/export.csv?${params.toString()}`);
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to export metadata"));
-      const url = URL.createObjectURL(await response.blob()); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "prism-component-metadata.csv"; anchor.click(); URL.revokeObjectURL(url);
+      const url = URL.createObjectURL(await exportMetadataCsv(visibleFields.map((field) => field.key))); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "prism-component-metadata.csv"; anchor.click(); URL.revokeObjectURL(url);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to export metadata"); }
   };
 
   const approveFields = async () => {
     if (!batch) return; setBusy(true);
-    try { setBatch(await fetchJson<CatalogMetadataBatch>(`/api/catalog/metadata/batches/${batch.id}/approve-fields`, { method: "POST" })); await loadFieldsAndPreferences(); } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to approve fields"); } finally { setBusy(false); }
+    try { setBatch(await approveMetadataBatchFields(batch.id)); await loadFieldsAndPreferences(); } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to approve fields"); } finally { setBusy(false); }
   };
 
   const applyBatch = async (itemIds: string[]) => {
     if (!batch) return; setBusy(true);
     try {
-      const queued = await fetchJson<{ job_id: string }>(`/api/catalog/metadata/batches/${batch.id}/apply`, { method: "POST", body: JSON.stringify({ item_ids: itemIds }) });
+      const queued = await applyMetadataBatch(batch.id, itemIds);
       const poll = async (): Promise<void> => {
-        const job = await fetchJson<{ status: string; error_message?: string }>(`/api/catalog/metadata/jobs/${queued.job_id}`);
+        const job = await getMetadataJob(queued.job_id);
         if (job.status === "failed") throw new Error(job.error_message || "Metadata batch failed");
         if (job.status !== "completed") { await new Promise((resolve) => window.setTimeout(resolve, 800)); return poll(); }
       };
       await poll();
-      const completed = await fetchJson<CatalogMetadataBatch>(`/api/catalog/metadata/batches/${batch.id}`);
+      const completed = await getMetadataBatch(batch.id);
       const itemIdSet = new Set(itemIds);
       const appliedComponents = new Set(
         completed.items.flatMap((item) => (

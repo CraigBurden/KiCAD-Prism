@@ -6,6 +6,7 @@ vi.mock("@/lib/api", () => ({
   fetchApi: vi.fn(),
   readApiError: vi.fn(async () => "request failed"),
 }));
+vi.mock("./catalog-client");
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
@@ -16,7 +17,7 @@ vi.mock("sonner", () => ({
   },
 }));
 
-import { fetchApi, fetchJson } from "@/lib/api";
+import { fetchApi } from "@/lib/api";
 import type { PrismJobStatus } from "@/lib/jobs";
 import { toast } from "sonner";
 import type { CatalogComponent } from "@/types/catalog";
@@ -26,6 +27,7 @@ import {
   useLibraryComponentValidation,
   watchCatalogValidationJob,
 } from "./library-component-validation";
+import { getValidationJob, queueComponentValidation } from "./catalog-client";
 
 const jobResponse = (payload: Partial<PrismJobStatus> & Pick<PrismJobStatus, "status">): Response =>
   new Response(JSON.stringify({
@@ -78,7 +80,8 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.mocked(fetchApi).mockReset();
-  vi.mocked(fetchJson).mockReset();
+  vi.mocked(getValidationJob).mockReset();
+  vi.mocked(queueComponentValidation).mockReset();
   vi.mocked(toast.error).mockReset();
   vi.mocked(toast.success).mockReset();
   vi.mocked(toast.message).mockReset();
@@ -104,26 +107,24 @@ describe("resolveCatalogValidationResult", () => {
       status: "completed",
       result_metadata: { component, errors: [] },
     }))).resolves.toEqual({ kind: "completed", component });
-    expect(fetchJson).not.toHaveBeenCalled();
+    expect(getValidationJob).not.toHaveBeenCalled();
   });
 
   it("reads the catalog job once when metadata has no component", async () => {
     const component = catalogComponent("comp-a");
-    vi.mocked(fetchJson).mockResolvedValueOnce({ component, errors: [] });
+    vi.mocked(getValidationJob).mockResolvedValueOnce({ component, errors: [] });
 
     await expect(resolveCatalogValidationResult(prismJob({
       status: "completed",
       result_metadata: { validated: 1, total: 1, errors: [] },
     }))).resolves.toEqual({ kind: "completed", component });
 
-    expect(fetchJson).toHaveBeenCalledTimes(1);
-    expect(fetchJson).toHaveBeenCalledWith("/api/catalog/validation/jobs/job-1", {
-      signal: undefined,
-    });
+    expect(getValidationJob).toHaveBeenCalledTimes(1);
+    expect(getValidationJob).toHaveBeenCalledWith("job-1", undefined);
   });
 
   it("uses the first catalog error when a completed job has no component", async () => {
-    vi.mocked(fetchJson).mockRejectedValueOnce(new Error("legacy lookup failed"));
+    vi.mocked(getValidationJob).mockRejectedValueOnce(new Error("legacy lookup failed"));
     await expect(resolveCatalogValidationResult(prismJob({
       status: "completed",
       result_metadata: { errors: [{ error: "symbol missing" }] },
@@ -177,7 +178,7 @@ describe("watchCatalogValidationJob", () => {
 
 describe("useLibraryComponentValidation", () => {
   it("does not revive an aborted spinner when navigating A to B to A", async () => {
-    vi.mocked(fetchJson).mockResolvedValue({ job_id: "job-1" });
+    vi.mocked(queueComponentValidation).mockResolvedValue({ job_id: "job-1" });
     vi.mocked(fetchApi).mockImplementation((_url, init) => abortAwareHang(init?.signal));
     const { result, rerender } = renderHook(
       ({ componentId }) => useLibraryComponentValidation({ componentId, onRefresh: vi.fn() }),
@@ -193,7 +194,7 @@ describe("useLibraryComponentValidation", () => {
 
   it("queues once for rapid clicks and ignores a late queue response after navigation", async () => {
     let finish!: (value: { job_id: string }) => void;
-    vi.mocked(fetchJson).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    vi.mocked(queueComponentValidation).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     const { result, rerender } = renderHook(
       ({ componentId }) => useLibraryComponentValidation({ componentId, onRefresh: vi.fn() }),
       { initialProps: { componentId: "comp-a" } },
@@ -202,7 +203,7 @@ describe("useLibraryComponentValidation", () => {
       void result.current.runValidation();
       void result.current.runValidation();
     });
-    expect(fetchJson).toHaveBeenCalledTimes(1);
+    expect(queueComponentValidation).toHaveBeenCalledTimes(1);
     rerender({ componentId: "comp-b" });
     await act(async () => { finish({ job_id: "job-1" }); });
     expect(fetchApi).not.toHaveBeenCalled();
@@ -211,7 +212,7 @@ describe("useLibraryComponentValidation", () => {
 
   it("aborts polling on unmount and does not refresh or toast success", async () => {
     const signals: AbortSignal[] = [];
-    vi.mocked(fetchJson).mockResolvedValue({ job_id: "job-1" });
+    vi.mocked(queueComponentValidation).mockResolvedValue({ job_id: "job-1" });
     vi.mocked(fetchApi).mockImplementation((_url, init) => {
       if (init?.signal) signals.push(init.signal);
       return abortAwareHang(init?.signal);
@@ -245,7 +246,7 @@ describe("useLibraryComponentValidation", () => {
 
   it("aborts the previous watcher when the component changes", async () => {
     const signals: AbortSignal[] = [];
-    vi.mocked(fetchJson).mockResolvedValue({ job_id: "job-1" });
+    vi.mocked(queueComponentValidation).mockResolvedValue({ job_id: "job-1" });
     vi.mocked(fetchApi).mockImplementation((_url, init) => {
       if (init?.signal) signals.push(init.signal);
       return abortAwareHang(init?.signal);
@@ -280,7 +281,7 @@ describe("useLibraryComponentValidation", () => {
 
   it("does not refresh B when A's completed job arrives after the UI switched", async () => {
     let resolveStatus: ((response: Response) => void) | undefined;
-    vi.mocked(fetchJson).mockResolvedValue({ job_id: "job-1" });
+    vi.mocked(queueComponentValidation).mockResolvedValue({ job_id: "job-1" });
     vi.mocked(fetchApi).mockImplementation(() => new Promise((resolve) => {
       resolveStatus = resolve;
     }));
@@ -317,7 +318,7 @@ describe("useLibraryComponentValidation", () => {
 
   it("ignores a delayed completed job after unmount", async () => {
     let resolveStatus: ((response: Response) => void) | undefined;
-    vi.mocked(fetchJson).mockResolvedValue({ job_id: "job-1" });
+    vi.mocked(queueComponentValidation).mockResolvedValue({ job_id: "job-1" });
     vi.mocked(fetchApi).mockImplementation(() => new Promise((resolve) => {
       resolveStatus = resolve;
     }));
@@ -352,7 +353,7 @@ describe("useLibraryComponentValidation", () => {
 
   it("refreshes only after a completed job for the component still on screen", async () => {
     const component = catalogComponent("comp-a", "passed");
-    vi.mocked(fetchJson).mockResolvedValue({ job_id: "job-1" });
+    vi.mocked(queueComponentValidation).mockResolvedValue({ job_id: "job-1" });
     vi.mocked(fetchApi)
       .mockResolvedValueOnce(jobResponse({
         status: "retry_wait",
@@ -379,7 +380,7 @@ describe("useLibraryComponentValidation", () => {
   });
 
   it("toasts a cancelled job as a warning, not a failure", async () => {
-    vi.mocked(fetchJson).mockResolvedValue({ job_id: "job-1" });
+    vi.mocked(queueComponentValidation).mockResolvedValue({ job_id: "job-1" });
     vi.mocked(fetchApi).mockResolvedValueOnce(jobResponse({
       status: "cancelled",
       message: "operator cancelled",
@@ -401,7 +402,7 @@ describe("useLibraryComponentValidation", () => {
   });
 
   it("toasts a failed job as an error and does not refresh", async () => {
-    vi.mocked(fetchJson).mockResolvedValue({ job_id: "job-1" });
+    vi.mocked(queueComponentValidation).mockResolvedValue({ job_id: "job-1" });
     vi.mocked(fetchApi).mockResolvedValueOnce(jobResponse({
       status: "failed",
       error_message: "worker boom",

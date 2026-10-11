@@ -3,14 +3,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Project } from "@/types/project";
 import type { ProjectComponentImportProposal, ProjectComponentImportSession } from "@/types/catalog";
-import { fetchJson } from "@/lib/api";
+import { ApiHttpError } from "@/lib/api";
+import {
+  createFolderSnapshot,
+  listFolderImportRoots,
+  listImportProposals,
+  listImportSessions,
+  uploadSnapshotFile,
+} from "./catalog-client";
 import { LibraryImportCenter } from "./library-import-center";
 
-vi.mock("@/lib/api", () => ({
-  fetchApi: vi.fn(),
-  fetchJson: vi.fn(),
-  readApiError: vi.fn(),
-}));
+vi.mock("./catalog-client");
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() } }));
+
+import { toast } from "sonner";
 
 const project: Project = {
   id: "project-1",
@@ -23,14 +29,8 @@ const project: Project = {
 
 describe("LibraryImportCenter sources", () => {
   beforeEach(() => {
-    vi.mocked(fetchJson).mockImplementation(async <T,>(input: RequestInfo | URL) => {
-      const path = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      if (path === "/api/catalog/import-sessions") return { items: [] } as T;
-      if (path === "/api/catalog/import-sources/folder-roots") {
-        return { items: [{ name: "cern", path_hint: "/libraries/cern" }] } as T;
-      }
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    vi.mocked(listImportSessions).mockResolvedValue({ items: [] });
+    vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [{ name: "cern", path_hint: "/libraries/cern" }] });
   });
 
   it("separates library and project imports and uses source-oriented project labels", async () => {
@@ -56,12 +56,7 @@ describe("LibraryImportCenter sources", () => {
   });
 
   it("allocates more space to project imports when the cards share a row", async () => {
-    vi.mocked(fetchJson).mockImplementation(async <T,>(input: RequestInfo | URL) => {
-      const path = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      if (path === "/api/catalog/import-sessions") return { items: [] } as T;
-      if (path === "/api/catalog/import-sources/folder-roots") return { items: [] } as T;
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [] });
 
     render(
       <LibraryImportCenter
@@ -113,26 +108,20 @@ function importProposal(sessionId: string, reference: string): ProjectComponentI
 
 describe("LibraryImportCenter session proposals", () => {
   beforeEach(() => {
-    vi.mocked(fetchJson).mockReset();
+    vi.mocked(listImportProposals).mockReset();
   });
 
   it("does not show session A proposals after switching to session B", async () => {
     let finishA: ((value: { items: ProjectComponentImportProposal[] }) => void) | undefined;
-    vi.mocked(fetchJson).mockImplementation(async (input) => {
-      const path = String(input);
-      if (path === "/api/catalog/import-sessions") {
-        return { items: [importSession("session-a"), importSession("session-b")] };
-      }
-      if (path === "/api/catalog/import-sources/folder-roots") return { items: [] };
-      if (path.endsWith("/session-a/proposals")) {
+    vi.mocked(listImportSessions).mockResolvedValue({ items: [importSession("session-a"), importSession("session-b")] });
+    vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [] });
+    vi.mocked(listImportProposals).mockImplementation(async (sessionId) => {
+      if (sessionId === "session-a") {
         return new Promise((resolve) => {
           finishA = resolve;
         });
       }
-      if (path.endsWith("/session-b/proposals")) {
-        return { items: [importProposal("session-b", "R-B")] };
-      }
-      throw new Error(`Unexpected request: ${path}`);
+      return { items: [importProposal("session-b", "R-B")] };
     });
 
     render(
@@ -150,5 +139,46 @@ describe("LibraryImportCenter session proposals", () => {
     });
     await waitFor(() => expect(screen.queryByText("R-A")).not.toBeInTheDocument());
     expect(screen.getByText("R-B")).toBeInTheDocument();
+  });
+});
+
+describe("LibraryImportCenter folder capture", () => {
+  beforeEach(() => {
+    vi.mocked(listImportSessions).mockResolvedValue({ items: [] });
+    vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [] });
+    vi.mocked(createFolderSnapshot).mockResolvedValue({ id: "snap-1" });
+    vi.mocked(uploadSnapshotFile).mockReset();
+    vi.mocked(toast.error).mockClear();
+  });
+
+  async function chooseFolder() {
+    const { container } = render(
+      <LibraryImportCenter projects={[project]} user={{ name: "Admin", email: "admin@example.com", role: "admin" }} />,
+    );
+    await screen.findByRole("button", { name: "Choose local folder" });
+    const input = container.querySelector("input[type=file]") as HTMLInputElement;
+    const file = new File(["(kicad_symbol_lib)"], "R.kicad_sym");
+    Object.defineProperty(file, "webkitRelativePath", { value: "libs/R.kicad_sym" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    fireEvent.change(input);
+  }
+
+  it("names the proxy limit when an upload is refused with a bare 413, without retrying", async () => {
+    vi.mocked(uploadSnapshotFile).mockRejectedValue(new ApiHttpError(413, "Failed to upload R.kicad_sym"));
+    await chooseFolder();
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "1 file could not be captured. R.kicad_sym: R.kicad_sym exceeds the reverse-proxy upload limit",
+    ));
+    expect(uploadSnapshotFile).toHaveBeenCalledTimes(1);
+    expect(uploadSnapshotFile).toHaveBeenCalledWith("snap-1", "libs/R.kicad_sym", expect.any(File), "Failed to upload R.kicad_sym");
+  });
+
+  it("retries a retryable refusal and reports the server's message", async () => {
+    vi.mocked(uploadSnapshotFile).mockRejectedValue(new ApiHttpError(503, "Storage is busy"));
+    await chooseFolder();
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "1 file could not be captured. R.kicad_sym: Storage is busy",
+    ), { timeout: 5000 });
+    expect(uploadSnapshotFile).toHaveBeenCalledTimes(3);
   });
 });
