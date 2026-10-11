@@ -343,6 +343,64 @@ class CatalogImportScriptTests(unittest.TestCase):
         )
         self.assertEqual(self._components(), [])
 
+    def _required_custom_field(self) -> dict:
+        field = self.service.create_metadata_field(
+            {"key": f"approval_ref_{self.token}", "label": "Approval Ref", "type": "text", "required": True},
+            actor="admin@example.com",
+        )
+        # Archiving in tearDown would do, but a required field must never outlive its test.
+        self.addCleanup(self._drop_field, str(field["id"]))
+        return field
+
+    def _drop_field(self, field_id: str) -> None:
+        with self.service.connection() as conn:
+            conn.execute("DELETE FROM catalog_field_definition_events WHERE field_id = %s", (field_id,))
+            conn.execute("DELETE FROM catalog_field_definitions WHERE id = %s", (field_id,))
+            conn.commit()
+
+    def test_database_library_rows_missing_a_custom_required_field_are_skipped_and_listed(self) -> None:
+        # D44: the bulk scripts enforce custom required fields as acceptance does.
+        module = _load_script("import_database_library")
+        source = self._database_library()
+        self._required_custom_field()
+
+        code, report = _run(module, [str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL])
+
+        self.assertEqual(code, 0, report["errors"])
+        self.assertEqual((report["components_created"], report["errors"]), (0, []))
+        self.assertEqual(
+            sorted(entry["missing"] for entry in report["skipped_missing_fields"]),
+            [["Approval Ref"], ["Approval Ref"]],
+        )
+        self.assertEqual(self._components(), [])
+        strict_code, strict = _run(module, [
+            str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL, "--strict",
+        ])
+        self.assertEqual((strict_code, strict["components_created"]), (1, 0))
+
+    def test_footprint_missing_a_custom_required_field_is_skipped_and_listed(self) -> None:
+        # D44: a custom required field the footprint cannot supply skips it, like a built-in one.
+        module = _load_script("import_footprint_library")
+        source = self.root / "fpl"
+        library = source / "Footprints" / "Pixxel_Sensors.pretty"
+        library.mkdir(parents=True)
+        name = f"ACME{self.token}"
+        (library / f"{name}.kicad_mod").write_text(FOOTPRINT.format(name=name), encoding="utf-8")
+        self._required_custom_field()
+
+        code, report = _run(module, [
+            str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL,
+            "--mpn-mode", "full", "--manufacturer", "Acme", "--no-previews", "--models-dir", "",
+        ])
+
+        self.assertEqual(code, 0, report["errors"])
+        self.assertEqual((report["components_created"], report["errors"]), (0, []))
+        self.assertEqual(
+            report["skipped_missing_fields"],
+            [{"footprint": f"Pixxel_Sensors.pretty/{name}.kicad_mod", "missing": ["Approval Ref"]}],
+        )
+        self.assertEqual(self._components(), [])
+
 
 if __name__ == "__main__":
     unittest.main()
