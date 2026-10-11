@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.services.catalog.metadata_fields import validate_metadata_value
+from app.services.catalog.metadata_normalization import IDENTITY_KIND_PROVISIONAL_IPN
 from app.services.catalog.normalization import json_loads as _json_loads
 
 
@@ -58,7 +59,7 @@ class CatalogMetadataBatchStaging:
         component_id = str(raw_item.get("component_id") or "")
         expected_revision_id = str(raw_item.get("expected_revision_id") or "")
         component = conn.execute(
-            "SELECT c.is_active, cr.* FROM components c JOIN component_revisions cr ON cr.id = c.current_revision_id WHERE c.id = %s",
+            "SELECT c.is_active, c.identity_kind, cr.* FROM components c JOIN component_revisions cr ON cr.id = c.current_revision_id WHERE c.id = %s",
             (component_id,),
         ).fetchone()
         errors: list[str] = []
@@ -85,8 +86,12 @@ class CatalogMetadataBatchStaging:
                 if before != value:
                     normalized_patch[str(field_key)] = value
                     diff.append({"field": str(field_key), "label": str(field["label"]), "before": before, "after": value})
+            provisional = str(component["identity_kind"] or "") == IDENTITY_KIND_PROVISIONAL_IPN
             for field_key, field in fields.items():
                 if not field.get("required") or field.get("archived"):
+                    continue
+                if provisional and field_key == "mpn":
+                    # A provisional part has no manufacturer part number yet.
                     continue
                 if field["storage_kind"] == "column":
                     resulting = normalized_patch.get(field_key, str(component[field["storage_key"]] or ""))

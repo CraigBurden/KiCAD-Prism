@@ -385,6 +385,45 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(corrected["identity_kind"], "mpn")
         self.assertEqual(corrected["mpn"], f"REAL-{token}")
 
+    def test_metadata_batch_stages_a_provisional_part_without_an_mpn(self) -> None:
+        # Provisional parts have no manufacturer part number by definition; the
+        # single-component editor exempts them, and bulk edit must too.
+        token = uuid.uuid4().hex[:8]
+        provisional = self.service.create_manual_component(
+            name=f"IPN-BULK-{token}",
+            value="provisional",
+            description="Missing manufacturer MPN",
+            datasheet="https://example.com/provisional.pdf",
+            manufacturer="Prism Provisional",
+            manufacturer_part_number="",
+            identity_kind="provisional_ipn",
+            identity_source="fixture",
+            source_internal_part_number=f"IPN-BULK-{token}",
+            actor="author@example.com",
+        )
+        self.component_ids.append(str(provisional["id"]))
+        batch = self.service.stage_metadata_batch(
+            [
+                {
+                    "component_id": provisional["id"],
+                    "expected_revision_id": provisional["revision_id"],
+                    "patch": {"description": "Corrected in bulk"},
+                }
+            ],
+            source="grid",
+            actor="designer@example.com",
+            change_summary="Bulk-edit a provisional part",
+        )
+        self.assertEqual(batch["valid_items"], 1, batch)
+        applied = self.service.apply_metadata_batch(batch["id"], actor="designer@example.com")
+        self.assertEqual(applied["applied"], 1)
+        updated = self.service.get_component(provisional["id"])
+        assert updated is not None
+        self.assertEqual(
+            (updated["identity_kind"], updated["description"]),
+            ("provisional_ipn", "Corrected in bulk"),
+        )
+
     def test_inventory_distinguishes_unknown_zero_and_error(self) -> None:
         component = self._component("inventory-" + uuid.uuid4().hex[:8])
         self.assertFalse(component["stock_known"])
