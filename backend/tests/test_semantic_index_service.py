@@ -514,6 +514,37 @@ class SemanticIndexServiceTests(unittest.TestCase):
 
         self.assertNotEqual(first, second)
 
+    def test_build_fingerprint_covers_every_generator_module(self) -> None:
+        # The fingerprint once hashed a hand-written module list that left out
+        # native_clipper.py, prism_clipper2.py, models.py and vendor_paths.py,
+        # so a change to them served stale bundles. It now hashes the package.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "pipeline" / "topology_compiler"
+            package.mkdir(parents=True)
+            tools = root / "tools" / "semantic-gltf"
+            tools.mkdir(parents=True)
+            for name in ("native_clipper.py", "prism_clipper2.py", "models.py", "vendor_paths.py", "brand_new.py"):
+                (package / name).write_text("a = 1\n")
+            (tools / "scene-manifest.mjs").write_text("export const a = 1;\n")
+            (tools / "build.test.mjs").write_text("// test\n")
+            with patch(
+                "app.services.semantic_viewer_runtime.find_viewer_repo_root",
+                return_value=root,
+            ):
+                baseline = semantic_visualizer_service._compute_build_fingerprint()
+                for path in [*package.iterdir(), tools / "scene-manifest.mjs"]:
+                    original = path.read_text()
+                    path.write_text(original + "b = 2\n")
+                    self.assertNotEqual(
+                        semantic_visualizer_service._compute_build_fingerprint(),
+                        baseline,
+                        path.name,
+                    )
+                    path.write_text(original)
+                (tools / "build.test.mjs").write_text("// changed test\n")
+                self.assertEqual(semantic_visualizer_service._compute_build_fingerprint(), baseline)
+
     def test_webgpu_fast_status_returns_metadata_only_missing_record(self) -> None:
         project = SimpleNamespace(
             id="prj_test",
