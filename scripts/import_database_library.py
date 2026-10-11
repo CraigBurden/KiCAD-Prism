@@ -24,7 +24,7 @@ for candidate in (REPO_ROOT / "backend", REPO_ROOT):
 from app.services.catalog.metadata_normalization import normalize_metadata  # noqa: E402
 
 ComponentCatalogService: Any = None
-CatalogLibraryImportWriter: Any = None
+build_import_writer: Any = None
 _discover_footprint_name_in_text: Any = None
 _sanitize_name: Any = None
 _utc_now_iso: Any = None
@@ -32,7 +32,7 @@ MAX_REPORTED_ERRORS = 100
 
 
 def _load_catalog_runtime() -> None:
-    global ComponentCatalogService, CatalogLibraryImportWriter
+    global ComponentCatalogService, build_import_writer
     global _discover_footprint_name_in_text, _sanitize_name
     global _utc_now_iso
 
@@ -43,9 +43,10 @@ def _load_catalog_runtime() -> None:
         from app.services.component_catalog_service_postgres import (  # noqa: PLC0415
             ComponentCatalogPostgresService,
         )
-        from app.services.catalog.library_import_writer import (  # noqa: PLC0415
-            CatalogLibraryImportWriter as loaded_import_writer,
+        from app.services.catalog.collaborators import (  # noqa: PLC0415
+            build_library_import_writer as loaded_import_writer,
         )
+        from app.services.catalog.locking import PostgresCatalogLocks  # noqa: PLC0415
         from app.services.catalog.normalization import (  # noqa: PLC0415
             sanitize_name as loaded_sanitize_name,
             utc_now_iso as loaded_utc_now_iso,
@@ -57,7 +58,9 @@ def _load_catalog_runtime() -> None:
         ) from exc
 
     ComponentCatalogService = ComponentCatalogPostgresService
-    CatalogLibraryImportWriter = loaded_import_writer
+
+    def build_import_writer(runtime: Any) -> Any:
+        return loaded_import_writer(runtime, catalog_locks=PostgresCatalogLocks())
     _discover_footprint_name_in_text = loaded_discover_footprint_name
     _sanitize_name = loaded_sanitize_name
     _utc_now_iso = loaded_utc_now_iso
@@ -155,6 +158,7 @@ class ImportStats:
     provisional_groups: int = 0
     hard_conflicts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    release_refused: list[dict[str, Any]] = field(default_factory=list)  # kept as drafts by a release gate
 
 
 # Actor recorded on revisions this importer creates. Downstream tooling uses it
@@ -778,7 +782,6 @@ def _import_groups(
     release_imported: bool,
     commit_batch: int,
 ) -> None:
-    used_slugs: set[str] = set()
     imported_since_commit = 0
     started = time.perf_counter()
 
@@ -816,16 +819,10 @@ def _import_groups(
     for group in groups:
         try:
             now = _utc_now_iso()
-            slug = writer.allocate_slug(
-                used_slugs,
-                group.metadata["mpn"]
-                or group.metadata["name"]
-                or group.metadata["value"],
-            )
             component_id, revision_id = writer.insert_component(
                 target_conn,
                 group.metadata,
-                slug=slug,
+                slug_base=group.metadata["mpn"] or group.metadata["name"] or group.metadata["value"],
                 now=now,
                 actor=DATABASE_LIBRARY_IMPORT_ACTOR,
                 change_summary="Imported from database library",
@@ -886,15 +883,18 @@ def _import_groups(
                 and group.identity_kind == "mpn"
                 and default_complete
             ):
-                writer.release_trusted(
-                    target_conn,
-                    component_id=component_id,
-                    revision_id=revision_id,
-                    now=now,
-                    actor=DATABASE_LIBRARY_IMPORT_ACTOR,
-                    release_label="database-library-import",
-                )
-                stats.components_released += 1
+                try:
+                    writer.release_trusted(
+                        target_conn,
+                        component_id=component_id,
+                        revision_id=revision_id,
+                        now=now,
+                        actor=DATABASE_LIBRARY_IMPORT_ACTOR,
+                        release_label="database-library-import",
+                    )
+                    stats.components_released += 1
+                except ValueError as exc:
+                    stats.release_refused.append({"key": list(group.key), "reason": str(exc)})
 
             imported_since_commit += 1
             _commit_import_batch()
@@ -1177,7 +1177,7 @@ def main() -> int:
         return 2
 
     service = ComponentCatalogService(store_root=args.store_root, database_url=args.database_url or None)
-    writer = CatalogLibraryImportWriter(service.runtime, service.revisions)
+    writer = build_import_writer(service.runtime)
     stats = ImportStats()
     runtime_store_root = args.runtime_store_root
     include_tables = set(args.include_table or [])

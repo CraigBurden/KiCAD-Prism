@@ -6,15 +6,13 @@ this module. It inserts an imported component with its first revision, links
 assets and previews, adds representations, seals the revision (manifest hash and
 audit event) and, for a trusted database-library import, releases it.
 
-A bulk import differs from :class:`~app.services.catalog.component_writer.CatalogComponentWriter`
-on purpose, and these differences are today's import behaviour:
-
-* each batch runs in catalog migration mode (:meth:`begin_batch`), which the
-  revision-preview immutability guards require;
-* slugs are allocated by the caller's batch (:meth:`allocate_slug`), without the
-  writer's slug and identity advisory locks;
-* a complete database-library row is released directly (:meth:`release_trusted`)
-  instead of going through the release workflow.
+Like the component writer, it allocates slugs and checks identities under the
+writer's slug and identity advisory locks (:meth:`allocate_slug`,
+:meth:`identity_holder`, :meth:`insert_component`), and a complete
+database-library row is released through the release workflow's trusted-import
+path (:meth:`release_trusted`), which applies the release gates. Each batch runs
+in catalog migration mode (:meth:`begin_batch`), which the revision-preview
+immutability guards require.
 
 The metadata columns and their order are the component writer's. Nothing here
 commits; the CLIs commit per batch.
@@ -28,10 +26,14 @@ from typing import Any, Iterable
 import uuid
 
 from app.services.catalog.asset_registry import CatalogAssetRegistry
-from app.services.catalog.component_writer import METADATA_INSERT_COLUMNS, metadata_column_values
+from app.services.catalog.component_writer import (
+    METADATA_INSERT_COLUMNS,
+    CatalogComponentWriter,
+    metadata_column_values,
+)
 from app.services.catalog.metadata_normalization import IDENTITY_KIND_MPN, IDENTITY_KIND_PROVISIONAL_IPN
 from app.services.catalog.metadata_schema import CatalogMetadataSchema
-from app.services.catalog.normalization import slugify
+from app.services.catalog.release_workflow import CatalogReleaseWorkflow
 from app.services.catalog.revision_kernel import REVISION_MANIFEST_A3, CatalogRevisionKernel
 from app.services.catalog.runtime import CatalogRuntime
 
@@ -71,12 +73,30 @@ def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _identity(metadata: dict[str, Any]) -> dict[str, str]:
+    return {
+        "manufacturer": metadata["manufacturer"],
+        "mpn": metadata["mpn"],
+        "identity_kind": metadata["identity_kind"],
+        "identity_source": metadata["identity_source"],
+        "source_internal_part_number": metadata["source_internal_part_number"],
+    }
+
+
 class CatalogLibraryImportWriter:
     """Write imported components, their assets and representations."""
 
-    def __init__(self, runtime: CatalogRuntime, revisions: CatalogRevisionKernel) -> None:
+    def __init__(
+        self,
+        runtime: CatalogRuntime,
+        revisions: CatalogRevisionKernel,
+        component_writer: CatalogComponentWriter,
+        release_workflow: CatalogReleaseWorkflow,
+    ) -> None:
         self._runtime = runtime
         self._revisions = revisions
+        self._component_writer = component_writer
+        self._release_workflow = release_workflow
 
     # -- batches -------------------------------------------------------------
 
@@ -96,22 +116,13 @@ class CatalogLibraryImportWriter:
         """Label the extra-field keys the import's rows carry."""
         CatalogMetadataSchema().ensure_extra_field_definitions(conn, sorted(keys), actor=actor)
 
-    @staticmethod
-    def allocate_slug(used_slugs: set[str], base: str, *, conn: Any = None) -> str:
-        """A slug unused in this batch (and, given ``conn``, in the catalog)."""
-        slug = slugify(base or "component")
-        candidate = slug
-        counter = 2
-        while True:
-            if candidate not in used_slugs:
-                taken = conn is not None and conn.execute(
-                    "SELECT 1 FROM components WHERE slug = %s LIMIT 1", (candidate,)
-                ).fetchone()
-                used_slugs.add(candidate)
-                if not taken:
-                    return candidate
-            candidate = f"{slug}-{counter}"
-            counter += 1
+    def allocate_slug(self, conn: Any, base: str) -> str:
+        """A slug unused in the catalog, under the component writer's slug lock."""
+        return self._component_writer.unique_slug(conn, base)
+
+    def identity_holder(self, conn: Any, metadata: dict[str, Any]) -> dict[str, Any] | None:
+        """The component (active or retired) holding ``metadata``'s identity, under the identity lock."""
+        return self._component_writer.identity_holder(conn, **_identity(metadata))
 
     # -- assets --------------------------------------------------------------
 
@@ -151,12 +162,12 @@ class CatalogLibraryImportWriter:
 
     # -- components ----------------------------------------------------------
 
-    @staticmethod
     def insert_component(
+        self,
         conn: Any,
         metadata: dict[str, Any],
         *,
-        slug: str,
+        slug_base: str,
         now: str,
         actor: str,
         change_summary: str,
@@ -167,8 +178,12 @@ class CatalogLibraryImportWriter:
 
         ``metadata`` is normalized (``normalize_metadata``). As in the component
         writer, only a provisional part records its identity source and only a
-        manufacturer part its normalized manufacturer.
+        manufacturer part its normalized manufacturer. The identity is checked and
+        the slug allocated under the component writer's locks; an identity some
+        component already holds is refused with ``ValueError``.
         """
+        self._component_writer.assert_identity_available(conn, **_identity(metadata))
+        slug = self.allocate_slug(conn, slug_base)
         component_id = str(uuid.uuid4())
         revision_id = str(uuid.uuid4())
         identity_kind = metadata["identity_kind"]
@@ -364,40 +379,17 @@ class CatalogLibraryImportWriter:
         actor: str,
         release_label: str,
     ) -> None:
-        """Release a sealed import revision as a trusted import, outside the release workflow."""
-        manifest_hash = self._revisions.revision_manifest_hash(conn, revision_id)
-        conn.execute(
-            """
-            UPDATE component_revisions
-            SET manifest_hash = %s, release_status = 'released', updated_at = %s
-            WHERE id = %s
-            """,
-            (manifest_hash, now, revision_id),
-        )
-        conn.execute(
-            "UPDATE components SET released_revision_id = %s, updated_at = %s WHERE id = %s",
-            (revision_id, now, component_id),
-        )
-        conn.execute(
-            """
-            INSERT INTO component_release_records (
-                id, component_id, revision_id, release_label, manifest_hash, released_by,
-                approval_decision_id, validation_json, policy_json, created_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, '', '{}', %s, %s)
-            ON CONFLICT(component_id, revision_id, manifest_hash) DO NOTHING
-            """,
-            (
-                str(uuid.uuid4()), component_id, revision_id, release_label,
-                manifest_hash, actor, _json({"trusted_import": True}), now,
-            ),
-        )
-        self._revisions.append_audit_event(
+        """Release a sealed import revision through the release workflow's trusted-import path.
+
+        Raises ``ValueError``, before writing anything, when a release gate refuses it.
+        """
+        self._release_workflow.release_trusted_import(
             conn,
             component_id=component_id,
             revision_id=revision_id,
-            event_type="component.released",
+            now=now,
             actor=actor,
-            details={"manifest_hash": manifest_hash, "trusted_import": True},
+            release_label=release_label,
         )
 
 

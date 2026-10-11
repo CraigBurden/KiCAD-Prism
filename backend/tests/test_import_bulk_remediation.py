@@ -383,6 +383,68 @@ class ImportBulkRemediationTests(unittest.TestCase):
         assert reloaded is not None
         self.assertEqual(reloaded["status"], "candidate")
 
+    def _required_custom_field(self) -> dict:
+        field = self.service.create_metadata_field(
+            {"key": f"approval_ref_{uuid.uuid4().hex[:8]}", "label": "Approval Ref", "type": "text", "required": True},
+            actor="admin@example.com",
+        )
+        self.addCleanup(self._drop_field, str(field["id"]))
+        return field
+
+    def _drop_field(self, field_id: str) -> None:
+        # The worker database is shared; a required field left behind would block other tests.
+        with self.service.connection() as conn:
+            conn.execute("DELETE FROM catalog_field_definition_events WHERE field_id = %s", (field_id,))
+            conn.execute("DELETE FROM catalog_field_definitions WHERE id = %s", (field_id,))
+            conn.commit()
+
+    def test_accept_enforces_custom_required_fields_on_the_server(self) -> None:
+        # D4: a custom required field is demanded at import, not only in the editor.
+        field = self._required_custom_field()
+        mpn = f"RC0603-CUSTOM-{uuid.uuid4().hex[:8]}"
+        _, proposal = self._stage_proposal(reference="R10", mpn=mpn)
+        with self.assertRaisesRegex(ValueError, "Approval Ref is required"):
+            self.service.accept_project_import_proposal(str(proposal["id"]), actor="tester@example.com")
+        reloaded = self.service.get_project_import_proposal(str(proposal["id"]))
+        assert reloaded is not None
+        self.assertEqual(reloaded["status"], "candidate")
+
+        result = self.service.accept_project_import_proposal(
+            str(proposal["id"]),
+            metadata_overrides={"extra_fields": {field["storage_key"]: "QA-17"}},
+            actor="tester@example.com",
+        )
+        self.component_ids.append(str(result["component"]["id"]))
+        self.assertEqual(result["component"]["extra_fields"][field["storage_key"]], "QA-17")
+
+    def test_patch_enforces_custom_required_fields_on_the_server(self) -> None:
+        # D4: the single-component PATCH refuses a blank custom required field.
+        mpn = f"RC0603-PATCH-{uuid.uuid4().hex[:8]}"
+        _, proposal = self._stage_proposal(reference="R11", mpn=mpn)
+        component = self.service.accept_project_import_proposal(
+            str(proposal["id"]), actor="tester@example.com"
+        )["component"]
+        self.component_ids.append(str(component["id"]))
+        field = self._required_custom_field()
+
+        with self.assertRaisesRegex(ValueError, "Approval Ref: Required"):
+            self.service.update_component_metadata(
+                str(component["id"]),
+                {"value": "22k"},
+                actor="tester@example.com",
+                expected_revision_id=str(component["revision_id"]),
+            )
+        self.assertEqual(self.service.get_component(str(component["id"]))["value"], component["value"])
+
+        updated = self.service.update_component_metadata(
+            str(component["id"]),
+            {"value": "22k", "extra_fields": {**component["extra_fields"], field["storage_key"]: "QA-18"}},
+            actor="tester@example.com",
+            expected_revision_id=str(component["revision_id"]),
+        )
+        assert updated is not None
+        self.assertEqual((updated["value"], updated["extra_fields"][field["storage_key"]]), ("22k", "QA-18"))
+
     def test_retired_identity_is_matched_and_blocks_import_with_its_reason(self) -> None:
         mpn = f"RC0603-RETIRED-{uuid.uuid4().hex[:8]}"
         _, seed = self._stage_proposal(reference="R8", mpn=mpn)

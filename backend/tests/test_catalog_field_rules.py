@@ -9,6 +9,8 @@ from pathlib import Path
 from app.services.catalog.field_rules import (
     CONTEXT_BULK,
     blocking_import_findings,
+    custom_field_errors,
+    custom_import_problems,
     field_error,
     field_rules_contract,
     field_verdict,
@@ -61,6 +63,19 @@ class FieldRulesTests(unittest.TestCase):
                     field = {"key": descriptor.key, "type": descriptor.field_type, "required": row_flag}
                     self.assertEqual(is_field_required(field, identity_kind="mpn"), descriptor.required)
         self.assertTrue(is_field_required({"key": "custom", "required": True}, identity_kind="provisional_ipn"))
+
+    def test_custom_required_fields_are_checked_for_presence_only(self) -> None:
+        fields = [
+            {"key": "approval", "label": "Approval", "storage_kind": "extra", "storage_key": "Approval", "required": True},
+            {"key": "lot", "label": "Lot", "type": "number", "storage_kind": "extra", "storage_key": "lot", "required": True},
+            {"key": "old", "label": "Old", "storage_kind": "extra", "storage_key": "old", "required": True, "archived": True},
+            {"key": "note", "label": "Note", "storage_kind": "extra", "storage_key": "note"},
+            {"key": "value", "label": "Value", "storage_kind": "column", "storage_key": "value", "built_in": True},
+        ]
+        metadata = {"value": "", "extra_fields": {"Approval": "  ", "lot": "not a number"}}
+        self.assertEqual(custom_field_errors(fields, metadata), ["Approval: Required"])
+        self.assertEqual(custom_import_problems(fields, metadata), ["Approval is required"])
+        self.assertEqual(custom_field_errors(fields, {"extra_fields": {"Approval": "ok", "lot": "1"}}), [])
 
     def test_messages_and_unknown_context(self) -> None:
         self.assertEqual(field_error({"key": "value"}, "", context=CONTEXT_BULK), "Required")

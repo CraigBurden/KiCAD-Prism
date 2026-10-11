@@ -42,10 +42,11 @@ for candidate in (REPO_ROOT / "backend", REPO_ROOT):
         sys.path.insert(0, str(candidate))
         break
 
+from app.services.catalog.field_rules import missing_builtin_fields  # noqa: E402
 from app.services.catalog.metadata_normalization import normalize_metadata  # noqa: E402
 
 ComponentCatalogService: Any = None
-CatalogLibraryImportWriter: Any = None
+build_import_writer: Any = None
 _discover_footprint_name_in_text: Any = None
 _sanitize_name: Any = None
 _utc_now_iso: Any = None
@@ -88,7 +89,7 @@ DESCR_PACKAGE_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9+]*)\s*,\s*(\d+)\s*-?\s*L
 
 def _load_catalog_runtime() -> None:
     global ComponentCatalogService
-    global CatalogLibraryImportWriter
+    global build_import_writer
     global _discover_footprint_name_in_text
     global _sanitize_name
     global _utc_now_iso
@@ -100,9 +101,10 @@ def _load_catalog_runtime() -> None:
         from app.services.component_catalog_service_postgres import (  # noqa: PLC0415
             ComponentCatalogPostgresService,
         )
-        from app.services.catalog.library_import_writer import (  # noqa: PLC0415
-            CatalogLibraryImportWriter as loaded_import_writer,
+        from app.services.catalog.collaborators import (  # noqa: PLC0415
+            build_library_import_writer as loaded_import_writer,
         )
+        from app.services.catalog.locking import PostgresCatalogLocks  # noqa: PLC0415
         from app.services.catalog.normalization import (  # noqa: PLC0415
             sanitize_name as loaded_sanitize_name,
             utc_now_iso as loaded_utc_now_iso,
@@ -114,7 +116,9 @@ def _load_catalog_runtime() -> None:
         ) from exc
 
     ComponentCatalogService = ComponentCatalogPostgresService
-    CatalogLibraryImportWriter = loaded_import_writer
+
+    def build_import_writer(runtime: Any) -> Any:
+        return loaded_import_writer(runtime, catalog_locks=PostgresCatalogLocks())
     _discover_footprint_name_in_text = loaded_discover_footprint_name
     _sanitize_name = loaded_sanitize_name
     _utc_now_iso = loaded_utc_now_iso
@@ -133,6 +137,8 @@ class ImportStats:
     previews_failed: int = 0
     skipped_files: int = 0
     errors: list[str] = field(default_factory=list)
+    # Footprints skipped for a blank required field (no placeholders): {"footprint", "missing"}.
+    skipped_missing_fields: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -349,20 +355,25 @@ def _collect_plans(
         if wanted and raw_library.casefold() not in wanted:
             continue
         try:
-            plans.append(
-                _build_plan(
-                    footprint_file,
-                    footprints_root,
-                    model_index=model_index,
-                    mpn_mode=mpn_mode,
-                    strip_prefix=strip_prefix,
-                    default_manufacturer=default_manufacturer,
-                    default_vendor=default_vendor,
-                )
+            plan = _build_plan(
+                footprint_file,
+                footprints_root,
+                model_index=model_index,
+                mpn_mode=mpn_mode,
+                strip_prefix=strip_prefix,
+                default_manufacturer=default_manufacturer,
+                default_vendor=default_vendor,
             )
         except Exception as exc:  # noqa: BLE001
             stats.skipped_files += 1
             _record_error(stats, f"{footprint_file}: {exc}")
+            continue
+        missing = missing_builtin_fields(plan.metadata)
+        if missing:
+            stats.skipped_files += 1
+            stats.skipped_missing_fields.append({"footprint": plan.relative_path, "missing": missing})
+        else:
+            plans.append(plan)
         if limit and len(plans) >= limit:
             break
     return plans
@@ -384,20 +395,6 @@ def _write_or_copy(destination: Path, source: Path, *, overwrite: bool) -> Path:
     return destination
 
 
-def _find_existing_component(conn: Any, mpn: str, package_name: str) -> str | None:
-    row = conn.execute(
-        """
-        SELECT c.id
-        FROM components c
-        JOIN component_revisions cr ON cr.id = c.current_revision_id
-        WHERE cr.mpn = %s AND cr.package_name = %s
-        LIMIT 1
-        """,
-        (mpn, package_name),
-    ).fetchone()
-    return str(row["id"]) if row else None
-
-
 def _import_plans(
     plans: list[FootprintPlan],
     *,
@@ -411,7 +408,6 @@ def _import_plans(
     release_imported: bool,
     commit_batch: int,
 ) -> None:
-    used_slugs: set[str] = set()
     # The registered asset is kept next to the local file that was written for it:
     # register_asset may rewrite canonical_path to the runtime mount or to an
     # immutable revisions path, and preview generation has to read a real local file.
@@ -447,9 +443,8 @@ def _import_plans(
 
     for plan in plans:
         try:
-            metadata = plan.metadata
-            existing = _find_existing_component(conn, metadata["mpn"], metadata["package_name"])
-            if existing:
+            metadata = normalize_metadata(plan.metadata)
+            if writer.identity_holder(conn, metadata):
                 stats.components_skipped_existing += 1
                 continue
 
@@ -500,12 +495,10 @@ def _import_plans(
                     f"{plan.model_reference}",
                 )
 
-            slug_base = f"{metadata['mpn']} {metadata['package_name']}".strip() or plan.target_name
-            slug = writer.allocate_slug(used_slugs, slug_base, conn=conn)
             component_id, revision_id = writer.insert_component(
                 conn,
-                normalize_metadata(metadata),
-                slug=slug,
+                metadata,
+                slug_base=f"{metadata['mpn']} {metadata['package_name']}".strip() or plan.target_name,
                 now=now,
                 actor=IMPORT_ACTOR,
                 change_summary="Imported from footprint library",
@@ -654,7 +647,7 @@ def main() -> int:
                     stats.models_unresolved += 1
         else:
             service.initialize()
-            writer = CatalogLibraryImportWriter(service.runtime, service.revisions)
+            writer = build_import_writer(service.runtime)
             conn_context = service.connection()
             conn = conn_context.__enter__()
             writer.begin_batch(conn)
@@ -694,7 +687,7 @@ def main() -> int:
         args.report_json.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     print(json.dumps(report, indent=2))
-    return 1 if fatal_error or (args.strict and stats.errors) else 0
+    return 1 if fatal_error or (args.strict and (stats.errors or stats.skipped_missing_fields)) else 0
 
 
 if __name__ == "__main__":

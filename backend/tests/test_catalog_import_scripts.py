@@ -238,6 +238,41 @@ class CatalogImportScriptTests(unittest.TestCase):
         self.assertEqual(provisional_children["releases"], [])
         self.assertEqual([row["event_type"] for row in provisional_children["audit"]], ["component.created"])
 
+    def test_database_library_import_takes_its_slug_through_the_component_writer(self) -> None:
+        # AC-28 writer row: slugs are allocated under the writer's lock against the catalog,
+        # not only against the import's own batch.
+        module = _load_script("import_database_library")
+        source = self._database_library()
+        holder = self.service.create_manual_component(
+            actor="designer@example.com", value="Sensor", description="Slug holder",
+            datasheet="https://example.test/holder.pdf", manufacturer="Other",
+            manufacturer_part_number=f"ACME {self.token}",
+        )
+        self.assertEqual(holder["slug"], f"acme-{self.token}")
+
+        code, report = _run(module, [str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL])
+
+        self.assertEqual(code, 0, report["errors"])
+        self.assertEqual(report["components_created"], 2)
+        imported = [row for row in self._components() if row["source"] == "import"]
+        self.assertIn(f"acme-{self.token}-2", [row["slug"] for row in imported])
+
+    def test_database_library_release_goes_through_the_release_workflow_gates(self) -> None:
+        # AC-28 writer row: a trusted import is released by the release workflow, so its
+        # KLC release gate applies (unvalidated assets block under "block").
+        module = _load_script("import_database_library")
+        source = self._database_library()
+        from app.services.catalog import klc_validation
+
+        with patch.object(klc_validation.settings, "CATALOG_KLC_RELEASE_GATE", "block"):
+            code, report = _run(module, [str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL])
+
+        self.assertEqual(code, 0, report["errors"])
+        self.assertEqual((report["components_created"], report["components_released"]), (2, 0))
+        self.assertEqual(len(report["release_refused"]), 1)
+        self.assertIn("KLC validation", report["release_refused"][0]["reason"])
+        self.assertEqual({row["release_status"] for row in self._components()}, {"open"})
+
     def test_footprint_library_import_writes_draft_footprint_only_components(self) -> None:
         module = _load_script("import_footprint_library")
         source = self.root / "fpl"
@@ -282,6 +317,31 @@ class CatalogImportScriptTests(unittest.TestCase):
             [(row["event_type"], row["actor"], json.loads(row["details_json"])["change_summary"]) for row in children["audit"]],
             [("component.created", "system:import_footprint_library", "Imported incomplete footprint-only representation")],
         )
+
+    def test_footprint_missing_a_required_field_is_skipped_and_listed(self) -> None:
+        # AC-28 footprints row: no placeholders; the footprint is skipped and named in the summary.
+        module = _load_script("import_footprint_library")
+        source = self.root / "fpl"
+        library = source / "Footprints" / "Pixxel_Sensors.pretty"
+        library.mkdir(parents=True)
+        name = f"ACME{self.token}"
+        body = FOOTPRINT.format(name=name).replace(
+            '  (property "Datasheet" "https://example.test/acme.pdf" (at 0 0 0) (layer "F.Fab"))\n', ""
+        )
+        (library / f"{name}.kicad_mod").write_text(body, encoding="utf-8")
+
+        code, report = _run(module, [
+            str(source), "--store-root", str(self.store), "--database-url", POSTGRES_URL,
+            "--mpn-mode", "full", "--manufacturer", "Acme", "--no-previews", "--models-dir", "",
+        ])
+
+        self.assertEqual(code, 0, report["errors"])
+        self.assertEqual(report["components_created"], 0)
+        self.assertEqual(
+            report["skipped_missing_fields"],
+            [{"footprint": f"Pixxel_Sensors.pretty/{name}.kicad_mod", "missing": ["Datasheet"]}],
+        )
+        self.assertEqual(self._components(), [])
 
 
 if __name__ == "__main__":

@@ -42,8 +42,10 @@ order and is what startup calls. Steps live per schema:
 `workspace_schema_migrations.py` (bodies in `workspace_migrations/`),
 `auth_schema_migrations.py`, `comments_schema_migrations.py`,
 `catalog_schema_migrations.py`, `artifact_schema_migrations.py`. Add a step
-rather than DDL in a service (see `docs/UPGRADES.md`); the one exception is the
-catalog baseline and derived projections, reconciled on every start by
+rather than DDL in a service (see `docs/UPGRADES.md`). The catalog baseline is
+its step 0 and the catalog is forward-only: a new built-in metadata field or a
+base-table change is a new step. Only the epoch guard and derived state
+(projection versions, search indexes, integrity guards) run on every start, from
 `ComponentCatalogPostgresService.initialize`.
 
 ## Catalog jobs

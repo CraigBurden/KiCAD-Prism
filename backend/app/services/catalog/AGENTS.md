@@ -51,7 +51,10 @@ rationale are recorded in `docs/CATALOG_DECOMPOSITION_HANDOFF.md`.
   byte-stable for identical inputs.
 - DBL bundle layout, column order, and file names (`dbl_export.py`).
 - Release gating is fail-closed and review/release records are append-only
-  (`release_workflow.py`).
+  (`release_workflow.py`). Bulk library imports release only through its
+  trusted-import path (`release_trusted_import`), which applies the same gates,
+  and take slugs and identities under the component writer's locks
+  (`library_import_writer.py`).
 - Workflow stages, legacy aliases, transitions, and role rights have one
   definition (`workflow_policy.py`). The API, release workflow, and revision
   kernel import it; the frontend's offered transitions are generated from it
@@ -59,8 +62,9 @@ rationale are recorded in `docs/CATALOG_DECOMPOSITION_HANDOFF.md`.
   `backend/tests/test_workflow_policy.py` fails on drift.
 - Field validity and import readiness have one definition (`field_rules.py`):
   which fields are required for an identity kind, which contexts check value
-  shape, and which import findings block. Batch staging, import scans and
-  import acceptance call it; the frontend renders the same verdicts from
+  shape, and which import findings block. Batch staging, import scans,
+  import acceptance and the single-component PATCH call it (the last two
+  enforce custom required fields server-side); the frontend renders the same verdicts from
   `frontend/src/lib/catalog-field-rules.generated.ts` through
   `frontend/src/lib/catalog-field-rules.ts`, and
   `backend/tests/test_catalog_field_rules.py` fails on drift. Both test suites

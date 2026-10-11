@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 import uuid
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -125,9 +126,8 @@ class MetadataBatchLifecycleTests(unittest.TestCase):
         self.assertEqual(self.lifecycle.apply(batch["id"], actor=ACTOR)["applied"], 1)
         self.assertEqual(self.service.get_component(part["id"])["extra_fields"][new_key], "x")
 
-    def test_a_failing_proposal_stops_approval_and_keeps_the_fields_before_it(self) -> None:
-        # Today's behaviour, pinned until the product decision in DECISIONS.md:
-        # each field is created in its own transaction.
+    def test_a_failing_proposal_approves_none_of_the_batch_fields(self) -> None:
+        # D9: approval is all-or-nothing, in one transaction.
         created_key, bad_key = f"kept_{self.token}", f"bad_{self.token}"
         self.field_keys += [created_key, bad_key]
         part = self._part("E")
@@ -143,8 +143,35 @@ class MetadataBatchLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Enum fields require"):
             self.lifecycle.approve_fields(batch["id"], actor="admin@example.com")
 
-        self.assertIn(created_key, self._field_keys())
+        self.assertNotIn(created_key, self._field_keys())
         self.assertNotIn(bad_key, self._field_keys())
+        self.assertEqual(self.lifecycle.get(batch["id"])["status"], "needs_fields")
+
+    def test_a_failing_insert_rolls_back_the_fields_created_before_it(self) -> None:
+        first_key, second_key = f"first_{self.token}", f"second_{self.token}"
+        self.field_keys += [first_key, second_key]
+        part = self._part("H")
+        batch = self.lifecycle.stage(
+            [{"component_id": part["id"], "expected_revision_id": part["revision_id"], "patch": {"value": "39k"}}],
+            source="csv", actor=ACTOR, change_summary="Insert fails",
+            proposed_fields=[
+                {"key": first_key, "label": "First", "type": "text", "enum_values": []},
+                {"key": second_key, "label": "Second", "type": "text", "enum_values": []},
+            ],
+        )
+        fields = self.lifecycle._metadata_fields
+        real = fields.create_field_unless_defined
+
+        def fail_on_second(conn, prepared, actor):
+            if prepared.field_key == second_key:
+                raise ValueError("insert failed")
+            return real(conn, prepared, actor)
+
+        with mock.patch.object(fields, "create_field_unless_defined", side_effect=fail_on_second):
+            with self.assertRaisesRegex(ValueError, "insert failed"):
+                self.lifecycle.approve_fields(batch["id"], actor="admin@example.com")
+
+        self.assertNotIn(first_key, self._field_keys())
         self.assertEqual(self.lifecycle.get(batch["id"])["status"], "needs_fields")
 
     def test_unknown_batches_are_refused(self) -> None:

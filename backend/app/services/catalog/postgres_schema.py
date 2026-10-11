@@ -5,7 +5,6 @@ from __future__ import annotations
 from app.services.catalog.postgres_runtime import CatalogPostgresConnection
 
 
-POSTGRES_SCHEMA_VERSION = "catalog-postgres-v7"
 CATALOG_SCHEMA_EPOCH = "2"
 
 
@@ -394,6 +393,5 @@ def create_base_schema(conn: CatalogPostgresConnection) -> None:
 
 __all__ = [
     "CATALOG_SCHEMA_EPOCH",
-    "POSTGRES_SCHEMA_VERSION",
     "create_base_schema",
 ]

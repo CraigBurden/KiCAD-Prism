@@ -18,9 +18,10 @@ from app.services.catalog.asset_registry import CatalogAssetRegistry
 from app.services.catalog.asset_types import PLACE_REQUIRED_ASSET_TYPES
 from app.services.catalog.component_identity import ComponentIdentity, find_identity_holder
 from app.services.catalog.component_writer import SOURCE_EXTERNAL, CatalogComponentWriter
-from app.services.catalog.field_rules import import_metadata_problems
+from app.services.catalog.field_rules import custom_import_problems, import_metadata_problems
 from app.services.catalog.locking import CatalogLockOperations
 from app.services.catalog.metadata_normalization import normalize_metadata
+from app.services.catalog.metadata_schema import CatalogMetadataSchema
 from app.services.catalog.normalization import sha256_file, utc_now_iso
 from app.services.catalog.project_import_assets import CatalogProjectImportAssets
 from app.services.catalog.project_import_matching import CatalogProjectImportMatching
@@ -57,6 +58,7 @@ class CatalogProjectImportAcceptance:
         asset_links: CatalogAssetLinks,
         finalizer: CatalogRevisionFinalizer,
         component_writer: CatalogComponentWriter,
+        metadata_schema: CatalogMetadataSchema,
     ) -> None:
         self._catalog_locks = catalog_locks
         self._revision_kernel = revision_kernel
@@ -67,6 +69,7 @@ class CatalogProjectImportAcceptance:
         self._asset_links = asset_links
         self._finalizer = finalizer
         self._component_writer = component_writer
+        self._metadata_schema = metadata_schema
 
     # -- pure preparation ---------------------------------------------------
 
@@ -166,6 +169,9 @@ class CatalogProjectImportAcceptance:
         if problems:
             raise ValueError("Resolve import metadata before accepting: " + "; ".join(problems))
         metadata = normalize_metadata(normalized_input)
+        problems = custom_import_problems(self._metadata_schema.list_fields(conn), metadata)
+        if problems:
+            raise ValueError("Resolve import metadata before accepting: " + "; ".join(problems))
         candidates_by_type = self._import_assets.group_import_assets(proposal)
         # An asset type may instead be satisfied by an existing catalog asset. That is
         # a reference, not a copy: the same assets row is linked into this revision, so

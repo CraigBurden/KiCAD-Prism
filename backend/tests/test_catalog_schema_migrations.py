@@ -51,6 +51,8 @@ class FakeConnection:
         if statement.startswith("CREATE TABLE IF NOT EXISTS catalog_schema_versions"):
             self.ledger_exists = True
             return _Result([])
+        if statement.startswith("SELECT to_regclass") and params == ("catalog_meta",):
+            return _Result([{"relation": "catalog_meta" if self.catalog_meta else None}])
         if statement.startswith("SELECT to_regclass"):
             return _Result([{"relation": "catalog_schema_versions" if self.ledger_exists else None}])
         if statement.startswith("SELECT version FROM catalog_schema_versions"):
@@ -75,6 +77,9 @@ class FakeConnection:
             self.catalog_meta[params[0]] = params[1]
             return _Result([])
         return _Result([])
+
+    def executescript(self, sql: str) -> None:
+        self.statements.append(" ".join(sql.split()))
 
     def rewrites_columns(self) -> list[str]:
         return [statement for statement in self.statements if "ALTER COLUMN" in statement]
@@ -129,7 +134,7 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
     def test_adoption_only_considers_a_database_with_no_ledger(self) -> None:
         """Once the ledger exists it is the only authority on what has run."""
         conn = FakeConnection(catalog_meta={PORTABLE_TYPES_MARKER: PORTABLE_TYPES_VERSION})
-        conn.ledger = {1: "portable_column_types", 2: "import_proposal_draft_column"}
+        conn.ledger = {0: "baseline", 1: "portable_column_types", 2: "import_proposal_draft_column"}
         conn.statements.clear()
 
         apply_catalog_migrations(conn)
@@ -167,6 +172,20 @@ class CatalogSchemaMigrationTests(unittest.TestCase):
         names = [name for _, name, _ in MIGRATIONS]
         self.assertEqual(versions, sorted(set(versions)))
         self.assertEqual(len(set(names)), len(names))
+
+    def test_the_baseline_is_step_zero_and_runs_before_the_numbered_steps(self) -> None:
+        """D8: the catalog baseline is ledger step 0, run once, ahead of step 1."""
+        self.assertEqual(MIGRATIONS[0][:2], (0, "baseline"))
+        conn = FakeConnection(ledger_exists=False)
+        apply_catalog_migrations(conn)
+        statements = conn.statements
+        base = next(i for i, s in enumerate(statements) if "CREATE TABLE IF NOT EXISTS components" in s)
+        widen = next(i for i, s in enumerate(statements) if "ALTER COLUMN" in s)
+        self.assertLess(base, widen)
+        self.assertFalse([s for s in statements if "catalog_schema_migrations" in s])
+        conn.statements.clear()
+        apply_catalog_migrations(conn)
+        self.assertFalse([s for s in conn.statements if "CREATE TABLE IF NOT EXISTS components" in s])
 
     def test_renumbered_row_moves_instead_of_replaying(self) -> None:
         """A branch database recorded agent_tokens_registry as 3 before it moved to 6."""

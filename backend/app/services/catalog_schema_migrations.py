@@ -16,14 +16,19 @@ once under the catalog's advisory lock and recorded in
 narrows waits for a later release, once the version that needed it is out of
 support, so that rolling the application back does not require restoring data.
 
-Derived state stays out of this ladder on purpose. The component-head
-projections, search indexes and integrity guards are rebuilt whenever their
-definition version changes, which a run-once ledger cannot express; they keep
-their own version markers in ``catalog_meta``. The catalog's baseline (the
-epoch guard, ``create_base_schema`` and the metadata registry seed) also runs on
-every start, ahead of these steps, from
-``ComponentCatalogPostgresService.initialize``: the projections the first step
-widens are part of that baseline.
+The catalog is forward-only (D8, 2026-10-11): step 0 is the baseline that used
+to be reconciled on every start (base tables, epoch row, metadata registry and
+its built-in seed, the component-head projections). It runs once and is
+recorded like any other step, so a later change to any of it -- including a new
+built-in metadata field -- needs a new step. The legacy ``catalog_schema_migrations``
+version row an older Prism required is no longer written, so rolling back to a
+release from before the ledger is not supported.
+
+Two things still run on every start, outside the ledger, because they are a
+guard and derived state rather than migrations: the epoch guard (a refusal)
+and the projections' definition-version reconciliation, together with the
+search indexes and integrity guards
+(``ComponentCatalogPostgresService.initialize``).
 """
 
 from __future__ import annotations
@@ -31,6 +36,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from app.services.catalog.metadata_schema import CatalogMetadataSchema
+from app.services.catalog.postgres_projections import (
+    ensure_component_heads_projection,
+    ensure_remote_component_heads_projection,
+)
+from app.services.catalog.postgres_schema import CATALOG_SCHEMA_EPOCH, create_base_schema
 from app.services.schema_ledger import Ledger, Renumbered, Step
 
 
@@ -40,6 +51,32 @@ Migration = Callable[[Any], None]
 # the marker must not be made to do the work again.
 PORTABLE_TYPES_MARKER = "postgres_portable_types_version"
 PORTABLE_TYPES_VERSION = "catalog-portable-types-v1"
+
+
+def _baseline(conn: Any) -> None:
+    """The catalog surface the numbered steps build on.
+
+    Every statement is ``IF NOT EXISTS`` / ``ON CONFLICT``, so a database that
+    reconciled this on every start before D8 records it without change. The
+    projections come before step 1, which widens a head column.
+    """
+    create_base_schema(conn)
+    conn.execute(
+        "INSERT INTO catalog_meta(key, value) VALUES (%s, %s) "
+        "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+        ("catalog_schema_epoch", CATALOG_SCHEMA_EPOCH),
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_component_sequence "
+        "ON catalog_audit_events(component_id, sequence)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_component_usage_current "
+        "ON component_usage(component_id, is_current, last_seen_at DESC)"
+    )
+    CatalogMetadataSchema().ensure_schema(conn)
+    ensure_component_heads_projection(conn)
+    ensure_remote_component_heads_projection(conn)
 
 
 def _portable_column_types(conn: Any) -> None:
@@ -226,6 +263,7 @@ def _revision_assets_asset_index(conn: Any) -> None:
 
 
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
+    (0, "baseline", _baseline),
     (1, "portable_column_types", _portable_column_types),
     (2, "import_proposal_draft_column", _import_proposal_draft_column),
     (3, "component_kinds", _component_kinds),
@@ -253,6 +291,10 @@ def _adopt_legacy_markers(conn: Any) -> set[int]:
     carries its marker is credited with the migration instead.
     """
     adopted: set[int] = set()
+    # A fresh database has no catalog_meta until step 0 creates it.
+    meta = conn.execute("SELECT to_regclass(%s) AS relation", ("catalog_meta",)).fetchone()
+    if not meta or not meta["relation"]:
+        return adopted
     marker = conn.execute(
         "SELECT value FROM catalog_meta WHERE key = %s",
         (PORTABLE_TYPES_MARKER,),
