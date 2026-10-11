@@ -74,8 +74,20 @@ leases, heartbeats, and fencing. The API returns job identifiers; the browser
 polls job state and logs. Completed outputs are published into immutable job
 artifact locations and surfaced through the Assets portal.
 
-CPU-heavy job classes have separate concurrency settings so imports, design
-comparison, WebGPU generation, and jobsets do not consume unbounded resources.
+Each job kind is declared once, next to its handler
+(`backend/app/services/job_kinds.py`): the worker pool (`prism` or `catalog`),
+the resource slots it holds, the shape of its lock, its attempts and priority.
+CPU-heavy kinds take separate slots (`import`, `design_compare`, `webgpu`,
+`workflow`, `semantic_compile`, `catalog_kicad`) with their own concurrency
+settings, so imports, design comparison, WebGPU generation, and jobsets do not
+consume unbounded resources. Tracker jobs take a dedicated `tracker_sync` slot
+at a low priority.
+
+Some features keep their own rows next to the job (a Release Studio build
+attempt). Their kind declares an end hook: success settles the row inside the
+job's completion transaction, the runner and the supervisor call the hook after
+any other terminal transition, and the prism worker sweeps once a minute for
+rows whose job's process died before it could settle them.
 
 ## Project ingestion
 

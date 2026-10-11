@@ -51,8 +51,12 @@ call site. Tests replace them with a fake or with the replay adapter
 `backend/tests/test_release_studio_replay_build.py` runs a whole build that way.
 
 Entry point is `backend/app/services/release_studio_build_service.py`
-(`run_release_studio_build_job`), dispatched from
-`backend/app/services/job_handlers.py`.
+(`run_release_studio_build_job`, kind `RELEASE_BUILD`), registered by
+`backend/app/services/job_handlers.py`. A build attempt's row lives in
+`backend/app/services/release_build_attempts.py`: it succeeds inside the job's
+completion transaction, and the kind's end hook ends it as the job ended when
+the build process died first (cancel, crash, lost lease). Only a candidate's
+newest attempt moves the candidate's status.
 
 ## Traps
 

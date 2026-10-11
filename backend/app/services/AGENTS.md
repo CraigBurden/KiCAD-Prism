@@ -48,17 +48,19 @@ catalog baseline and derived projections, reconciled on every start by
 
 ## Catalog jobs
 
-`catalog_worker_tasks.py` holds the `HANDLERS` table — the catalog worker's
-equivalent of `job_handlers.py`:
+`catalog_worker_tasks.py` holds the `HANDLERS` table and declares one catalog
+`JobKind` per entry (`CATALOG_JOB_KINDS`):
 
 `catalog_validation`, `catalog_preview_generation`, `project_component_import`,
 `folder_library_import`, `artifact_maintenance`, `catalog_metadata_batch`,
 `catalog_model_glb` (System Builder STEP → GLB with Geometer).
 
-The catalog wrapper restores `catalog_checkpoint` and `catalog_result` into the
-legacy handler envelope and persists updates reported through `progress`.
-Handlers that report checkpoints must therefore tolerate resumption and must
-not duplicate completed work after a lease is reclaimed.
+Each task takes the `JobContext` and records resumable state with
+`context.save_checkpoint(checkpoint=..., result=...)`; a retried attempt reads
+`context.checkpoint` and `context.partial_result`. Tasks that checkpoint must
+therefore tolerate resumption and must not duplicate completed work after a
+lease is reclaimed. `catalog_job_service.py` shows a job in the catalog API's
+shape.
 
 ## Rules that live here
 
