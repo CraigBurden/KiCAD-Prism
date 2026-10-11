@@ -19,7 +19,7 @@ import {
   planComponentVisibility,
 } from "./component-visibility.js";
 import { escapeHtml } from "./escape-html.js";
-import { EMPHASIS_PALETTE, findNetByName, packEmphasisColor, resolveNetIds } from "./net-emphasis.js";
+import { findNetByName } from "./net-emphasis.js";
 import { componentDraws } from "./component-models.js";
 import { loadGltf, loadGltfModels } from "./gltf-loader.js";
 import { add, boundsRadius, clamp, cross, mat4Multiply, scale } from "./math.js";
@@ -44,7 +44,8 @@ import { cameraRay, surfaceHit } from "./model-pick.js";
 import { harnessScene } from "../../../frontend/src/features/system-builder/placement/harness-tubes.ts";
 import { allReadyBoardsDrawn, assetLoadable, assetOccurrenceMatrix, boardTransition, boxRendererId, drawnOccurrences, STAND_INS, standInKind, standInMatrix } from "./system-placement.js";
 import { LOD_FULL } from "./occurrences.js";
-import { insetMatrix, mmToRuntime, projectInset, runtimeBoundsToMm } from "./inset-view.js";
+import { InsetViews, insetMatrix } from "./inset-view.js";
+import { DEFAULT_GPU_BUDGET_BYTES } from "./viewer-controllers.js";
 
 const COPPER_TILE_GPU_BUDGET_BYTES = 512 * 1024 * 1024;
 const COPPER_TILE_PREFETCH_MARGIN = 0.65;
@@ -281,9 +282,6 @@ const compareAnimation = initialCompareAnimation();
 const compareTransition = initialCompareTransition();
 const schematicScene = initialSchematicScene();
 let gizmoHits = [];
-// SB2-26: the browser cache for this bundle's assets (null: network only), and
-// whether components wait until some occurrence needs full detail.
-const DEFAULT_GPU_BUDGET_BYTES = 1.5 * 1024 * 1024 * 1024;
 // Components unused this long (no occurrence at full detail) may be evicted over budget.
 const COMPONENT_IDLE_EVICT_MS = 5000;
 // SB2-81: inner copper a system board no longer needs is released after this long unused.
@@ -450,24 +448,17 @@ export async function mountStandaloneViewer(options = {}) {
   resolveDom(options.root || document);
   if (!appEl || !canvas) throw new Error("Semantic viewer shell is missing required DOM nodes");
   await boot(token, performanceTimings, options.onPerformanceEvent);
+  // The board scene port (AC-30): BoardModeController in viewer-controllers.js drives it.
   return {
     performance: performanceTimings,
-    setSelection(selection) {
-      suppressSelectionChange = true;
-      try {
-        if (selection?.occurrence != null) selectOccurrenceByKey(selection.occurrence);
-        if (!selection) clearSelection();
-        else if (selection?.netName || selection?.netUid) {
-          const match = (selection.netUid && board.scene.nets.find((item) => item.uid === selection.netUid))
-            || (selection.netName && findNetByName(board.scene.nets, selection.netName));
-          if (match) selectNet(Number(match.id), true);
-        }
-        else if (selection?.netId) selectNet(Number(selection.netId), true);
-        else if (selection?.featureId) selectFeature(Number(selection.featureId), true);
-        else if (selection?.reference) selectComponentReference(String(selection.reference), true);
-      } finally {
-        suppressSelectionChange = false;
-      }
+    ...sharedPortMembers(),
+    selectOccurrence: selectOccurrenceByKey,
+    setHighlightedNetIds(ids) {
+      board.highlightedNetIds = ids;
+      board.renderer?.setEmphasizedNetIds(ids);
+    },
+    refreshResidency() {
+      scheduleTileResidency(performance.now(), { force: true });
     },
     resize() {
       board.renderer?.resize();
@@ -480,33 +471,13 @@ export async function mountStandaloneViewer(options = {}) {
       const nextWorkspace = workspace === "stackup" ? "stackup" : "pcb";
       if (state.workspace !== nextWorkspace) switchWorkspace(nextWorkspace);
     },
-    setHiddenComponents(references) {
-      return applyHiddenComponents(references);
-    },
+    setHiddenComponents: applyHiddenComponents,
     getComponentReferences() {
       return [...board.scene.componentFeatures.keys()];
-    },
-    setHighlightedNets(refs) {
-      return applyHighlightedNets(refs);
-    },
-    setStatsOverlay(visible) {
-      setStatsOverlay(visible);
-    },
-    stats() {
-      return sceneStats();
     },
     // Force a level of detail on every occurrence (0 full, 1 board, 2 body, 3 box), or null for automatic.
     setLodOverride(lod) {
       board.renderer?.setLodOverride(lod);
-    },
-    setGpuBudget(bytes) {
-      const value = Number(bytes);
-      state.gpuBudgetBytes = Number.isFinite(value) && value > 0 ? value : DEFAULT_GPU_BUDGET_BYTES;
-      for (const item of system ? system.boards.values() : [board]) item.tiersCheckedAt = 0;
-    },
-    // Query the pick target at a client point without changing the selection.
-    pickAt(clientX, clientY) {
-      return pickHitAt(clientX, clientY);
     },
     // Where a component's centre appears on screen (client px), or null.
     projectComponent(reference) {
@@ -516,36 +487,14 @@ export async function mountStandaloneViewer(options = {}) {
     projectPoint(point) {
       return projectBoardPoint(point, IDENTITY);
     },
-    getViewState: pcbViewState,
     setViewMode,
-    setLayerVisible,
-    applyLayerPreset,
-    setShowBoard,
-    setShowComponents,
-    setShowPlaceholders,
-    setRealisticColors,
-    setSeparation,
-    showNetLayers,
-    setNetIsolation,
     // IN-60/IN-61: inset views through cameras of their own.
-    renderInset(target, view, key) {
-      return renderInsetView(target, view, key);
-    },
-    insetReady() {
-      return insetViewReady();
-    },
-    insetSurfaceZ(bottom) {
-      return insetSurfaceZ(Boolean(bottom));
-    },
+    renderInset: renderInsetView,
+    insetReady: insetViewReady,
     releaseInset(key) {
-      insetViews.delete(String(key));
+      insetViews.release(key);
     },
-    insetTarget(reference, pin) {
-      return insetTargetFor(reference, pin);
-    },
-    projectInset(view, width, height, pointMm) {
-      return projectInsetPoint(view, width, height, pointMm);
-    },
+    insetBoard: () => ({ scene: board.scene, topology: board.topology }),
     onSceneChange(listener) {
       insetListeners.add(listener);
       return () => insetListeners.delete(listener);
@@ -565,6 +514,50 @@ export async function mountStandaloneViewer(options = {}) {
       releaseInsets();
       disposeViewerSession(token);
     },
+  };
+}
+
+/** Port members both mounts share: selection, lit nets and the view controls. */
+function sharedPortMembers() {
+  return {
+    nets: () => board.scene.nets,
+    quietly(apply) {
+      suppressSelectionChange = true;
+      try {
+        apply();
+      } finally {
+        suppressSelectionChange = false;
+      }
+    },
+    selectNet,
+    selectFeature,
+    selectComponent: selectComponentReference,
+    clearSelection,
+    anyEmphasis,
+    showNetProbe: applyNetProbeVisibility,
+    restoreVisibility: restoreViewVisibilityPrefs,
+    isolating: () => state.isolateNet,
+    isolateLitNets: applyNetIsolationLayers,
+    setNetIsolation,
+    setGpuBudget(bytes) {
+      state.gpuBudgetBytes = bytes;
+      for (const item of system ? system.boards.values() : [board]) item.tiersCheckedAt = 0;
+    },
+    setStatsOverlay,
+    stats: sceneStats,
+    // Query the pick target at a client point without changing the selection.
+    pickAt(clientX, clientY) {
+      return pickHitAt(clientX, clientY);
+    },
+    getViewState: pcbViewState,
+    setLayerVisible,
+    applyLayerPreset,
+    setShowBoard,
+    setShowComponents,
+    setShowPlaceholders,
+    setRealisticColors,
+    setSeparation,
+    showNetLayers,
   };
 }
 
@@ -694,26 +687,6 @@ function emphasizedNetIds() {
   const ids = new Set(board.highlightedNetIds);
   if (state.activeNetId) ids.add(Number(state.activeNetId));
   return ids;
-}
-
-/**
- * Replace the host's highlighted nets. Resolved by uid then exact name;
- * unresolved references are dropped. Entering or leaving an emphasised view
- * follows the single-net probe's board/component visibility so the copper
- * reads the same way whether one net or several are lit.
- */
-function applyHighlightedNets(refs) {
-  const requested = Array.isArray(refs) ? refs : [];
-  const ids = resolveNetIds(board.scene.nets, requested);
-  const hadEmphasis = anyEmphasis();
-  board.highlightedNetIds = ids;
-  board.renderer?.setEmphasizedNetIds(ids);
-  const hasEmphasis = anyEmphasis();
-  if (hasEmphasis && !hadEmphasis) applyNetProbeVisibility();
-  else if (!hasEmphasis && hadEmphasis) restoreViewVisibilityPrefs();
-  if (state.isolateNet && hasEmphasis) applyNetIsolationLayers();
-  scheduleTileResidency(performance.now(), { force: true });
-  return { applied: ids.size, requested: requested.length };
 }
 
 function applyNetProbeVisibility() {
@@ -1137,7 +1110,7 @@ function neededTileIdsForView(b = board) {
   const deferInner = innerCopperDeferred(b);
   // SB2-87: the view now, where the camera is heading and one step beyond, each with a margin.
   // IN-60: and what open insets show, so their copper loads too.
-  const views = [panel.matrix, ...prefetchViews(), ...(b === board ? activeInsetViews() : [])];
+  const views = [panel.matrix, ...prefetchViews(), ...(b === board ? insetViews.active(performance.now()) : [])];
   let misses = 0;
   for (const tile of b.scene.tiles.values()) {
     if (!visibleLayers.has(Number(tile.layerId))) continue;
@@ -1654,9 +1627,13 @@ export async function mountSystemViewer(options = {}) {
   bindGizmoInteraction();
   statusEl.textContent = "System scene";
   scheduleFrame(token);
+  // The system scene port (AC-30): SystemModeController in viewer-controllers.js drives it.
   return {
+    ...sharedPortMembers(),
+    focusPlacement,
+    selectBoardContext,
+    setEmphasisSets,
     setSystemScene,
-    setNetEmphasis,
     frameNetEmphasis,
     frameAll() {
       if (system?.bounds) camera.frame(system.bounds);
@@ -1691,32 +1668,13 @@ export async function mountSystemViewer(options = {}) {
       return Boolean(item);
     },
     frameParts,
-    setSelection(selection) {
-      suppressSelectionChange = true;
-      try {
-        if (!selection) clearSelection();
-        else selectInSystem(selection);
-      } finally {
-        suppressSelectionChange = false;
-      }
-    },
     resize() {
       system?.scene.resize();
     },
-    setStatsOverlay,
-    stats: sceneStats,
     setLodOverride(lod) {
       for (const b of systemBoards()) b.renderer.setLodOverride(lod);
     },
     setLodThresholds: setSystemLodThresholds,
-    setGpuBudget(bytes) {
-      const value = Number(bytes);
-      state.gpuBudgetBytes = Number.isFinite(value) && value > 0 ? value : DEFAULT_GPU_BUDGET_BYTES;
-      for (const b of system?.boards.values() || []) b.tiersCheckedAt = 0;
-    },
-    pickAt(clientX, clientY) {
-      return pickHitAt(clientX, clientY);
-    },
     pickSurfaceAt,
     focusMoveTarget,
     /** Look along a world axis from its + side (or its − side), framing the scene (SB2-48b's face buttons). */
@@ -1733,16 +1691,6 @@ export async function mountSystemViewer(options = {}) {
       if (!item?.board) return null;
       return projectComponentCenter(item.board, reference, (local) => projectPlacementPoint(local, occurrenceKey));
     },
-    getViewState: pcbViewState,
-    setLayerVisible,
-    applyLayerPreset,
-    setShowBoard,
-    setShowComponents,
-    setShowPlaceholders,
-    setRealisticColors,
-    setSeparation,
-    setNetIsolation,
-    showNetLayers,
     dispose() {
       disposeViewerSession(token);
     },
@@ -2219,24 +2167,21 @@ function selectSystemHit(hit) {
   else selectBoardContext();
 }
 
-/** The host selects in the system: `{ occurrence, featureId | reference | netName | netId }` or the board alone. */
-function selectInSystem(selection) {
-  const item = selection.occurrence != null ? system?.placements.get(String(selection.occurrence)) : null;
-  if (!item) return;
+/**
+ * Select a placement for a host selection (SB2-24): a placed board is focused
+ * at that placement ("board"); a stand-in or catalog model selects as itself
+ * ("stand-in"); null when nothing is placed there.
+ */
+function focusPlacement(occurrence) {
+  const item = occurrence != null ? system?.placements.get(String(occurrence)) : null;
+  if (!item) return null;
   if (item.standIn || item.own) {
     selectStandIn(item);
-    return;
+    return "stand-in";
   }
   focusBoard(item.board);
   state.selectedOccurrence = board.renderer.occurrenceKeys.indexOf(item.occurrence.path);
-  if (selection.netName || selection.netUid) {
-    const match = (selection.netUid && board.scene.nets.find((net) => net.uid === selection.netUid))
-      || (selection.netName && findNetByName(board.scene.nets, selection.netName));
-    if (match) selectNet(Number(match.id), true);
-  } else if (selection.netId) selectNet(Number(selection.netId), true);
-  else if (selection.featureId) selectFeature(Number(selection.featureId), true);
-  else if (selection.reference) selectComponentReference(String(selection.reference), true);
-  else selectBoardContext();
+  return "board";
 }
 
 // A board without geometry (restricted, still building) is selectable as itself.
@@ -2405,31 +2350,11 @@ function systemBoardViews() {
  * many members lit, and those that could not (not drawn, still loading,
  * restricted, or a net the board's 3D model doesn't have).
  */
-function setNetEmphasis(sets) {
-  if (!system) return [];
-  const hadEmphasis = anyEmphasis();
-  system.emphasisSets = (Array.isArray(sets) ? sets : []).map((set, index) => {
-    const mark = packEmphasisColor(set?.color ?? EMPHASIS_PALETTE[index % EMPHASIS_PALETTE.length]);
-    return {
-      key: String(set?.key ?? index),
-      mark,
-      color: `#${(mark & 0xffffff).toString(16).padStart(6, "0")}`,
-      members: (Array.isArray(set?.members) ? set.members : [])
-        .filter((member) => member && typeof member.occurrence === "string" && typeof member.net === "string"),
-      // SB2-34: harness wires the net runs through, `{harness, wire, occurrence?}`.
-      wires: (Array.isArray(set?.wires) ? set.wires : [])
-        .filter((ref) => ref && typeof ref.harness === "string" && typeof ref.wire === "string"),
-    };
-  });
-  const report = applySystemEmphasis();
-  const hasEmphasis = anyEmphasis();
-  if (hasEmphasis && !hadEmphasis) applyNetProbeVisibility();
-  else if (!hasEmphasis && hadEmphasis) {
-    if (state.isolateNet) setNetIsolation(false);
-    restoreViewVisibilityPrefs();
-  }
-  if (state.isolateNet && hasEmphasis) applyNetIsolationLayers();
-  return report;
+/** Light the system net sets (normalised by the controller); returns what each lit, or null without a system. */
+function setEmphasisSets(sets) {
+  if (!system) return null;
+  system.emphasisSets = sets;
+  return applySystemEmphasis();
 }
 
 function applySystemEmphasis() {
@@ -3763,22 +3688,12 @@ let lastFrameInputs = null;
 /** Grow-only offscreen colour and depth targets shared by every inset. */
 const insetGpu = { canvas: null, context: null, depth: null, depthView: null, width: 0, height: 0 };
 /** Matrices of insets drawn recently, so copper they show stays resident. */
-const insetViews = new Map();
-const INSET_VIEW_TTL_MS = 3000;
+const insetViews = new InsetViews(3000);
 /** Hosts told when the main frame redrew (tiles arrived, highlights...). */
 const insetListeners = new Set();
 const insetStats = { frames: 0, cpuMs: 0, gpuMs: 0, lastTriangles: 0 };
 /** Switches for A/B measurements. */
 const insetSettings = { cullTiles: true };
-
-function activeInsetViews(now = performance.now()) {
-  const views = [];
-  for (const [key, entry] of insetViews) {
-    if (now - entry.at > INSET_VIEW_TTL_MS) insetViews.delete(key);
-    else views.push(entry.matrix);
-  }
-  return views;
-}
 
 function ensureInsetTargets(width, height) {
   const renderer = board.renderer;
@@ -3802,13 +3717,6 @@ function ensureInsetTargets(width, height) {
   insetGpu.depthView = insetGpu.depth.createView();
 }
 
-/** The board surface on one side, as a runtime height. */
-function insetSurfaceZ(bottom) {
-  const bounds = board.scene.runtimeBounds;
-  if (!bounds) return 0;
-  return bottom ? bounds[2] : bounds[5];
-}
-
 /**
  * Draw an inset view into `target` (a 2D canvas, sized by CSS). `key` names
  * the inset for tile residency. Returns false when nothing could be drawn.
@@ -3829,7 +3737,7 @@ function renderInsetView(target, view, key = "inset") {
   ensureInsetTargets(width, height);
   const radius = boundsRadius(board.scene.runtimeBounds);
   const matrix = insetMatrix(view, cssWidth, cssHeight, radius, view.focusZ ?? 0);
-  insetViews.set(key, { matrix, at: started });
+  insetViews.record(key, matrix, started);
   const insetPanel = { layerId: 0, viewport: { x: 0, y: 0, width, height }, matrix, lod: lastFrameInputs.panels[0].lod };
   // Only the copper tiles this inset sees: an inset is a small part of the
   // board, so most tiles the main view draws are off its screen.
@@ -3860,94 +3768,6 @@ function renderInsetView(target, view, key = "inset") {
   insetStats.cpuMs += performance.now() - started;
   insetStats.lastTriangles = counted.triangles;
   return true;
-}
-
-/**
- * A component (and optionally one of its pads) as an inset target, in KiCad
- * millimetres: the box to frame, the anchor point, and the side.
- */
-/** sourceUid → feature, and footprint bodies by designator; built once per board. */
-let insetIndex = null;
-
-function insetIndexFor() {
-  if (insetIndex?.scene === board.scene) return insetIndex;
-  const bySource = new Map();
-  const padsByFootprintPin = new Map();
-  for (const feature of board.scene.features.values()) {
-    if (feature.sourceUid) bySource.set(String(feature.sourceUid), feature);
-    if (feature.kind !== "pad") continue;
-    // "<footprint lib:name>:pad:<index>:<number>" when the pad carries no designator.
-    const match = /^(.*):pad:\d+:(.+)$/.exec(String(feature.sourceUid || ""));
-    if (!match) continue;
-    const key = `${match[1]}\u0000${match[2]}`;
-    if (!padsByFootprintPin.has(key)) padsByFootprintPin.set(key, []);
-    padsByFootprintPin.get(key).push(feature);
-  }
-  const bodies = new Map();
-  for (const item of board.topology?.physical_objects || []) {
-    if (item.kind === "footprint_body" && item.designator && item.bbox_mm?.length === 4) bodies.set(item.designator, item);
-  }
-  const objects = new Map((board.topology?.physical_objects || []).map((item) => [item.uid, item]));
-  insetIndex = { scene: board.scene, bySource, padsByFootprintPin, bodies, objects };
-  return insetIndex;
-}
-
-/** A KiCad-mm box {x,y,w,h} from [x0,y0,x1,y1]. */
-const boxFromMm = ([x0, y0, x1, y1]) => ({ x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) });
-const boxCentre = (box) => [box.x + box.w / 2, box.y + box.h / 2];
-
-/**
- * A component (and optionally one of its pads) as an inset target, in KiCad
- * millimetres: the box to frame, the anchor point, and the side. Pads come
- * from the topology (terminal → PCB pad → feature); bundles without pad ids
- * fall back to the footprint's pad of that number nearest the part.
- */
-function insetTargetFor(reference, pin) {
-  const ref = String(reference);
-  const component = board.scene.componentFeatures.get(ref);
-  if (!component) return null;
-  const index = insetIndexFor();
-  const feature = board.scene.features.get(Number(component.featureId));
-  const body = index.bodies.get(ref);
-  let focus = feature?.bounds ? runtimeBoundsToMm(feature.bounds).box : body ? boxFromMm(body.bbox_mm.map(Number)) : null;
-  let bottom = feature?.bounds ? runtimeBoundsToMm(feature.bounds).bottom : String(body?.layer || "").startsWith("B.");
-  let pad = null;
-  if (pin != null && pin !== "") {
-    const terminal = (board.topology?.terminals || []).find((t) => t.designator === ref && String(t.pin) === String(pin));
-    const object = terminal?.pcb_pad_id ? index.objects.get(terminal.pcb_pad_id) : null;
-    pad = object?.source_ids?.[0] ? index.bySource.get(String(object.source_ids[0])) || null : null;
-    if (!pad) {
-      const candidates = index.padsByFootprintPin.get(`${component.footprint}\u0000${pin}`) || [];
-      const near = focus ? boxCentre(focus) : null;
-      let best = Infinity;
-      for (const candidate of candidates) {
-        const c = boxCentre(runtimeBoundsToMm(candidate.bounds).box);
-        const d = near ? Math.hypot(c[0] - near[0], c[1] - near[1]) : 0;
-        if (d < best) [best, pad] = [d, candidate];
-      }
-    }
-  }
-  const padBox = pad?.bounds ? runtimeBoundsToMm(pad.bounds).box : null;
-  if (!focus && padBox) {
-    focus = padBox;
-    bottom = runtimeBoundsToMm(pad.bounds).bottom;
-  }
-  if (!focus) return null;
-  return {
-    reference: ref,
-    pin: pad ? String(pin) : null,
-    focus,
-    anchor: boxCentre(padBox || focus),
-    anchorBox: padBox,
-    bottom,
-    surfaceZ: insetSurfaceZ(bottom),
-  };
-}
-
-function projectInsetPoint(view, width, height, pointMm) {
-  const radius = boundsRadius(board.scene.runtimeBounds);
-  const matrix = insetMatrix(view, width, height, radius, view.focusZ ?? 0);
-  return projectInset(matrix, width, height, mmToRuntime(pointMm[0], pointMm[1], view.focusZ ?? 0));
 }
 
 function frameNeedsRender(now, inputs) {
