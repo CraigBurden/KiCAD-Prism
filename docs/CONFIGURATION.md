@@ -8,6 +8,16 @@ Prism has two Compose entry points:
 In both cases, start from the adjacent `.env.example`. Keep deployed values in a
 secret store or host-local file and never commit them.
 
+Both Compose files pass every variable in that file to the backend and worker
+containers; a setting does not need its own line in the Compose file. The file
+is `.env` unless `PRISM_ENV_FILE` names another one. `--env-file` on its own
+only fills the `${...}` placeholders in the Compose file, so when the
+environment file is not `.env`, set both:
+
+```bash
+PRISM_ENV_FILE=prod.env docker compose --env-file prod.env -f docker-compose.yml up -d
+```
+
 Release bundles contain exact `PRISM_BACKEND_IMAGE` and
 `PRISM_FRONTEND_IMAGE` digests. Preserve those values when configuring a release.
 Source builds use Docker build arguments instead.

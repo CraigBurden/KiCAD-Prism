@@ -190,6 +190,9 @@ def env_values(answers: dict) -> dict[str, str]:
         "CORS_ORIGINS_STR": answers["cors_origins"],
         "POSTGRES_PASSWORD": answers["postgres_password"],
         "PRISM_HTTP_PORT": answers["http_port"],
+        # docker-compose.yml forwards this file to the containers; --env-file
+        # alone only fills its placeholders.
+        "PRISM_ENV_FILE": "generated/.env",
     }
     if not answers.get("auth_enabled", True):
         # Every request is served as this role. viewer keeps an open evaluation

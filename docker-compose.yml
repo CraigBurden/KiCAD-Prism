@@ -46,6 +46,13 @@ services:
       # Release Studio signing key. Read-only, and mounted only into the API:
       # the private key must never reach the worker or the database.
       - ./data/secrets:/run/secrets/prism:ro
+    # Every variable in the deployment env file reaches the container, as in
+    # deploy/release/compose.yml. --env-file alone only fills the ${...}
+    # placeholders below; set PRISM_ENV_FILE when that file is not ./.env.
+    # Entries under environment: take precedence over the file.
+    env_file:
+      - path: ${PRISM_ENV_FILE:-.env}
+        required: false
     environment:
       - PYTHONUNBUFFERED=1
       # Root directory for storing projects
@@ -104,8 +111,7 @@ services:
       # GitHub Token for private repository access and Release publishing (optional)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GITLAB_TOKEN=${GITLAB_TOKEN:-}
-      # Custom token_name variables in PRISM_FORGE_HOSTS need a local env_file
-      # override; see docs/FORGE_HOSTS.md.
+      # Custom token_name variables in PRISM_FORGE_HOSTS arrive through env_file.
       - PRISM_FORGE_HOSTS=${PRISM_FORGE_HOSTS:-}
       - PRISM_DATABASE_URL=${PRISM_DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-kicad-prism-local}@postgres:5432/${POSTGRES_DB:-kicad_prism}}
       - PRISM_DATABASE_POOL_MIN_SIZE=${PRISM_DATABASE_POOL_MIN_SIZE:-1}
@@ -176,6 +182,13 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 10
+    # Every variable in the deployment env file reaches the container, as in
+    # deploy/release/compose.yml. --env-file alone only fills the ${...}
+    # placeholders below; set PRISM_ENV_FILE when that file is not ./.env.
+    # Entries under environment: take precedence over the file.
+    env_file:
+      - path: ${PRISM_ENV_FILE:-.env}
+        required: false
     environment:
       - PYTHONUNBUFFERED=1
       - KICAD_PROJECTS_ROOT=/app/projects
@@ -241,6 +254,13 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 10
+    # Every variable in the deployment env file reaches the container, as in
+    # deploy/release/compose.yml. --env-file alone only fills the ${...}
+    # placeholders below; set PRISM_ENV_FILE when that file is not ./.env.
+    # Entries under environment: take precedence over the file.
+    env_file:
+      - path: ${PRISM_ENV_FILE:-.env}
+        required: false
     environment:
       - PYTHONUNBUFFERED=1
       - KICAD_PROJECTS_ROOT=/app/projects
