@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 KIND_MODULES = (
     "app.services.design_compare_service",
     "app.services.release_studio_build_service",
+    "app.services.release_studio_config_service",
     "app.services.project_import_service",
     "app.services.project_service",
     "app.services.catalog_worker_tasks",

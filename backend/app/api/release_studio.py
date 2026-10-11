@@ -31,6 +31,7 @@ from app.core.security import (
 )
 from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
+from app.services import release_studio_config_service as config_service
 from app.services import release_studio_service as store
 from app.services.job_kinds import JobSubject
 from app.services.release_studio_build_service import RELEASE_BUILD
@@ -672,7 +673,7 @@ def _build_or_404(project_id: str, build_id: str) -> dict[str, Any]:
 
 def _candidate_configuration(project_id: str, candidate: dict[str, Any]) -> dict[str, Any]:
     with caller_errors((build_service.BuildError, 409)):
-        return build_service.configuration_for_candidate(project_id, candidate)
+        return config_service.configuration_for_candidate(project_id, candidate)
 
 
 def _bound_release_identity(
