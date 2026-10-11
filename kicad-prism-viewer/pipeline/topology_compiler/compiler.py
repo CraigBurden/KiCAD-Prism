@@ -16,6 +16,7 @@ from .models import (
     Topology,
     stable_id,
 )
+from .stackup_frame import centred_layer_z
 
 
 METADATA_PATTERN = re.compile(
@@ -109,25 +110,17 @@ def _layers_from_pcb_metadata(metadata: dict[str, Any] | None) -> list[Layer]:
     has_physical_stackup = any("stack_index" in raw for raw in stack_layers) and not all(
         bool(raw.get("synthetic_stackup")) for raw in stack_layers
     )
-    physical_layers = (
-        stack_layers
+    physical_z = (
+        centred_layer_z(float(raw.get("thickness_mm") or 0.0) for raw in stack_layers)
         if has_physical_stackup
-        else [raw for raw in stack_layers if str(raw.get("role") or "") == "copper"]
+        else []
     )
-    physical_thickness = sum(float(raw.get("thickness_mm") or 0.0) for raw in physical_layers)
-    if not has_physical_stackup:
-        physical_thickness = board_thickness + sum(
-            float(raw.get("thickness_mm") or 0.0) for raw in physical_layers
-        )
-    cursor = physical_thickness / 2.0
     for index, raw in enumerate(stack_layers):
         thickness = float(raw.get("thickness_mm") or 0.0)
         name = str(raw.get("name") or raw.get("display_name") or f"layer_{index}")
         role = str(raw.get("role") or raw.get("type") or "unknown")
         if has_physical_stackup:
-            cursor -= thickness / 2.0
-            z_mm = cursor
-            cursor -= thickness / 2.0
+            z_mm = physical_z[index]
         elif role == "copper" and name == "F.Cu":
             z_mm = board_thickness / 2.0 + thickness / 2.0
         elif role == "copper" and name == "B.Cu":

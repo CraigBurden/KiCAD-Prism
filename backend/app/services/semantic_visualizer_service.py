@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, Mapping, Optional
 from app.core.config import settings
 from app.services import path_config_service
 from app.services.job_service import jobs
-from app.services.semantic_viewer_runtime import find_viewer_repo_root, pythonpath as semantic_viewer_pythonpath, update_native_geometry_fingerprint
+from app.services.semantic_viewer_runtime import find_viewer_repo_root, generator_inputs, pythonpath as semantic_viewer_pythonpath, update_native_geometry_fingerprint
 
 SCHEMA = "prism.visualizer_bundle.a0"
 GENERATOR_NAME = "kicad-prism-webgpu-3d"
@@ -28,32 +28,13 @@ def _compute_build_fingerprint() -> str:
     try:
         from app.services.semantic_viewer_runtime import find_viewer_repo_root
         viewer_root = find_viewer_repo_root()
-        compiler_modules = (
-            "__main__", "compiler", "context", "copper_geometry", "pcb_extract",
-            # Every pad and track outline is built here, so a change to it has
-            # to invalidate cached bundles the same way pcb_extract does.
-            "pcb_geometry", "semantic_gltf", "kicad_cli_export", "exporter", "soldermask",
-        )
-        inputs = [
-            *(f"pipeline/topology_compiler/{name}.py" for name in compiler_modules),
-            # Builds the copper tile and solder mask meshes.
-            "tools/semantic-gltf/build.mjs",
-            "package.json",
-            "package-lock.json",
-            "requirements-runtime.txt",
-            "pyproject.toml",
-            "viewer/app.js",
-            "viewer/styles.css",
-            "viewer/viewer.template.html",
-        ]
         hasher = hashlib.sha256()
         hasher.update(base.encode("utf-8"))
         update_native_geometry_fingerprint(hasher)
         hasher.update(settings.PRISM_KICAD_MONKEY_SOURCE.encode("utf-8"))
-        for rel_path in inputs:
-            path = viewer_root / rel_path
-            if path.is_file():
-                hasher.update(path.read_bytes())
+        for path in generator_inputs(viewer_root):
+            hasher.update(path.relative_to(viewer_root).as_posix().encode("utf-8"))
+            hasher.update(path.read_bytes())
         monkey_spec = importlib.util.find_spec("kicad_monkey")
         if monkey_spec and monkey_spec.origin:
             copper_module = Path(monkey_spec.origin).parent / "kicad_copper_geometry.py"

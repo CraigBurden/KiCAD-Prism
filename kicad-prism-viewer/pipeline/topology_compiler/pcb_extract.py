@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from .models import stable_id
+from .board_metadata import BoardFacts, board_metadata
+from .stackup_frame import normalize_physical_role as _normalize_physical_role
+from .stackup_frame import role_for_layer as _role_for_layer
 
 
 LAYER_COLORS = {
@@ -204,26 +207,6 @@ def _component_uid(designator: str) -> str:
     return stable_id("cmp", designator) if designator else ""
 
 
-def _role_for_layer(name: str, raw_type: str = "") -> str:
-    if name == "Board":
-        return "dielectric"
-    if name == "Edge.Cuts":
-        return "outline"
-    if name.endswith(".Cu"):
-        return "copper"
-    if name.endswith(".Mask"):
-        return "soldermask"
-    if name.endswith(".Paste"):
-        return "paste"
-    if name.endswith(".SilkS"):
-        return "silkscreen"
-    if name.endswith(".Fab"):
-        return "fabrication"
-    if raw_type:
-        return raw_type
-    return "drawing"
-
-
 def _layer_material(role: str) -> str:
     if role == "dielectric":
         return "FR4"
@@ -367,15 +350,6 @@ def _stackup_role(raw: Any) -> str:
     item_type = get_item_type() if callable(get_item_type) else ""
     role = _value(getattr(item_type, "value", item_type)).lower()
     return _normalize_physical_role(role or _role_for_layer(name, _value(getattr(raw, "type_name", ""))))
-
-
-def _normalize_physical_role(role: str) -> str:
-    normalized = _value(role).lower()
-    if normalized == "solderpaste":
-        return "paste"
-    if normalized in {"core", "prepreg"}:
-        return "dielectric"
-    return normalized
 
 
 def _normalize_stackup_layers(raw_layers: list[dict[str, Any]], allowed_roles: set[str]) -> list[dict[str, Any]]:
@@ -965,44 +939,15 @@ def _pcb_metadata_common(
     stats: dict[str, int] | None = None,
     profile_callback=None,
 ) -> dict[str, Any]:
+    """The KiCadPcb adapter: board facts from a parsed board (and its IR)."""
+
     pcb_file = project_file.with_suffix(".kicad_pcb")
     layers = _profile_timed(profile_callback, "declared_layers", lambda: _declared_layers(pcb, pcb_file))
     stackup = getattr(pcb, "stackup", None)
-    file_stackup_metadata = _profile_timed(
-        profile_callback,
-        "stackup_metadata_from_file",
-        lambda: _stackup_metadata_from_pcb_file(pcb_file),
-    )
     computed_thickness = float(getattr(pcb, "thickness", 1.6) or 1.6)
     get_board_thickness = getattr(stackup, "get_board_thickness", None)
     if callable(get_board_thickness):
         computed_thickness = float(get_board_thickness() or computed_thickness)
-    project_file_pro = project_file.with_suffix(".kicad_pro")
-    net_classes_list = []
-    if project_file_pro.is_file():
-        net_classes_started = time.perf_counter()
-        try:
-            from kicad_monkey.kicad_project import KiCadProject
-            proj = KiCadProject.from_file(project_file_pro)
-            if proj.net_settings and proj.net_settings.classes:
-                for nc in proj.net_settings.classes:
-                    net_classes_list.append({
-                        "name": nc.name,
-                        "track_width": nc.track_width,
-                        "clearance": nc.clearance,
-                        "diff_pair_gap": nc.diff_pair_gap,
-                        "diff_pair_width": nc.diff_pair_width,
-                        "via_diameter": nc.via_diameter,
-                        "via_drill": nc.via_drill,
-                    })
-        except Exception:
-            pass
-        _profile_emit(
-            profile_callback,
-            "project_net_classes",
-            (time.perf_counter() - net_classes_started) * 1000.0,
-            net_classes=len(net_classes_list),
-        )
 
     if board_bbox is None:
         board_bbox = _profile_timed(profile_callback, "board_bbox", lambda: _board_bbox(pcb))
@@ -1025,45 +970,26 @@ def _pcb_metadata_common(
             "zones": collection_count("zones"),
             "physical_objects": len(physical_objects),
         }
-    else:
-        stats = {**stats, "layers": len(layers), "physical_objects": len(physical_objects)}
     _profile_emit(profile_callback, "stats", (time.perf_counter() - stats_started) * 1000.0, **stats)
 
-    return {
-        "source": str(pcb_file),
-        "board": {
-            "bbox_mm": board_bbox,
-            "thickness_mm": computed_thickness,
-            "aux_axis_origin_mm": [0.0, 0.0],
-            "stackup": {
-                "present": True,
-                "layers": layers,
-                "computed_thickness_mm": computed_thickness,
-                "copper_finish": _clean_enum_text(getattr(stackup, "copper_finish", ""))
-                or file_stackup_metadata.get("copper_finish", "None"),
-                "edge_connector": _first_boolish(
-                    getattr(stackup, "edge_connector", None),
-                    file_stackup_metadata.get("edge_connector"),
-                    default=False,
-                ),
-                "castellated_pads": _first_boolish(
-                    getattr(stackup, "castellated_pads", None),
-                    file_stackup_metadata.get("castellated_pads"),
-                    default=False,
-                ),
-                "edge_plating": _first_boolish(
-                    getattr(stackup, "edge_plating", None),
-                    file_stackup_metadata.get("edge_plating"),
-                    default=False,
-                ),
-            },
-            "net_classes": net_classes_list,
-        },
-        "physical_objects": physical_objects,
-        "terminal_pad_links": terminal_pad_links,
-        "components": components,
-        "stats": stats,
-    }
+    return board_metadata(
+        BoardFacts(
+            layers=layers,
+            bbox_mm=board_bbox,
+            thickness_mm=computed_thickness,
+            components=components,
+            terminal_pad_links=terminal_pad_links,
+            stats=stats,
+            mode="",
+            copper_finish=getattr(stackup, "copper_finish", None),
+            edge_connector=getattr(stackup, "edge_connector", None),
+            castellated_pads=getattr(stackup, "castellated_pads", None),
+            edge_plating=getattr(stackup, "edge_plating", None),
+            physical_objects=physical_objects,
+        ),
+        project_file,
+        profile_callback=profile_callback,
+    )
 
 
 def _profile_emit(callback, key: str, elapsed_ms: float | None = None, **values: Any) -> None:

@@ -14,6 +14,15 @@ import earcut, { flatten as flattenRings } from "earcut";
 import { MeshoptEncoder } from "meshoptimizer";
 import polygonClipping from "polygon-clipping";
 
+import {
+  addTiles,
+  manifestFromMeshPack,
+  manifestFromSemanticInput,
+  meshPackNetRemap,
+  meshPackTileSurfaceSign,
+  validateSceneManifest,
+} from "./scene-manifest.mjs";
+
 const CLIPPER_RESPONSE_SCHEMA = "prism.semantic_clipper_response_a1";
 const CLIPPER_PROTOCOL_VERSION = 1;
 const CLIPPER_DECIMAL_PLACES = 6;
@@ -80,18 +89,8 @@ async function runMain() {
   const tiles = clipResult.tiles;
 
   await fs.mkdir(outputDir, { recursive: true });
-  const manifest = {
-    schema: "prism.semantic_gltf_a0",
-    version: 0,
-    tileSizeMm: tileSize,
-    geometryRevision: input.geometryRevision,
-    coordinateSystem: input.coordinateSystem,
-    layers: input.layers || [],
-    nets: input.nets || [],
-    objectFeatures: input.objectFeatures || [],
-    components: input.components || [],
-    barrels: input.barrels || [],
-    geometryCompiler: input.geometryCompiler || null,
+  const manifest = manifestFromSemanticInput(input, {
+    tileSize,
     clipper: {
       protocolVersion: CLIPPER_PROTOCOL_VERSION,
       requested: clipperMode,
@@ -99,18 +98,8 @@ async function runMain() {
       native: clipResult.native || null,
       stats: clipResult.stats,
     },
-    copperLayerIds: (input.layers || [])
-      .filter((layer) => layer.role === "copper" || String(layer.name || "").endsWith(".Cu"))
-      .map((layer) => Number(layer.id)),
     bbox: sceneBounds(input.objects || [], input.barrels || []),
-    tiles: [],
-    netToTiles: {},
-    analysis: {
-      featureKey: "objectFeatureId",
-      netKey: "netId",
-      resultBinding: "geometryRevision + objectFeatureId",
-    },
-  };
+  });
 
   const sortedTiles = [...tiles.values()].sort(compareTiles);
   const workerCount = workerCountFor(sortedTiles.length);
@@ -124,15 +113,8 @@ async function runMain() {
     progress,
   });
 
-  for (const result of tileResults) {
-    if (!result?.tile) continue;
-    manifest.tiles.push(result.tile);
-    for (const netId of result.tile.netIds) {
-      if (!netId) continue;
-      (manifest.netToTiles[String(netId)] ||= []).push(result.tile.id);
-    }
-  }
-
+  addTiles(manifest, tileResults.filter((result) => result?.tile).map((result) => result.tile));
+  validateSceneManifest(manifest);
   await fs.writeFile(
     path.join(outputDir, "scene.manifest.json"),
     JSON.stringify(manifest),
@@ -162,64 +144,19 @@ async function runPackedMain(input, inputPath, outputDir, metrics) {
   const startedAt = performance.now();
   const progress = createProgress(startedAt);
   const packRoot = path.dirname(inputPath);
-  // Centred stackup z per layer; the native pack serialises it as zMm.
-  const layerZById = new Map((input.layers || []).map((layer) => [Number(layer.id), layer.zMm ?? layer.z_mm]));
+  const netRemap = meshPackNetRemap(input);
   const tiles = (input.tiles || []).map((tile) => ({
     ...tile,
     packedPath: path.resolve(packRoot, String(tile.path || "")),
-    // Layers below the board centre are drawn by their bottom face.
-    surfaceSign: Number(layerZById.get(Number(tile.layerId)) ?? 0) < 0 ? -1 : 1,
+    surfaceSign: meshPackTileSurfaceSign(input, tile),
+    netRemap,
   }));
   progress(
     `packed input tiles=${tiles.length} features=${(input.objectFeatures || []).length - 1} ` +
     `tileSizeMm=${tileSize} meshopt=${meshoptLevel}`,
   );
   await fs.mkdir(outputDir, { recursive: true });
-  const manifest = {
-    schema: "prism.semantic_gltf_a0",
-    version: 0,
-    tileSizeMm: tileSize,
-    geometryRevision: input.geometryRevision,
-    coordinateSystem: input.coordinateSystem,
-    layers: input.layers || [],
-    nets: input.nets || [],
-    objectFeatures: input.objectFeatures || [],
-    components: [],
-    barrels: input.barrels || [],
-    geometryCompiler: {
-      compilerVersion: "prism-native-semantic-pack-v1",
-      sourceGeometryRevision: input.sourceGeometryRevision,
-      analyticContractRevision: input.analyticContractRevision,
-      kicadMonkeyRevision: input.kicadMonkeyRevision,
-      meshoptLevel,
-    },
-    clipper: {
-      protocolVersion: 1,
-      requested: "native-packed",
-      backend: "native-analytic",
-      native: null,
-      stats: {
-        direct_operations: Number(input.metrics?.directOperations || 0),
-        native_boolean_jobs: Number(input.metrics?.geometerOperations || 0),
-      },
-    },
-    nativeMeshPack: {
-      schema: input.schema,
-      sourceDigest: input.sourceDigest,
-      metrics: input.metrics || {},
-    },
-    copperLayerIds: (input.layers || [])
-      .filter((layer) => layer.role === "copper" || String(layer.name || "").endsWith(".Cu"))
-      .map((layer) => Number(layer.id)),
-    bbox: input.bbox,
-    tiles: [],
-    netToTiles: {},
-    analysis: {
-      featureKey: "objectFeatureId",
-      netKey: "netId",
-      resultBinding: "geometryRevision + objectFeatureId",
-    },
-  };
+  const manifest = manifestFromMeshPack(input, { tileSize, meshoptLevel });
   const workerCount = workerCountFor(tiles.length);
   progress(`packed tile workers=${workerCount} tiles=${tiles.length}`);
   const tileResults = await buildTilesWithWorkers(tiles, {
@@ -230,14 +167,8 @@ async function runPackedMain(input, inputPath, outputDir, metrics) {
     metrics,
     progress,
   });
-  for (const result of tileResults) {
-    if (!result?.tile) continue;
-    manifest.tiles.push(result.tile);
-    for (const netId of result.tile.netIds) {
-      if (!netId) continue;
-      (manifest.netToTiles[String(netId)] ||= []).push(result.tile.id);
-    }
-  }
+  addTiles(manifest, tileResults.filter((result) => result?.tile).map((result) => result.tile));
+  validateSceneManifest(manifest);
   await fs.writeFile(path.join(outputDir, "scene.manifest.json"), JSON.stringify(manifest));
   metrics.total_ms = elapsedMs(startedAt);
   metrics.geometry_stats.tile_count = manifest.tiles.length;
@@ -441,7 +372,7 @@ async function buildTileFile(tile, options) {
   let geometry;
   if (tile.packedPath) {
     const readStart = performance.now();
-    geometry = await readPackedTileGeometry(tile.packedPath, tile.surfaceSign === -1 ? -1 : 1);
+    geometry = await readPackedTileGeometry(tile.packedPath, tile.surfaceSign === -1 ? -1 : 1, tile.netRemap);
     metrics.packed_read_ms = elapsedMs(readStart);
   } else {
     const earcutStart = performance.now();
@@ -520,7 +451,7 @@ function createMetrics() {
   };
 }
 
-async function readPackedTileGeometry(filePath, normalY = 1) {
+async function readPackedTileGeometry(filePath, normalY = 1, netRemap = {}) {
   const source = await fs.readFile(filePath);
   const bytes = source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
   const view = new DataView(bytes);
@@ -559,7 +490,9 @@ async function readPackedTileGeometry(filePath, normalY = 1) {
   return {
     positions,
     normals,
-    netIds: Float32Array.from(sourceNetIds),
+    netIds: Object.keys(netRemap).length
+      ? Float32Array.from(sourceNetIds, (id) => netRemap[id] ?? id)
+      : Float32Array.from(sourceNetIds),
     objectFeatureIds: Float32Array.from(sourceFeatureIds),
     indices,
   };

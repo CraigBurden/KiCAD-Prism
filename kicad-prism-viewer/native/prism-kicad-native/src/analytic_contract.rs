@@ -216,6 +216,17 @@ pub struct Drill {
     pub pad_number: Option<String>,
 }
 
+/// A footprint placement, padless footprints included: board metadata lists
+/// every component, not only those with copper.
+#[derive(Clone, Debug, Serialize)]
+pub struct Footprint {
+    pub source_uid: String,
+    pub reference: String,
+    pub layer: String,
+    pub position_nm: NmPoint,
+    pub angle_deg: f64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Diagnostic {
     pub severity: &'static str,
@@ -248,6 +259,7 @@ pub struct Document {
     pub bounds_nm: Option<[i64; 4]>,
     pub layers: Vec<Layer>,
     pub nets: Vec<Net>,
+    pub footprints: Vec<Footprint>,
     pub operations: Vec<Operation>,
     pub drills: Vec<Drill>,
     pub diagnostics: Vec<Diagnostic>,

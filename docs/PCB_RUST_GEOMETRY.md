@@ -80,6 +80,27 @@ attached through clipping and tile boundaries, feeding selection and net
 highlighting without semantic rebinding. The v1 polygon schema remains only as
 a compatibility interface for legacy tooling.
 
+## Where the lanes meet
+
+Both lanes end in the same scene, so the rules they share are written once:
+
+- **Scene manifest.** `kicad-prism-viewer/tools/semantic-gltf/scene-manifest.mjs`
+  builds `scene.manifest.json` from either producer (the Python semantic input
+  or `prism.semantic_mesh_pack.v1`) and checks it against
+  `scene-manifest.schema.json` before writing it. It adapts the mesh pack's
+  layer field names to the ones the viewer reads and applies the pack's
+  `netMerges`.
+- **Stackup frame.** Layer z, the shift into KiCad's board frame, the drawn
+  face and stackup roles live in `pipeline/topology_compiler/stackup_frame.py`
+  and `native/prism-kicad-native/src/stackup_frame.rs`. Both are tested
+  against `native/prism-kicad-native/src/testdata/stackup-frame.json`
+  (`PRISM_UPDATE_GOLDEN=1 cargo test` regenerates it).
+- **Board metadata.** `pipeline/topology_compiler/board_metadata.py` turns
+  each backend's board facts into `pcb_metadata`. The mesh pack carries
+  footprint placements for it; `tests/test_board_metadata.py` checks the
+  adapters agree, and also runs the real helper when `PRISM_KICAD_NATIVE_PATH`
+  is set.
+
 ## Build and operation
 
 Docker uses a reproducible Rust builder stage and requires formatting, release
