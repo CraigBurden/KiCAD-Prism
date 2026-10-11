@@ -13,8 +13,10 @@ metadata:
 
 Requiredness of a built-in field comes from its descriptor (built-in
 requirements cannot be edited); a custom field carries its own flag. The
-server enforces a custom field's flag on the single-component PATCH and on
-import acceptance (:func:`custom_field_errors`, :func:`custom_import_problems`);
+server enforces a custom field's flag on manual create, the single-component
+PATCH, import acceptance and the bulk import scripts
+(:func:`missing_custom_fields`, :func:`custom_field_errors`,
+:func:`custom_import_problems`);
 built-in fields are enforced by ``normalize_metadata`` and the rules above. A
 provisional part has no manufacturer part number by definition, so ``mpn`` is
 not required for it in any context.

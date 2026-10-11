@@ -124,6 +124,14 @@ class CatalogLibraryImportWriter:
         """The component (active or retired) holding ``metadata``'s identity, under the identity lock."""
         return self._component_writer.identity_holder(conn, **_identity(metadata))
 
+    def missing_custom_fields(self, conn: Any, metadata: dict[str, Any]) -> list[str]:
+        """Labels of the custom required fields normalized ``metadata`` leaves blank.
+
+        The same check as the component writer's create and PATCH and as import
+        acceptance; the CLIs skip such a row and list it under ``skipped_missing_fields``.
+        """
+        return self._component_writer.missing_custom_fields(conn, metadata)
+
     # -- assets --------------------------------------------------------------
 
     def register_asset(
