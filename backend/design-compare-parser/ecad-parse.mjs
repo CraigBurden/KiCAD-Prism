@@ -20,7 +20,7 @@
  * groups by net and needs a position for tracks too.
  *
  * Usage:
- *   node scripts/ecad-parse.mjs <snapshot-dir> [--out FILE] [--summary-only]
+ *   node backend/design-compare-parser/ecad-parse.mjs <snapshot-dir> [--out FILE] [--summary-only]
  */
 
 import { createHash } from "node:crypto";

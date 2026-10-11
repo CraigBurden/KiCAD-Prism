@@ -134,7 +134,9 @@ designator identity) and the BOM rows built from them;
 revisions; `design_compare_semantics.py` diffs nets, buses and sheet
 instances (grouping into review items is the frontend's);
 `design_compare_artifacts.py` persists output; `design_compare_sources.py`
-resolves revisions. The correctness rules
+resolves revisions. The object index and delta come from the Node package
+`backend/design-compare-parser/` (`ecad-parse.mjs`, `ecad-diff.mjs`, the
+vendored parser; `npm test` there). The correctness rules
 for this pipeline are in
 `frontend/src/components/design-comparison/AGENTS.md`, because most of the ways
 to get it wrong are visible on the frontend side.

@@ -243,7 +243,8 @@ Do not load minified bundles into context or edit them by hand when source is
 available.
 
 - `frontend/public/ecad-viewer.js`, `frontend/public/parser.worker.js`, and the
-  parser under `scripts/vendor/` come from the sibling `ecad-viewer` checkout.
+  parser under `backend/design-compare-parser/vendor/` come from the sibling
+  `ecad-viewer` checkout.
   Use `.agents/skills/prism-viewer-rebuild/SKILL.md`.
 - `kicad-prism-viewer/` is Prism's semantic viewer source. Its build writes
   `kicad-prism-viewer/dist/prism-semantic-viewer.js` and synchronizes the served

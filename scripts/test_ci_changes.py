@@ -42,6 +42,12 @@ class CiChangesTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(jobs(path), set(JOBS))
 
+    def test_the_design_compare_parser_runs_its_own_job_and_the_backend(self) -> None:
+        self.assertEqual(jobs("backend/design-compare-parser/ecad-diff.mjs"),
+                         {"design_compare", "backend", "image_live"})
+        self.assertIn("design_compare", jobs("backend/design-compare-parser/vendor/kicad-sexpr-parser.mjs"))
+        self.assertIn("design_compare", jobs("scripts/compare_object_delta.py"))
+
     def test_the_agent_runs_alone_for_its_own_code(self) -> None:
         self.assertEqual(jobs("tools/prism_agent/tray.py"), {"agent"})
 

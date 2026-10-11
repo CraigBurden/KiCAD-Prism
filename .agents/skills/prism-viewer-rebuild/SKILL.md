@@ -38,8 +38,10 @@ This updates:
 
 This updates:
 
-- `scripts/vendor/kicad-sexpr-parser.mjs`; and
-- `scripts/vendor/kicad-sexpr-parser.provenance.json`.
+- `backend/design-compare-parser/vendor/kicad-sexpr-parser.mjs`; and
+- `backend/design-compare-parser/vendor/kicad-sexpr-parser.provenance.json`.
+
+Then run the parser package tests: `npm test` in `backend/design-compare-parser`.
 
 Run both scripts when parser sources change because the browser viewer bundles
 its own parser copy. A viewer-only source change needs only the viewer build.

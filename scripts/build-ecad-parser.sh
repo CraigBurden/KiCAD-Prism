@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Vendor ecad-viewer's kicad-sexpr-parser as a self-contained ESM bundle.
 #
-# `scripts/ecad-parse.mjs` runs on the Node already present in the backend and
+# `backend/design-compare-parser/ecad-parse.mjs` runs on the Node already present in the backend and
 # worker images, which have no npm install step and no node_modules. The
 # parser bundles to ~100 KB with no external imports, so the whole dependency
 # is one committed file -- but a committed build artifact is only honest if it
@@ -14,7 +14,7 @@ set -euo pipefail
 PRISM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ECAD_VIEWER_DIR="${ECAD_VIEWER_DIR:-${PRISM_ROOT}/../ecad-viewer}"
 PARSER_DIR="${ECAD_VIEWER_DIR}/packages/kicad-parser"
-VENDOR_DIR="${PRISM_ROOT}/scripts/vendor"
+VENDOR_DIR="${PRISM_ROOT}/backend/design-compare-parser/vendor"
 ARTIFACT="${VENDOR_DIR}/kicad-sexpr-parser.mjs"
 UPSTREAM_COMMIT="$(tr -d '[:space:]' < "${PRISM_ROOT}/scripts/ecad-viewer-upstream.lock")"
 

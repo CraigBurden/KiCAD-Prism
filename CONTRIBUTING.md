@@ -110,6 +110,18 @@ npm run test:viewer
 npm run build
 ```
 
+### Design compare parser
+
+The object index and object delta the design comparison runs on Node
+(`backend/design-compare-parser/`, no dependencies):
+
+```bash
+cd backend/design-compare-parser
+npm test
+cd ../..
+python3 -m unittest scripts.test_compare_object_delta
+```
+
 ### Compose configuration
 
 ```bash

@@ -8,7 +8,7 @@ disagreement is an improvement rather than a regression.
 Both sides are produced from the same cold build, in one command, so the
 comparison cannot drift: this script builds base and head through
 ``design_compare_service`` exactly as the worker does, runs
-``scripts/ecad-diff.mjs`` over the snapshots that build produced, and aligns
+``backend/design-compare-parser/ecad-diff.mjs`` over the snapshots that build produced, and aligns
 the two change sets on the native KiCad UUID -- the only identity both sides
 carry.
 
@@ -419,7 +419,7 @@ def main() -> None:
         subprocess.run(
             [
                 "node",
-                str(REPOSITORY_ROOT / "scripts" / "ecad-diff.mjs"),
+                str(REPOSITORY_ROOT / "backend" / "design-compare-parser" / "ecad-diff.mjs"),
                 str(snapshots[base]),
                 str(snapshots[head]),
                 "--out",
