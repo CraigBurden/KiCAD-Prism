@@ -16,7 +16,7 @@ KLC_VALIDATION_DIRNAME = "klc"
 
 # The asset browser reuses one sorted directory walk per asset type for this
 # long, so repeated dialog opens do not rescan the whole store.
-_ASSET_BROWSE_CACHE_TTL_SECONDS = 30.0
+ASSET_BROWSE_CACHE_TTL_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -154,5 +154,5 @@ __all__ = [
     "DEFAULT_STORE_DIRNAME",
     "DBL_EXPORT_DIRNAME",
     "KLC_VALIDATION_DIRNAME",
-    "_ASSET_BROWSE_CACHE_TTL_SECONDS",
+    "ASSET_BROWSE_CACHE_TTL_SECONDS",
 ]

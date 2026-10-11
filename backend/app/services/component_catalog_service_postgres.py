@@ -9,8 +9,6 @@ from app.services.catalog.locking import PostgresCatalogLocks
 from app.services.catalog.postgres_runtime import (
     CatalogPostgresConnection,
     PostgresCatalogRuntime,
-    _postgres_dsn,
-    _split_sql_script,
 )
 from app.services.catalog.postgres_integrity import (
     ensure_postgres_integrity_guards,
@@ -162,7 +160,5 @@ class ComponentCatalogPostgresService(ComponentCatalogDomainService):
 
 __all__ = [
     "ComponentCatalogPostgresService",
-    "_postgres_dsn",
-    "_split_sql_script",
     "POSTGRES_SCHEMA_VERSION",
 ]

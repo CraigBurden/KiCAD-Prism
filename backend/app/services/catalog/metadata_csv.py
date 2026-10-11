@@ -72,13 +72,6 @@ class PreparedMetadataCsvImportRow:
     payload: dict[str, str]
 
 
-@dataclass(frozen=True)
-class ParsedMetadataCsvImport:
-    """Validated legacy import rows in source order."""
-
-    rows: list[PreparedMetadataCsvImportRow]
-
-
 class CatalogMetadataCsv:
     """Stateless metadata CSV operations."""
 
@@ -314,25 +307,6 @@ class CatalogMetadataCsv:
             payload=payload,
         )
 
-    @staticmethod
-    def parse_import(file_content: str) -> ParsedMetadataCsvImport:
-        reader = csv.DictReader(io.StringIO(file_content))
-        if not reader.fieldnames:
-            raise ValueError("CSV file is empty")
-        rows: list[PreparedMetadataCsvImportRow] = []
-        errors: list[str] = []
-        for index, row in enumerate(reader, start=2):
-            try:
-                normalized = CatalogMetadataCsv.normalize_csv_row(
-                    {str(key): str(value or "") for key, value in row.items()}, index
-                )
-                rows.append(CatalogMetadataCsv.prepare_import_row(normalized))
-            except ValueError as exc:
-                errors.append(str(exc))
-        if errors:
-            raise ValueError("\n".join(errors))
-        return ParsedMetadataCsvImport(rows=rows)
-
 
 __all__ = [
     "CSV_ASSET_COLUMNS",
@@ -340,7 +314,6 @@ __all__ = [
     "CSV_SPREADSHEET_TEXT_GUARD",
     "CatalogMetadataCsv",
     "FilteredMetadataCsvChanges",
-    "ParsedMetadataCsvImport",
     "ParsedMetadataCsvPreview",
     "PreparedMetadataCsvExport",
     "PreparedMetadataCsvImportRow",

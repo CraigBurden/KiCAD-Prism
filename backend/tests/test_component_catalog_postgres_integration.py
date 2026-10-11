@@ -31,10 +31,8 @@ from app.services.catalog_schema_migrations import (  # noqa: E402
     MIGRATIONS,
     pending_catalog_migrations,
 )
-from app.services.component_catalog_domain import (  # noqa: E402
-    PREVIEW_PIPELINE_VERSION,
-    PREVIEW_STATUS_READY,
-)
+from app.services.catalog.preview_pipeline import PREVIEW_PIPELINE_VERSION  # noqa: E402
+from app.services.catalog.preview_renderer import PREVIEW_STATUS_READY  # noqa: E402
 from app.services.component_catalog_service_postgres import (  # noqa: E402
     POSTGRES_SCHEMA_VERSION,
     ComponentCatalogPostgresService,
@@ -323,7 +321,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             actor="system:import_database_library",
         )
         imported_id = str(imported["id"])
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute(
                 "UPDATE components SET source = 'import', external_source = %s, external_id = %s WHERE id = %s",
                 ("cern-database-library", "cern:CERN", imported_id),
@@ -336,7 +334,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         reset_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(reset_module)
 
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             component_count, _, _ = reset_module._delete_cern_imports(conn, dry_run=True)
             self.assertEqual(component_count, 1)
             component_count, orphan_count, _ = reset_module._delete_cern_imports(conn, dry_run=False)
@@ -345,7 +343,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(orphan_count, 0)
         self.assertIsNone(self.service.get_component(imported_id))
         self.assertIsNotNone(self.service.get_component(str(manual["id"])))
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             with self.assertRaisesRegex(Exception, "immutable catalog evidence"):
                 conn.execute("DELETE FROM components WHERE id = %s", (manual["id"],))
             conn.rollback()
@@ -436,7 +434,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         assert zero is not None
         self.assertTrue(zero["stock_known"])
         self.assertEqual(zero["stock_quantity"], 0)
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute(
                 "UPDATE inventory_levels SET fetch_status = 'error' WHERE component_id = %s",
                 (component["id"],),
@@ -804,7 +802,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
 
         # Initialization is a version lookup after the first successful v6 migration.
         self.service.initialize()
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             version = conn.execute(
                 "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = %s",
                 (POSTGRES_SCHEMA_VERSION,),
@@ -813,7 +811,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
 
     def test_component_head_projection_and_streaming_csv_follow_current_revision(self) -> None:
         component = self._component("head-" + uuid.uuid4().hex[:8])
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             head = conn.execute(
                 "SELECT revision_id, value FROM component_heads WHERE component_id = %s",
                 (component["id"],),
@@ -827,7 +825,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             actor="editor@example.com",
             expected_revision_id=component["revision_id"],
         )
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             head = conn.execute(
                 "SELECT revision_id, value FROM component_heads WHERE component_id = %s",
                 (component["id"],),
@@ -1354,7 +1352,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
     def test_database_guards_and_widened_portable_types(self) -> None:
         component = self._component("guards-" + uuid.uuid4().hex[:8])
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     "UPDATE component_revisions SET description = %s WHERE id = %s",
                     ("tampered", component["revision_id"]),
@@ -1374,26 +1372,26 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             target_library="Guard",
             actor="author@example.com",
         )["component"]
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             asset = conn.execute(
                 "SELECT asset_id FROM revision_assets WHERE revision_id = %s LIMIT 1",
                 (attached["revision_id"],),
             ).fetchone()
         assert asset is not None
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     "DELETE FROM revision_assets WHERE revision_id = %s AND asset_id = %s",
                     (attached["revision_id"], asset["asset_id"]),
                 )
                 conn.commit()
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute("UPDATE assets SET sha256 = %s WHERE id = %s", ("0" * 64, asset["asset_id"]))
                 conn.commit()
 
         preview_id = str(uuid.uuid4())
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute(
                 """
                 INSERT INTO asset_preview_versions (
@@ -1407,14 +1405,14 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             )
             conn.commit()
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     "UPDATE asset_preview_versions SET sha256 = %s WHERE id = %s",
                     ("b" * 64, preview_id),
                 )
                 conn.commit()
         with self.assertRaises(Exception):
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     """
                     INSERT INTO revision_previews (revision_id, asset_id, kind, preview_id, created_at)
@@ -1424,7 +1422,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 )
                 conn.commit()
 
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             types = {
                 (str(row["table_name"]), str(row["column_name"])): str(row["data_type"])
                 for row in conn.execute(
@@ -1468,7 +1466,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         """
         component = self._component("upgrade-" + uuid.uuid4().hex[:8])
 
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute("DROP TABLE IF EXISTS catalog_schema_versions")
             conn.execute("DELETE FROM catalog_schema_migrations")
             conn.commit()
@@ -1479,7 +1477,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         )
         upgraded.initialize()
 
-        with upgraded._connect() as conn:  # type: ignore[attr-defined]
+        with upgraded.connection() as conn:
             ledger = [
                 (int(row["version"]), str(row["name"]))
                 for row in conn.execute(
@@ -1502,7 +1500,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
 
     def test_repeated_startup_does_not_rewrite_widened_columns(self) -> None:
         """Replaying the column widening rewrites whole tables for nothing."""
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             self.assertEqual(pending_catalog_migrations(conn), [])
 
         restarted = ComponentCatalogPostgresService(
@@ -1511,7 +1509,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         )
         restarted.initialize()
 
-        with restarted._connect() as conn:  # type: ignore[attr-defined]
+        with restarted.connection() as conn:
             applied = conn.execute(
                 "SELECT count(*) AS total FROM catalog_schema_versions"
             ).fetchone()
@@ -1519,7 +1517,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
 
     def test_populated_pre_epoch_two_catalog_is_refused_with_reset_guidance(self) -> None:
         self._component("epoch-" + uuid.uuid4().hex[:8])
-        with self.service._connect() as conn:  # type: ignore[attr-defined]
+        with self.service.connection() as conn:
             conn.execute("DELETE FROM catalog_meta WHERE key = 'catalog_schema_epoch'")
             conn.commit()
         incompatible = ComponentCatalogPostgresService(
@@ -1530,7 +1528,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "catalog-only reset"):
                 incompatible.initialize()
         finally:
-            with self.service._connect() as conn:  # type: ignore[attr-defined]
+            with self.service.connection() as conn:
                 conn.execute(
                     "INSERT INTO catalog_meta(key, value) VALUES ('catalog_schema_epoch', '2') "
                     "ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value"

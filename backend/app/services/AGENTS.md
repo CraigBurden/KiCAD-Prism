@@ -23,6 +23,12 @@ facade method lands, search the facade for the method name and follow the
 `self._<collaborator>.` call. Public reads generally begin with `list_`,
 `get_`, or `search_`.
 
+Metadata batches (bulk grid edits and CSV imports) go stage → approve proposed
+fields → apply → accounting in `catalog/metadata_batch_lifecycle.py`, which owns
+one transaction per step. The facade's batch methods, which the API and the
+`catalog_metadata_batch` worker call, forward to it through
+`catalog_service.metadata_batch_lifecycle`.
+
 Do not extend the inheritance split casually. When adding a cohesive capability,
 first consider a narrow collaborator with a public API that both workers and
 HTTP handlers can use; avoid creating another caller of private catalog methods.

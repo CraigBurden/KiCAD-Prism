@@ -7,7 +7,7 @@ from typing import Any
 
 from app.services.catalog.runtime import (
     CatalogRuntime,
-    _ASSET_BROWSE_CACHE_TTL_SECONDS,
+    ASSET_BROWSE_CACHE_TTL_SECONDS,
 )
 
 
@@ -28,7 +28,7 @@ class CatalogAssetBrowser:
             with runtime.browse_cache_lock:
                 cached = runtime.browse_cache.get(asset_type)
                 generation = runtime.browse_cache_generation
-            if cached is None or now - cached[0] > _ASSET_BROWSE_CACHE_TTL_SECONDS:
+            if cached is None or now - cached[0] > ASSET_BROWSE_CACHE_TTL_SECONDS:
                 if asset_type == "symbol":
                     paths = root.rglob("*.kicad_sym")
                 elif asset_type == "footprint":
