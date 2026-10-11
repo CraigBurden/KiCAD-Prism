@@ -1924,6 +1924,7 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
                 logs.append(rendered)
                 print(rendered, flush=True)
 
+    published_initial: Optional[Dict[str, Any]] = None
     try:
         context.check_cancelled()
         with benchmark.span("snapshot-pipeline"):
@@ -1996,6 +1997,7 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
             details=partial_details,
         ):
             raise RuntimeError("Fenced partial comparison publication was rejected")
+        published_initial = initial_result
 
         context.check_cancelled()
         with benchmark.span("pcb-revision-pipeline"):
@@ -2056,6 +2058,8 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
             },
         )
     except Exception:
+        if published_initial is not None:
+            _publish_late_domain_failure(context, published_initial, artifact_key, base, head)
         try:
             benchmark_path = (
                 job_state_root()
@@ -2067,3 +2071,53 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
         except Exception:
             logger.exception("Could not publish failed V3 comparison benchmark")
         raise
+
+
+def _publish_late_domain_failure(
+    context: JobContext,
+    initial_result: Dict[str, Any],
+    artifact_key: str,
+    base: str,
+    head: str,
+) -> None:
+    """Republish the initial result with the domains still building marked failed.
+
+    Without it a reader keeps seeing PCB, Stackup and Fabrication as "building"
+    on a comparison that has already failed.
+    """
+
+    failed_result = copy.deepcopy(initial_result)
+    readiness = failed_result.setdefault("readiness", {})
+    domains = readiness.setdefault("domains", {})
+    for domain, status in list(domains.items()):
+        if status != "ready":
+            domains[domain] = "failed"
+    readiness["stage"] = "background-failed"
+    try:
+        artifact = job_artifacts.prepare_json(
+            context,
+            failed_result,
+            kind="design_compare",
+            artifact_key=artifact_key,
+            schema_version=str(failed_result.get("schema") or ""),
+            generator_version=semantic_index_service.generator_cache_tag(),
+            readiness="partial",
+        )
+        v3_jobs.publish_partial_artifact(
+            context.job_id,
+            context.worker_id,
+            context.fence,
+            artifact.__dict__,
+            stage="background-failed",
+            message="Schematic and BOM ready; PCB and Stackup failed",
+            percent=60,
+            details={
+                "result_version": 2,
+                "ready_domains": [d for d, status in domains.items() if status == "ready"],
+                "readiness": readiness,
+                "base": base,
+                "head": head,
+            },
+        )
+    except Exception:  # noqa: BLE001 - a cancelled or lost attempt keeps its last result
+        logger.warning("Could not publish the failed comparison readiness", exc_info=True)
