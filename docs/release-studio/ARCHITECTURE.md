@@ -28,9 +28,9 @@ values into the configuration snapshot that document composition consumes.
 The normal path synthesizes the configuration mapping from per-release UI
 inputs (`synthesize_configuration`) rather than loading committed Git YAML.
 When board and schematic are present on the job payload, synthesis
-replaces the committed-configuration lookup. Committed YAML under
-`.prism/release-studio/configurations/` remains a fallback when those paths are
-omitted.
+replaces the committed-configuration lookup. Committed YAML under the
+project's `.prism/release-studio/configurations/` remains a fallback when those
+paths are omitted (see CONFIGURATION.md for where a subproject's live).
 
 ## Pipeline
 
@@ -60,3 +60,16 @@ timestamps. Paths and closure inputs are constrained to the materialized
 commit or verified resources. Forge publish uses a workspace token with write
 scope; the clone SSH key is not sufficient. The same token is used for
 `list_releases` and `tag_exists`.
+
+## Publish
+
+`backend/app/services/release_studio_publish_service.py` owns approve →
+package → forge → record (`ReleasePublisher`): build detail and approval
+state, Designer/QA decisions, the new-tag check at enqueue, zipping the dossier
+with the ready vendor packs, creating the Release through a forge adapter
+(`forge_publish_service.forge_for` → `GitHubForge` / `GitLabForge`), and the
+publish record. If the record cannot be written, the Release just created is
+removed (the tag stays), so publishing again works. Forge calls block; the
+routes run the publisher in a worker thread so a slow forge never stalls the
+event loop. Configuration publishing (Settings → tracked branch) is
+`release_studio_config_service.py`.

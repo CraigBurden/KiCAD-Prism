@@ -96,6 +96,13 @@ then `run_project_import_job_v3`) →
 `backend/app/release_studio/documents/` →
 `frontend/src/components/release-studio/ReleaseStudioPanel.tsx`
 
+**Publish a release**
+`backend/app/api/release_studio.py` →
+`backend/app/services/release_studio_publish_service.py` (approve, package,
+forge, record) → `backend/app/services/forge_publish_service.py`
+(`GitHubForge` / `GitLabForge`) → `backend/app/services/release_studio_service.py`
+(publish record)
+
 **Author and release a component**
 `backend/app/api/catalog_admin.py` →
 `backend/app/services/component_catalog_service.py` (runtime alias) →
