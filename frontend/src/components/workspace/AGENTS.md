@@ -46,7 +46,14 @@ matching remote-provider representation, not the default placement pair),
 `library-component-models.tsx` (STEP → GLB status, alignment editor and Geometer preview, P2 §18.2),
 `library-module-interface.tsx` (a module's connectors as derived from its symbol's units, read-only, P2 §3.5, with each one's placement status),
 `library-module-connector-dialog.tsx` and `module-face-picker.tsx` (placing a connector part on the module's model in the system viewer, P2 §3.6, §20.18),
-`library-asset-link-picker.tsx`, `use-edit-history.ts`.
+`library-asset-link-picker.tsx`.
+
+**Staged grid edits** — `use-staged-grid-edits.ts` is the one engine for both
+spreadsheet grids (bulk edit and import remediation): local edits until save,
+cell/fill-down/paste writes as single undo steps, undo/redo with a per-grid
+depth (bulk 100, remediation 50), reset on save or apply, and the undo/redo/save
+hotkeys (optionally scoped to the grid's element). It sits on the pure reducer
+in `use-edit-history.ts`; a grid supplies only its `writeCell`.
 
 **Previews** — two paths that share nothing but a subject.
 `library-preview-viewport.tsx` pans and zooms a stored SVG render
