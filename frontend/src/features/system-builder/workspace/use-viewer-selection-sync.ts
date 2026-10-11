@@ -75,16 +75,17 @@ export function useViewerSelectionSync(
   }, [report]);
 
   useEffect(() => {
-    const offs = [
-      viewer.on("selection", reportSelection),
-      // A picked or dropped harness (root level only: a child system's harnesses are not selectable here).
-      viewer.on("harness", (detail) => {
-        if (detail?.phase !== "select") return;
-        if (detail.harness && !detail.harness.level) report({ kind: "harness", id: detail.harness.id });
-        else if (!detail.harness && current.current?.kind === "harness") report(null);
-      }),
-    ];
-    return () => offs.forEach((off) => off());
+    const offSelection = viewer.on("selection", reportSelection);
+    // A picked or dropped harness (root level only: a child system's harnesses are not selectable here).
+    const offHarness = viewer.on("harness", (detail) => {
+      if (detail?.phase !== "select") return;
+      if (detail.harness && !detail.harness.level) report({ kind: "harness", id: detail.harness.id });
+      else if (!detail.harness && current.current?.kind === "harness") report(null);
+    });
+    return () => {
+      offSelection();
+      offHarness();
+    };
   }, [report, reportSelection, viewer]);
 
   // The workspace selection, shown in the viewer once the scene draws it.
@@ -95,6 +96,7 @@ export function useViewerSelectionSync(
     const action = viewerActionFor(selection, scene, document);
     if (!action) return;
     fromViewer.current = key;
+    // react-doctor-disable-next-line no-pass-data-to-parent - `viewer` is the element adapter, not a parent callback
     viewer.show(action, () => fromViewer.current === key);
   }, [element, viewer, scene, document, selection, onSelect]);
 

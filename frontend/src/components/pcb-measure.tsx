@@ -42,9 +42,13 @@ function readStoredUnits(): EcadMeasureUnits {
 export function useMeasureUnits(viewer: EcadViewer | null) {
     const [units, setUnits] = useState<EcadMeasureUnits>(readStoredUnits);
     const unitsRef = useCommittedRef(units);
-    useEffect(() => viewer?.on("measure-mode", ({ on }) => {
-        if (on) viewer.setMeasureUnits(unitsRef.current);
-    }), [viewer, unitsRef]);
+    useEffect(() => {
+        if (!viewer) return;
+        const off = viewer.on("measure-mode", ({ on }) => {
+            if (on) viewer.setMeasureUnits(unitsRef.current);
+        });
+        return () => off();
+    }, [viewer, unitsRef]);
     const choose = useCallback((next: EcadMeasureUnits) => {
         setUnits(next);
         viewer?.setMeasureUnits(next);

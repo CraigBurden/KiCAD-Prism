@@ -144,7 +144,10 @@ export function Scene3dTab(props: SystemTabProps) {
   const reportSelection = useViewerSelectionSync(viewer, scene, document, workspaceSelection, onSelect);
   // What the viewer lit, as it reports it.
   const reportEmphasis = useCommittedRef(nets.report);
-  useEffect(() => viewer.on("emphasis", (results) => reportEmphasis.current(results)), [reportEmphasis, viewer]);
+  useEffect(() => {
+    const off = viewer.on("emphasis", (results) => reportEmphasis.current(results));
+    return () => off();
+  }, [reportEmphasis, viewer]);
   // The workspace inspector shows what is picked (PLAN M8): the viewer only reports it.
   const indexes = useBoardIndexes(scene);
   usePartReport(viewer, scene, indexes, selection, onPart);

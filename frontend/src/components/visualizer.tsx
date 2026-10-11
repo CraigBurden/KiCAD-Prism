@@ -497,10 +497,10 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
             throwIfJobFailed(job, "Failed to generate semantic identity index");
             setSemanticIndexRetryToken((token) => token + 1);
         } catch (error) {
-            // The visualizer went away while the job ran.
+            setSemanticIndexLoading(false);
+            // An abort means the visualizer went away while the job ran.
             if (isAbortError(error)) return;
             setSemanticIndexError(error instanceof Error ? error.message : "Failed to generate semantic identity index");
-            setSemanticIndexLoading(false);
         }
     }, [commit, projectId, watchJob]);
 
@@ -635,23 +635,29 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
     // (insets need both), the board's measure mode ends comment mode, a
     // finished load re-dispatches an active cross-probe, and comment pins.
     useEffect(() => {
-        const offs = [
-            viewers.sch.on("inset-mode", ({ on }) => {
-                if (on) dispatchMode({ type: "mount", view: "pcb" });
-            }),
-            viewers.pcb.on("measure-mode", ({ on }) => dispatchMode({ type: "measure-mode", on })),
-            viewers.on("ready", (_, view) => notifyClientReady(view === "sch" ? "visualizer-schematic" : "visualizer-pcb")),
-            viewers.on("comment-overlay-click", (detail) => {
-                const commentId = commentIdFromOverlayHit(detail);
-                if (!commentId) return;
-                dispatchMode({ type: "select-comment", id: commentId });
-                setCommentCardScreenPosition(viewers.get(detail.context === "SCH" ? "sch" : "pcb").screenPoint(detail.x, detail.y));
-            }),
-            viewers.on("comment-area", (detail) => {
-                dispatchMode({ type: "comment-area", context: detail.context, location: commentLocationFromArea(detail) });
-            }),
-        ];
-        return () => offs.forEach((off) => off());
+        const offInsets = viewers.sch.on("inset-mode", ({ on }) => {
+            if (on) dispatchMode({ type: "mount", view: "pcb" });
+        });
+        const offMeasure = viewers.pcb.on("measure-mode", ({ on }) => dispatchMode({ type: "measure-mode", on }));
+        const offReady = viewers.on("ready", (_, view) => {
+            notifyClientReady(view === "sch" ? "visualizer-schematic" : "visualizer-pcb");
+        });
+        const offPin = viewers.on("comment-overlay-click", (detail) => {
+            const commentId = commentIdFromOverlayHit(detail);
+            if (!commentId) return;
+            dispatchMode({ type: "select-comment", id: commentId });
+            setCommentCardScreenPosition(viewers.get(detail.context === "SCH" ? "sch" : "pcb").screenPoint(detail.x, detail.y));
+        });
+        const offArea = viewers.on("comment-area", (detail) => {
+            dispatchMode({ type: "comment-area", context: detail.context, location: commentLocationFromArea(detail) });
+        });
+        return () => {
+            offInsets();
+            offMeasure();
+            offReady();
+            offPin();
+            offArea();
+        };
     }, [notifyClientReady, viewers]);
 
     // Re-apply an active cross-probe when SCH/PCB becomes visible so hatch/net
@@ -696,34 +702,36 @@ export function Visualizer({ projectId, user, commit, active: viewerActive = tru
 
     useEffect(() => {
         const revisionKey = semanticIndex?.sourceRevisionKey ?? commit ?? undefined;
-        const offs = [
-            viewers.on("selection", (detail) => {
-                lastSelectionRef.current = detail;
-                const normalized = normalizeEcadSelection(detail, revisionKey);
-                if (normalized) {
-                    selectGlobal(normalized);
-                    // A shift-click carries its intent on the event: toggle the
-                    // item's net in the collection as well as inspecting it.
-                    if (detail.operation === "toggle") toggleNetForSelection(normalized);
-                } else {
-                    // Empty selection: a click on empty canvas away from any item.
-                    // Clear the current selection so it deselects and the selection
-                    // side panel closes, rather than leaving the last item stuck.
-                    clearGlobalSelection();
-                }
-            }),
-            viewers.on("crossprobe", (detail) => {
-                lastSelectionRef.current = detail;
-                const normalized = normalizeEcadSelection(detail, revisionKey);
-                if (normalized) crossProbeGlobal(normalized);
-            }),
-            // The board viewer reports the set whenever it changes it itself
-            // (double-click cross-probe, clear), so the collection follows.
-            viewers.pcb.on("highlight-change", (detail) => {
-                setHighlightedNets((current) => adoptViewerNets(current, detail.nets));
-            }),
-        ];
-        return () => offs.forEach((off) => off());
+        const offSelection = viewers.on("selection", (detail) => {
+            lastSelectionRef.current = detail;
+            const normalized = normalizeEcadSelection(detail, revisionKey);
+            if (normalized) {
+                selectGlobal(normalized);
+                // A shift-click carries its intent on the event: toggle the
+                // item's net in the collection as well as inspecting it.
+                if (detail.operation === "toggle") toggleNetForSelection(normalized);
+            } else {
+                // Empty selection: a click on empty canvas away from any item.
+                // Clear the current selection so it deselects and the selection
+                // side panel closes, rather than leaving the last item stuck.
+                clearGlobalSelection();
+            }
+        });
+        const offProbe = viewers.on("crossprobe", (detail) => {
+            lastSelectionRef.current = detail;
+            const normalized = normalizeEcadSelection(detail, revisionKey);
+            if (normalized) crossProbeGlobal(normalized);
+        });
+        // The board viewer reports the set whenever it changes it itself
+        // (double-click cross-probe, clear), so the collection follows.
+        const offNets = viewers.pcb.on("highlight-change", (detail) => {
+            setHighlightedNets((current) => adoptViewerNets(current, detail.nets));
+        });
+        return () => {
+            offSelection();
+            offProbe();
+            offNets();
+        };
     }, [commit, clearGlobalSelection, crossProbeGlobal, selectGlobal, semanticIndex?.sourceRevisionKey, toggleNetForSelection, viewers]);
 
     // Project the collection onto the board. Keyed on the ready generation so

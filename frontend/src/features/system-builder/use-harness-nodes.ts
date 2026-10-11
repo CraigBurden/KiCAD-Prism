@@ -105,15 +105,18 @@ export function useHarnessNodes(viewer: SemanticViewer, scene: SystemScene | nul
     eventRef.current = onEvent;
   });
 
-  useEffect(() => viewer.on("harness", (next) => {
-    setState(next.harness ? next : null);
-    if (next.phase === "commit" || next.phase === "delete" || next.phase === "route-drag") void eventRef.current(next);
-    if (next.phase === "sync" && pendingTarget.current !== undefined) {
-      const target = pendingTarget.current;
-      pendingTarget.current = undefined;
-      viewer.targetHarnessNode(target);
-    }
-  }), [viewer]);
+  useEffect(() => {
+    const off = viewer.on("harness", (next) => {
+      setState(next.harness ? next : null);
+      if (next.phase === "commit" || next.phase === "delete" || next.phase === "route-drag") void eventRef.current(next);
+      if (next.phase === "sync" && pendingTarget.current !== undefined) {
+        const target = pendingTarget.current;
+        pendingTarget.current = undefined;
+        viewer.targetHarnessNode(target);
+      }
+    });
+    return () => off();
+  }, [viewer]);
 
   const nodes = stored();
   return {

@@ -51,21 +51,24 @@ export function useMoveMode(viewer: SemanticViewer, scene: SystemScene | null) {
     saveRef.current = requestSave;
   });
 
-  useEffect(() => viewer.on("move", (state) => {
-    setMove(state);
-    const target = state.enabled ? state.target : null;
-    setOrigin((current) => {
-      if (!target) return null;
-      if (current?.instanceId !== target.instanceId) {
-        return { instanceId: target.instanceId, pose: target.pose, source: target.source, moved: false };
-      }
-      return current;
+  useEffect(() => {
+    const off = viewer.on("move", (state) => {
+      setMove(state);
+      const target = state.enabled ? state.target : null;
+      setOrigin((current) => {
+        if (!target) return null;
+        if (current?.instanceId !== target.instanceId) {
+          return { instanceId: target.instanceId, pose: target.pose, source: target.source, moved: false };
+        }
+        return current;
+      });
+      if (state.phase === "commit" && state.target) void saveRef.current(state.target);
+      // Start the panel over when the view's state changed under it; a re-read during
+      // typing ("sync" with an unsaved preview) keeps what is typed.
+      if (state.phase !== "preview" && !(state.phase === "sync" && state.target?.unsaved)) setEpoch((count) => count + 1);
     });
-    if (state.phase === "commit" && state.target) void saveRef.current(state.target);
-    // Start the panel over when the view's state changed under it; a re-read during
-    // typing ("sync" with an unsaved preview) keeps what is typed.
-    if (state.phase !== "preview" && !(state.phase === "sync" && state.target?.unsaved)) setEpoch((count) => count + 1);
-  }), [viewer]);
+    return () => off();
+  }, [viewer]);
 
   return {
     move,
