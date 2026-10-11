@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
 
 from app.services.job_artifact_service import JobArtifactService  # noqa: E402
 from app.services.job_service import JobService  # noqa: E402
+from app.services.object_store import ReferenceOwner  # noqa: E402
 from app.services.workspace_schema_migrations import apply_workspace_migrations  # noqa: E402
 
 
@@ -297,7 +298,7 @@ class ReleaseStudioRetentionPostgresTests(unittest.TestCase):
         self.assertNotIn(str(unpinned_path), referenced)
 
         result = self.artifacts.collect_unreferenced_objects(
-            service=self.service,
+            owners=[ReferenceOwner("jobs", self.service.referenced_object_paths)],
             grace_seconds=0,
         )
 

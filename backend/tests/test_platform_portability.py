@@ -81,7 +81,7 @@ class TemporaryPathTests(unittest.TestCase):
 
 class DirectorySyncTests(unittest.TestCase):
     def test_syncing_a_directory_works_where_it_is_supported(self) -> None:
-        from app.services.job_artifact_service import _fsync_directory
+        from app.services.object_store import fsync_directory as _fsync_directory
 
         with tempfile.TemporaryDirectory() as directory:
             _fsync_directory(Path(directory))  # must not raise
@@ -89,7 +89,7 @@ class DirectorySyncTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "the POSIX branch is the one under test")
     def test_a_missing_directory_is_still_reported(self) -> None:
         """The Windows guard must not turn into a blanket except-and-ignore."""
-        from app.services.job_artifact_service import _fsync_directory
+        from app.services.object_store import fsync_directory as _fsync_directory
 
         with self.assertRaises(OSError):
             _fsync_directory(Path(tempfile.gettempdir()) / "prism-does-not-exist")

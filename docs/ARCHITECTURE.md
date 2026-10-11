@@ -35,6 +35,13 @@ Within `data/projects/.kicad-prism`, Prism stores generated comparison and
 visualizer caches, job artifacts and logs, catalog asset objects, revisions,
 previews, KLC evidence, and DBL exports.
 
+Job artifacts and catalog source objects share one content-addressed object
+store, `.kicad-prism/artifacts/objects/sha256` by default
+(`backend/app/services/object_store.py`). An object may be pinned by job
+metadata (`ws_artifacts`, release pins) and by `catalog_artifacts` at once, so
+the daily `artifact_maintenance` collection and catalog retention both ask
+every registered owner before removing or moving a file.
+
 All three persistence domains must be included in backup and restore procedures.
 See [Operations](OPERATIONS.md).
 
