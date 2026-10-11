@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import logging
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.trackers.contracts import Destination, RemoteComment
@@ -37,15 +36,12 @@ from app.services.trackers.markers import build_marker
 from app.services.trackers.op_store import EXECUTE_DISPATCH, RECOVERY_DISPATCH, OpStore
 from app.services.trackers.promotion import DispatchPause, PublicationDenied, evaluate_dispatch
 from app.services.trackers.provenance import body_hash, stored_hash_matches
-from app.services.trackers.providers import comment_adapter_for, comment_web_url
+from app.services.trackers.connector_runtime import connector_runtime
+from app.services.trackers.providers import comment_web_url
 from app.services.trackers.reply_mutations import REPLY_OPS, decode_reply_target
 from app.services.trackers.store import TrackerStore, issue_number_for_api
 
 logger = logging.getLogger(__name__)
-
-_mounted = False
-_connect_factory: Callable[[], Any] | None = None
-
 
 
 @dataclass(frozen=True)
@@ -83,53 +79,11 @@ def build_reply_body(
     return "\n\n".join(blocks)
 
 
-def set_connect_factory(factory: Callable[[], Any] | None) -> None:
-    global _connect_factory
-    _connect_factory = factory
-
-
-@contextmanager
-def _default_connect() -> Iterator[Any]:
-    if _connect_factory is not None:
-        with _connect_factory() as conn:
-            yield conn
-        return
-    from app.services.postgres_database import database
-
-    with database.connection() as conn:
-        conn.execute("SET search_path TO comments, workspace, public")
-        yield conn
-
-
-def mount_reply_executor() -> None:
-    """Register reply ops on the composition dispatch table."""
-
-    global _mounted
-    if _mounted:
-        return
-    from app.services.trackers.composition import mount_outbound_executor, register_outbound_op
-
-    for kind in REPLY_OPS:
-        register_outbound_op(kind, execute=execute_reply_claimed_op, recover=recover_reply_op)
-    mount_outbound_executor()
-    _mounted = True
-
-
-def unmount_reply_executor() -> None:
-    global _mounted
-    if not _mounted:
-        return
-    from app.services.trackers.composition import unregister_outbound_ops
-
-    unregister_outbound_ops(*REPLY_OPS)
-    _mounted = False
-
-
 def execute_reply_claimed_op(claimed: Mapping[str, Any]) -> str | None:
     """Dispatch one claimed reply op. Confirms in-DB when complete."""
 
     dispatch = str(claimed.get("dispatch") or EXECUTE_DISPATCH)
-    with _default_connect() as conn:
+    with connector_runtime().connection() as conn:
         ops = OpStore(conn)
         op_id = str(claimed["id"])
         fence = int(claimed["fence"])
@@ -161,22 +115,6 @@ def recover_reply_op(conn: Any, op: Mapping[str, Any]) -> None:
     if kind == "delete_comment":
         _recover_delete(conn, op, ops)
         return
-
-
-
-
-def _issue_adapter_for_uploads(connector: Mapping[str, Any]) -> Any:
-    from app.services.trackers.create_executor import _issue_adapter
-
-    return _issue_adapter(connector)
-
-
-def _comment_adapter(connector: Mapping[str, Any], *, http: Any | None = None) -> Any:
-    from app.services.trackers.create_executor import _issue_adapter
-
-    return comment_adapter_for(connector, _issue_adapter(connector, http=http))
-
-
 
 
 def _load_reply_context(conn: Any, op: Mapping[str, Any]) -> _ReplyContext:
@@ -413,7 +351,7 @@ def _execute_reply(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
                 conn, str(ctx.reply.get("content") or ""), str(ctx.reply.get("contentFormat") or "plain"),
                 project_id=ctx.project_id, destination=ctx.destination,
                 # Uploads are a project capability; the issue adapter owns them.
-                adapter_factory=lambda: _issue_adapter_for_uploads(ctx.connector),
+                adapter_factory=lambda: connector_runtime().issue_adapter(ctx.connector),
             )
         except ProviderError as exc:
             apply_provider_error(
@@ -440,7 +378,7 @@ def _execute_reply(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
         ops.record_expected_body_hash(op_id, fence, body_hash(body))
     try:
         conn.commit()
-        adapter = _comment_adapter(ctx.connector)
+        adapter = connector_runtime().comment_adapter(ctx.connector)
         issue_ref = issue_number_for_api(ctx.thread)
         if kind == "add_comment":
             assert body is not None
@@ -501,7 +439,7 @@ def _recover_add(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     if link is not None:
         ops.confirm(op_id, fence, external_result_id=str(link["external_comment_id"]))
         return
-    adapter = _comment_adapter(ctx.connector)
+    adapter = connector_runtime().comment_adapter(ctx.connector)
     issue_ref = issue_number_for_api(ctx.thread)
     marker_text = build_marker(
         connector_id=ctx.destination.connectorId,
@@ -595,7 +533,7 @@ def _recover_edit(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     if link is None:
         ops.fail(op_id, fence, error={"class": "invalid_request", "message": "reply is not linked"})
         return
-    adapter = _comment_adapter(ctx.connector)
+    adapter = connector_runtime().comment_adapter(ctx.connector)
     result = adapter.get_comment(ctx.destination, str(link["external_comment_id"]), etag=None)
     if isinstance(result, RemoteComment):
         expected = str(op.get("expected_body_hash") or "")
@@ -627,7 +565,7 @@ def _recover_delete(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
     if link is None:
         ops.confirm(op_id, fence)
         return
-    adapter = _comment_adapter(ctx.connector)
+    adapter = connector_runtime().comment_adapter(ctx.connector)
     result = adapter.get_comment(ctx.destination, str(link["external_comment_id"]), etag=None)
     from app.services.trackers.contracts import GoneConfirmed
 
@@ -651,8 +589,5 @@ def _recover_delete(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
 __all__ = [
     "build_reply_body",
     "execute_reply_claimed_op",
-    "mount_reply_executor",
     "recover_reply_op",
-    "set_connect_factory",
-    "unmount_reply_executor",
 ]

@@ -21,13 +21,17 @@ from app.services.trackers.credential_sidecars import (
     store_webhook_secret,
     webhook_configured,
 )
+from app.services.trackers.connector_runtime import (
+    WRITE_BLOCKING_REASONS,
+    connector_status,
+    credential_context as _context,
+    decrypt_material,
+)
 from app.services.trackers.errors import ProviderError
 from app.services.trackers.providers import host_kit, host_kits, is_issue_provider, issue_adapter_for, kit_for
-from app.services.trackers.secrets import decrypt_secret, encrypt_secret
+from app.services.trackers.secrets import encrypt_secret
 from app.services.trackers.store import TrackerStore
 
-# Part of every stored envelope's authenticated data, for every provider.
-CREDENTIAL_FIELD = "github_app"
 BOOTSTRAP_ENV_FIELDS = ("GITHUB_TOKEN",)
 # Hosts and their instance kinds come from ``providers`` (one kit each). Hosts
 # whose kit cannot publish exist so people can link their accounts, and report
@@ -486,13 +490,18 @@ class ConnectorService:
                     SET bot_forge_user_id = %s,
                         bot_login = %s,
                         paused_reason = CASE
-                            WHEN paused_reason IN ('revoked', 'test_failed', 'auth_lost', 'permissions') THEN NULL
+                            WHEN paused_reason = ANY(%s) THEN NULL
                             WHEN paused THEN paused_reason ELSE NULL
                         END,
                         updated_at = NOW()
                     WHERE id = %s
                     """,
-                    (str(bot.get("id") or "") or None, str(bot.get("login") or "") or None, connector_id),
+                    (
+                        str(bot.get("id") or "") or None,
+                        str(bot.get("login") or "") or None,
+                        sorted(WRITE_BLOCKING_REASONS),
+                        connector_id,
+                    ),
                 )
             TrackerStore(conn).audit(
                 action="connector.test",
@@ -539,8 +548,7 @@ class ConnectorService:
         blob = (envelope or {}).get("credential_envelope")
         if not blob:
             return row, None, None
-        material = json.loads(decrypt_secret(blob, _context(connector_id), settings=self.settings).decode())
-        return row, blob, material
+        return row, blob, decrypt_material(connector_id, blob, settings=self.settings)
 
     def _encrypt(self, provider: str, connector_id: str, credentials: Mapping[str, str]) -> str:
         kit = kit_for(provider)
@@ -564,9 +572,7 @@ class ConnectorService:
             return None
         payload = kit.credential_payload(credentials)
         if existing_blob:
-            merged = json.loads(
-                decrypt_secret(existing_blob, _context(connector_id), settings=self.settings).decode()
-            )
+            merged = decrypt_material(connector_id, existing_blob, settings=self.settings)
             for key in kit.credential_fields:
                 if payload[key]:
                     merged[key] = payload[key]
@@ -658,18 +664,14 @@ class ConnectorService:
             "SELECT COUNT(*) AS n FROM tracker_audit WHERE connector_id = %s",
             (row["id"],),
         ).fetchone()
-        writes_enabled = (
-            not bool(row.get("paused"))
-            and bool(row.get("credentialConfigured"))
-            and bool(row.get("bot_forge_user_id"))
-            and str(row.get("paused_reason") or "") not in {"revoked", "permissions", "test_failed", "auth_lost"}
-        )
+        status = connector_status(row)
         return {
             "id": row["id"],
             "provider": row["provider"],
             "displayName": row.get("display_name") or "",
             "instanceKind": row["instance_kind"],
             "baseUrl": row.get("base_url") or "",
+            "status": status,
             "paused": bool(row.get("paused")),
             "pausedReason": row.get("paused_reason"),
             "bot": {
@@ -680,7 +682,7 @@ class ConnectorService:
             "webhookConfigured": webhook_configured(conn, str(row["id"])),
             "webhookUrl": self.webhook_url(str(row["id"]), provider=str(row["provider"])),
             "oauthClientConfigured": oauth_client_configured(conn, str(row["id"])),
-            "writesEnabled": writes_enabled,
+            "writesEnabled": status == "ready",
             "auditCount": int((audit_count or {}).get("n") or 0),
             "host": connector_host(row),
             "capabilities": {
@@ -700,10 +702,6 @@ def connector_host(row: Mapping[str, Any]) -> str:
         return urlsplit(base).hostname or base
     provider = str(row.get("provider") or "")
     return host_kit(provider).default_host if provider in INSTANCE_KINDS_BY_PROVIDER else ""
-
-
-def _context(connector_id: str) -> dict[str, str]:
-    return {"record": connector_id, "field": CREDENTIAL_FIELD}
 
 
 def initialize_tracker_connector_service() -> None:

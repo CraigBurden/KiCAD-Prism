@@ -3,17 +3,16 @@
 Claims pending ``create_issue`` ops, records ``sent`` before provider I/O (via
 jobs), re-checks publication policy, renders the TR-24 draft and creates the
 remote issue. Recovery scans never resend. Inbound hints for a destination are
-applied when dispatch finds no due ops. Mounting enables hint-only scheduler
-dispatch (R2-M5).
+applied when dispatch finds no due ops. Database connections and adapters come
+from the installed connector runtime; ``composition`` registers the handler.
 """
 
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any, Mapping
 
 from app.core.config import settings
 from app.services.trackers.contracts import Destination, IssueRead, RemoteIssue
@@ -37,12 +36,8 @@ from app.services.trackers.github_recovery import (
     recovery_since,
 )
 from app.services.trackers.op_store import EXECUTE_DISPATCH, RECOVERY_DISPATCH, OpStore
-from app.services.trackers.providers import issue_adapter_for, issue_web_url
-from app.services.trackers.secrets import decrypt_secret
-
-_mounted = False
-_connect_factory: Callable[[], Any] | None = None
-
+from app.services.trackers.connector_runtime import connector_runtime
+from app.services.trackers.providers import issue_web_url
 
 
 @dataclass(frozen=True)
@@ -56,48 +51,6 @@ class _ExecutionContext:
     destination: Destination
 
 
-def mount_create_executor() -> None:
-    """Register create/set_state handlers on the composition dispatch table."""
-
-    global _mounted
-    if _mounted:
-        return
-    from app.services.trackers.composition import mount_outbound_executor, register_outbound_op
-
-    register_outbound_op("create_issue", execute=execute_claimed_op)
-    register_outbound_op("set_state", execute=execute_claimed_op)
-    mount_outbound_executor()
-    _mounted = True
-
-
-def unmount_create_executor() -> None:
-    """Test helper: tear down outbound composition mount (create path entrypoint)."""
-
-    global _mounted
-    from app.services.trackers.composition import unmount_outbound_executor
-
-    unmount_outbound_executor()
-    _mounted = False
-
-
-def set_connect_factory(factory: Callable[[], Any] | None) -> None:
-    global _connect_factory
-    _connect_factory = factory
-
-
-@contextmanager
-def _default_connect() -> Iterator[Any]:
-    if _connect_factory is not None:
-        with _connect_factory() as conn:
-            yield conn
-        return
-    from app.services.postgres_database import database
-
-    with database.connection() as conn:
-        conn.execute("SET search_path TO comments, workspace, public")
-        yield conn
-
-
 def execute_claimed_op(claimed: Mapping[str, Any]) -> str | None:
     """Dispatch one claimed outbound op. Confirms in-DB when complete.
 
@@ -107,7 +60,7 @@ def execute_claimed_op(claimed: Mapping[str, Any]) -> str | None:
     dispatch = str(claimed.get("dispatch") or EXECUTE_DISPATCH)
     op_kind = str(claimed.get("op") or "")
     prepared: dict[str, Any] | None = None
-    with _default_connect() as conn:
+    with connector_runtime().connection() as conn:
         ops = OpStore(conn)
         op_id = str(claimed["id"])
         fence = int(claimed["fence"])
@@ -133,7 +86,7 @@ def execute_claimed_op(claimed: Mapping[str, Any]) -> str | None:
     try:
         result = _run_create_io(prepared)
     except ProviderError as exc:
-        with _default_connect() as conn:
+        with connector_runtime().connection() as conn:
             apply_provider_error(
                 conn,
                 OpStore(conn),
@@ -146,13 +99,13 @@ def execute_claimed_op(claimed: Mapping[str, Any]) -> str | None:
             conn.commit()
         return None
 
-    with _default_connect() as conn:
+    with connector_runtime().connection() as conn:
         _finish_create(conn, prepared, result)
         conn.commit()
     return None
 
 
-def _load_execution_context(conn: Any, op: Mapping[str, Any]) -> _ExecutionContext:
+def load_execution_context(conn: Any, op: Mapping[str, Any]) -> _ExecutionContext:
     op_row = conn.execute("SELECT * FROM sync_ops WHERE id = %s", (str(op["id"]),)).fetchone()
     if op_row is None:
         raise ProviderError("invalid_request", "create_issue op is missing")
@@ -282,26 +235,6 @@ def _comment_dict_from_row(row: Mapping[str, Any]) -> dict:
     }
 
 
-def _encrypt_context(connector_id: str) -> dict[str, str]:
-    """AAD binding for the installation envelope; must equal the one the admin API wrote with."""
-
-    from app.services.trackers.connector_service import _context
-
-    return _context(connector_id)
-
-
-def _issue_adapter(connector: Mapping[str, Any], *, http: Any | None = None) -> Any:
-    """The connector provider's issue adapter, built from its decrypted envelope."""
-
-    blob = connector.get("credential_envelope")
-    if not blob:
-        raise ProviderError("auth_lost", "Connector has no installation credentials.")
-    material = json.loads(
-        decrypt_secret(blob, _encrypt_context(str(connector["id"])), settings=settings).decode()
-    )
-    return issue_adapter_for(connector, material, http=http)
-
-
 def _policy_check(conn: Any, ctx: _ExecutionContext) -> None:
     policy_check(
         conn,
@@ -371,7 +304,7 @@ def _confirm_create_link(
 def _prepare_execute_create(conn: Any, op: Mapping[str, Any], ops: OpStore) -> dict[str, Any] | None:
     """Load context and evaluate policy; caller must commit before provider I/O."""
 
-    ctx = _load_execution_context(conn, op)
+    ctx = load_execution_context(conn, op)
     op_id = str(op["id"])
     fence = int(op["fence"])
     external_id = str(ctx.thread.get("external_id") or "")
@@ -401,7 +334,7 @@ def _prepare_execute_create(conn: Any, op: Mapping[str, Any], ops: OpStore) -> d
             "proseBlock": attachment_links.render_outbound(
                 conn, draft.proseBlock, str(ctx.comment.get("contentFormat") or "plain"),
                 project_id=ctx.project_id, destination=ctx.destination,
-                adapter_factory=lambda: _issue_adapter(ctx.connector),
+                adapter_factory=lambda: connector_runtime().issue_adapter(ctx.connector),
             ),
         })
     except ProviderError as exc:
@@ -432,7 +365,7 @@ def _prepare_execute_create(conn: Any, op: Mapping[str, Any], ops: OpStore) -> d
 
 
 def _prepare_recover_create(conn: Any, op: Mapping[str, Any], ops: OpStore) -> dict[str, Any] | None:
-    ctx = _load_execution_context(conn, op)
+    ctx = load_execution_context(conn, op)
     op_id = str(op["id"])
     fence = int(op["fence"])
     external_id = str(ctx.thread.get("external_id") or "")
@@ -458,7 +391,7 @@ def _prepare_recover_create(conn: Any, op: Mapping[str, Any], ops: OpStore) -> d
 
 
 def _run_create_io(prepared: Mapping[str, Any]) -> Any:
-    adapter = _issue_adapter(prepared["connector"])
+    adapter = connector_runtime().issue_adapter(prepared["connector"])
     if prepared["mode"] == "create":
         return adapter.create_issue(prepared["destination"], prepared["outbound"], prepared["op_id"])
     outcome = recover_create_issue(
@@ -540,55 +473,4 @@ def _finish_create(conn: Any, prepared: Mapping[str, Any], result: Any) -> None:
     )
 
 
-def _execute_create(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
-    """Test helper: prepare + I/O + finish while reusing the caller's connection for DB only."""
-
-    prepared = _prepare_execute_create(conn, op, ops)
-    if prepared is None or prepared.get("done"):
-        return
-    conn.commit()
-    try:
-        result = _run_create_io(prepared)
-    except ProviderError as exc:
-        apply_provider_error(
-            conn,
-            ops,
-            op=prepared["op"],
-            fence=int(prepared["fence"]),
-            exc=exc,
-            connector_id=str(prepared["connector"]["id"]),
-            remote_container_id=str(prepared["destination"].remoteContainerId),
-        )
-        return
-    _finish_create(conn, prepared, result)
-
-
-def _recover_create(conn: Any, op: Mapping[str, Any], ops: OpStore) -> None:
-    """Test helper: recovery prepare + I/O + finish with caller's connection for DB only."""
-
-    prepared = _prepare_recover_create(conn, op, ops)
-    if prepared is None or prepared.get("done"):
-        return
-    conn.commit()
-    try:
-        result = _run_create_io(prepared)
-    except ProviderError as exc:
-        apply_provider_error(
-            conn,
-            ops,
-            op=prepared["op"],
-            fence=int(prepared["fence"]),
-            exc=exc,
-            connector_id=str(prepared["connector"]["id"]),
-            remote_container_id=str(prepared["destination"].remoteContainerId),
-        )
-        return
-    _finish_create(conn, prepared, result)
-
-
-__all__ = [
-    "execute_claimed_op",
-    "mount_create_executor",
-    "set_connect_factory",
-    "unmount_create_executor",
-]
+__all__ = ["execute_claimed_op", "load_execution_context"]

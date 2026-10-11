@@ -170,8 +170,10 @@ class AuthLostPauseTests(unittest.TestCase):
 class TxnAcrossIoTests(unittest.TestCase):
     def test_create_claimed_op_releases_connection_before_provider_io(self) -> None:
         from app.services.trackers import create_executor as ce
+        from app.services.trackers.connector_runtime import ConnectorRuntime, install_connector_runtime
 
         open_conns: list[Any] = []
+        sent_op = {"id": "op_x", "state": "sent", "fence": 1, "op": "create_issue"}
 
         class FakeConn:
             def __init__(self) -> None:
@@ -182,17 +184,7 @@ class TxnAcrossIoTests(unittest.TestCase):
                 self.committed = True
 
             def execute(self, *args: Any, **kwargs: Any) -> Any:
-                return MagicMock(fetchone=MagicMock(return_value=None))
-
-            def close(self) -> None:
-                self.closed = True
-
-            def __enter__(self) -> FakeConn:
-                open_conns.append(self)
-                return self
-
-            def __exit__(self, *args: Any) -> None:
-                self.closed = True
+                return MagicMock(fetchone=MagicMock(return_value=dict(sent_op)))
 
         @contextmanager_factory
         def fake_connect():
@@ -206,7 +198,7 @@ class TxnAcrossIoTests(unittest.TestCase):
         claimed = {"id": "op_x", "fence": 1, "dispatch": "execute", "op": "create_issue"}
         prepared = {
             "mode": "create",
-            "op": {"id": "op_x", "state": "sent"},
+            "op": dict(sent_op),
             "fence": 1,
             "op_id": "op_x",
             "connector": {"id": "cn"},
@@ -218,27 +210,20 @@ class TxnAcrossIoTests(unittest.TestCase):
 
         io_saw_closed = {}
 
-        def run_io(prep: Any) -> Any:
-            # After prepare commit, prior connection must not still be open for I/O.
-            io_saw_closed["prior_closed"] = all(getattr(c, "closed", False) or c.committed for c in open_conns)
-            raise ProviderError("visibility", "paused", retryable=False)
+        class Forge:
+            def create_issue(self, dest: Any, draft: Any, op_id: str) -> Any:
+                # After the prepare commit, no connection may stay open across provider I/O.
+                io_saw_closed["prior_closed"] = all(c.closed or c.committed for c in open_conns)
+                raise ProviderError("visibility", "paused", retryable=False)
 
-        with patch.object(ce, "_default_connect", fake_connect), patch.object(
-            ce, "_prepare_execute_create", return_value=prepared
-        ), patch.object(ce, "_run_create_io", side_effect=run_io), patch.object(
-            ce, "apply_provider_error", create=True
-        ):
-            # apply_provider_error is imported into create_executor namespace
-            with patch("app.services.trackers.create_executor.apply_provider_error") as apply_err:
-                with patch.object(ce, "OpStore") as OpStore:
-                    OpStore.return_value.get.return_value = {
-                        "id": "op_x",
-                        "state": "sent",
-                        "fence": 1,
-                        "op": "create_issue",
-                    }
-                    ce.execute_claimed_op(claimed)
-                    apply_err.assert_called_once()
+        forge = Forge()
+        install_connector_runtime(ConnectorRuntime(connect=fake_connect, adapters=lambda _c: (forge, forge)))
+        self.addCleanup(install_connector_runtime, None)
+        with patch.object(ce, "_prepare_execute_create", return_value=prepared), patch.object(
+            ce, "apply_provider_error"
+        ) as apply_err:
+            ce.execute_claimed_op(claimed)
+        apply_err.assert_called_once()
         self.assertTrue(io_saw_closed.get("prior_closed"))
 
 

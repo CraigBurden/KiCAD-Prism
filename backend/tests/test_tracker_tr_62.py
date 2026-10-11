@@ -24,7 +24,9 @@ from app.services.trackers.composition import (  # noqa: E402
     initialize_tracker_composition,
     reset_tracker_runtime,
 )
-from app.services.trackers.create_executor import set_connect_factory, unmount_create_executor  # noqa: E402
+from app.services.trackers.composition import unmount_outbound_executor  # noqa: E402
+from app.services.trackers.connector_runtime import ConnectorRuntime, install_connector_runtime  # noqa: E402
+from tracker_fault_harness import StatefulFakeForge, forge_runtime  # noqa: E402
 from app.services.trackers.contracts import RemoteChange, UpdateCursor  # noqa: E402
 from app.services.trackers.inbox_store import InboxStore, apply_schema as apply_inbox_schema  # noqa: E402
 from app.services.trackers.jobs import run_tracker_dispatch_job, run_tracker_poll_job, run_tracker_sweep_job  # noqa: E402
@@ -49,7 +51,6 @@ from test_tracker_tr_28 import (  # noqa: E402
     ISSUE,
     ISSUE_ID,
     ISSUE_NUMBER,
-    _remote_issue,
 )
 
 try:
@@ -185,8 +186,9 @@ class TrackerCompositionPostgresTests(unittest.TestCase):
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.inbox = InboxStore(self.conn)
-        set_connect_factory(self._factory)
-        self.addCleanup(lambda: set_connect_factory(None))
+        # Real provider kits over this test's schema: connectors without credentials stay auth_lost.
+        install_connector_runtime(ConnectorRuntime(connect=self._factory))
+        self.addCleanup(install_connector_runtime, None)
 
     def _cleanup(self) -> None:
         try:
@@ -314,23 +316,12 @@ class TrackerCompositionPostgresTests(unittest.TestCase):
             )
         ]
 
-        def list_updates(_dest, _cursor):
-            return changes, UpdateCursor(since="2026-09-20T16:05:00Z")
-
-        bundle = mock.Mock()
-        bundle.list_updates = list_updates
-        bundle.bot_user_id = BOT_ID
-        bundle.bot_login = BOT_LOGIN
-        bundle.destination = mock.Mock(return_value=mock.Mock())
-        fetcher = mock.Mock()
-        fetcher.fetch_issue.return_value = _remote_issue(body="issue body")
-        registry = mock.Mock()
-        registry.bundle_for_connector.return_value = bundle
-        registry.inbound_fetcher.return_value = fetcher
+        forge = StatefulFakeForge()
+        forge.queue_update_pages([(changes, UpdateCursor(since="2026-09-20T16:05:00Z"))])
+        forge.seed_issue(external_id=ISSUE_ID, number=int(ISSUE_NUMBER), body="issue body")
 
         with mock.patch("app.services.trackers.composition.get_tracker_runtime") as get_runtime:
-            runtime = TrackerRuntime(registry=registry)
-            get_runtime.return_value = runtime
+            get_runtime.return_value = TrackerRuntime(connectors=forge_runtime(forge, self._factory))
             context = FakeContext(
                 {
                     "connectorId": CONNECTOR,
@@ -425,7 +416,7 @@ class TrackerCompositionPostgresTests(unittest.TestCase):
         self.assertEqual(row["last_error"]["class"], "auth_lost")
 
     def test_dispatch_defers_hints_when_create_executor_unmounted(self) -> None:
-        unmount_create_executor()
+        unmount_outbound_executor()
         self._seed_destination(with_credentials=False)
         self.inbox.enqueue(
             connector_id=CONNECTOR,

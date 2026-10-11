@@ -1,7 +1,10 @@
 """Runtime composition for tracker worker and API paths (TR-62, C2/C6/C7).
 
-Wires provider registry, inbound reducer, poll/sweep libraries and outbound
-dispatch into one initialization path shared by the API and prism-worker.
+Wires the connector runtime, inbound reducer, poll/sweep libraries and
+outbound dispatch into one initialization path shared by the API and
+prism-worker. Every path reaches a forge through the installed
+``ConnectorRuntime`` (``connector_runtime``); executors keep no connection or
+adapter state of their own.
 
 Outbound ops are routed by an explicit op-kind dispatch table (R3-H1/H2).
 There is no create→reply→thread @wraps monkey-patch chain and no import-time
@@ -22,9 +25,11 @@ from app.services.trackers.github_recovery import (
 from app.services.trackers.inbound import apply_destination_hints
 from app.services.trackers.op_store import EXECUTE_DISPATCH, OpStore
 from app.services.trackers.poller import poll_destination_updates
-from app.services.trackers.provider_registry import (
+from app.services.trackers.connector_runtime import (
+    ConnectorRuntime,
     DestinationContext,
-    ProviderRegistry,
+    connector_runtime,
+    install_connector_runtime,
     resolve_destination_context,
 )
 from app.services.trackers.scheduler import mount_hints_applier
@@ -104,30 +109,17 @@ def unmount_outbound_executor() -> None:
     _EXECUTE_BY_OP.clear()
     _RECOVER_BY_OP.clear()
     _outbound_mounted = False
-    # Keep per-module mount flags consistent after a full teardown.
-    try:
-        import app.services.trackers.create_executor as create_executor
-
-        create_executor._mounted = False
-    except Exception:
-        pass
-    try:
-        import app.services.trackers.reply_executor as reply_executor
-
-        reply_executor._mounted = False
-    except Exception:
-        pass
-    try:
-        import app.services.trackers.thread_executor as thread_executor
-
-        thread_executor._mounted = False
-    except Exception:
-        pass
 
 
 class TrackerRuntime:
-    def __init__(self, registry: ProviderRegistry | None = None) -> None:
-        self.registry = registry or ProviderRegistry()
+    def __init__(self, connectors: ConnectorRuntime | None = None) -> None:
+        self._connectors = connectors
+
+    @property
+    def connectors(self) -> ConnectorRuntime:
+        """The pinned connector runtime, else the installed one."""
+
+        return self._connectors or connector_runtime()
 
     def destination_context(
         self,
@@ -152,10 +144,10 @@ class TrackerRuntime:
         ctx = self.destination_context(conn, connector_id=connector_id, remote_container_id=remote_container_id)
         if ctx is None or ctx.paused:
             return 0
-        fetcher = self.registry.inbound_fetcher(conn, ctx)
+        fetcher = self.connectors.inbound_fetcher(conn, ctx)
         if fetcher is None:
             return 0
-        bundle = self.registry.bundle_for_connector(conn, connector_id)
+        bundle = self.connectors.bundle_for_connector(conn, connector_id)
         if bundle is None:
             return 0
         results = apply_destination_hints(
@@ -180,7 +172,7 @@ class TrackerRuntime:
             return JobResult(message="Unknown connector")
         if ctx.paused:
             return JobResult(message="Paused connector skipped poll")
-        bundle = self.registry.bundle_for_connector(conn, connector_id)
+        bundle = self.connectors.bundle_for_connector(conn, connector_id)
         if bundle is None or not ctx.container_path:
             return JobResult(message="Provider unavailable; poll skipped")
         outcome = poll_destination_updates(
@@ -223,7 +215,7 @@ class TrackerRuntime:
             return JobResult(message="Unknown connector")
         if ctx.paused:
             return JobResult(message="Paused connector skipped sweep")
-        bundle = self.registry.bundle_for_connector(conn, connector_id)
+        bundle = self.connectors.bundle_for_connector(conn, connector_id)
         if bundle is None or not ctx.container_path:
             return JobResult(message="Provider unavailable; sweep skipped")
         dest = bundle.destination(ctx)
@@ -291,7 +283,7 @@ class TrackerRuntime:
         ctx = self.destination_context(conn, connector_id=connector_id, remote_container_id=container_id)
         if ctx is None:
             return None
-        bundle = self.registry.bundle_for_connector(conn, connector_id)
+        bundle = self.connectors.bundle_for_connector(conn, connector_id)
         if bundle is None or not ctx.container_path:
             return None
         dest = bundle.destination(ctx)
@@ -339,10 +331,11 @@ def get_tracker_runtime() -> TrackerRuntime:
 
 
 def reset_tracker_runtime() -> None:
-    """Test helper: drop the singleton runtime and unmount outbound dispatch."""
+    """Test helper: drop the singleton runtime, unmount outbound dispatch, restore the default connector runtime."""
 
     global _runtime
     unmount_outbound_executor()
+    install_connector_runtime(None)
     _runtime = None
 
 

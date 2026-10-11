@@ -16,7 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services.trackers.create_executor import _comment_dict_from_row, _encrypt_context  # noqa: E402
+from app.services.trackers.connector_runtime import credential_context  # noqa: E402
+from app.services.trackers.create_executor import _comment_dict_from_row  # noqa: E402
 from app.services.trackers.connector_service import _context as connector_context  # noqa: E402
 from app.services.trackers.drafts import board_name_from_comment, render_context_block_lines  # noqa: E402
 from app.services.trackers.executor_support import workspace_schema  # noqa: E402
@@ -93,7 +94,9 @@ class ExecutorRowMappingTests(unittest.TestCase):
     def test_executor_decrypt_context_matches_admin_api(self) -> None:
         # The admin API wrote the envelope with {"record", "field"}; a bytes
         # context crashed decrypt_secret (`'bytes' object has no attribute 'items'`).
-        self.assertEqual(_encrypt_context("cn_x"), connector_context("cn_x"))
+        # Executors now decrypt through the connector runtime, which owns the one context.
+        self.assertEqual(credential_context("cn_x"), connector_context("cn_x"))
+        self.assertEqual(credential_context("cn_x"), {"record": "cn_x", "field": "github_app"})
 
     def test_board_name_comes_from_project_relative_path(self) -> None:
         row = {

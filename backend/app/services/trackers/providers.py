@@ -333,6 +333,10 @@ class HostKit:
     oauth_app: Callable[[str, str, str, str, str], Any]
     # (OAuth app, PRISM_FORGE_HOSTS) -> identity adapter.
     identity_adapter: Callable[[Any, str], Any]
+    # Whether a connection without publishing credentials is still useful (for
+    # account linking). A GitHub connection *is* its App, so without the App's
+    # credentials it counts as revoked.
+    links_without_credentials: bool = True
     issues: Optional[ProviderKit] = None
 
     @property
@@ -415,6 +419,7 @@ GITHUB_HOST = HostKit(
     validate_instance=_github_validate,
     oauth_app=_github_oauth_app,
     identity_adapter=_github_identity,
+    links_without_credentials=False,
     issues=GITHUB,
 )
 GITLAB_HOST = HostKit(

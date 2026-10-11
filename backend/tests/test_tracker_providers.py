@@ -11,7 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.services.trackers import providers  # noqa: E402
 from app.services.trackers.errors import ProviderError  # noqa: E402
 from app.services.trackers.inbound import CallableFetcher  # noqa: E402
-from app.services.trackers.provider_registry import (  # noqa: E402
+from app.services.trackers.connector_runtime import (  # noqa: E402
+    connector_status,
     ContextInboundFetcher,
     DestinationContext,
     TrackerProviderBundle,
@@ -84,6 +85,45 @@ class ProviderRegistryTests(unittest.TestCase):
     def test_display_names_keep_brand_casing(self) -> None:
         self.assertEqual(providers.display_name("gitlab"), "GitLab")
         self.assertEqual(providers.display_name("github.com"), "GitHub")
+
+
+class ConnectorStatusTests(unittest.TestCase):
+    """One status per connector, derived once on the server (the UI only labels it)."""
+
+    def _row(self, **overrides):  # noqa: ANN003
+        row = {
+            "provider": "github",
+            "credentialConfigured": True,
+            "bot_forge_user_id": "199001",
+            "paused": False,
+            "paused_reason": None,
+        }
+        row.update(overrides)
+        return row
+
+    def test_tested_unpaused_connector_is_ready(self) -> None:
+        self.assertEqual(connector_status(self._row()), "ready")
+
+    def test_lost_auth_and_revoke_read_as_revoked(self) -> None:
+        # auth_lost is what executor_support writes when the forge rejects the credentials.
+        self.assertEqual(connector_status(self._row(paused=True, paused_reason="auth_lost")), "revoked")
+        self.assertEqual(
+            connector_status(self._row(paused=True, paused_reason="revoked", credentialConfigured=False)),
+            "revoked",
+        )
+
+    def test_github_without_its_app_is_revoked_but_gitlab_links_accounts(self) -> None:
+        self.assertEqual(connector_status(self._row(credentialConfigured=False)), "revoked")
+        self.assertEqual(connector_status(self._row(provider="gitlab", credentialConfigured=False)), "linking-only")
+        self.assertEqual(connector_status(self._row(provider="gitea", credentialConfigured=False)), "linking-only")
+
+    def test_untested_or_failed_test_needs_a_test(self) -> None:
+        self.assertEqual(connector_status(self._row(bot_forge_user_id=None)), "needs-test")
+        self.assertEqual(connector_status(self._row(paused=True, paused_reason="test_failed")), "needs-test")
+
+    def test_other_pauses_are_paused(self) -> None:
+        self.assertEqual(connector_status(self._row(paused=True, paused_reason="admin")), "paused")
+        self.assertEqual(connector_status(self._row(paused=True, paused_reason="permissions")), "paused")
 
 
 class ProviderWordingTests(unittest.TestCase):

@@ -112,9 +112,14 @@ and `comment_anchor_bindings.py` preserve revision and binding history.
 mutation; `comment_live_broker.py` wakes socket readers. Keep HTTP snapshots as
 content authority and never let a tracker failure prevent local discussion.
 
-`trackers/provider_registry.py` selects provider capabilities. Promotion,
-reply/thread/state executors, webhook inboxes, and polling live under
-`trackers/`; provider-specific operations must not be hard-coded in generic
-handlers. Read `docs/TRACKER_INTEGRATION.md` and
+`trackers/connector_runtime.py` turns a connector into its one status and its
+adapters (and hands executors their database connection);
+`trackers/providers.py` holds one kit per host with everything provider-specific
+(instances, account linking, web URLs, issue and comment adapters, recovery
+listing); `trackers/forge_client.py` is the adapters' shared HTTP helper.
+Promotion, reply/thread/state executors, webhook inboxes, and polling live under
+`trackers/`; provider-specific operations belong in a kit, never in generic
+handlers. Tests plug `backend/tests/tracker_fault_harness.py` `StatefulFakeForge` in at
+the runtime seam (`install_fake_provider`), not by patching executor privates. Read `docs/TRACKER_INTEGRATION.md` and
 `docs/tracker-integration/CONTRACTS.md` before changing credential, idempotency,
 remote recovery, or authorization behavior.

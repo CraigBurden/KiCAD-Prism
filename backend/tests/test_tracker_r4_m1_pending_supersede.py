@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import Settings  # noqa: E402
 from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
-from app.services.trackers.create_executor import _load_execution_context  # noqa: E402
+from app.services.trackers.create_executor import load_execution_context  # noqa: E402
 from app.services.trackers.link_lifecycle import (  # noqa: E402
     SUPERSEDEABLE_STATES,
     supersede_live_ops,
@@ -339,7 +339,7 @@ class R4M1PostgresTests(unittest.TestCase):
             (PROJECT,),
         )
         self.conn.commit()
-        ctx = _load_execution_context(self.conn, {"id": "op_recover"})
+        ctx = load_execution_context(self.conn, {"id": "op_recover"})
         self.assertEqual(ctx.destination.containerPath, "acme/openswitch")
         self.assertEqual(ctx.policy["container_path"], "acme/openswitch")
         self.assertEqual(ctx.destination.remoteContainerId, CONTAINER)
