@@ -88,6 +88,17 @@ class DesignCompareServiceTests(unittest.TestCase):
             sources = design_compare_service._list_kicad_sources(root)
         self.assertEqual([source["path"] for source in sources], ["board.kicad_sch"])
 
+    def test_autosaves_and_fetched_libraries_are_not_design_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+            (root / "_autosave-board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+            fetched = root / "RemoteLibrary" / "board.kicad_sch"
+            fetched.parent.mkdir()
+            fetched.write_text("(kicad_sch)", encoding="utf-8")
+            sources = design_compare_service._list_kicad_sources(root)
+        self.assertEqual([source["path"] for source in sources], ["board.kicad_sch"])
+
     def test_snapshot_archives_design_inputs_without_manufacturing_assets(self) -> None:
         # Commit can start git auto-maintenance, which writes into .git/objects
         # after the assertions and races TemporaryDirectory cleanup (ENOTEMPTY).

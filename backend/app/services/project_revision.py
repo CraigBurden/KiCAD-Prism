@@ -16,8 +16,10 @@ The module owns four decisions that used to be made separately (and drift):
   that only some callers carry.
 * **Commit resolution.** A ref resolves to a full commit id or raises
   ``RevisionNotFound``.
-* **Source sets.** Which files a temporary checkout contains
-  (``FULL_TREE``, ``KICAD_SOURCES``, ``COMPARE_INPUTS``).
+* **Source sets.** Which files are a revision's design sources and which are
+  generated noise (``is_generated``), and which of them a checkout, a cache key
+  or a file list contains (``FULL_TREE``, ``KICAD_SOURCES``, ``COMPARE_INPUTS``,
+  ``SEMANTIC_SOURCES``).
 * **Materialization.** Files are read from Git objects (``ls-tree`` and one
   ``cat-file --batch``), never through ``git archive``: ``.gitattributes``
   ``export-ignore``/``export-subst`` must not change what KiCad sees. Regular
@@ -41,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterator, Mapping, Optional
 
-from app.services import path_config_service
+from app.services import kicad_noise_service, path_config_service
 
 
 class ProjectNotInRepository(ValueError):
@@ -167,6 +169,40 @@ def project_file_rel(location: ProjectLocation) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: Directories KiCad and Prism write generated copies into (backups, autosave,
+#: caches). Their files are never a project's design inputs.
+GENERATED_DIR_PARTS = frozenset({".cache", ".kicad-prism", "archive", "autosave", "backup", "backups"})
+
+#: Prism's project settings. ``kicad_noise_service`` hides the file from change
+#: lists, but it is an input: source sets that name it keep it.
+_PRISM_SETTINGS = ".prism.json"
+
+
+def is_generated(relative_path: str) -> bool:
+    """Whether a file is something KiCad or Prism generated, never a design source.
+
+    ``relative_path`` is POSIX, relative to the repository or to the project
+    directory. This is the one rule for every reader of a revision's sources:
+    checkouts, cache keys, comparison file lists and the schematic field
+    overlay. It is ``kicad_noise_service.is_noise`` (backups, autosaves, lock
+    files, caches, fetched ``RemoteLibrary`` parts; the change-list rule the
+    agent shares) plus the generated directories and backup names a snapshot
+    can also hold.
+    """
+
+    path = PurePosixPath(relative_path.replace("\\", "/"))
+    name = path.name.casefold()
+    if name != _PRISM_SETTINGS and kicad_noise_service.is_noise(path.as_posix()):
+        return True
+    parents = [part.casefold() for part in path.parts[:-1]]
+    return (
+        any(part in GENERATED_DIR_PARTS or part.endswith("-backups") for part in parents)
+        or name.startswith(("~", "._"))
+        or "-backup-" in name
+        or name.endswith((".bak", ".lck"))
+    )
+
+
 @dataclass(frozen=True)
 class SourceSet:
     """Which files of a revision a checkout contains."""
@@ -180,6 +216,8 @@ class SourceSet:
     skip_dir_parts: frozenset[str] = frozenset()
     #: Directory names skipped directly below the checkout's scope.
     skip_top_dirs: frozenset[str] = frozenset()
+    #: Leave out what :func:`is_generated` calls generated (judged within the scope).
+    skip_generated: bool = False
 
     def keeps(self, repo_path: str, scoped_path: str) -> bool:
         path = PurePosixPath(repo_path)
@@ -188,9 +226,16 @@ class SourceSet:
         scoped = PurePosixPath(scoped_path)
         if self.skip_top_dirs and len(scoped.parts) > 1 and scoped.parts[0] in self.skip_top_dirs:
             return False
+        if self.skip_generated and is_generated(scoped_path):
+            return False
         if self.suffixes is None:
             return True
         return path.name in self.names or path.suffix.casefold() in self.suffixes
+
+    def includes(self, relative_path: str) -> bool:
+        """``keeps`` for a path already relative to the scope (a working tree)."""
+
+        return self.keeps(relative_path, relative_path)
 
 
 #: Everything committed: kicad-cli may read libraries, models and worksheets
@@ -201,12 +246,18 @@ FULL_TREE = SourceSet("full-tree")
 KICAD_SOURCES = SourceSet(
     "kicad-sources",
     suffixes=frozenset({".kicad_pro", ".kicad_pcb", ".kicad_sch"}),
-    names=frozenset({".prism.json"}),
+    names=frozenset({_PRISM_SETTINGS}),
+    skip_generated=True,
 )
 
-#: Directories KiCad and Prism write generated copies into (backups, autosave,
-#: caches). Their files are never a project's design inputs.
-GENERATED_DIR_PARTS = frozenset({".cache", ".kicad-prism", "archive", "autosave", "backup", "backups"})
+#: What a semantic index is built from, and so what its cache key hashes: the
+#: project's documents, the libraries beside them, and Prism settings.
+SEMANTIC_SOURCES = SourceSet(
+    "semantic-sources",
+    suffixes=frozenset({".kicad_pro", ".kicad_sch", ".kicad_pcb", ".kicad_sym", ".kicad_mod"}),
+    names=frozenset({_PRISM_SETTINGS}),
+    skip_generated=True,
+)
 
 #: The inputs semantic, geometry, BOM and viewer generation need for one
 #: revision of a comparison, without manufacturing and 3D asset bulk.
@@ -215,8 +266,9 @@ COMPARE_INPUTS = SourceSet(
     suffixes=frozenset(
         {".kicad_dru", ".kicad_jobset", ".kicad_pcb", ".kicad_pro", ".kicad_sch", ".kicad_wks"}
     ),
-    names=frozenset({".prism.json", "fp-lib-table", "sym-lib-table"}),
+    names=frozenset({_PRISM_SETTINGS, "fp-lib-table", "sym-lib-table"}),
     skip_dir_parts=GENERATED_DIR_PARTS,
+    skip_generated=True,
     skip_top_dirs=frozenset(
         {
             "Manufacturing-Outputs",

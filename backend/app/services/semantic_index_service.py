@@ -16,6 +16,7 @@ from typing import Any, Callable, Iterable, Iterator
 
 from app.core.config import settings
 from app.services import (
+    kicad_library_reader,
     kicad_monkey_design_adapter,
     path_config_service,
     project_revision,
@@ -39,6 +40,7 @@ _GENERATOR_INPUTS = ("semantic-index", SCHEMA, GENERATOR_VERSION)
 GENERATOR_MODULE_PATHS = (
     Path(__file__),
     Path(kicad_monkey_design_adapter.__file__),
+    Path(kicad_library_reader.__file__),
     Path(semantic_index_nets.__file__),
     Path(semantic_index_variants.__file__),
     Path(variant_catalog_service.__file__),
@@ -56,7 +58,6 @@ GENERATOR_BUILD = hashlib.sha256(
 
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
-SEMANTIC_SOURCE_SUFFIXES = {".kicad_pro", ".kicad_sch", ".kicad_pcb", ".kicad_sym", ".kicad_mod"}
 
 REQUIRED_BOM_FIELDS = (
     "Value",
@@ -126,9 +127,10 @@ def _source_entries_on_disk(root: Path) -> list[tuple[str, str]]:
     for path in sorted(root.rglob("*")):
         if not path.is_file() or ".git" in path.parts:
             continue
-        if path.suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES and path.name != ".prism.json":
+        relative = path.relative_to(root).as_posix()
+        if not project_revision.SEMANTIC_SOURCES.includes(relative):
             continue
-        entries.append((path.relative_to(root).as_posix(), _blob_id(path.read_bytes())))
+        entries.append((relative, _blob_id(path.read_bytes())))
     return entries
 
 
@@ -166,7 +168,7 @@ def _source_entries_in_commit(
         if not path.startswith(prefix):
             continue
         relative = path[len(prefix):]
-        if Path(relative).suffix.lower() not in SEMANTIC_SOURCE_SUFFIXES and Path(relative).name != ".prism.json":
+        if not project_revision.SEMANTIC_SOURCES.includes(relative):
             continue
         entries.append((relative, parts[2]))
     return entries
@@ -358,39 +360,6 @@ def _string(value: object) -> str:
     return str(value)
 
 
-# Only quotes and parentheses can change the nesting state of an
-# S-expression. A complete quoted string is its own alternative, and comes
-# first, so the scan swallows it whole and never sees the parentheses inside
-# a value like "Resistor (SMD)". A bare quote therefore only ever matches
-# when the string is unterminated.
-_SEXPR_SCAN = re.compile(r'"(?:[^"\\]|\\.)*"|["()]')
-
-
-def _balanced_s_expression_end(text: str, start: int) -> int | None:
-    """Find the end offset of a KiCad S-expression without parsing geometry.
-
-    Boards run to tens of megabytes and this is called once per candidate
-    form -- millions of structural characters per compare. Driving a single
-    `finditer` keeps that walk inside the regex engine; restarting `search`
-    at each character cost one interpreter round trip apiece.
-    """
-
-    depth = 0
-    for match in _SEXPR_SCAN.finditer(text, start):
-        token = match.group()
-        if token == "(":
-            depth += 1
-        elif token == ")":
-            depth -= 1
-            if depth == 0:
-                return match.end()
-            if depth < 0:  # started past the opening paren
-                return None
-        elif token == '"':  # unterminated string; nothing sane left to scan
-            return None
-    return None
-
-
 _LIB_SYMBOLS_START = re.compile(r"\(lib_symbols(?=\s|\))")
 
 
@@ -414,7 +383,7 @@ def _library_block_span(text: str) -> tuple[int, int]:
     match = _LIB_SYMBOLS_START.search(text)
     if match is None:
         return (0, 0)
-    end = _balanced_s_expression_end(text, match.start())
+    end = kicad_library_reader.form_end(text, match.start())
     return (match.start(), end) if end is not None else (0, 0)
 
 
@@ -428,18 +397,19 @@ def _schematic_instance_fields(project_file: Path) -> dict[str, dict[str, str]]:
     """
 
     result: dict[str, dict[str, str]] = {}
-    symbol_start = re.compile(r"\(symbol(?=\s|\))")
-    property_pattern = re.compile(
-        r'\(property\s+"((?:\\.|[^"\\])*)"\s+"((?:\\.|[^"\\])*)"'
-    )
+    symbol_start = kicad_library_reader.form_starts("symbol")
     uuid_pattern = re.compile(r'\(uuid\s+"((?:\\.|[^"\\])*)"\)')
-    for schematic_path in sorted(project_file.parent.rglob("*.kicad_sch")):
+    root = project_file.parent
+    for schematic_path in sorted(root.rglob("*.kicad_sch")):
+        # A committed `_autosave-<sheet>` holds the same UUIDs and sorts first.
+        if project_revision.is_generated(schematic_path.relative_to(root).as_posix()):
+            continue
         text = schematic_path.read_text(encoding="utf-8", errors="ignore")
         library_start, library_end = _library_block_span(text)
         for match in symbol_start.finditer(text):
             if library_start <= match.start() < library_end:
                 continue
-            end = _balanced_s_expression_end(text, match.start())
+            end = kicad_library_reader.form_end(text, match.start())
             if end is None:
                 continue
             block = text[match.start():end]
@@ -450,11 +420,7 @@ def _schematic_instance_fields(project_file: Path) -> dict[str, dict[str, str]]:
             uuid_match = uuid_pattern.search(block)
             if not uuid_match:
                 continue
-            fields = {
-                key.replace(r'\"', '"').replace(r"\\", "\\"): value.replace(r'\"', '"').replace(r"\\", "\\")
-                for key, value in property_pattern.findall(block)
-                if key
-            }
+            fields = kicad_library_reader.symbol_properties(block)
             if fields:
                 result.setdefault(uuid_match.group(1), fields)
     return result

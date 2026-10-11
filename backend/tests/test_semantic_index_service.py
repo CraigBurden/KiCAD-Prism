@@ -639,6 +639,23 @@ class SemanticIndexServiceTests(unittest.TestCase):
             schematic.write_text("schematic-b", encoding="utf-8")
             self.assertNotEqual(semantic_index_service.source_revision_key_for_project_file(project), initial)
 
+    def test_source_revision_key_ignores_kicad_generated_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "board.kicad_pro"
+            project.write_text("project-a", encoding="utf-8")
+            (root / "board.kicad_sch").write_text("schematic-a", encoding="utf-8")
+            autosave = root / "_autosave-board.kicad_sch"
+            remote = root / "RemoteLibrary" / "symbols" / "remote.kicad_sym"
+            remote.parent.mkdir(parents=True)
+            autosave.write_text("autosave-a", encoding="utf-8")
+            remote.write_text("remote-a", encoding="utf-8")
+
+            initial = semantic_index_service.source_revision_key_for_project_file(project)
+            autosave.write_text("autosave-b", encoding="utf-8")
+            remote.write_text("remote-b", encoding="utf-8")
+            self.assertEqual(semantic_index_service.source_revision_key_for_project_file(project), initial)
+
     def test_build_semantic_index_maps_schematic_and_pcb_identities(self) -> None:
         design_payload = {
             "components": [{
@@ -958,61 +975,6 @@ class NetResolutionTests(unittest.TestCase):
         self.assertEqual(semantic_index_service._net_name(board, item), "VCC")
 
 
-class BalancedSExpressionTests(unittest.TestCase):
-    """The scanner steps between structural characters rather than over all of
-    them, so the cases that matter are the ones where a paren is not structural."""
-
-    def test_it_returns_the_offset_past_the_closing_paren(self) -> None:
-        text = "(symbol (at 1 2))tail"
-        self.assertEqual(
-            semantic_index_service._balanced_s_expression_end(text, 0),
-            len("(symbol (at 1 2))"),
-        )
-
-    def test_parens_inside_a_string_do_not_change_depth(self) -> None:
-        text = '(property "Value" "TPS55289 (rev B)")after'
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], '(property "Value" "TPS55289 (rev B)")')
-
-    def test_an_escaped_quote_does_not_end_the_string(self) -> None:
-        text = r'(property "Note" "a \" (b" ) rest'
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], r'(property "Note" "a \" (b" )')
-
-    def test_an_unterminated_form_reports_no_end(self) -> None:
-        self.assertIsNone(
-            semantic_index_service._balanced_s_expression_end("(symbol (at 1", 0)
-        )
-
-    def test_an_unterminated_string_reports_no_end(self) -> None:
-        self.assertIsNone(
-            semantic_index_service._balanced_s_expression_end('(property "open', 0)
-        )
-
-    def test_an_escaped_backslash_still_closes_the_string(self) -> None:
-        # The escape consumes the second backslash, so the quote after it is
-        # a real terminator and the following paren is structural again. Read
-        # the other way, the string would swallow the rest of the form.
-        text = r'(property "Path" "C:\\" ) rest'
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], r'(property "Path" "C:\\" )')
-
-    def test_an_empty_string_is_not_mistaken_for_an_unterminated_one(self) -> None:
-        text = '(property "Value" "")tail'
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], '(property "Value" "")')
-
-    def test_a_start_past_the_opening_paren_reports_no_end(self) -> None:
-        self.assertIsNone(
-            semantic_index_service._balanced_s_expression_end("(symbol (at 1 2))", 8 + 9)
-        )
-
-    def test_nested_forms_close_at_the_outermost_paren(self) -> None:
-        text = "(footprint (pad (at 0 0)) (pad (at 1 1)))after"
-        end = semantic_index_service._balanced_s_expression_end(text, 0)
-        self.assertEqual(text[:end], "(footprint (pad (at 0 0)) (pad (at 1 1)))")
-
-
 class SchematicInstanceFieldTests(unittest.TestCase):
     LIBRARY = """
 \t(lib_symbols
@@ -1075,6 +1037,27 @@ class SchematicInstanceFieldTests(unittest.TestCase):
         fields = self._fields(self.LIBRARY + self.PLACED)
 
         self.assertNotIn("pin-uuid-1", fields)
+
+    def test_a_committed_autosave_does_not_shadow_the_sheet(self) -> None:
+        """KiCad's `_autosave-<sheet>` copy carries the same symbol UUIDs.
+
+        It sorts ahead of the sheet it shadows, so reading it would report the
+        stale copy's properties for every placed symbol.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "sheet.kicad_sch").write_text(
+                f"(kicad_sch{self.LIBRARY}{self.PLACED})", encoding="utf-8"
+            )
+            stale = self.PLACED.replace("https://example.invalid/r.pdf", "https://example.invalid/stale.pdf")
+            (root / "_autosave-sheet.kicad_sch").write_text(
+                f"(kicad_sch{self.LIBRARY}{stale})", encoding="utf-8"
+            )
+            fields = semantic_index_service._schematic_instance_fields(root / "board.kicad_pro")
+
+        self.assertEqual(
+            fields["placed-uuid-1"]["Datasheet"], "https://example.invalid/r.pdf"
+        )
 
 
 class CanonicalFieldTests(unittest.TestCase):

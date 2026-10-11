@@ -8,9 +8,19 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+from app.services.kicad_library_reader import (
+    FolderInventory,
+    footprint_identity,
+    footprint_name,
+    library_symbols,
+    model_references,
+    property_value,
+    symbol_properties,
+)
+
 
 DISCOVERY_SUFFIXES = {".kicad_sym", ".kicad_mod"}
-MODEL_SUFFIXES = {".step", ".stp", ".wrl"}
+MODEL_SUFFIXES = frozenset({".step", ".stp", ".wrl"})
 SPICE_SUFFIXES = {".lib", ".mod", ".mdl", ".cir", ".sub", ".subckt", ".spice"}
 _DISCOVERY_CACHE_LIMIT = 8
 _discovery_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -50,111 +60,6 @@ def normalize_inventory(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return normalized
 
 
-def extract_top_level_symbol_blocks(text: str) -> list[tuple[str, str]]:
-    blocks: list[tuple[str, str]] = []
-    depth = 0
-    start: int | None = None
-    name = ""
-    in_string = False
-    escape = False
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if in_string:
-            if escape:
-                escape = False
-            elif char == "\\":
-                escape = True
-            elif char == '"':
-                in_string = False
-            index += 1
-            continue
-        if char == '"':
-            in_string = True
-        elif char == "(":
-            if depth == 1 and text.startswith("(symbol", index):
-                start = index
-                cursor = index + len("(symbol")
-                while cursor < len(text) and text[cursor].isspace():
-                    cursor += 1
-                if cursor < len(text) and text[cursor] == '"':
-                    cursor += 1
-                    chars: list[str] = []
-                    escaped = False
-                    while cursor < len(text):
-                        current = text[cursor]
-                        if escaped:
-                            chars.append(current)
-                            escaped = False
-                        elif current == "\\":
-                            escaped = True
-                        elif current == '"':
-                            break
-                        else:
-                            chars.append(current)
-                        cursor += 1
-                    name = "".join(chars)
-            depth += 1
-        elif char == ")":
-            depth -= 1
-            if start is not None and depth == 1:
-                blocks.append((name, text[start : index + 1]))
-                start = None
-                name = ""
-        index += 1
-    return blocks
-
-
-def symbol_properties(symbol_block: str) -> dict[str, str]:
-    pattern = re.compile(r'\(property\s+"((?:\\.|[^"])*)"\s+"((?:\\.|[^"])*)"')
-    return {
-        key.replace(r'\"', '"').replace(r"\\", "\\"): value.replace(r'\"', '"').replace(r"\\", "\\")
-        for key, value in pattern.findall(symbol_block)
-    }
-
-
-def property_value(properties: dict[str, str], *names: str) -> str:
-    normalized = {re.sub(r"[^a-z0-9]", "", key.casefold()): value for key, value in properties.items()}
-    for name in names:
-        value = normalized.get(re.sub(r"[^a-z0-9]", "", name.casefold()), "").strip()
-        if value:
-            return value
-    return ""
-
-
-def footprint_identity(relative_path: str) -> tuple[str, str]:
-    path = Path(relative_path)
-    library = next(
-        (parent.name.removesuffix(".pretty") for parent in path.parents if parent.suffix.casefold() == ".pretty"),
-        path.parent.name or "Prism_Imported",
-    )
-    return library, path.stem
-
-
-def footprint_name_from_text(text: str, fallback: str) -> str:
-    match = re.search(r'\((?:footprint|module)\s+(?:"((?:\\.|[^"])*)"|([^\s()]+))', text)
-    return ((match.group(1) or match.group(2)) if match else fallback).strip() or fallback
-
-
-def _linked_candidates(
-    raw_path: str,
-    *,
-    owner_relative_path: str,
-    inventory_by_path: dict[str, dict[str, Any]],
-    inventory_by_name: dict[str, list[dict[str, Any]]],
-) -> list[dict[str, Any]]:
-    expanded = re.sub(r"^\$\{[^}]+\}/?", "", raw_path).replace("\\", "/")
-    relative = (Path(owner_relative_path).parent / expanded).as_posix()
-    exact: list[dict[str, Any]] = []
-    for candidate in (expanded.lstrip("/"), relative):
-        found = inventory_by_path.get(candidate.casefold())
-        if found and found not in exact:
-            exact.append(found)
-    if exact:
-        return exact
-    return list(inventory_by_name.get(Path(raw_path).name.casefold(), []))
-
-
 def discover_library(
     source_files: list[dict[str, Any]],
     inventory_items: list[dict[str, Any]],
@@ -172,10 +77,7 @@ def discover_library(
         if cached is not None:
             _discovery_cache.move_to_end(directory_signature)
             return copy.deepcopy(cached)
-    inventory_by_path = {item["relative_path"].casefold(): item for item in inventory}
-    inventory_by_name: dict[str, list[dict[str, Any]]] = {}
-    for item in inventory:
-        inventory_by_name.setdefault(Path(item["relative_path"]).name.casefold(), []).append(item)
+    folder = FolderInventory(inventory)
 
     footprints_by_identity: dict[str, list[dict[str, Any]]] = {}
     all_footprints: list[dict[str, Any]] = []
@@ -186,7 +88,7 @@ def discover_library(
             continue
         library, filename_name = footprint_identity(relative_path)
         text = Path(str(source["object_path"])).read_text(encoding="utf-8", errors="replace")
-        name = footprint_name_from_text(text, filename_name)
+        name = footprint_name(text) or filename_name
         footprint = {"relative_path": relative_path, "library": library, "name": name, "filename_name": filename_name}
         all_footprints.append(footprint)
         footprints_by_identity.setdefault(f"{library}:{name}".casefold(), []).append(footprint)
@@ -202,14 +104,9 @@ def discover_library(
         if Path(source_path).suffix.casefold() != ".kicad_sym":
             continue
         text = Path(str(source["object_path"])).read_text(encoding="utf-8", errors="replace")
-        blocks = extract_top_level_symbol_blocks(text)
-        block_names = {name for name, _ in blocks}
         library = Path(source_path).stem or "Prism_Imported"
         required_paths.add(source_path)
-        for symbol_name, symbol_block in blocks:
-            unit_base = re.sub(r"_\d+_\d+$", "", symbol_name)
-            if unit_base != symbol_name and unit_base in block_names:
-                continue
+        for symbol_name, symbol_block in library_symbols(text):
             properties = symbol_properties(symbol_block)
             component_id = hashlib.sha256(f"{source_path}\0{symbol_name}".encode()).hexdigest()
             footprint_ref = property_value(properties, "Footprint")
@@ -284,25 +181,21 @@ def discover_library(
                 footprint_source = source_by_path.get(selected_footprint["relative_path"].casefold())
                 if footprint_source:
                     footprint_text = Path(str(footprint_source["object_path"])).read_text(encoding="utf-8", errors="replace")
-                    for model_ref in re.findall(r'\(model\s+"([^"]+)"', footprint_text):
-                        matches = [
-                            item for item in _linked_candidates(
-                                model_ref,
-                                owner_relative_path=selected_footprint["relative_path"],
-                                inventory_by_path=inventory_by_path,
-                                inventory_by_name=inventory_by_name,
-                            ) if item["suffix"] in MODEL_SUFFIXES
-                        ]
-                        status = "resolved" if len(matches) == 1 else "missing" if not matches else "ambiguous"
-                        if status == "resolved":
-                            required_paths.add(matches[0]["relative_path"])
+                    for model_ref in model_references(footprint_text):
+                        link = folder.resolve(
+                            model_ref,
+                            owner_relative_path=selected_footprint["relative_path"],
+                            suffixes=MODEL_SUFFIXES,
+                        )
+                        if link.selected is not None:
+                            required_paths.add(link.selected["relative_path"])
                         else:
                             findings.append({
-                                "code": f"{status}_3d_model",
-                                "severity": "warning" if status == "missing" else "error",
-                                "message": f"3D model reference {model_ref} is {status}.",
+                                "code": f"{link.status}_3d_model",
+                                "severity": "warning" if link.status == "missing" else "error",
+                                "message": f"3D model reference {model_ref} is {link.status}.",
                             })
-                        models.append({"reference": model_ref, "status": status, "candidates": matches})
+                        models.append({"reference": model_ref, "status": link.status, "candidates": link.candidates})
 
             metadata = {
                 "value": property_value(properties, "Value") or symbol_name,

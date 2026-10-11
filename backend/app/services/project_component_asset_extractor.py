@@ -5,43 +5,11 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from app.core.config import environment_value
 from app.services import kicad_footprint_normalizer
-
-
-def _balanced_end(text: str, start: int) -> int | None:
-    depth = 0
-    in_string = False
-    escaped = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char == "(":
-            depth += 1
-        elif char == ")":
-            depth -= 1
-            if depth == 0:
-                return index + 1
-    return None
-
-
-def _iter_blocks(text: str, head: str) -> Iterator[str]:
-    pattern = re.compile(rf"\({re.escape(head)}(?=\s|\))")
-    for match in pattern.finditer(text):
-        end = _balanced_end(text, match.start())
-        if end is not None:
-            yield text[match.start():end]
+from app.services.kicad_library_reader import form_end, form_starts, iter_forms, model_references
 
 
 def _direct_children(block: str) -> list[tuple[str, int, int, str]]:
@@ -90,7 +58,7 @@ def _replace_quoted(value: str) -> str:
 def _find_symbol_definition(schematic_text: str, symbol_uuid: str) -> tuple[str, str] | None:
     uuid_marker = f'(uuid "{_replace_quoted(symbol_uuid)}")'
     instance = next(
-        (block for block in _iter_blocks(schematic_text, "symbol") if "(lib_id " in block and uuid_marker in block),
+        (block for block in iter_forms(schematic_text, "symbol") if "(lib_id " in block and uuid_marker in block),
         None,
     )
     if not instance:
@@ -101,7 +69,7 @@ def _find_symbol_definition(schematic_text: str, symbol_uuid: str) -> tuple[str,
     lib_id = lib_id_match.group(1)
     definition_prefix = f'(symbol "{lib_id}"'
     definition = next(
-        (block for block in _iter_blocks(schematic_text, "symbol") if block.startswith(definition_prefix)),
+        (block for block in iter_forms(schematic_text, "symbol") if block.startswith(definition_prefix)),
         None,
     )
     return (lib_id, definition) if definition else None
@@ -124,7 +92,7 @@ def _sanitize_pad(block: str) -> str:
 
 def _sanitize_footprint(block: str, footprint_ref: str) -> tuple[str, bytes, list[str]]:
     target_name = footprint_ref.rsplit(":", 1)[-1] or "ImportedFootprint"
-    model_paths = re.findall(r'\(model\s+"([^"]+)"', block)
+    model_paths = model_references(block)
     sanitized = _remove_direct_children(block, {"at", "uuid", "path", "locked", "tstamp"})
     sanitized = re.sub(
         r'(\(property\s+"Reference"\s+")[^"]*(")',
@@ -133,8 +101,8 @@ def _sanitize_footprint(block: str, footprint_ref: str) -> tuple[str, bytes, lis
         count=1,
     )
     pad_spans = []
-    for match in re.finditer(r"\(pad(?=\s|\))", sanitized):
-        end = _balanced_end(sanitized, match.start())
+    for match in form_starts("pad").finditer(sanitized):
+        end = form_end(sanitized, match.start())
         if end is not None:
             pad_spans.append((match.start(), end, sanitized[match.start():end]))
     for start, end, pad in reversed(pad_spans):
@@ -297,7 +265,7 @@ class ProjectAssetSnapshotIndex:
             text = schematic_path.read_text(encoding="utf-8", errors="ignore")
             definitions: dict[str, str] = {}
             instances: list[str] = []
-            for block in _iter_blocks(text, "symbol"):
+            for block in iter_forms(text, "symbol"):
                 lib_id_match = re.search(r'\(lib_id\s+"([^"]+)"\)', block)
                 if lib_id_match:
                     instances.append(block)
@@ -324,7 +292,7 @@ class ProjectAssetSnapshotIndex:
 
         for pcb_path in (path for path in project_files if path.suffix == ".kicad_pcb"):
             text = pcb_path.read_text(encoding="utf-8", errors="ignore")
-            for block in _iter_blocks(text, "footprint"):
+            for block in iter_forms(text, "footprint"):
                 indexed = _IndexedFootprint(block, pcb_path)
                 for footprint_uuid in re.findall(r'\(uuid\s+"([^"]+)"\)', block):
                     # Matching any UUID preserves the previous marker-in-block lookup.
