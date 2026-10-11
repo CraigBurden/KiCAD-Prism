@@ -54,7 +54,7 @@ class ProjectCreateTests(unittest.TestCase):
         self.tmp = Path(temporary.name)
 
         for patcher in (
-            patch.dict("os.environ", {"KICAD_PROJECTS_ROOT": str(self.tmp)}),
+            patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp)),
             patch.object(settings, "PUBLIC_BASE_URL", "https://prism.example.com"),
         ):
             patcher.start()

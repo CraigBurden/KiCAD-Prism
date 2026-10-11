@@ -19,6 +19,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api._helpers import _row_to_project  # noqa: E402
+from app.core.config import settings  # noqa: E402
 from app.services.workspace_service import WorkspaceService, _git_origin  # noqa: E402
 
 DATABASE_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
@@ -75,7 +76,7 @@ class RepositoryOriginTests(TempDirTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        environment = patch.dict("os.environ", {"KICAD_PROJECTS_ROOT": str(self.tmp)})
+        environment = patch.object(settings, "KICAD_PROJECTS_ROOT", str(self.tmp))
         environment.start()
         self.addCleanup(environment.stop)
 

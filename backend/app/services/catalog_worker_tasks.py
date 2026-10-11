@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Callable
 from datetime import datetime, timedelta, timezone
 
+from app.core.config import settings
 from app.services.component_catalog_service import catalog_service
 from app.services.job_artifact_service import job_artifacts
 from app.services.git_read_cache_service import git_read_cache
@@ -150,14 +150,14 @@ def run_artifact_maintenance(job: dict[str, Any], progress: Progress) -> dict[st
     metadata_rows_pruned = context_jobs.prune_artifact_metadata(
         retention_seconds=max(
             0,
-            int(os.environ.get("PRISM_JOB_ARTIFACT_RETENTION_DAYS", "30")),
+            settings.PRISM_JOB_ARTIFACT_RETENTION_DAYS,
         )
         * 24
         * 60
         * 60,
         partial_retention_seconds=max(
             0,
-            int(os.environ.get("PRISM_JOB_PARTIAL_RETENTION_HOURS", "24")),
+            settings.PRISM_JOB_PARTIAL_RETENTION_HOURS,
         )
         * 60
         * 60,

@@ -59,6 +59,7 @@ BACKEND_ROOT = (
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from app.core.config import settings  # noqa: E402
 from app.services import design_compare_service, semantic_index_service  # noqa: E402
 from app.services.design_compare_benchmark import DesignCompareBenchmark  # noqa: E402
 
@@ -704,8 +705,11 @@ def main() -> None:
         / f"design-compare-benchmark-{int(time.time())}.json"
     )
 
+    # The environment reaches spawned workers; this process read its settings at import.
     os.environ["PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS"] = str(args.initial_workers)
     os.environ["PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS"] = str(args.pcb_workers)
+    settings.PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS = args.initial_workers
+    settings.PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS = args.pcb_workers
     semantic_index_service._add_kicad_monkey_import_paths()
     import kicad_monkey  # type: ignore[import-not-found]
 

@@ -25,6 +25,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from app.core.config import settings
 from app.release_studio.documents.layout import Artwork, Rect
 
 _SVG_OPEN = re.compile(r"<svg\b[^>]*>", re.IGNORECASE | re.DOTALL)
@@ -950,11 +951,7 @@ def _configure_cairo_library_path() -> None:
 
     if sys.platform != "darwin":
         return
-    candidates = [
-        os.environ.get("PRISM_CAIRO_LIBRARY_DIR", ""),
-        "/opt/homebrew/lib",
-        "/usr/local/lib",
-    ]
+    candidates = [settings.PRISM_CAIRO_LIBRARY_DIR, "/opt/homebrew/lib", "/usr/local/lib"]
     library_dir = next(
         (
             Path(candidate)

@@ -21,6 +21,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from app.core.config import settings
 from app.services import (
     bom_diff_service,
     document_diff_service,
@@ -95,11 +96,11 @@ design_compare_jobs: Dict[str, dict] = {}
 # Defaults land in the platform temporary directory rather than a literal
 # `/tmp`, which does not exist on Windows.
 _CACHE_ROOT = Path(
-    os.environ.get("PRISM_DESIGN_COMPARE_CACHE")
+    settings.PRISM_DESIGN_COMPARE_CACHE
     or Path(tempfile.gettempdir()) / "prism_design_compare_cache"
 )
 _JOB_ROOT = Path(
-    os.environ.get("PRISM_DESIGN_COMPARE_JOBS")
+    settings.PRISM_DESIGN_COMPARE_JOBS
     or Path(tempfile.gettempdir()) / "prism_design_compare"
 )
 _CACHE_SCHEMA = "prism.design_compare_revision_v13"
@@ -313,14 +314,14 @@ def _cache_lock(project_id: str, commit: str) -> threading.Lock:
 # index is kept per commit, forever, on a persistent volume. Cap the total and
 # evict least-recently-used commit directories so it cannot grow without bound.
 # 0 disables the cap.
-_CACHE_MAX_BYTES = int(os.environ.get("PRISM_DESIGN_COMPARE_CACHE_MAX_BYTES", str(20 * 1024**3)))
+_CACHE_MAX_BYTES = settings.PRISM_DESIGN_COMPARE_CACHE_MAX_BYTES
 
 # Never evict an entry used within this window. `_prune_revision_cache` runs in
 # one worker while three others may be mid-build, and the per-process
 # `_CACHE_LOCKS` cannot coordinate across them, so a plain size check could
 # delete a snapshot a live job is still reading. An entry is stamped on every
 # use, so a recent stamp means "someone may still be in here".
-_CACHE_MIN_AGE_SECONDS = float(os.environ.get("PRISM_DESIGN_COMPARE_CACHE_MIN_AGE", "900"))
+_CACHE_MIN_AGE_SECONDS = settings.PRISM_DESIGN_COMPARE_CACHE_MIN_AGE
 
 
 def _dir_size(path: Path) -> int:
@@ -944,7 +945,7 @@ def _run_ecad_object_delta(
 
 
 
-_STALE_JOB_SECONDS = int(os.environ.get("PRISM_DESIGN_COMPARE_STALE_SECONDS", "300"))
+_STALE_JOB_SECONDS = settings.PRISM_DESIGN_COMPARE_STALE_SECONDS
 
 
 def _build_revisions(
@@ -958,12 +959,7 @@ def _build_revisions(
 ) -> tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
     """Build the requested snapshots with bounded, newest-independent workers."""
     unique_commits = list(dict.fromkeys((base, head)))
-    try:
-        configured_workers = int(
-            os.environ.get("PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS", "2")
-        )
-    except ValueError:
-        configured_workers = 2
+    configured_workers = settings.PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS
     max_workers = max(1, min(2, configured_workers, len(unique_commits)))
     revision_labels = {
         commit: (
@@ -1047,22 +1043,12 @@ def _stage_worker_count(stage: str, revision_count: int) -> int:
     # Both stages are bounded at two. Stage 1 overlaps the two independent
     # schematic compiles; Stage 2 runs only lightweight source-geometry scans
     # after parser sessions have been released (no concurrent PCB ASTs).
-    defaults = {"initial": 2, "pcb": 2}
-    variable = {
-        "initial": "PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS",
-        "pcb": "PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS",
+    configured = {
+        "initial": settings.PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS,
+        "pcb": settings.PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS,
     }[stage]
-    configured_value = os.environ.get(
-        variable,
-        os.environ.get(
-            "PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS",
-            str(defaults[stage]),
-        ),
-    )
-    try:
-        configured = int(configured_value)
-    except ValueError:
-        configured = defaults[stage]
+    if configured is None:
+        configured = settings.PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS
     return max(1, min(2, configured, revision_count))
 
 
@@ -1075,8 +1061,7 @@ def _revision_processes_enabled() -> bool:
     switch exists so a constrained deployment can go back to one address
     space, and so the unit tests can stay in-process.
     """
-    raw = os.environ.get("PRISM_DESIGN_COMPARE_REVISION_PROCESSES", "1").strip()
-    return raw.lower() not in {"0", "false", "no", "off"}
+    return settings.PRISM_DESIGN_COMPARE_REVISION_PROCESSES
 
 
 def _initial_revision_task(payload: Dict[str, Any]) -> Dict[str, Any]:

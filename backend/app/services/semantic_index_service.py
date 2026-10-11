@@ -195,7 +195,7 @@ def _add_kicad_monkey_import_paths() -> None:
     the installed wheel, poisoning both cache identity and acceptance evidence.
     """
 
-    explicit = os.environ.get("KICAD_MONKEY_PYTHONPATH", "").strip()
+    explicit = settings.KICAD_MONKEY_PYTHONPATH.strip()
     candidates = [
         Path(entry).expanduser()
         for entry in explicit.split(os.pathsep)

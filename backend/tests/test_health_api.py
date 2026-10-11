@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import unittest
@@ -25,15 +24,9 @@ def database_connection(row: object | None = {"ready": 1}):
 
 class HealthApiTests(unittest.TestCase):
     def test_liveness_reports_build_metadata_without_dependencies(self) -> None:
-        with patch.dict(
-            os.environ,
-            {
-                "PRISM_RELEASE": "3.1.2",
-                "PRISM_REVISION": "abc123",
-                "PRISM_BUILD_DATE": "2026-07-27T00:00:00Z",
-            },
-            clear=False,
-        ):
+        with patch.object(health.settings, "PRISM_RELEASE", "3.1.2"), patch.object(
+            health.settings, "PRISM_REVISION", "abc123"
+        ), patch.object(health.settings, "PRISM_BUILD_DATE", "2026-07-27T00:00:00Z"):
             self.assertEqual(
                 health.live(),
                 {

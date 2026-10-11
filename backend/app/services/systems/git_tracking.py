@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
@@ -24,6 +23,7 @@ from typing import Any, Callable, ContextManager, Mapping, Optional
 
 from psycopg.types.json import Jsonb
 
+from app.core.config import settings
 from app.services.git_failures import GitAccessError, describe_git_failure
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ class Author:
 def repos_root() -> Path:
     from app.services import project_service
 
-    configured = os.environ.get("PRISM_SYSTEM_REPOS_ROOT", "").strip()
+    configured = settings.PRISM_SYSTEM_REPOS_ROOT.strip()
     return Path(configured) if configured else Path(project_service.PROJECTS_ROOT) / ".kicad-prism" / "system-repos"
 
 

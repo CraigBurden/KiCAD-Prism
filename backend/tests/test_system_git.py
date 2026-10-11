@@ -53,9 +53,12 @@ class GitCase(SnapshotCase):
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name)
-        patcher = mock.patch.dict(os.environ, {**_ENV, "PRISM_SYSTEM_REPOS_ROOT": str(self.root / "clones")})
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for patcher in (
+            mock.patch.dict(os.environ, _ENV),
+            mock.patch.object(git_tracking.settings, "PRISM_SYSTEM_REPOS_ROOT", str(self.root / "clones")),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.upstream = self.root / "upstream.git"
         git("init", "--quiet", "--bare", "--initial-branch=main", str(self.upstream))
         self.author = self.root / "author"

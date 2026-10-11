@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 from unittest import mock
 
+from app.core.config import Settings, settings
 from app.services import bom_diff_service, design_compare_service, semantic_index_service
 from app.services.design_compare_benchmark import DesignCompareBenchmark
 
@@ -124,7 +125,7 @@ class DesignCompareServiceTests(unittest.TestCase):
             logs.append(f"built {commit}")
             return {"commit": commit}
 
-        with mock.patch.dict(os.environ, {"PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS": "2"}), mock.patch.object(
+        with mock.patch.object(settings, "PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS", 2), mock.patch.object(
             design_compare_service,
             "_load_or_build_revision",
             side_effect=fake_load,
@@ -332,17 +333,14 @@ class DesignCompareServiceTests(unittest.TestCase):
             logs.append(f"initial {commit}")
             return {"commit": commit}
 
-        with mock.patch.dict(
-            os.environ,
-            {
-                "PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS": "2",
-                # A threading.Barrier only synchronises within one process,
-                # and a patched module attribute does not survive into a
-                # spawned worker. This case is about the fan-out mechanics,
-                # so it stays in-process; the worker contract used by the
-                # process path is covered separately below.
-                "PRISM_DESIGN_COMPARE_REVISION_PROCESSES": "0",
-            },
+        # A threading.Barrier only synchronises within one process, and a
+        # patched module attribute does not survive into a spawned worker.
+        # This case is about the fan-out mechanics, so it stays in-process;
+        # the worker contract used by the process path is covered below.
+        with mock.patch.object(
+            settings, "PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS", 2
+        ), mock.patch.object(
+            settings, "PRISM_DESIGN_COMPARE_REVISION_PROCESSES", False
         ), mock.patch.object(
             design_compare_service,
             "_load_or_build_initial_revision",
@@ -363,11 +361,17 @@ class DesignCompareServiceTests(unittest.TestCase):
     def test_revision_processes_are_the_default_and_can_be_switched_off(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("PRISM_DESIGN_COMPARE_REVISION_PROCESSES", None)
-            self.assertTrue(design_compare_service._revision_processes_enabled())
-        for disabled in ("0", "false", "no", "off", "OFF"):
+            self.assertTrue(Settings(_env_file=None).PRISM_DESIGN_COMPARE_REVISION_PROCESSES)
+        for disabled in ("0", "false", "no", "off", "OFF", " 0 "):
             with mock.patch.dict(
                 os.environ,
                 {"PRISM_DESIGN_COMPARE_REVISION_PROCESSES": disabled},
+            ):
+                loaded = Settings(_env_file=None)
+            with mock.patch.object(
+                settings,
+                "PRISM_DESIGN_COMPARE_REVISION_PROCESSES",
+                loaded.PRISM_DESIGN_COMPARE_REVISION_PROCESSES,
             ):
                 self.assertFalse(
                     design_compare_service._revision_processes_enabled(),
@@ -436,9 +440,8 @@ class DesignCompareServiceTests(unittest.TestCase):
             "base": {"commit": "base", "stage": "initial"},
             "head": {"commit": "head", "stage": "initial"},
         }
-        with mock.patch.dict(
-            os.environ,
-            {"PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS": "2"},
+        with mock.patch.object(
+            settings, "PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS", 2
         ), mock.patch.object(
             design_compare_service,
             "_load_or_build_pcb_revision",
@@ -458,13 +461,13 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual(logs["base"], ["pcb base"])
 
     def test_stage_worker_count_honors_global_fallback_and_stage_override(self) -> None:
-        with mock.patch.dict(
-            os.environ,
-            {"PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS": "1"},
-            clear=False,
+        with mock.patch.object(
+            settings, "PRISM_DESIGN_COMPARE_MAX_REVISION_WORKERS", 1
+        ), mock.patch.object(
+            settings, "PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS", None
+        ), mock.patch.object(
+            settings, "PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS", None
         ):
-            os.environ.pop("PRISM_DESIGN_COMPARE_MAX_INITIAL_WORKERS", None)
-            os.environ.pop("PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS", None)
             self.assertEqual(
                 design_compare_service._stage_worker_count("initial", 2),
                 1,
@@ -473,7 +476,7 @@ class DesignCompareServiceTests(unittest.TestCase):
                 design_compare_service._stage_worker_count("pcb", 2),
                 1,
             )
-            os.environ["PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS"] = "2"
+            settings.PRISM_DESIGN_COMPARE_MAX_PCB_WORKERS = 2
             self.assertEqual(
                 design_compare_service._stage_worker_count("pcb", 2),
                 2,

@@ -241,10 +241,7 @@ class WorkspaceService:
 
     @staticmethod
     def _projects_root() -> str:
-        return os.environ.get(
-            "KICAD_PROJECTS_ROOT",
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/projects")),
-        )
+        return settings.KICAD_PROJECTS_ROOT
 
     def _abs_clone_path(self, relative_clone_path: str) -> str:
         return os.path.join(self._projects_root(), relative_clone_path)
