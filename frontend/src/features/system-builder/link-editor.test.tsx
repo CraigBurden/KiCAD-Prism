@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseOption } from "@/test/select";
 
+import type { Finding } from "@/types/system";
+
 import { LinkEditor, endLabel } from "./link-editor";
 import { instance, link, systemDocument } from "./test-fixtures";
 
@@ -42,14 +44,34 @@ function stubApi() {
   return calls;
 }
 
-function renderEditor(canEdit = true) {
+function renderEditor(canEdit = true, findings: Finding[] = []) {
   const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
   render(<LinkEditor systemId="sys_1" document={doc} link={theLink} etag='"sys:sys_1:1"' canEdit={canEdit}
-    findings={[]} busy={null} run={run as never} onDeleted={vi.fn()} />);
+    findings={findings} busy={null} run={run as never} onDeleted={vi.fn()} />);
   return run;
 }
 
+const rowFinding = (rowId: string, patch: Partial<Finding> = {}): Finding => ({
+  rule: "SYS-V09", name: "net_name_mismatch", severity: "warning", instanceId: a.id, linkId: "L1", rowId, end: null,
+  reference: "J1", pin: "1", detail: null, redacted: false, key: `k-${rowId}`, ...patch,
+});
+
 describe("LinkEditor", () => {
+  it("leaves a waived finding out of the alert and the row colour (SB2-100)", () => {
+    stubApi();
+    const waived = { id: "w1", note: "fine", by: "user:a", at: "" };
+    renderEditor(true, [rowFinding("L1-r0", { waived })]);
+    expect(screen.queryByText(/1 warning/)).toBeNull();
+    expect(screen.queryByLabelText(/SYS-V09/)).toBeNull();
+  });
+
+  it("colours a row and alerts for an open finding", () => {
+    stubApi();
+    renderEditor(true, [rowFinding("L1-r1")]);
+    expect(screen.getByText(/1 warning/)).toBeTruthy();
+    expect(screen.getByLabelText(/SYS-V09/)).toBeTruthy();
+  });
+
   it("adds a row with a signal from net A and saves every row with its id", async () => {
     const calls = stubApi();
     renderEditor();

@@ -7,6 +7,7 @@ import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { cn } from "@/lib/utils";
 import type { Finding, RowSource } from "@/types/system";
 
+import { worstLevel } from "./findings";
 import { findingText } from "./findings-ui";
 
 export const ROW_HEIGHT = 36;
@@ -29,7 +30,7 @@ export interface RowView {
   source: RowSource;
   a: EndView;
   b: EndView;
-  findings: Finding[];
+  findings: readonly Finding[];
   problems: string[];
 }
 
@@ -121,9 +122,7 @@ export function LinkRowsTable({ rows, sideA, sideB, editable, onSignalChange, on
             <tr aria-hidden className="block" style={{ height: rows.length * ROW_HEIGHT }} />
             {visible.map((row, offset) => {
               const index = first + offset;
-              const worst = row.problems.length || row.findings.some((f) => f.severity === "error")
-                ? "error"
-                : row.findings.some((f) => f.severity === "warning") ? "warning" : null;
+              const worst = row.problems.length ? "error" : worstLevel(row.findings);
               const tooltip = [...row.problems, ...row.findings.map((f) => `${f.rule} ${findingText(f)}`)].join("\n");
               return (
                 <tr

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Finding, SystemDocument } from "@/types/system";
 
 import { documentIndex } from "../document-index";
+import { findingDetail } from "../findings";
 
 export function netLeaf(net: string): string {
   return net.slice(net.lastIndexOf("/") + 1);
@@ -24,10 +25,10 @@ export interface RenameSide {
 /** The boards a SYS-V09 finding's row could rename: each side with one named net, on a board (CONTRACTS_P2 §23.1). */
 export function renameSides(document: SystemDocument, finding: Finding): RenameSide[] {
   const link = finding.linkId ? documentIndex(document).links.get(finding.linkId) : undefined;
-  const detail = finding.detail as { netA?: string[]; netB?: string[] } | null;
-  if (!link || !detail?.netA?.length || !detail.netB?.length) return [];
+  const { nets: seen } = findingDetail(finding);
+  if (!link || seen?.kind !== "join" || !seen.a.length || !seen.b.length) return [];
   const sides: RenameSide[] = [];
-  for (const [end, nets, other] of [["a", detail.netA, detail.netB], ["b", detail.netB, detail.netA]] as const) {
+  for (const [end, nets, other] of [["a", seen.a, seen.b], ["b", seen.b, seen.a]] as const) {
     const instance = documentIndex(document).instances.get(link[end].instanceId);
     if (!instance || instance.restricted || (instance.kind ?? "board") !== "board" || nets.length !== 1) continue;
     sides.push({ instanceId: instance.id, board: instance.label, net: nets[0], suggested: netLeaf(other[0]) });

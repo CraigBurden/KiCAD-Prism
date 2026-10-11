@@ -19,6 +19,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { deleteLink, generateRows, getInstanceInterface, harnessFromLabel, linkToHarness, replaceRows, updateLink } from "@/lib/systems-api";
 import type { Finding, LinkType, SystemDocument, SystemInstance, SystemLink } from "@/types/system";
 
+import { findingsOf } from "./findings";
 import { FindingsAlert } from "./findings-ui";
 import { GeneratorPanel } from "./generator-panel";
 import {
@@ -27,7 +28,6 @@ import {
   draftFromRows,
   draftProblems,
   draftToInputs,
-  linkFindings,
   mergeGenerated,
   newDraftKey,
   pinFacts,
@@ -258,7 +258,8 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
 
   const redacted = link.a.redacted || link.b.redacted;
   const editable = canEdit && !redacted;
-  const { all: linkIssues, byRow } = linkFindings(findings, link);
+  const open = findingsOf(findings);
+  const linkIssues = open.link(link.id);
   const sideA = endLabel(document, link, "a");
   const sideB = endLabel(document, link, "b");
 
@@ -280,7 +281,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
           missing: Boolean(pins?.a) && !factA, redacted: false },
         b: { pad: row.pinB, names: factB?.pinNames ?? null, nets: factB?.nets ?? null, changed: false,
           missing: Boolean(pins?.b) && !factB, redacted: false },
-        findings: row.id ? byRow.get(row.id) ?? [] : [],
+        findings: row.id ? open.row(link.id, row.id) : [],
         problems: problemsByRow.get(row.key) ?? [],
       };
     })
@@ -298,7 +299,7 @@ export function LinkEditor({ systemId, document, link, etag, canEdit, findings, 
         };
       };
       return { key: row.id, signal: row.signal, source: row.source, a: end("a"), b: end("b"),
-        findings: byRow.get(row.id) ?? [], problems: [] };
+        findings: open.row(link.id, row.id), problems: [] };
     });
 
   const editDraft = (update: (rows: DraftRow[]) => DraftRow[]) => {

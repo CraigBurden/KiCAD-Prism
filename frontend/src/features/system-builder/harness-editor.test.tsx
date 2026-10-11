@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseOption } from "@/test/select";
 
+import type { Finding } from "@/types/system";
+
 import { HarnessEditor, draftFromHarness, splices, wireProblems } from "./harness-editor";
 import { harness, harnessEnd, instance, systemDocument } from "./test-fixtures";
 
@@ -53,10 +55,10 @@ function stubApi() {
   return calls;
 }
 
-function renderEditor(target = five) {
+function renderEditor(target = five, findings: Finding[] = []) {
   const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
   render(<HarnessEditor systemId="sys_1" document={{ ...doc, harnesses: [target] }} harness={target} etag='"sys:sys_1:1"'
-    canEdit findings={[]} busy={null} run={run as never} onDeleted={vi.fn()} onConverted={vi.fn()} />);
+    canEdit findings={findings} busy={null} run={run as never} onDeleted={vi.fn()} onConverted={vi.fn()} />);
 }
 
 describe("harness drafts", () => {
@@ -71,6 +73,25 @@ describe("harness drafts", () => {
 });
 
 describe("HarnessEditor", () => {
+  it("alerts for its open findings and leaves waived ones out (SB2-100)", () => {
+    stubApi();
+    const finding = (patch: Partial<Finding>): Finding => ({
+      rule: "SYS-V19", name: "harness_tight_bend", severity: "warning", instanceId: null, linkId: null, rowId: null, end: null,
+      reference: null, pin: null, detail: { harnessId: "shn_5" }, redacted: false, ...patch,
+    });
+    renderEditor(five, [finding({ key: "k1", waived: { id: "w1", note: "fine", by: "user:a", at: "" } })]);
+    expect(screen.queryByText(/1 warning/)).toBeNull();
+  });
+
+  it("alerts for an open finding that names it", () => {
+    stubApi();
+    renderEditor(five, [{
+      rule: "SYS-V19", name: "harness_tight_bend", severity: "warning", instanceId: null, linkId: null, rowId: null, end: null,
+      reference: null, pin: null, detail: { harnessId: "shn_5" }, redacted: false,
+    }]);
+    expect(screen.getByText(/1 warning/)).toBeTruthy();
+  });
+
   it("shows every end with its mate and block, and marks the splice", () => {
     stubApi();
     renderEditor();

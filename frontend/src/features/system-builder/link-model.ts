@@ -5,7 +5,7 @@
  */
 
 import type { RowInput } from "@/lib/systems-api";
-import type { Finding, GeneratedRow, InstanceComponent, InstanceInterface, LinkRow, PortBaseline, RowSource, SystemLink } from "@/types/system";
+import type { GeneratedRow, InstanceComponent, InstanceInterface, LinkRow, PortBaseline, RowSource } from "@/types/system";
 import { comparePads } from "./pads";
 
 export interface PinFact {
@@ -118,18 +118,6 @@ export function draftProblems(draft: DraftRow[], padsA: Set<string> | null, pads
 
 export function sortDraft(draft: DraftRow[]): DraftRow[] {
   return [...draft].sort((a, b) => comparePads(a.pinA, b.pinA) || comparePads(a.pinB, b.pinB));
-}
-
-/** Findings that concern one link, and the ones that name each of its rows. */
-export function linkFindings(findings: Finding[], link: SystemLink): { all: Finding[]; byRow: Map<string, Finding[]> } {
-  const all = findings.filter((finding) => finding.linkId === link.id);
-  const byRow = new Map<string, Finding[]>();
-  for (const finding of all) {
-    if (finding.rowId) {
-      byRow.set(finding.rowId, [...(byRow.get(finding.rowId) ?? []), finding]);
-    }
-  }
-  return { all, byRow };
 }
 
 export function sameNets(a: string[] | null | undefined, b: string[] | null | undefined): boolean {

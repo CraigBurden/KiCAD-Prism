@@ -31,6 +31,7 @@ import {
 import type { Finding, GeneratorKind, HarnessEnd, SystemDocument, SystemHarness } from "@/types/system";
 
 import { endLabel, endWireCount } from "./diagram-model";
+import { findingsOf } from "./findings";
 import { FindingsAlert } from "./findings-ui";
 import { comparePads } from "./pads";
 import type { Mutate } from "./use-system-mutation";
@@ -305,7 +306,7 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
   const wires = draft ?? draftFromHarness(harness);
   const problems = wireProblems(wires, harness);
   const spliced = splices(wires);
-  const own = findings.filter((finding) => (finding.detail as { harnessId?: string } | null)?.harnessId === harness.id);
+  const own = findingsOf(findings).harness(harness.id);
   const isBusy = busy !== null;
 
   const edit = (update: (rows: DraftWire[]) => DraftWire[]) => {

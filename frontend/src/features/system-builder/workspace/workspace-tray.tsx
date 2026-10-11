@@ -17,9 +17,9 @@ import { LinkEditor, endLabel } from "../link-editor";
 import type { SystemTabProps } from "../system-tab-content";
 import type { Mutate } from "../use-system-mutation";
 import { FindingsTray } from "./findings-tray";
-import { harnessFindings } from "./use-validation";
 import { TRAY_TABS, type TrayTab, type WorkspaceSelection, type WorkspaceView } from "./workspace-state";
-import { documentIndex, findingIndex, linkFindings } from "../document-index";
+import { documentIndex } from "../document-index";
+import { findingsOf } from "../findings";
 
 interface TrayProps extends SystemTabProps {
   tab: TrayTab | null;
@@ -128,12 +128,13 @@ function ConnectionsTable({ document, findings, onSelect }: { document: SystemDo
   if (!document.links.length && !harnesses.length) {
     return <p className="p-4 text-sm text-muted-foreground">No connections</p>;
   }
+  const open = findingsOf(findings);
   const rows = [
     ...harnesses.map((harness) => ({ key: harness.id, selection: { kind: "harness", id: harness.id } as WorkspaceSelection, name: harness.name,
-      type: "Harness", ends: endsText(document, harness), count: harness.wires.length, findings: harnessFindings(findings, harness.id) })),
+      type: "Harness", ends: endsText(document, harness), count: harness.wires.length, findings: open.harness(harness.id) })),
     ...document.links.map((link) => ({ key: link.id, selection: { kind: "link", id: link.id } as WorkspaceSelection, name: connectionName(document, link),
       type: link.type === "b2b" ? "B2B mate" : "Link", ends: `${endLabel(document, link, "a")} ↔ ${endLabel(document, link, "b")}`,
-      count: link.rows.length, findings: linkFindings(findings, link.id) })),
+      count: link.rows.length, findings: open.link(link.id) })),
   ];
   return (
     <table aria-label="Connections" className="w-full table-fixed text-sm">
@@ -163,7 +164,7 @@ function ConnectionsTable({ document, findings, onSelect }: { document: SystemDo
 /** The workspace's bottom tray (D-P2-47): what used to be the Connections, Changes and History tabs. */
 export function WorkspaceTray(props: TrayProps) {
   const { tab, document, findings, selection, systemId, etag, canEdit, busy, run, onTab, onSelect } = props;
-  const { errors, warnings } = findingIndex(findings);
+  const { errors, warnings } = findingsOf(findings);
   const index = documentIndex(document);
   const link = selection?.kind === "link" ? index.links.get(selection.id) : undefined;
   const harness = selection?.kind === "harness" ? index.harnesses.get(selection.id) : undefined;

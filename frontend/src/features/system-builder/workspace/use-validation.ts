@@ -7,8 +7,3 @@ export function useValidation(document: SystemDocument): { findings: Finding[]; 
   const report = document.validation ?? null;
   return { findings: report?.findings ?? NONE, report };
 }
-
-/** Findings that concern one harness (they name it in their detail). */
-export function harnessFindings(findings: Finding[], harnessId: string): Finding[] {
-  return findings.filter((finding) => (finding.detail as { harnessId?: string } | null)?.harnessId === harnessId);
-}

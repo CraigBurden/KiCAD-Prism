@@ -6,6 +6,7 @@ import { getCollisionCheck, requestCollisionCheck } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { SystemDocument } from "@/types/system";
 
+import { findingsOf } from "./findings";
 import { ToolbarButton } from "./workspace/toolbar-button";
 
 const POLL_MS = 2000;
@@ -20,7 +21,7 @@ export function CollisionCheckButton({ systemId, document, reload }: {
   reload: () => Promise<void>;
 }) {
   const check = document.validation?.collisionCheck;
-  const count = document.validation?.findings.filter((finding) => finding.rule === "SYS-V22").length ?? 0;
+  const count = document.validation ? findingsOf(document.validation.findings).collisions.length : 0;
   const [running, setRunning] = useState(false);
   const alive = useRef(true);
   useEffect(() => {
