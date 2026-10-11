@@ -49,9 +49,9 @@ export interface Findings {
   harness(harnessId: string): readonly Finding[];
   /** The waived finding a waiver accepts, by the waiver's finding key. */
   waived(findingKey: string | null | undefined): Finding | null;
-  /** Every SYS-V22 finding, waived or not: the 3D toolbar counts the stored check's collisions. */
+  /** Open SYS-V22 findings: the 3D toolbar's collision count (a waived collision counts for nothing). */
   readonly collisions: readonly Finding[];
-  /** A SYS-V22 finding by its key (a `collision` selection). */
+  /** An open SYS-V22 finding by its key (a `collision` selection); a waived one is not selectable. */
   collision(key: string): Finding | null;
 }
 
@@ -75,15 +75,15 @@ export function findingsOf(findings: readonly Finding[]): Findings {
   const collisions: Finding[] = [];
   const byCollision = new Map<string, Finding>();
   for (const finding of findings) {
-    if (finding.rule === "SYS-V22") {
-      collisions.push(finding);
-      if (finding.key && !byCollision.has(finding.key)) byCollision.set(finding.key, finding);
-    }
     if (finding.waived) {
       waived.set(finding.key, finding);
       continue;
     }
     open.push(finding);
+    if (finding.rule === "SYS-V22") {
+      collisions.push(finding);
+      if (finding.key && !byCollision.has(finding.key)) byCollision.set(finding.key, finding);
+    }
     if (finding.instanceId) push(byInstance, finding.instanceId, finding);
     if (finding.linkId) {
       push(byLink, finding.linkId, finding);
