@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import json
-import asyncio
 import tarfile
 import tempfile
 import unittest
@@ -12,12 +11,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.api import release_studio as api
 from app.services import release_studio_build_service as build_service
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_runtime import JobCancelled, JobContext
 from app.services.kicad_tools import KicadTools
+from app.services.release_studio_publish_service import BuildArchives, ReleasePublisher
 from tests.kicad_tool_fakes import FakeTool
+from tests.release_publish_fakes import FakeForge, FakeRecords
 
 
 class _FencedJobService:
@@ -45,10 +45,6 @@ def _read_failure_archive(artifact: dict[str, object]) -> tuple[dict[str, object
         failure = json.loads(archive.extractfile("failure.json").read())  # type: ignore[union-attr]
         log = archive.extractfile("logs/build-failure.log").read().decode("utf-8")  # type: ignore[union-attr]
     return failure, log
-
-
-def _archive_bytes(artifact: dict[str, object]) -> bytes:
-    return Path(str(artifact["object_path"])).read_bytes()
 
 
 class ReleaseStudioFailureRetentionTests(unittest.TestCase):
@@ -158,25 +154,21 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             "status": "failed", "evidence_artifact_id": "artifact-1",
         }
         user = SimpleNamespace(role="viewer", email="viewer@example.com")
-        with (
-            patch.object(api, "get_project_for_role_or_404"),
-            patch.object(api, "_build_or_404", return_value=build),
-            patch.object(api.store, "get_candidate", return_value=candidate),
-            patch.object(api, "authorized_project", return_value={"repo_url": ""}),
-            patch.object(api.store, "build_members", return_value=[]),
-            patch.object(api.store, "build_evidence", return_value=[]),
-            patch.object(api.store, "build_fingerprints", return_value={}),
-            patch.object(api.store, "latest_review_decision", return_value=None),
-            patch.object(api.store, "get_publish_record", return_value=None),
-            patch.object(api, "_vendor_readiness", return_value=[]),
-            patch.object(api.forge_publish, "list_releases", return_value=[]),
-        ):
-            detail = asyncio.run(api.get_build("project-1", build["id"], user))
+        evidence = self.root / "prepare-failure-evidence.tar.gz"
+        evidence.write_bytes(b"retained evidence")
+        forge = FakeForge()
+        publisher = ReleasePublisher(
+            records=FakeRecords(builds=[build], candidates=[candidate], artifacts={"artifact-1": evidence}),
+            forges=forge,
+        )
+        detail = publisher.detail("project-1", {"repo_url": ""}, build["id"], user)
         self.assertEqual(
             detail["configuration"]["notes"]["failure_context"],
             "preparation did not complete",
         )
         self.assertEqual(detail["build"]["status"], "failed")
+        self.assertIsNone(detail["forge_release"])
+        self.assertEqual(forge.calls, [])
 
     def test_post_start_failure_marks_attempt_and_publishes_diagnostic_evidence(self) -> None:
         context = self._context(payload={"author": "operator-1"})
@@ -296,17 +288,15 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                 "logs/drc.log": b"DRC clean\n",
             }
         )
-        build = {"id": "build-success", "evidence_artifact_id": "artifact-success"}
-        user = SimpleNamespace(role="viewer")
-        with (
-            patch.object(api, "get_project_for_role_or_404"),
-            patch.object(api, "_build_or_404", return_value=build),
-            patch.object(api, "_artifact_bytes", return_value=archive),
-        ):
-            listed = asyncio.run(api.list_build_logs("project-1", build["id"], user))
-            response = asyncio.run(api.download_build_log("project-1", build["id"], "drc", user))
+        stored = self.root / "evidence-success.tar.gz"
+        stored.write_bytes(archive)
+        archives = self._archives(
+            {"id": "build-success", "candidate_id": "candidate-success", "evidence_artifact_id": "artifact-success"},
+            stored,
+        )
+        listed = archives.logs("project-1", "build-success")
         self.assertEqual(listed["steps"][0]["status"], "success")
-        self.assertEqual(response.body, b"DRC clean\n")
+        self.assertEqual(archives.log("project-1", "build-success", "drc"), b"DRC clean\n")
 
     def _assert_failure_log_api(
         self, build: dict[str, object], artifact: dict[str, object]
@@ -314,18 +304,20 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
         """The normal list/read endpoints must serve reopened failed attempts."""
 
         build = {**build, "evidence_artifact_id": "artifact-1"}
-        user = SimpleNamespace(role="viewer")
-        with (
-            patch.object(api, "get_project_for_role_or_404"),
-            patch.object(api, "_build_or_404", return_value=build),
-            patch.object(api, "_artifact_bytes", return_value=_archive_bytes(artifact)),
-        ):
-            listed = asyncio.run(api.list_build_logs("project-1", str(build["id"]), user))
-            response = asyncio.run(
-                api.download_build_log("project-1", str(build["id"]), "build-failure", user)
-            )
+        archives = self._archives(build, Path(str(artifact["object_path"])))
+        listed = archives.logs("project-1", str(build["id"]))
+        log = archives.log("project-1", str(build["id"]), "build-failure")
         self.assertIn("build-failure", {step["step_id"] for step in listed["steps"]})
-        self.assertTrue(response.body.decode("utf-8").strip())
+        self.assertTrue(log.decode("utf-8").strip())
+
+    def _archives(self, build: dict[str, object], evidence: Path) -> BuildArchives:
+        return BuildArchives(
+            FakeRecords(
+                builds=[build],
+                candidates=[{"id": build["candidate_id"], "project_id": "project-1"}],
+                artifacts={str(build["evidence_artifact_id"]): evidence},
+            )
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

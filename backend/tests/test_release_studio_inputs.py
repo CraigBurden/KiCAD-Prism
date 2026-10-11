@@ -365,9 +365,8 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
             ),
             patch("app.release_studio.source.discover_source", return_value={"board": "board.kicad_pcb"}),
             patch.object(self.api.store, "get_source_defaults", return_value={}),
-            patch.object(
-                self.api.forge_publish,
-                "describe_forge",
+            patch(
+                "app.services.forge_publish_service.describe_forge",
                 return_value=type("Forge", (), {"to_dict": lambda self: {"kind": "github", "name": "GitHub", "host": "github.com", "owner_repo": "org/repo", "token_configured": True, "token_hint": ""}})(),
             ),
         ):
@@ -406,9 +405,8 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
                     "bom_preset": "Grouped By Value",
                 },
             ),
-            patch.object(
-                self.api.forge_publish,
-                "describe_forge",
+            patch(
+                "app.services.forge_publish_service.describe_forge",
                 return_value=type("Forge", (), {"to_dict": lambda self: {"kind": "github"}})(),
             ),
         ):
@@ -452,7 +450,7 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
             patch.object(job_queue, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults") as persist,
             patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
-            patch.object(self.api.forge_publish, "tag_exists", return_value=False),
+            patch.object(self.api.PUBLISHER, "tag_taken", return_value=False),
         ):
             payload = asyncio.run(self.api.create_candidate("proj", request, user=self.user))
         persist.assert_called_once()
@@ -474,13 +472,18 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
             patch.object(job_queue, "enqueue", return_value={"job_id": "job-1"}),
             patch.object(self.api.store, "save_source_defaults", side_effect=RuntimeError("db down")),
             patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
-            patch.object(self.api.forge_publish, "tag_exists", return_value=False),
+            patch.object(self.api.PUBLISHER, "tag_taken", return_value=False),
         ):
             payload = asyncio.run(self.api.create_candidate("proj", request, user=self.user))
         self.assertEqual(payload["job"]["job_id"], "job-1")
 
     def test_tag_check_uses_the_forge(self) -> None:
         import asyncio
+
+        from tests.release_publish_fakes import FakeForge
+
+        forge = FakeForge()
+        forge.tags.add("v1.0.0")
 
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
@@ -489,10 +492,11 @@ class ReleaseStudioInputApiTests(unittest.TestCase):
                 "authorized_project",
                 return_value={"repo_url": "https://github.com/org/repo.git"},
             ),
-            patch.object(self.api.forge_publish, "tag_exists", return_value=True) as exists,
+            patch("app.services.forge_publish_service.forge_for", return_value=forge) as forge_for,
         ):
             payload = asyncio.run(self.api.check_release_tag("proj", "v1.0.0", user=self.user))
-        exists.assert_called_once_with("https://github.com/org/repo.git", "v1.0.0")
+        forge_for.assert_called_once_with("https://github.com/org/repo.git")
+        self.assertEqual(forge.calls, ["tag_exists"])
         self.assertTrue(payload["exists"])
 
     def test_impedance_template_is_csv(self) -> None:
