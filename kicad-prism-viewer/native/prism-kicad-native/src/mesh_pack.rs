@@ -1498,6 +1498,11 @@ mod tests {
             assert!(barrel["endZMm"].is_number(), "{barrel}");
         }
         assert_golden("mesh-pack-barrels.json", &value);
+        // The layers too: the scene manifest test builds a pack from both.
+        assert_golden(
+            "mesh-pack-layers.json",
+            &serde_json::to_value(&layers).unwrap(),
+        );
     }
 
     #[test]
