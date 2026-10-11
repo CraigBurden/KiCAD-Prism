@@ -20,7 +20,7 @@ afterEach(() => {
 const created = {
     id: "cn_gl", provider: "gitlab", instanceKind: "self-hosted", displayName: "Pixxel GitLab",
     baseUrl: "https://gitlab.pixxel.io", host: "gitlab.pixxel.io", bot: { id: null, login: null },
-    credentialConfigured: true, paused: true, pausedReason: "test_failed",
+    credentialConfigured: true, status: "needs-test", paused: true, pausedReason: "test_failed",
     capabilities: { issues: true, accountLinking: false },
 };
 
