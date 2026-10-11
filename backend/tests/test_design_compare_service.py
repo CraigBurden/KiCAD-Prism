@@ -8,9 +8,11 @@ import subprocess
 from unittest import mock
 
 from app.core.config import Settings, settings
+from app.services import design_compare_artifacts, design_compare_sources
 from app.services import bom_diff_service, design_compare_service, semantic_index_service
 from app.services import project_revision as project_revision_module
 from app.services.design_compare_benchmark import DesignCompareBenchmark
+from tests.design_compare_fixtures import InMemoryComparisonPublisher
 
 
 class DesignCompareServiceTests(unittest.TestCase):
@@ -85,7 +87,7 @@ class DesignCompareServiceTests(unittest.TestCase):
             primary.write_text("(kicad_sch)", encoding="utf-8")
             backup.write_text("(kicad_sch)", encoding="utf-8")
             autosave.write_text("(kicad_pcb)", encoding="utf-8")
-            sources = design_compare_service._list_kicad_sources(root)
+            sources = design_compare_sources._list_kicad_sources(root)
         self.assertEqual([source["path"] for source in sources], ["board.kicad_sch"])
 
     def test_autosaves_and_fetched_libraries_are_not_design_sources(self) -> None:
@@ -268,7 +270,7 @@ class DesignCompareServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             snap = Path(temporary)
             (snap / "board.kicad_pcb").write_text(pcb_text, encoding="utf-8")
-            stackup = design_compare_service._extract_stackup(snap)
+            stackup = design_compare_artifacts._extract_stackup(snap)
         self.assertTrue(stackup["present"])
         by_name = {layer["name"]: layer for layer in stackup["layers"]}
         self.assertEqual(by_name["F.Mask"]["thickness"], 0.0254)
@@ -295,7 +297,7 @@ class DesignCompareServiceTests(unittest.TestCase):
                 {"name": "dielectric 1", "type": "core", "thickness": 1.2},
             ],
         }
-        diff = design_compare_service._diff_stackup(base, head)
+        diff = design_compare_artifacts._diff_stackup(base, head)
         self.assertTrue(diff["changed"])
         self.assertTrue(diff["present"])
         self.assertEqual(diff["head"][1]["thickness"], 1.2)
@@ -312,7 +314,7 @@ class DesignCompareServiceTests(unittest.TestCase):
             "settings": {"copper_finish": "ENIG", "dielectric_constraints": True},
         }
 
-        diff = design_compare_service._diff_stackup(base, head)
+        diff = design_compare_artifacts._diff_stackup(base, head)
 
         self.assertTrue(diff["changed"])
         self.assertEqual(diff["head"][0]["material"], "Megtron 6")
@@ -551,214 +553,107 @@ class DesignCompareServiceTests(unittest.TestCase):
         self.assertEqual(result["readiness"]["domains"]["pcb"], "building")
         self.assertEqual(result["readiness"]["domains"]["stackup"], "building")
 
-    def test_job_publishes_initial_result_before_starting_background_stage(self) -> None:
-        events = []
-        job_id = "staged-job"
-        design_compare_service.design_compare_jobs[job_id] = {
-            "job_id": job_id,
-            "status": "running",
-            "logs": [],
-            "result": None,
-        }
-        initial_result = {
-            "readiness": {
-                "stage": "initial-ready",
-                "domains": {
-                    "schematic": "ready",
-                    "bom": "ready",
-                    "pcb": "building",
-                    "stackup": "building",
-                },
+    INITIAL_RESULT = {
+        "readiness": {
+            "stage": "initial-ready",
+            "domains": {
+                "schematic": "ready",
+                "bom": "ready",
+                "pcb": "building",
+                "stackup": "building",
             },
-            "schematic": {"changes": []},
-            "pcb": {"changes": []},
-            "bom": {"changes": []},
-        }
+        },
+        "schematic": {"changes": [{"id": "schematic-change"}]},
+        "pcb": {"changes": []},
+        "bom": {"changes": [{"ref": "R1"}]},
+    }
+
+    def _stages(self, events, *, pcb_error=None):
+        initial_result = copy.deepcopy(self.INITIAL_RESULT)
         complete_result = {
             **initial_result,
             "readiness": {
                 "stage": "complete",
-                "domains": {
-                    "schematic": "ready",
-                    "bom": "ready",
-                    "pcb": "ready",
-                    "stackup": "ready",
-                },
+                "domains": {domain: "ready" for domain in initial_result["readiness"]["domains"]},
             },
         }
 
-        def publish(_job_id, job, result, *, version, benchmark):
-            del benchmark
-            events.append(f"publish-{version}")
-            job["result"] = result
-            job["result_version"] = version
-            job["readiness"] = result["readiness"]
-            result_path = design_compare_service._JOB_ROOT / _job_id / "result.json"
-            result_path.parent.mkdir(parents=True, exist_ok=True)
-            result_path.write_text("{}", encoding="utf-8")
-            return result_path
+        class Stages(design_compare_service.ComparisonStages):
+            def snapshots(self, request, heartbeat):
+                events.append("snapshots")
 
-        def build_pcb(*_args, **_kwargs):
-            self.assertEqual(events, ["publish-1"])
-            events.append("pcb-start")
-            return {"base": {}, "head": {}}, {"base": [], "head": []}
+            def object_delta(self, request):
+                return {"changes": [], "base": {}, "head": {}}
 
-        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
-            design_compare_service,
-            "_JOB_ROOT",
-            Path(temporary),
-        ), mock.patch.object(
-            design_compare_service.project_revision,
-            "locate_id",
-            return_value=project_revision_module.ProjectLocation(Path("/repo"), ""),
-        ), mock.patch.object(
-            design_compare_service,
-            "_prepare_comparison_snapshots",
-        ), mock.patch.object(
-            design_compare_service,
-            "_build_initial_revisions",
-            return_value=({"base": {}, "head": {}}, {"base": [], "head": []}),
-        ), mock.patch.object(
-            design_compare_service,
-            "_run_ecad_object_delta",
-            return_value={
-                "changes": [],
-                "base": {"nativeObjects": [], "routeMetrics": {}},
-                "head": {"nativeObjects": [], "routeMetrics": {}},
-            },
-        ), mock.patch.object(
-            design_compare_service,
-            "_assemble_initial_comparison",
-            return_value=(initial_result, {"schematic_changes": []}),
-        ), mock.patch.object(
-            design_compare_service,
-            "_publish_comparison_result",
-            side_effect=publish,
-        ), mock.patch.object(
-            design_compare_service,
-            "_build_pcb_revisions",
-            side_effect=build_pcb,
-        ), mock.patch.object(
-            design_compare_service,
-            "_complete_comparison",
-            return_value=complete_result,
-        ), mock.patch.object(
-            design_compare_service,
-            "_persist_job",
-        ), mock.patch.object(
-            design_compare_service.logger,
-            "exception",
-        ):
-            design_compare_service._run_job(
-                job_id,
-                "project",
-                "base",
-                "head",
-                False,
-            )
+            def initial_revisions(self, request, heartbeat, benchmark):
+                return {"base": {}, "head": {}}, {"base": [], "head": []}
 
-        self.assertEqual(events, ["publish-1", "pcb-start", "publish-2"])
-        self.assertEqual(design_compare_service.design_compare_jobs[job_id]["status"], "completed")
-        design_compare_service.design_compare_jobs.pop(job_id, None)
+            def assemble_initial(self, request, revisions, object_delta, benchmark):
+                return initial_result, {"schematic_changes": []}
+
+            def pcb_revisions(self, request, initial_revisions, heartbeat, benchmark):
+                events.append("pcb-start")
+                if pcb_error is not None:
+                    raise pcb_error
+                return {"base": {}, "head": {}}, {"base": [], "head": []}
+
+            def complete(self, request, initial, assembly_state, revisions, benchmark, render_dir):
+                return complete_result
+
+        return Stages()
+
+    def _request(self):
+        return design_compare_service.ComparisonRequest(
+            project_id="project", repo_path=Path("/repo"), relative_path=None, base="base", head="head",
+        )
+
+    def test_comparison_publishes_initial_result_before_starting_background_stage(self) -> None:
+        events = []
+        publisher = InMemoryComparisonPublisher(events)
+        result = design_compare_service.run_comparison(
+            self._request(),
+            publisher,
+            stages=self._stages(events),
+            benchmark=DesignCompareBenchmark(job_id="staged-test"),
+        )
+
+        self.assertEqual(events, ["snapshots", "publish-1", "pcb-start"])
+        self.assertEqual(publisher.partials[0]["stage"], "background-pcb")
+        self.assertEqual(publisher.partials[0]["details"]["ready_domains"], ["schematic", "bom"])
+        self.assertEqual(result["readiness"]["stage"], "complete")
 
     def test_background_failure_preserves_initial_result_and_marks_late_domains_failed(self) -> None:
-        job_id = "staged-background-failure"
-        design_compare_service.design_compare_jobs[job_id] = {
-            "job_id": job_id,
-            "status": "running",
-            "logs": [],
-            "result": None,
-        }
-        initial_result = {
-            "readiness": {
-                "stage": "initial-ready",
-                "domains": {
-                    "schematic": "ready",
-                    "bom": "ready",
-                    "pcb": "building",
-                    "stackup": "building",
-                },
-            },
-            "schematic": {"changes": [{"id": "schematic-change"}]},
-            "pcb": {"changes": []},
-            "bom": {"changes": [{"ref": "R1"}]},
-        }
-        published = []
-
-        def publish(_job_id, job, result, *, version, benchmark):
-            del benchmark
-            published.append((version, copy.deepcopy(result)))
-            job["result"] = result
-            job["result_version"] = version
-            job["readiness"] = result["readiness"]
-            result_path = design_compare_service._JOB_ROOT / _job_id / "result.json"
-            result_path.parent.mkdir(parents=True, exist_ok=True)
-            result_path.write_text("{}", encoding="utf-8")
-            return result_path
-
-        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
-            design_compare_service,
-            "_JOB_ROOT",
-            Path(temporary),
-        ), mock.patch.object(
-            design_compare_service.project_revision,
-            "locate_id",
-            return_value=project_revision_module.ProjectLocation(Path("/repo"), ""),
-        ), mock.patch.object(
-            design_compare_service,
-            "_prepare_comparison_snapshots",
-        ), mock.patch.object(
-            design_compare_service,
-            "_build_initial_revisions",
-            return_value=({"base": {}, "head": {}}, {"base": [], "head": []}),
-        ), mock.patch.object(
-            design_compare_service,
-            "_run_ecad_object_delta",
-            return_value={
-                "changes": [],
-                "base": {"nativeObjects": [], "routeMetrics": {}},
-                "head": {"nativeObjects": [], "routeMetrics": {}},
-            },
-        ), mock.patch.object(
-            design_compare_service,
-            "_assemble_initial_comparison",
-            return_value=(initial_result, {"schematic_changes": []}),
-        ), mock.patch.object(
-            design_compare_service,
-            "_publish_comparison_result",
-            side_effect=publish,
-        ), mock.patch.object(
-            design_compare_service,
-            "_build_pcb_revisions",
-            side_effect=RuntimeError("PCB worker failed"),
-        ), mock.patch.object(
-            design_compare_service,
-            "_persist_job",
-        ), mock.patch.object(
-            design_compare_service.logger,
-            "exception",
-        ):
-            design_compare_service._run_job(
-                job_id,
-                "project",
-                "base",
-                "head",
-                False,
+        events = []
+        publisher = InMemoryComparisonPublisher(events)
+        with self.assertRaisesRegex(RuntimeError, "PCB worker failed"):
+            design_compare_service.run_comparison(
+                self._request(),
+                publisher,
+                stages=self._stages(events, pcb_error=RuntimeError("PCB worker failed")),
+                benchmark=DesignCompareBenchmark(job_id="staged-failure"),
             )
 
-        self.assertEqual([version for version, _result in published], [1, 2])
-        failed_result = published[-1][1]
+        self.assertEqual([item["version"] for item in publisher.partials], [1, 2])
+        failed_result = publisher.partials[-1]["result"]
+        self.assertEqual(publisher.partials[-1]["stage"], "background-failed")
         self.assertEqual(failed_result["readiness"]["stage"], "background-failed")
         self.assertEqual(failed_result["readiness"]["domains"]["schematic"], "ready")
         self.assertEqual(failed_result["readiness"]["domains"]["bom"], "ready")
         self.assertEqual(failed_result["readiness"]["domains"]["pcb"], "failed")
         self.assertEqual(failed_result["readiness"]["domains"]["stackup"], "failed")
-        self.assertEqual(failed_result["schematic"], initial_result["schematic"])
-        self.assertEqual(
-            design_compare_service.design_compare_jobs[job_id]["status"],
-            "failed",
-        )
-        design_compare_service.design_compare_jobs.pop(job_id, None)
+        self.assertEqual(failed_result["schematic"], self.INITIAL_RESULT["schematic"])
+
+    def test_a_failure_before_the_initial_result_publishes_nothing(self) -> None:
+        events = []
+        publisher = InMemoryComparisonPublisher(events)
+        stages = self._stages(events)
+        stages.snapshots = mock.Mock(side_effect=RuntimeError("snapshot failed"))
+        with self.assertRaisesRegex(RuntimeError, "snapshot failed"):
+            design_compare_service.run_comparison(
+                self._request(), publisher, stages=stages,
+                benchmark=DesignCompareBenchmark(job_id="early-failure"),
+            )
+        self.assertEqual(publisher.partials, [])
 
 
 class FabricationDomainTests(unittest.TestCase):
@@ -881,7 +776,7 @@ class FabricationDomainTests(unittest.TestCase):
             self.assertEqual(logs, [])
 
     def test_one_revision_without_fabrication_output_disables_the_domain(self):
-        result = design_compare_service._diff_fabrication(
+        result = design_compare_artifacts._diff_fabrication(
             {"fabrication": {"present": True, "dir": "/nonexistent/base"}},
             {"fabrication": {"present": False, "reason": "gerber export timed out"}},
         )
@@ -898,8 +793,8 @@ class FabricationDomainTests(unittest.TestCase):
         """
 
         required = {"present", "summary", "layers", "warnings", "bounds"}
-        placeholder = design_compare_service._empty_fabrication()
-        unavailable = design_compare_service._diff_fabrication(
+        placeholder = design_compare_artifacts._empty_fabrication()
+        unavailable = design_compare_artifacts._diff_fabrication(
             {"fabrication": {"present": False, "reason": "no kicad-cli"}},
             {"fabrication": {"present": False, "reason": "no kicad-cli"}},
         )
@@ -910,7 +805,7 @@ class FabricationDomainTests(unittest.TestCase):
         self.assertEqual(unavailable["warnings"], ["no kicad-cli"])
 
     def test_a_cached_export_directory_that_vanished_is_reported(self):
-        result = design_compare_service._diff_fabrication(
+        result = design_compare_artifacts._diff_fabrication(
             {"fabrication": {"present": True, "dir": "/nonexistent/base"}},
             {"fabrication": {"present": True, "dir": "/nonexistent/head"}},
         )

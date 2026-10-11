@@ -34,3 +34,29 @@ def net(name, uid, source_id, *, labels=0):
             "pinUuids": [],
         }],
     }
+
+
+class InMemoryComparisonPublisher:
+    """The in-memory adapter for ``run_comparison``'s publish seam.
+
+    Records every stage result it is handed; the worker's adapter
+    (``JobArtifactPublisher``) writes fenced job artifacts instead.
+    """
+
+    def __init__(self, events=None):
+        import copy
+
+        self._copy = copy.deepcopy
+        self.events = events if events is not None else []
+        self.partials = []
+        self.complete = None
+
+    def publish_partial(self, result, *, stage, message, details):
+        self.events.append(f"publish-{details['result_version']}")
+        self.partials.append(
+            {"version": details["result_version"], "stage": stage, "details": details, "result": self._copy(result)}
+        )
+
+    def publish_complete(self, result):
+        self.complete = self._copy(result)
+        return "bundle", ()

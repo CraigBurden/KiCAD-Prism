@@ -6,7 +6,6 @@ import copy
 import hashlib
 import json
 import logging
-import math
 import os
 import re
 import shutil
@@ -17,8 +16,8 @@ import threading
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from collections import defaultdict, deque
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from app.core.config import settings
@@ -36,54 +35,25 @@ from app.services.job_runtime import JobContext, JobResult, job_state_root
 from app.services.job_service import jobs as v3_jobs
 from app.services.workspace_service import workspace
 
-# The pure computation lives in four sibling modules; the stateful job
-# orchestration, caching and snapshotting stay here. Re-exported under their
-# original names so existing call sites — and the test suite, which patches a
-# dozen of the names that stayed — keep working unchanged.
-from .design_compare_sources import (  # noqa: F401
+# The pure computation lives in four sibling modules; the job orchestration,
+# caching and snapshotting stay here.
+from .design_compare_sources import (
     _find_pcb,
     _find_pro,
-    _is_generated_kicad_path,
     _list_kicad_sources,
 )
-from .design_compare_semantics import (  # noqa: F401
-    _component_native_keys,
-    _component_page,
-    _component_sources,
-    _component_visual_targets,
-    _dedupe_visual_targets,
+from .design_compare_semantics import (
     _diff_designs,
-    _lookup_terminal_pairs,
-    _match_by_keys,
-    _native_item,
-    _net_bucket_targets,
-    _net_connectivity_fingerprint,
-    _net_label_count,
-    _net_source_id,
-    _net_source_ids,
-    _semantic_lookups,
-    _semantic_structure_changes,
     _summary,
-    _terminal_names,
-    _terminal_pairs,
-    _terminal_visual_target,
 )
-from .design_compare_nodes import (  # noqa: F401
+from .design_compare_nodes import (
     _group_changes,
     _hydrate_native_targets,
-    _is_pcb_fabrication_layer,
-    _item_layers,
-    _native_index,
-    _node_change,
     _node_changes,
-    _node_classification,
-    _node_label,
-    _parser_components,
-    _property_attributes,
     _route_metrics_from_digest,
     _semantic_with_parser_components,
 )
-from .design_compare_artifacts import (  # noqa: F401
+from .design_compare_artifacts import (
     _diff_fabrication,
     _diff_stackup,
     _empty_fabrication,
@@ -93,41 +63,16 @@ from .design_compare_artifacts import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-design_compare_jobs: Dict[str, dict] = {}
 # Defaults land in the platform temporary directory rather than a literal
 # `/tmp`, which does not exist on Windows.
 _CACHE_ROOT = Path(
     settings.PRISM_DESIGN_COMPARE_CACHE
     or Path(tempfile.gettempdir()) / "prism_design_compare_cache"
 )
-_JOB_ROOT = Path(
-    settings.PRISM_DESIGN_COMPARE_JOBS
-    or Path(tempfile.gettempdir()) / "prism_design_compare"
-)
 _CACHE_SCHEMA = "prism.design_compare_revision_v13"
 _INITIAL_CACHE_SCHEMA = "prism.design_compare_revision_initial_v3"
 _CACHE_LOCKS: Dict[str, threading.Lock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
-
-
-def _persist_job(job_id: str) -> None:
-    job = design_compare_jobs.get(job_id)
-    if not job:
-        return
-    workspace.update_job(
-        job_id,
-        status=job.get("status", "running"),
-        message=job.get("message", ""),
-        percent=job.get("percent", 0),
-        **{
-            key: value
-            for key, value in job.items()
-            # The result is already published atomically under _JOB_ROOT. Writing
-            # the multi-megabyte payload into the workspace JSONB row duplicates
-            # serialization and can dominate completion time on large projects.
-            if key not in {"job_id", "status", "message", "percent", "result"}
-        },
-    )
 
 
 def _snapshot_commit(repo_path: Path, commit: str, destination: Path, relative_path: Optional[str]) -> None:
@@ -843,9 +788,6 @@ def _run_ecad_object_delta(
 
 
 
-_STALE_JOB_SECONDS = settings.PRISM_DESIGN_COMPARE_STALE_SECONDS
-
-
 def _build_revisions(
     project_id: str,
     repo_path: Path,
@@ -1491,209 +1433,6 @@ def _prepare_comparison_bundle(
     return primary, tuple(sidecars)
 
 
-def _publish_comparison_result(
-    job_id: str,
-    job: Dict[str, Any],
-    result: Dict[str, Any],
-    *,
-    version: int,
-    benchmark: DesignCompareBenchmark,
-) -> Path:
-    result_path = _JOB_ROOT / job_id / "result.json"
-    with benchmark.span(f"result-publish-v{version}"):
-        _atomic_write_json(result_path, result)
-    job["result"] = result
-    job["result_version"] = version
-    job["readiness"] = result["readiness"]
-    job["ready_domains"] = [
-        domain
-        for domain, status in result["readiness"]["domains"].items()
-        if status == "ready"
-    ]
-    return result_path
-
-
-def _run_job(
-    job_id: str,
-    project_id: str,
-    base: str,
-    head: str,
-    include_unchanged: bool,
-) -> None:
-    """Legacy in-process runner retained for unit tests only.
-
-    Production work is enqueued through ``start_design_compare_job`` and executed
-    by ``run_design_compare_job_v3`` inside ``prism-worker``.
-    """
-
-    job = design_compare_jobs[job_id]
-    logs: List[str] = job.setdefault("logs", [])
-    job_lock = threading.Lock()
-    job_started = time.perf_counter()
-    benchmark = DesignCompareBenchmark(
-        job_id=job_id,
-        metadata={
-            "projectId": project_id,
-            "base": base,
-            "compare": head,
-            "initialWorkers": _stage_worker_count("initial", len(set((base, head)))),
-            "pcbWorkers": _stage_worker_count("pcb", len(set((base, head)))),
-            "semanticGenerator": semantic_index_service.generator_cache_tag(),
-            "pipeline": "staged-domain-v1",
-        },
-    )
-
-    def heartbeat(message: str, percent: Optional[float] = None) -> None:
-        with job_lock:
-            job["message"] = message
-            if percent is not None:
-                job["percent"] = percent
-            job["logs"] = logs[-40:]
-            _persist_job(job_id)
-
-    def append_revision_logs(
-        revision_logs: Dict[str, List[str]],
-        *,
-        stage: str,
-    ) -> None:
-        for commit in dict.fromkeys((base, head)):
-            side = "old/new" if base == head else "old" if commit == base else "new"
-            logs.extend(
-                f"[{stage}:{side}] {message}"
-                for message in revision_logs.get(commit, [])
-            )
-
-    try:
-        location = project_revision.locate_id(project_id)
-        repo_path, relative_path = location.repo_root, location.sub_path
-        initial_started = time.perf_counter()
-        with benchmark.span("snapshot-pipeline"):
-            _prepare_comparison_snapshots(
-                project_id,
-                repo_path,
-                relative_path,
-                base,
-                head,
-                heartbeat,
-            )
-        with ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="design-compare-object-delta",
-        ) as parser_executor:
-            def build_object_delta() -> Dict[str, Any]:
-                with benchmark.span("ecad-object-delta"):
-                    return _run_ecad_object_delta(project_id, base, head)
-
-            object_future = parser_executor.submit(build_object_delta)
-            with benchmark.span("initial-revision-pipeline"):
-                initial_revisions, initial_logs = _build_initial_revisions(
-                    project_id,
-                    repo_path,
-                    relative_path,
-                    base,
-                    head,
-                    heartbeat,
-                    benchmark=benchmark,
-                )
-            heartbeat("Finishing native object differences…", 45)
-            object_delta = object_future.result()
-        append_revision_logs(initial_logs, stage="initial")
-
-        heartbeat("Assembling Schematic and BOM differences…", 50)
-        initial_result, assembly_state = _assemble_initial_comparison(
-            project_id=project_id,
-            base=base,
-            head=head,
-            revisions=initial_revisions,
-            object_delta=object_delta,
-            include_unchanged=include_unchanged,
-            benchmark=benchmark,
-        )
-        result_path = _publish_comparison_result(
-            job_id,
-            job,
-            initial_result,
-            version=1,
-            benchmark=benchmark,
-        )
-        initial_elapsed = time.perf_counter() - initial_started
-        logs.append(f"Timing initial ready: {initial_elapsed:.3f}s")
-        benchmark.update_metadata(initialReadyMs=round(initial_elapsed * 1000, 3))
-        heartbeat(
-            "Schematic and BOM ready; building PCB and Stackup in background…",
-            60,
-        )
-        with benchmark.span("pcb-revision-pipeline"):
-            complete_revisions, pcb_logs = _build_pcb_revisions(
-                project_id,
-                base,
-                head,
-                initial_revisions,
-                heartbeat,
-                benchmark=benchmark,
-            )
-        append_revision_logs(pcb_logs, stage="pcb")
-        heartbeat("Assembling PCB and Stackup differences…", 92)
-        result = _complete_comparison(
-            initial_result=initial_result,
-            assembly_state=assembly_state,
-            base=base,
-            head=head,
-            revisions=complete_revisions,
-            benchmark=benchmark,
-        )
-        result_path = _publish_comparison_result(
-            job_id,
-            job,
-            result,
-            version=2,
-            benchmark=benchmark,
-        )
-
-        total_elapsed = time.perf_counter() - job_started
-        logs.append(f"Timing comparison total: {total_elapsed:.3f}s")
-        benchmark.update_metadata(
-            totalReadyMs=round(total_elapsed * 1000, 3),
-            resultBytes=result_path.stat().st_size,
-            schematicChanges=len(result["schematic"]["changes"]),
-            pcbChanges=len(result["pcb"]["changes"]),
-            bomChanges=len((result.get("bom") or {}).get("changes") or []),
-        )
-        job["status"] = "completed"
-        job["message"] = "Design comparison ready"
-        job["percent"] = 100
-        job["logs"] = logs
-    except Exception as exc:
-        logger.exception("staged design-compare failed")
-        if job.get("result"):
-            failed_result = copy.deepcopy(job["result"])
-            domains = failed_result.setdefault("readiness", {}).setdefault("domains", {})
-            for domain in ("pcb", "stackup"):
-                if domains.get(domain) != "ready":
-                    domains[domain] = "failed"
-            failed_result["readiness"]["stage"] = "background-failed"
-            _publish_comparison_result(
-                job_id,
-                job,
-                failed_result,
-                version=int(job.get("result_version") or 1) + 1,
-                benchmark=benchmark,
-            )
-        job["status"] = "failed"
-        job["message"] = str(exc)
-        job["logs"] = logs + [str(exc)]
-        benchmark.update_metadata(error=str(exc))
-    finally:
-        benchmark_path = _JOB_ROOT / job_id / "benchmark.json"
-        try:
-            benchmark.write(benchmark_path)
-            job["benchmark_path"] = str(benchmark_path)
-            job.setdefault("logs", []).append(f"Structured benchmark: {benchmark_path}")
-        except Exception:
-            logger.exception("design-compare benchmark publish failed")
-        _persist_job(job_id)
-
-
 def _resolve_revision(repo_path: Path, revision: str) -> str:
     process = subprocess.run(
         ["git", "-C", str(repo_path), "rev-parse", "--verify", f"{revision}^{{commit}}"],
@@ -1750,90 +1489,29 @@ def start_design_compare_job(
 
 
 def get_job_status(job_id: str) -> Optional[dict]:
-    v3_job = v3_jobs.get(job_id)
-    if v3_job and v3_job.get("kind") == "design_compare":
-        metadata = dict(v3_job.get("result_metadata") or {})
-        payload = dict(v3_job.get("payload") or {})
-        return {
-            "job_id": job_id,
-            "status": v3_job.get("status"),
-            "message": v3_job.get("message"),
-            "percent": v3_job.get("percent", 0),
-            "logs": [],
-            "project_id": v3_job.get("project_id") or payload.get("project_id"),
-            "base": payload.get("base"),
-            "head": payload.get("head"),
-            "benchmark_path": metadata.get("benchmark_path"),
-            "result_version": metadata.get("result_version", 0),
-            "ready_domains": metadata.get("ready_domains") or [],
-            "readiness": metadata.get("readiness"),
-            "result_digest": v3_job.get("result_digest"),
-            "error": v3_job.get("error_message") or None,
-        }
+    """The comparison job as the result routes check it: project, status, result version."""
 
-    # Legacy in-memory / pre-V3 rows are retained only for unit tests that still
-    # exercise _run_job directly. Production enqueue never populates this path.
-    job = design_compare_jobs.get(job_id) or workspace.get_job(job_id, "design_compare")
-    if not job:
+    job = v3_jobs.get(job_id)
+    if not job or job.get("kind") != "design_compare":
         return None
-
-    status = job.get("status")
-    if status == "running" and job_id in design_compare_jobs:
-        updated = job.get("updated_at")
-        try:
-            if updated is not None:
-                from datetime import datetime, timezone
-
-                if isinstance(updated, str):
-                    updated = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-                if getattr(updated, "tzinfo", None) is None:
-                    updated = updated.replace(tzinfo=timezone.utc)
-                age = (datetime.now(timezone.utc) - updated).total_seconds()
-                if age > _STALE_JOB_SECONDS:
-                    msg = (
-                        f"Design compare stalled after {int(age)}s "
-                        f"(likely worker restart during large-board compile). "
-                        f"Close and retry."
-                    )
-                    job["status"] = "failed"
-                    job["message"] = msg
-                    design_compare_jobs[job_id]["status"] = "failed"
-                    design_compare_jobs[job_id]["message"] = msg
-                    status = "failed"
-        except Exception:
-            logger.exception("stale design-compare check failed")
-
+    metadata = dict(job.get("result_metadata") or {})
+    payload = dict(job.get("payload") or {})
     return {
         "job_id": job_id,
-        "status": status,
-        "message": job.get("message"),
-        "percent": job.get("percent", 0),
-        "logs": job.get("logs") or [],
-        "project_id": job.get("project_id"),
-        "base": job.get("base") or (job.get("payload") or {}).get("base"),
-        "head": job.get("head") or (job.get("payload") or {}).get("head"),
-        "benchmark_path": job.get("benchmark_path") or (job.get("result_metadata") or {}).get("benchmark_path"),
-        "result_version": job.get("result_version", 0) or (job.get("result_metadata") or {}).get("result_version", 0),
-        "ready_domains": job.get("ready_domains") or (job.get("result_metadata") or {}).get("ready_domains") or [],
-        "readiness": job.get("readiness") or (job.get("result_metadata") or {}).get("readiness"),
+        "status": job.get("status"),
+        "project_id": job.get("project_id") or payload.get("project_id"),
+        "result_version": metadata.get("result_version", 0),
     }
 
 
 def get_job_result(job_id: str) -> Optional[dict]:
-    v3_job = v3_jobs.get(job_id)
-    if v3_job and v3_job.get("result_path"):
-        path = Path(str(v3_job["result_path"]))
+    """The latest published result (a partial one while PCB is still building)."""
+
+    job = v3_jobs.get(job_id)
+    if job and job.get("result_path"):
+        path = Path(str(job["result_path"]))
         if path.is_file():
             return json.loads(path.read_text(encoding="utf-8"))
-    job = design_compare_jobs.get(job_id)
-    if job and job.get("result"):
-        return job["result"]
-    path = _JOB_ROOT / job_id / "result.json"
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    stored = workspace.get_job(job_id, "design_compare")
-    if stored and stored.get("result"):
-        return stored["result"]
     return None
 
 
@@ -1845,269 +1523,307 @@ def get_job_sidecar(job_id: str, digest: str) -> Optional[dict]:
 
 
 def delete_job(job_id: str) -> None:
-    v3_job = v3_jobs.get(job_id)
-    if v3_job:
-        if v3_job.get("status") in {"queued", "running", "retry_wait", "cancel_requested"}:
-            v3_jobs.request_cancel(job_id)
-        return
-    design_compare_jobs.pop(job_id, None)
-    path = _JOB_ROOT / job_id
-    if path.exists():
-        shutil.rmtree(path, ignore_errors=True)
-    try:
-        workspace.delete_job(job_id)
-    except Exception:
-        logger.exception("Failed to delete legacy design-compare job %s", job_id)
+    """Cancel the comparison if it is still running; finished results stay."""
+
+    job = v3_jobs.get(job_id)
+    if job and job.get("status") in {"queued", "running", "retry_wait", "cancel_requested"}:
+        v3_jobs.request_cancel(job_id)
 
 
-def run_design_compare_job_v3(context: JobContext) -> JobResult:
-    """Execute and publish a semantic comparison under a fenced worker lease."""
+@dataclass(frozen=True)
+class ComparisonRequest:
+    """One comparison, with both revisions resolved to commits."""
 
-    payload = context.payload
-    project_id = str(payload["project_id"])
-    requested_base = str(payload["base"])
-    requested_head = str(payload["head"])
-    include_unchanged = bool(payload.get("include_unchanged"))
-    artifact_key = str(payload["artifact_key"])
-    expected_anchor = str(payload.get("project_file_rel") or "")
-    current_anchor = _project_anchor(project_id) or ""
-    if current_anchor != expected_anchor:
-        raise RuntimeError(
-            "Project anchor changed after the comparison was queued; retry the comparison"
-        )
-    location = project_revision.locate_id(project_id)
-    repo_path, relative_path = location.repo_root, location.sub_path
-    base = _resolve_revision(repo_path, requested_base)
-    head = _resolve_revision(repo_path, requested_head)
-    logs: list[str] = []
-    started = time.perf_counter()
-    benchmark = DesignCompareBenchmark(
-        job_id=context.job_id,
-        metadata={
-            "projectId": project_id,
-            "base": base,
-            "compare": head,
-            "initialWorkers": _stage_worker_count("initial", len(set((base, head)))),
-            "pcbWorkers": _stage_worker_count("pcb", len(set((base, head)))),
-            "semanticGenerator": semantic_index_service.generator_cache_tag(),
-            "pipeline": "staged-domain-v3-worker",
-            "fence": context.fence,
-        },
-    )
+    project_id: str
+    repo_path: Path
+    relative_path: Optional[str]
+    base: str
+    head: str
+    include_unchanged: bool = False
 
-    def heartbeat(message: str, percent: Optional[float] = None) -> None:
-        print(message, flush=True)
-        context.progress(
-            stage="building",
-            message=message,
-            percent=percent,
+
+class ComparisonStages:
+    """The comparison's computation, one method per stage.
+
+    The worker uses these; a test replaces the stages it does not want to
+    run (they snapshot Git, parse KiCad files and plot Gerbers).
+    """
+
+    def snapshots(self, request: ComparisonRequest, heartbeat: Callable[..., None]) -> None:
+        _prepare_comparison_snapshots(
+            request.project_id, request.repo_path, request.relative_path,
+            request.base, request.head, heartbeat,
         )
 
-    def append_revision_logs(revision_logs: Dict[str, List[str]], stage: str) -> None:
-        for commit in dict.fromkeys((base, head)):
-            side = "old/new" if base == head else "old" if commit == base else "new"
-            for message in revision_logs.get(commit, []):
-                rendered = f"[{stage}:{side}] {message}"
-                logs.append(rendered)
-                print(rendered, flush=True)
+    def object_delta(self, request: ComparisonRequest) -> Dict[str, Any]:
+        return _run_ecad_object_delta(request.project_id, request.base, request.head)
 
-    published_initial: Optional[Dict[str, Any]] = None
-    try:
-        context.check_cancelled()
-        with benchmark.span("snapshot-pipeline"):
-            _prepare_comparison_snapshots(
-                project_id,
-                repo_path,
-                relative_path,
-                base,
-                head,
-                heartbeat,
-            )
-        with ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="design-compare-object-delta",
-        ) as parser_executor:
-            def build_object_delta() -> Dict[str, Any]:
-                with benchmark.span("ecad-object-delta"):
-                    return _run_ecad_object_delta(project_id, base, head)
-
-            object_future = parser_executor.submit(build_object_delta)
-            with benchmark.span("initial-revision-pipeline"):
-                initial_revisions, initial_logs = _build_initial_revisions(
-                    project_id,
-                    repo_path,
-                    relative_path,
-                    base,
-                    head,
-                    heartbeat,
-                    benchmark=benchmark,
-                )
-            context.check_cancelled()
-            heartbeat("Finishing native object differences…", 45)
-            object_delta = object_future.result()
-        append_revision_logs(initial_logs, "initial")
-        context.check_cancelled()
-        heartbeat("Assembling Schematic and BOM differences…", 50)
-        initial_result, assembly_state = _assemble_initial_comparison(
-            project_id=project_id,
-            base=base,
-            head=head,
-            revisions=initial_revisions,
-            object_delta=object_delta,
-            include_unchanged=include_unchanged,
-            benchmark=benchmark,
+    def initial_revisions(
+        self, request: ComparisonRequest, heartbeat: Callable[..., None], benchmark: DesignCompareBenchmark
+    ) -> tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
+        return _build_initial_revisions(
+            request.project_id, request.repo_path, request.relative_path,
+            request.base, request.head, heartbeat, benchmark=benchmark,
         )
-        partial = job_artifacts.prepare_json(
-            context,
-            initial_result,
+
+    def assemble_initial(
+        self,
+        request: ComparisonRequest,
+        revisions: Dict[str, Dict[str, Any]],
+        object_delta: Dict[str, Any],
+        benchmark: DesignCompareBenchmark,
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        return _assemble_initial_comparison(
+            project_id=request.project_id, base=request.base, head=request.head,
+            revisions=revisions, object_delta=object_delta,
+            include_unchanged=request.include_unchanged, benchmark=benchmark,
+        )
+
+    def pcb_revisions(
+        self,
+        request: ComparisonRequest,
+        initial_revisions: Dict[str, Dict[str, Any]],
+        heartbeat: Callable[..., None],
+        benchmark: DesignCompareBenchmark,
+    ) -> tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
+        return _build_pcb_revisions(
+            request.project_id, request.base, request.head, initial_revisions, heartbeat, benchmark=benchmark,
+        )
+
+    def complete(
+        self,
+        request: ComparisonRequest,
+        initial_result: Dict[str, Any],
+        assembly_state: Dict[str, Any],
+        revisions: Dict[str, Dict[str, Any]],
+        benchmark: DesignCompareBenchmark,
+        render_dir: Optional[Path],
+    ) -> Dict[str, Any]:
+        return _complete_comparison(
+            initial_result=initial_result, assembly_state=assembly_state, base=request.base,
+            head=request.head, revisions=revisions, benchmark=benchmark, render_dir=render_dir,
+        )
+
+
+class JobArtifactPublisher:
+    """Publishes stage results as fenced job artifacts (the worker's adapter).
+
+    A partial result becomes the job's current result atomically with its
+    fence check; a rejected publication means this attempt lost its lease.
+    """
+
+    def __init__(self, context: JobContext, artifact_key: str) -> None:
+        self.context = context
+        self.artifact_key = artifact_key
+
+    def publish_partial(
+        self, result: Dict[str, Any], *, stage: str, message: str, details: Dict[str, Any]
+    ) -> None:
+        artifact = job_artifacts.prepare_json(
+            self.context,
+            result,
             kind="design_compare",
-            artifact_key=artifact_key,
-            schema_version=str(initial_result.get("schema") or ""),
+            artifact_key=self.artifact_key,
+            schema_version=str(result.get("schema") or ""),
             generator_version=semantic_index_service.generator_cache_tag(),
             readiness="partial",
         )
-        partial_details = {
-            "result_version": 1,
-            "ready_domains": ["schematic", "bom"],
-            "readiness": initial_result["readiness"],
-            "base": base,
-            "head": head,
-        }
         if not v3_jobs.publish_partial_artifact(
-            context.job_id,
-            context.worker_id,
-            context.fence,
-            partial.__dict__,
-            stage="background-pcb",
-            message="Schematic and BOM ready; building PCB and Stackup in background…",
+            self.context.job_id,
+            self.context.worker_id,
+            self.context.fence,
+            artifact.__dict__,
+            stage=stage,
+            message=message,
             percent=60,
-            details=partial_details,
+            details=details,
         ):
             raise RuntimeError("Fenced partial comparison publication was rejected")
-        published_initial = initial_result
 
-        context.check_cancelled()
-        with benchmark.span("pcb-revision-pipeline"):
-            complete_revisions, pcb_logs = _build_pcb_revisions(
-                project_id,
-                base,
-                head,
-                initial_revisions,
-                heartbeat,
-                benchmark=benchmark,
-            )
-        append_revision_logs(pcb_logs, "pcb")
-        context.check_cancelled()
-        heartbeat("Assembling PCB and Stackup differences…", 92)
-        result = _complete_comparison(
-            initial_result=initial_result,
-            assembly_state=assembly_state,
-            base=base,
-            head=head,
-            revisions=complete_revisions,
-            benchmark=benchmark,
-            # Layer artwork is prepared as content-addressed artifacts, and
-            # `prepare_file` only accepts sources inside the fence.
-            render_dir=context.staging_dir / "fabrication-render",
-        )
-        elapsed = time.perf_counter() - started
-        benchmark.update_metadata(
-            totalReadyMs=round(elapsed * 1000, 3),
-            schematicChanges=len(result["schematic"]["changes"]),
-            pcbChanges=len(result["pcb"]["changes"]),
-            bomChanges=len((result.get("bom") or {}).get("changes") or []),
-        )
-        benchmark_path = (
-            job_state_root()
-            / "jobs"
-            / context.job_id
-            / f"benchmark-fence-{context.fence}.json"
-        )
-        benchmark.write(benchmark_path)
-        complete, sidecars = _prepare_comparison_bundle(
-            context,
-            result,
-            artifact_key=artifact_key,
-        )
-        _prune_revision_cache()
-        return JobResult(
-            message="Design comparison ready",
-            artifact=complete,
-            sidecar_artifacts=sidecars,
-            details={
-                "result_version": 2,
-                "ready_domains": ["schematic", "bom", "pcb", "stackup", "fabrication"],
-                "readiness": result["readiness"],
-                "benchmark_path": str(benchmark_path),
-                "base": base,
-                "head": head,
-                "sidecar_count": len(sidecars),
-            },
-        )
-    except Exception:
-        if published_initial is not None:
-            _publish_late_domain_failure(context, published_initial, artifact_key, base, head)
-        try:
-            benchmark_path = (
-                job_state_root()
-                / "jobs"
-                / context.job_id
-                / f"benchmark-fence-{context.fence}.json"
-            )
-            benchmark.write(benchmark_path)
-        except Exception:
-            logger.exception("Could not publish failed V3 comparison benchmark")
-        raise
+    def publish_complete(self, result: Dict[str, Any]) -> tuple[Any, tuple[Any, ...]]:
+        """The bundle manifest and its sidecars; the job's completion publishes them."""
+
+        return _prepare_comparison_bundle(self.context, result, artifact_key=self.artifact_key)
 
 
-def _publish_late_domain_failure(
-    context: JobContext,
-    initial_result: Dict[str, Any],
-    artifact_key: str,
-    base: str,
-    head: str,
-) -> None:
-    """Republish the initial result with the domains still building marked failed.
+def _ready_details(result: Dict[str, Any], request: ComparisonRequest, version: int) -> Dict[str, Any]:
+    domains = result["readiness"]["domains"]
+    return {
+        "result_version": version,
+        "ready_domains": [domain for domain, status in domains.items() if status == "ready"],
+        "readiness": result["readiness"],
+        "base": request.base,
+        "head": request.head,
+    }
 
-    Without it a reader keeps seeing PCB, Stackup and Fabrication as "building"
-    on a comparison that has already failed.
-    """
 
-    failed_result = copy.deepcopy(initial_result)
-    readiness = failed_result.setdefault("readiness", {})
+def _late_domains_failed(initial_result: Dict[str, Any]) -> Dict[str, Any]:
+    failed = copy.deepcopy(initial_result)
+    readiness = failed.setdefault("readiness", {})
     domains = readiness.setdefault("domains", {})
     for domain, status in list(domains.items()):
         if status != "ready":
             domains[domain] = "failed"
     readiness["stage"] = "background-failed"
+    return failed
+
+
+def run_comparison(
+    request: ComparisonRequest,
+    publisher: Any,
+    *,
+    benchmark: DesignCompareBenchmark,
+    stages: ComparisonStages | None = None,
+    heartbeat: Callable[..., None] = lambda message, percent=None: None,
+    check_cancelled: Callable[[], None] = lambda: None,
+    render_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Run the staged comparison and return the complete result.
+
+    Schematic and BOM are published as result version 1 as soon as they are
+    ready, before the PCB stage starts. If anything fails after that, the
+    initial result is republished as version 2 with every domain that was
+    still building marked failed, and the error propagates.
+    """
+
+    stages = stages or ComparisonStages()
+    base, head = request.base, request.head
+
+    def log_revisions(revision_logs: Dict[str, List[str]], stage: str) -> None:
+        for commit in dict.fromkeys((base, head)):
+            side = "old/new" if base == head else "old" if commit == base else "new"
+            for message in revision_logs.get(commit, []):
+                print(f"[{stage}:{side}] {message}", flush=True)
+
+    initial_result: Optional[Dict[str, Any]] = None
     try:
-        artifact = job_artifacts.prepare_json(
-            context,
-            failed_result,
-            kind="design_compare",
-            artifact_key=artifact_key,
-            schema_version=str(failed_result.get("schema") or ""),
-            generator_version=semantic_index_service.generator_cache_tag(),
-            readiness="partial",
+        check_cancelled()
+        with benchmark.span("snapshot-pipeline"):
+            stages.snapshots(request, heartbeat)
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="design-compare-object-delta") as executor:
+            def build_object_delta() -> Dict[str, Any]:
+                with benchmark.span("ecad-object-delta"):
+                    return stages.object_delta(request)
+
+            object_future = executor.submit(build_object_delta)
+            with benchmark.span("initial-revision-pipeline"):
+                initial_revisions, initial_logs = stages.initial_revisions(request, heartbeat, benchmark)
+            check_cancelled()
+            heartbeat("Finishing native object differences…", 45)
+            object_delta = object_future.result()
+        log_revisions(initial_logs, "initial")
+        check_cancelled()
+        heartbeat("Assembling Schematic and BOM differences…", 50)
+        assembled, assembly_state = stages.assemble_initial(request, initial_revisions, object_delta, benchmark)
+        publisher.publish_partial(
+            assembled,
+            stage="background-pcb",
+            message="Schematic and BOM ready; building PCB and Stackup in background…",
+            details=_ready_details(assembled, request, 1),
         )
-        v3_jobs.publish_partial_artifact(
-            context.job_id,
-            context.worker_id,
-            context.fence,
-            artifact.__dict__,
-            stage="background-failed",
-            message="Schematic and BOM ready; PCB and Stackup failed",
-            percent=60,
-            details={
-                "result_version": 2,
-                "ready_domains": [d for d, status in domains.items() if status == "ready"],
-                "readiness": readiness,
-                "base": base,
-                "head": head,
-            },
+        initial_result = assembled
+
+        check_cancelled()
+        with benchmark.span("pcb-revision-pipeline"):
+            complete_revisions, pcb_logs = stages.pcb_revisions(request, initial_revisions, heartbeat, benchmark)
+        log_revisions(pcb_logs, "pcb")
+        check_cancelled()
+        heartbeat("Assembling PCB and Stackup differences…", 92)
+        return stages.complete(
+            request, initial_result, assembly_state, complete_revisions, benchmark, render_dir
         )
-    except Exception:  # noqa: BLE001 - a cancelled or lost attempt keeps its last result
-        logger.warning("Could not publish the failed comparison readiness", exc_info=True)
+    except Exception:
+        if initial_result is not None:
+            failed = _late_domains_failed(initial_result)
+            try:
+                publisher.publish_partial(
+                    failed,
+                    stage="background-failed",
+                    message="Schematic and BOM ready; PCB and Stackup failed",
+                    details=_ready_details(failed, request, 2),
+                )
+            except Exception:  # noqa: BLE001 - a cancelled or lost attempt keeps its last result
+                logger.warning("Could not publish the failed comparison readiness", exc_info=True)
+        raise
+
+
+def run_design_compare_job_v3(context: JobContext) -> JobResult:
+    """Job handler ``design_compare``: one comparison under a fenced worker lease."""
+
+    payload = context.payload
+    project_id = str(payload["project_id"])
+    artifact_key = str(payload["artifact_key"])
+    if (_project_anchor(project_id) or "") != str(payload.get("project_file_rel") or ""):
+        raise RuntimeError(
+            "Project anchor changed after the comparison was queued; retry the comparison"
+        )
+    location = project_revision.locate_id(project_id)
+    request = ComparisonRequest(
+        project_id=project_id,
+        repo_path=location.repo_root,
+        relative_path=location.sub_path,
+        base=_resolve_revision(location.repo_root, str(payload["base"])),
+        head=_resolve_revision(location.repo_root, str(payload["head"])),
+        include_unchanged=bool(payload.get("include_unchanged")),
+    )
+    started = time.perf_counter()
+    revision_count = len({request.base, request.head})
+    benchmark = DesignCompareBenchmark(
+        job_id=context.job_id,
+        metadata={
+            "projectId": project_id,
+            "base": request.base,
+            "compare": request.head,
+            "initialWorkers": _stage_worker_count("initial", revision_count),
+            "pcbWorkers": _stage_worker_count("pcb", revision_count),
+            "semanticGenerator": semantic_index_service.generator_cache_tag(),
+            "pipeline": "staged-domain-v3-worker",
+            "fence": context.fence,
+        },
+    )
+    benchmark_path = job_state_root() / "jobs" / context.job_id / f"benchmark-fence-{context.fence}.json"
+
+    def heartbeat(message: str, percent: Optional[float] = None) -> None:
+        print(message, flush=True)
+        context.progress(stage="building", message=message, percent=percent)
+
+    publisher = JobArtifactPublisher(context, artifact_key)
+    try:
+        result = run_comparison(
+            request,
+            publisher,
+            benchmark=benchmark,
+            heartbeat=heartbeat,
+            check_cancelled=context.check_cancelled,
+            # Layer artwork is prepared as content-addressed artifacts, and
+            # `prepare_file` only accepts sources inside the fence.
+            render_dir=context.staging_dir / "fabrication-render",
+        )
+    except Exception:
+        try:
+            benchmark.write(benchmark_path)
+        except Exception:
+            logger.exception("Could not publish failed V3 comparison benchmark")
+        raise
+    benchmark.update_metadata(
+        totalReadyMs=round((time.perf_counter() - started) * 1000, 3),
+        schematicChanges=len(result["schematic"]["changes"]),
+        pcbChanges=len(result["pcb"]["changes"]),
+        bomChanges=len((result.get("bom") or {}).get("changes") or []),
+    )
+    benchmark.write(benchmark_path)
+    complete, sidecars = publisher.publish_complete(result)
+    _prune_revision_cache()
+    return JobResult(
+        message="Design comparison ready",
+        artifact=complete,
+        sidecar_artifacts=sidecars,
+        details={
+            **_ready_details(result, request, 2),
+            "benchmark_path": str(benchmark_path),
+            "sidecar_count": len(sidecars),
+        },
+    )
 
 
 DESIGN_COMPARE = JobKind(

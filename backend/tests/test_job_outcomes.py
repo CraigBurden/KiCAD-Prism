@@ -313,24 +313,24 @@ class DesignCompareOutcomeTests(unittest.TestCase):
                 return_value=project_revision.ProjectLocation(Path("/repo"), ""),
             ),
             mock.patch.object(service, "_resolve_revision", side_effect=lambda _repo, rev: rev),
-            mock.patch.object(service, "_prepare_comparison_snapshots"),
+            mock.patch.object(service.ComparisonStages, "snapshots"),
             mock.patch.object(
-                service,
-                "_build_initial_revisions",
+                service.ComparisonStages,
+                "initial_revisions",
                 return_value=({"base": {}, "head": {}}, {"base": [], "head": []}),
             ),
             mock.patch.object(
-                service,
-                "_run_ecad_object_delta",
+                service.ComparisonStages,
+                "object_delta",
                 return_value={"changes": [], "base": {}, "head": {}},
             ),
             mock.patch.object(
-                service,
-                "_assemble_initial_comparison",
+                service.ComparisonStages,
+                "assemble_initial",
                 return_value=(copy.deepcopy(self.INITIAL), {"schematic_changes": []}),
             ),
             mock.patch.object(
-                service, "_build_pcb_revisions", side_effect=RuntimeError("PCB worker failed")
+                service.ComparisonStages, "pcb_revisions", side_effect=RuntimeError("PCB worker failed")
             ),
         ):
             run_attempt(jobs, job_id, WORKER_A, service.run_design_compare_job_v3, state_root=root / "jobs")

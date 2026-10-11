@@ -111,17 +111,6 @@ async def start_design_compare(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/{project_id}/design-compare/{job_id}/status")
-async def design_compare_status(
-    project_id: str, job_id: str, user: AuthenticatedUser = Depends(require_viewer)
-):
-    get_project_for_role_or_404(project_id, user.role)
-    status = await asyncio.to_thread(design_compare_service.get_job_status, job_id)
-    if not status or status.get("project_id") != project_id:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return status
-
-
 @router.get("/{project_id}/design-compare/{job_id}")
 async def design_compare_result(
     project_id: str, job_id: str, user: AuthenticatedUser = Depends(require_viewer)

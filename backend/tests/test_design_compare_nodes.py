@@ -3,7 +3,7 @@
 import unittest
 from unittest import mock
 
-from app.services import bom_diff_service, design_compare_service
+from app.services import design_compare_nodes, design_compare_service
 from tests.design_compare_fixtures import component, design, net
 
 
@@ -18,7 +18,7 @@ class SemanticFixtures:
 
 class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
     def test_node_change_routes_native_identity_without_geometry(self) -> None:
-        change = design_compare_service._node_change(
+        change = design_compare_nodes._node_change(
             {
                 "key": "board.kicad_pcb#u1",
                 "status": "modified",
@@ -56,7 +56,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
         self.assertNotIn("geometry", change)
         self.assertNotIn("oldGeometry", change)
     def test_node_change_normalizes_structured_parser_layers(self) -> None:
-        change = design_compare_service._node_change(
+        change = design_compare_nodes._node_change(
             {
                 "key": "board.kicad_pcb#graphic-1",
                 "status": "modified",
@@ -90,7 +90,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
     def test_node_change_keeps_via_span_per_revision(self) -> None:
         """A focused routing review shows each pane only the copper that
         revision carries, so the span endpoints cannot be merged."""
-        change = design_compare_service._node_change(
+        change = design_compare_nodes._node_change(
             {
                 "key": "board.kicad_pcb#via-1",
                 "status": "modified",
@@ -146,7 +146,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
                     "documentPath": document,
                     "layer": layer,
                 }
-                change = design_compare_service._node_change({
+                change = design_compare_nodes._node_change({
                     "key": f"{document}#{native['uuid']}",
                     "status": "added",
                     "compare": native,
@@ -154,7 +154,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
                 self.assertEqual(change["category"], category)
                 self.assertEqual(change["classification"], classification)
 
-        erc_change = design_compare_service._node_change({
+        erc_change = design_compare_nodes._node_change({
             "key": "board.kicad_pro#erc-pin-rule",
             "status": "modified",
             "compare": {
@@ -172,7 +172,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
             "documentPath": "board.kicad_pro",
             "reviewOnly": True,
         }
-        change = design_compare_service._node_change({
+        change = design_compare_nodes._node_change({
             "key": "board.kicad_pro#net-class-usb",
             "status": "modified",
             "base": before,
@@ -207,13 +207,13 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
             "net": "VCC",
             "layer": "F.Cu",
         }
-        pad_change = design_compare_service._node_change({
+        pad_change = design_compare_nodes._node_change({
             "key": "board.kicad_pcb#pad-3",
             "status": "modified",
             "base": pad,
             "compare": pad,
         })
-        zone_change = design_compare_service._node_change({
+        zone_change = design_compare_nodes._node_change({
             "key": "board.kicad_pcb#zone-vcc",
             "status": "modified",
             "base": zone,
@@ -230,7 +230,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
         self.assertEqual(zone_change["label"], "VCC plane")
         self.assertTrue(zone_change["semantic_id"].startswith("obj:"))
 
-        groups = design_compare_service._group_changes([zone_change])
+        groups = design_compare_nodes._group_changes([zone_change])
         self.assertEqual(groups[0]["category"], "zones")
     def test_native_target_hydration_uses_document_parent_and_centroid(self) -> None:
         change = {
@@ -248,7 +248,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
                 ]
             },
         }
-        design_compare_service._hydrate_native_targets(
+        design_compare_nodes._hydrate_native_targets(
             [change],
             {"nativeObjects": []},
             {
@@ -282,7 +282,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
             "net": "/Expansion/PMOD_A10",
         }
 
-        change = design_compare_service._node_change({
+        change = design_compare_nodes._node_change({
             "key": "board.kicad_pcb#track-1",
             "status": "modified",
             "base": base,
@@ -334,7 +334,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
                 "reasons": ["net-changed"],
             })
 
-        group = design_compare_service._group_changes(members)[0]
+        group = design_compare_nodes._group_changes(members)[0]
 
         self.assertEqual(len(group["details"]["visualTargets"]), 4)
         self.assertEqual(
@@ -350,7 +350,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
             },
         )
     def test_parser_components_drive_bom_projection(self) -> None:
-        components = design_compare_service._parser_components(
+        components = design_compare_nodes._parser_components(
             {
                 "componentObjects": [
                     {
@@ -396,13 +396,13 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
             "properties": [{"name": "Value", "value": "PWR_FLAG"}],
         }
         self.assertEqual(
-            design_compare_service._parser_components(
+            design_compare_nodes._parser_components(
                 {"componentObjects": [power]}
             ),
             [],
         )
 
-        change = design_compare_service._node_change(
+        change = design_compare_nodes._node_change(
             {
                 "key": "root.kicad_sch#power-flag",
                 "status": "added",
@@ -415,7 +415,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
         self.assertIsNone(change["reference"])
         self.assertEqual(change["details"]["visualTargets"][0]["role"], "label")
 
-        stale_semantic_group = design_compare_service._group_changes([{
+        stale_semantic_group = design_compare_nodes._group_changes([{
             "id": "legacy-power-component",
             "kind": "changed",
             "domain": "schematic",
@@ -426,7 +426,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
         }])
         self.assertEqual(stale_semantic_group[0]["category"], "nets")
     def test_property_attribute_deltas_survive_the_python_adapter(self) -> None:
-        change = design_compare_service._node_change(
+        change = design_compare_nodes._node_change(
             {
                 "key": "root.kicad_sch#u1",
                 "status": "modified",
@@ -461,7 +461,7 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
             },
         )
     def test_route_metrics_finish_compact_parser_aggregates(self) -> None:
-        metrics = design_compare_service._route_metrics_from_digest(
+        metrics = design_compare_nodes._route_metrics_from_digest(
             {
                 "routeMetrics": {
                     "VCC": {
@@ -503,11 +503,11 @@ class DesignCompareNodesTests(SemanticFixtures, unittest.TestCase):
                 "semantic_id": "cmp:u1",
             },
         ]
-        groups = design_compare_service._group_changes(changes)
+        groups = design_compare_nodes._group_changes(changes)
         self.assertEqual({group["classification"] for group in groups}, {"primary", "secondary"})
         self.assertTrue(all(group["id"].startswith("grp:") for group in groups))
     def test_groups_include_position_delta_and_geometry_bounds(self) -> None:
-        groups = design_compare_service._group_changes([{
+        groups = design_compare_nodes._group_changes([{
             "id": "pcb-changed-u1",
             "kind": "changed",
             "domain": "pcb",
