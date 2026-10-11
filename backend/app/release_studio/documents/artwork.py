@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -27,6 +28,26 @@ from typing import Any, Callable, Mapping, Sequence
 
 from app.core.config import settings
 from app.release_studio.documents.layout import Artwork, Rect
+
+#: Layer and drill-map plots: bounded so a wedged plot fails one sheet.
+PLOT_TIMEOUT_SECONDS = 600
+
+
+def _plot_isolated(runner, argv: Sequence[str]):
+    """Run one plot with a timeout and its own temp dir (KiCad's instance lock)."""
+
+    from app.release_studio.steps import isolated_cli_env
+
+    with tempfile.TemporaryDirectory(prefix="kicad-cli-") as scratch:
+        try:
+            return runner(
+                argv, capture_output=True, text=True, timeout=PLOT_TIMEOUT_SECONDS,
+                env=isolated_cli_env(Path(scratch)),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ArtworkError(
+                f"kicad-cli {' '.join(argv[1:4])} timed out after {PLOT_TIMEOUT_SECONDS}s"
+            ) from exc
 
 _SVG_OPEN = re.compile(r"<svg\b[^>]*>", re.IGNORECASE | re.DOTALL)
 _SVG_CLOSE = re.compile(r"</svg\s*>\s*$", re.IGNORECASE)
@@ -186,7 +207,7 @@ def acquire(
             argv.extend(["--variant", variant])
         argv.append(str(board))
 
-        result = runner(argv, capture_output=True, text=True)
+        result = _plot_isolated(runner, argv)
         if getattr(result, "returncode", 1) != 0:
             # kicad-cli reports argument errors on stdout, so a stderr-only
             # message would be empty exactly when it is most needed.
@@ -1000,7 +1021,7 @@ def acquire_drill_map(
             "--output", f"{target}/",
             str(board),
         ]
-        result = runner(argv, capture_output=True, text=True)
+        result = _plot_isolated(runner, argv)
         if getattr(result, "returncode", 1) != 0:
             detail = " ".join(
                 part.strip()
