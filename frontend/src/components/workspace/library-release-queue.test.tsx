@@ -2,14 +2,14 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fetchJson } from "@/lib/api";
+import { getReleaseQueue } from "./catalog-client";
 import { LibraryReleaseQueue } from "./library-release-queue";
 
-vi.mock("@/lib/api", () => ({ fetchJson: vi.fn() }));
+vi.mock("./catalog-client");
 
 describe("LibraryReleaseQueue empty states", () => {
   beforeEach(() => {
-    vi.mocked(fetchJson).mockResolvedValue({
+    vi.mocked(getReleaseQueue).mockResolvedValue({
       items: [],
       total: 0,
       page: 1,
