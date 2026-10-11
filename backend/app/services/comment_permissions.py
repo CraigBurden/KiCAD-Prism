@@ -24,9 +24,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Protocol
 
-from fastapi import HTTPException
 
 from app.core.roles import Role, role_meets_minimum
+from app.core import errors
 from app.core.policy import has_scope
 from app.core.security import AuthenticatedUser
 from app.services import access_service
@@ -56,7 +56,7 @@ class CommentAction(str, Enum):
     SHARE = "share"
 
 
-class CommentPermissionError(HTTPException):
+class CommentPermissionError(errors.Forbidden):
     """A refused comment action, with a machine-readable reason.
 
     ``code`` and ``required_role`` let the router translate the refusal into
@@ -65,8 +65,8 @@ class CommentPermissionError(HTTPException):
     """
 
     def __init__(self, code: str, detail: str, *, required_role: Optional[Role] = None, status_code: int = 403):
-        super().__init__(status_code=status_code, detail=detail)
-        self.code = code
+        extra = {"requiredRole": required_role} if required_role else {}
+        super().__init__(detail, code=code, status_code=status_code, **extra)
         self.required_role = required_role
 
 

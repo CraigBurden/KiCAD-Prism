@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
+from app.core import errors
 from app.core.config import settings
 from app.core.policy import folder_visibility_params, folder_visible, folder_visible_sql
 from app.core.roles import Role
@@ -37,8 +38,12 @@ _RELEASE_IMMUTABLE_TRIGGERS = (
 )
 
 
-class ProjectHasSignedReleasesError(Exception):
-    """Raised when a non-admin delete is blocked by signed release records."""
+class WorkspaceNotFound(errors.NotFound, ValueError):
+    """A folder or project named in a workspace change does not exist (404; still a ``ValueError``)."""
+
+
+class ProjectHasSignedReleasesError(errors.Conflict):
+    """Raised when a non-admin delete is blocked by signed release records (409)."""
 
     def __init__(self, project_id: str, record_count: int) -> None:
         self.project_id = project_id
@@ -467,7 +472,7 @@ class WorkspaceService:
                     (folder_id,),
                 ).fetchone()
                 if not folder:
-                    raise ValueError("Folder not found")
+                    raise WorkspaceNotFound("Folder not found")
 
             rows = conn.execute(
                 "SELECT id FROM ws_projects WHERE id = ANY(%s) FOR UPDATE",
@@ -481,7 +486,7 @@ class WorkspaceService:
             ]
             if missing_ids:
                 noun = "Project" if len(missing_ids) == 1 else "Projects"
-                raise ValueError(f"{noun} not found: {', '.join(missing_ids)}")
+                raise WorkspaceNotFound(f"{noun} not found: {', '.join(missing_ids)}")
 
             cursor = conn.execute(
                 "UPDATE ws_projects SET folder_id=%s WHERE id = ANY(%s)",
@@ -823,7 +828,7 @@ class WorkspaceService:
             if parent_id is not None:
                 parent = conn.execute("SELECT id FROM ws_folders WHERE id=%s", (parent_id,)).fetchone()
                 if not parent:
-                    raise ValueError("Parent folder not found")
+                    raise WorkspaceNotFound("Parent folder not found")
             try:
                 conn.execute(
                     """INSERT INTO ws_folders (id,name,parent_id,visibility_mode,allowed_roles,created_at,updated_at)
@@ -854,7 +859,7 @@ class WorkspaceService:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
             if not row:
-                raise ValueError("Folder not found")
+                raise WorkspaceNotFound("Folder not found")
             folder = self._row_to_dict(row)
             target_name = name.strip() if name is not None else folder["name"]
             target_parent = parent_id if _use_parent else folder["parent_id"]
@@ -865,7 +870,7 @@ class WorkspaceService:
             if target_parent is not None:
                 p = conn.execute("SELECT id FROM ws_folders WHERE id=%s", (target_parent,)).fetchone()
                 if not p:
-                    raise ValueError("Parent folder not found")
+                    raise WorkspaceNotFound("Parent folder not found")
                 # Prevent cycles
                 current = target_parent
                 visited = {folder_id}
@@ -979,12 +984,12 @@ class WorkspaceService:
             if folder_id is not None:
                 row = conn.execute("SELECT * FROM ws_folders WHERE id=%s", (folder_id,)).fetchone()
                 if not row:
-                    raise ValueError("Folder not found")
+                    raise WorkspaceNotFound("Folder not found")
                 fd = self._row_to_dict(row)
                 raw_roles = fd.get("allowed_roles") or []
                 fd["allowed_roles"] = json.loads(raw_roles) if isinstance(raw_roles, str) else raw_roles
                 if not self._is_folder_visible(fd, user_role):
-                    raise ValueError("Folder not found")
+                    raise WorkspaceNotFound("Folder not found")
             child_folders = conn.execute(
                 "SELECT * FROM ws_folders WHERE parent_id IS NOT DISTINCT FROM %s ORDER BY name",
                 (folder_id,),

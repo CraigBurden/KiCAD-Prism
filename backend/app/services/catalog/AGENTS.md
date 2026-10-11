@@ -69,7 +69,8 @@ rationale are recorded in `docs/CATALOG_DECOMPOSITION_HANDOFF.md`.
   (`component_identity.py`): the writer's uniqueness check, import acceptance,
   folder discovery and usage indexing all see active and retired holders alike.
 - Write-conflict classification is `CatalogConflict.code`. HTTP 409 bodies are
-  `{code, message}` (`conflicts.py`, `backend/app/api/catalog_errors.py`).
+  `{"detail": {code, message}}` (`conflicts.py`, rendered by the app's
+  domain-error handler in `backend/app/core/errors.py`).
 - Canonical asset paths under the store root (`asset_files.py`, `runtime.py`).
 - Paginated catalog and remote-head lists end `ORDER BY` with immutable
   component identity (`component_queries.py`, `remote_heads.py`). This is a

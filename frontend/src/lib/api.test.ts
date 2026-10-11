@@ -1,15 +1,48 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiHttpError, fetchJson, readApiError } from "./api";
+import {
+  ApiHttpError,
+  apiErrorFrom,
+  fetchApi,
+  fetchBlob,
+  fetchChecked,
+  fetchJson,
+  fetchText,
+  readApiError,
+} from "./api";
 
-function jsonResponse(status: number, body: unknown): Response {
+function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
-describe("readApiError", () => {
+function stubFetch(response: Response | (() => Response)) {
+  const mock = vi.fn(async () => (typeof response === "function" ? response() : response));
+  vi.stubGlobal("fetch", mock);
+  return mock;
+}
+
+async function rejection(promise: Promise<unknown>): Promise<ApiHttpError> {
+  try {
+    await promise;
+  } catch (reason) {
+    expect(reason).toBeInstanceOf(ApiHttpError);
+    return reason as ApiHttpError;
+  }
+  throw new Error("expected ApiHttpError");
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("error bodies", () => {
   it("keeps a string detail", async () => {
     await expect(
       readApiError(jsonResponse(400, { detail: "datasheet is required" }), "fail"),
@@ -17,37 +50,175 @@ describe("readApiError", () => {
   });
 
   it("reads a catalog conflict object without dropping the message", async () => {
-    await expect(
-      readApiError(
-        jsonResponse(409, { detail: { code: "asset_referenced", message: "cannot detach" } }),
-        "fail",
-      ),
-    ).resolves.toBe("cannot detach");
+    const error = await apiErrorFrom(
+      jsonResponse(409, { detail: { code: "asset_referenced", message: "cannot detach" } }),
+      "fail",
+    );
+    expect(error).toMatchObject({ status: 409, message: "cannot detach", code: "asset_referenced" });
+    expect(error.isConflict).toBe(true);
+  });
+
+  it("reads a domain error's code and extra fields beside detail", async () => {
+    const error = await apiErrorFrom(
+      jsonResponse(409, {
+        detail: "Comment changed since the revision you edited",
+        code: "revision_conflict",
+        currentRevision: 3,
+      }),
+    );
+    expect(error).toMatchObject({ message: "Comment changed since the revision you edited", code: "revision_conflict" });
+    expect(error.payload).toEqual({ currentRevision: 3 });
+  });
+
+  it("flattens a tracker body nested under detail", async () => {
+    const error = await apiErrorFrom(
+      jsonResponse(403, { detail: { detail: "designer role required", code: "publication_required", requiredRole: "designer" } }),
+    );
+    expect(error).toMatchObject({ message: "designer role required", code: "publication_required" });
+    expect(error.payload).toEqual({ requiredRole: "designer" });
+    expect(error.isPermission).toBe(true);
+  });
+
+  it("keeps a provider error's class and retryable flags", async () => {
+    const error = await apiErrorFrom(
+      jsonResponse(409, { detail: { class: "auth_lost", message: "Reconnect GitHub", retryable: false } }),
+    );
+    expect(error.message).toBe("Reconnect GitHub");
+    expect(error.payload).toEqual({ class: "auth_lost", retryable: false });
+  });
+
+  it("turns a 422 validation array into one readable message", async () => {
+    const error = await apiErrorFrom(
+      jsonResponse(422, { detail: [{ loc: ["body", "url"], msg: "Field required" }, { loc: ["body", "ref"], msg: "Input should be a valid string" }] }),
+      "Analysis failed",
+    );
+    expect(error.message).toBe("url: Field required, ref: Input should be a valid string");
+  });
+
+  it("falls back to the caller's message for a non-JSON proxy page", async () => {
+    const error = await apiErrorFrom(
+      new Response("<html>502 Bad Gateway</html>", { status: 502, headers: { "Content-Type": "text/html" } }),
+      "Import failed",
+    );
+    expect(error).toMatchObject({ status: 502, message: "Import failed" });
+  });
+
+  it("falls back for an empty or blank detail", async () => {
+    expect((await apiErrorFrom(jsonResponse(500, { detail: "  " }), "Request failed")).message).toBe("Request failed");
+    expect((await apiErrorFrom(jsonResponse(500, null), "Request failed")).message).toBe("Request failed");
   });
 });
 
-describe("fetchJson", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
+describe("classification", () => {
+  it.each([
+    [401, "isAuth"],
+    [403, "isPermission"],
+    [404, "isNotFound"],
+    [409, "isConflict"],
+    [412, "isStale"],
+  ] as const)("%i is %s and nothing else", (status, flag) => {
+    const error = new ApiHttpError(status, "x");
+    const flags = ["isAuth", "isPermission", "isNotFound", "isConflict", "isStale"] as const;
+    expect(flags.filter((name) => error[name])).toEqual([flag]);
+  });
+});
+
+describe("fetchApi", () => {
+  it("sends the session cookie and a JSON content type for string bodies", async () => {
+    const mock = stubFetch(jsonResponse(200, {}));
+    await fetchApi("/api/projects/import", { method: "POST", body: JSON.stringify({ url: "x" }) });
+    const [, init] = mock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.credentials).toBe("include");
+    expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
   });
 
-  it("attaches the catalog conflict code to ApiHttpError", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        jsonResponse(409, { detail: { code: "revision_conflict", message: "head moved" } }),
-      ),
-    );
+  it.each([401, 403])("raises the session banner event on %i", async (status) => {
+    stubFetch(jsonResponse(status, { detail: "Not authenticated" }));
+    const listener = vi.fn();
+    window.addEventListener("kicad-prism-auth-error", listener);
     try {
-      await fetchJson("/api/catalog/components/cmp-1");
-      throw new Error("expected ApiHttpError");
-    } catch (reason) {
-      expect(reason).toBeInstanceOf(ApiHttpError);
-      expect(reason).toMatchObject({
-        status: 409,
-        message: "head moved",
-        code: "revision_conflict",
-      });
+      await fetchApi("/api/projects/p1/config");
+    } finally {
+      window.removeEventListener("kicad-prism-auth-error", listener);
     }
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ status, url: "/api/projects/p1/config" });
+  });
+});
+
+describe("typed readers", () => {
+  it("fetchJson returns the body and throws ApiHttpError with the code", async () => {
+    stubFetch(jsonResponse(200, { job_id: "j1" }));
+    await expect(fetchJson("/api/projects/analyze")).resolves.toEqual({ job_id: "j1" });
+
+    stubFetch(jsonResponse(409, { detail: { code: "revision_conflict", message: "head moved" } }));
+    const error = await rejection(fetchJson("/api/catalog/components/cmp-1"));
+    expect(error).toMatchObject({ status: 409, message: "head moved", code: "revision_conflict" });
+  });
+
+  it("fetchText and fetchBlob read their bodies and share the error path", async () => {
+    stubFetch(() => new Response("<html>icd</html>", { status: 200 }));
+    await expect(fetchText("/api/systems/s/icd.html")).resolves.toBe("<html>icd</html>");
+    stubFetch(() => new Response("zip", { status: 200 }));
+    expect(await (await fetchBlob("/api/projects/p/asset/x.zip")).text()).toBe("zip");
+
+    stubFetch(jsonResponse(404, { detail: "Not found" }));
+    expect(await rejection(fetchText("/api/systems/s/icd.html", undefined, "The ICD could not be generated"))).toMatchObject({
+      status: 404,
+      message: "Not found",
+    });
+  });
+
+  it("fetchChecked hands back the response for headers", async () => {
+    stubFetch(jsonResponse(200, {}, { ETag: '"sys:s:4"' }));
+    expect((await fetchChecked("/api/systems/s")).headers.get("ETag")).toBe('"sys:s:4"');
+  });
+
+  it("an expired session during a write raises the banner and a readable error", async () => {
+    stubFetch(jsonResponse(401, { detail: "Not authenticated" }));
+    const listener = vi.fn();
+    window.addEventListener("kicad-prism-auth-error", listener);
+    try {
+      const error = await rejection(fetchJson("/api/projects/import", { method: "POST", body: "{}" }, "Import failed"));
+      expect(error).toMatchObject({ status: 401, message: "Not authenticated" });
+      expect(error.isAuth).toBe(true);
+    } finally {
+      window.removeEventListener("kicad-prism-auth-error", listener);
+    }
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("one transport", () => {
+  // Raw fetch is only for non-Prism endpoints and local object URLs.
+  const ALLOWED = new Set([
+    "lib/api.ts", // the transport itself
+    "panel/lib/panel-api.ts", // the panel's bearer-token adapter (parses errors with apiErrorFrom)
+    "lib/ecad-renderer.ts", // immutable asset text cache
+    "lib/kicad-agent-signin.ts", // the local KiCad agent on 127.0.0.1
+    "components/login-page.tsx", // GitHub releases
+    "components/release-studio/shared.tsx", // reads a blob: object URL
+  ]);
+
+  function sources(dir: string): string[] {
+    return readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) return name === "test" ? [] : sources(path);
+      return /\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name) ? [path] : [];
+    });
+  }
+
+  it("calls the Prism backend only through lib/api", () => {
+    const root = resolve(__dirname, "..");
+    const offenders = sources(root)
+      .map((path) => relative(root, path))
+      .filter((path) => !ALLOWED.has(path))
+      .filter((path) =>
+        readFileSync(join(root, path), "utf8")
+          .split("\n")
+          // A class method named fetch is not a call.
+          .some((line) => /(^|[^\w.])fetch\(/.test(line) && !/^\s*(private |public |protected )?fetch\(/.test(line)),
+      );
+    expect(offenders).toEqual([]);
   });
 });

@@ -17,6 +17,7 @@ from test_system_assemblies import AssemblyCase
 from test_system_publish import ADMIN
 from test_system_snapshots import DESIGNER, VIEWER
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import service as service_module
 from app.services.systems import bundles
@@ -324,6 +325,7 @@ class FlatSceneTest(SceneCase):
 
     def test_api(self) -> None:
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         with mock.patch.object(service_module, "service", self.service):
             response = _request(app, "GET", f"/api/systems/{self.sid}/scene", user="viewer")

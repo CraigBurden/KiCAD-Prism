@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import bcrypt
 
+from app.core import errors
 from app.core.config import settings
 from app.services import access_service
 from app.services.auth_schema_migrations import AUTH_LEDGER
@@ -39,12 +40,12 @@ def initialize_credential_store() -> None:
         _initialized = True
 
 
-class PasswordPolicyError(ValueError):
-    """Raised when a proposed password does not meet the configured policy."""
+class PasswordPolicyError(errors.Invalid, ValueError):
+    """Raised when a proposed password does not meet the configured policy (422)."""
 
 
-class NoSuchUserError(ValueError):
-    """Raised when an admin tries to set a password on an email with no account."""
+class NoSuchUserError(errors.BadRequest, ValueError):
+    """Raised when an admin tries to set a password on an email with no account (400)."""
 
 
 def validate_password_policy(password: str) -> None:

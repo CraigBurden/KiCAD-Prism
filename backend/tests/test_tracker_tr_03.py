@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import DomainError, error_response  # noqa: E402
 from app.api import comments as comments_api  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from tests.test_tracker_tr_01 import (  # noqa: E402
@@ -42,7 +43,11 @@ PROJECT = SimpleNamespace(id="prj_test", path="")
 
 
 def run(coro):
-    return asyncio.run(coro)
+    """Await a route; a typed refusal comes back as the response the app handler sends."""
+    try:
+        return asyncio.run(coro)
+    except DomainError as exc:
+        return error_response(exc)
 
 
 def body(response: JSONResponse) -> dict:
@@ -101,9 +106,9 @@ class RequestModelTests(unittest.TestCase):
         from app.services.comment_permissions import CommentPermissionError
         from app.services.comments_revisions import RevisionConflict
 
-        refused = comments_api._permission_response(CommentPermissionError("publication_required", "no", required_role="designer"))
+        refused = error_response(CommentPermissionError("publication_required", "no", required_role="designer"))
         self.assertEqual((refused.status_code, body(refused)), (403, {"detail": "no", "code": "publication_required", "requiredRole": "designer"}))
-        conflict = comments_api._conflict_response(RevisionConflict("root", "c_1", 3))
+        conflict = error_response(RevisionConflict("root", "c_1", 3))
         self.assertEqual(conflict.status_code, 409)
         self.assertEqual(body(conflict)["code"], "revision_conflict")
         self.assertEqual(body(conflict)["currentRevision"], 3)

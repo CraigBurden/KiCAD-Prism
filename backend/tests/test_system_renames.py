@@ -12,6 +12,7 @@ from unittest import mock
 from test_system_api import _request
 from test_system_snapshots import DESIGNER, VIEWER, SnapshotCase
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import renames, service as service_module
 from app.services.systems.jobs import extract_and_store
@@ -156,6 +157,7 @@ class RenameApiTest(RenameCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = FastAPI()
+        install_error_handlers(self.app)
         self.app.include_router(systems_api.router, prefix="/api/systems")
 
     def test_propose_withdraw_and_the_board_page_over_http(self) -> None:

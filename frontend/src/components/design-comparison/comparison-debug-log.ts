@@ -1,3 +1,5 @@
+import { fetchApi } from "@/lib/api";
+
 /**
  * Opt-in transition tracing for the design comparison.
  *
@@ -74,7 +76,7 @@ async function postEvent(
     clientElapsedMs: number,
 ): Promise<void> {
     try {
-        const response = await fetch(
+        const response = await fetchApi(
             `/api/projects/${encodeURIComponent(active.projectId)}/design-compare/debug-log`,
             {
                 method: "POST",

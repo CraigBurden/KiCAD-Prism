@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import tracker_sync as sync_api  # noqa: E402
 from app.services import comments_schema_migrations  # noqa: E402
@@ -92,6 +93,7 @@ class RoutingContractTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
         self.assertIn("tracker_sync_router", source)
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(sync_api.router)
         paths = set(app.openapi()["paths"])
         self.assertIn("/api/projects/{project_id}/tracker/health", paths)

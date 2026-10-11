@@ -3,6 +3,7 @@ import { Download, File, FileText, Folder, ChevronRight, ChevronDown, Eye, X } f
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileItem, TreeNode, formatBytes, buildFileTree } from "@/lib/file-utils";
+import { fetchJson } from "@/lib/api";
 
 const MarkdownContent = lazy(() =>
     import("@/components/markdown-content").then((module) => ({ default: module.MarkdownContent }))
@@ -133,11 +134,8 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
             setLoading(true);
             setViewingDoc(null);
             try {
-                const response = await fetch(appendCommit(`/api/projects/${projectId}/docs`), { signal });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (!signal.aborted) setFiles(data);
-                }
+                const data = await fetchJson<FileItem[]>(appendCommit(`/api/projects/${projectId}/docs`), { signal });
+                if (!signal.aborted) setFiles(data);
             } catch (err) {
                 if (err instanceof DOMException && err.name === "AbortError") return;
                 console.error("Failed to fetch docs", err);
@@ -156,11 +154,8 @@ export function DocumentationBrowser({ projectId, commit }: DocumentationBrowser
     const handleView = async (path: string, name: string) => {
         try {
             const url = appendCommit(`/api/projects/${projectId}/docs/content?path=${encodeURIComponent(path)}`);
-            const response = await fetch(url);
-            if (response.ok) {
-                const data = await response.json();
-                setViewingDoc({ path, name, content: data.content });
-            }
+            const data = await fetchJson<{ content: string }>(url);
+            setViewingDoc({ path, name, content: data.content });
         } catch (err) {
             console.error("Failed to fetch doc content", err);
         }

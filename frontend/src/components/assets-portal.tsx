@@ -3,6 +3,7 @@ import { Download, File, FileText, Package, Image as ImageIcon, Folder, ChevronR
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileItem, TreeNode, formatBytes, buildFileTree, calculateTotalSize } from "@/lib/file-utils";
+import { fetchApi } from "@/lib/api";
 
 interface AssetsPortalProps {
     projectId: string;
@@ -149,8 +150,8 @@ export function AssetsPortal({ projectId, commit }: AssetsPortalProps) {
             setLoading(true);
             try {
                 const [designRes, mfgRes] = await Promise.all([
-                    fetch(appendCommit(`/api/projects/${projectId}/files?type=design`), { signal }),
-                    fetch(appendCommit(`/api/projects/${projectId}/files?type=manufacturing`), { signal })
+                    fetchApi(appendCommit(`/api/projects/${projectId}/files?type=design`), { signal }),
+                    fetchApi(appendCommit(`/api/projects/${projectId}/files?type=manufacturing`), { signal })
                 ]);
 
                 if (signal.aborted) return;

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from fastapi import HTTPException, Response
 from starlette.requests import Request
 
+from app.core.errors import DomainError  # noqa: E402
 from app.api import _helpers as api_helpers
 from app.api import agent as agent_api
 from app.api import auth as auth_api
@@ -17,6 +18,10 @@ from app.api import comments as comments_api
 from app.core import security, session
 from app.core.config import settings
 from app.services import session_store_service
+
+# A route refuses with an HTTPException or a typed domain error (rendered by the app handler).
+ROUTE_ERRORS = (HTTPException, DomainError)
+
 
 TEST_SECRET = "unit-test-session-secret-with-enough-length"
 
@@ -82,7 +87,7 @@ class AuthenticationDoesNotBlockTheLoopTests(unittest.TestCase):
             await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
             probe_finished = await _lightweight_probe_completes_while(auth)
             blocked.gate.set()
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
                 await auth
             return probe_finished, ctx.exception
 
@@ -107,7 +112,7 @@ class AuthenticationDoesNotBlockTheLoopTests(unittest.TestCase):
             await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
             probe_finished = await _lightweight_probe_completes_while(auth)
             blocked.gate.set()
-            with self.assertRaises(HTTPException):
+            with self.assertRaises(ROUTE_ERRORS):
                 await auth
             return probe_finished
 
@@ -120,12 +125,12 @@ class AuthenticationDoesNotBlockTheLoopTests(unittest.TestCase):
         token = session.create_session_token("session-a")
         with patch.object(settings, "AUTH_ENABLED_OVERRIDE", True):
             with patch.object(session_store_service, "load_session", return_value=None):
-                with self.assertRaises(HTTPException) as revoked:
+                with self.assertRaises(ROUTE_ERRORS) as revoked:
                     asyncio.run(security.get_current_user(_request(token)))
             with patch.object(
                 session_store_service, "load_session", return_value=_record("session-a", "nobody@example.com")
             ), patch.object(security, "_resolve_allowed_user_role", return_value=None):
-                with self.assertRaises(HTTPException) as unassigned:
+                with self.assertRaises(ROUTE_ERRORS) as unassigned:
                     asyncio.run(security.get_current_user(_request(token)))
             with patch.object(
                 session_store_service, "load_session", return_value=_record("session-a", "qa@example.com")
@@ -178,7 +183,7 @@ class LoginRateLimiterDoesNotBlockTheLoopTests(unittest.TestCase):
                     await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
                     probe_finished = await _lightweight_probe_completes_while(login)
                     blocked.gate.set()
-                    with self.assertRaises(HTTPException) as ctx:
+                    with self.assertRaises(ROUTE_ERRORS) as ctx:
                         await login
                     self.assertEqual(ctx.exception.status_code, 429)
                     return probe_finished
@@ -201,7 +206,7 @@ class LoginRateLimiterDoesNotBlockTheLoopTests(unittest.TestCase):
                 with patch.object(auth_api, "oidc_enabled", return_value=True), patch.object(
                     auth_api.rate_limit_service, "enforce", limited
                 ), patch.multiple(auth_api, **provider_calls):
-                    with self.assertRaises(HTTPException) as ctx:
+                    with self.assertRaises(ROUTE_ERRORS) as ctx:
                         asyncio.run(entry())
                 self.assertEqual(ctx.exception.status_code, 429)
         for name, call in provider_calls.items():
@@ -219,7 +224,7 @@ class CommentReadsDoNotBlockTheLoopTests(unittest.TestCase):
             await asyncio.get_running_loop().run_in_executor(None, blocked.entered.wait, 2)
             probe_finished = await _lightweight_probe_completes_while(read)
             blocked.gate.set()
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
                 await read
             self.assertEqual(ctx.exception.status_code, 404)
             return probe_finished
@@ -230,7 +235,7 @@ class CommentReadsDoNotBlockTheLoopTests(unittest.TestCase):
     def test_project_role_filtering_is_preserved_on_reads(self) -> None:
         user = security.AuthenticatedUser(email="v@example.com", name="V", role="viewer")
         with patch.object(api_helpers.workspace, "get_project_for_role", return_value=None) as lookup:
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
                 asyncio.run(comments_api.get_comments("prj", user))
         self.assertEqual(ctx.exception.status_code, 404)
         lookup.assert_called_once_with("prj", "viewer")
@@ -272,7 +277,7 @@ class CatalogUploadsDoNotBlockTheLoopTests(unittest.TestCase):
         with patch.object(
             catalog_admin_api.catalog_service, "import_symbol_library", side_effect=ValueError("Uploaded library has no symbols")
         ):
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
                 asyncio.run(catalog_admin_api.import_symbol_library("cmp", _Upload(), "", "", "", "", user))
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(ctx.exception.detail, "Uploaded library has no symbols")
@@ -387,7 +392,7 @@ class AgentTokenRevocationDoesNotBlockTheLoopTests(unittest.TestCase):
         with patch.object(
             agent_api.agent_auth_service, "get_agent_token", return_value={"email": "someone@else.com"}
         ), patch.object(agent_api.agent_auth_service, "revoke_agent_token_by_jti", revoked):
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(ROUTE_ERRORS) as ctx:
                 asyncio.run(agent_api.revoke_token("jti-1", user))
 
         self.assertEqual(ctx.exception.status_code, 403)

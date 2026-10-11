@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 import requests
 
+from app.core import errors
 from app.core.config import environment_value, settings
 from app.release_studio.canonical import write_deterministic_zip
 from app.services.forge_hosts import ForgeHostConfigError, resolve_forge_host
@@ -26,12 +27,11 @@ _TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
-class ForgePublishError(RuntimeError):
-    """A publish attempt the user can act on (missing token, wrong host, 403)."""
+class ForgePublishError(errors.DomainError, RuntimeError):
+    """A publish attempt the user can act on (missing token, wrong host, 403); 400 unless given."""
 
     def __init__(self, message: str, *, status_code: int = 400) -> None:
-        super().__init__(message)
-        self.status_code = status_code
+        super().__init__(message, status_code=status_code)
 
 
 @dataclass(frozen=True)

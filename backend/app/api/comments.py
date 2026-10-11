@@ -27,7 +27,7 @@ from app.services.comment_anchor_service import (
     resolve_displayed_bindings,
 )
 from app.services.comment_permissions import ActorIdentity, AuthoredObject, CommentAction, CommentPermissionError
-from app.services.comments_revisions import Editor, RevisionConflict
+from app.services.comments_revisions import Editor
 from app.services.comments_store_service import (
     COMMENT_CLASSES,
     COMMENT_SEVERITIES,
@@ -37,7 +37,6 @@ from app.services.comments_store_service import (
 )
 from app.services.trackers.projections import can_retry_projection
 from app.services.trackers.promotion import PromotionActor
-from app.services.trackers.publication_policy import PublicationDenied
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 T = TypeVar("T")
@@ -274,42 +273,11 @@ def _with_permissions(comment: dict, actor: ActorIdentity) -> dict:
     return comment
 
 
-def _permission_response(exc: CommentPermissionError) -> JSONResponse:
-    body = {"detail": exc.detail, "code": exc.code}
-    if exc.required_role:
-        body["requiredRole"] = exc.required_role
-    return JSONResponse(status_code=exc.status_code, content=body)
+async def _run_mutation(write: Callable[[], T]) -> T:
+    """Run a blocking write off the event loop. Its refusals (permission, publication,
+    revision conflict, anchor, attachment) are typed errors the app handler renders."""
 
-
-def _conflict_response(exc: RevisionConflict) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "Comment changed since the revision you edited", "code": "revision_conflict",
-                 "currentRevision": exc.current_revision},
-    )
-
-
-async def _run_mutation(write: Callable[[], T]):
-    try:
-        return await asyncio.to_thread(write)
-    except CommentPermissionError as exc:
-        return _permission_response(exc)
-    except PublicationDenied as exc:
-        # A ValueError subclass: map it before the generic ValueError branch.
-        body = {"detail": str(exc), "code": exc.code}
-        if exc.required_role:
-            body["requiredRole"] = exc.required_role
-        return JSONResponse(status_code=403, content=body)
-    except RevisionConflict as exc:
-        return _conflict_response(exc)
-    except AnchorValidationError as exc:
-        return JSONResponse(status_code=422, content={"detail": exc.detail, "code": exc.code})
-    except comment_attachments.AttachmentError as exc:
-        return JSONResponse(status_code=422, content={"detail": exc.detail, "code": exc.code})
-    except ValueError as exc:
-        if "immutable" in str(exc).lower():
-            return JSONResponse(status_code=422, content={"detail": str(exc), "code": "anchor_immutable"})
-        raise
+    return await asyncio.to_thread(write)
 
 
 def _normalize_context(context: str) -> str:
@@ -711,8 +679,6 @@ async def update_comment(
         return _with_permissions(updated, actor) if updated else None
 
     updated_comment = await _run_mutation(write)
-    if isinstance(updated_comment, JSONResponse):
-        return updated_comment
 
     if not updated_comment:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -745,8 +711,6 @@ async def pin_comment(
         return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
     if result is None:
         raise HTTPException(status_code=404, detail="Comment not found")
     return result
@@ -791,8 +755,6 @@ async def reattach_comment(
         return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
     if result is None:
         raise HTTPException(status_code=404, detail="Comment not found")
     return result
@@ -835,8 +797,6 @@ async def add_reply(
         return {"comment": comment, "reply": reply}
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
 
     if not result:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -870,8 +830,6 @@ async def update_reply(
         return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
     if result is None:
         raise HTTPException(status_code=404, detail="Reply not found")
     return result
@@ -899,8 +857,6 @@ async def delete_reply(
         return _with_permissions(updated, actor) if updated else None
 
     result = await _run_mutation(write)
-    if isinstance(result, JSONResponse):
-        return result
     if result is None:
         raise HTTPException(status_code=404, detail="Reply not found")
     return result
@@ -973,8 +929,6 @@ async def delete_comment(
         )
 
     deleted = await _run_mutation(write)
-    if isinstance(deleted, JSONResponse):
-        return deleted
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -1055,10 +1009,7 @@ async def upload_comment_attachment(
     """
     project = get_project_for_role_or_404(project_id, user.role)
     actor = _actor(user)
-    try:
-        comment_permissions.authorize(CommentAction.REPLY, actor)
-    except CommentPermissionError as exc:
-        return _permission_response(exc)
+    comment_permissions.authorize(CommentAction.REPLY, actor)
     # One byte past the cap so an oversized upload is refused without reading it all.
     data = await file.read(comment_attachments.max_upload_bytes() + 1)
     try:

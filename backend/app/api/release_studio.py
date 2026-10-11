@@ -21,6 +21,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.api._helpers import authorized_project, get_project_for_role_or_404
+from app.core.errors import caller_errors
 from app.core.security import (
     AuthenticatedUser,
     require_designer,
@@ -131,7 +132,7 @@ async def get_source(
             "host": "",
             "owner_repo": "",
             "token_configured": False,
-            "token_hint": str(exc),
+            "token_hint": exc.detail,
         }
     return {"source": source, "ipc": public_ipc_payload(), "forge": forge}
 
@@ -271,7 +272,7 @@ async def get_build(
             "host": "",
             "owner_repo": "",
             "token_configured": False,
-            "token_hint": str(exc),
+            "token_hint": exc.detail,
         }
     vendor_readiness = _vendor_readiness(build, configuration)
     approvals = _approval_state(project_id, build, candidate, configuration, vendor_readiness, user)
@@ -599,39 +600,33 @@ async def publish_build(
             status_code=409,
             detail=approvals.get("blocked_reason") or "This build is not clear to publish",
         )
-    try:
-        zip_bytes = forge_publish.dossier_tar_to_zip(_artifact_bytes(build.get("dossier_artifact_id")))
-        filename = forge_publish.release_zip_filename(
-            str(project.get("name") or project.get("parent_repo") or "release"),
-            tag,
-        )
-        extra_assets, extra_names = _ready_vendor_pack_assets(build, configuration, filename)
-        published = forge_publish.publish_release(
-            repo_url=str(project.get("repo_url") or ""),
-            commit_sha=commit_sha,
-            tag=tag,
-            title=tag,
-            notes=notes,
-            zip_bytes=zip_bytes,
-            filename=filename,
-            extra_assets=extra_assets,
-        )
-    except forge_publish.ForgePublishError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    try:
-        record = store.record_publish(
-            project_id=project_id,
-            build_id=build_id,
-            tag=tag,
-            commit_sha=commit_sha,
-            dossier_digest=str(build.get("dossier_digest") or ""),
-            published_by=user.email,
-            forge_url=str(published.get("url") or ""),
-            asset_names=[filename, *extra_names],
-            config_key=str(candidate.get("config_key") or ""),
-        )
-    except store.ReviewDecisionError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    zip_bytes = forge_publish.dossier_tar_to_zip(_artifact_bytes(build.get("dossier_artifact_id")))
+    filename = forge_publish.release_zip_filename(
+        str(project.get("name") or project.get("parent_repo") or "release"),
+        tag,
+    )
+    extra_assets, extra_names = _ready_vendor_pack_assets(build, configuration, filename)
+    published = forge_publish.publish_release(
+        repo_url=str(project.get("repo_url") or ""),
+        commit_sha=commit_sha,
+        tag=tag,
+        title=tag,
+        notes=notes,
+        zip_bytes=zip_bytes,
+        filename=filename,
+        extra_assets=extra_assets,
+    )
+    record = store.record_publish(
+        project_id=project_id,
+        build_id=build_id,
+        tag=tag,
+        commit_sha=commit_sha,
+        dossier_digest=str(build.get("dossier_digest") or ""),
+        published_by=user.email,
+        forge_url=str(published.get("url") or ""),
+        asset_names=[filename, *extra_names],
+        config_key=str(candidate.get("config_key") or ""),
+    )
     return {"release": published, "filename": filename, "publish": record}
 
 
@@ -651,10 +646,8 @@ def _build_or_404(project_id: str, build_id: str) -> dict[str, Any]:
 
 
 def _candidate_configuration(project_id: str, candidate: dict[str, Any]) -> dict[str, Any]:
-    try:
+    with caller_errors((build_service.BuildError, 409)):
         return build_service.configuration_for_candidate(project_id, candidate)
-    except build_service.BuildError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _bound_release_identity(
@@ -704,10 +697,8 @@ def _require_enqueue_identity(identity: dict[str, Any], project: dict[str, Any])
             status_code=400,
             detail="Tag, Document Name, and date are required before a build can start.",
         )
-    try:
+    with caller_errors((forge_publish.ForgePublishError, 400)):
         forge_publish._require_tag(tag)
-    except forge_publish.ForgePublishError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if forge_publish.tag_exists(str(project.get("repo_url") or ""), tag):
         raise HTTPException(
             status_code=409,
@@ -749,24 +740,21 @@ def _record_decision(
     candidate = store.get_candidate(str(build["candidate_id"])) or {}
     configuration = _candidate_configuration(project_id, candidate)
     vendor_readiness = _vendor_readiness(build, configuration)
-    try:
-        store.record_review_decision(
-            project_id=project_id,
-            build_id=build_id,
-            slot=slot,
-            actor=user.email,
-            actor_role=user.role,
-            decision=decision,
-            note=note,
-            dossier_digest=str(build.get("dossier_digest") or ""),
-            author=str(candidate.get("created_by") or ""),
-            published=store.get_publish_record(build_id) is not None,
-            electrical_errors=store.electrical_error_kinds(store.build_evidence(build_id)),
-            build_status=str(build.get("status") or ""),
-            config_key=str(candidate.get("config_key") or ""),
-        )
-    except store.ReviewDecisionError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    store.record_review_decision(
+        project_id=project_id,
+        build_id=build_id,
+        slot=slot,
+        actor=user.email,
+        actor_role=user.role,
+        decision=decision,
+        note=note,
+        dossier_digest=str(build.get("dossier_digest") or ""),
+        author=str(candidate.get("created_by") or ""),
+        published=store.get_publish_record(build_id) is not None,
+        electrical_errors=store.electrical_error_kinds(store.build_evidence(build_id)),
+        build_status=str(build.get("status") or ""),
+        config_key=str(candidate.get("config_key") or ""),
+    )
     approvals = _approval_state(project_id, build, candidate, configuration, vendor_readiness, user)
     return {"approvals": approvals}
 
@@ -868,7 +856,7 @@ def _vendor_pack_response(
         profile = profile_by_id(vendor_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown vendor profile: {vendor_id}") from exc
-    try:
+    with caller_errors((VendorPackError, 404)):
         pack = build_vendor_pack(
             vendor_id,
             dossier_bytes=_artifact_bytes(build.get("dossier_artifact_id")),
@@ -876,10 +864,6 @@ def _vendor_pack_response(
             if build.get("evidence_artifact_id")
             else b"",
         )
-    except VendorPackError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except HTTPException:
-        raise
     stem = filename_stem or f"build-{build['id']}"
     filename = f"{stem}-{profile.pack_filename}"
     return Response(

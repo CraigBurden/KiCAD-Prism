@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.api._helpers import authorized_project, get_project_for_role_or_404, _row_to_project, require_output_type, resolve_path_within_root
+from app.core.errors import caller_error, caller_errors, value_errors_as
 from app.core.config import settings
 from app.core import policy
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
@@ -182,7 +183,7 @@ def _path_config_from_commit(project: project_service.Project, commit: Optional[
     except project_revision.RevisionNotFound as error:
         raise HTTPException(status_code=404, detail=f"Commit not found: {commit}") from error
     except ValueError as error:
-        raise HTTPException(status_code=500, detail=str(error)) from error
+        raise caller_error(error, 500) from error
 
 
 def _output_dir_from_config(config: PathConfig, output_type: str) -> str:
@@ -380,7 +381,8 @@ def _read_utf8_file(file_path: str | Path, *, not_found_detail: str, read_error_
     try:
         return path.read_text(encoding="utf-8")
     except OSError as error:
-        raise HTTPException(status_code=500, detail=f"{read_error_prefix}: {error}") from error
+        logger.exception("%s: %s", read_error_prefix, path)
+        raise HTTPException(status_code=500, detail=read_error_prefix) from error
 
 
 def _read_file_from_commit(
@@ -594,7 +596,9 @@ async def analyze_repository(
     Analyze a repository to determine import type and discover KiCAD projects.
     Returns Type-1 or Type-2 classification and project list.
     """
-    try:
+    # A rejected URL or an access failure is something the caller can fix, and
+    # the message says how, so it must not be flattened into a generic 500.
+    with caller_errors(((RemoteUrlError, GitAccessError), 400), unexpected="Analysis failed"):
         job_id = await asyncio.to_thread(
             project_import_service.start_analyze_job,
             request.url,
@@ -602,13 +606,6 @@ async def analyze_repository(
             requested_by=user.email,
         )
         return {"job_id": job_id, "status": "started"}
-
-    except (RemoteUrlError, GitAccessError) as e:
-        # A rejected URL or an access failure is something the caller can fix, and
-        # the message says how, so it must not be flattened into a generic 500.
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
 @router.post("/access-help", dependencies=[Depends(require_designer)])
@@ -619,10 +616,7 @@ async def import_access_help(request: AnalyzeRequest):
     key to register and a link to the right page on the detected forge, instead
     of leaving the user with a message and nowhere to go.
     """
-    try:
-        parsed = parse_remote_url(request.url, project_import_service.remote_url_policy())
-    except RemoteUrlError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+    parsed = parse_remote_url(request.url, project_import_service.remote_url_policy())
 
     key = await asyncio.to_thread(git_access_service.describe_key)
     guidance = git_access_service.guidance_for(parsed)
@@ -649,7 +643,7 @@ async def import_project(
     For Type-1: imports single project at root.
     For Type-2: imports selected subprojects.
     """
-    try:
+    with caller_errors(((RemoteUrlError, GitAccessError, ValueError), 400), unexpected="Import failed"):
         job_id = await asyncio.to_thread(
             project_import_service.start_import_job,
             repo_url=request.url,
@@ -659,10 +653,6 @@ async def import_project(
             requested_by=user.email,
         )
         return {"job_id": job_id, "status": "started"}
-    except (RemoteUrlError, GitAccessError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{project_id}/sync", dependencies=[Depends(require_designer)])
 async def sync_project_endpoint(project_id: str, user: AuthenticatedUser = Depends(require_viewer)):
@@ -702,7 +692,7 @@ async def trigger_workflow(
     if request.type not in valid_types:
         raise HTTPException(status_code=400, detail="Invalid workflow type")
         
-    try:
+    with caller_errors((ValueError, 400), unexpected="Workflow failed to start"):
         _ = get_project_for_role_or_404(project_id, user.role)
         job_id = await asyncio.to_thread(
             project_service.start_workflow_job,
@@ -713,10 +703,6 @@ async def trigger_workflow(
             commit=request.commit if request.type == "webgpu_3d" else None,
         )
         return {"job_id": job_id}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{project_id}/semantic-index/status")
@@ -726,10 +712,8 @@ async def get_semantic_index_status(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with value_errors_as(400):
         return await asyncio.to_thread(semantic_index_service.get_status, project, commit)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 class SemanticIndexGenerateRequest(BaseModel):
@@ -744,7 +728,7 @@ async def generate_semantic_index(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     _ = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with caller_errors((ValueError, 400), (RuntimeError, 503)):
         job_id = await asyncio.to_thread(
             project_service.start_semantic_index_job,
             project_id,
@@ -753,10 +737,6 @@ async def generate_semantic_index(
             requested_by=user.email,
         )
         return {"job_id": job_id, "status": "started"}
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except RuntimeError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/{project_id}/semantic-index/identity")
@@ -766,7 +746,7 @@ async def get_semantic_index_identity(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with caller_errors((ValueError, 400), (RuntimeError, 503)):
         payload = await asyncio.to_thread(
             semantic_index_service.get_or_build,
             project,
@@ -780,10 +760,6 @@ async def get_semantic_index_identity(
                 "ETag": f'"{payload.get("sourceRevisionKey", "")}-{semantic_index_service.generator_cache_tag()}"',
             },
         )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except RuntimeError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/{project_id}/webgpu-3d/status")
@@ -797,15 +773,13 @@ async def get_webgpu_3d_status(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     project = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with value_errors_as(400):
         status_reader = (
             semantic_visualizer_service.get_status
             if diagnostic
             else semantic_visualizer_service.get_status_fast
         )
         return await asyncio.to_thread(status_reader, project, commit)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 class WebGpu3dGenerateRequest(BaseModel):
@@ -872,14 +846,12 @@ async def get_webgpu_3d_asset(
     user: AuthenticatedUser = Depends(require_viewer),
 ):
     _ = get_project_for_role_or_404(project_id, user.role)
-    try:
+    with value_errors_as(400):
         root = semantic_visualizer_service.bundle_dir(
             project_id,
             source_revision_key,
             generator_build,
         ).resolve()
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
     candidate = (root / asset_path).resolve()
     if candidate != root and root not in candidate.parents:
         raise HTTPException(status_code=400, detail="Invalid WebGPU asset path")
@@ -1036,14 +1008,12 @@ async def regenerate_project_thumbnails(
     for project_id in project_ids:
         get_project_for_role_or_404(project_id, user.role)
 
-    try:
+    with value_errors_as(404):
         job_ids = await asyncio.to_thread(
             project_import_service.start_thumbnail_jobs,
             project_ids,
             requested_by=user.email,
         )
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
 
     count = len(job_ids)
     return {
@@ -1069,15 +1039,13 @@ async def upload_project_thumbnail(
     # Read one byte past the cap so an oversized upload is refused on its size
     # rather than after the whole thing is in memory.
     data = await file.read(derived_assets.MAX_UPLOAD_BYTES + 1)
-    try:
+    with caller_errors((derived_assets.ThumbnailImageError, 400)):
         stored, digest, size = await asyncio.to_thread(
             derived_assets.store_uploaded_thumbnail,
             project.path,
             data,
             anchor=path_config_service.anchor_for_project(project),
         )
-    except derived_assets.ThumbnailImageError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
 
     await asyncio.to_thread(
         workspace.update_project,
@@ -1269,10 +1237,8 @@ async def delete_project_endpoint(project_id: str, user: AuthenticatedUser = Dep
     """
     authorized_project(user, project_id, "design")
     force = policy.role_allows(user.role, "admin")
-    try:
+    with caller_errors((ProjectHasSignedReleasesError, 409)):
         deletion = await asyncio.to_thread(project_deletion.delete_project, project_id, force=force)
-    except ProjectHasSignedReleasesError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if deletion is None:
         raise HTTPException(status_code=404, detail="Project not found")
 

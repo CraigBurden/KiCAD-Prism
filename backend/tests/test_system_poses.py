@@ -19,6 +19,7 @@ from test_system_api import _request
 from test_system_scene import SceneCase
 from test_system_snapshots import DESIGNER, VIEWER, SnapshotCase
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import manifest as manifest_io
 from app.services.systems import service as service_module
@@ -173,6 +174,7 @@ class PoseServiceTest(SnapshotCase):
 
     def test_api(self) -> None:
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         url = f"/api/systems/{self.sid}/poses"
         body = {"translationMm": [1, 2, 3], "rotation": [0, 0, 0, 1]}

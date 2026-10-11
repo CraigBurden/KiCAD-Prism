@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import git_http  # noqa: E402
 from app.core import security  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
@@ -71,6 +72,8 @@ class SystemCreateRouteTest(unittest.TestCase):
         from app.services.systems import service as system_service
 
         app = FastAPI()
+
+        install_error_handlers(app)
         app.include_router(router, prefix="/api/systems")
         app.dependency_overrides[security.get_current_user] = lambda: user
         from app.services.systems.service import Result

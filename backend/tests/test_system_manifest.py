@@ -10,6 +10,7 @@ from unittest import mock
 from test_system_api import _request
 from test_system_snapshots import DESIGNER, VIEWER, SnapshotCase
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems import manifest as manifest_io
 from app.services.systems import service as service_module
@@ -151,6 +152,8 @@ class ManifestTest(SnapshotCase):
             self.service.snapshot_manifest(VIEWER, self.sid, meta["id"])
 
         app = FastAPI()
+
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         with mock.patch.object(service_module, "service", self.service):
             denied = _request(app, "GET", f"/api/systems/{self.sid}/snapshots/{meta['id']}/manifest", user="viewer")

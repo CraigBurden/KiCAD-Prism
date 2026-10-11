@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from system_builder_db import FixtureSystemCase
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import systems as systems_api
 from app.services.systems.service import Caller, SystemService
 from app.services.systems.store import Conflict, Invalid, NotFound, StaleVersion
@@ -200,6 +201,7 @@ class ReconcileTest(FixtureSystemCase):
 class ReconcileRoutingTest(unittest.TestCase):
     def test_review_routes_are_exposed(self) -> None:
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(systems_api.router, prefix="/api/systems")
         paths = set(app.openapi()["paths"])
         for path in ("/api/systems/{system_id}/reviews",

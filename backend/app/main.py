@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from app.core.errors import install_error_handlers
 from app.core.gzip_config import (
     GZIP_COMPRESS_LEVEL,
     GZIP_EXCLUDED_CONTENT_TYPES,
@@ -221,6 +222,7 @@ async def lifespan(app: FastAPI):
         database.close()
 
 app = FastAPI(title="KiCAD Prism API", lifespan=lifespan)
+install_error_handlers(app)
 
 
 # Compress large responses. Registered before apply_security_headers so it ends

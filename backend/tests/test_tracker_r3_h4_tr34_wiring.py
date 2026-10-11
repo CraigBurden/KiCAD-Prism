@@ -15,6 +15,7 @@ from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import install_error_handlers  # noqa: E402
 from app.api import tracker_sync as sync_api  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.services import comments_schema_migrations  # noqa: E402
@@ -99,6 +100,7 @@ def _settings(**overrides) -> Settings:
 class RoutingContractTests(unittest.TestCase):
     def test_unlink_and_repromote_routes_registered(self) -> None:
         app = FastAPI()
+        install_error_handlers(app)
         app.include_router(sync_api.router)
         paths = set(app.openapi()["paths"])
         self.assertIn("/api/projects/{project_id}/comments/{comment_id}/tracker/unlink", paths)
