@@ -15,7 +15,6 @@ import { HistoryTab } from "../history-tab";
 import { ImportTab } from "../import-tab";
 import { LinkEditor, endLabel } from "../link-editor";
 import type { SystemTabProps } from "../system-tab-content";
-import type { Mutate } from "../use-system-mutation";
 import { FindingsTray } from "./findings-tray";
 import { TRAY_TABS, type TrayTab, type WorkspaceSelection, type WorkspaceView } from "./workspace-state";
 import { documentIndex } from "../document-index";
@@ -25,8 +24,6 @@ interface TrayProps extends SystemTabProps {
   tab: TrayTab | null;
   findings: Finding[];
   selection: WorkspaceSelection | null;
-  busy: string | null;
-  run: Mutate;
   importing: boolean;
   /** Bumped by the top bar's Take snapshot, which opens History with its dialog. */
   takeRequest: number;
@@ -163,7 +160,7 @@ function ConnectionsTable({ document, findings, onSelect }: { document: SystemDo
 
 /** The workspace's bottom tray (D-P2-47): what used to be the Connections, Changes and History tabs. */
 export function WorkspaceTray(props: TrayProps) {
-  const { tab, document, findings, selection, systemId, etag, canEdit, busy, run, onTab, onSelect } = props;
+  const { tab, document, findings, selection, systemId, canEdit, onTab, onSelect } = props;
   const { errors, warnings } = findingsOf(findings);
   const index = documentIndex(document);
   const link = selection?.kind === "link" ? index.links.get(selection.id) : undefined;
@@ -172,7 +169,7 @@ export function WorkspaceTray(props: TrayProps) {
   const tray = useTrayHeight();
   const [connecting, setConnecting] = useState(false);
   const tabProps: SystemTabProps = {
-    systemId, document, etag, canEdit, user: props.user, reload: props.reload, onNavigate: props.onNavigate,
+    systemId, document, canEdit, user: props.user, onNavigate: props.onNavigate,
   };
 
   return (
@@ -226,14 +223,14 @@ export function WorkspaceTray(props: TrayProps) {
         <div className="relative min-h-0 flex-1 overflow-y-auto">
           {tab === "connections" && (harness ? (
             <div className="p-4">
-              <HarnessEditor key={harness.id} systemId={systemId} document={document} harness={harness} etag={etag}
-                canEdit={canEdit} findings={findings} busy={busy} run={run}
+              <HarnessEditor key={harness.id} systemId={systemId} document={document} harness={harness}
+                canEdit={canEdit} findings={findings}
                 onDeleted={() => onSelect(null)} onConverted={(linkId) => onSelect({ kind: "link", id: linkId })} />
             </div>
           ) : link ? (
             <div className="p-4">
-              <LinkEditor key={link.id} systemId={systemId} document={document} link={link} etag={etag}
-                canEdit={canEdit} findings={findings} busy={busy} run={run} focusRow={selection?.row}
+              <LinkEditor key={link.id} systemId={systemId} document={document} link={link}
+                canEdit={canEdit} findings={findings} focusRow={selection?.row}
                 onDeleted={() => onSelect(null)} onHarness={(harnessId) => onSelect({ kind: "harness", id: harnessId })} />
             </div>
           ) : (
@@ -243,7 +240,7 @@ export function WorkspaceTray(props: TrayProps) {
             ? <div ref={props.onNetsSlot} className="h-full" />
             : <p className="p-4 text-sm text-muted-foreground">3D view only</p>)}
           {tab === "findings" && (
-            <FindingsTray systemId={systemId} document={document} etag={etag} canEdit={canEdit} run={run} onSelect={onSelect} />
+            <FindingsTray document={document} canEdit={canEdit} onSelect={onSelect} />
           )}
           {tab === "changes" && <ChangesTab {...tabProps} />}
           {tab === "history" && <HistoryTab key={`history-${props.takeRequest}`} {...tabProps} startTaking={props.takeRequest > 0} />}
@@ -266,7 +263,7 @@ export function WorkspaceTray(props: TrayProps) {
         </Sheet>
       )}
       {connecting && (
-        <ConnectDialog systemId={systemId} document={document} etag={etag} run={run} onClose={() => setConnecting(false)}
+        <ConnectDialog document={document} onClose={() => setConnecting(false)}
           onCreated={(created) => { setConnecting(false); onSelect(created); }} />
       )}
     </section>

@@ -1,11 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { updateLink } from "@/lib/systems-api";
-
+import { SystemSessionProvider, useOpenSystemSession, useSessionState, useSystemSession } from "./session/use-system-session";
 import { systemDocument } from "./test-fixtures";
-import { useSystemDocument } from "./use-system-document";
-import { useSystemMutation } from "./use-system-mutation";
 
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), warning: vi.fn() }) }));
 
@@ -38,19 +35,20 @@ function fakeServer() {
   return { fetchMock, statuses, release: () => held.shift()?.() };
 }
 
-function Surface({ name, etag, reload }: { name: string; etag: string; reload: () => Promise<void> }) {
-  const { run } = useSystemMutation(reload);
-  return <button type="button" onClick={() => void run(name, () => updateLink("sys_1", etag, "L1", { name }))}>{name}</button>;
+function Surface({ name }: { name: string }) {
+  const { edit } = useSystemSession();
+  return <button type="button" onClick={() => void edit(name, (system) => system.updateLink("L1", { name }))}>{name}</button>;
 }
 
 function Page() {
-  const state = useSystemDocument("sys_1");
+  const session = useOpenSystemSession("sys_1");
+  const state = useSessionState(session);
   if (!state.etag) return null;
-  return <><Surface name="diagram" etag={state.etag} reload={state.reload} /><Surface name="inspector" etag={state.etag} reload={state.reload} /></>;
+  return <SystemSessionProvider session={session}><Surface name="diagram" /><Surface name="inspector" /></SystemSessionProvider>;
 }
 
 describe("two surfaces editing one system (AC-15)", () => {
-  it.fails("never sends the same ETag twice: the second edit waits for the first one's re-read", async () => {
+  it("never sends the same ETag twice: the second edit waits for the first one's re-read", async () => {
     const server = fakeServer();
     vi.stubGlobal("fetch", server.fetchMock);
     render(<Page />);

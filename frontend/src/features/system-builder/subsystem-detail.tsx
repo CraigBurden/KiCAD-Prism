@@ -8,14 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fetchJson } from "@/lib/api";
-import { getHierarchy, removeInstance, updateInstance } from "@/lib/systems-api";
 import type { CatalogComponent } from "@/types/catalog";
-import type { SystemDocument, SystemHierarchy, SystemInstance } from "@/types/system";
+import type { SystemDocument, SystemInstance } from "@/types/system";
 
 import { catalogComponentHref } from "./publish-dialog";
 import { releaseChain } from "./release-chain";
 import { boardStatus } from "./system-format";
-import type { Mutate } from "./use-system-mutation";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 import { InspectorFacts } from "./workspace/inspector-facts";
 import { InspectorHeader } from "./workspace/inspector-header";
 import { InspectorSection } from "./workspace/inspector-section";
@@ -25,41 +25,30 @@ interface SubsystemDetailProps {
   systemId: string;
   document: SystemDocument;
   instance: SystemInstance;
-  etag: string;
   canEdit: boolean;
-  busy: string | null;
-  run: Mutate;
 }
 
 /**
  * An assembly instance: the catalog revision it pins and the boards inside it (CONTRACTS_P2 §5). A module
  * instance (§5.6) shows the same revision facts and its connectors.
  */
-export function SubsystemDetail({ systemId, document, instance, etag, canEdit, busy, run }: SubsystemDetailProps) {
+export function SubsystemDetail({ document, instance, canEdit }: SubsystemDetailProps) {
+  const { busy, edit } = useSystemSession();
   const isModule = instance.kind === "module";
   const isPart = instance.kind === "part";  // a mechanical part: revision facts only (P2 §24.1)
   const noun = isModule ? "module" : isPart ? "part" : "subsystem";
   const [removing, setRemoving] = useState(false);
-  const [tree, setTree] = useState<{ key: string; body: SystemHierarchy } | null>(null);
   const ref = instance.catalog;
   const status = boardStatus(instance);
   const linkCount = document.links.filter((link) => link.a.instanceId === instance.id || link.b.instanceId === instance.id).length;
-  const treeKey = `${systemId}:${etag}`;
+  const tree = useSessionRead(sessionReads.hierarchy()).data;
 
-  useEffect(() => {
-    let cancelled = false;
-    getHierarchy(systemId).then((body) => !cancelled && setTree({ key: treeKey, body })).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, treeKey]);
-
-  const inside = (tree?.key === treeKey ? tree.body.occurrences : [])
+  const inside = (tree?.occurrences ?? [])
     .filter((occurrence) => occurrence.path.startsWith(`/${instance.id}/`));
 
   const updates = canEdit ? (
     <Select value={ref?.follow ?? "pinned"} disabled={busy !== null}
-      onValueChange={(value) => void run("update", () => updateInstance(systemId, etag, instance.id,
+      onValueChange={(value) => void edit("update", (system) => system.updateInstance(instance.id,
         { follow: value as "pinned" | "latest_released" }), value === "pinned" ? "Pinned to this revision" : "Following released revisions")}>
       <SelectTrigger aria-label="Updates" className="h-7 border-0 px-0 shadow-none"><SelectValue /></SelectTrigger>
       <SelectContent>
@@ -145,7 +134,7 @@ export function SubsystemDetail({ systemId, document, instance, etag, canEdit, b
         destructive
         busy={busy === "remove"}
         onConfirm={() => {
-          void run("remove", () => removeInstance(systemId, etag, instance.id, linkCount > 0), `Removed ${instance.label}`)
+          void edit("remove", (system) => system.removeInstance(instance.id, linkCount > 0), `Removed ${instance.label}`)
             .then(() => setRemoving(false));
         }}
       />

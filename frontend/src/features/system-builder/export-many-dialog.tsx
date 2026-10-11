@@ -4,11 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { createExports } from "@/lib/systems-api";
 import type { SystemDocument } from "@/types/system";
 
 import { connectorOptions, type ConnectorOption } from "./connect-dialog";
-import type { Mutate } from "./use-system-mutation";
+import { useSystemSession } from "./session/use-system-session";
 
 const endKey = (instanceId: string, portKey: string, subportId: string | null | undefined) =>
   `${instanceId}:${portKey}:${subportId ?? ""}`;
@@ -41,16 +40,15 @@ export function exportCandidates(document: SystemDocument): (ConnectorOption & {
 }
 
 interface ExportManyDialogProps {
-  systemId: string;
   document: SystemDocument;
-  etag: string;
-  busy: boolean;
-  run: Mutate;
   onClose: () => void;
 }
 
 /** SB2-121: tick the connectors to export and name them in one table; one batch call. */
-export function ExportManyDialog({ systemId, document, etag, busy, run, onClose }: ExportManyDialogProps) {
+export function ExportManyDialog({ document, onClose }: ExportManyDialogProps) {
+  const session = useSystemSession();
+  const { edit } = session;
+  const busy = session.busy === "export";
   const candidates = useMemo(() => exportCandidates(document), [document]);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [names, setNames] = useState<Record<string, string>>({});
@@ -77,7 +75,7 @@ export function ExportManyDialog({ systemId, document, etag, busy, run, onClose 
   const submit = async () => {
     const items = picked.map((option) => ({ name: nameOf(option), description: "", instanceId: option.end.instanceId,
       portKey: option.end.portKey ?? "", ...(option.end.subportId ? { subportId: option.end.subportId } : {}) }));
-    const done = await run("export", () => createExports(systemId, etag, items),
+    const done = await edit("export", (system) => system.createExports(items),
       `Exported ${items.length} ${items.length === 1 ? "connector" : "connectors"}`);
     if (done) onClose();
   };

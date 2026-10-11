@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { SystemDocument } from "@/types/system";
 
 import { findingsOf } from "./findings";
+import { useSystemSession } from "./session/use-system-session";
 import { ToolbarButton } from "./workspace/toolbar-button";
 
 const POLL_MS = 2000;
@@ -15,11 +16,8 @@ const POLL_LIMIT = 150; // five minutes
 const STATE_TEXT = { current: "checked", stale: "placement changed since the check", not_checked: "not checked" } as const;
 
 /** The 3D toolbar's collision check (P2 §24.2): its state, the collision count, and a run. */
-export function CollisionCheckButton({ systemId, document, reload }: {
-  systemId: string;
-  document: SystemDocument;
-  reload: () => Promise<void>;
-}) {
+export function CollisionCheckButton({ systemId, document }: { systemId: string; document: SystemDocument }) {
+  const { session } = useSystemSession();
   const check = document.validation?.collisionCheck;
   const count = document.validation ? findingsOf(document.validation.findings).collisions.length : 0;
   const [running, setRunning] = useState(false);
@@ -40,7 +38,7 @@ export function CollisionCheckButton({ systemId, document, reload }: {
         await new Promise((resolve) => window.setTimeout(resolve, POLL_MS));
         const latest = await getCollisionCheck(systemId);
         if (latest.checkedAt && latest.checkedAt !== before) {
-          await reload();
+          await session.reload();
           return;
         }
       }

@@ -8,7 +8,6 @@ import { Semantic3dControls } from "@/components/semantic-3d-controls";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { selectionFromDesignSearchHit, type DesignSearchHit } from "@/lib/design-search";
-import { getScene } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type {
   PrismSemanticViewerElement,
@@ -19,6 +18,8 @@ import type {
 import type { SystemScene } from "@/types/system";
 
 import { CollisionCheckButton } from "./collision-check-button";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 import { StepExportButton } from "./step-export-button";
 import { drawnBoards, failedNotice, names, scenePollDelay, summarizeScene, webgpuAvailable } from "./scene-3d-model";
 import { HarnessPanel } from "./scene-harness-panel";
@@ -57,34 +58,30 @@ function Notice({ tone = "info", children }: { tone?: "info" | "warning" | "erro
   );
 }
 
-/** Read the scene on open, on every system change, and again while bundles build or boxes are unknown. */
-function useSystemScene(systemId: string, sceneKey: string, enabled: boolean) {
-  const [scene, setScene] = useState<SystemScene | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [reads, setReads] = useState(0);
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    getScene(systemId).then(
-      (next) => {
-        if (cancelled) return;
-        setScene(next);
-        setError(null);
-      },
-      (cause) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : "Could not load the 3D scene");
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, systemId, sceneKey, reads]);
+/** Whether the search is open, and whether it has been: the system nets are read once it first opens (SB2-98). */
+function useSearchOpen() {
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const openSearch = () => {
+    setSearching(true);
+    setSearched(true);
+  };
+  return { searching, searched, setSearching, openSearch };
+}
+
+/** The scene, read on open and when the scene key moves (SB2-98), and again while bundles build or boxes are unknown. */
+function useSystemScene(enabled: boolean) {
+  const { session } = useSystemSession();
+  const spec = sessionReads.scene();
+  const read = useSessionRead(enabled ? spec : null);
+  const scene = read.data ?? null;
   useEffect(() => {
     const delay = scene ? scenePollDelay(scene) : null;
     if (!delay) return;
-    const timer = setTimeout(() => setReads((count) => count + 1), delay);
+    const timer = setTimeout(() => session.refresh(spec.key), delay);
     return () => clearTimeout(timer);
-  }, [scene]);
+  }, [scene, session, spec.key]);
+  const error = read.error ? (read.error instanceof Error ? read.error.message : "Could not load the 3D scene") : null;
   return { scene, error };
 }
 
@@ -171,24 +168,24 @@ function usePartReport(
  * building are boxes. Without WebGPU, the 2D diagram with a notice.
  */
 export function Scene3dTab(props: SystemTabProps) {
-  const { systemId, document, etag, canEdit, reload, selection: workspaceSelection = null, onSelect, onPart } = props;
+  const { systemId, document, canEdit, selection: workspaceSelection = null, onSelect, onPart } = props;
+  const { etag } = useSystemSession();
   const { inspectorSlot = null, netsSlot = null, onOpenTray, routeRequest = 0 } = props;
   const supported = webgpuAvailable();
   // SB2-98: the scene and the system nets are re-read when what they depend on changes, not every version.
-  const sceneKey = document.sceneKey ?? etag;
-  const netsKey = document.netsKey ?? etag;
-  const { scene, error } = useSystemScene(systemId, sceneKey, supported);
+  const netsKey = document.netsKey ?? etag ?? "";
+  const { scene, error } = useSystemScene(supported);
   const [viewer, setViewer] = useState<PrismSemanticViewerElement | null>(null);
   const attach = useCallback((node: PrismSemanticViewerElement | null) => setViewer(node), []);
   const [leftInset, setLeftInset] = useState(0);
   const [stats, setStats] = useState(false);
   const [labels, setLabels] = useState(true);
   const [harnesses, setHarnesses] = useState(true);
-  const [searching, setSearching] = useState(false);
+  const { searching, searched, setSearching, openSearch } = useSearchOpen();
   const [scopeOpen, setScopeOpen] = useState(false);
-  const moving = useMoveMode(viewer, { systemId, etag, reload, scene });
+  const moving = useMoveMode(viewer, scene);
   const { move } = moving;
-  const route = useHarnessNodes(viewer, { systemId, etag, reload, scene });
+  const route = useHarnessNodes(viewer, scene);
   const nets = useNetHighlight(systemId, netsKey);
   const { highlighted } = nets;
   const reportSelection = useViewerSelectionSync(viewer, scene, document, workspaceSelection, onSelect);
@@ -196,7 +193,7 @@ export function Scene3dTab(props: SystemTabProps) {
   const { selection, setSelection, viewState, viewerError } = useViewerEvents(viewer, nets.report, reportSelection);
   const indexes = useBoardIndexes(scene);
   usePartReport(viewer, scene, indexes, selection, setSelection, onPart);
-  const { traced, light } = useTracedNet(systemId, netsKey, selection);
+  const { traced, light } = useTracedNet(selection);
   // The clicked trace's system net lights first, in the selection green (D-P2-28).
   const tracedNet = traced?.net && !traced.waiting ? traced.net : null;
   const traceEmphasis = useMemo(() => (tracedNet ? traceSet(tracedNet) : null), [tracedNet]);
@@ -235,7 +232,7 @@ export function Scene3dTab(props: SystemTabProps) {
     return index ? [{ occurrence: board.path, name: board.displayPath, index }] : [];
   }), [boards, indexes]);
   // SB2-33: search every board or one; a net crossing boards is one result for its system net.
-  const systemNets = useSystemNetIndex(systemId, netsKey, searching);
+  const systemNets = useSystemNetIndex(searched);
   const [searchBoard, setSearchBoard] = useState<string | null>(null);
   const scope = searchBoard && boards.some((board) => board.path === searchBoard) ? searchBoard : null;
   const search = useCallback(
@@ -342,14 +339,14 @@ export function Scene3dTab(props: SystemTabProps) {
           {/* Collapsed to a button until used (M9): the field stays mounted so / and ⌘F still reach it. */}
           <FloatingToolbar label="Search" className={cn("min-w-0", searching && "w-[30rem] max-w-full")}>
             <div className="flex min-w-0 flex-1 items-center gap-0.5"
-              onFocusCapture={() => setSearching(true)}
+              onFocusCapture={openSearch}
               onBlurCapture={(event) => {
                 if (scopeOpen || event.currentTarget.contains(event.relatedTarget as Node)) return;
                 if (!event.currentTarget.querySelector("input")?.value) setSearching(false);
               }}>
               {!searching && (
                 <ToolbarButton title="Search parts and nets (/)" onMouseDown={(event) => event.preventDefault()} onClick={() => {
-                  setSearching(true);
+                  openSearch();
                   requestAnimationFrame(() => window.document.querySelector<HTMLInputElement>("[data-scene-search] input")?.focus());
                 }}>
                   <Search className="size-4" aria-hidden />
@@ -429,7 +426,7 @@ export function Scene3dTab(props: SystemTabProps) {
             <Spline className="size-4" aria-hidden />{highlighted.length > 0 && <span className="text-[11px] tabular-nums">{highlighted.length}</span>}
           </ToolbarButton>
           <ToolbarButton title="Fit all (Home)" onClick={() => viewer?.frameAll?.()}><Maximize className="size-4" aria-hidden /></ToolbarButton>
-          <CollisionCheckButton systemId={systemId} document={document} reload={reload} />
+          <CollisionCheckButton systemId={systemId} document={document} />
           <StepExportButton systemId={systemId} version={document.system.version} />
           <ToolbarButton active={labels} title="Board names" onClick={() => { setLabels(!labels); viewer?.setLabelsVisible?.(!labels); }}>
             <Tag className="size-4" aria-hidden />

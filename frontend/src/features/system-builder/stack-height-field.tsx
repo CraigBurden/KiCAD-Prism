@@ -1,10 +1,9 @@
 import { useState } from "react";
 
 import { Input } from "@/components/ui/input";
-import { updateLink } from "@/lib/systems-api";
 import type { SystemLink } from "@/types/system";
 
-import type { Mutate } from "./use-system-mutation";
+import { useSystemSession } from "./session/use-system-session";
 
 const HELP = "Gap between the facing surfaces of the two boards (the mated height on the connector datasheet). "
   + "Empty: placed from the connector bodies plus 5 mm.";
@@ -17,16 +16,15 @@ function parse(text: string): number | null {
 }
 
 interface StackHeightFieldProps {
-  systemId: string;
-  etag: string;
   link: SystemLink;
   editable: boolean;
-  busy: boolean;
-  run: Mutate;
 }
 
 /** The B2B link's stack height, edited in place; saves on Enter or when the field loses focus (§16.2). */
-export function StackHeightField({ systemId, etag, link, editable, busy, run }: StackHeightFieldProps) {
+export function StackHeightField({ link, editable }: StackHeightFieldProps) {
+  const session = useSystemSession();
+  const { edit } = session;
+  const busy = session.busy !== null;
   const stored = link.stackHeightMm ?? null;
   const [draft, setDraft] = useState<{ base: number | null; text: string } | null>(null);
   const text = draft && draft.base === stored ? draft.text : stored === null ? "" : String(stored);
@@ -35,7 +33,7 @@ export function StackHeightField({ systemId, etag, link, editable, busy, run }: 
 
   const save = () => {
     if (invalid || value === stored) return;
-    void run("link", () => updateLink(systemId, etag, link.id, { stackHeightMm: value }), "Stack height saved");
+    void edit("link", (system) => system.updateLink(link.id, { stackHeightMm: value }), "Stack height saved");
   };
 
   if (!editable) {

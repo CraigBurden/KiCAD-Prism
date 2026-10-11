@@ -6,7 +6,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
 import { Input } from "@/components/ui/input";
-import { proposeRename, unwaiveFinding, waiveFinding, waiveFindings, withdrawRename } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { Finding, FindingWaiver, NetRename, Severity, SystemDocument } from "@/types/system";
 
@@ -14,7 +13,7 @@ import { documentIndex } from "../document-index";
 import { findingDetail, findingTarget, findingsOf } from "../findings";
 import { findingFacts, findingText } from "../findings-ui";
 import { endLabel } from "../link-editor";
-import type { Mutate } from "../use-system-mutation";
+import { useSystemSession } from "../session/use-system-session";
 import { findingKeys } from "./finding-keys";
 import { RenamePopover, renameSides, type RenameSide } from "./rename-popover";
 import type { WorkspaceSelection } from "./workspace-state";
@@ -43,11 +42,8 @@ type Row =
   | { kind: "rename"; key: string; rename: NetRename };
 
 interface FindingsTrayProps {
-  systemId: string;
   document: SystemDocument;
-  etag: string;
   canEdit: boolean;
-  run: Mutate;
   onSelect: (selection: WorkspaceSelection) => void;
 }
 
@@ -101,7 +97,8 @@ function WaivePopover({ onWaive, label = "Waive" }: { onWaive: (note: string) =>
   );
 }
 
-export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect }: FindingsTrayProps) {
+export function FindingsTray({ document, canEdit, onSelect }: FindingsTrayProps) {
+  const { edit } = useSystemSession();
   const report = document.validation;
   const findings = report?.findings;
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
@@ -179,19 +176,19 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
     return next;
   });
   const waive = async (finding: Finding, note: string) =>
-    Boolean(finding.key && await run("waive", () => waiveFinding(systemId, etag, finding.key!, note), "Finding waived"));
+    Boolean(finding.key && await edit("waive", (system) => system.waiveFinding(finding.key!, note), "Finding waived"));
   const waiveAll = async (members: Finding[], note: string) => {
     const keys = members.flatMap((finding) => (finding.key && WAIVABLE.has(finding.severity) ? [finding.key] : []));
-    return Boolean(keys.length && await run("waive", () => waiveFindings(systemId, etag, keys, note),
+    return Boolean(keys.length && await edit("waive", (system) => system.waiveFindings(keys, note),
       `${keys.length} ${keys.length === 1 ? "finding" : "findings"} waived`));
   };
   const unwaive = (waiver: FindingWaiver) =>
-    void run("unwaive", () => unwaiveFinding(systemId, etag, waiver.id), "Waiver removed");
-  const propose = async (side: RenameSide, name: string, note: string) => Boolean(await run("rename",
-    () => proposeRename(systemId, etag, { instanceId: side.instanceId, net: side.net, name, ...(note ? { note } : {}) }),
+    void edit("unwaive", (system) => system.unwaiveFinding(waiver.id), "Waiver removed");
+  const propose = async (side: RenameSide, name: string, note: string) => Boolean(await edit("rename",
+    (system) => system.proposeRename({ instanceId: side.instanceId, net: side.net, name, ...(note ? { note } : {}) }),
     `Rename proposed to ${side.board}`));
   const withdraw = (rename: NetRename) =>
-    void run("rename", () => withdrawRename(systemId, etag, rename.id), "Proposal withdrawn");
+    void edit("rename", (system) => system.withdrawRename(rename.id), "Proposal withdrawn");
   const boards = documentIndex(document).instances;
 
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);

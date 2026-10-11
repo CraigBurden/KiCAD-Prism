@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HistoryTab, eventSummary, rowChange } from "./history-tab";
+import { renderInSession } from "./session/memory-session";
 import { instance, systemDocument } from "./test-fixtures";
 import type { AuditEvent } from "@/types/system";
 
@@ -60,14 +61,14 @@ describe("HistoryTab", () => {
       return json({});
     }));
     // The workspace top bar's Take snapshot opens History with the dialog.
-    render(<HistoryTab systemId="sys_1" document={doc} etag='"sys:sys_1:3"' canEdit user={null} reload={vi.fn(async () => undefined)} onNavigate={vi.fn()} startTaking />);
+    renderInSession(<HistoryTab systemId="sys_1" document={doc} canEdit user={null} onNavigate={vi.fn()} startTaking />, { document: doc });
     expect(await screen.findByText("No snapshots")).toBeTruthy();
     fireEvent.change(await screen.findByLabelText("Snapshot name"), { target: { value: " CDR " } });
     fireEvent.click(screen.getByRole("button", { name: "Take snapshot" }));
     expect(await screen.findByText("1 unreviewed")).toBeTruthy();
     const post = calls.find(([url, init]) => url.endsWith("/snapshots") && init.method === "POST")!;
     expect(JSON.parse(String(post[1].body))).toEqual({ name: "CDR", note: "" });
-    expect(new Headers(post[1].headers).get("If-Match")).toBe('"sys:sys_1:3"');
+    expect(new Headers(post[1].headers).get("If-Match")).toBe('"sys:sys_1:1"');
     await waitFor(() => expect(calls.filter(([url]) => url.includes("/history"))).toHaveLength(2));
     expect(screen.getByRole("link", { name: "ICD of CDR" }).getAttribute("href")).toBe("/api/systems/sys_1/snapshots/ssn_1/icd.html");
 
@@ -80,7 +81,7 @@ describe("HistoryTab", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("history") ? { events: [], nextCursor: null } : []), {
       status: 200, headers: { "Content-Type": "application/json" },
     })));
-    render(<HistoryTab systemId="sys_1" document={doc} etag="e" canEdit={false} user={null} reload={vi.fn()} onNavigate={vi.fn()} startTaking />);
+    renderInSession(<HistoryTab systemId="sys_1" document={doc} canEdit={false} user={null} onNavigate={vi.fn()} startTaking />, { document: doc });
     expect(await screen.findByText("No snapshots")).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -93,7 +94,7 @@ describe("HistoryTab", () => {
           { ...meta, id: "ssn_old", name: "PDR", manifestSchema: null, connectivityDigest: null }];
       return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
     }));
-    render(<HistoryTab systemId="sys_1" document={doc} etag="e" canEdit={false} user={null} reload={vi.fn()} onNavigate={vi.fn()} />);
+    renderInSession(<HistoryTab systemId="sys_1" document={doc} canEdit={false} user={null} onNavigate={vi.fn()} />, { document: doc });
     const link = await screen.findByRole("link", { name: "Manifest of CDR" });
     expect(link.getAttribute("href")).toBe("/api/systems/sys_1/snapshots/ssn_new/manifest");
     expect(link.getAttribute("download")).toBe("CDR.manifest.json");
@@ -111,7 +112,7 @@ describe("HistoryTab", () => {
             { ...meta, id: "ssn_pdr", name: "PDR", publication: { componentId: "cmp_1", revisionId: "rev_0", version: 1, releaseStatus: "released" } }];
       return new Response(JSON.stringify(body), { status: url.endsWith("/publish") ? 201 : 200, headers: { "Content-Type": "application/json" } });
     }));
-    render(<HistoryTab systemId="sys_1" document={doc} etag="e" canEdit user={{ role: "designer" } as never} reload={vi.fn(async () => undefined)} onNavigate={vi.fn()} />);
+    renderInSession(<HistoryTab systemId="sys_1" document={doc} canEdit user={{ role: "designer" } as never} onNavigate={vi.fn()} />, { document: doc });
     const badge = await screen.findByRole("link", { name: /Catalog v1 · released/ });
     expect(badge.getAttribute("href")).toBe("/?section=library-manager&component=cmp_1");
     expect(screen.queryByRole("button", { name: "Publish PDR" })).toBeNull();
@@ -130,7 +131,7 @@ describe("HistoryTab", () => {
       : [{ id: "ssn_cdr", name: "CDR", note: "", createdBy: "u", createdAt: "2026-09-30T10:00:00Z", digest: "sha256:abcdef0123456789abcdef",
         openReviewCount: 0, rendererVersion: "2", manifestSchema: "prism.system_manifest.v1", publication: null }]),
     { status: 200, headers: { "Content-Type": "application/json" } })));
-    render(<HistoryTab systemId="sys_1" document={doc} etag="e" canEdit user={{ role: "qa" } as never} reload={vi.fn()} onNavigate={vi.fn()} />);
+    renderInSession(<HistoryTab systemId="sys_1" document={doc} canEdit user={{ role: "qa" } as never} onNavigate={vi.fn()} />, { document: doc });
     await screen.findByText("CDR");
     expect(screen.queryByRole("button", { name: "Publish CDR" })).toBeNull();
   });
@@ -138,10 +139,10 @@ describe("HistoryTab", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/history") ? { events: [], nextCursor: null } : []),
       { status: 200, headers: { "Content-Type": "application/json" } })));
     const withChild = systemDocument([obc, instance("CNDH", { kind: "assembly" })]);
-    const { unmount } = render(<HistoryTab systemId="sys_1" document={withChild} etag="e" canEdit={false} user={null} reload={vi.fn()} onNavigate={vi.fn()} />);
+    const { unmount } = renderInSession(<HistoryTab systemId="sys_1" document={withChild} canEdit={false} user={null} onNavigate={vi.fn()} />, { document: withChild });
     expect((await screen.findByRole("link", { name: /all levels/ })).getAttribute("href")).toBe("/api/systems/sys_1/icd.html?depth=all");
     unmount();
-    render(<HistoryTab systemId="sys_1" document={doc} etag="e" canEdit={false} user={null} reload={vi.fn()} onNavigate={vi.fn()} />);
+    renderInSession(<HistoryTab systemId="sys_1" document={doc} canEdit={false} user={null} onNavigate={vi.fn()} />, { document: doc });
     await screen.findByText("No snapshots");
     expect(screen.queryByRole("link", { name: /all levels/ })).toBeNull();
   });
@@ -175,7 +176,7 @@ describe("Git tracking (P2 §21)", () => {
       }
       return json({});
     }));
-    render(<HistoryTab systemId="sys_1" document={doc} etag='"sys:sys_1:3"' canEdit user={null} reload={vi.fn(async () => undefined)} onNavigate={vi.fn()} />);
+    renderInSession(<HistoryTab systemId="sys_1" document={doc} canEdit user={null} onNavigate={vi.fn()} />, { document: doc });
     expect(await screen.findByText("Committed aaaaaaaa")).toBeTruthy();
     expect(screen.getByText("Commit failed: push refused")).toBeTruthy();
 
@@ -185,7 +186,7 @@ describe("Git tracking (P2 §21)", () => {
     expect(await screen.findByText(/changed outside Prism \(dddddddd\)/)).toBeTruthy();
     const put = calls.find(([url, init]) => url.endsWith("/git") && init.method === "PUT")!;
     expect(JSON.parse(String(put[1].body))).toEqual({ url: "git@github.com:team/sys.git" });
-    expect(new Headers(put[1].headers).get("If-Match")).toBe('"sys:sys_1:3"');
+    expect(new Headers(put[1].headers).get("If-Match")).toBe('"sys:sys_1:1"');
 
     fireEvent.click(screen.getByRole("button", { name: "Retry the commit of PDR" }));
     await waitFor(() => expect(calls.some(([url, init]) => url.endsWith("/snapshots/ssn_2/git-retry") && init.method === "POST")).toBe(true));

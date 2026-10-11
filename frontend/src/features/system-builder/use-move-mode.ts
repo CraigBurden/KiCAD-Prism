@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { clearPose, resetPoses, setPose, setPoses } from "@/lib/systems-api";
 import type { PrismSemanticViewerElement, PrismSystemSceneMoveState } from "@/types/prism-semantic-viewer";
 import type { SystemScene } from "@/types/system";
 
 import { stackMove, stackOf, stackUndo } from "./scene-stack";
-import { useSystemMutation } from "./use-system-mutation";
+import { useSystemSession } from "./session/use-system-session";
 
 type MoveTarget = NonNullable<PrismSystemSceneMoveState["target"]>;
 type Undo = ReturnType<typeof stackUndo>;
@@ -21,10 +20,7 @@ type Origin = { instanceId: string; pose: MoveTarget["pose"]; source: MoveTarget
  * The viewer only previews; a released drag or Enter ("commit") stores the
  * target's pose with If-Match, and a failed save puts the board back.
  */
-export function useMoveMode(
-  viewer: PrismSemanticViewerElement | null,
-  { systemId, etag, reload, scene }: { systemId: string; etag: string; reload: () => Promise<void>; scene: SystemScene | null },
-) {
+export function useMoveMode(viewer: PrismSemanticViewerElement | null, scene: SystemScene | null) {
   const [move, setMove] = useState<PrismSystemSceneMoveState | null>(null);
   // Bumped whenever the view saves, cancels or changes target: the move panel starts over.
   const [epoch, setEpoch] = useState(0);
@@ -32,14 +28,14 @@ export function useMoveMode(
   const [origin, setOrigin] = useState<Origin | null>(null);
   // SB2-38: a move of a mated board waiting for "Break the mate" or "Move with its stack".
   const [pending, setPending] = useState<MoveTarget | null>(null);
-  const { busy, run } = useSystemMutation(reload);
+  const { busy, edit } = useSystemSession();
 
   const markMoved = (instanceId: string) =>
     setOrigin((current) => (current?.instanceId === instanceId && !current.moved ? { ...current, moved: true } : current));
 
   /** Store the target's position (a released drag, Enter, or Save); on failure the view goes back. */
   const savePose = async (target: MoveTarget) => {
-    const saved = await run("pose", () => setPose(systemId, etag, target.instanceId, target.pose));
+    const saved = await edit("pose", (system) => system.setPose(target.instanceId, target.pose));
     if (saved) markMoved(target.instanceId);
     else viewer?.cancelMove?.();
   };
@@ -102,7 +98,7 @@ export function useMoveMode(
       if (!target || !scene) return;
       const poses = stackMove(scene, target.occurrence, target.pose);
       const undo = stackUndo(scene, poses);
-      const done = await run("pose", () => setPoses(systemId, etag, { poses }), `${target.displayPath} moved with its stack`);
+      const done = await edit("pose", (system) => system.setPoses({ poses }), `${target.displayPath} moved with its stack`);
       if (!done) {
         viewer?.cancelMove?.();
         return;
@@ -115,7 +111,7 @@ export function useMoveMode(
     },
     /** Drop the stored pose of a board whose mated position was overridden: it goes back onto its mate. */
     snapBack: async (target: MoveTarget) => {
-      const done = await run("pose", () => clearPose(systemId, etag, target.instanceId), `${target.displayPath} snapped back to its mate`);
+      const done = await edit("pose", (system) => system.clearPose(target.instanceId), `${target.displayPath} snapped back to its mate`);
       if (done) markMoved(target.instanceId);
     },
     /** Drop an unsaved preview; after saved moves, store the pose the target had when it was picked. */
@@ -125,21 +121,21 @@ export function useMoveMode(
       if (!origin?.moved || !target || origin.instanceId !== target.instanceId) return;
       if (origin.undo) {
         const undo = origin.undo;
-        const back = await run("pose", () => setPoses(systemId, etag, undo), `${target.displayPath} and its stack are back where they were`);
+        const back = await edit("pose", (system) => system.setPoses(undo), `${target.displayPath} and its stack are back where they were`);
         if (back) setOrigin({ ...origin, moved: false, undo: undefined });
         return;
       }
       const done = origin.source !== "manual"
-        ? await run("pose", () => clearPose(systemId, etag, origin.instanceId), `${target.displayPath} is back where it was`)
-        : await run("pose", () => setPose(systemId, etag, origin.instanceId, origin.pose), `${target.displayPath} is back where it was`);
+        ? await edit("pose", (system) => system.clearPose(origin.instanceId), `${target.displayPath} is back where it was`)
+        : await edit("pose", (system) => system.setPose(origin.instanceId, origin.pose), `${target.displayPath} is back where it was`);
       if (done) setOrigin({ ...origin, moved: false });
     },
     backToDefault: async (target: MoveTarget) => {
-      const done = await run("pose", () => clearPose(systemId, etag, target.instanceId), `${target.displayPath} is back in its default place`);
+      const done = await edit("pose", (system) => system.clearPose(target.instanceId), `${target.displayPath} is back in its default place`);
       if (done) markMoved(target.instanceId);
     },
     resetAll: async () => {
-      const done = await run("pose", () => resetPoses(systemId, etag));
+      const done = await edit("pose", (system) => system.resetPoses());
       setConfirmReset(false);
       if (done && origin) markMoved(origin.instanceId);
       if (done) toastReset(done.body.reset.length);

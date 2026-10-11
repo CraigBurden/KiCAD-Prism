@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
-import { setHarnessNodes } from "@/lib/systems-api";
 import type { PrismSemanticViewerElement, PrismSystemSceneHarnessState } from "@/types/prism-semantic-viewer";
 import type { HarnessNodeInput, SystemScene } from "@/types/system";
 
 import {
   AUTO, addBreakout, addWaypoint, alongSamples, moveNode, nodeInputs, removeNode, setPinned, storeAuto,
 } from "./harness-node-edits";
-import { useSystemMutation } from "./use-system-mutation";
+import { useSystemSession } from "./session/use-system-session";
 
 type Vec3 = [number, number, number];
 
@@ -31,12 +30,9 @@ function withSegment(nodes: HarnessNodeInput[], at: PrismSystemSceneHarnessState
  * or the panel's buttons save the harness's whole node list with If-Match, and
  * a failed save puts the node back.
  */
-export function useHarnessNodes(
-  viewer: PrismSemanticViewerElement | null,
-  { systemId, etag, reload, scene }: { systemId: string; etag: string; reload: () => Promise<void>; scene: SystemScene | null },
-) {
+export function useHarnessNodes(viewer: PrismSemanticViewerElement | null, scene: SystemScene | null) {
   const [state, setState] = useState<PrismSystemSceneHarnessState | null>(null);
-  const { busy, run } = useSystemMutation(reload);
+  const { busy, edit } = useSystemSession();
   // A node to give the gizmo once the re-read scene reaches the viewer (it does not exist there before).
   const pendingTarget = useRef<string | null | undefined>(undefined);
 
@@ -52,7 +48,7 @@ export function useHarnessNodes(
     const id = state?.harness?.id;
     if (!id) return false;
     pendingTarget.current = target;
-    const done = await run("nodes", () => setHarnessNodes(systemId, etag, id, nodes), success);
+    const done = await edit("nodes", (system) => system.setHarnessNodes(id, nodes), success);
     if (!done) {
       pendingTarget.current = undefined;
       viewer?.cancelHarnessNode?.();

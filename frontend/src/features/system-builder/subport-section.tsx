@@ -12,14 +12,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createSubport, deleteSubport, getInstanceInterface, updateSubport } from "@/lib/systems-api";
+import { createSubport, updateSubport } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { Subport, SubportMove, SystemDocument, SystemInstance, SystemPort } from "@/types/system";
 
 import { exportForPort } from "./exports-section";
 import { comparePads } from "./pads";
 import { subportLabel } from "./subport-model";
-import type { Mutate } from "./use-system-mutation";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 
 /** "1–3, 15": consecutive numeric pads as ranges. */
 export function padRanges(pads: readonly string[]): string {
@@ -54,21 +55,18 @@ export function moveLines(document: SystemDocument, moves: readonly SubportMove[
 }
 
 interface RowsProps {
-  systemId: string;
-  etag: string;
   document: SystemDocument;
   instance: SystemInstance;
   port: SystemPort;
   subports: Subport[];
   editable: boolean;
-  busy: string | null;
-  run: Mutate;
   onEdit: (subport: Subport) => void;
   onExport: (subport: Subport) => void;
 }
 
 /** A split connector's sub-ports, under its row in the Ports list. */
-export function SubportRows({ systemId, etag, document, instance, port, subports, editable, busy, run, onEdit, onExport }: RowsProps) {
+export function SubportRows({ document, instance, port, subports, editable, onEdit, onExport }: RowsProps) {
+  const { busy, edit } = useSystemSession();
   const [removing, setRemoving] = useState<{ subport: Subport; lines: string[] } | null>(null);
   const linked = new Set<string>();
   for (const link of document.links) {
@@ -78,7 +76,7 @@ export function SubportRows({ systemId, etag, document, instance, port, subports
   }
 
   const askRemove = async (subport: Subport) => {
-    const preview = await run("subport-preview", () => deleteSubport(systemId, etag, instance.id, subport.id, true));
+    const preview = await edit("subport-preview", (system) => system.deleteSubport(instance.id, subport.id, true));
     if (preview) setRemoving({ subport, lines: moveLines(document, preview.body.moves) });
   };
 
@@ -123,7 +121,7 @@ export function SubportRows({ systemId, etag, document, instance, port, subports
           title={`Remove ${subportLabel(port.reference, removing.subport.name)}?`}
           description={removing.lines.length ? <MoveList lines={removing.lines} /> : `Its pads return to ${port.reference}.`}
           confirmLabel="Remove" destructive busy={busy === "subport"}
-          onConfirm={() => void run("subport", () => deleteSubport(systemId, etag, instance.id, removing.subport.id),
+          onConfirm={() => void edit("subport", (system) => system.deleteSubport(instance.id, removing.subport.id),
             `${subportLabel(port.reference, removing.subport.name)} removed`).then((done) => done && setRemoving(null))} />
       )}
     </>
@@ -140,40 +138,26 @@ function MoveList({ lines }: { lines: string[] }) {
 
 interface DialogProps {
   systemId: string;
-  etag: string;
   document: SystemDocument;
   instance: SystemInstance;
   port: SystemPort;
   /** Set when editing; absent when splitting. */
   subport?: Subport;
   others: Subport[];
-  busy: string | null;
-  run: Mutate;
   onClose: () => void;
 }
 
 /** The connector's pads, from its interface; 1..pinCount when it cannot be read. */
-function usePads(systemId: string, instanceId: string, port: SystemPort): string[] {
-  const [pads, setPads] = useState<string[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    getInstanceInterface(systemId, instanceId)
-      .then((result) => {
-        if (cancelled) return;
-        const component = result.state === "ready" ? result.body.components.find((c) => c.portKey === port.portKey) : undefined;
-        setPads(component ? component.pins.map((pin) => String(pin.pad)).sort(comparePads) : null);
-      })
-      .catch(() => !cancelled && setPads(null));
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, instanceId, port.portKey]);
-  return pads ?? Array.from({ length: port.pinCount }, (_, index) => String(index + 1));
+function usePads(instance: SystemInstance, port: SystemPort): string[] {
+  const read = useSessionRead(sessionReads.instanceInterface(instance.id, instance.baselineCommit, instance.interface?.status ?? null)).data;
+  const component = read?.state === "ready" ? read.body.components.find((c) => c.portKey === port.portKey) : undefined;
+  return component ? component.pins.map((pin) => String(pin.pad)).sort(comparePads) : Array.from({ length: port.pinCount }, (_, index) => String(index + 1));
 }
 
 /** Split a connector into a named sub-port, or edit one: name, pads, and the row moves it makes. */
-export function SubportDialog({ systemId, etag, document, instance, port, subport, others, busy, run, onClose }: DialogProps) {
-  const pads = usePads(systemId, instance.id, port);
+export function SubportDialog({ systemId, document, instance, port, subport, others, onClose }: DialogProps) {
+  const { busy, edit } = useSystemSession();
+  const pads = usePads(instance, port);
   const [name, setName] = useState(subport?.name ?? "");
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set(subport?.pads ?? []));
   const [preview, setPreview] = useState<{ lines: string[]; error: string | null } | null>(null);
@@ -192,9 +176,10 @@ export function SubportDialog({ systemId, etag, document, instance, port, subpor
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
+      // A preview writes nothing and sends no ETag.
       const call = subportId
-        ? updateSubport(systemId, etag, instance.id, subportId, wanted, true)
-        : createSubport(systemId, etag, instance.id, { portKey: port.portKey, ...wanted }, true);
+        ? updateSubport(systemId, "", instance.id, subportId, wanted, true)
+        : createSubport(systemId, "", instance.id, { portKey: port.portKey, ...wanted }, true);
       call.then((result) => !cancelled && setPreview({ lines: moveLines(document, result.body.moves), error: null }))
         .catch((error: unknown) => !cancelled && setPreview({ lines: [], error: error instanceof Error ? error.message : "Not valid" }));
     }, 250);
@@ -202,7 +187,7 @@ export function SubportDialog({ systemId, etag, document, instance, port, subpor
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [request, document, systemId, etag, instance.id, port.portKey, subportId]);
+  }, [request, document, systemId, instance.id, port.portKey, subportId]);
 
   const toggle = (pad: string) => setChosen((current) => {
     const next = new Set(current);
@@ -211,8 +196,8 @@ export function SubportDialog({ systemId, etag, document, instance, port, subpor
   });
   const save = async () => {
     const done = subport
-      ? await run("subport", () => updateSubport(systemId, etag, instance.id, subport.id, body), `${subportLabel(port.reference, body.name)} saved`)
-      : await run("subport", () => createSubport(systemId, etag, instance.id, { portKey: port.portKey, ...body }),
+      ? await edit("subport", (system) => system.updateSubport(instance.id, subport.id, body), `${subportLabel(port.reference, body.name)} saved`)
+      : await edit("subport", (system) => system.createSubport(instance.id, { portKey: port.portKey, ...body }),
         `${subportLabel(port.reference, body.name)} split off`);
     if (done) onClose();
   };

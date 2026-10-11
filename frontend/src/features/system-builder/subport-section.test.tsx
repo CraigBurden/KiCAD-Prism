@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseMenuItem, openMenu } from "@/test/select";
@@ -8,8 +8,8 @@ import { BoardDetail } from "./board-detail";
 import { buildDiagram, connectionIntent, connectionToLink, handleId } from "./diagram-model";
 import { padRanges } from "./subport-section";
 import { endKey, endPads, endReference, splitEndKey } from "./subport-model";
+import { renderInSession } from "./session/memory-session";
 import { instance, link, port, systemDocument } from "./test-fixtures";
-import { useSystemMutation } from "./use-system-mutation";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -54,14 +54,13 @@ describe("the diagram with a split connector", () => {
   });
 });
 
-function Board({ document }: { document: SystemDocument }) {
-  const { busy, run } = useSystemMutation(async () => undefined);
-  return <BoardDetail systemId="sys_1" document={document} instance={document.instances[0]} etag='"sys:sys_1:1"' canEdit busy={busy} run={run} />;
+function renderBoard(document: SystemDocument) {
+  return renderInSession(<BoardDetail systemId="sys_1" document={document} instance={document.instances[0]} canEdit />, { document });
 }
 
 describe("sub-ports in the board inspector", () => {
   it("lists a connector's sub-ports under it, and refuses to hide a split connector", async () => {
-    render(<Board document={doc} />);
+    renderBoard(doc);
     const ports = screen.getByRole("list", { name: "Ports" });
     expect(within(ports).getByText("J7.PWR")).toBeTruthy();
     expect(within(ports).getByText("1–3")).toBeTruthy();
@@ -82,7 +81,7 @@ describe("sub-ports in the board inspector", () => {
       return new Response(JSON.stringify(body), { status: url.includes("preview") ? 200 : 201,
         headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:2"' } });
     }));
-    render(<Board document={doc} />);
+    renderBoard(doc);
     await chooseMenuItem("Actions for J2", /^Split$/);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "SIG" } });
     fireEvent.click(screen.getByRole("button", { name: "1" }));

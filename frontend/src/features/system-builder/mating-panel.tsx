@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { clearDrivingMate, clearMating, getLinkMate, getMating, getPlacement, setDrivingMate, setMating } from "@/lib/systems-api";
-import type { LinkMate, MatingAxis, PortMating, SystemDocument, SystemLink, SystemPlacement } from "@/types/system";
+import type { MatingAxis, PortMating, SystemDocument, SystemLink, SystemPlacement } from "@/types/system";
 
 import { MatePreview, type Pick } from "./mate-preview";
 import { StackHeightField } from "./stack-height-field";
-import type { Mutate } from "./use-system-mutation";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 
 /** How the mating axis reads to a designer (CONTRACTS_P2 §15.1; ±x/±y are the footprint's own axes). */
 export const AXIS_LABELS: Record<MatingAxis, string> = {
@@ -37,35 +37,27 @@ export function matingSummary(port: PortMating): { label: string; tone: "ok" | "
 const TONE: Record<"ok" | "info" | "warn", "secondary" | "outline" | "destructive"> = { ok: "secondary", info: "outline", warn: "destructive" };
 
 interface EndProps {
-  systemId: string;
-  etag: string;
   side: "A" | "B";
   instanceId: string;
   portKey: string;
   label: string;
   editable: boolean;
-  busy: boolean;
-  run: Mutate;
   /** The frame being picked by hand (the panel previews it), or null. */
   picking: Pick;
   setPicking: (pick: Pick) => void;
 }
 
-function MatingEnd({ systemId, etag, side, instanceId, portKey, label, editable, busy, run, picking, setPicking }: EndProps) {
-  const [port, setPort] = useState<{ key: string; body: PortMating | null } | null>(null);
-  const key = `${instanceId}:${portKey}:${etag}`;
+/** The stored and inferred frame of one port: undefined while loading, null when it cannot be read. */
+function portFrame(read: { data: { ports: PortMating[] } | undefined; error: unknown }, portKey: string): PortMating | null | undefined {
+  if (read.error) return null;
+  return read.data ? read.data.ports.find((port) => port.portKey === portKey) ?? null : undefined;
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    getMating(systemId, instanceId)
-      .then((body) => !cancelled && setPort({ key, body: body.ports.find((p) => p.portKey === portKey) ?? null }))
-      .catch(() => !cancelled && setPort({ key, body: null }));
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, instanceId, portKey, key]);
-
-  const current = port?.key === key ? port.body : undefined;
+function MatingEnd({ side, instanceId, portKey, label, editable, picking, setPicking }: EndProps) {
+  const session = useSystemSession();
+  const { edit } = session;
+  const busy = session.busy !== null;
+  const current = portFrame(useSessionRead(sessionReads.mating(instanceId)), portKey);
   if (current === undefined) return <p className="text-sm text-muted-foreground">{side} · {label}: loading…</p>;
   if (current === null) return <p className="text-sm text-muted-foreground">{side} · {label}: no frame (the board interface is not ready).</p>;
   const summary = matingSummary(current);
@@ -84,7 +76,7 @@ function MatingEnd({ systemId, etag, side, instanceId, portKey, label, editable,
         <div className="flex flex-wrap items-center gap-2">
           {canConfirm && (
             <Button size="sm" variant="outline" disabled={busy}
-              onClick={() => void run("mating", () => setMating(systemId, etag, instanceId, portKey, { mode: "confirmed" }), "Mating frame confirmed")}>
+              onClick={() => void edit("mating", (system) => system.setMating(instanceId, portKey, { mode: "confirmed" }), "Mating frame confirmed")}>
               Confirm
             </Button>
           )}
@@ -93,7 +85,7 @@ function MatingEnd({ systemId, etag, side, instanceId, portKey, label, editable,
           )}
           {current.stored && !picking && (
             <Button size="sm" variant="ghost" disabled={busy}
-              onClick={() => void run("mating", () => clearMating(systemId, etag, instanceId, portKey), "Back to the inferred frame")}>
+              onClick={() => void edit("mating", (system) => system.clearMating(instanceId, portKey), "Back to the inferred frame")}>
               Reset
             </Button>
           )}
@@ -103,8 +95,8 @@ function MatingEnd({ systemId, etag, side, instanceId, portKey, label, editable,
         <form className="flex flex-wrap items-end gap-2" aria-label={`Mating frame ${side}`}
           onSubmit={async (event) => {
             event.preventDefault();
-            // run() reports failures itself and never rejects.
-            await run("mating", () => setMating(systemId, etag, instanceId, portKey, { mode: "override", ...picking }), "Mating frame saved");
+            // edit() reports failures itself and never rejects.
+            await edit("mating", (system) => system.setMating(instanceId, portKey, { mode: "override", ...picking }), "Mating frame saved");
             setPicking(null);
           }}>
           <Select value={picking.axis} onValueChange={(value) => setPicking({ ...picking, axis: value as MatingAxis })}>
@@ -128,28 +120,9 @@ function MatingEnd({ systemId, etag, side, instanceId, portKey, label, editable,
 }
 
 interface MatingPanelProps {
-  systemId: string;
-  etag: string;
   document: SystemDocument;
   link: SystemLink;
   editable: boolean;
-  busy: boolean;
-  run: Mutate;
-}
-
-/** Loads `load()` again whenever `key` changes; null while loading or after a failure. */
-function useKeyed<T>(key: string, load: () => Promise<T>): T | null {
-  const [state, setState] = useState<{ key: string; value: T | null } | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    load().then((value) => !cancelled && setState({ key, value })).catch(() => !cancelled && setState({ key, value: null }));
-    return () => {
-      cancelled = true;
-    };
-    // `load` is rebuilt every render; `key` names what it loads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return state?.key === key ? state.value : null;
 }
 
 type Status = { tone: "ok" | "info" | "warn"; text: string };
@@ -181,23 +154,25 @@ const STATUS_TONE: Record<Status["tone"], string> = {
 
 /** CONTRACTS_P2 §16.2, §20.14: a board-to-board link shows both connectors' mating frames, how the solve used
  * the link, a choice of which board it places, and a live preview of the pair. */
-export function MatingPanel({ systemId, etag, document, link, editable, busy, run }: MatingPanelProps) {
+export function MatingPanel({ document, link, editable }: MatingPanelProps) {
+  const session = useSystemSession();
+  const { edit } = session;
+  const busy = session.busy !== null;
   const [picks, setPicks] = useState<{ a: Pick; b: Pick }>({ a: null, b: null });
-  const placement = useKeyed(`${systemId}:${etag}`, () => getPlacement(systemId));
-  const pair = useKeyed<LinkMate>(`${link.id}:${etag}`, () => getLinkMate(systemId, link.id));
+  const placement = useSessionRead(sessionReads.placement()).data ?? null;
+  const pair = useSessionRead(sessionReads.linkMate(link.id)).data ?? null;
   const label = (instanceId: string) => document.instances.find((candidate) => candidate.id === instanceId)?.label ?? "?";
   const status = placement ? placementStatus(placement, link, label) : null;
   const restricted = link.a.redacted || link.b.redacted;
   // SB2-114: both ends' frames, so both inferred frames can be confirmed at once. Never over a stored one.
-  const frames = useKeyed(`${link.id}:frames:${etag}`, () => Promise.all((["a", "b"] as const).map(async (end) => {
-    const portKey = link[end].port?.portKey;
-    if (!portKey || link[end].redacted) return null;
-    return (await getMating(systemId, link[end].instanceId)).ports.find((port) => port.portKey === portKey) ?? null;
-  })));
-  const confirmBoth = editable && !restricted && Boolean(frames?.every((frame) => frame?.inferred.axis && !frame.stored));
-  const confirmFrames = () => void run("mating", async () => {
-    const first = await setMating(systemId, etag, link.a.instanceId, link.a.port!.portKey, { mode: "confirmed" });
-    return setMating(systemId, first.etag ?? etag, link.b.instanceId, link.b.port!.portKey, { mode: "confirmed" });
+  const framed = (end: "a" | "b") => Boolean(link[end].port?.portKey && !link[end].redacted);
+  const frameA = useSessionRead(framed("a") ? sessionReads.mating(link.a.instanceId) : null);
+  const frameB = useSessionRead(framed("b") ? sessionReads.mating(link.b.instanceId) : null);
+  const frames = [framed("a") ? portFrame(frameA, link.a.port!.portKey) : null, framed("b") ? portFrame(frameB, link.b.port!.portKey) : null];
+  const confirmBoth = editable && !restricted && frames.every((frame) => frame?.inferred.axis && !frame.stored);
+  const confirmFrames = () => void edit("mating", async (system) => {
+    await system.setMating(link.a.instanceId, link.a.port!.portKey, { mode: "confirmed" });
+    return system.setMating(link.b.instanceId, link.b.port!.portKey, { mode: "confirmed" });
   }, "Both mating frames confirmed");
   // A board this link could place instead of its current driving mate, and a choice to undo.
   const choices = placement && editable && !restricted
@@ -217,20 +192,20 @@ export function MatingPanel({ systemId, etag, document, link, editable, busy, ru
           <Button size="sm" variant="outline" className="mr-auto" disabled={busy} onClick={confirmFrames}
             title="Accept both connectors' inferred frames">Confirm both</Button>
         )}
-        <StackHeightField systemId={systemId} etag={etag} link={link} editable={editable && !restricted} busy={busy} run={run} />
+        <StackHeightField link={link} editable={editable && !restricted} />
       </div>
       {status && <p className={`text-xs ${STATUS_TONE[status.tone]}`} role="status">{status.text}</p>}
       {choices.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {choices.map((choice) => (choice.kind === "use" ? (
             <Button key={choice.instanceId} size="sm" variant="outline" disabled={busy}
-              onClick={() => void run("driving", () => setDrivingMate(systemId, etag, choice.instanceId, link.id),
+              onClick={() => void edit("driving", (system) => system.setDrivingMate(choice.instanceId, link.id),
                 `${label(choice.instanceId)} is now placed by this link`)}>
               Place {label(choice.instanceId)} by this link
             </Button>
           ) : (
             <Button key={choice.instanceId} size="sm" variant="ghost" disabled={busy}
-              onClick={() => void run("driving", () => clearDrivingMate(systemId, etag, choice.instanceId),
+              onClick={() => void edit("driving", (system) => system.clearDrivingMate(choice.instanceId),
                 `${label(choice.instanceId)} is placed automatically again`)}>
               Place {label(choice.instanceId)} automatically
             </Button>
@@ -246,8 +221,8 @@ export function MatingPanel({ systemId, etag, document, link, editable, busy, ru
           return <p key={end} className="text-sm text-muted-foreground">{side} · {endLabel}: the frame comes from the subsystem's snapshot.</p>;
         }
         return (
-          <MatingEnd key={end} systemId={systemId} etag={etag} side={side} instanceId={link[end].instanceId}
-            portKey={link[end].port!.portKey} label={endLabel} editable={editable} busy={busy} run={run}
+          <MatingEnd key={end} side={side} instanceId={link[end].instanceId}
+            portKey={link[end].port!.portKey} label={endLabel} editable={editable}
             picking={picks[end]} setPicking={(pick) => setPicks((current) => ({ ...current, [end]: pick }))} />
         );
       })}

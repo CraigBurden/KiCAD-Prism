@@ -1,11 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import type { SystemHarness } from "@/types/system";
 
 import { HarnessOutputsSection } from "./harness-outputs-section";
+import { memorySystem, renderInSession } from "./session/memory-session";
+import { systemDocument } from "./test-fixtures";
 
-afterEach(() => vi.unstubAllGlobals());
+const document = systemDocument([]);
 
 const harness = {
   id: "shn_1", name: "C&DH power", label: null, cutLengthMm: null, serviceAllowancePct: null, linkable: true,
@@ -24,7 +26,7 @@ const harness = {
 
 describe("harness manufacturing (SB2-110)", () => {
   it("links every output and lists coverings by segment", () => {
-    render(<HarnessOutputsSection systemId="sys_1" harness={harness} etag="e" editable={false} busy={false} run={vi.fn()} />);
+    renderInSession(<HarnessOutputsSection systemId="sys_1" harness={harness} editable={false} />, { document });
     const links = screen.getByLabelText("Outputs").querySelectorAll("a");
     expect([...links].map((a) => a.getAttribute("href"))).toEqual(
       ["drawing.svg", "drawing.pdf", "wiring.csv", "bom.csv", "wireviz.yaml"].map((n) => `/api/systems/sys_1/harnesses/shn_1/outputs/${n}`));
@@ -33,18 +35,13 @@ describe("harness manufacturing (SB2-110)", () => {
   });
 
   it("adds a covering on a segment and saves the list", async () => {
-    const run = vi.fn(async (_kind: string, call: () => Promise<unknown>) => call());
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(harness), { status: 200, headers: { "Content-Type": "application/json", ETag: "e2" } }));
-    vi.stubGlobal("fetch", fetchMock);
-    render(<HarnessOutputsSection systemId="sys_1" harness={harness} etag="e" editable busy={false} run={run as never} />);
+    const memory = memorySystem(document, { edits: { setHarnessCoverings: () => harness } });
+    renderInSession(<HarnessOutputsSection systemId="sys_1" harness={harness} editable />, { document, transport: memory.transport });
     fireEvent.click(screen.getByRole("button", { name: "Add covering" }));
     fireEvent.change(screen.getByLabelText("Covering 2 description"), { target: { value: "Heat-shrink" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/systems/sys_1/harnesses/shn_1/coverings");
-    expect(JSON.parse(String(init.body))).toEqual([
+    await waitFor(() => expect(memory.calls).toEqual([{ name: "setHarnessCoverings", args: ["shn_1", [
       { segmentId: "*", componentId: null, description: "PET braid" },
-      { segmentId: "*", componentId: null, description: "Heat-shrink" }]);
+      { segmentId: "*", componentId: null, description: "Heat-shrink" }]] }]));
   });
 });

@@ -21,31 +21,23 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  checkNow,
-  createExport,
-  getInstanceInterface,
-  removeInstance,
-  setPortOverride,
-  updateInstance,
-} from "@/lib/systems-api";
+import { getInstanceInterface, type updateInstance } from "@/lib/systems-api";
 import { throwIfJobFailed, watchPrismJob } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 import type { InstanceComponent, Subport, SystemDocument, SystemInstance, SystemPort } from "@/types/system";
 
 import { ConnectDialog } from "./connect-dialog";
+import type { SystemEdits } from "./session/system-session";
 import { ExportDialog, exportForPort } from "./exports-section";
 import { subportLabel, subportsOf } from "./subport-model";
 import { SubportDialog, SubportRows } from "./subport-section";
 import { SubsystemDetail } from "./subsystem-detail";
 import { boardStatus, shortSha, timeAgo } from "./system-format";
-import { useSystemMutation } from "./use-system-mutation";
+import { useSystemSession } from "./session/use-system-session";
 import { InspectorFacts } from "./workspace/inspector-facts";
 import { InspectorHeader } from "./workspace/inspector-header";
 import { InspectorSection } from "./workspace/inspector-section";
 import type { WorkspaceSelection } from "./workspace/workspace-state";
-
-type Mutate = ReturnType<typeof useSystemMutation>["run"];
 
 /** Ports a link uses as a whole connector or its remainder; an end on a sub-port counts under the sub-port. */
 export function linkedPortKeys(document: SystemDocument, instanceId: string): Set<string> {
@@ -71,10 +63,7 @@ interface BoardDetailProps {
   systemId: string;
   document: SystemDocument;
   instance: SystemInstance;
-  etag: string;
   canEdit: boolean;
-  busy: string | null;
-  run: Mutate;
   /** SB2-115: a connection made from a port's Connect…, to open. */
   onConnected?: (selection: WorkspaceSelection) => void;
 }
@@ -129,7 +118,8 @@ export function BoardDetail(props: BoardDetailProps) {
     ? <SubsystemDetail {...props} /> : <BoardDetailBody {...props} />;
 }
 
-function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, run, onConnected }: BoardDetailProps) {
+function BoardDetailBody({ systemId, document, instance, canEdit, onConnected }: BoardDetailProps) {
+  const { busy, edit } = useSystemSession();
   const status = boardStatus(instance);
   const [dialog, setDialog] = useState<"edit" | "remove" | null>(null);
   const linkCount = document.links.filter((link) => link.a.instanceId === instance.id || link.b.instanceId === instance.id).length;
@@ -147,7 +137,7 @@ function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, ru
       destructive
       busy={busy === "remove"}
       onConfirm={() => {
-        void run("remove", () => removeInstance(systemId, etag, instance.id, linkCount > 0), `Removed ${instance.label}`)
+        void edit("remove", (system) => system.removeInstance(instance.id, linkCount > 0), `Removed ${instance.label}`)
           .then(() => setDialog(null));
       }}
     />
@@ -170,17 +160,17 @@ function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, ru
   }
 
   const save = (fields: Parameters<typeof updateInstance>[3], message: string) =>
-    run("update", () => updateInstance(systemId, etag, instance.id, fields), message);
+    edit("update", (system) => system.updateInstance(instance.id, fields), message);
   // The check runs as a job; wait for it so a review it opens shows up on this page.
-  const checkBranch = async () => {
-    const job = await checkNow(systemId, instance.id);
+  const checkBranch = async (system: SystemEdits) => {
+    const job = await system.checkNow(instance.id);
     throwIfJobFailed(await watchPrismJob(job.job_id), "The branch check failed");
   };
 
   const pinToggle = () => void (instance.pinned
-    ? run("update", async () => {
-      await updateInstance(systemId, etag, instance.id, { pinned: false });
-      await checkBranch();
+    ? edit("update", async (system) => {
+      await system.updateInstance(instance.id, { pinned: false });
+      await checkBranch(system);
     }, "Unpinned and checked the branch")
     : save({ pinned: true }, "Pinned"));
 
@@ -193,7 +183,7 @@ function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, ru
             {instance.trackedRef && (
               <>
                 <Button variant="ghost" size="icon-sm" disabled={busy !== null} aria-label="Check now" title="Check the branch now"
-                  onClick={() => void run("check", checkBranch, "Branch checked")}>
+                  onClick={() => void edit("check", checkBranch, "Branch checked")}>
                   <RefreshCw className="size-4" />
                 </Button>
                 <Button variant="ghost" size="icon-sm" disabled={busy !== null} aria-label={instance.pinned ? "Unpin" : "Pin"}
@@ -233,8 +223,7 @@ function BoardDetailBody({ systemId, document, instance, etag, canEdit, busy, ru
         }] : []),
       ]} />
 
-      <PortsSection systemId={systemId} document={document} instance={instance} etag={etag} editable={editable} busy={busy} run={run}
-        onConnected={onConnected} />
+      <PortsSection systemId={systemId} document={document} instance={instance} editable={editable} onConnected={onConnected} />
 
       {dialog === "edit" && (
         <EditBoardDialog instance={instance} busy={busy === "update"} onClose={() => setDialog(null)}
@@ -250,14 +239,12 @@ interface PortsSectionProps {
   systemId: string;
   document: SystemDocument;
   instance: SystemInstance;
-  etag: string;
   editable: boolean;
-  busy: string | null;
-  run: Mutate;
   onConnected?: (selection: WorkspaceSelection) => void;
 }
 
-function PortsSection({ systemId, document, instance, etag, editable, busy, run, onConnected }: PortsSectionProps) {
+function PortsSection({ systemId, document, instance, editable, onConnected }: PortsSectionProps) {
+  const { busy, etag, edit } = useSystemSession();
   const [showAll, setShowAll] = useState(false);
   const [exporting, setExporting] = useState<{ port: SystemPort; subport?: Subport } | null>(null);
   const [connecting, setConnecting] = useState<SystemPort | null>(null);
@@ -308,7 +295,7 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run,
     : instance.ports ?? [];
 
   const setOverride = (port: SystemPort, state: "hidden" | "promoted" | null, message: string) =>
-    run("override", () => setPortOverride(systemId, etag, instance.id, port.portKey, state), message);
+    edit("override", (system) => system.setPortOverride(instance.id, port.portKey, state), message);
 
   return (
     <InspectorSection title={showAll ? "All parts" : "Ports"} count={rows.length}
@@ -378,8 +365,7 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run,
                 )}
               </li>
               {subports.length > 0 && (
-                <SubportRows systemId={systemId} etag={etag} document={document} instance={instance} port={port}
-                  subports={subports} editable={editable} busy={busy} run={run}
+                <SubportRows document={document} instance={instance} port={port} subports={subports} editable={editable}
                   onEdit={(subport) => setSplitting({ port, subport })} onExport={(subport) => setExporting({ port, subport })} />
               )}
               </Fragment>
@@ -388,12 +374,12 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run,
         </ul>
       )}
       {splitting && (
-        <SubportDialog systemId={systemId} etag={etag} document={document} instance={instance} port={splitting.port}
-          subport={splitting.subport} busy={busy} run={run} onClose={() => setSplitting(null)}
+        <SubportDialog systemId={systemId} document={document} instance={instance} port={splitting.port}
+          subport={splitting.subport} onClose={() => setSplitting(null)}
           others={subportsOf(instance, splitting.port.portKey).filter((other) => other.id !== splitting.subport?.id)} />
       )}
       {connecting && onConnected && (
-        <ConnectDialog systemId={systemId} document={document} etag={etag} run={run}
+        <ConnectDialog document={document}
           from={{ instanceId: instance.id, portKey: connecting.portKey }} onClose={() => setConnecting(null)}
           onCreated={(selection) => { setConnecting(null); onConnected(selection); }} />
       )}
@@ -407,7 +393,7 @@ function PortsSection({ systemId, document, instance, etag, editable, busy, run,
             existingNames={(document.exports ?? []).map((entry) => entry.name)} busy={busy === "export"}
             onClose={() => setExporting(null)}
             onSubmit={async (value) => {
-              const done = await run("export", () => createExport(systemId, etag,
+              const done = await edit("export", (system) => system.createExport(
                 { ...value, instanceId: instance.id, portKey: port.portKey, ...(subport ? { subportId: subport.id } : {}) }),
               `Exported ${label} as ${value.name}`);
               if (done) setExporting(null);

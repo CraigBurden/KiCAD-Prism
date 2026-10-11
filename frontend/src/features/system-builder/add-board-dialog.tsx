@@ -4,24 +4,23 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useWorkspaceData, workspaceSessionKey } from "@/hooks/use-workspace-data";
-import { addInstance } from "@/lib/systems-api";
 import type { User } from "@/types/auth";
 
 import { BoardFields, boardProblems, instanceInput, type BoardDraft } from "./board-fields";
+import type { SystemEdits } from "./session/system-session";
 
 export interface AddedBoards {
   added: string[];
   failures: { board: BoardDraft; error: string }[];
 }
 
-/** SB2-124: add boards in order, carrying the ETag from one call to the next; a refused board does not stop the rest. */
-export async function addBoards(systemId: string, etag: string, boards: BoardDraft[]): Promise<AddedBoards> {
+/** SB2-124: add boards in order (the session carries the ETag from one call to the next); a refused board does not stop the rest. */
+export async function addBoards(system: Pick<SystemEdits, "addInstance">, boards: BoardDraft[]): Promise<AddedBoards> {
   const out: AddedBoards = { added: [], failures: [] };
-  let current = etag;
   for (const board of boards) {
     try {
-      const created = await addInstance(systemId, current, instanceInput(board));
-      current = created.etag ?? current;
+      // react-doctor-disable-next-line async-await-in-loop - each add sends the ETag the previous one returned, so they run in order
+      const created = await system.addInstance(instanceInput(board));
       out.added.push(created.body.id);
     } catch (error) {
       out.failures.push({ board, error: error instanceof Error ? error.message : String(error) });
