@@ -240,7 +240,7 @@ class LegacyCatalogSurvivorPostgresIntegrationTests(unittest.TestCase):
         service = ComponentCatalogPostgresService(store_root=self.store_root, database_url=POSTGRES_URL)
         service.initialize()
         plans = migration._component_restore_plan(manifest)
-        with service._connect() as conn:  # type: ignore[attr-defined]
+        with service.connection() as conn:
             migration._preflight_destination(conn, plans)
             required_asset_ids = {
                 str(link["asset_id"])

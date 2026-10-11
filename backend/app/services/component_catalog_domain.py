@@ -1,104 +1,43 @@
 from __future__ import annotations
 
-import json
 import logging
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from app.services.catalog.collaborators import build_catalog_collaborators
 from app.services.catalog.component_history import CatalogComponentHistoryReads
-from app.services.catalog.component_read_models import (
-    CatalogComponentReadModels,
-    SUPPLY_KIND_LOCAL,
-    SUPPLY_KIND_VENDOR,
-    SUPPLY_LOCAL_SOURCE_NAMES,
-    SUPPLY_VENDOR_SOURCE_NAMES,
-    supply_source_payload as _supply_source_payload,
-)
-from app.services.catalog.component_writer import SOURCE_EXTERNAL, SOURCE_MANUAL, CatalogComponentWriter
+from app.services.catalog.component_read_models import CatalogComponentReadModels
+from app.services.catalog.component_writer import CatalogComponentWriter
 from app.services.catalog.component_queries import CatalogComponentQueries
-from app.services.catalog.dbl_export import (
-    DBL_COMMON_COLUMNS,
-    CatalogDblExport,
-    dbl_row_for_component,
-    dbl_symbol_library_name as _dbl_symbol_library_name,
-    part_number_nocolon as _part_number_nocolon,
-    quote_identifier as _quote_identifier,
-    sexpr_string as _sexpr_string,
-    write_dbl_config,
-)
+from app.services.catalog.dbl_export import CatalogDblExport
 from app.services.catalog.health import CatalogHealth
-from app.services.catalog.klc_validation import (
-    VALIDATION_SEVERITY_ERROR,
-    VALIDATION_SEVERITY_INFO,
-    VALIDATION_SEVERITY_WARNING,
-    CatalogKlcValidation,
-)
+from app.services.catalog.klc_validation import CatalogKlcValidation
 from app.services.catalog.asset_browser import CatalogAssetBrowser
-from app.services.catalog.asset_files import (
-    CatalogAssetFiles,
-    content_type_for_asset as _content_type_for_asset,
-    discover_footprint_name_in_text as _discover_footprint_name_in_text,
-    discover_symbol_names_in_text as _discover_symbol_names_in_text,
-)
+from app.services.catalog.asset_files import CatalogAssetFiles
 from app.services.catalog.asset_imports import CatalogAssetImports
 from app.services.catalog.asset_links import CatalogAssetLinks
 from app.services.catalog.asset_registry import CatalogAssetRegistry
 from app.services.catalog.asset_types import (
     PLACE_REQUIRED_ASSET_TYPES,
-    PREVIEW_KIND_FOOTPRINT,
-    PREVIEW_KIND_SYMBOL,
     SUPPORTED_ASSET_TYPES,
 )
 from app.services.catalog.locking import CatalogLockOperations, NoopCatalogLocks
 from app.services.catalog.metadata_batch_application import CatalogMetadataBatchApplication
 from app.services.catalog.metadata_batches import CatalogMetadataBatches
 from app.services.catalog.metadata_batch_staging import CatalogMetadataBatchStaging
-from app.services.catalog.metadata_csv import (
-    CSV_ASSET_COLUMNS,
-    CSV_REQUIRED_COLUMNS,
-    CSV_SPREADSHEET_TEXT_GUARD,
-    CatalogMetadataCsv,
-)
+from app.services.catalog.metadata_csv import CatalogMetadataCsv
 from app.services.catalog.inventory_csv import CatalogInventoryCsv
 from app.services.catalog.metadata_batch_workflow import CatalogMetadataBatchWorkflow
-from app.services.catalog.metadata_csv_import import CatalogMetadataCsvImporter
 from app.services.catalog.metadata_fields import CatalogMetadataFields
 from app.services.catalog.metadata_grid import CatalogMetadataGrid
 from app.services.catalog.metadata_schema import (
-    BUILTIN_METADATA_FIELDS,
     CatalogMetadataSchema,
-    METADATA_FIELD_TYPES,
     METADATA_SCHEMA_VERSION,
-    SYMBOL_METADATA_LABEL_TO_KEY,
 )
-from app.services.catalog.metadata_normalization import (
-    IDENTITY_KIND_MPN,
-    IDENTITY_KIND_PROVISIONAL_IPN,
-    MPN_SOURCE_MANUFACTURER,
-    MPN_SOURCE_PROVISIONAL_IPN,
-    dedupe,
-    metadata_keywords,
-    metadata_search_document,
-    normalize_identity_value,
-    normalize_metadata,
-)
-from app.services.catalog.normalization import (
-    json_loads as _json_loads,
-    preview_base_kind as _preview_base_kind,
-    preview_kind as _preview_kind,
-    preview_unit as _preview_unit,
-    preview_unit_label as _preview_unit_label,
-    sha256_bytes as _sha256_bytes,
-    sha256_file as _sha256_file,
-    sanitize_name as _sanitize_name,
-    slugify as _slugify,
-    utc_now_iso as _utc_now_iso,
-)
+from app.services.catalog.normalization import utc_now_iso as _utc_now_iso
 from app.services.catalog.project_import_sessions import CatalogProjectImportSessions
 from app.services.catalog.component_identity import match_part_identities
 from app.services.catalog.project_import_matching import CatalogProjectImportMatching
@@ -106,87 +45,24 @@ from app.services.catalog.project_import_assets import CatalogProjectImportAsset
 from app.services.catalog.provider_tokens import CatalogProviderTokens
 from app.services.catalog.project_import_acceptance import CatalogProjectImportAcceptance
 from app.services.catalog.placement import CatalogPlacement
-from app.services.catalog.placement_payloads import (
-    SYMBOL_METADATA_FIELD_ORDER,
-    extract_top_level_symbol_properties as _extract_top_level_symbol_properties,
-    materialize_asset,
-    remote_library_nickname as _remote_library_nickname,
-    rewrite_footprint_payload as _rewrite_footprint_payload,
-    rewrite_symbol_payload as _rewrite_symbol_payload,
-    symbol_metadata_fields as _symbol_metadata_fields,
-    symbol_property_block as _symbol_property_block,
-)
 from app.services.catalog.preview_pipeline import (
     CatalogPreview,
     CatalogPreviewPipeline,
-    PREVIEW_PIPELINE_VERSION,
 )
-from app.services.catalog.preview_renderer import (
-    CatalogPreviewRenderer,
-    PREVIEW_STATUS_FAILED,
-    PREVIEW_STATUS_READY,
-)
+from app.services.catalog.preview_renderer import CatalogPreviewRenderer
 from app.services.catalog.preview_store import CatalogPreviewStore
 from app.services.catalog.release_workflow import CatalogReleaseWorkflow
 from app.services.catalog.remote_heads import CatalogRemoteHeads
 from app.services.catalog.representations import CatalogRepresentations
 from app.services.catalog.revision_comparison import CatalogRevisionComparison
 from app.services.catalog.revision_finalization import CatalogRevisionFinalizer
-from app.services.catalog.revision_kernel import (
-    CatalogRevisionKernel,
-    LEGACY_WORKFLOW_STAGE_MAP,
-    REVISION_MANIFEST_A0,
-    REVISION_MANIFEST_A1,
-    REVISION_MANIFEST_A2,
-    REVISION_MANIFEST_A3,
-    WORKFLOW_STAGES,
-    normalize_workflow_stage,
-)
+from app.services.catalog.revision_kernel import CatalogRevisionKernel
 from app.services.catalog import system_items
 from app.services.catalog.signed_urls import CatalogAssetUrlSigner
 from app.services.catalog.system_items_facade import CatalogSystemItemsFacade
-from app.services.catalog.runtime import (
-    CatalogRuntime, DBL_EXPORT_DIRNAME, DEFAULT_STORE_DIRNAME, KLC_VALIDATION_DIRNAME,
-    _ASSET_BROWSE_CACHE_TTL_SECONDS,
-)
+from app.services.catalog.runtime import CatalogRuntime
 
 logger = logging.getLogger(__name__)
-
-RELEASE_STATES = WORKFLOW_STAGES
-
-STATE_METADATA_ONLY = "metadata_only"
-STATE_FILES_PARTIAL = "files_partial"
-STATE_PLACE_READY = "place_ready"
-
-VALIDATION_STATUS_PASSED = "passed"
-VALIDATION_STATUS_WARNING = "warning"
-VALIDATION_STATUS_FAILED = "failed"
-VALIDATION_STATUS_SKIPPED = "skipped"
-VALIDATION_STATUS_NOT_RUN = "not_run"
-KLC_RELEASE_GATE_VALUES = {"off", "warn", "block"}
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-
-
-
-
-
-
-
-def _release_allows_remote(release_status: str) -> bool:
-    return release_status == "released"
-
-
-def _normalize_workflow_stage(stage: str) -> str:
-    return normalize_workflow_stage(stage)
-
-
-
-
 
 
 class ComponentCatalogDomainService:
@@ -227,7 +103,6 @@ class ComponentCatalogDomainService:
     _metadata_batch_staging: CatalogMetadataBatchStaging
     _metadata_batch_application: CatalogMetadataBatchApplication
     _metadata_batch_workflow: CatalogMetadataBatchWorkflow
-    _metadata_csv_importer: CatalogMetadataCsvImporter
 
     def __init__(
         self,
@@ -260,29 +135,13 @@ class ComponentCatalogDomainService:
             component_writer=self._component_writer, revision_kernel=self._revision_kernel,
             revision_finalizer=self._revision_finalizer)
 
-    @property
-    def _store_root(self) -> Path:
-        return self._runtime_for_compat().store_root
-
-    @_store_root.setter
-    def _store_root(self, value: Path) -> None:
-        self._runtime_for_compat().store_root = Path(value)
-
-    @property
-    def _browse_cache(self) -> dict[str, tuple[float, list[str]]]:
-        return self._runtime_for_compat().browse_cache
-
-    @_browse_cache.setter
-    def _browse_cache(self, value: dict[str, tuple[float, list[str]]]) -> None:
-        self._runtime_for_compat().browse_cache = value
-
     def _database_path(self, database_url: str | None) -> Path:
         _ = database_url
         return Path("/dev/null")
 
     @property
     def store_root(self) -> Path:
-        return self._store_root
+        return self._runtime_for_compat().store_root
 
     @property
     def db_path(self) -> Path:
@@ -341,188 +200,6 @@ class ComponentCatalogDomainService:
     @property
     def previews(self) -> CatalogPreviewPipeline:
         return self._preview_pipeline
-
-    def _preview_output_path(self, asset_id: str, kind: str) -> Path:
-        return self._preview_pipeline.preview_output_path(self._runtime_for_compat(), asset_id, kind)
-
-    def _preview_version_path(self, asset_id: str, kind: str, sha256: str) -> Path:
-        return self._preview_pipeline.preview_version_path(
-            self._runtime_for_compat(), asset_id, kind, sha256
-        )
-
-    def _preview_generator_identity(self, kind: str) -> dict[str, str]:
-        return self._preview_pipeline.generator_identity(kind)
-
-    def _asset_root(self, asset_type: str) -> Path:
-        return self._asset_files.asset_root(self._runtime_for_compat(), asset_type)
-
-    def _unique_slug(self, conn: Any, base: str) -> str:
-        return self._component_writer.unique_slug(conn, base)
-
-    def _lock_component_identity(self, conn: Any, manufacturer: str, mpn: str) -> None:
-        self._catalog_locks.lock_component_identity(conn, manufacturer, mpn)
-
-    def _lock_component_for_mutation(self, conn: Any, component_id: str) -> None:
-        self._catalog_locks.lock_component_for_mutation(conn, component_id)
-
-    def _assert_component_identity_available(
-        self,
-        conn: Any,
-        *,
-        manufacturer: str,
-        mpn: str,
-        name: str = "",
-        identity_kind: str = IDENTITY_KIND_MPN,
-        identity_source: str = "",
-        source_internal_part_number: str = "",
-        component_id: str = "",
-        acquire_identity_lock: bool = True,
-    ) -> None:
-        _ = name
-        self._component_writer.assert_identity_available(
-            conn,
-            manufacturer=manufacturer,
-            mpn=mpn,
-            identity_kind=identity_kind,
-            identity_source=identity_source,
-            source_internal_part_number=source_internal_part_number,
-            component_id=component_id,
-            acquire_identity_lock=acquire_identity_lock,
-        )
-
-    def _component_row(self, conn: Any, component_id: str) -> dict[str, Any] | None:
-        return self._revision_kernel.component_row(conn, component_id)
-
-    def _revision_row(self, conn: Any, revision_id: str) -> dict[str, Any] | None:
-        return self._revision_kernel.revision_row(conn, revision_id)
-
-    def _revision_manifest_hash(self, conn: Any, revision_id: str) -> str:
-        return self._revision_kernel.revision_manifest_hash(conn, revision_id)
-
-    def _finalize_revision(
-        self,
-        conn: Any,
-        *,
-        component_id: str,
-        revision_id: str,
-        event_type: str,
-        actor: str = "",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        self._revision_finalizer.finalize_revision(
-            conn,
-            self._runtime_for_compat(),
-            component_id=component_id,
-            revision_id=revision_id,
-            event_type=event_type,
-            actor=actor,
-            details=details,
-        )
-
-    def _clone_revision(
-        self,
-        conn: Any,
-        component_id: str,
-        *,
-        actor: str = "",
-        change_kind: str = "edit",
-        change_summary: str = "",
-        expected_revision_id: str = "",
-    ) -> dict[str, Any]:
-        return self._revision_kernel.clone_revision(
-            conn,
-            component_id,
-            actor=actor,
-            change_kind=change_kind,
-            change_summary=change_summary,
-            expected_revision_id=expected_revision_id,
-        )
-
-    def _load_assets_for_revision(self, conn: Any, revision_id: str) -> list[dict[str, Any]]:
-        return self._revision_kernel.load_assets_for_revision(conn, revision_id)
-
-    def _load_representations_for_revision(
-        self,
-        conn: Any,
-        revision_id: str,
-        *,
-        assets: list[dict[str, Any]] | None = None,
-        previews: list[dict[str, Any]] | None = None,
-    ) -> list[dict[str, Any]]:
-        return self._component_read_models.load_representations_for_revision(
-            conn, revision_id, assets=assets, previews=previews
-        )
-
-    def _local_inventory(self, conn: Any, component_id: str) -> dict[str, Any] | None:
-        return self._component_read_models.local_inventory(conn, component_id)
-
-    def _supply_sources(self, conn: Any, component_id: str) -> list[dict[str, Any]]:
-        return self._component_read_models.supply_sources(conn, component_id)
-
-    def _load_previews_for_assets(self, conn: Any, asset_ids: list[str]) -> list[dict[str, Any]]:
-        return self._component_read_models.load_previews_for_assets(conn, asset_ids)
-
-    def _load_previews_for_revision(self, conn: Any, revision_id: str) -> list[dict[str, Any]]:
-        return self._component_read_models.load_previews_for_revision(conn, revision_id)
-
-    def _load_preview_evidence_for_revision(self, conn: Any, revision_id: str) -> list[dict[str, Any]]:
-        return self._revision_kernel.load_preview_evidence_for_revision(conn, revision_id)
-
-    def _latest_validation_runs_for_assets(
-        self,
-        conn: Any,
-        revision_id: str,
-        asset_ids: list[str],
-    ) -> dict[str, dict[str, Any]]:
-        return self._component_read_models.latest_validation_runs_for_assets(
-            conn, revision_id, asset_ids
-        )
-
-    def _validation_run_payload(self, row: dict[str, Any], *, include_findings: bool = False, conn: Any | None = None) -> dict[str, Any]:
-        return self._component_read_models.validation_run_payload(
-            row, include_findings=include_findings, conn=conn
-        )
-
-    def _validation_findings_payload(self, conn: Any, run_id: str) -> list[dict[str, Any]]:
-        return self._component_read_models.validation_findings_payload(conn, run_id)
-
-    def _component_validation_summary(
-        self,
-        conn: Any,
-        revision_id: str,
-        assets: list[dict[str, Any]],
-        *,
-        preloaded_runs: dict[str, dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        return self._component_read_models.component_validation_summary(
-            conn,
-            revision_id,
-            assets,
-            preloaded_runs=preloaded_runs,
-        )
-
-    def _component_payload(
-        self,
-        conn: Any,
-        component_row: dict[str, Any],
-        revision_row: dict[str, Any],
-        *,
-        released_view: bool = False,
-        preloaded_assets: list[dict[str, Any]] | None = None,
-        preloaded_previews: list[dict[str, Any]] | None = None,
-        preloaded_validation_runs: dict[str, dict[str, Any]] | None = None,
-        representation_id: str = "",
-    ) -> dict[str, Any]:
-        return self._component_read_models.component_payload(
-            conn,
-            component_row,
-            revision_row,
-            released_view=released_view,
-            preloaded_assets=preloaded_assets,
-            preloaded_previews=preloaded_previews,
-            preloaded_validation_runs=preloaded_validation_runs,
-            representation_id=representation_id,
-        )
 
     def list_component_revisions(self, component_id: str) -> list[dict[str, Any]]:
         self.initialize()
@@ -796,7 +473,7 @@ class ComponentCatalogDomainService:
                 older_than=older_than,
             )
         return self._project_import_sessions.remove_staging_directories(
-            store_root=self._store_root,
+            store_root=self.store_root,
             session_ids=session_ids,
         )
 
@@ -838,9 +515,6 @@ class ComponentCatalogDomainService:
         with self._connect() as conn:
             return self._component_queries.execute_list_components(conn, plan)
 
-    def list_components_flat(self, **kwargs: Any) -> list[dict[str, Any]]:
-        return self.list_components(page=1, page_size=10000, **kwargs)["items"]
-
     def workflow_summary(self) -> dict[str, Any]:
         self.initialize()
         with self._connect() as conn:
@@ -850,16 +524,6 @@ class ComponentCatalogDomainService:
         self.initialize()
         with self._connect() as conn:
             return self._component_queries.release_queue_summary(conn)
-
-    def search_components(self, query: str, *, page: int = 1, page_size: int = 50) -> dict[str, Any]:
-        return self.list_components(
-            query=query,
-            include_inactive=False,
-            page=page,
-            page_size=page_size,
-            released_only=True,
-            lightweight=True,
-        )
 
     def list_remote_component_heads(
         self,
@@ -922,11 +586,6 @@ class ComponentCatalogDomainService:
                 representation_id=representation_id,
             )
 
-    def _representation_asset_id(
-        self, conn: Any, revision_id: str, asset_id: str, expected_type: str
-    ) -> str | None:
-        return self._representations.representation_asset_id(conn, revision_id, asset_id, expected_type)
-
     def create_representation(
         self,
         component_id: str,
@@ -961,11 +620,6 @@ class ComponentCatalogDomainService:
             )
             conn.commit()
         return self.get_component(component_id) or {}
-
-    def _current_representation_row(
-        self, conn: Any, component_id: str, representation_id: str
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        return self._representations.current_representation_row(conn, component_id, representation_id)
 
     def update_representation(
         self,
@@ -1031,40 +685,6 @@ class ComponentCatalogDomainService:
             )
             conn.commit()
         return self.get_component(component_id) or {}
-
-    def _upsert_component_metadata_row(
-        self,
-        conn: Any,
-        *,
-        component_id: str,
-        metadata: dict[str, Any],
-        now: str,
-        existing_component_id: str | None,
-        actor: str = "",
-        change_summary: str = "Update component metadata",
-        expected_revision_id: str = "",
-        finalize_revision: bool = True,
-        source: str = SOURCE_MANUAL,
-        external_source: str = "",
-        external_id: str = "",
-        change_kind: str = "metadata",
-    ) -> tuple[str, str]:
-        return self._component_writer.upsert_metadata_row(
-            conn,
-            self._runtime_for_compat(),
-            component_id=component_id,
-            metadata=metadata,
-            now=now,
-            existing_component_id=existing_component_id,
-            actor=actor,
-            change_summary=change_summary,
-            expected_revision_id=expected_revision_id,
-            finalize_revision=finalize_revision,
-            source=source,
-            external_source=external_source,
-            external_id=external_id,
-            change_kind=change_kind,
-        )
 
     def update_component_metadata(
         self,
@@ -1198,13 +818,6 @@ class ComponentCatalogDomainService:
             conn.commit()
             return self._metadata_batches.batch_payload(conn, batch_id) or {}
 
-    def _inherit_validation_evidence(self, conn: Any, parent_revision_id: str, revision_id: str) -> None:
-        return self._revision_kernel.inherit_validation_evidence(
-            conn,
-            parent_revision_id,
-            revision_id,
-        )
-
     def apply_metadata_batch_item(self, item_id: str, *, actor: str) -> dict[str, Any]:
         self.initialize()
         with self._connect() as conn:
@@ -1334,14 +947,6 @@ class ComponentCatalogDomainService:
             "skipped_unchanged_rows": changes.skipped_unchanged_rows,
         }
 
-    def import_metadata_csv(self, file_content: str) -> dict[str, Any]:
-        self.initialize()
-        parsed = self._metadata_csv.parse_import(file_content)
-        with self._connect() as conn:
-            result = self._metadata_csv_importer.import_rows(conn, self._runtime_for_compat(), parsed)
-            conn.commit()
-        return result
-
     def export_inventory_csv(self) -> str:
         self.initialize()
         with self._connect() as conn:
@@ -1354,17 +959,6 @@ class ComponentCatalogDomainService:
             result = self._inventory_csv.import_file(conn, file_content)
             conn.commit()
         return result
-
-    def _invalidate_browse_cache(self) -> None:
-        """Drop the stored-file listings after the store on disk changes.
-
-        Called from the one place bytes land in the store, so the asset picker
-        never offers a file that has just been rewritten elsewhere, nor hides
-        one that has just arrived. Clearing every type is deliberate: the
-        listings are rebuilt lazily on the next browse, and a write does not
-        reliably tell us which tree it touched.
-        """
-        self._runtime_for_compat().invalidate_browse_cache()
 
     def browse_library_assets(
         self,
@@ -1382,7 +976,7 @@ class ComponentCatalogDomainService:
         for changes made outside this process rather than the freshness bound.
         """
         self.initialize()
-        root = self._asset_root(asset_type)
+        root = self._asset_files.asset_root(self._runtime_for_compat(), asset_type)
         return self._asset_browser.browse(
             runtime=self._catalog_runtime,
             root=root,
@@ -1390,141 +984,6 @@ class ComponentCatalogDomainService:
             q=q,
             limit=limit,
             now=time.monotonic(),
-        )
-
-    def _attach_asset_revision(
-        self,
-        conn: Any,
-        *,
-        component_id: str,
-        asset: dict[str, Any],
-        required: bool,
-        actor: str,
-        change_summary: str,
-        counterpart_asset_id: str = "",
-    ) -> dict[str, Any]:
-        return self._asset_links.attach_asset_revision(
-            conn,
-            self._runtime_for_compat(),
-            component_id=component_id,
-            asset=asset,
-            required=required,
-            actor=actor,
-            change_summary=change_summary,
-            counterpart_asset_id=counterpart_asset_id,
-        )
-
-    def _extract_top_level_symbol_blocks(self, text: str) -> list[tuple[str, str]]:
-        return self._asset_files.extract_top_level_symbol_blocks(text)
-
-    def _symbol_header(self, text: str) -> tuple[str, str]:
-        return self._asset_files.symbol_header(text)
-
-    def _single_symbol_payload(self, text: str, selected_symbol: str) -> bytes:
-        return self._asset_files.single_symbol_payload(text, selected_symbol)
-
-    def _write_canonical_file(self, destination: Path, payload: bytes) -> Path:
-        return self._asset_files.write_canonical_file(
-            self._runtime_for_compat(), destination, payload
-        )
-
-    def _symbol_destination(self, target_library: str, target_name: str) -> Path:
-        return self._asset_files.symbol_destination(
-            self._runtime_for_compat(), target_library, target_name
-        )
-
-    def _footprint_destination(self, target_library: str, target_name: str) -> Path:
-        return self._asset_files.footprint_destination(
-            self._runtime_for_compat(), target_library, target_name
-        )
-
-    def _aux_destination(self, asset_type: str, target_library: str, upload_name: str) -> Path:
-        return self._asset_files.aux_destination(
-            self._runtime_for_compat(), asset_type, target_library, upload_name
-        )
-
-    def _asset_by_key(self, conn: Any, asset_type: str, canonical_path: str, target_name: str) -> dict[str, Any] | None:
-        return self._asset_registry.asset_by_key(
-            conn, asset_type, canonical_path, target_name
-        )
-
-    def _asset_by_signature(
-        self,
-        conn: Any,
-        asset_type: str,
-        sha256: str,
-        target_library: str,
-        target_name: str,
-    ) -> dict[str, Any] | None:
-        return self._asset_registry.asset_by_signature(
-            conn, asset_type, sha256, target_library, target_name
-        )
-
-    def _register_asset(
-        self,
-        conn: Any,
-        *,
-        asset_type: str,
-        canonical_path: Path,
-        target_library: str,
-        target_name: str,
-        source_group: str = "",
-    ) -> dict[str, Any]:
-        return self._asset_registry.register_asset(
-            self._runtime_for_compat(),
-            conn,
-            asset_type=asset_type,
-            canonical_path=canonical_path,
-            target_library=target_library,
-            target_name=target_name,
-            source_group=source_group,
-        )
-
-    def _store_preview_version(
-        self,
-        conn: Any,
-        *,
-        asset: dict[str, Any],
-        kind: str,
-        payload: bytes,
-    ) -> dict[str, Any]:
-        return self._preview_pipeline.store_preview_version(
-            conn, self._runtime_for_compat(), asset=asset, kind=kind, payload=payload
-        )
-
-    def _ensure_asset_previews(self, conn: Any, asset: dict[str, Any]) -> list[dict[str, Any]]:
-        return self._preview_pipeline.ensure_asset_previews(conn, self._runtime_for_compat(), asset)
-
-    def _ensure_asset_preview(self, conn: Any, asset: dict[str, Any]) -> dict[str, Any]:
-        """Compatibility wrapper returning the first generated preview."""
-        previews = self._ensure_asset_previews(conn, asset)
-        return previews[0] if previews else {}
-
-    def _has_ready_preview(self, conn: Any, asset_id: str, kind: str) -> bool:
-        return self._preview_pipeline.has_ready_preview(conn, self._runtime_for_compat(), asset_id, kind)
-
-    def _refresh_revision_preview_outputs_in_conn(
-        self,
-        conn: Any,
-        revision_id: str,
-        *,
-        only_missing: bool = False,
-    ) -> dict[str, Any]:
-        return self._preview_pipeline.refresh_revision_preview_outputs(
-            conn, self._runtime_for_compat(), revision_id, only_missing=only_missing
-        )
-
-    def _regenerate_component_previews_in_conn(
-        self,
-        conn: Any,
-        component_id: str,
-        *,
-        actor: str,
-        only_missing: bool = False,
-    ) -> dict[str, Any]:
-        _ = actor
-        return self._preview_pipeline.regenerate_component_previews(
-            conn, self._runtime_for_compat(), component_id, only_missing=only_missing
         )
 
     def generate_missing_component_previews(
@@ -1536,37 +995,6 @@ class ComponentCatalogDomainService:
             return self._preview_pipeline.generate_missing_component_previews(
                 conn, self._runtime_for_compat(), progress_callback
             )
-
-    def _link_asset_to_revision(
-        self,
-        conn: Any,
-        revision_id: str,
-        asset: dict[str, Any],
-        *,
-        required: bool,
-        counterpart_asset_id: str = "",
-    ) -> None:
-        self._asset_links.link_asset_to_revision(
-            conn, revision_id, asset, required=required, counterpart_asset_id=counterpart_asset_id
-        )
-
-    def _resolve_existing_asset(
-        self,
-        conn: Any,
-        *,
-        asset_type: str,
-        file_path: str,
-        target_library: str,
-        target_name: str,
-    ) -> dict[str, Any]:
-        return self._asset_imports.resolve_existing_asset(
-            conn,
-            self._runtime_for_compat(),
-            asset_type=asset_type,
-            file_path=file_path,
-            target_library=target_library,
-            target_name=target_name,
-        )
 
     def link_library_asset(
         self,
@@ -1626,9 +1054,6 @@ class ComponentCatalogDomainService:
         if result["mode"] == "imported":
             result["component"] = self.get_component(component_id)
         return result
-
-    def _extract_footprints_from_upload(self, upload_name: str, payload: bytes) -> dict[str, bytes]:
-        return self._asset_imports.extract_footprints_from_upload(upload_name, payload)
 
     def import_footprint(
         self,
@@ -1723,46 +1148,6 @@ class ComponentCatalogDomainService:
             conn.commit()
         return {"component": self.get_component(component_id)}
 
-    def _klc_release_gate(self) -> str:
-        return self._klc_validation.release_gate()
-
-    def _klc_utils_root(self) -> Path:
-        return self._klc_validation.utils_root()
-
-    def _klc_checker_path(self, asset_type: str) -> Path | None:
-        return self._klc_validation.checker_path(asset_type)
-
-    def _klc_tool_version(self) -> str:
-        return self._klc_validation.tool_version()
-
-    def _klc_rule_args(self, asset_type: str) -> list[str]:
-        return self._klc_validation.rule_args(asset_type)
-
-    def _parse_klc_junit(self, junit_path: Path) -> list[dict[str, Any]]:
-        return self._klc_validation.parse_klc_junit(junit_path)
-
-    def _write_validation_report_json(self, path: Path, *, run_id: str, asset: dict[str, Any], status: str, exit_code: int | None, findings: list[dict[str, Any]], stdout: str, stderr: str, tool_version: str, created_at: str, finished_at: str) -> None:
-        self._klc_validation.write_validation_report_json(path, run_id=run_id, asset=asset, status=status, exit_code=exit_code, findings=findings, stdout=stdout, stderr=stderr, tool_version=tool_version, created_at=created_at, finished_at=finished_at)
-
-    def _store_validation_run(self, conn: Any, *, run_id: str, component_id: str, revision_id: str, asset: dict[str, Any], status: str, exit_code: int | None, findings: list[dict[str, Any]], report_dir: Path, stdout_path: Path, stderr_path: Path, junit_path: Path, json_path: Path, raw_output: str, tool_version: str, created_at: str, finished_at: str) -> dict[str, Any]:
-        return self._klc_validation.store_validation_run(conn, run_id=run_id, component_id=component_id, revision_id=revision_id, asset=asset, status=status, exit_code=exit_code, findings=findings, report_dir=report_dir, stdout_path=stdout_path, stderr_path=stderr_path, junit_path=junit_path, json_path=json_path, raw_output=raw_output, tool_version=tool_version, created_at=created_at, finished_at=finished_at)
-
-    def _run_klc_for_asset(
-        self,
-        conn: Any,
-        *,
-        component_id: str,
-        revision_id: str,
-        asset: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self._klc_validation.run_klc_for_asset(
-            conn,
-            self._runtime_for_compat(),
-            component_id=component_id,
-            revision_id=revision_id,
-            asset=asset,
-        )
-
     def validate_component_klc(self, component_id: str) -> dict[str, Any]:
         self.initialize()
         with self._connect() as conn:
@@ -1770,7 +1155,7 @@ class ComponentCatalogDomainService:
                 conn, self._runtime_for_compat(), component_id
             )
             conn.commit()
-            component_payload = self._component_payload(conn, component, revision)
+            component_payload = self._component_read_models.component_payload(conn, component, revision)
         return {"component": component_payload, "runs": runs}
 
     def get_component_validation(self, component_id: str) -> dict[str, Any]:
@@ -1794,12 +1179,11 @@ class ComponentCatalogDomainService:
             return self._catalog_health.report(conn)
 
     def regenerate_component_previews(self, component_id: str, *, actor: str = "") -> dict[str, Any]:
+        _ = actor  # previews carry no actor; kept for the historical signature
         self.initialize()
         with self._connect() as conn:
-            self._regenerate_component_previews_in_conn(
-                conn,
-                component_id,
-                actor=actor or "preview-generator",
+            self._preview_pipeline.regenerate_component_previews(
+                conn, self._runtime_for_compat(), component_id, only_missing=False
             )
             conn.commit()
         return self.get_component(component_id) or {}
@@ -1849,19 +1233,6 @@ class ComponentCatalogDomainService:
         # so existing callers retain their UX while compliance history remains intact.
         return self.deactivate_component(component_id, actor=actor, reason=reason)
 
-    def _materialize_asset(
-        self,
-        asset: dict[str, Any],
-        assets_for_revision: list[dict[str, Any]],
-        component: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return materialize_asset(asset, assets_for_revision, component)
-
-    def _placement_assets(
-        self, conn: Any, revision_id: str, representation_id: str = ""
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        return self._placement.placement_assets(conn, revision_id, representation_id)
-
     def build_manifest(
         self, component_id: str, base_url: str, representation_id: str = ""
     ) -> dict[str, Any] | None:
@@ -1895,9 +1266,6 @@ class ComponentCatalogDomainService:
         self.initialize()
         with self._connect() as conn:
             return self._preview_pipeline.preview_record(conn, preview_id)
-
-    def _sign(self, message: str) -> str:
-        return CatalogAssetUrlSigner.sign(message)
 
     def build_signed_asset_url(
         self, asset_id: str, revision_id: str, base_url: str, ttl_seconds: int = 300,
@@ -1941,38 +1309,16 @@ class ComponentCatalogDomainService:
             conn.commit()
         return revoked
 
-    def _released_place_ready_components(self) -> list[dict[str, Any]]:
-        return [
-            component
-            for component in self.list_components_flat(released_only=True, include_inactive=False)
-            if component["place_enabled"] and system_items.is_library_part(component)
-        ]
-
-    def _dbl_row_for_component(
-        self,
-        component: dict[str, Any],
-        part_number: str,
-        custom_fields: list[dict[str, Any]],
-    ) -> dict[str, str]:
-        return dbl_row_for_component(component, part_number, custom_fields)
-
-    def _collect_dbl_assets(
-        self,
-        component: dict[str, Any],
-        part_number: str,
-        export_root: Path,
-        conn: Any,
-    ) -> None:
-        self._dbl_export.collect_dbl_assets(conn, component, part_number, export_root)
-
-    def _write_dbl_config(
-        self, export_root: Path, *, filename: str, connection_string: str, libraries: list[dict[str, Any]]
-    ) -> None:
-        write_dbl_config(export_root, filename=filename, connection_string=connection_string, libraries=libraries)
-
     def export_kicad_dbl_bundle(self) -> dict[str, Any]:
         self.initialize()
-        components = self._released_place_ready_components()
+        released = self.list_components(
+            page=1, page_size=10000, released_only=True, include_inactive=False
+        )["items"]
+        components = [
+            component
+            for component in released
+            if component["place_enabled"] and system_items.is_library_part(component)
+        ]
         metadata_fields = self.list_metadata_fields()
         with self._connect() as conn:
             return self._dbl_export.export_bundle(conn, self._runtime_for_compat(), components, metadata_fields)

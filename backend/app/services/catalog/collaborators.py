@@ -28,7 +28,6 @@ from app.services.catalog.metadata_batch_staging import CatalogMetadataBatchStag
 from app.services.catalog.metadata_batch_workflow import CatalogMetadataBatchWorkflow
 from app.services.catalog.metadata_batches import CatalogMetadataBatches
 from app.services.catalog.metadata_csv import CatalogMetadataCsv
-from app.services.catalog.metadata_csv_import import CatalogMetadataCsvImporter
 from app.services.catalog.metadata_fields import CatalogMetadataFields
 from app.services.catalog.metadata_grid import CatalogMetadataGrid
 from app.services.catalog.metadata_schema import CatalogMetadataSchema
@@ -91,7 +90,6 @@ class CatalogCollaborators:
     metadata_batch_staging: CatalogMetadataBatchStaging
     metadata_batch_application: CatalogMetadataBatchApplication
     metadata_batch_workflow: CatalogMetadataBatchWorkflow
-    metadata_csv_importer: CatalogMetadataCsvImporter
 
     def bind(self, target: object) -> None:
         declared = _declared_annotation_names(type(target))
@@ -195,9 +193,6 @@ def build_catalog_collaborators(
         metadata_batch_staging,
         metadata_batch_application,
     )
-    metadata_csv_importer = CatalogMetadataCsvImporter(
-        component_writer, asset_imports, asset_links, revision_finalizer
-    )
     return CatalogCollaborators(
         catalog_locks=catalog_locks,
         revision_kernel=revision_kernel,
@@ -236,5 +231,4 @@ def build_catalog_collaborators(
         metadata_batch_staging=metadata_batch_staging,
         metadata_batch_application=metadata_batch_application,
         metadata_batch_workflow=metadata_batch_workflow,
-        metadata_csv_importer=metadata_csv_importer,
     )

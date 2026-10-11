@@ -134,7 +134,7 @@ class LibraryFolderImportTests(unittest.TestCase):
             # Proposal construction only needs the domain's pure KiCad symbol helpers;
             # persistence is deliberately outside this unit test.
             service = ComponentCatalogDomainService(store_root=root / "catalog")
-            service._store_root.mkdir(parents=True, exist_ok=True)  # type: ignore[attr-defined]
+            service.store_root.mkdir(parents=True, exist_ok=True)
             with (
                 mock.patch("app.services.library_folder_import_service.artifact_store", fake_store),
                 mock.patch("app.services.library_folder_import_service.catalog_service", service),
