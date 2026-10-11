@@ -6,7 +6,6 @@ import {
   draftFromRows,
   draftProblems,
   draftToInputs,
-  linkFindings,
   mergeGenerated,
   pinFacts,
   sameNets,
@@ -14,7 +13,7 @@ import {
 } from "./link-model";
 import { comparePads } from "./pads";
 import { link } from "./test-fixtures";
-import type { Finding, InstanceComponent } from "@/types/system";
+import type { InstanceComponent } from "@/types/system";
 
 const component = (portKey: string, memberKeys: string[], pads: string[]): InstanceComponent => ({
   portKey, memberKeys, reference: "J1", libId: null, footprint: null, value: null, dnp: false, candidate: true,
@@ -71,15 +70,8 @@ describe("draft", () => {
   });
 });
 
-describe("linkFindings", () => {
-  it("groups one link's findings by row", () => {
-    const finding = (patch: Partial<Finding>): Finding => ({
-      rule: "SYS-V04", name: "pad_absent", severity: "error", instanceId: "a", linkId: "L1", rowId: null, end: null,
-      reference: null, pin: null, detail: null, redacted: false, ...patch,
-    });
-    const { all, byRow } = linkFindings([finding({ rowId: "r1" }), finding({ linkId: "L2", rowId: "r1" }), finding({})], link("L1", "a", "J1", "b", "J2"));
-    expect(all).toHaveLength(2);
-    expect(byRow.get("r1")).toHaveLength(1);
+describe("sameNets", () => {
+  it("compares net sets regardless of order", () => {
     expect(sameNets(["b", "a"], ["a", "b"])).toBe(true);
     expect(sameNets(["a"], null)).toBe(false);
   });

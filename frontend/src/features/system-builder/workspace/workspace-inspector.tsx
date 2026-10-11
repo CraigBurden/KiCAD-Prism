@@ -7,6 +7,7 @@ import type { Finding, SystemDocument, SystemHarness, SystemLink } from "@/types
 
 import { BoardDetail } from "../board-detail";
 import { ExportsSection } from "../exports-section";
+import { findingsOf, levelCounts } from "../findings";
 import { groupFindings } from "../findings-ui";
 import { endLabel } from "../link-editor";
 import type { Mutate } from "../use-system-mutation";
@@ -15,9 +16,8 @@ import { PartInspector } from "./part-inspector";
 import { InspectorFacts } from "./inspector-facts";
 import { InspectorHeader } from "./inspector-header";
 import { InspectorSection } from "./inspector-section";
-import { harnessFindings } from "./use-validation";
 import type { WorkspaceSelection } from "./workspace-state";
-import { documentIndex, findingIndex, linkFindings } from "../document-index";
+import { documentIndex } from "../document-index";
 
 interface InspectorProps {
   systemId: string;
@@ -54,15 +54,16 @@ function countSummary(errors: number, warnings: number): ReactNode {
 }
 
 function findingSummary(findings: readonly Finding[]): ReactNode {
-  const { errors, warnings } = findingIndex(findings);
+  const { errors, warnings } = levelCounts(findings);
   return countSummary(errors, warnings);
 }
 
 function FindingList({ findings }: { findings: readonly Finding[] }) {
   const groups = groupFindings(findings);
   if (!groups.length) return null;
+  const { errors, warnings } = levelCounts(findings);
   return (
-    <InspectorSection title="Findings" count={findings.filter((finding) => finding.severity !== "info").length}>
+    <InspectorSection title="Findings" count={errors + warnings}>
       <ul className="text-sm">
         {groups.slice(0, 6).map((entry) => (
           <li key={entry.key} className="flex h-8 items-center gap-2 border-b last:border-b-0"
@@ -107,7 +108,7 @@ function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect
 }
 
 function LinkSummary({ document, link, findings, onEditRows }: { document: SystemDocument; link: SystemLink; findings: Finding[]; onEditRows: () => void }) {
-  const own = linkFindings(findings, link.id);
+  const own = findingsOf(findings).link(link.id);
   const a = endLabel(document, link, "a");
   const b = endLabel(document, link, "b");
   return (
@@ -133,7 +134,7 @@ function LinkSummary({ document, link, findings, onEditRows }: { document: Syste
 function HarnessSummary({ document, harness, findings, onEditRows, onEditRoute }: {
   document: SystemDocument; harness: SystemHarness; findings: Finding[]; onEditRows: () => void; onEditRoute?: (harnessId: string) => void;
 }) {
-  const own = harnessFindings(findings, harness.id);
+  const own = findingsOf(findings).harness(harness.id);
   const label = (instanceId: string | null | undefined) => (instanceId ? documentIndex(document).instances.get(instanceId)?.label : undefined);
   return (
     <div className="space-y-5">

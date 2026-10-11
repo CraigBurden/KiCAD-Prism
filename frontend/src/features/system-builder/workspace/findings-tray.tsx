@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import type { Finding, FindingWaiver, NetRename, Severity, SystemDocument } from "@/types/system";
 
 import { documentIndex } from "../document-index";
+import { findingDetail, findingTarget, findingsOf } from "../findings";
 import { findingFacts, findingText } from "../findings-ui";
 import { endLabel } from "../link-editor";
 import type { Mutate } from "../use-system-mutation";
@@ -67,14 +68,6 @@ function matches(document: SystemDocument, finding: Finding, query: string): boo
     .join(" ").toLowerCase().includes(query);
 }
 
-function findingTarget(finding: Finding): WorkspaceSelection | null {
-  const harnessId = (finding.detail as { harnessId?: string } | null)?.harnessId;
-  if (harnessId) return { kind: "harness", id: harnessId };
-  if (finding.rule === "SYS-V22" && finding.key) return { kind: "collision", id: finding.key };
-  if (finding.linkId) return { kind: "link", id: finding.linkId, ...(finding.rowId ? { row: finding.rowId } : {}) };
-  return finding.instanceId ? { kind: "instance", id: finding.instanceId } : null;
-}
-
 /** The catalog page of a SYS-V14 finding's subsystem or module, where its revision is released. */
 function catalogHref(document: SystemDocument, finding: Finding): string | null {
   if (finding.rule !== "SYS-V14" || !finding.instanceId) return null;
@@ -118,7 +111,8 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
   const rows = useMemo<Row[]>(() => {
     if (!findings) return [];
     const query = filter.trim().toLowerCase();
-    const open = findings.filter((finding) => !finding.waived && matches(document, finding, query));
+    const index = findingsOf(findings);
+    const open = index.open.filter((finding) => matches(document, finding, query));
     const groups = new Map<string, Finding[]>();
     for (const finding of [...open].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
       || a.rule.localeCompare(b.rule))) {
@@ -159,10 +153,8 @@ export function FindingsTray({ systemId, document, etag, canEdit, run, onSelect 
       const isOpen = !toggled.has("waived");
       out.push({ kind: "waived-header", key: "waived", count: waivers.length, open: isOpen });
       if (isOpen) {
-        const byKey = new Map<string | null | undefined, Finding>();
-        for (const finding of findings) if (finding.waived) byKey.set(finding.key, finding);
         for (const waiver of waivers) {
-          out.push({ kind: "waiver", key: `waiver#${waiver.id}`, waiver, finding: byKey.get(waiver.findingKey) ?? null });
+          out.push({ kind: "waiver", key: `waiver#${waiver.id}`, waiver, finding: index.waived(waiver.findingKey) });
         }
       }
     }
@@ -321,7 +313,7 @@ function RenameSlot({ finding, document, canEdit, onPropose }: {
   canEdit: boolean;
   onPropose: (side: RenameSide, name: string, note: string) => Promise<boolean>;
 }) {
-  const proposed = (finding.detail as { rename?: { name: string } } | null)?.rename;
+  const proposed = findingDetail(finding).rename;
   if (proposed) {
     return <span className="w-14 shrink-0 truncate text-right font-mono text-xs text-primary" title="Rename proposed">→ {proposed.name}</span>;
   }
