@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 
 import { worldToViewportScreen, type ActiveSchematicPage } from "@/lib/comment-overlays";
 import { syncViewerVariant, type ViewerVariantSync } from "@/lib/ecad-viewer-variant";
+import { viewerRetries } from "@/lib/viewer-retry";
 import type {
     CrossProbeRequest,
     ECadViewerElement,
@@ -90,9 +91,9 @@ const RELAYED = [
     "comment-area",
 ] as const;
 
-/** The first view-state-change can report no layers yet; the board is re-read this often, this many times. */
+/** The first view-state-change can report no layers yet; the board is re-read this often, for the viewer retry window. */
 const PCB_POLL_MS = 150;
-const PCB_POLL_ATTEMPTS = 41;
+const PCB_POLL_ATTEMPTS = viewerRetries(PCB_POLL_MS);
 
 export interface EcadViewerOptions {
     /** A source load failed for good: the root sheet, or the sheets appended after it. */

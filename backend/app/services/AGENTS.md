@@ -128,8 +128,9 @@ design-variant contract packet (issue #169), not to this file.
 
 `design_compare_service.py` orchestrates; `design_compare_nodes.py` turns
 the parser's object delta into change records; `design_compare_occurrences.py`
-owns a revision's component occurrences (fields, sheet-folded DNP / in-BOM,
-designator identity) and the BOM rows built from them;
+owns a revision's component occurrences (fields in the project BOM's mapping
+and column names, sheet-folded `DNP` / `In BOM`, designator identity) and the
+BOM rows built from them;
 `design_compare_net_pairing.py` decides which nets correspond across
 revisions; `design_compare_semantics.py` diffs nets, buses and sheet
 instances (grouping into review items is the frontend's);
@@ -140,6 +141,14 @@ vendored parser; `npm test` there). The correctness rules
 for this pipeline are in
 `frontend/src/components/design-comparison/AGENTS.md`, because most of the ways
 to get it wrong are visible on the frontend side.
+
+Settled (D24, D25): a change kind's category and primary/secondary stay on the
+backend (`_node_classification`); the frontend kind table holds domain, noun
+and traits only. There are two component ids on purpose: the project semantic
+index keys a component by `(reference, symbol UUID)`, design comparison keys a
+review row by designator (`component_uid(reference)`), because a comparison
+matches parts across revisions where symbol UUIDs may change. Unifying them
+would change every cached index's `componentUid` and the variant join.
 
 One backend rule: the viewer must never infer the old route from the comparison
 object (`design_compare_nodes.py`). Each revision carries its own geometry.

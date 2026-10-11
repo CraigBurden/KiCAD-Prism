@@ -12,6 +12,7 @@ import type {
     PrismSystemViewerSelection,
 } from "@/types/prism-semantic-viewer";
 import type { SystemScene } from "@/types/system";
+import { viewerRetries } from "@/lib/viewer-retry";
 
 /**
  * The adapter in front of `<prism-semantic-viewer mode="system">` (AC-21).
@@ -52,9 +53,9 @@ export interface SemanticViewerEvents {
 type EventName = keyof SemanticViewerEvents;
 type Handler<K extends EventName> = (detail: SemanticViewerEvents[K]) => void;
 
-/** A harness tube exists only once the boards it joins are drawn: ask again this often, this many times. */
+/** A harness tube exists only once the boards it joins are drawn: ask again this often, for the viewer retry window. */
 const HARNESS_RETRY_MS = 400;
-const HARNESS_RETRY_ATTEMPTS = 15;
+const HARNESS_RETRY_ATTEMPTS = viewerRetries(HARNESS_RETRY_MS);
 
 const EMPTY_STATE: SemanticViewerState = { element: null, selection: null, viewState: null, error: null };
 

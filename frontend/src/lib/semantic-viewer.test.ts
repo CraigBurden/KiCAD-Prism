@@ -166,7 +166,7 @@ describe("SemanticViewer selection in", () => {
         expect(element.selectHarness).toHaveBeenCalledTimes(1);
     });
 
-    it("gives up after 15 retries", async () => {
+    it("gives up after the viewer retry window (15 retries, 400 ms apart)", async () => {
         vi.useFakeTimers();
         const viewer = new SemanticViewer(() => Promise.resolve());
         const element = fakeSemanticViewer();

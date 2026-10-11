@@ -30,7 +30,8 @@ const PRIMARY_FIELDS = [
     "Datasheet",
 ] as const;
 
-const HIDDEN_FIELDS = new Set(["Reference", "Qty", "DNP"]);
+// DNP and In BOM are shown as badges, not repeated as Yes/No rows.
+const HIDDEN_FIELDS = new Set(["Reference", "Qty", "DNP", "In BOM"]);
 
 /** KiCad object kinds that are a route rather than a placed part. */
 const ROUTING_OBJECT_KINDS = kindsWith("copper");
@@ -90,7 +91,7 @@ export function orderedFields(
 }
 
 export function isTruthyFlag(value: string | undefined): boolean {
-    return String(value ?? "").toLocaleLowerCase() === "true";
+    return ["true", "yes"].includes(String(value ?? "").toLocaleLowerCase());
 }
 
 /**

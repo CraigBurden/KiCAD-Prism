@@ -17,8 +17,6 @@ import { useEditHistory, type EditMap } from "./use-edit-history";
 export interface StagedGridEditsOptions<E extends EditMap, R, F> {
     /** Return `edits` with `row`'s `field` set to `value`. Must not mutate `edits`. */
     writeCell: (edits: E, row: R, field: F, value: string) => E;
-    /** Undo depth. */
-    limit: number;
     hotkeys: {
         enabled: boolean;
         /** Only act on keys pressed inside this element (the whole window when omitted). */
@@ -80,11 +78,10 @@ function inScope(event: KeyboardEvent, scope: RefObject<HTMLElement | null> | un
 
 export function useStagedGridEdits<E extends EditMap, R, F>({
     writeCell,
-    limit,
     hotkeys,
 }: StagedGridEditsOptions<E, R, F>): StagedGridEdits<E, R, F> {
     const { edits, undoStack, redoStack, commitEdits, replaceEdits, resetHistory, undo, redo } =
-        useEditHistory<E>(limit);
+        useEditHistory<E>();
 
     const setCell = useCallback(
         (row: R, field: F, value: string) =>

@@ -357,11 +357,11 @@ class DesignCompareServiceTests(unittest.TestCase):
                     "reference": "R1",
                     "value": "10k",
                     "footprint": "R_0402",
-                    "fields": {"Manufacturer": "ACME", "kicad_in_bom": "true"},
+                    "fields": {"Manufacturer": "ACME", "In BOM": "Yes"},
                 },
                 {
                     "reference": "TP1",
-                    "fields": {"kicad_in_bom": "false"},
+                    "fields": {"In BOM": "No"},
                 },
             ],
         )

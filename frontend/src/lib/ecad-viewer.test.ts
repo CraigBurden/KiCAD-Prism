@@ -166,14 +166,14 @@ describe("EcadViewer state", () => {
         expect(vi.mocked(element.getPcbViewState!).mock.calls.length).toBe(reads);
     });
 
-    it("gives up re-reading after 41 tries", async () => {
+    it("gives up re-reading after the viewer retry window (40 tries, 150 ms apart)", async () => {
         vi.useFakeTimers();
         const element = fakeEcadViewer({ pcb: pcbState([]) });
         const viewer = track(new EcadViewer("pcb", { whenDefined: () => new Promise(() => {}) }));
         viewer.attach(element);
         await vi.advanceTimersByTimeAsync(150 * 60);
         // One read on attach, then one per try.
-        expect(vi.mocked(element.getPcbViewState!).mock.calls.length).toBe(1 + 41);
+        expect(vi.mocked(element.getPcbViewState!).mock.calls.length).toBe(1 + 40);
     });
 
     it("mirrors the modes and the measure points from the element's events", () => {

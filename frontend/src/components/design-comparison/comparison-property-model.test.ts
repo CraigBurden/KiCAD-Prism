@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    isTruthyFlag,
     changeEvidenceMode,
     connectionEntries,
     formatValue,
@@ -330,8 +331,14 @@ describe("component field ordering", () => {
             .toEqual(["Value", "Footprint", "Tolerance"]);
     });
 
-    it("hides the raw kicad flags surfaced as badges", () => {
-        const ordered = orderedFields({ Value: "10k", kicad_dnp: "true" });
+    it("hides the flags surfaced as badges", () => {
+        const ordered = orderedFields({ Value: "10k", DNP: "Yes", "In BOM": "Yes", kicad_dnp: "true" });
         expect(ordered.map(([name]) => name)).toEqual(["Value"]);
+    });
+
+    it("reads the project BOM's Yes/No flags", () => {
+        expect(isTruthyFlag("Yes")).toBe(true);
+        expect(isTruthyFlag("No")).toBe(false);
+        expect(isTruthyFlag("true")).toBe(true);
     });
 });

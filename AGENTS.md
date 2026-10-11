@@ -197,8 +197,10 @@ invariant, not the tool workaround.
   credentials (`backend/app/api/health.py`). Services refuse with typed errors
   that one handler renders (`backend/app/core/errors.py`); the browser reads
   them only through `frontend/src/lib/api.ts`. A read a component keeps fresh
-  (abort, stale responses, polling while visible, invalidation by key) goes
-  through `frontend/src/lib/server-state.ts`.
+  (abort, stale responses, polling while visible, invalidation by key, data
+  kept after unmount for a retention window) and any poll or wait on a job
+  (`usePoll`, `pollUntil`) go through `frontend/src/lib/server-state.ts`; no
+  TanStack Query (decision D21).
 - Never pin Git host keys with `accept-new`
   (`backend/app/services/git_remote_access.py`).
 

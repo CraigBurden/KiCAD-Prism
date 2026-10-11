@@ -72,16 +72,24 @@ class SheetLevelAssemblyStateTests(unittest.TestCase):
             sorted(ref for ref, fields in project.items() if fields["In BOM"] == "Yes"),
         )
         self.assertEqual(
-            {row["Reference"]: row["kicad_dnp"] == "true" for row in rows},
-            {
-                row["Reference"]: project[row["Reference"]]["DNP"] == "Yes"
-                for row in rows
-            },
+            {row["Reference"]: row["DNP"] for row in rows},
+            {row["Reference"]: project[row["Reference"]]["DNP"] for row in rows},
         )
+        # The project BOM's column names and field mapping (aliases folded).
+        # Description is the one column with another source: the project BOM
+        # falls back to the library symbol's description, which the comparison
+        # parser does not read (it keeps the placed symbol's own property).
+        for row in rows:
+            fields = project[row["Reference"]]
+            for name in (*semantic_index_service.REQUIRED_BOM_FIELDS, "In BOM"):
+                if name == "Description":
+                    continue
+                self.assertEqual(row[name], fields[name], (row["Reference"], name))
+            self.assertFalse([key for key in row if key.startswith("kicad_")])
         # The fixture exercises both flags, not a vacuous agreement.
         self.assertNotIn("R7", {row["Reference"] for row in rows})
         self.assertEqual(
-            sorted(row["Reference"] for row in rows if row["kicad_dnp"] == "true"),
+            sorted(row["Reference"] for row in rows if row["DNP"] == "Yes"),
             ["R12", "R2", "R6", "U2"],
         )
 
@@ -115,13 +123,57 @@ class SheetFlagScanTests(unittest.TestCase):
         with mock.patch.object(occurrences, "sheet_flags", return_value=sheets):
             components = occurrences.revision_components(side)
         self.assertEqual(
-            {c["reference"]: c["fields"]["kicad_dnp"] for c in components},
-            {"R1": "true", "R2": "false"},
+            {c["reference"]: c["fields"]["DNP"] for c in components},
+            {"R1": "Yes", "R2": "No"},
         )
         self.assertEqual(
             {c["schematicRefs"][0]["sheetInstancePath"] for c in components},
             {"/root/outer/inner", "/root/other"},
         )
+
+
+class ComparisonFieldTests(unittest.TestCase):
+    """The comparison BOM uses the project BOM's field mapping (decision D23)."""
+
+    def _component(self, **flags):
+        side = {
+            "componentObjects": [
+                {
+                    "uuid": "sym",
+                    "kind": "symbol",
+                    "refdes": "U1",
+                    "properties": [
+                        {"name": "Value", "value": "LDO"},
+                        {"name": "Footprint", "value": "SOT-23"},
+                        {"name": "MPN", "value": "AP2112K"},
+                        {"name": "MFR", "value": "Diodes"},
+                        {"name": "Supplier", "value": "Mouser"},
+                    ],
+                    **flags,
+                },
+            ]
+        }
+        [component] = occurrences.revision_components(side)
+        return component
+
+    def test_aliases_fold_into_the_project_bom_columns(self) -> None:
+        fields = self._component()["fields"]
+        self.assertEqual(fields["Manufacturer Part Number"], "AP2112K")
+        self.assertEqual(fields["Manufacturer"], "Diodes")
+        self.assertEqual(fields["Vendor"], "Mouser")
+        self.assertEqual(fields["Value"], "LDO")
+        self.assertEqual(fields["Footprint"], "SOT-23")
+        self.assertEqual((fields["DNP"], fields["In BOM"]), ("No", "Yes"))
+        self.assertFalse([key for key in fields if key.startswith("kicad_")])
+
+    def test_flags_become_yes_no_columns_and_drive_bom_membership(self) -> None:
+        dnp = self._component(dnp=True)
+        self.assertEqual(dnp["fields"]["DNP"], "Yes")
+        excluded = self._component(inBom=False)
+        self.assertEqual(excluded["fields"]["In BOM"], "No")
+        self.assertEqual(occurrences.bom_rows([excluded]), [])
+        [row] = occurrences.bom_rows([dnp])
+        self.assertEqual((row["DNP"], row["In BOM"]), ("Yes", "Yes"))
 
 
 if __name__ == "__main__":

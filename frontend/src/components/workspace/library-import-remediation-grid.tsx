@@ -221,7 +221,6 @@ export function LibraryImportRemediationGrid({
     replace: replaceEdits, reset: resetHistory, undo, redo,
   } = useStagedGridEdits({
     writeCell: writeGroupCell,
-    limit: 50,
     hotkeys: { enabled: canWrite, onSave: () => void saveDrafts() },
   });
   const [rawSelected, setSelected] = useState<Set<string>>(new Set());

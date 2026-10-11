@@ -243,11 +243,11 @@ export function ComparisonPropertyPanel({
     );
 
     const dnpReferences = bomRows.flatMap(({ references, row }) => (
-        isTruthyFlag(row.new?.["kicad_dnp"]) ? references : []
+        isTruthyFlag(row.new?.["DNP"]) ? references : []
     ));
     const notInBomReferences = bomRows.flatMap(({ references, row }) => (
-        row.new?.["kicad_in_bom"] !== undefined
-        && !isTruthyFlag(row.new["kicad_in_bom"])
+        row.new?.["In BOM"] !== undefined
+        && !isTruthyFlag(row.new["In BOM"])
             ? references
             : []
     ));
