@@ -10,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import {
+  blockingImportFindings, importMetadataProblems, isImportFieldRequired,
+} from "@/lib/catalog-field-rules";
 import { PermissionHint } from "@/components/ui/permission-hint";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { cn } from "@/lib/utils";
@@ -39,16 +42,17 @@ interface ColumnDef {
   key: EditableField;
   label: string;
   width: number;
-  required: boolean;
 }
 
+// Which of these are required, and what a valid datasheet is, comes from the
+// catalog field rules; the server applies the same rules when accepting.
 const COLUMNS: ColumnDef[] = [
-  { key: "value", label: "Value", width: 130, required: true },
-  { key: "manufacturer", label: "Manufacturer", width: 150, required: true },
-  { key: "manufacturer_part_number", label: "MPN", width: 170, required: true },
-  { key: "description", label: "Description", width: 240, required: true },
-  { key: "datasheet", label: "Datasheet", width: 220, required: true },
-  { key: "package_name", label: "Package", width: 170, required: false },
+  { key: "value", label: "Value", width: 130 },
+  { key: "manufacturer", label: "Manufacturer", width: 150 },
+  { key: "manufacturer_part_number", label: "MPN", width: 170 },
+  { key: "description", label: "Description", width: 240 },
+  { key: "datasheet", label: "Datasheet", width: 220 },
+  { key: "package_name", label: "Package", width: 170 },
 ];
 
 /** Local edits keyed by proposal id. */
@@ -91,28 +95,6 @@ function effectiveFootprintLink(
 
 function hasOwnAsset(proposal: ProjectComponentImportProposal, assetType: string): boolean {
   return proposal.assets.some((asset) => asset.asset_type === assetType);
-}
-
-/**
- * Blocking findings the grid cannot fix.
- *
- * Metadata and conflict findings are edited away in the cells. An
- * "<asset_type>_not_resolved" finding means the extractor could not locate that
- * asset in the project, which is precisely what linking an existing catalog asset
- * answers - so a supplied link clears it. The backend applies the same rule when
- * accepting, and the two must agree or a row would read as ready and then fail.
- */
-function unresolvableFindings(
-  proposal: ProjectComponentImportProposal,
-  linkedAssetTypes: Set<string>
-) {
-  return proposal.findings.filter(
-    (finding) =>
-      finding.severity === "error" &&
-      !finding.code.startsWith("missing_metadata_") &&
-      !finding.code.startsWith("conflicting_") &&
-      !linkedAssetTypes.has(finding.code.replace(/_not_resolved$/, ""))
-  );
 }
 
 /**
@@ -189,24 +171,23 @@ export function rowProblems(
   proposal: ProjectComponentImportProposal,
   edits: RowEdits
 ): string[] {
-  const problems: string[] = [];
-  for (const column of COLUMNS) {
-    if (column.required && !effectiveValue(proposal, column.key, edits).trim()) {
-      problems.push(`${column.label} is required`);
-    }
-  }
-  const datasheet = effectiveValue(proposal, "datasheet", edits).trim();
-  if (datasheet && !/^https?:\/\//i.test(datasheet)) problems.push("Datasheet must be an HTTP(S) URL");
+  const values = Object.fromEntries(
+    COLUMNS.map((column) => [column.key, effectiveValue(proposal, column.key, edits)])
+  );
+  const problems = importMetadataProblems(values);
 
+  // An "<asset_type>_not_resolved" finding means the extractor could not locate
+  // that asset, which is precisely what linking an existing catalog asset
+  // answers - so a supplied link clears it, here and when the server accepts.
   const footprintLink = effectiveFootprintLink(proposal, edits);
-  const linkedAssetTypes = new Set(footprintLink ? ["footprint"] : []);
+  const linkedAssetTypes = footprintLink ? ["footprint"] : [];
 
   if (!hasOwnAsset(proposal, "symbol")) problems.push("No symbol was extracted");
   if (!hasOwnAsset(proposal, "footprint") && !footprintLink) {
     problems.push("Link an existing footprint or re-import with one");
   }
   problems.push(
-    ...unresolvableFindings(proposal, linkedAssetTypes).map((finding) => finding.message)
+    ...blockingImportFindings(proposal.findings, linkedAssetTypes).map((finding) => finding.message)
   );
   return problems;
 }
@@ -659,7 +640,7 @@ export function LibraryImportRemediationGrid({
             {COLUMNS.map((column) => (
               <div key={column.key} className="flex h-9 items-center gap-1 border-r px-2">
                 <span className="truncate">{column.label}</span>
-                {column.required ? <span className="text-destructive">*</span> : null}
+                {isImportFieldRequired(column.key) ? <span className="text-destructive">*</span> : null}
               </div>
             ))}
             <div className="flex h-9 items-center px-2">Footprint</div>
@@ -724,7 +705,7 @@ export function LibraryImportRemediationGrid({
 
                 {COLUMNS.map((column) => {
                   const value = effectiveValue(proposal, column.key, edits);
-                  const invalid = column.required && !value.trim();
+                  const invalid = isImportFieldRequired(column.key) && !value.trim();
                   return (
                     <div
                       key={column.key}

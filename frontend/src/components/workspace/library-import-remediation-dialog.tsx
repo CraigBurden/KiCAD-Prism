@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { blockingImportFindings, importMetadataProblems } from "@/lib/catalog-field-rules";
 import type { ProjectComponentImportProposal } from "@/types/catalog";
 
 export interface ProposalRemediation {
@@ -72,14 +73,10 @@ export function LibraryImportRemediationDialog({ proposal, open, submitting, onO
     () => `Import ${proposal?.reference || "component"} from Prism project`,
   );
 
-  const requiredMetadataComplete = ["value", "description", "datasheet", "manufacturer", "manufacturer_part_number"]
-    .every((field) => metadata[field]?.trim());
+  // The same rules the server applies when accepting.
+  const metadataProblems = importMetadataProblems(metadata);
   const requiredAssetsComplete = ["symbol", "footprint"].every((assetType) => selections[assetType]?.length === 1);
-  const unresolvable = (proposal?.findings || []).filter((finding) =>
-    finding.severity === "error"
-    && !finding.code.startsWith("missing_metadata_")
-    && !finding.code.startsWith("conflicting_")
-  );
+  const unresolvable = blockingImportFindings(proposal?.findings || []);
 
   const setField = (field: string, value: string) => setMetadata((current) => ({ ...current, [field]: value }));
   const selectPrimary = (assetType: string, sha256: string) => setSelections((current) => ({ ...current, [assetType]: [sha256] }));
@@ -136,7 +133,8 @@ export function LibraryImportRemediationDialog({ proposal, open, submitting, onO
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
           <Button
             onClick={() => onAccept({ metadata_overrides: metadata, asset_selections: selections, change_summary: changeSummary })}
-            disabled={submitting || !requiredMetadataComplete || !requiredAssetsComplete || unresolvable.length > 0 || !changeSummary.trim()}
+            title={metadataProblems.join("\n") || undefined}
+            disabled={submitting || metadataProblems.length > 0 || !requiredAssetsComplete || unresolvable.length > 0 || !changeSummary.trim()}
           >
             {submitting ? "Creating revision…" : "Accept as draft revision"}
           </Button>

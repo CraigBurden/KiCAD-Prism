@@ -35,8 +35,9 @@ originating component's result), `library-component-evidence-panels.tsx` (read-o
 usage, and audit evidence), `library-component-metadata-dialog.tsx` and
 `library-component-asset-dialog.tsx` (edit sessions captured at open, one
 success callback), `library-component-metadata-form.ts` (definition-driven
-values, identity/provisional required rules, storage-key PATCH mapping;
-save validation matches the single PATCH, not bulk-edit shape checks),
+values and storage-key PATCH mapping; required and shape verdicts come from
+`frontend/src/lib/catalog-field-rules.ts` in its `editor` context, which checks
+presence only),
 `library-component-metadata-fields.tsx` (typed input adapters),
 `library-component-asset-download.ts` (released-revision downloads through the
 matching remote-provider representation, not the default placement pair),
@@ -61,7 +62,9 @@ pair draws. Navigation belongs to the viewer, not to the frame around it — see
 **Import** — `library-import-center.tsx`,
 `library-import-session-proposals.ts` (proposals keyed by session ID; abort
 superseded reads; non-overlapping scan polling),
-`library-import-remediation-dialog.tsx`, `library-import-remediation-grid.tsx`,
+`library-import-remediation-dialog.tsx`, `library-import-remediation-grid.tsx`
+(both take readiness from `frontend/src/lib/catalog-field-rules.ts`, the rules
+the server enforces on accept),
 `library-folder-discovery-dialog.tsx`. Import produces proposals that a human
 remediates before acceptance; the grid is the remediation surface.
 
