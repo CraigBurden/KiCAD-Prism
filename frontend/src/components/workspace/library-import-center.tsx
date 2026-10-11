@@ -5,7 +5,8 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { fetchApi, fetchJson, readApiError } from "@/lib/api";
+import { ApiHttpError } from "@/lib/api";
+import { usePoll } from "@/lib/server-state";
 import { Input } from "@/components/ui/input";
 import { canWriteCatalog } from "@/lib/roles";
 import type { User } from "@/types/auth";
@@ -16,7 +17,18 @@ import { cn } from "@/lib/utils";
 import { LibraryImportRemediationDialog, type ProposalRemediation } from "./library-import-remediation-dialog";
 import { LibraryImportRemediationGrid } from "./library-import-remediation-grid";
 import { LibraryFolderDiscoveryDialog } from "./library-folder-discovery-dialog";
-import { isAbortError, useImportSessionProposals, useNonOverlappingPoll } from "./library-import-session-proposals";
+import { isAbortError, useImportSessionProposals } from "./library-import-session-proposals";
+import {
+  completeFolderSnapshot,
+  createFolderSnapshot,
+  createProjectImportSession,
+  discoverFolderSnapshot,
+  importServerFolder as queueServerFolderImport,
+  listFolderImportRoots,
+  listImportSessions,
+  resolveImportProposal,
+  uploadSnapshotFile,
+} from "./catalog-client";
 
 interface LibraryImportCenterProps {
   projects: Project[];
@@ -56,20 +68,22 @@ async function uploadSnapshotFiles(
   let completed = 0;
   const failures: Array<{ file: File; message: string }> = [];
   const uploadOne = async (file: File) => {
-    let lastMessage = `Failed to upload ${file.name}`;
+    const uploadFailed = `Failed to upload ${file.name}`;
+    let lastMessage = uploadFailed;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        const form = new FormData();
-        form.append("relative_path", folderRelativePath(file));
-        form.append("file", file, file.name);
-        const response = await fetchApi(`/api/catalog/import-snapshots/folders/${snapshotId}/files`, { method: "POST", body: form });
-        if (response.ok) return;
-        lastMessage = await readApiError(response, response.status === 413
-          ? `${file.name} exceeds the reverse-proxy upload limit`
-          : `Failed to upload ${file.name}`);
-        if (!retryableUploadStatus.has(response.status)) break;
+        await uploadSnapshotFile(snapshotId, folderRelativePath(file), file, uploadFailed);
+        return;
       } catch (error) {
-        lastMessage = error instanceof Error ? error.message : lastMessage;
+        if (error instanceof ApiHttpError) {
+          // A proxy's 413 page has no Prism body, so the generic message says why.
+          lastMessage = error.status === 413 && error.message === uploadFailed
+            ? `${file.name} exceeds the reverse-proxy upload limit`
+            : error.message;
+          if (!retryableUploadStatus.has(error.status)) break;
+        } else {
+          lastMessage = error instanceof Error ? error.message : lastMessage;
+        }
       }
       await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
     }
@@ -90,6 +104,12 @@ async function uploadSnapshotFiles(
     throw new Error(`${failures.length} file${failures.length === 1 ? "" : "s"} could not be captured. ${first.file.name}: ${first.message}`);
   }
 }
+
+// One toast per outage, not one per 2 s tick (usePoll skips repeats until a
+// tick succeeds), so a 30 s restart does not stack fifteen identical errors.
+const reportScanRefreshFailure = (error: unknown) => {
+  toast.error(error instanceof Error ? error.message : "Failed to refresh import sessions");
+};
 
 // The non-standard directory attributes React does not type. Constant, so
 // it is declared once rather than rebuilt on every render.
@@ -133,10 +153,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const hasActiveScan = sessions.some((session) => session.status === "queued" || session.status === "scanning");
 
   const loadSessions = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetchJson<{ items: ProjectComponentImportSession[] }>(
-      "/api/catalog/import-sessions",
-      { signal },
-    );
+    const response = await listImportSessions(signal);
     if (signal?.aborted) return;
     setSessions(response.items);
     setSelectedSessionId((current) => current || initialSessionId || response.items[0]?.id || "");
@@ -168,24 +185,19 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
 
   useEffect(() => {
     if (!canWrite) return;
-    void fetchJson<{ items: Array<{ name: string; path_hint: string }> }>(
-      "/api/catalog/import-sources/folder-roots"
-    ).then((response) => {
+    void listFolderImportRoots().then((response) => {
       setServerRoots(response.items);
       setServerRoot((current) => current || response.items[0]?.name || "");
     }).catch(() => setServerRoots([]));
   }, [canWrite]);
 
-  useNonOverlappingPoll(hasActiveScan, refreshActiveImport);
+  usePoll(hasActiveScan, refreshActiveImport, { intervalMs: 2000, onError: reportScanRefreshFailure });
 
   const createSession = async (scope: "project" | "all-projects") => {
     if (scope === "project" && !projectId) return;
     setCreating(true);
     try {
-      const session = await fetchJson<ProjectComponentImportSession>("/api/catalog/import-sessions/projects", {
-        method: "POST",
-        body: JSON.stringify({ scope, project_id: scope === "project" ? projectId : "" }),
-      });
+      const session = await createProjectImportSession(scope, scope === "project" ? projectId : "");
       await loadSessions();
       setSelectedSessionId(session.id);
       toast.success(scope === "project" ? "Project component scan queued" : "All-project component scan queued");
@@ -204,22 +216,15 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       const topLevel = selected[0]?.webkitRelativePath.split("/")[0] || "KiCad libraries";
       const discoveryFiles = selected.filter(isDiscoverySource);
       if (discoveryFiles.length === 0) throw new Error("No .kicad_sym or .kicad_mod files were found in the selected directory");
-      const snapshot = await fetchJson<{ id: string }>("/api/catalog/import-snapshots/folders", {
-        method: "POST",
-        body: JSON.stringify({ display_name: topLevel }),
-      });
+      const snapshot = await createFolderSnapshot(topLevel);
       setFolderProgress({ completed: 0, total: discoveryFiles.length, label: "Capturing KiCad sources" });
       await uploadSnapshotFiles(snapshot.id, discoveryFiles, (completed, total) => {
         setFolderProgress({ completed, total, label: "Capturing KiCad sources" });
       });
       setFolderProgress({ completed: 0, total: 1, label: "Resolving component relationships" });
-      const discovery = await fetchJson<LibraryFolderDiscovery>(
-        `/api/catalog/import-snapshots/folders/${snapshot.id}/discover`,
-        {
-          method: "POST",
-          body: JSON.stringify({ files: selected.map((file) => ({ relative_path: folderRelativePath(file), size_bytes: file.size })) }),
-        }
-      );
+      const discovery = await discoverFolderSnapshot(snapshot.id, {
+        files: selected.map((file) => ({ relative_path: folderRelativePath(file), size_bytes: file.size })),
+      });
       setPendingFolder({
         snapshotId: snapshot.id,
         filesByPath: new Map(selected.map((file) => [folderRelativePath(file).toLocaleLowerCase(), file])),
@@ -247,16 +252,10 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
         ...selectedFiles.map((file) => ({ relative_path: folderRelativePath(file), size_bytes: file.size })),
         ...[...pendingFolder.manualFiles].map(([relativePath, file]) => ({ relative_path: relativePath, size_bytes: file.size })),
       ];
-      const refreshedDiscovery = await fetchJson<LibraryFolderDiscovery>(
-        `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/discover`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            files: inventory,
-            footprint_resolutions: effectiveResolutions,
-          }),
-        }
-      );
+      const refreshedDiscovery = await discoverFolderSnapshot(pendingFolder.snapshotId, {
+        files: inventory,
+        footprint_resolutions: effectiveResolutions,
+      });
       const componentIdSet = new Set(componentIds);
       const approved = refreshedDiscovery.components.filter((component) => componentIdSet.has(component.id));
       const requiredPaths = new Set<string>();
@@ -282,10 +281,10 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       await uploadSnapshotFiles(pendingFolder.snapshotId, filesToUpload, (completed, total) => {
         setFolderProgress({ completed, total, label: "Capturing approved assets" });
       });
-      const session = await fetchJson<ProjectComponentImportSession>(
-        `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/complete`,
-        { method: "POST", body: JSON.stringify({ approved_component_ids: componentIds, footprint_resolutions: effectiveResolutions }) }
-      );
+      const session = await completeFolderSnapshot(pendingFolder.snapshotId, {
+        approved_component_ids: componentIds,
+        footprint_resolutions: effectiveResolutions,
+      });
       await loadSessions();
       setSelectedSessionId(session.id);
       setPendingFolder(null);
@@ -306,11 +305,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
     if (!component) throw new Error("Discovered component is no longer available");
     const safeLibrary = component.library.replace(/[^A-Za-z0-9_.-]+/g, "_") || "Manual";
     const relativePath = `manual-footprints/${safeLibrary}.pretty/${file.name}`;
-    const form = new FormData();
-    form.append("relative_path", relativePath);
-    form.append("file", file, file.name);
-    const response = await fetchApi(`/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/files`, { method: "POST", body: form });
-    if (!response.ok) throw new Error(await readApiError(response, `Failed to attach ${file.name}`));
+    await uploadSnapshotFile(pendingFolder.snapshotId, relativePath, file, `Failed to attach ${file.name}`);
     const manualFiles = new Map(pendingFolder.manualFiles).set(relativePath, file);
     const uploadedPaths = new Set(pendingFolder.uploadedPaths).add(relativePath.toLocaleLowerCase());
     const footprintResolutions = { ...pendingFolder.footprintResolutions, [componentId]: relativePath };
@@ -318,10 +313,10 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       ...[...pendingFolder.filesByPath.values()].map((source) => ({ relative_path: folderRelativePath(source), size_bytes: source.size })),
       ...[...manualFiles].map(([path, source]) => ({ relative_path: path, size_bytes: source.size })),
     ];
-    const discovery = await fetchJson<LibraryFolderDiscovery>(
-      `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/discover`,
-      { method: "POST", body: JSON.stringify({ files: inventory, footprint_resolutions: footprintResolutions }) }
-    );
+    const discovery = await discoverFolderSnapshot(pendingFolder.snapshotId, {
+      files: inventory,
+      footprint_resolutions: footprintResolutions,
+    });
     setPendingFolder({ ...pendingFolder, manualFiles, uploadedPaths, footprintResolutions, discovery });
     toast.success(`${file.name} attached to ${component.symbol_name}`);
   };
@@ -338,21 +333,17 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
       throw new Error(`The footprint references ${expectedName}. Select a model with that filename so the relationship remains deterministic.`);
     }
     const relativePath = `manual-models/${file.name}`;
-    const form = new FormData();
-    form.append("relative_path", relativePath);
-    form.append("file", file, file.name);
-    const response = await fetchApi(`/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/files`, { method: "POST", body: form });
-    if (!response.ok) throw new Error(await readApiError(response, `Failed to attach ${file.name}`));
+    await uploadSnapshotFile(pendingFolder.snapshotId, relativePath, file, `Failed to attach ${file.name}`);
     const manualFiles = new Map(pendingFolder.manualFiles).set(relativePath, file);
     const uploadedPaths = new Set(pendingFolder.uploadedPaths).add(relativePath.toLocaleLowerCase());
     const inventory = [
       ...[...pendingFolder.filesByPath.values()].map((source) => ({ relative_path: folderRelativePath(source), size_bytes: source.size })),
       ...[...manualFiles].map(([path, source]) => ({ relative_path: path, size_bytes: source.size })),
     ];
-    const discovery = await fetchJson<LibraryFolderDiscovery>(
-      `/api/catalog/import-snapshots/folders/${pendingFolder.snapshotId}/discover`,
-      { method: "POST", body: JSON.stringify({ files: inventory, footprint_resolutions: pendingFolder.footprintResolutions }) }
-    );
+    const discovery = await discoverFolderSnapshot(pendingFolder.snapshotId, {
+      files: inventory,
+      footprint_resolutions: pendingFolder.footprintResolutions,
+    });
     setPendingFolder({ ...pendingFolder, manualFiles, uploadedPaths, discovery });
     toast.success(`${file.name} attached to ${component.symbol_name}`);
   };
@@ -361,13 +352,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
     if (!serverRoot) return;
     setCreating(true);
     try {
-      const session = await fetchJson<ProjectComponentImportSession>(
-        "/api/catalog/import-snapshots/folders/server",
-        {
-          method: "POST",
-          body: JSON.stringify({ root_name: serverRoot, subpath: serverSubpath }),
-        }
-      );
+      const session = await queueServerFolderImport(serverRoot, serverSubpath);
       await loadSessions();
       setSelectedSessionId(session.id);
       toast.success("Read-only folder snapshot queued");
@@ -381,10 +366,7 @@ export function LibraryImportCenter({ projects, user, initialSessionId }: Librar
   const resolveProposal = async (proposal: ProjectComponentImportProposal, action: "accept" | "reject", remediation?: ProposalRemediation) => {
     setProposalActionId(proposal.id);
     try {
-      await fetchJson(`/api/catalog/import-proposals/${proposal.id}/${action}`, {
-        method: "POST",
-        body: action === "accept" ? JSON.stringify(remediation) : undefined,
-      });
+      await resolveImportProposal(proposal.id, action, remediation);
       await Promise.all([loadSessions(), loadProposals(proposal.session_id)]);
       toast.success(action === "accept" ? `${proposal.reference} imported as a draft revision` : `${proposal.reference} rejected`);
       if (action === "accept") setRemediationProposal(null);

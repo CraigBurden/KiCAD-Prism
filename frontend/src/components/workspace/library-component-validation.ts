@@ -18,7 +18,7 @@ export type CatalogValidationOutcome =
   | { kind: "failed"; error: string }
   | { kind: "cancelled"; message: string };
 
-type CatalogValidationJobPayload = {
+export type CatalogValidationJobPayload = {
   component?: unknown;
   errors?: unknown;
   result?: {

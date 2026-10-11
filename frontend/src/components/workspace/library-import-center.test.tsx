@@ -3,14 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Project } from "@/types/project";
 import type { ProjectComponentImportProposal, ProjectComponentImportSession } from "@/types/catalog";
-import { fetchJson } from "@/lib/api";
+import { listFolderImportRoots, listImportProposals, listImportSessions } from "./catalog-client";
 import { LibraryImportCenter } from "./library-import-center";
 
-vi.mock("@/lib/api", () => ({
-  fetchApi: vi.fn(),
-  fetchJson: vi.fn(),
-  readApiError: vi.fn(),
-}));
+vi.mock("./catalog-client");
 
 const project: Project = {
   id: "project-1",
@@ -23,14 +19,8 @@ const project: Project = {
 
 describe("LibraryImportCenter sources", () => {
   beforeEach(() => {
-    vi.mocked(fetchJson).mockImplementation(async <T,>(input: RequestInfo | URL) => {
-      const path = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      if (path === "/api/catalog/import-sessions") return { items: [] } as T;
-      if (path === "/api/catalog/import-sources/folder-roots") {
-        return { items: [{ name: "cern", path_hint: "/libraries/cern" }] } as T;
-      }
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    vi.mocked(listImportSessions).mockResolvedValue({ items: [] });
+    vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [{ name: "cern", path_hint: "/libraries/cern" }] });
   });
 
   it("separates library and project imports and uses source-oriented project labels", async () => {
@@ -56,12 +46,7 @@ describe("LibraryImportCenter sources", () => {
   });
 
   it("allocates more space to project imports when the cards share a row", async () => {
-    vi.mocked(fetchJson).mockImplementation(async <T,>(input: RequestInfo | URL) => {
-      const path = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      if (path === "/api/catalog/import-sessions") return { items: [] } as T;
-      if (path === "/api/catalog/import-sources/folder-roots") return { items: [] } as T;
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [] });
 
     render(
       <LibraryImportCenter
@@ -113,26 +98,20 @@ function importProposal(sessionId: string, reference: string): ProjectComponentI
 
 describe("LibraryImportCenter session proposals", () => {
   beforeEach(() => {
-    vi.mocked(fetchJson).mockReset();
+    vi.mocked(listImportProposals).mockReset();
   });
 
   it("does not show session A proposals after switching to session B", async () => {
     let finishA: ((value: { items: ProjectComponentImportProposal[] }) => void) | undefined;
-    vi.mocked(fetchJson).mockImplementation(async (input) => {
-      const path = String(input);
-      if (path === "/api/catalog/import-sessions") {
-        return { items: [importSession("session-a"), importSession("session-b")] };
-      }
-      if (path === "/api/catalog/import-sources/folder-roots") return { items: [] };
-      if (path.endsWith("/session-a/proposals")) {
+    vi.mocked(listImportSessions).mockResolvedValue({ items: [importSession("session-a"), importSession("session-b")] });
+    vi.mocked(listFolderImportRoots).mockResolvedValue({ items: [] });
+    vi.mocked(listImportProposals).mockImplementation(async (sessionId) => {
+      if (sessionId === "session-a") {
         return new Promise((resolve) => {
           finishA = resolve;
         });
       }
-      if (path.endsWith("/session-b/proposals")) {
-        return { items: [importProposal("session-b", "R-B")] };
-      }
-      throw new Error(`Unexpected request: ${path}`);
+      return { items: [importProposal("session-b", "R-B")] };
     });
 
     render(
