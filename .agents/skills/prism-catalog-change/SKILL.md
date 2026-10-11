@@ -48,9 +48,10 @@ Quick checks from the repository root:
 
 ```bash
 python3 scripts/check_catalog_architecture.py
+python3 scripts/check_module_size.py
 python3 scripts/check_agent_docs.py
-python3 -m unittest backend.tests.test_catalog_architecture -v
-python3 -m compileall -q backend/app scripts/check_catalog_architecture.py
+python3 -m unittest backend.tests.test_catalog_architecture backend.tests.test_module_size_gate -v
+python3 -m compileall -q backend/app scripts/check_catalog_architecture.py scripts/check_module_size.py
 git diff --check
 ```
 

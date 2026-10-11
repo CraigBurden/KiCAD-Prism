@@ -156,11 +156,13 @@ fragment, and query keys exactly `{rev, representation, exp, sig}`.
   factory returns, factory aliases, and `super()._private()` on catalog
   subclasses;
 - enforces a monotonic private-call baseline;
-- enforces a 1,200-line limit for new production modules;
-- enforces a 500-line limit for catalog facades/orchestrators;
-- grandfathered 16 existing oversized modules at their exact current lengths;
 - supports safe baseline reductions/removals;
 - compares the checked-in baseline with a trusted Git base ref.
+
+The line limits it used to enforce (1,200 lines for production modules, 500 for
+catalog facades/orchestrators, existing oversized modules grandfathered at their
+lengths) are now `scripts/check_module_size.py`, with the same baseline file
+and the same update and base-ref rules.
 
 Current resume-branch scan:
 

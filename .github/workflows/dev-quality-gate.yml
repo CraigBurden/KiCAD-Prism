@@ -165,14 +165,25 @@ jobs:
             python3 scripts/check_catalog_architecture.py --base-ref "$CATALOG_BASE_REF"
           fi
 
+      - name: Check module sizes
+        # 1,200 lines per production module (500 for catalog facades); oversized modules that
+        # predate the rule may shrink, never grow. Same baseline file and base ref as above.
+        run: |
+          set -euo pipefail
+          if [ "${CATALOG_BASELINE_BOOTSTRAP:-}" = "1" ]; then
+            python3 scripts/check_module_size.py
+          else
+            python3 scripts/check_module_size.py --base-ref "$CATALOG_BASE_REF"
+          fi
+
       - name: Check agent guidance
         run: python3 scripts/check_agent_docs.py
 
-      - name: Test architecture checker
-        run: python3 -m unittest backend.tests.test_catalog_architecture -v
+      - name: Test architecture and module size checkers
+        run: python3 -m unittest backend.tests.test_catalog_architecture backend.tests.test_module_size_gate -v
 
       - name: Compile Python sources
-        run: python3 -m compileall -q backend/app scripts/check_catalog_architecture.py
+        run: python3 -m compileall -q backend/app scripts/check_catalog_architecture.py scripts/check_module_size.py scripts/architecture_baseline.py
 
   frontend:
     name: Frontend
