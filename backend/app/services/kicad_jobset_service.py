@@ -210,7 +210,7 @@ def _sync_repository(
             # Share the import path's environment rather than rolling a second
             # one: this keeps the existing GitHub token rewrite and strict
             # host-key behavior for repository-routed workflow output.
-            from app.services.project_import_service import git_env
+            from app.services.git_remote_access import git_env
 
             push_info = repo.remote(name="origin").push(env=git_env())
             for info in push_info:

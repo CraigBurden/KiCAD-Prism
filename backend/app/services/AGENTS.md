@@ -45,16 +45,27 @@ not duplicate completed work after a lease is reclaimed.
 
 - **Fail closed.** `rate_limit_service.py` explains why the limiter denies on
   outage rather than allowing. Do not invert it for convenience.
-- **Host keys are pinned.** `project_import_service.py` documents why
+- **Host keys are pinned.** `git_remote_access.py` documents why
   `accept-new` was removed. Do not restore it.
 - **Role-aware lookups only.** See the access-control section in the root
   `AGENTS.md`.
 - **Audit identity comes from the session**, never from the request payload.
 
+## A project at a revision
+
+`project_revision.py` is the one place that decides where a project sits in its
+repository (`locate`, `locate_id`), resolves a ref (`resolve_commit`), and
+materializes files at a commit (`checkout`, `materialize`, with the
+`FULL_TREE`, `KICAD_SOURCES` and `COMPARE_INPUTS` source sets). It reads Git
+objects rather than `git archive`, and keeps only symlinks that resolve inside
+the checkout. Do not add another `rev-parse --show-toplevel`, `.git` walk-up or
+`git archive | tar` next to a caller. Remote transport (credentials, pinned host
+keys, ls-remote) is `git_remote_access.py`.
+
 ## Design variants
 
-`project_source_snapshot.py` resolves a working tree or an exact commit and
-keys it by the configured anchor; `variant_catalog_service.py` discovers the
+`project_source_snapshot.py` resolves a working tree or an exact commit
+(through `project_revision.py`) and keys it by the configured anchor; `variant_catalog_service.py` discovers the
 ordered catalog from source text; `semantic_index_variants.py` resolves
 effective default and per-variant occurrence/component/footprint state through
 the pinned kicad-monkey helpers (applying the sheet fold and version gate the

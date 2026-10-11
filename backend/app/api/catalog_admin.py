@@ -5,7 +5,6 @@ import csv
 import hashlib
 import io
 from itertools import chain
-from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -21,7 +20,7 @@ from app.services.catalog_job_service import catalog_jobs
 from app.services.local_artifact_store import artifact_store
 from app.services.library_folder_import_service import configured_import_roots, resolve_server_import_path
 from app.services.kicad_library_discovery import discover_library
-from app.services import semantic_visualizer_service
+from app.services import project_revision
 from app.services.workspace_service import workspace
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
@@ -318,9 +317,9 @@ def create_project_import_session(
             project = workspace.get_project_by_id(project_id)
             if not project:
                 continue
-            repo_root = semantic_visualizer_service._repo_root(Path(str(project["path"])))
+            location = project_revision.locate(project)
             requested_ref = payload.source_revision if project_id == payload.project_id and payload.source_revision else "HEAD"
-            project_revisions[project_id] = semantic_visualizer_service._resolve_commit(repo_root, requested_ref)
+            project_revisions[project_id] = project_revision.resolve_commit(location, requested_ref)
         session = catalog_service.create_project_import_session(
             scope=payload.scope,
             project_id=payload.project_id,

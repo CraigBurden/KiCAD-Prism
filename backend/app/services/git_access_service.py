@@ -556,11 +556,9 @@ def check_repository_access(parsed: ParsedRemote, *, git_env: Optional[dict] = N
             message=message,
         )
 
-    default_branch = None
-    for line in output.splitlines():
-        if line.startswith("ref:"):
-            default_branch = line.split()[1].removeprefix("refs/heads/")
-            break
+    from app.services.git_remote_access import default_branch_from_symref
+
+    default_branch = default_branch_from_symref(output)
 
     return AccessResult(
         reachable=True,

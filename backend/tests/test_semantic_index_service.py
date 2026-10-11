@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.services import semantic_index_service, semantic_visualizer_service
+from app.services import project_revision, semantic_index_service, semantic_visualizer_service
 
 
 class SemanticIndexServiceTests(unittest.TestCase):
@@ -574,8 +574,8 @@ class SemanticIndexServiceTests(unittest.TestCase):
             last_modified="revision-9",
         )
         with patch.object(
-            semantic_visualizer_service,
-            "_resolve_commit",
+            project_revision,
+            "resolve_commit",
             side_effect=AssertionError("fast status must not call git"),
         ), patch.object(
             semantic_visualizer_service.jobs,
@@ -601,8 +601,8 @@ class SemanticIndexServiceTests(unittest.TestCase):
             "status_selector": "commit:abcdef0123456789abcdef0123456789abcdef01",
         }
         with patch.object(
-            semantic_visualizer_service,
-            "_resolve_commit",
+            project_revision,
+            "resolve_commit",
             side_effect=AssertionError("fast status must not call git"),
         ), patch.object(
             semantic_visualizer_service.jobs,
@@ -896,8 +896,8 @@ class RevisionIdentityTests(unittest.TestCase):
             artifact.write_text('{"schema": "cached"}', encoding="utf-8")
 
             with patch.object(
-                semantic_visualizer_service,
-                "_archive_checkout",
+                project_revision,
+                "materialize",
                 side_effect=AssertionError("a cache hit must not check out the repo"),
             ):
                 self.assertEqual(

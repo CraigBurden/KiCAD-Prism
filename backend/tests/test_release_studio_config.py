@@ -22,6 +22,7 @@ from app.release_studio.config import (
     technical_config_digest,
     validate_org_extends,
 )
+from app.services.project_revision import ProjectLocation
 
 
 _MIN_CONFIG = """
@@ -137,7 +138,7 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                 "default_variant": "default",
             }
             with (
-                patch("app.services.design_compare_service._repo_paths", return_value=(checkout, None, checkout)),
+                patch("app.services.project_revision.locate_id", return_value=ProjectLocation(checkout.resolve(), "")),
                 patch.object(builds, "sync_configurations", return_value=[row]),
             ):
                 saved = builds.save_configuration(
@@ -178,8 +179,8 @@ class ConfigurationAuthoringTests(unittest.TestCase):
             hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
             hook.chmod(0o755)
             with patch(
-                "app.services.design_compare_service._repo_paths",
-                return_value=(checkout, None, checkout),
+                "app.services.project_revision.locate_id",
+                return_value=ProjectLocation(checkout.resolve(), ""),
             ):
                 with self.assertRaisesRegex(builds.BuildError, "mirror is unchanged"):
                     builds.save_configuration(
@@ -210,8 +211,8 @@ class ConfigurationAuthoringTests(unittest.TestCase):
             subprocess.run(["git", "push"], cwd=checkout, check=True, capture_output=True)
 
             with patch(
-                "app.services.design_compare_service._repo_paths",
-                return_value=(checkout, None, checkout),
+                "app.services.project_revision.locate_id",
+                return_value=ProjectLocation(checkout.resolve(), ""),
             ):
                 with self.assertRaisesRegex(builds.BuildError, "changed after this configuration was loaded"):
                     builds.save_configuration(
@@ -240,8 +241,8 @@ class ConfigurationAuthoringTests(unittest.TestCase):
             }
             with (
                 patch(
-                    "app.services.design_compare_service._repo_paths",
-                    return_value=(checkout, None, checkout),
+                    "app.services.project_revision.locate_id",
+                    return_value=ProjectLocation(checkout.resolve(), ""),
                 ),
                 patch.object(builds, "sync_configurations", return_value=[row]),
             ):
@@ -277,8 +278,8 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                 patch.dict(os.environ, {"PATH": path}),
                 patch.object(git_publish, "GIT_COMMAND_TIMEOUT_SECONDS", 1),
                 patch(
-                    "app.services.design_compare_service._repo_paths",
-                    return_value=(checkout, None, checkout),
+                    "app.services.project_revision.locate_id",
+                    return_value=ProjectLocation(checkout.resolve(), ""),
                 ),
             ):
                 with self.assertRaisesRegex(builds.BuildError, "timed out"):
@@ -312,8 +313,8 @@ class ConfigurationAuthoringTests(unittest.TestCase):
                 raise JobCancelled("stop")
 
             with patch(
-                "app.services.design_compare_service._repo_paths",
-                return_value=(checkout, None, checkout),
+                "app.services.project_revision.locate_id",
+                return_value=ProjectLocation(checkout.resolve(), ""),
             ):
                 with self.assertRaises(JobCancelled):
                     builds.save_configuration(

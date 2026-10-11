@@ -364,7 +364,7 @@ class ImportsFromAPlaintextSelfHostedServer(unittest.TestCase):
             _project("hardware/board-b", "board-b"),
         ]
         patcher = mock.patch.object(
-            project_import_service,
+            project_import_service.git_remote_access,
             "remote_url_policy",
             return_value=project_import_service.RemoteUrlPolicy.build(
                 allow_insecure_http=True
@@ -414,7 +414,7 @@ class ImportsFromAPlaintextSelfHostedServer(unittest.TestCase):
         ):
             found = project_import_service.find_existing_repository(
                 project_import_service.parse_remote_url(
-                    self.url, project_import_service.remote_url_policy()
+                    self.url, project_import_service.git_remote_access.remote_url_policy()
                 )
             )
         self.assertEqual(found, stored[0])

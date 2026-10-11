@@ -6,8 +6,8 @@ into a private directory, gitlinks are expanded from their recorded commits,
 and the only bytes allowed to differ from Git objects are hydrated Git LFS
 objects already present in the source worktree.
 
-This module is intentionally independent of the database and of the legacy
-``design_compare_service._snapshot_commit`` helper.  It can therefore be used
+This module is intentionally independent of the database and of the narrower
+``project_revision`` checkouts.  It can therefore be used
 by a worker before a candidate or build row exists, and it is safe to exercise
 against small local Git repositories in tests.
 """
@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from app.release_studio.canonical import sha256_canonical
+from app.services import project_revision
 
 
 _LFS_POINTER_VERSION = "version https://git-lfs.github.com/spec/v1"
@@ -340,7 +341,7 @@ def materialize_input_closure(
     repository is always walked.  ``source_checkout`` is normally unnecessary
     because ``repo_path`` is the repository worktree, but is accepted to make
     the project/subproject distinction explicit for callers using
-    ``design_compare_service._repo_paths``.
+    ``project_revision.locate``.
 
     The function never checks out, updates, stages, or writes to ``repo_path``.
     It reads Git objects and (only for detected LFS pointers) reads the
@@ -407,18 +408,14 @@ def materialize_project_input_closure(
 ) -> InputClosure:
     """Resolve a Prism project/subproject and materialize its full repo tree."""
 
-    # Keep this import local: the closure module is also used in isolated Git
-    # fixture tests and must not import the stateful workspace service at module
-    # import time.
-    from app.services.design_compare_service import _repo_paths
-
-    repo, relative_path, checkout = _repo_paths(project_id)
+    # locate_id imports the stateful workspace service only when called.
+    location = project_revision.locate_id(project_id)
     return materialize_input_closure(
-        repo,
+        location.repo_root,
         commit,
         destination,
-        relative_path=relative_path,
-        source_checkout=checkout,
+        relative_path=location.relative_path or ".",
+        source_checkout=location.checkout,
         env=env,
         toolchain_resources=toolchain_resources,
     )
@@ -430,9 +427,10 @@ build_input_closure = materialize_input_closure
 
 
 def _resolve_commit(repo: Path, commit: str) -> str:
-    if not commit or not isinstance(commit, str):
-        raise GitTreeError("a non-empty commit is required")
-    resolved = _git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}").strip()
+    try:
+        resolved = project_revision.resolve_commit(repo, commit)
+    except project_revision.RevisionNotFound as exc:
+        raise GitTreeError(str(exc)) from exc
     if not re.fullmatch(r"[0-9a-fA-F]{40,64}", resolved):
         raise GitTreeError(f"Git returned an invalid commit id for {commit!r}")
     return resolved.lower()

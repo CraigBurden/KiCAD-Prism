@@ -9,6 +9,7 @@ from unittest import mock
 
 from app.core.config import Settings, settings
 from app.services import bom_diff_service, design_compare_service, semantic_index_service
+from app.services import project_revision as project_revision_module
 from app.services.design_compare_benchmark import DesignCompareBenchmark
 
 
@@ -42,6 +43,36 @@ class DesignCompareServiceTests(unittest.TestCase):
                 "pinUuids": [],
             }],
         }
+
+    def test_a_monorepo_subproject_row_locates_inside_its_clone(self) -> None:
+        # The row as workspace_service._project_row_to_dict returns it: the
+        # subproject directory is `relative_path`; nothing sets `sub_path`.
+        # Reading `sub_path` sent every monorepo comparison to the checkout.
+        row = {
+            "id": "prj_sub",
+            "path": "/clones/mono/boards/a",
+            "parent_repo_path": "/clones/mono",
+            "relative_path": "boards/a",
+            "import_type": "multi",
+        }
+        with mock.patch.object(design_compare_service.workspace, "get_project_by_id", return_value=row):
+            location = project_revision_module.locate_id("prj_sub")
+        self.assertEqual(location.repo_root, Path("/clones/mono").resolve())
+        self.assertEqual(location.sub_path, "boards/a")
+        self.assertEqual(location.checkout, Path("/clones/mono/boards/a").resolve())
+
+    def test_a_repository_root_row_has_no_sub_path(self) -> None:
+        row = {
+            "id": "prj_root",
+            "path": "/clones/single",
+            "parent_repo_path": "/clones/single",
+            "relative_path": ".",
+            "import_type": "single",
+        }
+        with mock.patch.object(design_compare_service.workspace, "get_project_by_id", return_value=row):
+            location = project_revision_module.locate_id("prj_root")
+        self.assertEqual(location.repo_root, Path("/clones/single").resolve())
+        self.assertIsNone(location.sub_path)
 
     def test_generated_kicad_files_are_folded_out_of_semantic_sources(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -566,9 +597,9 @@ class DesignCompareServiceTests(unittest.TestCase):
             "_JOB_ROOT",
             Path(temporary),
         ), mock.patch.object(
-            design_compare_service,
-            "_repo_paths",
-            return_value=(Path("/repo"), None, Path("/repo")),
+            design_compare_service.project_revision,
+            "locate_id",
+            return_value=project_revision_module.ProjectLocation(Path("/repo"), ""),
         ), mock.patch.object(
             design_compare_service,
             "_prepare_comparison_snapshots",
@@ -659,9 +690,9 @@ class DesignCompareServiceTests(unittest.TestCase):
             "_JOB_ROOT",
             Path(temporary),
         ), mock.patch.object(
-            design_compare_service,
-            "_repo_paths",
-            return_value=(Path("/repo"), None, Path("/repo")),
+            design_compare_service.project_revision,
+            "locate_id",
+            return_value=project_revision_module.ProjectLocation(Path("/repo"), ""),
         ), mock.patch.object(
             design_compare_service,
             "_prepare_comparison_snapshots",

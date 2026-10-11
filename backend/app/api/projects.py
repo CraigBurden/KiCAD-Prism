@@ -4,7 +4,6 @@ import logging
 import mimetypes
 import os
 import posixpath
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -23,13 +22,14 @@ from app.services import (
     file_service,
     git_access_service,
     path_config_service,
+    project_deletion,
     project_import_service,
     project_metadata_service,
+    project_revision,
     project_service,
     semantic_index_service,
     semantic_visualizer_service,
 )
-from app.services.comments_store_service import comments_store
 from app.services.workspace_service import ProjectHasSignedReleasesError, workspace
 from app.services.comments_url_service import build_comments_source_urls, resolve_comments_base_url
 from app.services.git_service import (
@@ -127,13 +127,24 @@ class ProjectPropertiesResponse(BaseModel):
     files: ProjectPropertiesFiles
 
 
+def _project_location(project: project_service.Project) -> project_revision.ProjectLocation:
+    """Where the project sits in its repository (``project_revision`` decides).
+
+    A project whose checkout is missing keeps its own path as the root, so the
+    Git read that follows reports the missing commit or file as before.
+    """
+    try:
+        return project_revision.locate(project)
+    except project_revision.ProjectNotInRepository:
+        return project_revision.ProjectLocation(
+            Path(project.path), "", project_service.project_anchor(project)
+        )
+
+
 def _repo_context(project: project_service.Project) -> tuple[str, Optional[str]]:
-    """Return repository path and optional subproject relative path for project-scoped git operations."""
-    if project.parent_repo_path and project.sub_path:
-        return project.parent_repo_path, project.sub_path
-    if project.import_type == "type2_subproject":
-        return project.parent_repo_path or os.path.dirname(project.path), project.sub_path
-    return project.path, None
+    """Repository root and subproject path for project-scoped git operations."""
+    location = _project_location(project)
+    return str(location.repo_root), location.sub_path
 
 
 def _resolve_output_dir(project: project_service.Project, output_type: str) -> str:
@@ -162,54 +173,15 @@ def _join_relative_paths(*parts: Optional[str]) -> str:
     return posixpath.join(*cleaned) if cleaned else ""
 
 
-#: One implementation of the `.prism.json` merge for both the working tree and
-#: a Git commit; they disagreed, and that disagreement was the bug.
-_merge_commit_config = path_config_service.config_for_anchor
-
-
-def _default_commit_path_config() -> PathConfig:
-    return PathConfig(**path_config_service.DEFAULT_PATHS)
-
-
 def _path_config_from_commit(project: project_service.Project, commit: Optional[str]) -> PathConfig:
     if not commit:
         return project_service.path_config_for(project)
-
-    repo_path, sub_path = _repo_context(project)
     try:
-        prism_file = file_service.read_file_from_commit(
-            repo_path,
-            commit,
-            ".prism.json",
-            relative_prefix=sub_path,
-            not_found_detail=".prism.json not found",
-        )
-    except HTTPException as error:
-        if error.status_code == 404:
-            return _default_commit_path_config()
-        raise
-
-    try:
-        raw_config = json.loads(prism_file.content.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise HTTPException(status_code=500, detail=f"Invalid .prism.json in commit: {error}") from error
-
-    if not isinstance(raw_config, dict):
-        return _default_commit_path_config()
-
-    # Settings for one project of several sharing a directory live under
-    # `projects.<anchor>`. Flattening the file without that namespace handed a
-    # co-located sibling the first project's paths -- or the bare defaults --
-    # at every historical revision, while the working tree looked right.
-    merged: Dict[str, object] = dict(
-        _merge_commit_config(raw_config, project_service.project_anchor(project))
-    )
-
-    for key, default_value in path_config_service.DEFAULT_PATHS.items():
-        if not str(merged.get(key) or "").strip():
-            merged[key] = default_value
-
-    return PathConfig(**merged)
+        return project_revision.path_config_at(_project_location(project), commit)
+    except project_revision.RevisionNotFound as error:
+        raise HTTPException(status_code=404, detail=f"Commit not found: {commit}") from error
+    except ValueError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
 
 def _output_dir_from_config(config: PathConfig, output_type: str) -> str:
@@ -1294,53 +1266,19 @@ async def delete_project_endpoint(project_id: str, user: AuthenticatedUser = Dep
     Admins always cascade associated workspace and release-studio listings.
     Designers can delete a project that has no signed release records.
     """
-    project = get_project_for_role_or_404(project_id, user.role)
-    row = workspace.get_project_by_id(project_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    repo_id = row.get("repo_id")
-    import_type = row.get("import_type") or "single"
-    clone_path = row.get("parent_repo_path") or project.path
+    get_project_for_role_or_404(project_id, user.role)
     force = role_meets_minimum(user.role, "admin")
     try:
-        success = await asyncio.to_thread(
-            workspace.delete_project, project_id, force=force
-        )
+        deletion = await asyncio.to_thread(project_deletion.delete_project, project_id, force=force)
     except ProjectHasSignedReleasesError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not success:
+    if deletion is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    remaining_projects = await asyncio.to_thread(workspace.get_projects_by_repo, repo_id) if repo_id else []
-    should_delete_repo = import_type == "single" or not remaining_projects
-    removed_files = False
-    warnings: List[str] = []
-
-    try:
-        await asyncio.to_thread(comments_store.delete_project_comments, project_id)
-    except Exception as exc:
-        warnings.append(
-            f"Project was removed from the workspace, but comments could not be deleted: {exc}"
-        )
-
-    if should_delete_repo and repo_id:
-        await asyncio.to_thread(workspace.delete_repository, repo_id)
-        try:
-            projects_root = Path(project_service.PROJECTS_ROOT).resolve()
-            target = Path(clone_path).resolve()
-            if target != projects_root and projects_root in target.parents and target.exists():
-                await asyncio.to_thread(shutil.rmtree, target)
-                removed_files = True
-        except Exception as exc:
-            warnings.append(
-                f"Project was removed from the workspace, but files could not be deleted: {exc}"
-            )
-
-    response = {"message": "Project deleted successfully", "removed_files": removed_files}
-    if warnings:
-        response["warning"] = " ".join(warnings)
-    response["repository_deleted"] = should_delete_repo
+    response = {"message": "Project deleted successfully", "removed_files": deletion.removed_files}
+    if deletion.warnings:
+        response["warning"] = " ".join(deletion.warnings)
+    response["repository_deleted"] = deletion.repository_deleted
     return response
 
 @router.get("/{project_id}/files", response_model=List[file_service.FileItem])

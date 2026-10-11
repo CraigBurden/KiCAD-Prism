@@ -19,13 +19,14 @@ import uuid
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from collections import defaultdict, deque
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from app.core.config import settings
 from app.services import (
     bom_diff_service,
     document_diff_service,
     fabrication_compare_service,
+    project_revision,
     semantic_index_service,
 )
 from app.services.design_compare_benchmark import DesignCompareBenchmark
@@ -129,123 +130,20 @@ def _persist_job(job_id: str) -> None:
     )
 
 
-def _repo_paths(project_id: str) -> Tuple[Path, Optional[str], Path]:
-    """Return (git_repo_root, relative_sub_path, project_checkout_path)."""
-    row = workspace.get_project_by_id(project_id)
-    if not row:
-        raise ValueError(f"Project '{project_id}' not found")
-    checkout = Path(row["path"])
-    import_type = row.get("import_type")
-    parent = row.get("parent_repo_path")
-    sub = row.get("sub_path")
-    if parent and sub:
-        return Path(parent), sub, checkout
-    if import_type == "type2_subproject":
-        return Path(parent or checkout.parent), sub, checkout
-    return checkout, None, checkout
-
-
-_SNAPSHOT_SUFFIXES = {
-    ".kicad_dru",
-    ".kicad_jobset",
-    ".kicad_pcb",
-    ".kicad_pro",
-    ".kicad_sch",
-    ".kicad_wks",
-}
-_SNAPSHOT_NAMES = {".prism.json", "fp-lib-table", "sym-lib-table"}
-
-
-def _snapshot_paths(
-    repo_path: Path,
-    commit: str,
-    relative_path: Optional[str],
-) -> List[str]:
-    """List only inputs needed by semantic, geometry, BOM, and viewer generation."""
-    args = ["git", "-C", str(repo_path), "ls-tree", "-rz", "--name-only", commit]
-    if relative_path:
-        args.extend(["--", relative_path])
-    process = subprocess.run(args, capture_output=True)
-    if process.returncode != 0:
-        raise RuntimeError(
-            f"git ls-tree failed for {commit}: "
-            f"{process.stderr.decode('utf-8', errors='replace')}"
-        )
-    paths: List[str] = []
-    for raw in process.stdout.split(b"\0"):
-        if not raw:
-            continue
-        value = raw.decode("utf-8", errors="surrogateescape")
-        path = Path(value)
-        folded_parts = {part.casefold() for part in path.parts[:-1]}
-        if folded_parts & _GENERATED_PARTS:
-            continue
-        if path.name in _SNAPSHOT_NAMES or path.suffix.casefold() in _SNAPSHOT_SUFFIXES:
-            paths.append(value)
-    if not paths:
-        raise RuntimeError(f"No KiCad design inputs found at {commit}")
-    return paths
-
-
 def _snapshot_commit(repo_path: Path, commit: str, destination: Path, relative_path: Optional[str]) -> None:
-    """Archive only comparison inputs, excluding manufacturing and 3D asset bulk."""
+    """Materialize only comparison inputs, flattened to the project directory."""
     if destination.exists():
         shutil.rmtree(destination)
-    destination.mkdir(parents=True, exist_ok=True)
-    paths = _snapshot_paths(repo_path, commit, relative_path)
-    args = ["git", "-C", str(repo_path), "archive", "--format=tar", commit, "--", *paths]
-    archive = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    assert archive.stdout is not None
-    tar = subprocess.Popen(
-        ["tar", "-x", "-C", str(destination)],
-        stdin=archive.stdout,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+    written = project_revision.materialize(
+        repo_path,
+        commit,
+        destination,
+        source_set=project_revision.COMPARE_INPUTS,
+        scope=relative_path or "",
+        strip_scope=True,
     )
-    archive.stdout.close()
-    _, tar_err = tar.communicate()
-    _, arch_err = archive.communicate()
-    if archive.returncode != 0:
-        raise RuntimeError(
-            f"git archive failed for {commit}: {arch_err.decode('utf-8', errors='replace')}"
-        )
-    if tar.returncode != 0:
-        raise RuntimeError(
-            f"tar extract failed for {commit}: {tar_err.decode('utf-8', errors='replace')}"
-        )
-    # Type-2 archives extract as <sub_path>/... — flatten to destination root
-    if relative_path:
-        nested = destination / relative_path
-        if nested.exists() and nested.is_dir():
-            for child in list(nested.iterdir()):
-                target = destination / child.name
-                if target.exists():
-                    if target.is_dir():
-                        shutil.rmtree(target)
-                    else:
-                        target.unlink()
-                shutil.move(str(child), str(target))
-            # remove emptied prefix dirs
-            try:
-                shutil.rmtree(destination / Path(relative_path).parts[0])
-            except Exception:
-                pass
-
-    # Drop manufacturing / CI / asset bulk — design compare only needs KiCad sources.
-    for name in (
-        "Manufacturing-Outputs",
-        "Design-Outputs",
-        "archive",
-        ".github",
-        "packages3D",
-        "simulation",
-        "docs",
-        "assets",
-    ):
-        heavy = destination / name
-        if heavy.exists():
-            shutil.rmtree(heavy, ignore_errors=True)
-
+    if not written.files:
+        raise RuntimeError(f"No KiCad design inputs found at {commit}")
 
 
 def _project_anchor(project_id: str) -> Optional[str]:
@@ -1666,7 +1564,8 @@ def _run_job(
             )
 
     try:
-        repo_path, relative_path, _checkout = _repo_paths(project_id)
+        location = project_revision.locate_id(project_id)
+        repo_path, relative_path = location.repo_root, location.sub_path
         initial_started = time.perf_counter()
         with benchmark.span("snapshot-pipeline"):
             _prepare_comparison_snapshots(
@@ -1990,7 +1889,8 @@ def run_design_compare_job_v3(context: JobContext) -> JobResult:
         raise RuntimeError(
             "Project anchor changed after the comparison was queued; retry the comparison"
         )
-    repo_path, relative_path, _checkout = _repo_paths(project_id)
+    location = project_revision.locate_id(project_id)
+    repo_path, relative_path = location.repo_root, location.sub_path
     base = _resolve_revision(repo_path, requested_base)
     head = _resolve_revision(repo_path, requested_head)
     logs: list[str] = []

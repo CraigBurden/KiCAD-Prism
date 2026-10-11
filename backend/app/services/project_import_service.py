@@ -13,9 +13,8 @@ from pathlib import Path
 from functools import wraps
 from typing import Callable, List, Optional, Sequence
 from dataclasses import dataclass
-from git import Git, Repo, RemoteProgress
-from app.core.config import settings
-from app.services import derived_assets, project_service, path_config_service
+from git import Repo, RemoteProgress
+from app.services import derived_assets, git_remote_access, project_revision, project_service, path_config_service
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError
@@ -75,14 +74,6 @@ class DiscoveredProject:
         return make_project_key(self.relative_path, self.project_file)
 
 
-def remote_url_policy() -> RemoteUrlPolicy:
-    """Build the clone-URL policy for this deployment."""
-    return RemoteUrlPolicy.build(
-        allowed_hosts=settings.IMPORT_ALLOWED_HOSTS,
-        allow_insecure_http=settings.IMPORT_ALLOW_INSECURE_HTTP,
-    )
-
-
 def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
     """Find an already-imported repository that resolves to the same remote.
 
@@ -97,7 +88,7 @@ def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
     canonicalize, leaving deduplication to an exact string comparison that a
     trailing ``.git`` or a change of case defeats.
     """
-    policy = remote_url_policy()
+    policy = git_remote_access.remote_url_policy()
     target = parsed.dedup_key
     for repository in workspace.get_repositories():
         stored = str(repository.get("url") or "")
@@ -111,154 +102,6 @@ def find_existing_repository(parsed: ParsedRemote) -> Optional[dict]:
             if stored.strip() == parsed.url:
                 return repository
     return None
-
-
-def _describe_target(parsed: ParsedRemote) -> str:
-    """How a repository should be named in a message to the user."""
-    return f"{parsed.host}/{parsed.path.strip('/').removesuffix('.git')}"
-
-
-def _inject_github_token(env: dict) -> None:
-    """Supply GITHUB_TOKEN to one Git invocation, and leave nothing behind.
-
-    This used to be written into the container's ``~/.gitconfig`` at startup, so
-    the token sat in cleartext on the filesystem, in the writable layer of a
-    committed image, and in any support bundle that captured the home
-    directory -- and it applied to every process in the container, not only the
-    ones meant to reach GitHub. ``GIT_CONFIG_*`` expresses the same rewrite for
-    the duration of a single command.
-    """
-    token = settings.GITHUB_TOKEN.strip()
-    if not token:
-        return
-    # The parent environment may already carry GIT_CONFIG_* entries; append.
-    try:
-        index = int(env.get("GIT_CONFIG_COUNT", "0") or "0")
-    except ValueError:
-        index = 0
-    env[f"GIT_CONFIG_KEY_{index}"] = f"url.https://{token}@github.com/.insteadOf"
-    env[f"GIT_CONFIG_VALUE_{index}"] = "https://github.com/"
-    env["GIT_CONFIG_COUNT"] = str(index + 1)
-
-
-def git_env() -> dict:
-    env = os.environ.copy()
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    # Host keys must already be pinned. This used to be `accept-new`, which
-    # trusts whatever key the first connection is offered -- a window in which a
-    # host on the path can present its own key and read every repository the
-    # workspace pulls. Trusting a new host is now a deliberate administrator
-    # action, taken after comparing the fingerprint against what the Git server's
-    # operator publishes.
-    env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=yes -o BatchMode=yes"
-    _inject_github_token(env)
-    return env
-
-
-def list_remote_branches(parsed: ParsedRemote) -> tuple[List[str], Optional[str]]:
-    """Return the remote's branch names and its default branch.
-
-    Uses ``ls-remote`` rather than a clone: enumerating refs costs one round
-    trip and no disk, so the dialog can offer a branch picker before the user
-    has committed to importing anything.
-    """
-    git = Git()
-    git.update_environment(**git_env())
-    try:
-        head_output = git.ls_remote("--symref", parsed.url, "HEAD")
-    except Exception as error:
-        # This is the first thing that touches the remote, so it is where a
-        # wrong URL or a missing permission shows up. Reporting it here gives a
-        # far better message than letting the clone fail later.
-        raise as_access_error(
-            error, target=_describe_target(parsed), host=parsed.host
-        ) from error
-
-    default_branch: Optional[str] = None
-    for line in head_output.splitlines():
-        if line.startswith("ref:"):
-            target = line.split()[1]
-            default_branch = target.removeprefix("refs/heads/")
-            break
-
-    try:
-        heads_output = git.ls_remote("--heads", parsed.url)
-    except Exception:
-        return ([default_branch] if default_branch else []), default_branch
-
-    branches = []
-    for line in heads_output.splitlines():
-        parts = line.split()
-        if len(parts) == 2 and parts[1].startswith("refs/heads/"):
-            branches.append(parts[1].removeprefix("refs/heads/"))
-    branches.sort(key=lambda name: (name != default_branch, name.casefold()))
-    return branches, default_branch
-
-
-def _github_ssh_equivalent(parsed: ParsedRemote) -> Optional[ParsedRemote]:
-    """Return the workspace-SSH spelling of one GitHub HTTPS remote.
-
-    GitHub's Clone menu presents HTTPS first, while Prism's deployment uses a
-    shared machine-user SSH key for private repositories.  Requiring every
-    designer to understand that deployment detail made imports appear tied to
-    the laptop or role of the person pasting the URL.  Keep HTTPS as the first
-    attempt (so public repositories and ``GITHUB_TOKEN`` continue to work), but
-    provide the equivalent SSH address when that attempt needs credentials.
-    """
-    if parsed.scheme != "https" or parsed.host.casefold() != "github.com":
-        return None
-    if parsed.port not in (None, 443):
-        return None
-    path = parsed.path.strip("/")
-    if not path:
-        return None
-    if not path.endswith(".git"):
-        path += ".git"
-    return parse_remote_url(f"git@github.com:{path}", remote_url_policy())
-
-
-def resolve_remote_access(
-    parsed: ParsedRemote,
-) -> tuple[ParsedRemote, List[str], Optional[str]]:
-    """Resolve a readable transport and return its branch information.
-
-    A private GitHub repository addressed by HTTPS normally responds with a
-    credentials error even when Prism's workspace SSH identity is authorized.
-    In that narrow case, retry the same canonical repository over SSH.  Other
-    failures retain their original meaning and SSH URLs remain untouched.
-    """
-    try:
-        branches, default_branch = list_remote_branches(parsed)
-        return parsed, branches, default_branch
-    except GitAccessError as https_error:
-        if https_error.reason not in {"credentials-required", "repository-not-found"}:
-            raise
-        ssh_remote = _github_ssh_equivalent(parsed)
-        if ssh_remote is None:
-            raise
-
-        print(
-            f"HTTPS access to {_describe_target(parsed)} needs credentials; "
-            "retrying with Prism's workspace SSH identity",
-            flush=True,
-        )
-        try:
-            branches, default_branch = list_remote_branches(ssh_remote)
-        except GitAccessError as ssh_error:
-            # SSH-specific diagnostics (missing/untrusted client or an
-            # unauthorized key) are more actionable than the original generic
-            # HTTPS credential prompt.  A not-found response after the SSH
-            # attempt also correctly covers a typo or a key lacking this one
-            # repository's permission.
-            if ssh_error.reason in {
-                "ssh-unavailable",
-                "host-key-unverified",
-                "ssh-key-not-authorized",
-                "repository-not-found",
-            }:
-                raise ssh_error from https_error
-            raise https_error from ssh_error
-        return ssh_remote, branches, default_branch
 
 
 def _validate_ref(ref: Optional[str]) -> Optional[str]:
@@ -750,7 +593,7 @@ def start_import_job(repo_url: str, import_type: str,
     """
     if import_type not in {"type1", "type2"}:
         raise ValueError("Import type must be type1 or type2")
-    parsed = parse_remote_url(repo_url, remote_url_policy())
+    parsed = parse_remote_url(repo_url, git_remote_access.remote_url_policy())
     validated_ref = _validate_ref(ref)
     paths = sorted(selected_paths or [])
     active_key = hashlib.sha256(
@@ -786,7 +629,7 @@ def start_analyze_job(
     Start an asynchronous analysis job.
     Returns job ID.
     """
-    parsed = parse_remote_url(repo_url, remote_url_policy())
+    parsed = parse_remote_url(repo_url, git_remote_access.remote_url_policy())
     validated_ref = _validate_ref(ref)
     active_key = hashlib.sha256(
         "\x1f".join([parsed.dedup_key, validated_ref or ""]).encode("utf-8")
@@ -852,13 +695,13 @@ def _classify_access_failure(handler: Callable[[JobContext], JobResult]) -> Call
 
 @_classify_access_failure
 def run_project_analyze_job_v3(context: JobContext) -> JobResult:
-    parsed = parse_remote_url(str(context.payload["repo_url"]), remote_url_policy())
+    parsed = parse_remote_url(str(context.payload["repo_url"]), git_remote_access.remote_url_policy())
     requested_ref = _validate_ref(context.payload.get("ref"))
 
     context.progress(
         stage="list-branches", message="Listing remote branches", percent=0, force=True
     )
-    parsed, branches, default_branch = resolve_remote_access(parsed)
+    parsed, branches, default_branch = git_remote_access.resolve_remote_access(parsed)
     if requested_ref and branches and requested_ref not in branches:
         raise ValueError(f"Branch '{requested_ref}' does not exist on this remote")
     selected_ref = requested_ref or default_branch
@@ -971,14 +814,14 @@ def _discover_remote_projects(
                 no_checkout=True,
                 filter="blob:none",
                 progress=V3CloneProgress(context, stage=stage),
-                env=git_env(),
+                env=git_remote_access.git_env(),
                 **clone_options,
             )
         except GitAccessError:
             raise
         except Exception as error:
             raise as_access_error(
-                error, target=_describe_target(parsed), host=parsed.host
+                error, target=git_remote_access.describe_target(parsed), host=parsed.host
             ) from error
         context.check_cancelled()
         context.progress(
@@ -1041,7 +884,7 @@ def _register_planned_projects(
 @_classify_access_failure
 def run_project_import_job_v3(context: JobContext) -> JobResult:
     payload = context.payload
-    parsed = parse_remote_url(str(payload["repo_url"]), remote_url_policy())
+    parsed = parse_remote_url(str(payload["repo_url"]), git_remote_access.remote_url_policy())
     requested_paths = [str(path) for path in payload.get("selected_paths") or []]
     ref = _validate_ref(payload.get("ref"))
     cloned_in_job = False
@@ -1052,8 +895,8 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
         percent=0,
         force=True,
     )
-    if _github_ssh_equivalent(parsed) is not None:
-        parsed, _branches, _default_branch = resolve_remote_access(parsed)
+    if git_remote_access._github_ssh_equivalent(parsed) is not None:
+        parsed, _branches, _default_branch = git_remote_access.resolve_remote_access(parsed)
     repo_url = parsed.url
     repo_name = parsed.repo_name
     existing_repo = find_existing_repository(parsed)
@@ -1109,7 +952,7 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
             # so on a workspace configured for a plaintext internal Git server
             # every remote here raised and was dropped, and the checkout Prism
             # had just cloned itself was reported as belonging to someone else.
-            policy = remote_url_policy()
+            policy = git_remote_access.remote_url_policy()
             remotes = set()
             for remote in existing_checkout.remotes:
                 try:
@@ -1140,14 +983,14 @@ def run_project_import_job_v3(context: JobContext) -> JobResult:
                     repo_url,
                     str(target_path),
                     progress=V3CloneProgress(context, stage="clone-repository"),
-                    env=git_env(),
+                    env=git_remote_access.git_env(),
                     **clone_options,
                 )
             except GitAccessError:
                 raise
             except Exception as error:
                 raise as_access_error(
-                    error, target=_describe_target(parsed), host=parsed.host
+                    error, target=git_remote_access.describe_target(parsed), host=parsed.host
                 ) from error
             cloned_in_job = True
 
@@ -1291,12 +1134,11 @@ def run_project_metadata_job_v3(context: JobContext) -> JobResult:
     )
     schematic_path = project_service.find_schematic_file(project_path, anchor)
     pcb_path = project_service.find_pcb_file(project_path, anchor)
-    # The workspace row already resolves the checkout: parent_repo_path is the
-    # clone, relative_path is "." for a root project or the subproject path.
-    # Same split _repo_context makes on the API side.
-    repo_path = str(row.get("parent_repo_path") or project_path)
-    raw_relative = str(row.get("relative_path") or ".").strip()
-    relative_path = None if raw_relative in (".", "", "/") else raw_relative.strip("/")
+    try:
+        location = project_revision.locate(row)
+        repo_path, relative_path = str(location.repo_root), location.sub_path
+    except project_revision.ProjectNotInRepository:
+        repo_path, relative_path = project_path, None
     context.check_cancelled()
 
     computed = project_metadata_service.refresh_project_metadata(
@@ -1503,7 +1345,7 @@ def sync_project(project_id: str, *, fetch_only: bool = False) -> dict:
         origin = repo.remote('origin')
 
         # Reuse the clone's pinned-host-key and noninteractive Git policy.
-        env = git_env()
+        env = git_remote_access.git_env()
 
         if not fetch_only:
             derived_assets.purge_legacy_in_tree_thumbnails(sync_path, repo)

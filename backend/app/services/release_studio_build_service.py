@@ -64,6 +64,7 @@ from app.release_studio.steps import (
     run_step_catalogue,
 )
 from app.release_studio.vendors import generate_vendor_outputs, resolve_vendor_ids
+from app.services import project_revision
 from app.services import release_studio_service as store
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_runtime import JobCancelled, JobContext, JobResult
@@ -313,10 +314,8 @@ def sync_configurations(project_id: str) -> list[dict[str, Any]]:
     listing: one bad file must not hide the others.
     """
 
-    from app.services.design_compare_service import _repo_paths
-
     try:
-        _repo, _relative, checkout = _repo_paths(project_id)
+        checkout = project_revision.locate_id(project_id).checkout
     except Exception:  # noqa: BLE001 - an unregistered project simply has none
         return store.list_configurations(project_id)
 
@@ -380,12 +379,11 @@ def save_configuration(
     cannot leave an invisible local-only commit behind.
     """
 
-    from app.services.design_compare_service import _repo_paths
-    from app.services.project_import_service import git_env
+    from app.services.git_remote_access import git_env
 
-    repo_root, _relative, checkout = _repo_paths(project_id)
-    repo_root = repo_root.resolve()
-    checkout = checkout.resolve()
+    location = project_revision.locate_id(project_id)
+    repo_root = location.repo_root
+    checkout = location.checkout
     rel_to_checkout = configuration_relpath(config_key)
     try:
         project_prefix = checkout.relative_to(repo_root)
@@ -604,9 +602,8 @@ def list_configurations_at_commit(
     """Return configurations as they existed at *commit_sha*, without upserting."""
 
     from app.release_studio.documents.fonts import DEFAULT_TYPOGRAPHY
-    from app.services.design_compare_service import _repo_paths
 
-    repo_root, _relative, _checkout = _repo_paths(project_id)
+    repo_root = project_revision.locate_id(project_id).repo_root
     rows: list[dict[str, Any]] = []
     for config_key in list_configuration_keys_at_commit(repo_root, commit_sha):
         try:
@@ -669,14 +666,10 @@ def configuration_for_candidate(
         row = workspace_service.workspace.get_project_by_id(project_id)
         if not row:
             raise BuildError("project not found")
-        project_path = Path(str(row["path"] if "path" in row else row.get("clone_path") or ""))
-        repo_root = project_path
-        for _ in range(6):
-            if (repo_root / ".git").exists():
-                break
-            repo_root = repo_root.parent
-        else:
-            raise BuildError("project repository is unavailable for committed configuration")
+        try:
+            repo_root = project_revision.locate(row).repo_root
+        except project_revision.ProjectNotInRepository as exc:
+            raise BuildError("project repository is unavailable for committed configuration") from exc
         config = load_configuration_at_commit(
             repo_root,
             _candidate_commit(candidate),
@@ -1384,14 +1377,14 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
     row = workspace_service.workspace.get_project_by_id(project_id)
     if not row:
         raise BuildError("project not found")
-    project_path = Path(str(row["path"] if "path" in row else row.get("clone_path") or ""))
     repository_id = str(row.get("repo_id") or "")
-    relative_path = str(row.get("relative_path") or ".")
-    repo_root = project_path
-    for _ in range(6):
-        if (repo_root / ".git").exists():
-            break
-        repo_root = repo_root.parent
+    try:
+        location = project_revision.locate(row)
+        repo_root, relative_path = location.repo_root, location.relative_path or "."
+    except project_revision.ProjectNotInRepository:
+        # Let preparation fail inside the retained-failure path below.
+        repo_root = Path(str(row.get("path") or ""))
+        relative_path = str(row.get("relative_path") or ".")
 
     context.progress(stage="closure", message="Materializing the input closure", percent=5)
     tracker = PipelineTracker(

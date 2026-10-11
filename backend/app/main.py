@@ -64,7 +64,7 @@ def configure_git():
     This used to run ``git config --global url.https://<token>@github.com/…``,
     which left the token in cleartext in the container's ``~/.gitconfig``. The
     rewrite now travels in the environment of each Git invocation instead; see
-    ``project_import_service._inject_github_token``.
+    ``git_remote_access._inject_github_token``.
     """
     if settings.GITHUB_TOKEN:
         logger.info("GITHUB_TOKEN is set; HTTPS GitHub remotes will use it per invocation.")
