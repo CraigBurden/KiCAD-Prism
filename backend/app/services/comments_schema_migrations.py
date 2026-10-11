@@ -253,8 +253,3 @@ COMMENTS_LEDGER = Ledger(
     table="comment_schema_migrations",
     steps=tuple(Step(version, name, body) for version, name, body in MIGRATIONS),
 )
-
-
-def apply_comments_migrations(conn) -> List[int]:
-    """Apply every pending step in order under the caller's lock; return the versions applied."""
-    return COMMENTS_LEDGER.apply(conn)

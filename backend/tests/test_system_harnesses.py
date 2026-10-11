@@ -8,6 +8,7 @@ the wire's net baseline.
 from __future__ import annotations
 
 from system_builder_db import FixtureSystemCase
+from support.postgres import seed_folder
 
 from app.services.systems import manifest as manifest_io
 from app.services.systems.jobs import extract_and_store
@@ -133,8 +134,7 @@ class ConversionTest(HarnessCase):
 
     def test_an_end_on_a_hidden_board_is_redacted(self) -> None:
         harness = self.convert()
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]') ON CONFLICT DO NOTHING")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"], on_conflict_skip=True)
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = 'prj_pay'")
         self.conn.commit()
         [seen] = self.document(VIEWER)["harnesses"]

@@ -9,7 +9,6 @@ the whole repository.
 
 from __future__ import annotations
 
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +22,7 @@ from app.release_studio.config import (
 )
 from app.services import release_studio_config_service as config_service
 from app.services.project_revision import ProjectLocation
+from support.repo import git, set_identity  # noqa: E402
 
 
 def _config(title: str, board: str = "board.kicad_pcb", schematic: str = "board.kicad_sch") -> str:
@@ -33,12 +33,6 @@ def _config(title: str, board: str = "board.kicad_pcb", schematic: str = "board.
         f"schematic: {schematic}\n"
         "default_variant: default\n"
     )
-
-
-def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
-    ).stdout.strip()
 
 
 def _write(root: Path, relative: str, text: str) -> None:
@@ -59,18 +53,17 @@ class MonorepoConfigurationLocationTests(unittest.TestCase):
         self.root = Path(tmp.name)
         self.remote = self.root / "remote.git"
         self.repo = self.root / "repo"
-        _git(self.root, "init", "--bare", "--initial-branch=main", str(self.remote))
-        _git(self.root, "clone", str(self.remote), str(self.repo))
-        _git(self.repo, "config", "user.email", "seed@example.com")
-        _git(self.repo, "config", "user.name", "Seed")
+        git(self.root, "init", "--bare", "--initial-branch=main", str(self.remote))
+        git(self.root, "clone", str(self.remote), str(self.repo))
+        set_identity(self.repo)
         for sub in ("alpha", "beta"):
             _write(self.repo, f"{sub}/board.kicad_pcb", f"{sub} board\n")
             _write(self.repo, f"{sub}/board.kicad_sch", f"{sub} schematic\n")
             _write(self.repo, f"{sub}/{CONFIG_DIR}/release.yaml", _config(f"{sub} release"))
-        _git(self.repo, "add", ".")
-        _git(self.repo, "commit", "-m", "two subprojects")
-        _git(self.repo, "push", "-u", "origin", "main")
-        self.commit = _git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-m", "two subprojects")
+        git(self.repo, "push", "-u", "origin", "main")
+        self.commit = git(self.repo, "rev-parse", "HEAD")
 
     def _located(self, sub: str):
         location = ProjectLocation(self.repo.resolve(), sub)
@@ -134,9 +127,9 @@ class MonorepoConfigurationLocationTests(unittest.TestCase):
 
         _write(self.repo, f"{CONFIG_DIR}/legacy.yaml", _config("root legacy", "alpha/board.kicad_pcb", "alpha/board.kicad_sch"))
         _write(self.repo, f"{CONFIG_DIR}/release.yaml", _config("root release", "beta/board.kicad_pcb", "beta/board.kicad_sch"))
-        _git(self.repo, "add", ".")
-        _git(self.repo, "commit", "-m", "root configurations")
-        commit = _git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-m", "root configurations")
+        commit = git(self.repo, "rev-parse", "HEAD")
 
         alpha = self._listing("alpha", commit)
         self.assertEqual(sorted(alpha), ["release"])

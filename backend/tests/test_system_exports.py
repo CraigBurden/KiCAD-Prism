@@ -18,6 +18,7 @@ from app.services.systems import manifest as manifest_io
 from app.services.systems import service as service_module
 from app.services.systems.manifest_schema import digests
 from app.services.systems.store import Conflict, Invalid, NotFound
+from support.postgres import seed_folder
 
 
 class ExportCase(SnapshotCase):
@@ -157,8 +158,7 @@ class ExportTest(ExportCase):
 
     def test_restricted_boards_redact_their_exports(self) -> None:
         self.export("PAYDBG", "OBC-A", "J6")
-        self.conn.execute("INSERT INTO ws_folders (id, visibility_mode, allowed_roles)"
-                          " VALUES ('fld_admins', 'roles', '[\"admin\"]')")
+        seed_folder(self.conn, "fld_admins", visibility_mode="roles", allowed_roles=["admin"])
         self.conn.execute("UPDATE ws_projects SET folder_id = 'fld_admins' WHERE id = 'prj_obc'")
         self.conn.commit()
         [export] = self.document(VIEWER)["exports"]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import unittest
@@ -12,18 +11,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
+from support.postgres import CATALOG_URL, requires_scratch_postgres  # noqa: E402
+
 ACTOR = "designer@example.com"
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for metadata batch lifecycle tests")
+@requires_scratch_postgres("metadata batch lifecycle tests")
 class MetadataBatchLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         from app.services.component_catalog_service_postgres import ComponentCatalogPostgresService
 
         self.tempdir = tempfile.TemporaryDirectory()
         self.service = ComponentCatalogPostgresService(
-            store_root=Path(self.tempdir.name) / "components", database_url=POSTGRES_URL,
+            store_root=Path(self.tempdir.name) / "components", database_url=CATALOG_URL,
         )
         self.service.initialize()
         self.lifecycle = self.service.metadata_batch_lifecycle

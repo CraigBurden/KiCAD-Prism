@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import unittest
 import uuid
+from dataclasses import replace
 from unittest import mock
 from pathlib import Path
-from urllib.parse import urlsplit
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -21,30 +20,10 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
     dict_row = None  # type: ignore[assignment]
 
 from app.services.workspace_migrations.m008_release_studio import migrate as _release_studio  # noqa: E402
-from app.services.workspace_schema_migrations import (  # noqa: E402
-    MIGRATIONS,
-    apply_workspace_migrations,
-)
-
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _database_identity(url: str) -> tuple[str, str, int | None, str]:
-    parsed = urlsplit(url)
-    return (
-        parsed.username or "",
-        (parsed.hostname or "").lower(),
-        parsed.port,
-        parsed.path.lstrip("/"),
-    )
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _database_identity(POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
+from app.services.schema_ledger import Step  # noqa: E402
+from app.services.workspace_schema_migrations import MIGRATIONS, WORKSPACE_LEDGER  # noqa: E402
+from support.postgres import (  # noqa: E402
+    requires_scratch_postgres, scratch_schema, seed_job, seed_project, seed_repository,
 )
 
 
@@ -521,77 +500,19 @@ EXPECTED_FKS = {
 }
 
 
-@unittest.skipUnless(
-    POSTGRES_URL,
-    "TEST_POSTGRES_URL is required for Release Studio PostgreSQL schema tests",
-)
-@unittest.skipUnless(
-    psycopg is not None,
-    "psycopg is required for Release Studio PostgreSQL schema tests",
-)
-@unittest.skipIf(
-    SHARED_APPLICATION_DATABASE,
-    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
-)
+@requires_scratch_postgres("Release Studio PostgreSQL schema tests")
 class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
     """Run Release Studio Migrations 8 through 9 against isolated PostgreSQL."""
 
     def setUp(self) -> None:
-        assert psycopg is not None
-        self.schema = f"release_r3_{uuid.uuid4().hex}"
-        dsn = POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
-        self.conn = psycopg.connect(dsn, row_factory=dict_row)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_base_workspace_tables()
-        apply_workspace_migrations(self.conn)
-        self.conn.commit()
+        self.scratch = scratch_schema(self, "release_r3", ledgers=(WORKSPACE_LEDGER,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
 
         # The ledger makes the normal second application a no-op.  Calling the
         # hardening migration itself is covered separately to prove its DDL is
         # also replaceable when a deployment resumes after a partial attempt.
-        apply_workspace_migrations(self.conn)
+        WORKSPACE_LEDGER.apply(self.conn)
         self.conn.commit()
-
-    def tearDown(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
-    def _create_base_workspace_tables(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE ws_repositories (
-                id TEXT PRIMARY KEY
-            );
-            CREATE TABLE ws_folders (
-                id TEXT PRIMARY KEY,
-                parent_id TEXT
-            );
-            CREATE TABLE ws_projects (
-                id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id),
-                folder_id TEXT
-            );
-            CREATE TABLE ws_project_portfolio (
-                project_id TEXT PRIMARY KEY REFERENCES ws_projects(id)
-            );
-            CREATE TABLE ws_jobs (
-                id TEXT PRIMARY KEY,
-                kind TEXT NOT NULL,
-                status TEXT NOT NULL,
-                message TEXT NOT NULL DEFAULT '',
-                percent REAL NOT NULL DEFAULT 0,
-                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            """,
-            prepare=False,
-        )
 
     def _assert_rejected(self, sql: str, params: tuple = ()) -> None:
         savepoint = f"release_probe_{uuid.uuid4().hex}"
@@ -964,18 +885,9 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
             "artifact_attestation": f"artifact-attestation-{suffix}",
             "key": f"key-{suffix}",
         }
-        self.conn.execute("INSERT INTO ws_repositories(id) VALUES (%s)", (ids["repository"],))
-        self.conn.execute(
-            "INSERT INTO ws_projects(id, repo_id) VALUES (%s, %s)",
-            (ids["project"], ids["repository"]),
-        )
-        self.conn.execute(
-            """
-            INSERT INTO ws_jobs(id, kind, status)
-            VALUES (%s, 'release-build', 'queued')
-            """,
-            (ids["job"],),
-        )
+        seed_repository(self.conn, ids["repository"])
+        seed_project(self.conn, ids["project"], ids["repository"])
+        seed_job(self.conn, ids["job"], "release-build", "queued")
         for artifact_id, kind in (
             (ids["artifact_dossier"], "release-dossier"),
             (ids["artifact_evidence"], "release-evidence"),
@@ -1856,8 +1768,7 @@ class WorkspaceMigrationRenumberTests(unittest.TestCase):
         ledger[26] = "repository_origin"
         conn = _LedgerOnlyConnection(ledger)
 
-        with mock.patch("app.services.workspace_schema_migrations.MIGRATIONS", stubbed):
-            apply_workspace_migrations(conn)
+        replace(WORKSPACE_LEDGER, steps=tuple(Step(version, name, body) for version, name, body in stubbed)).apply(conn)
 
         self.assertEqual(conn.ledger[41], "repository_origin")
         self.assertEqual(list(conn.ledger.values()).count("repository_origin"), 1)

@@ -8,7 +8,6 @@ netlist evidence, the fixture system baselines, or the contract rules
 from __future__ import annotations
 
 import json
-import subprocess
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -31,6 +30,7 @@ from app.services.systems.interface_extractor import (
     extract_for_revision,
     extract_interface,
 )
+from support.repo import commit_all, git  # noqa: E402
 
 
 @lru_cache(maxsize=None)
@@ -285,15 +285,11 @@ class RevisionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch) / "mini_obc"
             commits = build_fixture_repo("mini_obc", repo)
-            git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com"]
-            subprocess.run([*git, "checkout", "-q", commits["F0"]], check=True)
-            subprocess.run([*git, "mv", "mini_obc.kicad_sch", "main.kicad_sch"], check=True)
-            subprocess.run([*git, "mv", "mini_obc.kicad_pcb", "board.kicad_pcb"], check=True)
+            git(repo, "checkout", "-q", commits["F0"])
+            git(repo, "mv", "mini_obc.kicad_sch", "main.kicad_sch")
+            git(repo, "mv", "mini_obc.kicad_pcb", "board.kicad_pcb")
             (repo / ".prism.json").write_text(json.dumps({"schematic": "main.kicad_sch", "pcb": "board.kicad_pcb"}))
-            subprocess.run([*git, "add", ".prism.json"], check=True)
-            subprocess.run([*git, "commit", "-q", "-m", "configured sources"], check=True)
-            renamed = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True,
-                                     text=True).stdout.strip()
+            renamed = commit_all(repo, "configured sources")
             project = SimpleNamespace(id="prj_obc", path=str(repo), project_file="mini_obc.kicad_pro")
             configured = extract_for_revision(project, renamed)
         baseline = extract("mini_obc/F0")

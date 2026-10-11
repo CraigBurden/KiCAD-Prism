@@ -4,21 +4,22 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import tempfile
 import unittest
-import uuid
-from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 from app.core.config import settings
 from app.services import comment_attachments, comment_bundle, comment_export
 from app.services.comments_revisions import Editor
-from app.services.comments_store_service import CommentsStoreService
+from support.postgres import (  # noqa: E402
+    requires_scratch_postgres,
+    scratch_schema,
+    comments_store,
+    comments_store_on,
+)
 
 
-TEST_DSN = os.environ.get("TEST_POSTGRES_URL", "")
 A = "a" * 32
 B = "b" * 32
 
@@ -59,24 +60,12 @@ class RendererTests(unittest.TestCase):
         self.assertIn("    # not a heading", text)
 
 
-@unittest.skipUnless(TEST_DSN, "TEST_POSTGRES_URL is required for disposable PostgreSQL tests")
+@requires_scratch_postgres("comment store tests")
 class BundleRoundTripTests(unittest.TestCase):
     def setUp(self) -> None:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        self._psycopg = psycopg
-        self.schema = "test_comment_bundle_" + uuid.uuid4().hex[:12]
-        self.store = CommentsStoreService()
-        self.store.schema = self.schema
-
-        @contextmanager
-        def connect():
-            with psycopg.connect(TEST_DSN, row_factory=dict_row) as conn:
-                conn.execute(f'SET search_path TO "{self.schema}", public')
-                yield conn
-
-        self.store._connect = connect
+        self.scratch = scratch_schema(self, "test_comment_bundle", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.project = tempfile.TemporaryDirectory()
         self.blobs = tempfile.TemporaryDirectory()
         root_patch = patch.object(settings, "COMMENT_ATTACHMENT_ROOT", self.blobs.name)
@@ -84,8 +73,6 @@ class BundleRoundTripTests(unittest.TestCase):
         self.addCleanup(root_patch.stop)
 
     def tearDown(self) -> None:
-        with self._psycopg.connect(TEST_DSN) as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
         self.project.cleanup()
         self.blobs.cleanup()
 
@@ -125,18 +112,7 @@ class BundleRoundTripTests(unittest.TestCase):
         # project's rows, and must not attach files to them.
         self.assertEqual(self.store.get_comments_file("p_clone", self.project.name)["comments"], [])
         # A fresh Prism (its own database) restores everything from the bundle.
-        other = CommentsStoreService()
-        other.schema = self.schema + "_b"
-        base_connect = self.store._connect
-
-        @contextmanager
-        def connect_b():
-            with base_connect() as conn:
-                conn.execute(f'SET search_path TO "{other.schema}", public')
-                yield conn
-
-        other._connect = connect_b
-        self.addCleanup(lambda: self._drop(other.schema))
+        other = comments_store(self, "test_comment_bundle_b")
         clone = other.get_comments_file("p_clone", self.project.name)["comments"]
         self.assertEqual(len(clone), 1)
         root = clone[0]
@@ -171,10 +147,6 @@ class BundleRoundTripTests(unittest.TestCase):
         self.assertIn("](attachments/", report)
         self.assertNotIn("../attachments", report)
         self.assertIn(seeded["root"]["id"], report)
-
-    def _drop(self, schema: str) -> None:
-        with self._psycopg.connect(TEST_DSN) as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
 
     def test_hostile_bundle_is_revalidated(self) -> None:
         bundle = Path(self.project.name) / ".comments"

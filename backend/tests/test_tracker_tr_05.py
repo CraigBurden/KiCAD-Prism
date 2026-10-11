@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
-import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -22,22 +20,15 @@ from fastapi.responses import JSONResponse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api import comments as comments_api  # noqa: E402
-from tests.test_tracker_tr_01 import (  # noqa: E402
-    if_match,
-    POSTGRES_URL,
-    SHARED_APPLICATION_DATABASE,
-    DisposableSchemaStore,
-    psycopg,
-)
+from tests.test_tracker_tr_01 import if_match  # noqa: E402
 from tests.test_tracker_tr_03 import body, run, session  # noqa: E402
-
-
-def git(cwd: str, *args: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", cwd, *args],
-        text=True,
-        stderr=subprocess.DEVNULL,
-    ).strip()
+from support.postgres import (  # noqa: E402
+    requires_scratch_postgres,
+    scratch_schema,
+    comments_store,
+    comments_store_on,
+)
+from support.repo import commit_all, git, init_repo  # noqa: E402
 
 
 def write(path: Path, text: str) -> None:
@@ -60,16 +51,10 @@ class TwoCommitPcb:
         write(pcb, "(kicad_pcb (version 20240101) A)\n")
         write(sch, "(kicad_sch (version 20240101) (uuid a1) (sheet (property \"Sheetname\" \"Port\") (property \"Sheetfile\" \"Port.kicad_sch\")))\n")
         write(self.project_dir / "Port.kicad_sch", "(kicad_sch (version 20240101) (uuid port))\n")
-        git(str(root), "init", "-b", "main")
-        git(str(root), "config", "user.email", "test@example.com")
-        git(str(root), "config", "user.name", "Test")
-        git(str(root), "add", ".")
-        git(str(root), "commit", "-m", "A")
-        self.sha_a = git(str(root), "rev-parse", "HEAD")
+        init_repo(root)
+        self.sha_a = commit_all(root, "A")
         write(pcb, "(kicad_pcb (version 20240101) B)\n")
-        git(str(root), "add", ".")
-        git(str(root), "commit", "-m", "B")
-        self.sha_b = git(str(root), "rev-parse", "HEAD")
+        self.sha_b = commit_all(root, "B")
         self.project = SimpleNamespace(
             id="prj_test",
             path=str(self.project_dir),
@@ -77,13 +62,12 @@ class TwoCommitPcb:
         )
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for comments route tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("comments route tests")
 class ImmutableAnchorTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"comments_tr05_{uuid.uuid4().hex[:12]}"
-        self.store = DisposableSchemaStore(self.schema)
+        self.scratch = scratch_schema(self, "comments_tr05", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.fixture = TwoCommitPcb(Path(self.tempdir.name))
@@ -95,12 +79,6 @@ class ImmutableAnchorTests(unittest.TestCase):
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
-        self.addCleanup(self._drop_schema)
-
-    def _drop_schema(self) -> None:
-        with self.store._connect() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            conn.commit()
 
     def _create(self, user, **overrides):
         payload = {
@@ -311,12 +289,9 @@ class ImmutableAnchorTests(unittest.TestCase):
 
 
 class MonorepoAnchorTests(unittest.TestCase):
-    @unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for comments route tests")
-    @unittest.skipUnless(psycopg is not None, "psycopg is required")
-    @unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+    @requires_scratch_postgres("comments route tests")
     def test_monorepo_records_project_relative_path(self) -> None:  # F2.monorepo_project_anchor
-        schema = f"comments_tr05_{uuid.uuid4().hex[:12]}"
-        store = DisposableSchemaStore(schema)
+        store = comments_store(self, "comments_tr05")
         tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(tempdir.cleanup)
         fixture = TwoCommitPcb(Path(tempdir.name), nested="hw/boards/carrier")
@@ -327,13 +302,6 @@ class MonorepoAnchorTests(unittest.TestCase):
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
-
-        def drop():
-            with store._connect() as conn:
-                conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
-                conn.commit()
-
-        self.addCleanup(drop)
         created = run(comments_api.create_comment(
             "prj_test",
             comments_api.CreateCommentRequest(

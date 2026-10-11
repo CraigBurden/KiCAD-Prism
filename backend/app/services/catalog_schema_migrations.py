@@ -314,13 +314,3 @@ CATALOG_LEDGER = Ledger(
     renumbered=tuple(Renumbered(name, old, new) for name, old, new in RENUMBERED),
     adopt=_adopt_legacy_markers,
 )
-
-
-def apply_catalog_migrations(conn: Any) -> list[int]:
-    """Apply versioned, additive catalog migrations under the caller's lock."""
-    return CATALOG_LEDGER.apply(conn)
-
-
-def pending_catalog_migrations(conn: Any) -> list[tuple[int, str]]:
-    """Migrations this build would really run, for reporting before an upgrade."""
-    return CATALOG_LEDGER.pending(conn)

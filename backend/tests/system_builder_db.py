@@ -10,11 +10,8 @@ which is the same starting state at a fraction of the cost (CI plan item 3). Eac
 
 from __future__ import annotations
 
-import os
-import subprocess
 import tempfile
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,15 +28,16 @@ from system_builder_fixtures import build_fixture_repo, fixture_system
 from app.services.systems.detection import Detector
 from app.services.systems.drift import pad_sort_key
 from app.services.systems.store import SystemStore
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip().replace(
-    "postgresql+psycopg://", "postgresql://", 1
+from app.services.workspace_schema_migrations import WORKSPACE_LEDGER
+from support.postgres import (
+    connect, drop_schema, requires_scratch_postgres, seed_project, seed_repository, set_path, unique_name,
 )
+from support.repo import git
+
 BOARDS = {"mini_obc": "prj_obc", "mini_payload": "prj_pay", "mini_power": "prj_pwr"}
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for System Builder database tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for System Builder database tests")
+@requires_scratch_postgres("System Builder database tests")
 class FixtureSystemCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -57,35 +55,32 @@ class FixtureSystemCase(unittest.TestCase):
     def tearDownClass(cls) -> None:
         schema = cls.__dict__.get("_schema")
         if schema:
-            with psycopg.connect(POSTGRES_URL, autocommit=True) as conn:
-                conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
-                conn.execute(f'DROP SCHEMA IF EXISTS "{schema}_seed" CASCADE')
+            drop_schema(schema, f"{schema}_seed")
             cls._schema = None
         cls._scratch.cleanup()
 
     def setUp(self) -> None:
-        self.conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
+        self.conn = connect()
         owner = type(self)
         if owner.__dict__.get("_schema"):
             self.schema = owner._schema
             self._reset_schema(owner._seeded)
         else:
-            self.schema = f"system_detect_{uuid.uuid4().hex}"
+            self.schema = unique_name("system_detect")
             owner._seeded = self._migrate_schema()
             owner._schema = self.schema
         schema = self.schema
 
         @contextmanager
-        def connect():
-            conn = psycopg.connect(POSTGRES_URL, row_factory=dict_row)
+        def schema_connection():
+            conn = connect(schema)
             try:
-                conn.execute(f'SET search_path TO "{schema}", public')
                 yield conn
             finally:
                 conn.close()
 
-        self.connect = connect
-        self.detector = Detector(connect=connect, project_loader=self.projects.get)
+        self.connect = schema_connection
+        self.detector = Detector(connect=schema_connection, project_loader=self.projects.get)
         for board in BOARDS:
             self.move_track(board, "F0")
         self.store = SystemStore(self.conn)
@@ -108,33 +103,13 @@ class FixtureSystemCase(unittest.TestCase):
 
     def _migrate_schema(self) -> list[str]:
         """Create and migrate this class's schema; copy the rows it starts with into ``<schema>_seed``."""
-        from app.services.workspace_schema_migrations import apply_workspace_migrations
-
         self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE ws_repositories (id TEXT PRIMARY KEY);
-            CREATE TABLE ws_folders (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT 'f',
-                parent_id TEXT, visibility_mode TEXT,
-                allowed_roles JSONB NOT NULL DEFAULT '[]'::jsonb);
-            CREATE TABLE ws_projects (id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id),
-                name TEXT NOT NULL DEFAULT 'board', display_name TEXT,
-                folder_id TEXT REFERENCES ws_folders(id) ON DELETE SET NULL);
-            CREATE TABLE ws_project_portfolio (project_id TEXT PRIMARY KEY);
-            CREATE TABLE ws_jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL,
-                message TEXT NOT NULL DEFAULT '', percent REAL NOT NULL DEFAULT 0,
-                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
-            INSERT INTO ws_repositories (id) VALUES ('repo_obc'), ('repo_pay'), ('repo_pwr');
-            INSERT INTO ws_projects (id, repo_id) VALUES
-                ('prj_obc', 'repo_obc'), ('prj_pay', 'repo_pay'), ('prj_pwr', 'repo_pwr');
-            """,
-            prepare=False,
-        )
-        apply_workspace_migrations(self.conn)
+        set_path(self.conn, self.schema)
+        WORKSPACE_LEDGER.apply(self.conn)
+        for project in BOARDS.values():
+            repo = f"repo_{project.removeprefix('prj_')}"
+            seed_repository(self.conn, repo)
+            seed_project(self.conn, project, repo)
         self.conn.execute(f'CREATE SCHEMA "{self.schema}_seed"')
         seeded = []
         for name in self._parents_first(self._tables()):
@@ -173,8 +148,7 @@ class FixtureSystemCase(unittest.TestCase):
 
     def move_track(self, board: str, snapshot: str) -> str:
         sha = self.commits[board][snapshot]
-        subprocess.run(["git", "-C", str(self.repos[board]), "branch", "-f", "track", sha],
-                       check=True, capture_output=True)
+        git(self.repos[board], "branch", "-f", "track", sha)
         return sha
 
     def load_fixture_system(self):

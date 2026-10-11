@@ -10,13 +10,13 @@ with two anchored projects, and PCB-only projects without a ``.kicad_pro``.
 from __future__ import annotations
 
 import json
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
 from app.services import semantic_index_service, variant_catalog_service
+from support.repo import commit_all, init_repo  # noqa: E402
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "design_variants"
 CATALOG_CODES = {
@@ -199,12 +199,8 @@ class TempProjectTests(unittest.TestCase):
         self.root = Path(temporary.name)
 
     def _init_repo(self) -> None:
-        for command in (
-            ["git", "init", "-q"],
-            ["git", "add", "-A"],
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one"],
-        ):
-            subprocess.run(command, cwd=self.root, check=True)
+        init_repo(self.root)
+        commit_all(self.root, "one")
 
     def _write(self, relative: str, content: str) -> Path:
         path = self.root / relative

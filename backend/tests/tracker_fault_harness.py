@@ -1,17 +1,14 @@
-"""Shared adversarial forge + disposable Postgres schema for TR-45 (F5–F8)."""
+"""Shared adversarial forge and seed rows for TR-45 (F5–F8); schemas come from ``support.postgres``."""
 
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
-from urllib.parse import urlsplit
 
-from app.services import comments_schema_migrations
 from app.services.trackers.capabilities import ProviderCapabilities
 from app.services.trackers.contracts import (
     Container,
@@ -33,17 +30,8 @@ from app.services.trackers.contracts import (
 from app.services.trackers.composition import initialize_tracker_composition, reset_tracker_runtime
 from app.services.trackers.connector_runtime import ConnectorRuntime, install_connector_runtime
 from app.services.trackers.errors import ProviderError
-from app.services.trackers.inbox_store import apply_schema as apply_inbox_schema
-from app.services.trackers.migrations import migrate_workspace_tracker_tables
-from app.services.trackers.op_store import apply_schema as apply_op_schema
 from app.services.trackers.github_recovery import RecoveryCandidate
-
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-except ImportError:  # pragma: no cover
-    psycopg = None  # type: ignore[assignment]
-    dict_row = None  # type: ignore[assignment]
+from support.postgres import seed_comment  # noqa: E402
 
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 FIXTURE_SETS = ("F05", "F06", "F07", "F08")
@@ -64,35 +52,6 @@ EXT_COMMENT = "2211003"
 COMMIT = "3f2c9a1b7e4d5c6a8b9f0e1d2c3b4a5968778695"
 PROJECT_ID = "prj_a"
 PT_ID = "pt_a"
-
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def require_test_postgres() -> None:
-    if not POSTGRES_URL:
-        raise RuntimeError("TEST_POSTGRES_URL is required for tracker adversarial tests")
-    if SHARED_APPLICATION_DATABASE:
-        raise RuntimeError("TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
-    if psycopg is None:
-        raise RuntimeError("psycopg is required for tracker adversarial tests")
-
-
-def dsn() -> str:
-    require_test_postgres()
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def load_fixture_cases(set_name: str) -> list[dict]:
@@ -118,110 +77,6 @@ def _bot() -> ForgeUser:
 
 def _human() -> ForgeUser:
     return ForgeUser(id=HUMAN_ID, login=HUMAN_LOGIN, isBot=False)
-
-
-COMMENTS_FOUNDATION_DDL = """
-CREATE TABLE comments (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    author TEXT NOT NULL DEFAULT '',
-    author_kind TEXT NOT NULL DEFAULT 'user',
-    author_user_id TEXT,
-    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    status TEXT NOT NULL DEFAULT 'OPEN',
-    context TEXT NOT NULL DEFAULT 'PCB',
-    location_x REAL NOT NULL DEFAULT 0,
-    location_y REAL NOT NULL DEFAULT 0,
-    location_layer TEXT NOT NULL DEFAULT '',
-    location_page TEXT NOT NULL DEFAULT '',
-    content TEXT NOT NULL DEFAULT '',
-    comment_class TEXT NOT NULL DEFAULT 'general',
-    severity TEXT NOT NULL DEFAULT 'info',
-    scope TEXT NOT NULL DEFAULT 'canvas',
-    anchor_commit TEXT,
-    anchor_state TEXT NOT NULL DEFAULT 'pinned',
-    anchor_source TEXT,
-    revision INTEGER NOT NULL DEFAULT 1,
-    deleted_at TIMESTAMPTZ,
-    deleted_by TEXT,
-    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
-);
-CREATE TABLE comment_replies (
-    id TEXT PRIMARY KEY,
-    comment_id TEXT NOT NULL REFERENCES comments(id),
-    project_id TEXT NOT NULL,
-    author TEXT NOT NULL DEFAULT '',
-    author_kind TEXT NOT NULL DEFAULT 'user',
-    author_user_id TEXT,
-    origin TEXT NOT NULL DEFAULT 'prism',
-    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    content TEXT NOT NULL DEFAULT '',
-    revision INTEGER NOT NULL DEFAULT 1,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    sync_state TEXT,
-    deleted_at TIMESTAMPTZ,
-    deleted_by TEXT
-);
-"""
-
-
-def bootstrap_tracker_schema(conn: Any) -> None:
-    conn.execute(COMMENTS_FOUNDATION_DDL, prepare=False)
-    comments_schema_migrations.apply_comments_migrations(conn)
-    migrate_workspace_tracker_tables(conn)
-    apply_op_schema(conn)
-    apply_inbox_schema(conn)
-
-
-class DisposableSchema:
-    """Unique search_path schema + connect factory for concurrent workers."""
-
-    def __init__(self, prefix: str = "tr45") -> None:
-        require_test_postgres()
-        self.schema = f"{prefix}_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(dsn(), row_factory=dict_row)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        bootstrap_tracker_schema(self.conn)
-        self.conn.commit()
-
-    def connect(self):
-        conn = psycopg.connect(dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
-        return conn
-
-    @contextmanager
-    def factory(self) -> Iterator[Any]:
-        conn = self.connect()
-        try:
-            yield conn
-        finally:
-            conn.close()
-
-    def drop(self) -> None:
-        try:
-            try:
-                self.conn.rollback()
-            except Exception:
-                pass
-            try:
-                self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-                self.conn.commit()
-            except Exception:
-                try:
-                    fresh = psycopg.connect(dsn(), row_factory=dict_row)
-                    try:
-                        fresh.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-                        fresh.commit()
-                    finally:
-                        fresh.close()
-                except Exception:
-                    pass
-        finally:
-            try:
-                self.conn.close()
-            except Exception:
-                pass
 
 
 def github_issue_url(container_path: str, issue_number: int | str) -> str:
@@ -942,33 +797,12 @@ def seed_comment_row(
     comment_class: str = "observation",
     author_user_id: str | None = "u_designer",
 ) -> None:
-    conn.execute(
-        """
-        INSERT INTO comments (
-            id, project_id, author, author_kind, author_user_id, content, severity, comment_class,
-            context, location_x, location_y, location_layer, anchor_commit, anchor_state, anchor_source,
-            status, revision
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
-        ON CONFLICT (id) DO NOTHING
-        """,
-        (
-            comment_id,
-            project_id,
-            "Priya",
-            "user",
-            author_user_id,
-            content,
-            "major",
-            comment_class,
-            "PCB",
-            1.0,
-            2.0,
-            "F.Cu",
-            COMMIT,
-            "pinned",
-            "openswitch.kicad_pro",
-            status,
-        ),
+    seed_comment(
+        conn, comment_id, project_id, on_conflict_skip=True,
+        author_kind="user", author_user_id=author_user_id, content=content, severity="major",
+        comment_class=comment_class, location_x=1.0, location_y=2.0, location_layer="F.Cu",
+        anchor_commit=COMMIT, anchor_state="pinned", anchor_source="openswitch.kicad_pro",
+        status=status, revision=1,
     )
 
 
@@ -979,7 +813,6 @@ __all__ = [
     "COMMIT",
     "CONNECTOR",
     "CONTAINER",
-    "DisposableSchema",
     "EXT_COMMENT",
     "FakeContext",
     "FakeJobs",
@@ -987,20 +820,15 @@ __all__ = [
     "HUMAN_LOGIN",
     "ISSUE_ID",
     "ISSUE_NUMBER",
-    "POSTGRES_URL",
     "PROJECT_ID",
     "PT_ID",
     "REPO",
     "REPLY_ID",
-    "SHARED_APPLICATION_DATABASE",
     "StatefulFakeForge",
     "THREAD_ID",
     "all_fixture_case_ids",
-    "bootstrap_tracker_schema",
-    "dsn",
     "install_fake_provider",
     "load_fixture_cases",
-    "require_test_postgres",
     "seed_comment_row",
     "seed_destination",
 ]

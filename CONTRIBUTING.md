@@ -100,6 +100,13 @@ PostgreSQL integration tests use `TEST_POSTGRES_URL` and, for the catalog
 epoch-2 cutover, `LEGACY_SURVIVOR_TEST_POSTGRES_URL`. Use disposable test
 databases; do not point either suite at a production database.
 
+Tests get their schemas and repositories from `backend/tests/support/`:
+`support.postgres` hands out a scratch schema migrated by the production
+ledgers (dropped after the test) plus seed rows, and `support.repo` makes Git
+repositories with a fixed author. `tests/test_test_support.py` fails if a test
+module writes its own `DROP SCHEMA`, copies a production table, or runs Git
+with its own identity.
+
 ### Semantic viewer
 
 ```bash

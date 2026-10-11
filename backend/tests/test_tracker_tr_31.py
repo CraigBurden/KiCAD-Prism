@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import unittest
 import uuid
@@ -12,7 +11,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.comments_revisions import Editor, set_root_status  # noqa: E402
 from app.services.trackers.capabilities import ProviderCapabilities  # noqa: E402
 from app.services.trackers.contracts import (  # noqa: E402
@@ -36,6 +34,8 @@ from app.services.trackers.state_executor import execute_set_state_op  # noqa: E
 from app.services.trackers.store import TrackerStore  # noqa: E402
 from app.services.trackers.create_executor import execute_claimed_op  # noqa: E402
 from tracker_fault_harness import install_fake_provider  # noqa: E402
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -44,8 +44,6 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F6 = json.loads((DOCS / "fixtures" / "F06.json").read_text(encoding="utf-8"))
 
@@ -62,22 +60,6 @@ COMMENT_ID = "c_8f3a1b2c"
 THREAD_ID = "tt_a"
 
 
-def _identity(url: str):
-    from urllib.parse import urlsplit
-
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _issue(
@@ -168,20 +150,11 @@ class FixtureContractTests(unittest.TestCase):
             self.assertIn(case_id, ids)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class StateReconciliationPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr31_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self._create_comments_foundation()
-        comments_schema_migrations.apply_comments_migrations(self.conn)
-        migrate_workspace_tracker_tables(self.conn)
-        apply_op_schema(self.conn)
+        self.scratch = scratch_schema(self, "tr31", ledgers=(COMMENTS_LEDGER,), then=(migrate_workspace_tracker_tables, apply_op_schema,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.store = TrackerStore(self.conn)
         self.ops = OpStore(self.conn)
         self.adapter = FakeIssueAdapter()
@@ -189,8 +162,7 @@ class StateReconciliationPostgresTests(unittest.TestCase):
 
         @contextmanager
         def factory():
-            conn = psycopg.connect(_dsn(), row_factory=dict_row)
-            conn.execute(f'SET search_path TO "{self.schema}", public')
+            conn = self.scratch.connect()
             try:
                 yield conn
             finally:
@@ -199,52 +171,6 @@ class StateReconciliationPostgresTests(unittest.TestCase):
         provider = install_fake_provider(self.adapter, factory)
         provider.__enter__()
         self.addCleanup(provider.__exit__, None, None, None)
-
-    def _cleanup(self) -> None:
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
-
-    def _create_comments_foundation(self) -> None:
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                author_kind TEXT NOT NULL DEFAULT 'user',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                comment_class TEXT NOT NULL DEFAULT 'general',
-                severity TEXT NOT NULL DEFAULT 'info',
-                scope TEXT NOT NULL DEFAULT 'canvas',
-                anchor_commit TEXT,
-                anchor_state TEXT NOT NULL DEFAULT 'pinned',
-                revision INTEGER NOT NULL DEFAULT 1
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                author_kind TEXT NOT NULL DEFAULT 'user',
-                origin TEXT NOT NULL DEFAULT 'prism',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT '',
-                revision INTEGER NOT NULL DEFAULT 1
-            );
-            """,
-            prepare=False,
-        )
 
     def _seed_destination(self) -> None:
         self.store.upsert_connector(
@@ -281,12 +207,15 @@ class StateReconciliationPostgresTests(unittest.TestCase):
         remote_version: dict | None = None,
     ) -> None:
         version = remote_version or {"updatedAt": "2026-09-20T15:42:11Z", "etag": "W/1"}
-        self.conn.execute(
-            """
-            INSERT INTO comments(id, project_id, author, content, status, anchor_commit, revision)
-            VALUES (%s, %s, %s, %s, %s, %s, 1)
-            """,
-            (COMMENT_ID, "prj_a", "Priya", "root", status, "abc123"),
+        seed_comment(
+            self.conn,
+            COMMENT_ID,
+            "prj_a",
+            author="Priya",
+            content="root",
+            status=status,
+            anchor_commit="abc123",
+            revision=1,
         )
         self.store.insert_thread(
             thread_id=THREAD_ID,

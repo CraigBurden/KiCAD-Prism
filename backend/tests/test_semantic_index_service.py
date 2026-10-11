@@ -1,6 +1,5 @@
 import hashlib
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -9,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services import project_revision, semantic_index_service, semantic_visualizer_service
+from support.repo import commit_all, init_repo  # noqa: E402
 
 
 class SemanticIndexServiceTests(unittest.TestCase):
@@ -828,12 +828,8 @@ class RevisionIdentityTests(unittest.TestCase):
         (board / "board.kicad_pro").write_text("{}", encoding="utf-8")
         (board / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
         (board / "notes.md").write_text("not a semantic source", encoding="utf-8")
-        for command in (
-            ["git", "init", "-q"],
-            ["git", "add", "-A"],
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "board"],
-        ):
-            subprocess.run(command, cwd=root, check=True)
+        init_repo(root)
+        commit_all(root, "board")
         return board
 
     def test_a_commit_and_the_working_tree_agree_on_the_key(self) -> None:

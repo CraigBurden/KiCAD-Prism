@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import unittest
@@ -27,19 +26,15 @@ from app.services.catalog.postgres_runtime import CatalogPostgresConnection, Pos
 from app.services.catalog.inventory_csv import CatalogInventoryCsv  # noqa: E402
 from app.services.catalog.preview_pipeline import CatalogPreviewPipeline  # noqa: E402
 from app.services.catalog.preview_renderer import CatalogPreviewRenderer  # noqa: E402
-from app.services.catalog_schema_migrations import (  # noqa: E402
-    MIGRATIONS,
-    pending_catalog_migrations,
-)
+from app.services.catalog_schema_migrations import CATALOG_LEDGER, MIGRATIONS  # noqa: E402
 from app.services.catalog.preview_pipeline import PREVIEW_PIPELINE_VERSION  # noqa: E402
 from app.services.catalog.preview_renderer import PREVIEW_STATUS_READY  # noqa: E402
 from app.services.component_catalog_service_postgres import (  # noqa: E402
     ComponentCatalogPostgresService,
 )
+from support.postgres import CATALOG_URL, requires_scratch_postgres  # noqa: E402
 
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 
 UUID_TEXT = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
@@ -162,29 +157,7 @@ def _normalize_contract_bytes(value: bytes) -> bytes:
     )
 
 
-def _database_identity(url: str) -> tuple[str, str, int | None, str]:
-    parsed = urlsplit(url)
-    return (
-        parsed.username or "",
-        (parsed.hostname or "").lower(),
-        parsed.port,
-        parsed.path.lstrip("/"),
-    )
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _database_identity(POSTGRES_URL) == _database_identity(APPLICATION_POSTGRES_URL)
-)
-
-
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for PostgreSQL integration tests")
-@unittest.skipIf(
-    SHARED_APPLICATION_DATABASE,
-    "Component catalog integration tests require a dedicated PostgreSQL database; "
-    "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL",
-)
+@requires_scratch_postgres("PostgreSQL integration tests")
 class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -192,7 +165,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.metadata_field_ids: list[str] = []
         self.service = ComponentCatalogPostgresService(
             store_root=Path(self.tempdir.name) / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         self.service.initialize()
 
@@ -454,7 +427,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 expected_revision_id=component["revision_id"],
                 expected_manifest_hash=component["manifest_hash"],
             )
-        runtime = PostgresCatalogRuntime(database_url=POSTGRES_URL)
+        runtime = PostgresCatalogRuntime(database_url=CATALOG_URL)
         locations = [
             ("inventree", "a", 2, "pcs", "available", "ok", "2026-01-02T00:00:00.5Z"),
             ("inventree", "b", 3, "pcs", "reserved", "error", "2026-01-02T01:00:00+02:00"),
@@ -805,7 +778,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             baseline = conn.execute(
                 "SELECT name FROM catalog_schema_versions WHERE version = 0"
             ).fetchone()
-            self.assertEqual(pending_catalog_migrations(conn), [])
+            self.assertEqual(CATALOG_LEDGER.pending(conn), [])
         self.assertEqual(str(baseline["name"]), "baseline")
 
     def test_component_head_projection_and_streaming_csv_follow_current_revision(self) -> None:
@@ -1472,7 +1445,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
 
         upgraded = ComponentCatalogPostgresService(
             store_root=Path(self.tempdir.name) / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         upgraded.initialize()
 
@@ -1484,7 +1457,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
                 ).fetchall()
             ]
             self.assertEqual(ledger, [(version, name) for version, name, _ in MIGRATIONS])
-            self.assertEqual(pending_catalog_migrations(conn), [])
+            self.assertEqual(CATALOG_LEDGER.pending(conn), [])
             # D8: the catalog is forward-only. The legacy version row an older
             # Prism required is no longer written, so a rollback is unsupported.
             legacy = conn.execute("SELECT to_regclass('catalog_schema_migrations') AS relation").fetchone()
@@ -1497,11 +1470,11 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
     def test_repeated_startup_does_not_rewrite_widened_columns(self) -> None:
         """Replaying the column widening rewrites whole tables for nothing."""
         with self.service.connection() as conn:
-            self.assertEqual(pending_catalog_migrations(conn), [])
+            self.assertEqual(CATALOG_LEDGER.pending(conn), [])
 
         restarted = ComponentCatalogPostgresService(
             store_root=Path(self.tempdir.name) / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         restarted.initialize()
 
@@ -1518,7 +1491,7 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             conn.commit()
         incompatible = ComponentCatalogPostgresService(
             store_root=Path(self.tempdir.name) / "components",
-            database_url=POSTGRES_URL,
+            database_url=CATALOG_URL,
         )
         try:
             with self.assertRaisesRegex(RuntimeError, "catalog-only reset"):

@@ -12,7 +12,6 @@ import re
 import sys
 import tempfile
 import unittest
-import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -23,12 +22,7 @@ from app.services.comments_revisions import Editor  # noqa: E402
 from app.services.trackers.contracts import ForgeUser, RemoteComment, RemoteVersion  # noqa: E402
 from app.services.trackers.op_store import OpStore  # noqa: E402
 from app.services.trackers.store import TrackerStore  # noqa: E402
-from tests.test_tracker_tr_01 import (  # noqa: E402
-    POSTGRES_URL,
-    SHARED_APPLICATION_DATABASE,
-    DisposableSchemaStore,
-    psycopg,
-)
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
 
 APP = Path(__file__).resolve().parents[1] / "app"
 AUTHOR = Editor(user_id="u_a", kind="user", display="Author")
@@ -36,19 +30,14 @@ AUTHOR = Editor(user_id="u_a", kind="user", display="Author")
 
 class _StoreCase(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"comments_write_{uuid.uuid4().hex[:12]}"
-        self.store = DisposableSchemaStore(self.schema)
+        self.scratch = scratch_schema(self, "comments_write", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.path = self.tempdir.name
         self.project_id = "prj_test"
-        self.addCleanup(self._drop_schema)
         self.store.initialize()
-
-    def _drop_schema(self) -> None:
-        with self.store._connect() as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            conn.commit()
 
     def _cursor(self) -> int:
         with self.store._connect() as conn:
@@ -81,9 +70,7 @@ class _StoreCase(unittest.TestCase):
             conn.commit()
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required")
-@unittest.skipUnless(psycopg is not None, "psycopg is required")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres()
 class EveryWriteStreamsTests(_StoreCase):
     def test_local_writes_stream_their_change(self) -> None:
         created: dict = {}
@@ -174,9 +161,7 @@ class EveryWriteStreamsTests(_StoreCase):
         self.assertEqual((note["authorKind"], note["origin"], note["author"]), ("system", "prism", "System"))
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required")
-@unittest.skipUnless(psycopg is not None, "psycopg is required")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres()
 class ReplySyncStateTests(_StoreCase):
     """``sync_state`` lives on ``comment_replies``, which has no trigger.
 
@@ -242,9 +227,7 @@ GUEST_ADMIN = _identity("guest:local", "admin", "guest")
 SERVICE_ADMIN = _identity("service:ci", "admin", "service")
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required")
-@unittest.skipUnless(psycopg is not None, "psycopg is required")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres()
 class WritePermissionMatrixTests(_StoreCase):
     """Who may write what, checked by the store inside the write's transaction.
 
@@ -373,9 +356,7 @@ class WritePermissionMatrixTests(_StoreCase):
         self.assertEqual(moved["permissions"]["canEdit"], True)
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required")
-@unittest.skipUnless(psycopg is not None, "psycopg is required")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres()
 class PublicationWritesTests(_StoreCase):
     """AC-33: promote/share answer like every other write; share streams once; replies use the DB clock."""
 

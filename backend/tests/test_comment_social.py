@@ -5,11 +5,9 @@ from __future__ import annotations
 import asyncio
 import io
 import json
-import os
 import tempfile
 import unittest
 import uuid
-from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -22,9 +20,7 @@ from app.core.security import AuthenticatedUser
 from app.services import comment_attachments, comment_live_events, comment_social
 from app.services.comment_attachments import AttachmentError
 from app.services.comments_revisions import Editor
-from app.services.comments_store_service import CommentsStoreService
-
-TEST_DSN = os.environ.get("TEST_POSTGRES_URL", "")
+from support.postgres import requires_scratch_postgres, scratch_schema, comments_store_on  # noqa: E402
 
 
 class PersonalizeTests(unittest.TestCase):
@@ -62,24 +58,12 @@ class ReactionApiTests(unittest.TestCase):
         # The store personalizes the thread it returns for that actor.
         self.assertIs(result, thread)
 
-@unittest.skipUnless(TEST_DSN, "TEST_POSTGRES_URL is required for disposable PostgreSQL tests")
+@requires_scratch_postgres("comment store tests")
 class SocialPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        self._psycopg = psycopg
-        self.schema = "test_comment_social_" + uuid.uuid4().hex[:12]
-        self.store = CommentsStoreService()
-        self.store.schema = self.schema
-
-        @contextmanager
-        def connect():
-            with psycopg.connect(TEST_DSN, row_factory=dict_row) as conn:
-                conn.execute(f'SET search_path TO "{self.schema}", public')
-                yield conn
-
-        self.store._connect = connect
+        self.scratch = scratch_schema(self, "test_comment_social", create=False)
+        self.schema = self.scratch.name
+        self.store = comments_store_on(self.scratch)
         self.project_id = "p_" + uuid.uuid4().hex[:12]
         self.path = tempfile.TemporaryDirectory()
         self.blobs = tempfile.TemporaryDirectory()
@@ -96,8 +80,6 @@ class SocialPostgresTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
-        with self._psycopg.connect(TEST_DSN) as conn:
-            conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
         self.path.cleanup()
         self.blobs.cleanup()
 

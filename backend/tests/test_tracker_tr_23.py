@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 import unittest
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
 from pydantic import SecretStr
@@ -21,7 +18,6 @@ from app.core.errors import install_error_handlers  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.api import project_trackers as trackers_api  # noqa: E402
-from app.services import comments_schema_migrations  # noqa: E402
 from app.services.trackers.connector_service import ConnectorService  # noqa: E402
 from app.services.trackers.migrations import (  # noqa: E402
     migrate_tracker_webhook_oauth_tables,
@@ -33,6 +29,8 @@ from app.services.trackers.publication_policy import (  # noqa: E402
     PublicationPolicyService,
     _github_repo_path,
 )
+from app.services.comments_schema_migrations import COMMENTS_LEDGER  # noqa: E402
+from support.postgres import requires_scratch_postgres, scratch_schema, seed_comment  # noqa: E402
 
 try:
     import psycopg
@@ -41,27 +39,9 @@ except ImportError:  # pragma: no cover
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
-APPLICATION_POSTGRES_URL = os.environ.get("PRISM_DATABASE_URL", "").strip()
 DOCS = Path(__file__).resolve().parents[2] / "docs" / "tracker-integration"
 F3 = json.loads((DOCS / "fixtures" / "F03.json").read_text(encoding="utf-8"))
 ROOT_KEY = "aa" * 32
-
-
-def _identity(url: str):
-    parsed = urlsplit(url)
-    return (parsed.username or "", (parsed.hostname or "").lower(), parsed.port, parsed.path.lstrip("/"))
-
-
-SHARED_APPLICATION_DATABASE = bool(
-    POSTGRES_URL
-    and APPLICATION_POSTGRES_URL
-    and _identity(POSTGRES_URL) == _identity(APPLICATION_POSTGRES_URL)
-)
-
-
-def _dsn() -> str:
-    return POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def _settings(**overrides) -> Settings:
@@ -118,45 +98,12 @@ class RoutingContractTests(unittest.TestCase):
         self.assertIsNone(_github_repo_path("https://gitlab.com/acme/openswitch"))
 
 
-@unittest.skipUnless(POSTGRES_URL, "TEST_POSTGRES_URL is required for tracker persistence tests")
-@unittest.skipUnless(psycopg is not None, "psycopg is required for tracker persistence tests")
-@unittest.skipIf(SHARED_APPLICATION_DATABASE, "TEST_POSTGRES_URL must not target PRISM_DATABASE_URL")
+@requires_scratch_postgres("tracker persistence tests")
 class PublicationPolicyPostgresTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.schema = f"tr23_{uuid.uuid4().hex[:12]}"
-        self.conn = psycopg.connect(_dsn(), row_factory=dict_row)
+        self.scratch = scratch_schema(self, "tr23", ledgers=(COMMENTS_LEDGER,), then=(migrate_workspace_tracker_tables, migrate_tracker_webhook_oauth_tables,))
+        self.schema, self.conn = self.scratch.name, self.scratch.conn
         self.addCleanup(self._cleanup)
-        self.conn.execute(f'CREATE SCHEMA "{self.schema}"')
-        self.conn.execute(f'SET search_path TO "{self.schema}", public')
-        self.conn.execute(
-            """
-            CREATE TABLE comments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                status TEXT NOT NULL DEFAULT 'OPEN',
-                context TEXT NOT NULL DEFAULT 'PCB',
-                location_x REAL NOT NULL DEFAULT 0,
-                location_y REAL NOT NULL DEFAULT 0,
-                location_layer TEXT NOT NULL DEFAULT '',
-                location_page TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT ''
-            );
-            CREATE TABLE comment_replies (
-                id TEXT PRIMARY KEY,
-                comment_id TEXT NOT NULL REFERENCES comments(id),
-                project_id TEXT NOT NULL,
-                author TEXT NOT NULL DEFAULT '',
-                timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                content TEXT NOT NULL DEFAULT ''
-            );
-            """,
-            prepare=False,
-        )
-        migrate_workspace_tracker_tables(self.conn)
-        migrate_tracker_webhook_oauth_tables(self.conn)
-        comments_schema_migrations.apply_comments_migrations(self.conn)
         self.conn.commit()
         self.settings = _settings()
         self._observed_visibility: dict[str, str] = {}
@@ -181,17 +128,10 @@ class PublicationPolicyPostgresTests(unittest.TestCase):
 
     def _cleanup(self) -> None:
         trackers_api.service = PublicationPolicyService()
-        try:
-            self.conn.rollback()
-            self.conn.execute(f'DROP SCHEMA IF EXISTS "{self.schema}" CASCADE')
-            self.conn.commit()
-        finally:
-            self.conn.close()
 
     @contextmanager
     def _factory(self):
-        conn = psycopg.connect(_dsn(), row_factory=dict_row)
-        conn.execute(f'SET search_path TO "{self.schema}", public')
+        conn = self.scratch.connect()
         try:
             yield conn
         finally:
@@ -284,12 +224,7 @@ class PublicationPolicyPostgresTests(unittest.TestCase):
     def test_visibility_generations_keep_existing_links(self) -> None:
         first = self._update(containerPath="acme/openswitch", remoteContainerId="111")
         self.assertEqual(first["destination"]["generation"], 1)
-        self.conn.execute(
-            """
-            INSERT INTO comments(id, project_id, author, content)
-            VALUES ('c_1', 'prj_a', 'Priya', 'stub')
-            """
-        )
+        seed_comment(self.conn, "c_1", "prj_a", author="Priya", content="stub")
         self.conn.execute(
             """
             INSERT INTO tracked_threads (

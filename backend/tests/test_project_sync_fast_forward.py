@@ -9,7 +9,6 @@ once upstream touched the same path.
 from __future__ import annotations
 
 import json
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +16,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from app.services import job_service, path_config_service, project_import_service, project_service
+from support.repo import git, set_identity  # noqa: E402
 
 
 class SyncFastForwardsOnly(unittest.TestCase):
@@ -146,12 +146,6 @@ class SyncFastForwardsOnly(unittest.TestCase):
         purge.assert_called_once()
 
 
-def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
-    ).stdout.strip()
-
-
 class EditingSettingsKeepsSyncFastForwarding(unittest.TestCase):
     """Editing a project's settings in Prism must not dirty the checkout.
 
@@ -165,20 +159,19 @@ class EditingSettingsKeepsSyncFastForwarding(unittest.TestCase):
         root = Path(self._temporary.name)
         self.addCleanup(self._temporary.cleanup)
         self.upstream = root / "upstream.git"
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.upstream)], check=True)
+        git(root, "init", "-q", "--bare", "-b", "main", str(self.upstream))
         self.author = root / "author"
-        subprocess.run(["git", "clone", "-q", str(self.upstream), str(self.author)], check=True, capture_output=True)
-        for key, value in (("user.name", "Test"), ("user.email", "test@example.invalid")):
-            _git(self.author, "config", key, value)
+        git(root, "clone", "-q", str(self.upstream), str(self.author))
+        set_identity(self.author)
         (self.author / "board.kicad_pro").write_text("{}", encoding="utf-8")
         (self.author / ".prism.json").write_text(
             json.dumps({"paths": {"designOutputs": "Design-Outputs"}}), encoding="utf-8"
         )
-        _git(self.author, "add", "-A")
-        _git(self.author, "commit", "-qm", "seed")
-        _git(self.author, "push", "-q", "origin", "HEAD:main")
+        git(self.author, "add", "-A")
+        git(self.author, "commit", "-qm", "seed")
+        git(self.author, "push", "-q", "origin", "HEAD:main")
         self.checkout = root / "checkout"
-        subprocess.run(["git", "clone", "-q", str(self.upstream), str(self.checkout)], check=True, capture_output=True)
+        git(root, "clone", "-q", str(self.upstream), str(self.checkout))
         self.row = {
             "id": "prj_1",
             "repo_id": "repo_1",
@@ -208,16 +201,16 @@ class EditingSettingsKeepsSyncFastForwarding(unittest.TestCase):
         project_service.save_path_config_for(project, config)
 
         (self.author / "board.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
-        _git(self.author, "add", "-A")
-        _git(self.author, "commit", "-qm", "upstream work")
-        _git(self.author, "push", "-q", "origin", "HEAD:main")
-        upstream_head = _git(self.author, "rev-parse", "HEAD")
+        git(self.author, "add", "-A")
+        git(self.author, "commit", "-qm", "upstream work")
+        git(self.author, "push", "-q", "origin", "HEAD:main")
+        upstream_head = git(self.author, "rev-parse", "HEAD")
 
         result = project_import_service.sync_project("prj_1")
 
         self.assertEqual(result["status"], "success", result)
-        self.assertEqual(_git(self.checkout, "rev-parse", "HEAD"), upstream_head, result["message"])
-        self.assertEqual(_git(self.checkout, "status", "--porcelain"), "")
+        self.assertEqual(git(self.checkout, "rev-parse", "HEAD"), upstream_head, result["message"])
+        self.assertEqual(git(self.checkout, "status", "--porcelain"), "")
 
 
 class NoHostKeyPolicyIsWrittenByHand(unittest.TestCase):

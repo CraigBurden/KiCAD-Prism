@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import tempfile
 from pathlib import Path
 import sys
 import unittest
+
+# CI runs this module with `python -m unittest backend.tests.<name>` from the repository
+# root, where backend/tests is not on sys.path (pytest adds it).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from support.repo import commit_all, init_repo  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1].parent
@@ -407,26 +411,8 @@ class CatalogPrivateRatchetTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(
-                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "add", "."],
-                cwd=root,
-                check=True,
-            )
-            subprocess.run(
-                [
-                    "git",
-                    "-c",
-                    "user.name=Test",
-                    "-c",
-                    "user.email=test@example.com",
-                    "commit",
-                    "-qm",
-                    "base",
-                ],
-                cwd=root,
-                check=True,
-            )
+            init_repo(root)
+            commit_all(root, "base")
             base_private, _base_ceilings = architecture.load_baseline_at_ref(
                 root, "HEAD", baseline_path
             ) or ({}, {})
