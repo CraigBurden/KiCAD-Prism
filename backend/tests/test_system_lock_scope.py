@@ -17,13 +17,16 @@ WAIT_S = 10.0
 
 class LockScopeTest(ExportCase):
     def hold_builds(self, method: str = "_build"):
-        """Patch ``method`` (the document build, or the export response) so each call signals ``built``
-        and then waits for ``go``."""
+        """Patch ``method`` (the document build, or the export response) so each call on the background
+        thread signals ``built`` and then waits for ``go``. The edit on the main thread builds too (its
+        finding-count refresh after the commit, D12); that build is not held."""
         built, go = threading.Event(), threading.Event()
         original = getattr(self.service, method)
 
         def slow(*args, **kwargs):
             result = original(*args, **kwargs)
+            if threading.current_thread() is threading.main_thread():
+                return result
             built.set()
             if not go.wait(WAIT_S):
                 raise AssertionError("the test never released the build")

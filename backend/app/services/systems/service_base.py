@@ -111,16 +111,22 @@ class ServiceCore:
     @contextmanager
     def _tx(self, *, consistent: bool = False) -> Iterator[SystemStore]:
         """A transaction. ``consistent`` reads every statement from one snapshot (REPEATABLE READ),
-        so a long read sees a single version of the system without holding its lock (SB2-94)."""
+        so a long read sees a single version of the system without holding its lock (SB2-94).
+
+        Once a transaction that created or changed systems has committed, their finding counts are
+        refreshed outside the lock (D12, ``refresh_finding_counts``)."""
         with self._connect() as conn:
             try:
                 if consistent:
                     conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-                yield SystemStore(conn)
+                store = SystemStore(conn)
+                yield store
                 conn.commit()
             except BaseException:
                 conn.rollback()
                 raise
+        if store.recount:
+            self.refresh_finding_counts(sorted(store.recount))
 
     def _system(self, store: SystemStore, system_id: str, caller: Caller) -> dict:
         found = visibility.visible_systems(store.conn, caller.role, system_id=system_id)

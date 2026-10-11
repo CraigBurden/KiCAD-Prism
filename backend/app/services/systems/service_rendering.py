@@ -1,14 +1,15 @@
 """The system document and the bodies writes answer with (§8.1).
 
-``_build`` renders the unredacted document from a loaded system and runs ``validation.report``;
-``_built`` adds the SB2-101 count write. The per-row renderers (instance, link, export, harness,
+``_build`` renders the unredacted document from a loaded system and runs ``validation.report``.
+Reads never write; the systems list's finding counts (SB2-101) are refreshed after the writes that
+change them (``refresh_finding_counts``, D12). The per-row renderers (instance, link, export, harness,
 review) and the bodies a write returns (``_link_body``, ``_harness_body``) are shared by the concept
 mixins; none of them redacts (the reader exits in ``service_reading`` do).
 """
 
 from __future__ import annotations
 
-from typing import Any, Collection, Mapping, Optional
+from typing import Any, Collection, Iterable, Mapping, Optional
 
 from app.services.systems import (
     drift, exposure, redaction, validation, exports as exports_module, harnesses as harnesses_module,
@@ -17,7 +18,9 @@ from app.services.systems import (
 from app.services.systems.jobs import artifact_key
 from app.services.systems.loaded import LoadedSystem
 from app.services.systems.service_base import Caller, _iso, _mating_summary, logger
-from app.services.systems.store import Invalid, SystemStore
+from app.services.systems.store import Invalid, NotFound, SystemStore
+
+COUNTER = Caller(role="admin", email="system:finding-counts")
 
 
 class RenderingCore:
@@ -108,16 +111,45 @@ class RenderingCore:
             return None
         return validation.MateCatalog(parts, pairs)
 
-    @staticmethod
-    def _record_counts(loaded: LoadedSystem, built: Mapping[str, Any]) -> None:
-        """SB2-101: the counts of this version for the systems list. Kept on every path that builds
-        the document, as before AC-16 (DECISIONS.md: whether reads should write this is open)."""
-        loaded.rows.record_finding_counts(loaded.id, loaded.version, built["findingCounts"])
+    # ------------------------------------------------------------------
+    # The systems list's finding counts (SB2-101, D12): written by write paths, read by the list
 
-    def _built(self, loaded: LoadedSystem) -> dict:
-        built = self._build(loaded)
-        self._record_counts(loaded, built)
-        return built
+    def refresh_finding_counts(self, system_ids: Iterable[str]) -> None:
+        """Build each system from one consistent read and store its counts at that version.
+
+        Runs after the write committed, so outside the system lock; best effort: a failure is logged
+        and the list shows no counts for that version until the next write."""
+        for system_id in dict.fromkeys(system_ids):
+            try:
+                with self._tx(consistent=True) as store:
+                    loaded = self._load(store, system_id, COUNTER)
+                    store.record_finding_counts(system_id, loaded.version, self._build(loaded)["findingCounts"])
+            except NotFound:
+                continue  # deleted meanwhile
+            except Exception:
+                logger.exception("Could not refresh the finding counts of system %s", system_id)
+
+    def refresh_stale_counts(self, *, system_ids: Iterable[str] = (), instance_ids: Iterable[str] = ()) -> None:
+        """For writers outside this service (source checks, git sync): refresh the systems they may have
+        changed whose counts are not of their current version."""
+        try:
+            with self._tx() as store:
+                stale = store.stale_counts(list(system_ids), list(instance_ids))
+        except Exception:
+            logger.exception("Could not read which finding counts are stale")
+            return
+        self.refresh_finding_counts(stale)
+
+    def refresh_counts_for_interface(self, project_id: str, commit: str) -> None:
+        """A board interface was stored: the findings of every system with a board at that baseline
+        change at the same version."""
+        try:
+            with self._tx() as store:
+                system_ids = store.systems_at_baseline(project_id, commit)
+        except Exception:
+            logger.exception("Could not read the systems at %s@%s", project_id, commit)
+            return
+        self.refresh_finding_counts(system_ids)
 
     def _loaded_board_total(self, loaded: LoadedSystem) -> Optional[int]:
         """``_board_total`` from the loaded tree."""

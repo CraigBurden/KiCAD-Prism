@@ -35,6 +35,14 @@ describe("Check collisions (SB2-108)", () => {
     expect(screen.getByRole("button").textContent).toBe("2");
   });
 
+  it("leaves waived collisions out of the count (D1)", () => {
+    const waived = { ...collision, waived: { id: "w1", note: "accepted", by: "user:a", at: "" } } as Finding;
+    const document = documentWith({ state: "current", checkedAt: "t1", notEvaluated: [] }, [collision, waived]);
+    renderInSession(<CollisionCheckButton systemId="sys_1" document={document} />, { document });
+    expect(screen.getByRole("button").getAttribute("title")).toBe("Check collisions · checked · 1 found");
+    expect(screen.getByRole("button").textContent).toBe("1");
+  });
+
   it("queues a check and reloads once a newer one is stored", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     let polls = 0;

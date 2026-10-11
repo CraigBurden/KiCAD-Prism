@@ -146,6 +146,9 @@ class Mutation:
 class StoreCore:
     def __init__(self, conn: Any) -> None:
         self.conn = conn
+        # D12: systems created or changed (version bumped) through this store; the service refreshes
+        # their finding counts once the transaction commits.
+        self.recount: set[str] = set()
 
     # ------------------------------------------------------------------
     # Systems
@@ -168,6 +171,7 @@ class StoreCore:
         Mutation(self, system_id, actor, row["version"]).audit(
             "system_created", {"name": row["name"], "folderId": folder_id}
         )
+        self.recount.add(system_id)
         return dict(row)
 
     def get_system(self, system_id: str) -> dict:
@@ -223,6 +227,7 @@ class StoreCore:
             (system_id,),
         ).fetchone()
         change.version = int(bumped["version"])
+        self.recount.add(system_id)
 
     def count_snapshots_of_revisions(self, revision_ids: Sequence[str]) -> int:
         """Snapshots, in any system, whose frozen instances pin one of ``revision_ids`` (D-P2-31).

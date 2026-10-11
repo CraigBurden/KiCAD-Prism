@@ -70,9 +70,10 @@ describe("collisions (SYS-V22)", () => {
   const waived = finding({ rule: "SYS-V22", severity: "warning", key: "c2", waived: stamp, detail: { a: side("/sin_A", "U2") } });
   const index = findingsOf([open, waived, finding({})]);
 
-  it("lists every collision, waived or not, and finds one by key", () => {
-    expect(index.collisions).toEqual([open, waived]);
-    expect(index.collision("c2")).toBe(waived);
+  it("lists open collisions only and finds one by key; a waived one is neither counted nor selectable (D1)", () => {
+    expect(index.collisions).toEqual([open]);
+    expect(index.collision("c1")).toBe(open);
+    expect(index.collision("c2")).toBeNull();
     expect(index.collision("nope")).toBeNull();
   });
 

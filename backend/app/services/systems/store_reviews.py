@@ -166,16 +166,42 @@ class ReviewsStore:
     # Last finding counts (SB2-101)
 
     def record_finding_counts(self, system_id: str, version: int, counts: Mapping[str, Any]) -> None:
-        """Keep the counts of the newest version built; an older build never overwrites a newer one."""
+        """Keep the counts of the newest version, and at one version the latest read: ``NOW()`` is the
+        transaction's start, so a refresh that read earlier never overwrites one that read later (D12)."""
         self.conn.execute(
             """
-            INSERT INTO system_finding_counts (system_id, version, counts) VALUES (%s, %s, %s)
+            INSERT INTO system_finding_counts (system_id, version, counts, counted_at) VALUES (%s, %s, %s, NOW())
             ON CONFLICT (system_id) DO UPDATE SET version = EXCLUDED.version, counts = EXCLUDED.counts,
-                counted_at = NOW()
+                counted_at = EXCLUDED.counted_at
             WHERE system_finding_counts.version < EXCLUDED.version
+               OR (system_finding_counts.version = EXCLUDED.version
+                   AND system_finding_counts.counted_at <= EXCLUDED.counted_at)
             """,
             (system_id, int(version), Jsonb(dict(counts))),
         )
+
+    def stale_counts(self, system_ids: Sequence[str] = (), instance_ids: Sequence[str] = ()) -> list[str]:
+        """Of the named systems (or the systems of the named instances), those whose stored counts are
+        not of their current version."""
+        rows = self.conn.execute(
+            """
+            SELECT s.id FROM system_projects s LEFT JOIN system_finding_counts c ON c.system_id = s.id
+            WHERE (s.id = ANY(%s) OR s.id IN (SELECT system_id FROM system_instances WHERE id = ANY(%s)))
+              AND c.version IS DISTINCT FROM s.version
+            ORDER BY s.id
+            """,
+            (list(system_ids), list(instance_ids)),
+        ).fetchall()
+        return [row["id"] for row in rows]
+
+    def systems_at_baseline(self, project_id: str, commit: str) -> list[str]:
+        """Systems with a board at ``project_id@commit``: an interface stored for it changes their findings."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT system_id FROM system_instances WHERE project_id = %s AND baseline_commit = %s"
+            " ORDER BY system_id",
+            (project_id, commit),
+        ).fetchall()
+        return [row["system_id"] for row in rows]
 
     def list_extras(self, system_ids: Sequence[str]) -> dict[str, dict]:
         """For the systems list, in one query: the last snapshot, the git link and the last counts."""

@@ -78,6 +78,9 @@ def run_system_interface_job(context: Any) -> Any:
         # Missing commit or project file at that commit: retrying cannot help.
         logger.info("System interface extraction failed for %s@%s: %s", project_id, commit, error)
         raise PermanentJobError("Source is not readable at this commit", code="source_unavailable") from error
+    from app.services.systems.service import service as system_service
+
+    system_service.refresh_counts_for_interface(project_id, commit)  # D12: the findings change at that baseline
     return JobResult(
         message="Board interface is ready",
         details={"digest": stored["digest"], "components": len(stored.get("components") or [])},
