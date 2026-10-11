@@ -120,6 +120,7 @@ ComponentCatalogPostgresService(store_root=Path(os.environ["KICAD_PROJECTS_ROOT"
 with database.connection() as conn:
     conn.execute("DELETE FROM workspace.ws_schema_migrations WHERE version = 0")
     conn.execute("DELETE FROM comments.comment_schema_migrations WHERE version = 0")
+    conn.execute("DELETE FROM catalog.catalog_schema_versions WHERE version = 0")
     conn.commit()
 database.close()
 """

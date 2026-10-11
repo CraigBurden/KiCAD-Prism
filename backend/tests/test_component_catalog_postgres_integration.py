@@ -34,7 +34,6 @@ from app.services.catalog_schema_migrations import (  # noqa: E402
 from app.services.catalog.preview_pipeline import PREVIEW_PIPELINE_VERSION  # noqa: E402
 from app.services.catalog.preview_renderer import PREVIEW_STATUS_READY  # noqa: E402
 from app.services.component_catalog_service_postgres import (  # noqa: E402
-    POSTGRES_SCHEMA_VERSION,
     ComponentCatalogPostgresService,
 )
 
@@ -800,14 +799,14 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(updated["extra_fields"][field["key"]], "50")
         self.assertEqual(updated["value"], "12k")
 
-        # Initialization is a version lookup after the first successful v6 migration.
+        # The baseline is ledger step 0; a later start finds nothing pending.
         self.service.initialize()
         with self.service.connection() as conn:
-            version = conn.execute(
-                "SELECT 1 AS present FROM catalog_schema_migrations WHERE version = %s",
-                (POSTGRES_SCHEMA_VERSION,),
+            baseline = conn.execute(
+                "SELECT name FROM catalog_schema_versions WHERE version = 0"
             ).fetchone()
-        self.assertIsNotNone(version)
+            self.assertEqual(pending_catalog_migrations(conn), [])
+        self.assertEqual(str(baseline["name"]), "baseline")
 
     def test_component_head_projection_and_streaming_csv_follow_current_revision(self) -> None:
         component = self._component("head-" + uuid.uuid4().hex[:8])
@@ -1486,13 +1485,10 @@ class ComponentCatalogPostgresIntegrationTests(unittest.TestCase):
             ]
             self.assertEqual(ledger, [(version, name) for version, name, _ in MIGRATIONS])
             self.assertEqual(pending_catalog_migrations(conn), [])
-            # An older Prism treats this row as a hard precondition, so the
-            # newer build has to leave it in place for a rollback to work.
-            legacy = conn.execute(
-                "SELECT version FROM catalog_schema_migrations WHERE version = %s",
-                (POSTGRES_SCHEMA_VERSION,),
-            ).fetchone()
-            self.assertIsNotNone(legacy)
+            # D8: the catalog is forward-only. The legacy version row an older
+            # Prism required is no longer written, so a rollback is unsupported.
+            legacy = conn.execute("SELECT count(*) AS total FROM catalog_schema_migrations").fetchone()
+            self.assertEqual(int(legacy["total"]), 0)
 
         survivor = upgraded.get_component(component["id"])
         self.assertIsNotNone(survivor)
