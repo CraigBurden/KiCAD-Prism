@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { fetchJson } from "@/lib/api";
+import { convertModels, listMates, listModels, modelPreviewUrl, saveModelAlignment } from "./catalog-client";
 
 import type { MatingPart } from "./library-component-mates";
 
@@ -29,7 +29,6 @@ export interface CatalogModel {
   alignment: ModelAlignment;
 }
 
-const base = (componentId: string) => `/api/catalog/components/${encodeURIComponent(componentId)}`;
 const VIEWS = ["front", "side", "top"] as const;
 const AXES = ["X", "Y", "Z"] as const;
 
@@ -39,7 +38,7 @@ export function previewUrl(componentId: string, assetId: string, alignment: Mode
     view, offset: alignment.offsetMm.join(","), rotation: alignment.rotationDeg.join(","), scale: String(alignment.scale),
   });
   if (partner) params.set("partner", partner);
-  return `${base(componentId)}/models/${encodeURIComponent(assetId)}/preview.svg?${params.toString()}`;
+  return modelPreviewUrl(componentId, assetId, params);
 }
 
 function size(bounds: { minMm: Triple; maxMm: Triple }): string {
@@ -80,9 +79,8 @@ function AlignmentEditor({ componentId, model, partners, canMutate, onSaved }: {
   const save = async () => {
     setBusy(true);
     try {
-      const body = await fetchJson<{ items: CatalogModel[] }>(`${base(componentId)}/models/${encodeURIComponent(model.assetId)}/alignment`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ offsetMm: draft.offsetMm, rotationDeg: draft.rotationDeg, scale: draft.scale }),
+      const body = await saveModelAlignment(componentId, model.assetId, {
+        offsetMm: draft.offsetMm, rotationDeg: draft.rotationDeg, scale: draft.scale,
       });
       onSaved(body.items);
       setEdits(null);
@@ -159,9 +157,9 @@ export function ModelsPanel({ componentId, canMutate, mates = true }: { componen
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([
-      fetchJson<{ items: CatalogModel[] }>(`${base(componentId)}/models`, { signal: controller.signal }),
+      listModels(componentId, controller.signal),
       // Only parts mate with parts (§18); a module's models have no partner to preview against.
-      mates ? fetchJson<{ items: MatingPart[] }>(`${base(componentId)}/mates-with`, { signal: controller.signal })
+      mates ? listMates(componentId, controller.signal)
         : Promise.resolve({ items: [] as MatingPart[] }),
     ]).then(([models, mates]) => setState({ id: componentId, models: models.items, partners: mates.items }))
       .catch(() => !controller.signal.aborted && setState({ id: componentId, models: [], partners: [] }));
@@ -171,10 +169,10 @@ export function ModelsPanel({ componentId, canMutate, mates = true }: { componen
   const convert = async () => {
     setConverting(true);
     try {
-      await fetchJson(`${base(componentId)}/models/convert`, { method: "POST" });
+      await convertModels(componentId);
       for (let attempt = 0; attempt < 60; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 2000));
-        const body = await fetchJson<{ items: CatalogModel[] }>(`${base(componentId)}/models`);
+        const body = await listModels(componentId);
         setState((current) => current && { ...current, models: body.items });
         if (body.items.every((model) => model.glb)) break;
       }

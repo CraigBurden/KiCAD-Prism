@@ -7,10 +7,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { fetchJson } from "@/lib/api";
+import { deleteModuleConnector, getConnectorGeometry, listComponents, saveModuleConnector } from "./catalog-client";
 import type { ConnectorGeometry, MatingAxis, Vec3 } from "@/features/system-builder/placement/frames";
 import type { ModulePlacement } from "@/features/system-builder/placement/module-ports";
-import type { PaginatedComponents } from "@/types/catalog";
 
 import type { MatingPart } from "./library-component-mates";
 import { ModuleFacePicker, type PickerConnector, type PickerModel } from "./module-face-picker";
@@ -42,8 +41,6 @@ interface PartChoice extends MatingPart {
 }
 
 const AXES: (MatingAxis | "auto")[] = ["auto", "top", "bottom", "+x", "-x", "+y", "-y"];
-export const connectorsPath = (componentId: string) =>
-  `/api/catalog/components/${encodeURIComponent(componentId)}/module-connectors`;
 
 /** A face label for a stored normal: "+Z face" for an axis, else the vector. */
 export function faceLabel(normal: Vec3): string {
@@ -81,7 +78,7 @@ export function ModuleConnectorDialog({ componentId, moduleModel, unit, units, c
     const controller = new AbortController();
     const params = new URLSearchParams({ q: text, page: "1", page_size: "8", lightweight: "true", kind: "part" });
     const timer = window.setTimeout(() => {
-      fetchJson<PaginatedComponents>(`/api/catalog/components?${params.toString()}`, { signal: controller.signal })
+      listComponents(params, controller.signal)
         .then((body) => setResults(body.items.map((item) => ({
           componentId: item.id, name: item.value || item.description || item.mpn, mpn: item.mpn, manufacturer: item.manufacturer,
         }))))
@@ -96,8 +93,7 @@ export function ModuleConnectorDialog({ componentId, moduleModel, unit, units, c
   const choose = async (choice: MatingPart) => {
     setBusy(true);
     try {
-      const detail = await fetchJson<{ geometry: ConnectorGeometry | null; model: PickerModel | null }>(
-        `/api/catalog/components/${encodeURIComponent(choice.componentId)}/connector-geometry`);
+      const detail = await getConnectorGeometry(choice.componentId);
       if (!detail.geometry) {
         toast.error(`${choice.mpn || choice.name} has no footprint with pads`);
         return;
@@ -139,13 +135,9 @@ export function ModuleConnectorDialog({ componentId, moduleModel, unit, units, c
   const send = async (method: "PUT" | "DELETE") => {
     setBusy(true);
     try {
-      const body = await fetchJson<ModuleConnectors>(`${connectorsPath(componentId)}/${encodeURIComponent(unit.key)}`, {
-        method,
-        ...(method === "PUT" ? {
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ partId: part!.componentId, ...placement }),
-        } : {}),
-      });
+      const body = await (method === "PUT"
+        ? saveModuleConnector(componentId, unit.key, { partId: part!.componentId, ...placement })
+        : deleteModuleConnector(componentId, unit.key));
       onSaved(body);
       onClose();
     } catch (error) {

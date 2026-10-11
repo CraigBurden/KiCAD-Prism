@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useVirtualViewport } from "@/hooks/use-virtual-viewport";
-import { fetchJson } from "@/lib/api";
+import { createComponent, getComponent, listCategories, listComponents } from "./catalog-client";
 import {
   AVAILABILITY_BADGE_TITLE,
   AVAILABILITY_BADGE_VARIANT,
@@ -60,7 +60,6 @@ import type {
   AvailabilityState,
   CatalogComponent,
   CatalogValidationStatus,
-  PaginatedComponents,
   WorkflowStage,
 } from "@/types/catalog";
 import { LibraryComponentQuickView } from "./library-component-quick-view";
@@ -231,19 +230,16 @@ function CreateComponentDialog({
     }
     setSubmitting(true);
     try {
-      const component = await fetchJson<CatalogComponent>("/api/catalog/components", {
-        method: "POST",
-        body: JSON.stringify({
-          kind: form.kind,
-          value: form.value.trim(),
-          manufacturer: form.manufacturer.trim(),
-          manufacturer_part_number: form.manufacturerPartNumber.trim(),
-          description: form.description.trim(),
-          datasheet: form.datasheet.trim(),
-          category: form.category.trim(),
-          package_name: form.packageName.trim(),
-          change_summary: form.changeSummary.trim(),
-        }),
+      const component = await createComponent({
+        kind: form.kind,
+        value: form.value.trim(),
+        manufacturer: form.manufacturer.trim(),
+        manufacturer_part_number: form.manufacturerPartNumber.trim(),
+        description: form.description.trim(),
+        datasheet: form.datasheet.trim(),
+        category: form.category.trim(),
+        package_name: form.packageName.trim(),
+        change_summary: form.changeSummary.trim(),
       });
       toast.success(`${component.name} created as revision v${component.revision}.`);
       setForm(EMPTY_CREATE_FORM);
@@ -359,7 +355,7 @@ export function LibraryCatalogWorkspace({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchJson<{ categories: Array<{ name: string; count: number }> }>("/api/catalog/categories")
+    void listCategories()
       .then((response) => { if (!cancelled) setCategories(response.categories); })
       .catch(() => { /* Category discovery is non-blocking for catalog browsing. */ });
     return () => { cancelled = true; };
@@ -382,7 +378,7 @@ export function LibraryCatalogWorkspace({
     if (validation !== "all") params.set("validation_status", validation);
     if (category !== "all") params.set("category", category === "uncategorized" ? "" : category);
 
-    void fetchJson<PaginatedComponents>(`/api/catalog/components?${params.toString()}`, { signal: controller.signal })
+    void listComponents(params, controller.signal)
       .then((response) => {
         setItems(response.items);
         setTotal(response.total);
@@ -411,7 +407,7 @@ export function LibraryCatalogWorkspace({
     const controller = new AbortController();
     setSelectedLoading(true);
     setSelectedError("");
-    void fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(selectedComponentId)}`, { signal: controller.signal })
+    void getComponent(selectedComponentId, controller.signal)
       .then(setSelectedComponent)
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;

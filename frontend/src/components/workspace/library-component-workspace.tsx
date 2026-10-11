@@ -52,22 +52,33 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { fetchJson } from "@/lib/api";
+import {
+  catalogPreviewUrl,
+  compareComponentRevisions,
+  createRepresentation,
+  deleteRepresentation,
+  detachComponentAsset,
+  getComponent,
+  getComponentRevision,
+  listComponentAudit,
+  listComponentReleases,
+  listComponentReviews,
+  listComponentRevisions,
+  listComponentUsage,
+  regenerateComponentPreviews,
+  releaseComponent,
+  updateRepresentation,
+  verifyComponentAudit,
+} from "./catalog-client";
 import { canAdministerCatalog, canReviewCatalogQa, canWriteCatalog, workflowStage } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/auth";
 import type {
   AvailabilityState,
   CatalogAsset,
-  CatalogAuditEvent,
-  CatalogAuditVerification,
   CatalogComponent,
-  CatalogComponentUsage,
-  CatalogReviewDecision,
-  CatalogReleaseRecord,
   CatalogRepresentation,
   CatalogRevisionDiff,
-  CatalogRevisionSummary,
   CatalogValidationStatus,
   WorkflowStage,
 } from "@/types/catalog";
@@ -369,16 +380,13 @@ function RepresentationRow({
   const update = async (makeDefault = representation.is_default) => {
     setSaving(true);
     try {
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(component.id)}/representations/${encodeURIComponent(representation.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          label,
-          symbol_asset_id: symbolId,
-          footprint_asset_id: footprintId,
-          display_order: Number(order) || 0,
-          is_default: makeDefault,
-          expected_revision_id: component.revision_id,
-        }),
+      await updateRepresentation(component.id, representation.id, {
+        label,
+        symbol_asset_id: symbolId,
+        footprint_asset_id: footprintId,
+        display_order: Number(order) || 0,
+        is_default: makeDefault,
+        expected_revision_id: component.revision_id,
       });
       toast.success(makeDefault && !representation.is_default ? "Default representation updated." : "Representation saved.");
       onChanged();
@@ -392,7 +400,7 @@ function RepresentationRow({
   const remove = async () => {
     setSaving(true);
     try {
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(component.id)}/representations/${encodeURIComponent(representation.id)}?expected_revision_id=${encodeURIComponent(component.revision_id)}`, { method: "DELETE" });
+      await deleteRepresentation(component.id, representation.id, component.revision_id);
       toast.success("Representation removed in a new revision.");
       onChanged();
     } catch (reason) {
@@ -425,7 +433,7 @@ function RepresentationRow({
             const asset = representation[kind];
             return asset?.preview_id ? (
               <div key={kind} className="flex min-h-28 items-center justify-center bg-preview-surface p-2">
-                <img src={`/api/catalog/previews/${encodeURIComponent(asset.preview_id)}`} alt={`${representation.label} ${kind} preview`} className="max-h-36 max-w-full object-contain" />
+                <img src={catalogPreviewUrl(asset.preview_id)} alt={`${representation.label} ${kind} preview`} className="max-h-36 max-w-full object-contain" />
               </div>
             ) : <div key={kind} className="flex min-h-28 items-center justify-center border border-dashed text-xs text-muted-foreground">No {kind} preview</div>;
           })}
@@ -445,15 +453,12 @@ function RepresentationsPanel({ component, canMutate, onChanged }: { component: 
       const currentDefault = component.representations.find((item) => item.is_default);
       const candidates = symbols.flatMap((symbol) => footprints.map((footprint) => ({ symbol, footprint })));
       const unused = candidates.find(({ symbol, footprint }) => !component.representations.some((item) => item.symbol?.id === symbol.id && item.footprint?.id === footprint.id));
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(component.id)}/representations`, {
-        method: "POST",
-        body: JSON.stringify({
-          label: `Representation ${component.representations.length + 1}`,
-          symbol_asset_id: unused?.symbol.id || (component.representations.length ? "" : currentDefault?.symbol?.id || symbols[0]?.id || ""),
-          footprint_asset_id: unused?.footprint.id || (component.representations.length ? "" : currentDefault?.footprint?.id || footprints[0]?.id || ""),
-          display_order: component.representations.length,
-          expected_revision_id: component.revision_id,
-        }),
+      await createRepresentation(component.id, {
+        label: `Representation ${component.representations.length + 1}`,
+        symbol_asset_id: unused?.symbol.id || (component.representations.length ? "" : currentDefault?.symbol?.id || symbols[0]?.id || ""),
+        footprint_asset_id: unused?.footprint.id || (component.representations.length ? "" : currentDefault?.footprint?.id || footprints[0]?.id || ""),
+        display_order: component.representations.length,
+        expected_revision_id: component.revision_id,
       });
       toast.success("Representation added in a new revision.");
       onChanged();
@@ -707,7 +712,7 @@ export function LibraryComponentWorkspace({
     setComponentGeneration("");
     setCurrentComponent(null);
     setActiveComponent(null);
-    void fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(componentId)}`, { signal: controller.signal })
+    void getComponent(componentId, controller.signal)
       .then((component) => {
         if (controller.signal.aborted) return;
         setCurrentComponent(component);
@@ -732,7 +737,7 @@ export function LibraryComponentWorkspace({
     }
     const controller = new AbortController();
     setHistoricalLoading(true);
-    void fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(componentId)}/revisions/${encodeURIComponent(requestedRevisionId)}`, { signal: controller.signal })
+    void getComponentRevision(componentId, requestedRevisionId, controller.signal)
       .then((component) => {
         if (controller.signal.aborted) return;
         if (!isCatalogComponent(component)) {
@@ -748,14 +753,12 @@ export function LibraryComponentWorkspace({
     return () => controller.abort();
   }, [componentId, currentComponent, requestedRevisionId]);
 
-  const componentPath = `/api/catalog/components/${encodeURIComponent(componentId)}`;
-
   useEvidenceResource({
     enabled: componentReady && needsRevisions,
     generation: evidenceGeneration,
     retryKey: evidenceRetryKey,
     loadState: revisionsLoad,
-    load: (signal) => fetchJson<{ items: CatalogRevisionSummary[] }>(`${componentPath}/revisions`, { signal }),
+    load: (signal) => listComponentRevisions(componentId, signal),
     onLoaded: (response) => publishEvidence("revisions", response.items),
   });
 
@@ -764,7 +767,7 @@ export function LibraryComponentWorkspace({
     generation: evidenceGeneration,
     retryKey: evidenceRetryKey,
     loadState: reviewsLoad,
-    load: (signal) => fetchJson<{ items: CatalogReviewDecision[] }>(`${componentPath}/reviews`, { signal }),
+    load: (signal) => listComponentReviews(componentId, signal),
     onLoaded: (response) => publishEvidence("reviews", response.items),
   });
 
@@ -773,7 +776,7 @@ export function LibraryComponentWorkspace({
     generation: evidenceGeneration,
     retryKey: evidenceRetryKey,
     loadState: releasesLoad,
-    load: (signal) => fetchJson<{ items: CatalogReleaseRecord[] }>(`${componentPath}/releases`, { signal }),
+    load: (signal) => listComponentReleases(componentId, signal),
     onLoaded: (response) => publishEvidence("releases", response.items),
   });
 
@@ -782,7 +785,7 @@ export function LibraryComponentWorkspace({
     generation: evidenceGeneration,
     retryKey: evidenceRetryKey,
     loadState: usageLoad,
-    load: (signal) => fetchJson<{ items: CatalogComponentUsage[] }>(`${componentPath}/usage`, { signal }),
+    load: (signal) => listComponentUsage(componentId, signal),
     onLoaded: (response) => publishEvidence("usage", response.items),
   });
 
@@ -795,8 +798,8 @@ export function LibraryComponentWorkspace({
     // chain shown against a half-loaded event list would be misleading.
     load: (signal) =>
       Promise.all([
-        fetchJson<{ items: CatalogAuditEvent[] }>(`${componentPath}/audit`, { signal }),
-        fetchJson<CatalogAuditVerification>(`${componentPath}/audit/verify`, { signal }),
+        listComponentAudit(componentId, signal),
+        verifyComponentAudit(componentId, signal),
       ]),
     onLoaded: ([eventList, auditVerification]) => {
       publishEvidence("events", eventList.items);
@@ -834,8 +837,7 @@ export function LibraryComponentWorkspace({
     let settled = false;
     setDiff(null);
     setDiffLoad({ status: "loading", error: "", generation: cacheKey });
-    const params = new URLSearchParams({ before: diffPair.before, after: diffPair.after });
-    void fetchJson<CatalogRevisionDiff>(`/api/catalog/components/${encodeURIComponent(componentId)}/revisions/compare?${params.toString()}`, { signal: controller.signal })
+    void compareComponentRevisions(componentId, diffPair.before, diffPair.after, controller.signal)
       .then((value) => {
         settled = true;
         if (controller.signal.aborted) return;
@@ -879,15 +881,12 @@ export function LibraryComponentWorkspace({
     }
     setTransitioning(true);
     try {
-      await fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(componentId)}/release`, {
-        method: "POST",
-        body: JSON.stringify({
-          workflow_stage: transitionTarget,
-          review_note: reviewNote.trim(),
-          self_approval_override_reason: overrideReason.trim(),
-          expected_revision_id: currentComponent.revision_id,
-          expected_manifest_hash: currentComponent.manifest_hash,
-        }),
+      await releaseComponent(componentId, {
+        workflow_stage: transitionTarget,
+        review_note: reviewNote.trim(),
+        self_approval_override_reason: overrideReason.trim(),
+        expected_revision_id: currentComponent.revision_id,
+        expected_manifest_hash: currentComponent.manifest_hash,
       });
       toast.success(`Component moved to ${WORKFLOW_LABELS[transitionTarget]}.`);
       setTransitionTarget(null);
@@ -923,8 +922,7 @@ export function LibraryComponentWorkspace({
     if (!detachAsset || !canMutate || !currentComponent) return;
     setBusyAction("detach-id");
     try {
-      const params = new URLSearchParams({ expected_revision_id: currentComponent.revision_id });
-      await fetchJson(`/api/catalog/components/${encodeURIComponent(componentId)}/assets/id/${encodeURIComponent(detachAsset.id)}?${params.toString()}`, { method: "DELETE" });
+      await detachComponentAsset(componentId, detachAsset.id, currentComponent.revision_id);
       toast.success(`${ASSET_LABELS[detachAsset.asset_type]} detached in a new revision.`);
       setDetachAsset(null);
       updateParams({ revision: null, compare: null });
@@ -940,7 +938,7 @@ export function LibraryComponentWorkspace({
     if (!canMutate) return;
     setBusyAction("previews");
     try {
-      const updated = await fetchJson<CatalogComponent>(`/api/catalog/components/${encodeURIComponent(componentId)}/previews/regenerate`, { method: "POST" });
+      const updated = await regenerateComponentPreviews(componentId);
       const ready = updated.previews.filter((preview) => preview.status === "ready").length;
       const failed = updated.previews.filter((preview) => preview.status === "failed").length;
       if (ready) toast.success(`${ready} preview${ready === 1 ? "" : "s"} ready${failed ? `; ${failed} failed` : ""}.`);
