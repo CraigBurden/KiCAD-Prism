@@ -13,7 +13,8 @@ is a future adapter; the runtime is a standards-based semantic glTF scene.
   exporter.
 - `viewer/`: WebGPU viewer and bundled standards-based glTF loader.
 - `samples/`: generated project topology, semantic glTF tiles, and standalone HTML.
-- `tests/`: Python contract/unit tests.
+- `tests/`: Python contract/unit tests; `tests/browser/` holds browser checks,
+  including the pixel-diff and frame-time harness (`tests/browser/pixel-diff/`).
 - `docs/`: implementation notes and reference repository SHAs.
 
 ## Quick Start
@@ -32,6 +33,15 @@ Run tests:
 ```bash
 /Users/Swaroop/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
   -m unittest discover -s tests
+```
+
+Renderer changes must leave the 3D view pixel-identical unless the change is
+meant to alter it. Check this with the headless pixel-diff harness (Node 22 and
+a local Chrome; see `tests/browser/pixel-diff/README.md`):
+
+```bash
+node tests/browser/pixel-diff/run.mjs --board obc=<bundle dir> \
+  --build base=origin/dev --build candidate=worktree --perf
 ```
 
 Install the JavaScript tooling and rebuild the embedded viewer after

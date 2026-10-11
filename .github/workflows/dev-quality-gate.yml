@@ -461,6 +461,9 @@ jobs:
       - name: Test viewer
         run: npm run test:viewer
 
+      - name: Test pixel-diff harness helpers
+        run: npm run test:harness
+
       - name: Test topology compiler
         run: python -m unittest discover -s tests -p "test_*.py"
 
