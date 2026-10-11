@@ -165,7 +165,11 @@ function _write_index_cache(root, signature, payload) {
     }
 }
 
-/** Mirrors design_compare_service._GENERATED_PARTS. */
+/** Directories a walk never enters. The backend's rule for what is generated is
+ * project_revision.is_generated: design comparison materializes each snapshot
+ * through its COMPARE_INPUTS source set, so a snapshot arrives with generated
+ * files already left out and this set changes nothing there. It only keeps a
+ * command-line run over a working tree out of VCS, tool and cache folders. */
 const GENERATED_PARTS = new Set([
     ".cache",
     ".git",
