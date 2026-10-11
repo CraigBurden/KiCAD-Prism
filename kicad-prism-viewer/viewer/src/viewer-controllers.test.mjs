@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -473,4 +474,23 @@ test("an element routes common members to the mounted mode and mode members to t
   element.mounted = element.modes.board;
   element.modes.board.attach(board.port);
   assert.deepEqual(board.names(), ["setWorkspace", "setHiddenComponents", "quietly", "selectComponent"]);
+});
+
+test("Prism's d.ts declares each member under the mode that has it", () => {
+  // The host's types (frontend/src/types/prism-semantic-viewer.d.ts) declare
+  // the members Prism calls, one interface per mode; every one must be a
+  // member of that mode here, or Prism would call a member that is a no-op.
+  const dts = readFileSync(new URL("../../../frontend/src/types/prism-semantic-viewer.d.ts", import.meta.url), "utf8");
+  const declared = (name) => {
+    const body = new RegExp(`export interface ${name} \\{\\n([\\s\\S]*?)\\n\\}`).exec(dts)?.[1];
+    assert.ok(body, name);
+    return [...body.matchAll(/^ {4}(\w+)\(/gm)].map((match) => match[1]);
+  };
+  const tables = { PrismSemanticViewerCommon: COMMON_MEMBERS, PrismSemanticBoardMode: BOARD_MEMBERS, PrismSemanticSystemMode: SYSTEM_MEMBERS };
+  for (const [name, members] of Object.entries(tables)) {
+    const names = declared(name);
+    assert.ok(names.length > 5, name);
+    for (const member of names) assert.ok(members.includes(member), `${name}.${member}`);
+  }
+  assert.match(dts, /interface PrismSemanticViewerElement\s+extends HTMLElement, PrismSemanticViewerCommon, PrismSemanticBoardMode, PrismSemanticSystemMode \{\}/);
 });

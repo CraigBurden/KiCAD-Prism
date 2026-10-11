@@ -5,15 +5,17 @@ import type {
     PrismSemanticViewState,
     PrismSystemSceneHarnessState,
     PrismSystemSceneMoveState,
+    PrismSurfacePick,
     PrismSystemViewerSelection,
+    PrismViewerPick,
 } from "@/types/prism-semantic-viewer";
 
 /**
  * The shared test double for `<prism-semantic-viewer mode="system">` (AC-21).
  * It is registered as `prism-semantic-viewer`, so a component that renders the
- * tag gets one and the adapter's `whenDefined` resolves. Every system-mode
- * method the host calls is a spy; `selectHarness` answers false until
- * `drawHarnesses` says the tubes exist, as the element does.
+ * tag gets one and the adapter's `whenDefined` resolves. Every member of the
+ * element's three mode interfaces is a spy; `selectHarness` answers false
+ * until `drawHarnesses` says the tubes exist, as the element does.
  */
 export class FakeSemanticViewer extends HTMLElement implements PrismSemanticViewerElement {
     harnessesDrawn = true;
@@ -40,6 +42,27 @@ export class FakeSemanticViewer extends HTMLElement implements PrismSemanticView
     readonly setStatsOverlay = vi.fn();
     readonly setHelpVisible = vi.fn();
     readonly isHelpVisible = vi.fn(() => false);
+    readonly pickSurfaceAt = vi.fn((): PrismSurfacePick | null => null);
+    readonly viewAxis = vi.fn();
+    readonly focusMoveTarget = vi.fn(() => false);
+    // Members of both modes and of the board mode the System tab does not call (AC-30: the element always has them).
+    readonly setLayerVisible = vi.fn();
+    readonly applyLayerPreset = vi.fn();
+    readonly setShowBoard = vi.fn();
+    readonly setShowComponents = vi.fn();
+    readonly setShowPlaceholders = vi.fn();
+    readonly setRealisticColors = vi.fn();
+    readonly setSeparation = vi.fn();
+    readonly showNetLayers = vi.fn();
+    readonly pickAt = vi.fn(async (): Promise<PrismViewerPick | null> => null);
+    readonly setHighlightedNets = vi.fn();
+    readonly getComponentReferences = vi.fn((): string[] => []);
+    readonly setViewMode = vi.fn();
+    readonly renderInset = vi.fn(() => false);
+    readonly insetReady = vi.fn(() => false);
+    readonly insetSurfaceZ = vi.fn(() => 0);
+    readonly releaseInset = vi.fn();
+    readonly onSceneChange = vi.fn(() => () => {});
 
     /** A click in the view. */
     pick(selection: PrismSystemViewerSelection | null): void {
