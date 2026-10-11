@@ -63,6 +63,16 @@ npm run build:panel
 `build:panel` is the separate Remote Symbol Provider build. React Doctor's
 baseline is enforced by `scan:gate`; raw `npm run scan` is diagnostic only.
 
+## Native geometry crate
+
+When `kicad-prism-viewer/native/prism-kicad-native/` changed, run the image's
+checks (CI job "Native geometry crate"):
+
+```bash
+cd kicad-prism-viewer/native/prism-kicad-native
+cargo fmt --check && cargo test --release --locked && cargo clippy --release --locked -- -D warnings
+```
+
 ## Design compare parser
 
 When `backend/design-compare-parser/` changed:
