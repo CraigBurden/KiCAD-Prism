@@ -54,6 +54,9 @@ class JobsetExecutionResult:
 def find_kicad_cli_path() -> str:
     """Return the KiCad CLI path using the existing Prism lookup convention."""
 
+    configured = os.environ.get("KICAD_CLI_PATH", "").strip()
+    if configured:
+        return configured
     mac_path = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
     if os.path.exists(mac_path):
         return mac_path

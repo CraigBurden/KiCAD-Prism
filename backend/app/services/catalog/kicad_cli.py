@@ -19,6 +19,10 @@ class KicadCliRunner:
 
     @staticmethod
     def resolve(runtime: CatalogRuntime) -> str | None:
+        configured = os.environ.get("KICAD_CLI_PATH", "").strip()
+        if configured:
+            runtime.kicad_cli = configured
+            return configured
         if runtime.kicad_cli and Path(runtime.kicad_cli).exists():
             return runtime.kicad_cli
         candidates = (
