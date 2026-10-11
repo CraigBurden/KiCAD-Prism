@@ -384,7 +384,8 @@ class DeleteProjectEndpointTests(unittest.TestCase):
     def test_designer_is_blocked_when_signed_releases_exist(self) -> None:
         from app.api import projects as api
 
-        with patch.object(api, "authorized_project", return_value={"repo_id": "repo", "import_type": "single", "parent_repo_path": "/tmp/p", "path": "/tmp/p"}), \
+        with patch.object(api, "authorized_project", return_value={"id": "prj_1"}), \
+             patch.object(api.workspace, "get_project_by_id", return_value={"repo_id": "repo", "import_type": "single", "parent_repo_path": "/tmp/p"}), \
              patch.object(
                  api.workspace,
                  "delete_project",
@@ -399,7 +400,8 @@ class DeleteProjectEndpointTests(unittest.TestCase):
     def test_admin_delete_passes_force_true(self) -> None:
         from app.api import projects as api
 
-        with patch.object(api, "authorized_project", return_value={"repo_id": "repo", "import_type": "single", "parent_repo_path": "/tmp/p", "path": "/tmp/p"}), \
+        with patch.object(api, "authorized_project", return_value={"id": "prj_1"}), \
+             patch.object(api.workspace, "get_project_by_id", return_value={"repo_id": "repo", "import_type": "single", "parent_repo_path": "/tmp/p"}), \
              patch.object(api.workspace, "delete_project", return_value=True) as delete_project, \
              patch.object(api.project_deletion.comments_store, "delete_project_comments"), \
              patch.object(api.workspace, "get_projects_by_repo", return_value=[]), \
