@@ -19,8 +19,8 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-function renderStaged(hotkeys: Parameters<typeof useStagedGridEdits>[0]["hotkeys"] = { enabled: true }, limit = 100) {
-    return renderHook(() => useStagedGridEdits({ writeCell, limit, hotkeys }), { wrapper: StrictMode });
+function renderStaged(hotkeys: Parameters<typeof useStagedGridEdits>[0]["hotkeys"] = { enabled: true }) {
+    return renderHook(() => useStagedGridEdits({ writeCell, hotkeys }), { wrapper: StrictMode });
 }
 
 describe("parseClipboardMatrix", () => {
@@ -87,8 +87,8 @@ describe("useStagedGridEdits", () => {
         expect(result.current.canUndo).toBe(false);
     });
 
-    it("keeps the given undo depth", () => {
-        const { result } = renderStaged({ enabled: true }, 100);
+    it("keeps 100 undo steps", () => {
+        const { result } = renderStaged({ enabled: true });
         for (let index = 0; index < 105; index += 1) {
             act(() => result.current.setCell("r1", "a", `v${index}`));
         }

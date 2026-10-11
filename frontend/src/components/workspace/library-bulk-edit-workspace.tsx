@@ -341,7 +341,7 @@ export function LibraryBulkEditWorkspace({ user }: { user: User | null }) {
   }, [viewportRef]);
   const {
     edits: staged, canUndo, canRedo, setCell, paste, reset: resetStaged, undo, redo,
-  } = useStagedGridEdits({ writeCell: writeStagedCell, limit: 100, hotkeys: { enabled: true, scope: gridScopeRef } });
+  } = useStagedGridEdits({ writeCell: writeStagedCell, hotkeys: { enabled: true, scope: gridScopeRef } });
   const isAdmin = canAdministerCatalog(user?.role);
   const canEdit = canWriteCatalog(user?.role);
   // An empty grid means something different when filters are active than when the

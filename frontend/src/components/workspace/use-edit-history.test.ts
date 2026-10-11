@@ -17,8 +17,8 @@ const emptyEditHistory = untypedEmpty as State;
  * Characterization tests for the remediation-grid edit history. These pin the
  * behavior contract the old nested-setState implementation provided before it
  * was replaced with a pure reducer:
- * - commit snapshots prior edits onto undo (capped at 50 unless the commit
- *   names a limit; bulk edit uses 100) and clears redo
+ * - commit snapshots prior edits onto undo (capped at EDIT_HISTORY_DEPTH,
+ *   100, for both grids) and clears redo
  * - undo/redo are symmetric no-ops on empty stacks
  * - replaceEdits rewrites edits without touching history
  * - reset wipes everything, or clears history and keeps what its update returns
@@ -71,18 +71,10 @@ describe("editHistoryReducer", () => {
         expect(editHistoryReducer(emptyEditHistory, { type: "redo" })).toBe(emptyEditHistory);
     });
 
-    it("caps the undo stack at 50 entries", () => {
-        let current = emptyEditHistory;
-        for (let index = 0; index < 60; index += 1) {
-            current = editHistoryReducer(current, { type: "commit", update: setField(`v${index}`) });
-        }
-        expect(current.undoStack.length).toBe(50);
-    });
-
-    it("caps the undo stack at the commit's limit", () => {
+    it("caps the undo stack at 100 entries", () => {
         let current = emptyEditHistory;
         for (let index = 0; index < 120; index += 1) {
-            current = editHistoryReducer(current, { type: "commit", update: setField(`v${index}`), limit: 100 });
+            current = editHistoryReducer(current, { type: "commit", update: setField(`v${index}`) });
         }
         expect(current.undoStack.length).toBe(100);
         // The oldest entries fell off: the bottom of the stack is commit 20's prior state.

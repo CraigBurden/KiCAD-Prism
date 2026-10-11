@@ -50,8 +50,8 @@ matching remote-provider representation, not the default placement pair),
 
 **Staged grid edits** — `use-staged-grid-edits.ts` is the one engine for both
 spreadsheet grids (bulk edit and import remediation): local edits until save,
-cell/fill-down/paste writes as single undo steps, undo/redo with a per-grid
-depth (bulk 100, remediation 50), reset on save or apply, and the undo/redo/save
+cell/fill-down/paste writes as single undo steps, undo/redo 100 steps deep in
+both grids, reset on save or apply, and the undo/redo/save
 hotkeys (optionally scoped to the grid's element). It sits on the pure reducer
 in `use-edit-history.ts`; a grid supplies only its `writeCell`.
 

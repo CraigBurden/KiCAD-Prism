@@ -9,8 +9,9 @@ import { useCallback, useReducer } from "react";
  * ref-held stacks during render (as bulk edit once did) leaves buttons stale.
  *
  * Behavior contract:
- * - commit pushes the prior edits onto the undo stack (capped at `limit`,
- *   50 when omitted) and clears the redo stack; a no-op commit changes nothing.
+ * - commit pushes the prior edits onto the undo stack (capped at
+ *   `EDIT_HISTORY_DEPTH`, shared by both grids) and clears the redo stack; a
+ *   no-op commit changes nothing.
  * - undo/redo swap the top of one stack with the current edits and are
  *   no-ops on empty stacks.
  * - replace rewrites the edits WITHOUT touching history (used when accepted
@@ -31,13 +32,14 @@ export interface EditHistoryState<E extends EditMap> {
 }
 
 export type EditHistoryAction<E extends EditMap> =
-    | { type: "commit"; update: (current: E) => E; limit?: number }
+    | { type: "commit"; update: (current: E) => E }
     | { type: "replace"; update: (current: E) => E }
     | { type: "reset"; update?: (current: E) => E }
     | { type: "undo" }
     | { type: "redo" };
 
-const DEFAULT_EDIT_HISTORY_LIMIT = 50;
+/** Undo depth of every library grid (decision D33: one depth for both). */
+const EDIT_HISTORY_DEPTH = 100;
 
 export const emptyEditHistory: EditHistoryState<EditMap> = {
     edits: {},
@@ -53,10 +55,9 @@ export function editHistoryReducer<E extends EditMap>(
         case "commit": {
             const next = action.update(state.edits);
             if (next === state.edits) return state;
-            const limit = action.limit ?? DEFAULT_EDIT_HISTORY_LIMIT;
             return {
                 edits: next,
-                undoStack: [...state.undoStack.slice(-(limit - 1)), state.edits],
+                undoStack: [...state.undoStack.slice(-(EDIT_HISTORY_DEPTH - 1)), state.edits],
                 redoStack: [],
             };
         }
@@ -91,15 +92,15 @@ export function editHistoryReducer<E extends EditMap>(
     }
 }
 
-export function useEditHistory<E extends EditMap>(limit = DEFAULT_EDIT_HISTORY_LIMIT) {
+export function useEditHistory<E extends EditMap>() {
     const [state, dispatch] = useReducer(
         editHistoryReducer<E>,
         emptyEditHistory as EditHistoryState<E>,
     );
 
     const commitEdits = useCallback(
-        (update: (current: E) => E) => dispatch({ type: "commit", update, limit }),
-        [limit],
+        (update: (current: E) => E) => dispatch({ type: "commit", update }),
+        [],
     );
     const replaceEdits = useCallback(
         (update: (current: E) => E) => dispatch({ type: "replace", update }),
