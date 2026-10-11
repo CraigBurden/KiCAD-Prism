@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator, Mapping, Sequence
 
+from app.core import errors
 from app.release_studio.canonical import sha256_canonical
 from app.services.postgres_database import database
 
@@ -921,12 +922,11 @@ REVIEW_SLOTS = ("designer", "qa")
 REVIEW_DECISIONS = ("approved", "withdrawn")
 
 
-class ReviewDecisionError(ReleaseStudioError):
-    """A review or publish gate refused the request."""
+class ReviewDecisionError(errors.DomainError, ReleaseStudioError):
+    """A review or publish gate refused the request (409 unless given)."""
 
     def __init__(self, message: str, *, status_code: int = 409) -> None:
-        super().__init__(message)
-        self.status_code = status_code
+        super().__init__(message, status_code=status_code)
 
 
 def _json_object(value: Any) -> dict[str, Any]:

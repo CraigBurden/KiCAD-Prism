@@ -20,10 +20,15 @@ from fastapi import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import DomainError  # noqa: E402
 from app.api import catalog_admin  # noqa: E402
 from app.core.security import AuthenticatedUser  # noqa: E402
 from app.services.catalog.runtime import ASSET_BROWSE_CACHE_TTL_SECONDS  # noqa: E402
 from app.services.component_catalog_domain import ComponentCatalogDomainService  # noqa: E402
+
+
+# A route refuses with an HTTPException or a typed domain error (rendered by the app handler).
+ROUTE_ERRORS = (HTTPException, DomainError)
 
 
 class _FilesystemOnlyCatalogService(ComponentCatalogDomainService):
@@ -291,7 +296,7 @@ class AssetBrowseEndpointTests(unittest.TestCase):
             "browse_library_assets",
             side_effect=ValueError("Unsupported asset type"),
         ):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 catalog_admin.browse_library_assets(
                     asset_type="gerber", q="", limit=50, user=self.user
                 )

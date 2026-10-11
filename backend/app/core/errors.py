@@ -26,11 +26,14 @@ signal a refused input with a bare ``ValueError`` written for the caller.
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Any, Iterator, Mapping
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 
 class DomainError(Exception):
@@ -46,7 +49,7 @@ class DomainError(Exception):
         *,
         code: str | None = None,
         status_code: int | None = None,
-        detail: str | None = None,
+        detail: Any = None,
         headers: Mapping[str, str] | None = None,
         **extra: Any,
     ) -> None:
@@ -137,41 +140,82 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(DomainError, _domain_error_handler)
 
 
-_VALUE_ERROR_CLASSES: dict[int, type[DomainError]] = {
+_CLASS_FOR_STATUS: dict[int, type[DomainError]] = {
     400: BadRequest,
+    403: Forbidden,
     404: NotFound,
     409: Conflict,
+    412: StaleVersion,
     422: Invalid,
+    502: UpstreamFailure,
+    503: Unavailable,
 }
 
+ExceptionTypes = type[BaseException] | tuple[type[BaseException], ...]
 
-def from_value_error(error: ValueError, status_code: int = 400) -> DomainError:
-    """The typed error for a bare ``ValueError`` an older service raised for the caller."""
 
-    if isinstance(error, DomainError):
-        return error
-    return _VALUE_ERROR_CLASSES.get(status_code, BadRequest)(str(error), status_code=status_code)
+def caller_error(error: BaseException, status_code: int) -> DomainError:
+    """The typed error for an exception whose message an older service wrote for the caller."""
+
+    return _CLASS_FOR_STATUS.get(status_code, DomainError)(str(error), status_code=status_code)
 
 
 @contextmanager
-def value_errors_as(status_code: int = 400) -> Iterator[None]:
-    """Render a bare ``ValueError`` from the wrapped service call as ``status_code``.
+def caller_errors(
+    *rules: tuple[ExceptionTypes, int],
+    keep_typed: bool = False,
+    unexpected: str | None = None,
+    unexpected_status: int = 500,
+) -> Iterator[None]:
+    """Render the listed exception types from the wrapped service call with a fixed status.
 
-    Older services refuse input with ``ValueError`` and a message written for
-    the caller. This keeps that contract in one place until they raise typed
-    errors. Typed errors pass through unchanged; nothing else is caught.
+    The bridge for services that predate typed errors and signal a refusal with
+    a built-in exception (``ValueError``, ``RuntimeError``, ``LookupError`` ...)
+    whose message is written for the caller. Rules are tried in order, like
+    ``except`` clauses. A typed error never matches when ``keep_typed`` is set,
+    so a catalog conflict (also a ``ValueError``) keeps its own status and body;
+    without it the route's status wins, as it did when the route caught the
+    built-in type itself. Anything unlisted propagates and its text never
+    reaches the client. ``unexpected`` keeps a route's old catch-all: any other
+    exception is logged and answered ``unexpected_status`` (500) with that
+    fixed message instead of its text.
     """
 
     try:
         yield
-    except DomainError:
-        raise
-    except ValueError as error:
-        raise from_value_error(error, status_code) from error
+    except Exception as error:
+        status = None if keep_typed and isinstance(error, DomainError) else _matching_status(error, rules)
+        if status is not None:
+            raise caller_error(error, status) from error
+        if unexpected is None or isinstance(error, (DomainError, HTTPException)):
+            raise
+        logger.exception("%s", unexpected)
+        raise caller_error(Exception(unexpected), unexpected_status) from error
+
+
+def _matching_status(error: BaseException, rules: tuple[tuple[ExceptionTypes, int], ...]) -> int | None:
+    for types, status in rules:
+        if isinstance(error, types):
+            return status
+    return None
+
+
+def value_errors_as(status_code: int = 400, *, keep_typed: bool = False):
+    """``caller_errors`` for the common case: a bare ``ValueError`` becomes ``status_code``."""
+
+    return caller_errors((ValueError, status_code), keep_typed=keep_typed)
+
+
+def from_value_error(error: ValueError, status_code: int = 400) -> DomainError:
+    """``caller_error`` for a router that already holds the ``ValueError``."""
+
+    return caller_error(error, status_code)
 
 
 __all__ = [
     "BadRequest",
+    "caller_error",
+    "caller_errors",
     "Conflict",
     "DomainError",
     "Forbidden",

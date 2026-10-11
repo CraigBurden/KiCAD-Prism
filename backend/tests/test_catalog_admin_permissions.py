@@ -13,6 +13,7 @@ from fastapi.params import Form as FormParam
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.errors import DomainError  # noqa: E402
 from app.api import catalog_admin  # noqa: E402
 from app.api.catalog_admin import _can_transition_workflow  # noqa: E402
 from app.core.security import AuthenticatedUser, require_catalog_admin  # noqa: E402
@@ -26,6 +27,10 @@ from app.services.catalog.conflicts import (  # noqa: E402
 )
 
 
+# A route refuses with an HTTPException or a typed domain error (rendered by the app handler).
+ROUTE_ERRORS = (HTTPException, DomainError)
+
+
 class CatalogAdminPermissionTests(unittest.TestCase):
     def test_only_admins_can_manage_metadata_field_definitions(self) -> None:
         admin = AuthenticatedUser(email="admin@example.com", name="Admin", role="admin")
@@ -34,7 +39,7 @@ class CatalogAdminPermissionTests(unittest.TestCase):
         )
 
         self.assertIs(asyncio.run(require_catalog_admin(admin)), admin)
-        with self.assertRaises(HTTPException) as raised:
+        with self.assertRaises(ROUTE_ERRORS) as raised:
             asyncio.run(require_catalog_admin(designer))
         self.assertEqual(raised.exception.status_code, 403)
 
@@ -167,7 +172,7 @@ class CatalogAdminAssetRevisionTests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(
                     catalog_admin.catalog_service, service_name, side_effect=CatalogConflict(CONFLICT)
                 ) as mocked:
-                    with self.assertRaises(HTTPException) as raised:
+                    with self.assertRaises(ROUTE_ERRORS) as raised:
                         await handler("cmp-1", expected_revision_id="stale-rev", user=WRITER, **kwargs)
                 self.assertEqual(raised.exception.status_code, 409)
                 self.assertEqual(mocked.call_args.kwargs["expected_revision_id"], "stale-rev")
@@ -177,7 +182,7 @@ class CatalogAdminAssetRevisionTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             catalog_admin.catalog_service, "link_library_asset", side_effect=CatalogConflict(CONFLICT)
         ) as mocked:
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 catalog_admin.link_library_asset("cmp-1", "symbol", payload, user=WRITER)
         self.assertEqual(raised.exception.status_code, 409)
         self.assertEqual(mocked.call_args.kwargs["expected_revision_id"], "stale-rev")
@@ -189,7 +194,7 @@ class CatalogAdminAssetRevisionTests(unittest.IsolatedAsyncioTestCase):
             "import_symbol_library",
             side_effect=ValueError("No symbols were found in the uploaded library"),
         ):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 await catalog_admin.import_symbol_library(
                     "cmp-1",
                     file=_upload("empty.kicad_sym"),
@@ -212,7 +217,7 @@ class CatalogAdminTypedConflictTests(unittest.TestCase):
             "update_component_metadata",
             side_effect=CatalogConflict("head moved"),
         ):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 catalog_admin.update_catalog_component("cmp-1", payload, user=WRITER)
         self.assertEqual(raised.exception.status_code, 409)
         self.assertEqual(
@@ -229,11 +234,11 @@ class CatalogAdminTypedConflictTests(unittest.TestCase):
             "update_component_metadata",
             side_effect=ValueError("datasheet is required"),
         ):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 catalog_admin.update_catalog_component("cmp-1", payload, user=WRITER)
         self.assertEqual(raised.exception.status_code, 400)
         with patch.object(catalog_admin.catalog_service, "update_component_metadata", return_value=None):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 catalog_admin.update_catalog_component("cmp-1", payload, user=WRITER)
         self.assertEqual(raised.exception.status_code, 404)
 
@@ -265,7 +270,7 @@ class CatalogAdminTypedConflictTests(unittest.TestCase):
                     service_name,
                     side_effect=CatalogConflict("representation head moved"),
                 ):
-                    with self.assertRaises(HTTPException) as raised:
+                    with self.assertRaises(ROUTE_ERRORS) as raised:
                         handler()
                 self.assertEqual(raised.exception.status_code, 409)
                 self.assertEqual(
@@ -279,7 +284,7 @@ class CatalogAdminTypedConflictTests(unittest.TestCase):
             "detach_asset_by_id",
             side_effect=CatalogConflict("cannot detach", code=ASSET_REFERENCED_CODE),
         ):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 catalog_admin.detach_component_asset_by_id(
                     "cmp-1", "asset-1", expected_revision_id="rev-1", user=WRITER
                 )
@@ -311,7 +316,7 @@ class CatalogAdminTypedConflictTests(unittest.TestCase):
                 side_effect=manifest_conflict("manifest moved"),
             ),
         ):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 catalog_admin.transition_release_status("cmp-1", payload, user=WRITER)
         self.assertEqual(raised.exception.status_code, 409)
         self.assertEqual(
@@ -328,7 +333,7 @@ class CatalogAdminTypedConflictTests(unittest.TestCase):
             "update_component_metadata",
             side_effect=ValueError(CONFLICT),
         ):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ROUTE_ERRORS) as raised:
                 catalog_admin.update_catalog_component("cmp-1", payload, user=WRITER)
         self.assertEqual(raised.exception.status_code, 400)
 

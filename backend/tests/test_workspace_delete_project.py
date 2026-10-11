@@ -25,10 +25,15 @@ except ImportError:  # pragma: no cover - dependency guard for host-only checks
     psycopg = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
 
+from app.core.errors import DomainError  # noqa: E402
 from app.services.workspace_service import (  # noqa: E402
     ProjectHasSignedReleasesError,
     WorkspaceService,
 )
+
+
+# A route refuses with an HTTPException or a typed domain error (rendered by the app handler).
+ROUTE_ERRORS = (HTTPException, DomainError)
 
 
 TEST_POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "").strip()
@@ -392,7 +397,7 @@ class DeleteProjectEndpointTests(unittest.TestCase):
                  "delete_project",
                  side_effect=ProjectHasSignedReleasesError("prj_1", 1),
              ):
-            with self.assertRaises(HTTPException) as caught:
+            with self.assertRaises(ROUTE_ERRORS) as caught:
                 _run(api.delete_project_endpoint("prj_1", user=_User("designer")))
 
         self.assertEqual(caught.exception.status_code, 409)

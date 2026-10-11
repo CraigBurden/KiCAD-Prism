@@ -4,6 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.core.errors import value_errors_as
 from app.core.security import AuthenticatedUser, require_designer, require_viewer
 from app.services.workspace_service import workspace
 from app.api._helpers import _row_to_project
@@ -30,10 +31,6 @@ class UpdateFolderRequest(BaseModel):
     parent_id: Optional[str] = None
 
 
-def _status_code_for_value_error(error: ValueError, default: int = 400) -> int:
-    return 404 if "not found" in str(error).lower() else default
-
-
 def _normalize_folder_name(name: str) -> str:
     normalized = name.strip()
     if not normalized:
@@ -51,24 +48,20 @@ async def get_folder_contents(
     folder_id: Optional[str] = Query(default=None),
     user: AuthenticatedUser = Depends(require_viewer),
 ):
-    try:
+    with value_errors_as(404):
         payload = await asyncio.to_thread(workspace.get_folder_contents, folder_id, user.role)
         payload["projects"] = [_row_to_project(r) for r in payload["projects"]]
         return payload
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error))
 
 
 @router.post("/", dependencies=[Depends(require_designer)])
 async def create_folder(request: CreateFolderRequest):
-    try:
+    with value_errors_as(400):
         return await asyncio.to_thread(
             workspace.create_folder,
             name=_normalize_folder_name(request.name),
             parent_id=request.parent_id,
         )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
 
 
 @router.patch("/{folder_id}", dependencies=[Depends(require_designer)])
@@ -80,7 +73,7 @@ async def update_folder(folder_id: str, request: UpdateFolderRequest):
     name = _normalize_folder_name(request.name) if "name" in field_set and request.name is not None else request.name
     use_parent = "parent_id" in field_set
 
-    try:
+    with value_errors_as(400, keep_typed=True):
         return await asyncio.to_thread(
             workspace.update_folder,
             folder_id=folder_id,
@@ -88,16 +81,12 @@ async def update_folder(folder_id: str, request: UpdateFolderRequest):
             parent_id=request.parent_id,
             _use_parent=use_parent,
         )
-    except ValueError as error:
-        raise HTTPException(status_code=_status_code_for_value_error(error), detail=str(error))
 
 
 @router.delete("/{folder_id}", dependencies=[Depends(require_designer)])
 async def delete_folder(folder_id: str, cascade: bool = Query(default=True)):
-    try:
+    with value_errors_as(400):
         deleted = await asyncio.to_thread(workspace.delete_folder, folder_id, cascade)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Folder not found")
@@ -107,10 +96,8 @@ async def delete_folder(folder_id: str, cascade: bool = Query(default=True)):
 
 @router.post("/projects/{project_id}/move", dependencies=[Depends(require_designer)])
 async def move_project_to_folder(project_id: str, request: MoveProjectRequest):
-    try:
+    with value_errors_as(400, keep_typed=True):
         result = await asyncio.to_thread(workspace.move_project_to_folder, project_id, request.folder_id)
-    except ValueError as error:
-        raise HTTPException(status_code=_status_code_for_value_error(error), detail=str(error))
     if not result:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -119,14 +106,12 @@ async def move_project_to_folder(project_id: str, request: MoveProjectRequest):
 
 @router.post("/projects/move", dependencies=[Depends(require_designer)])
 async def move_projects_to_folder(request: MoveProjectsRequest):
-    try:
+    with value_errors_as(400, keep_typed=True):
         moved = await asyncio.to_thread(
             workspace.move_projects_to_folder,
             request.project_ids,
             request.folder_id,
         )
-    except ValueError as error:
-        raise HTTPException(status_code=_status_code_for_value_error(error), detail=str(error))
 
     noun = "project" if moved == 1 else "projects"
     return {"message": f"{moved} {noun} moved successfully", "moved": moved}

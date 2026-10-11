@@ -115,18 +115,92 @@ class ValueErrorBridgeTest(unittest.TestCase):
                 self.assertEqual(caught.exception.status_code, status)
                 self.assertEqual(caught.exception.body()["detail"], "Unknown sort field")
 
-    def test_typed_errors_pass_through(self) -> None:
+    def test_typed_value_errors_keep_their_status_only_when_asked(self) -> None:
         class TypedConflict(errors.Conflict, ValueError):
             pass
 
         with self.assertRaises(TypedConflict):
+            with errors.value_errors_as(400, keep_typed=True):
+                raise TypedConflict("changed")
+        # Without keep_typed the route's status wins, as when the route caught ValueError itself.
+        with self.assertRaises(errors.BadRequest) as caught:
             with errors.value_errors_as(400):
                 raise TypedConflict("changed")
+        self.assertEqual(caught.exception.body(), {"detail": "changed"})
+
+    def test_typed_errors_that_are_not_value_errors_pass_through(self) -> None:
+        with self.assertRaises(errors.NotFound):
+            with errors.value_errors_as(400):
+                raise errors.NotFound("Folder not found")
 
     def test_other_exceptions_are_not_caught(self) -> None:
         with self.assertRaises(KeyError):
             with errors.value_errors_as(400):
                 raise KeyError("x")
+
+
+class CallerErrorsTest(unittest.TestCase):
+    def test_rules_apply_in_order_like_except_clauses(self) -> None:
+        class MissingTool(RuntimeError):
+            pass
+
+        def scan(error):
+            with errors.caller_errors((ValueError, 400), (MissingTool, 503), (RuntimeError, 502)):
+                raise error
+
+        for error, status in ((ValueError("bad host"), 400), (MissingTool("ssh-keyscan missing"), 503),
+                              (RuntimeError("scan failed"), 502)):
+            with self.subTest(status=status):
+                with self.assertRaises(errors.DomainError) as caught:
+                    scan(error)
+                self.assertEqual(caught.exception.status_code, status)
+                self.assertEqual(caught.exception.body(), {"detail": str(error)})
+
+    def test_unexpected_exceptions_get_a_fixed_message_not_their_text(self) -> None:
+        with self.assertLogs("app.core.errors", level="ERROR"):
+            with self.assertRaises(errors.DomainError) as caught:
+                with errors.caller_errors((ValueError, 400), unexpected="Analysis failed"):
+                    raise OSError("/srv/prism/secret path")
+        self.assertEqual((caught.exception.status_code, caught.exception.body()), (500, {"detail": "Analysis failed"}))
+
+    def test_http_and_domain_errors_are_never_swallowed_as_unexpected(self) -> None:
+        from fastapi import HTTPException
+
+        with self.assertRaises(HTTPException):
+            with errors.caller_errors(unexpected="Workflow failed to start"):
+                raise HTTPException(status_code=404, detail="Project not found")
+        with self.assertRaises(errors.NotFound):
+            with errors.caller_errors(unexpected="Workflow failed to start"):
+                raise errors.NotFound("Folder not found")
+
+
+class RoutersRenderNoExceptionTextTest(unittest.TestCase):
+    """AC-10: ``str(exc)`` left the routers. Remaining uses are not response text."""
+
+    ALLOWED = {
+        # Matches an OAuth state code / webhook reason; never sent.
+        ("tracker_identity.py", "code = str(exc)"),
+        ("tracker_webhooks.py", "reason = str(exc)"),
+        # Per-proposal outcome of a catalog service ValueError (caller-facing by convention).
+        ("catalog_admin.py", '"error": str(exc)'),
+        # Vendor pack readiness in the publish flow (Release Studio, AC-23).
+        ("release_studio.py", "is not ready: {exc}"),
+    }
+
+    def test_no_router_puts_exception_text_in_a_response(self) -> None:
+        import re
+        from pathlib import Path
+
+        pattern = re.compile(r"str\((exc|e|error|err)\)|\{(exc|e|error|err)\}")
+        api = Path(__file__).resolve().parents[1] / "app" / "api"
+        found = []
+        for path in sorted(api.glob("*.py")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if pattern.search(line) and not any(
+                    path.name == name and snippet in line for name, snippet in self.ALLOWED
+                ):
+                    found.append(f"{path.name}: {line.strip()}")
+        self.assertEqual(found, [])
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
+from app.core.errors import value_errors_as
 from app.core.security import AuthenticatedUser, require_remote_symbol_reader
 from app.services import provider_auth_service
 from app.services.component_catalog_service import catalog_service
@@ -348,10 +349,8 @@ async def get_component(
     )
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
-    try:
+    with value_errors_as(400):
         return _component_payload(component, _provider_origin(request), representation)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/api/remote-provider/parts/{part_id}")
@@ -362,12 +361,10 @@ async def get_part_manifest(
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    try:
+    with value_errors_as(400):
         manifest = await asyncio.to_thread(
             catalog_service.build_manifest, part_id, _provider_origin(request), representation
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not manifest:
         raise HTTPException(status_code=404, detail="Component not found")
     return JSONResponse(manifest)
@@ -380,12 +377,10 @@ async def get_inline_component(
     user: AuthenticatedUser = Depends(require_remote_symbol_reader),
 ):
     _ = user
-    try:
+    with value_errors_as(400):
         bundle = await asyncio.to_thread(
             catalog_service.build_inline_bundle, component_id, representation
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not bundle:
         raise HTTPException(status_code=404, detail="Component not found")
     return JSONResponse(bundle)

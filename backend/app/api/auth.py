@@ -326,12 +326,9 @@ async def change_own_password(
     if not password_credential_service.verify_password(user.email, request.current_password).ok:
         raise HTTPException(status_code=403, detail="Current password is incorrect")
 
-    try:
-        password_credential_service.set_password(
-            user.email, request.new_password, updated_by=user.email, must_change=False
-        )
-    except password_credential_service.PasswordPolicyError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    password_credential_service.set_password(
+        user.email, request.new_password, updated_by=user.email, must_change=False
+    )
     _revoke_account_sessions(
         user.email, reason="password_changed", keep_session_id=user.session_id
     )

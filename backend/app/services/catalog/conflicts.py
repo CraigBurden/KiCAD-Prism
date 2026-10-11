@@ -1,10 +1,15 @@
 """Typed catalog write conflicts.
 
 HTTP 409 vs 400 is classified by this type, not by scanning the human message.
+The app's domain-error handler (``app.core.errors``) renders it.
 Callers may change wording without changing the machine code or status.
 """
 
 from __future__ import annotations
+
+from typing import Any
+
+from app.core import errors
 
 
 REVISION_CONFLICT_CODE = "revision_conflict"
@@ -22,8 +27,11 @@ DEFAULT_MANIFEST_CONFLICT_MESSAGE = (
 )
 
 
-class CatalogConflict(ValueError):
-    """A concurrent or referential catalog write that must not be applied."""
+class CatalogConflict(errors.Conflict, ValueError):
+    """A concurrent or referential catalog write that must not be applied (409).
+
+    Catalog clients read ``{"detail": {"code", "message"}}``, so this keeps that body.
+    """
 
     def __init__(
         self,
@@ -31,8 +39,10 @@ class CatalogConflict(ValueError):
         *,
         code: str = REVISION_CONFLICT_CODE,
     ) -> None:
-        super().__init__(message)
-        self.code = code
+        super().__init__(message, code=code, detail={"code": code, "message": message})
+
+    def body(self) -> dict[str, Any]:
+        return {"detail": self.detail}
 
 
 def revision_conflict(message: str = DEFAULT_REVISION_CONFLICT_MESSAGE) -> CatalogConflict:

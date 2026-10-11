@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.api.catalog_errors import raise_catalog_value_error
+from app.core.errors import caller_errors, value_errors_as
 from app.core.config import settings
 from app.core import policy
 from app.core.policy import require_owner_or_admin
@@ -246,7 +246,7 @@ def list_catalog_components(
     user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
-    try:
+    with value_errors_as(400):
         return catalog_service.list_components(
             query=q,
             source=source,
@@ -262,8 +262,6 @@ def list_catalog_components(
             sort_dir=sort_dir,
             lightweight=lightweight,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/categories")
@@ -288,7 +286,7 @@ def release_queue(
 ):
     _ = user
     stages = "qa_review,done" if workflow_stage == "all" else workflow_stage
-    try:
+    with value_errors_as(400):
         result = catalog_service.list_components(
             query=q,
             workflow_stage=stages,
@@ -300,8 +298,6 @@ def release_queue(
             lightweight=True,
         )
         return {**result, "summary": catalog_service.release_queue_summary()}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/health")
@@ -318,7 +314,7 @@ def create_project_import_session(
     visible_projects = {str(project["id"]): project for project in workspace.get_all_projects(user.role)}
     if payload.scope in {"component", "project"} and payload.project_id not in visible_projects:
         raise HTTPException(status_code=404, detail="Project not found")
-    try:
+    with value_errors_as(400):
         selected_project_ids = sorted(visible_projects) if payload.scope == "all-projects" else [payload.project_id]
         project_revisions: dict[str, str] = {}
         for project_id in selected_project_ids:
@@ -342,8 +338,6 @@ def create_project_import_session(
             idempotency_key=f"project-import:{session['id']}",
         )
         return {**session, "job_id": job["id"]}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _folder_snapshot_for_user(snapshot_id: str, user: AuthenticatedUser) -> dict[str, Any]:
@@ -397,9 +391,8 @@ async def upload_folder_snapshot_file(
         return {"relative_path": relative_path, "sha256": artifact.sha256, "size_bytes": artifact.size_bytes}
 
     try:
-        return await asyncio.to_thread(store)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        with value_errors_as(400):
+            return await asyncio.to_thread(store)
     finally:
         await file.close()
 
@@ -413,7 +406,7 @@ def discover_folder_snapshot(
     snapshot = _folder_snapshot_for_user(snapshot_id, user)
     if snapshot.get("status") != "uploading":
         raise HTTPException(status_code=409, detail="Folder snapshot is already immutable")
-    try:
+    with value_errors_as(400):
         source_files = artifact_store.snapshot_files(snapshot_id)
         discovery = discover_library(
             source_files,
@@ -434,8 +427,6 @@ def discover_folder_snapshot(
             1 for component in discovery["components"] if component.get("existing_component")
         )
         return discovery
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/import-snapshots/folders/{snapshot_id}/complete", status_code=202)
@@ -445,7 +436,7 @@ def complete_folder_snapshot(
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _folder_snapshot_for_user(snapshot_id, user)
-    try:
+    with value_errors_as(400):
         snapshot = artifact_store.complete_snapshot(snapshot_id)
         session = catalog_service.create_project_import_session(
             scope="folder",
@@ -464,8 +455,6 @@ def complete_folder_snapshot(
             idempotency_key=f"folder-import:{snapshot_id}",
         )
         return {**session, "job_id": job["id"]}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/import-snapshots/folders/server", status_code=202)
@@ -473,7 +462,7 @@ def create_server_folder_snapshot(
     payload: ServerFolderImportRequest,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    try:
+    with value_errors_as(400):
         source = resolve_server_import_path(payload.root_name, payload.subpath)
         snapshot = artifact_store.create_snapshot(
             source_type="server",
@@ -497,8 +486,6 @@ def create_server_folder_snapshot(
             idempotency_key=f"server-folder-import:{snapshot['id']}",
         )
         return {**session, "job_id": job["id"]}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/import-sessions/{session_id}")
@@ -567,7 +554,7 @@ def accept_project_import_proposal(
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _project_import_proposal_for_user(proposal_id, user)
-    try:
+    with value_errors_as(400):
         return catalog_service.accept_project_import_proposal(
             proposal_id,
             metadata_overrides=payload.metadata_overrides,
@@ -576,8 +563,6 @@ def accept_project_import_proposal(
             actor=user.email,
             change_summary=payload.change_summary,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/import-sessions/{session_id}/proposals/bulk-accept")
@@ -779,10 +764,8 @@ def search_catalog_assets(
     user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     """Search existing catalog assets so an import can reference one instead of copying it."""
-    try:
+    with value_errors_as(400):
         return {"items": catalog_service.search_assets(asset_type=asset_type, query=q, limit=limit)}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/import-proposals/{proposal_id}/reject")
@@ -791,10 +774,8 @@ def reject_project_import_proposal(
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _project_import_proposal_for_user(proposal_id, user)
-    try:
+    with value_errors_as(400):
         return catalog_service.reject_project_import_proposal(proposal_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/components")
@@ -802,12 +783,10 @@ def create_catalog_component(
     payload: CreateManualComponentRequest,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    try:
+    with value_errors_as(400):
         data = payload.model_dump()
         change_summary = str(data.pop("change_summary"))
         return catalog_service.create_manual_component(actor=user.email, change_summary=change_summary, **data)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}")
@@ -817,12 +796,10 @@ def get_catalog_component(
     user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
-    try:
+    with value_errors_as(400):
         component = catalog_service.get_component(
             component_id, representation_id=representation
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return component
@@ -831,10 +808,8 @@ def get_catalog_component(
 @router.get("/components/{component_id}/revisions")
 def list_component_revisions(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
-    try:
+    with value_errors_as(404):
         return {"items": catalog_service.list_component_revisions(component_id)}
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}/revisions/compare")
@@ -845,10 +820,8 @@ def compare_component_revisions(
     user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
-    try:
+    with value_errors_as(404):
         return catalog_service.compare_component_revisions(component_id, before, after)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}/revisions/{revision_id}")
@@ -867,19 +840,15 @@ def get_component_revision(
 @router.get("/components/{component_id}/audit")
 def list_component_audit(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
-    try:
+    with value_errors_as(404):
         return {"items": catalog_service.list_component_audit_events(component_id)}
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}/audit/verify")
 def verify_component_audit(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
-    try:
+    with value_errors_as(404):
         return catalog_service.verify_component_audit_chain(component_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}/usage")
@@ -888,30 +857,24 @@ def list_component_usage(
     mode: str = Query(default="current", pattern="^(current|history)$"),
     user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
-    try:
+    with value_errors_as(404):
         visible_projects = {str(project["id"]) for project in workspace.get_all_projects(user.role)}
         items = catalog_service.list_component_usage(component_id, include_history=mode == "history")
         return {"items": [item for item in items if str(item.get("project_id") or "") in visible_projects]}
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}/reviews")
 def list_component_reviews(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
-    try:
+    with value_errors_as(404):
         return {"items": catalog_service.list_component_review_decisions(component_id)}
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/components/{component_id}/releases")
 def list_component_releases(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
-    try:
+    with value_errors_as(404):
         return {"items": catalog_service.list_component_release_records(component_id)}
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/previews/{preview_id}")
@@ -963,7 +926,7 @@ def update_catalog_component(
         for key, value in request_data.items()
         if value is not None
     }
-    try:
+    with value_errors_as(400, keep_typed=True):
         component = catalog_service.update_component_metadata(
             component_id,
             updates,
@@ -971,8 +934,6 @@ def update_catalog_component(
             change_summary=change_summary,
             expected_revision_id=expected_revision_id,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return component
@@ -984,7 +945,7 @@ def create_component_representation(
     payload: CreateRepresentationRequest,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    try:
+    with value_errors_as(400, keep_typed=True):
         return catalog_service.create_representation(
             component_id,
             label=payload.label,
@@ -998,8 +959,6 @@ def create_component_representation(
             actor=user.email,
             change_summary=payload.change_summary,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
 
 
 @router.patch("/components/{component_id}/representations/{representation_id}")
@@ -1016,7 +975,7 @@ def update_component_representation(
         ).items()
         if value is not None
     }
-    try:
+    with value_errors_as(400, keep_typed=True):
         return catalog_service.update_representation(
             component_id,
             representation_id,
@@ -1025,8 +984,6 @@ def update_component_representation(
             actor=user.email,
             change_summary=payload.change_summary,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
 
 
 @router.delete("/components/{component_id}/representations/{representation_id}")
@@ -1036,15 +993,13 @@ def delete_component_representation(
     expected_revision_id: str = Query(...),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    try:
+    with value_errors_as(400, keep_typed=True):
         return catalog_service.delete_representation(
             component_id,
             representation_id,
             expected_revision_id=expected_revision_id,
             actor=user.email,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
 
 
 @router.post("/components/{component_id}/symbol-import")
@@ -1061,7 +1016,7 @@ async def import_symbol_library(
         raise HTTPException(status_code=400, detail="Uploaded symbol library was empty")
 
     # Runs kicad-cli; a slow upgrade must not stall the event loop.
-    try:
+    with value_errors_as(400, keep_typed=True):
         return await asyncio.to_thread(
             catalog_service.import_symbol_library,
             component_id,
@@ -1072,8 +1027,6 @@ async def import_symbol_library(
             counterpart_asset_id=counterpart_asset_id,
             actor=user.email, expected_revision_id=expected_revision_id,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
 
 
 @router.post("/components/{component_id}/footprint-import")
@@ -1089,7 +1042,7 @@ async def import_footprint(
     if not payload:
         raise HTTPException(status_code=400, detail="Uploaded footprint payload was empty")
 
-    try:
+    with value_errors_as(400, keep_typed=True):
         return await asyncio.to_thread(
             catalog_service.import_footprint,
             component_id,
@@ -1100,8 +1053,6 @@ async def import_footprint(
             counterpart_asset_id=counterpart_asset_id,
             actor=user.email, expected_revision_id=expected_revision_id,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
 
 
 @router.post("/components/{component_id}/assets/{asset_type}")
@@ -1116,7 +1067,7 @@ async def import_auxiliary_asset(
     if not payload:
         raise HTTPException(status_code=400, detail="Uploaded asset payload was empty")
 
-    try:
+    with value_errors_as(400, keep_typed=True):
         return await asyncio.to_thread(
             catalog_service.attach_auxiliary_asset,
             component_id,
@@ -1126,8 +1077,6 @@ async def import_auxiliary_asset(
             target_library=target_library or "Prism_Assets",
             actor=user.email, expected_revision_id=expected_revision_id,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
 
 
 @router.delete("/components/{component_id}/assets/{asset_type}")
@@ -1136,10 +1085,8 @@ def detach_component_asset(
     asset_type: str,
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    try:
+    with value_errors_as(400):
         return catalog_service.detach_asset(component_id, asset_type, actor=user.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/components/{component_id}/assets/id/{asset_id}")
@@ -1149,15 +1096,13 @@ def detach_component_asset_by_id(
     expected_revision_id: str = Query(...),
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
-    try:
+    with value_errors_as(400, keep_typed=True):
         return catalog_service.detach_asset_by_id(
             component_id,
             asset_id,
             expected_revision_id=expected_revision_id,
             actor=user.email,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
 
 
 @router.delete("/components/{component_id}")
@@ -1173,7 +1118,7 @@ def transition_release_status(
     payload: ReleaseStatusRequest,
     user: AuthenticatedUser = Depends(require_catalog_reader),
 ):
-    try:
+    with value_errors_as(400, keep_typed=True):
         stage = payload.workflow_stage or payload.release_status
         next_stage = _normalize_workflow_stage(stage)
         component_before = catalog_service.get_component(component_id)
@@ -1197,8 +1142,6 @@ def transition_release_status(
             expected_revision_id=payload.expected_revision_id,
             expected_manifest_hash=payload.expected_manifest_hash,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return component
@@ -1206,10 +1149,8 @@ def transition_release_status(
 
 @router.post("/components/{component_id}/previews/regenerate")
 def regenerate_component_previews(component_id: str, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    try:
+    with value_errors_as(400):
         component = catalog_service.regenerate_component_previews(component_id, actor=user.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
     return component
@@ -1228,10 +1169,8 @@ def validate_component_klc(component_id: str, user: AuthenticatedUser = Depends(
 @router.get("/components/{component_id}/validation")
 def get_component_validation(component_id: str, user: AuthenticatedUser = Depends(require_catalog_browser)):
     _ = user
-    try:
+    with value_errors_as(404):
         return catalog_service.get_component_validation(component_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/validation/run")
@@ -1310,34 +1249,26 @@ def list_metadata_fields(
 
 @router.post("/metadata/fields", status_code=201)
 def create_metadata_field(payload: MetadataFieldRequest, user: AuthenticatedUser = Depends(require_catalog_admin)):
-    try:
+    with value_errors_as(400):
         return catalog_service.create_metadata_field(payload.model_dump(), actor=user.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch("/metadata/fields/{field_id}")
 def update_metadata_field(field_id: str, payload: MetadataFieldRequest, user: AuthenticatedUser = Depends(require_catalog_admin)):
-    try:
+    with value_errors_as(400):
         return catalog_service.update_metadata_field(field_id, payload.model_dump(exclude_unset=True), actor=user.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/metadata/fields/{field_id}/archive")
 def archive_metadata_field(field_id: str, user: AuthenticatedUser = Depends(require_catalog_admin)):
-    try:
+    with value_errors_as(400):
         return catalog_service.set_metadata_field_archived(field_id, True, actor=user.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/metadata/fields/{field_id}/restore")
 def restore_metadata_field(field_id: str, user: AuthenticatedUser = Depends(require_catalog_admin)):
-    try:
+    with value_errors_as(400):
         return catalog_service.set_metadata_field_archived(field_id, False, actor=user.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/metadata/grid-preferences")
@@ -1368,25 +1299,21 @@ def metadata_grid(
     user: AuthenticatedUser = Depends(require_catalog_browser),
 ):
     _ = user
-    try:
+    with value_errors_as(400):
         return catalog_service.metadata_grid(
             query=q, availability_state=availability_state, workflow_stage=workflow_stage,
             validation_status=validation_status, category=category, page=page,
             page_size=page_size, sort_by=sort_by, sort_dir=sort_dir, field_keys=field,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/metadata/batches", status_code=201)
 def create_metadata_batch(payload: CreateMetadataBatchRequest, user: AuthenticatedUser = Depends(require_catalog_writer)):
-    try:
+    with value_errors_as(400):
         return catalog_service.stage_metadata_batch(
             [item.model_dump() for item in payload.items], source="grid", actor=user.email,
             change_summary=payload.change_summary,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/metadata/batches/{batch_id}")
@@ -1397,10 +1324,8 @@ def get_metadata_batch(batch_id: str, user: AuthenticatedUser = Depends(require_
 @router.post("/metadata/batches/{batch_id}/approve-fields")
 def approve_metadata_batch_fields(batch_id: str, user: AuthenticatedUser = Depends(require_catalog_admin)):
     _metadata_batch_for_user(batch_id, user)
-    try:
+    with value_errors_as(400):
         return catalog_service.approve_metadata_batch_fields(batch_id, actor=user.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/metadata/batches/{batch_id}/apply", status_code=202)
@@ -1441,14 +1366,12 @@ def export_metadata_csv(
         preferences = catalog_service.get_metadata_grid_preferences(user.email)
         if "visible" in preferences:
             selected_fields = [str(key) for key in preferences.get("visible") or []]
-    try:
+    with value_errors_as(400):
         return StreamingResponse(
             chain(("\ufeff",), catalog_service.iter_metadata_csv(field_keys=selected_fields)),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="prism-component-metadata.csv"'},
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/metadata/import-csv/preview", status_code=201)
@@ -1461,9 +1384,8 @@ async def preview_metadata_csv(
     if not content:
         raise HTTPException(status_code=400, detail="CSV file is empty")
     try:
-        return catalog_service.preview_metadata_csv(content.decode("utf-8-sig"), actor=user.email, change_summary=change_summary)
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        with value_errors_as(400):
+            return catalog_service.preview_metadata_csv(content.decode("utf-8-sig"), actor=user.email, change_summary=change_summary)
     finally:
         await file.close()
 
@@ -1484,10 +1406,8 @@ def metadata_batch_report(batch_id: str, user: AuthenticatedUser = Depends(requi
 @router.post("/exports/kicad-dbl")
 def export_kicad_dbl_bundle(user: AuthenticatedUser = Depends(require_catalog_writer)):
     _ = user
-    try:
+    with value_errors_as(400):
         return catalog_service.export_kicad_dbl_bundle()
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ─── Phase 2: CSV Import Routes ──────────────────────────────────────────────
@@ -1509,11 +1429,9 @@ async def import_inventory_csv(
 ):
     _ = user
     content = await file.read()
-    try:
+    with caller_errors((ValueError, 400), unexpected="Inventory import failed", unexpected_status=400):
         csv_str = content.decode("utf-8")
         return catalog_service.import_inventory_csv(csv_str)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ─── Phase 2: Asset Browsing/Linking Routes ──────────────────────────────────
@@ -1526,11 +1444,9 @@ def browse_library_assets(
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
-    try:
+    with caller_errors((ValueError, 400), unexpected="Library assets could not be listed", unexpected_status=400):
         result = catalog_service.browse_library_assets(asset_type, q=q, limit=limit)
         return {"files": result["files"], "total": result["total"]}
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 class LinkAssetRequest(BaseModel):
@@ -1548,7 +1464,7 @@ def link_library_asset(
     user: AuthenticatedUser = Depends(require_catalog_writer),
 ):
     _ = user
-    try:
+    with value_errors_as(400, keep_typed=True):
         return catalog_service.link_library_asset(
             component_id,
             asset_type,
@@ -1558,5 +1474,3 @@ def link_library_asset(
             counterpart_asset_id=payload.counterpart_asset_id,
             actor=user.email, expected_revision_id=payload.expected_revision_id,
         )
-    except ValueError as exc:
-        raise_catalog_value_error(exc)
