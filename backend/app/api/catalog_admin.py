@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.api.catalog_errors import raise_catalog_value_error
 from app.core.config import settings
+from app.core.policy import require_owner_or_admin
 from app.core.security import AuthenticatedUser, require_catalog_browser, require_catalog_reader, require_catalog_writer
 from app.services.component_catalog_service import catalog_service
 from app.services.catalog import workflow_policy
@@ -344,8 +345,7 @@ def _folder_snapshot_for_user(snapshot_id: str, user: AuthenticatedUser) -> dict
     snapshot = artifact_store.get_snapshot(snapshot_id)
     if not snapshot:
         raise HTTPException(status_code=404, detail="Folder snapshot not found")
-    if user.role != "admin" and str(snapshot.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Folder snapshot access denied")
+    require_owner_or_admin(user, snapshot.get("created_by"), detail="Folder snapshot access denied")
     return snapshot
 
 
@@ -504,8 +504,7 @@ def get_project_import_session(
     session = catalog_service.get_project_import_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Import session not found")
-    if user.role != "admin" and str(session.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Import session access denied")
+    require_owner_or_admin(user, session.get("created_by"), detail="Import session access denied")
     return session
 
 
@@ -514,8 +513,7 @@ def get_catalog_job(job_id: str, user: AuthenticatedUser = Depends(require_catal
     job = catalog_jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Catalog job not found")
-    if user.role != "admin" and str(job.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Catalog job access denied")
+    require_owner_or_admin(user, job.get("created_by"), detail="Catalog job access denied")
     return {**job, "events": catalog_jobs.events(job_id)}
 
 
@@ -533,8 +531,7 @@ def _import_session_for_user(session_id: str, user: AuthenticatedUser) -> dict[s
     session = catalog_service.get_project_import_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Import session not found")
-    if user.role != "admin" and str(session.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Import session access denied")
+    require_owner_or_admin(user, session.get("created_by"), detail="Import session access denied")
     return session
 
 
@@ -554,8 +551,7 @@ def _project_import_proposal_for_user(proposal_id: str, user: AuthenticatedUser)
     session = catalog_service.get_project_import_session(str(proposal["session_id"]))
     if not session:
         raise HTTPException(status_code=404, detail="Import session not found")
-    if user.role != "admin" and str(session.get("created_by") or "") != user.email:
-        raise HTTPException(status_code=403, detail="Import proposal access denied")
+    require_owner_or_admin(user, session.get("created_by"), detail="Import proposal access denied")
     return proposal
 
 
@@ -1301,8 +1297,7 @@ def _metadata_batch_for_user(batch_id: str, user: AuthenticatedUser) -> dict[str
     batch = catalog_service.get_metadata_batch(batch_id)
     if not batch:
         raise HTTPException(status_code=404, detail="Metadata batch not found")
-    if user.role != "admin" and str(batch.get("created_by") or "").casefold() != user.email.casefold():
-        raise HTTPException(status_code=403, detail="Metadata batch access denied")
+    require_owner_or_admin(user, batch.get("created_by"), detail="Metadata batch access denied")
     return batch
 
 
@@ -1439,8 +1434,7 @@ def get_metadata_job(job_id: str, user: AuthenticatedUser = Depends(require_cata
     job = catalog_jobs.get(job_id, "catalog_metadata_batch")
     if not job:
         raise HTTPException(status_code=404, detail="Metadata job not found")
-    if user.role != "admin" and str(job.get("created_by") or "").casefold() != user.email.casefold():
-        raise HTTPException(status_code=403, detail="Metadata job access denied")
+    require_owner_or_admin(user, job.get("created_by"), detail="Metadata job access denied")
     return job
 
 

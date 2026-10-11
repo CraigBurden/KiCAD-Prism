@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
+from app.core.policy import require_owner_or_admin
 from app.core.security import AuthenticatedUser, get_current_user, refuse_provider_token, require_viewer
 from app.services import agent_auth_service
 
@@ -196,8 +197,7 @@ async def revoke_token(
         row = agent_auth_service.get_agent_token(jti)
         if not row:
             raise HTTPException(status_code=404, detail="Token not found")
-        if user.role != "admin" and row["email"] != user.email.strip().lower():
-            raise HTTPException(status_code=403, detail="Not your token")
+        require_owner_or_admin(user, row["email"], detail="Not your token")
         agent_auth_service.revoke_agent_token_by_jti(jti)
 
     await asyncio.to_thread(revoke)

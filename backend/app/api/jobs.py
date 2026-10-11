@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 
 from app.api._helpers import authorize_job_read
 from app.core.roles import CATALOG_WRITE_ROLES, role_meets_minimum
-from app.core.security import AuthenticatedUser, require_viewer
+from app.core.security import AuthenticatedUser, require_admin, require_viewer
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
 from app.services.postgres_database import database
@@ -94,10 +94,8 @@ def _get_authorized_job(job_id: str, user: AuthenticatedUser) -> dict:
 @router.get("/benchmark-metrics")
 async def benchmark_metrics(
     since: str = Query(default=""),
-    user: AuthenticatedUser = Depends(require_viewer),
+    user: AuthenticatedUser = Depends(require_admin),
 ):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin role required")
     try:
         since_at = (
             datetime.fromisoformat(since.replace("Z", "+00:00"))

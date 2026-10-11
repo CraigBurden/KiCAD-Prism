@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
+from app.core.policy import require_owner_or_admin
 from app.core.roles import CATALOG_READ_ROLES, Role
 from app.core.security import AuthenticatedUser
 from app.services.workspace_service import workspace
@@ -36,8 +37,7 @@ def authorize_job_read(job: dict, user: AuthenticatedUser) -> None:
         if user.role not in CATALOG_READ_ROLES:
             raise HTTPException(status_code=403, detail="Catalog read access required")
         return
-    if user.role != "admin" and job.get("requested_by") not in {"", user.email}:
-        raise HTTPException(status_code=403, detail="Job access denied")
+    require_owner_or_admin(user, job.get("requested_by"), detail="Job access denied")
 
 
 def _row_to_project(row: dict) -> project_service.Project:
