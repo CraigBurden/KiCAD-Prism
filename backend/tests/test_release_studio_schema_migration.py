@@ -568,11 +568,13 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
                 id TEXT PRIMARY KEY
             );
             CREATE TABLE ws_folders (
-                id TEXT PRIMARY KEY
+                id TEXT PRIMARY KEY,
+                parent_id TEXT
             );
             CREATE TABLE ws_projects (
                 id TEXT PRIMARY KEY,
-                repo_id TEXT NOT NULL REFERENCES ws_repositories(id)
+                repo_id TEXT NOT NULL REFERENCES ws_repositories(id),
+                folder_id TEXT
             );
             CREATE TABLE ws_project_portfolio (
                 project_id TEXT PRIMARY KEY REFERENCES ws_projects(id)
@@ -1767,6 +1769,7 @@ class ReleaseStudioPostgresSchemaTests(unittest.TestCase):
         self.assertEqual(
             [(version, name) for version, name, _ in MIGRATIONS],
             [
+                (0, "base_tables"),
                 (1, "v3_job_foundation"),
                 (2, "workspace_read_versions"),
                 (3, "git_read_cache"),

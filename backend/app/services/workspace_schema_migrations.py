@@ -1,16 +1,18 @@
-"""Ordered registry and runner for the workspace schema migrations.
+"""Ordered registry of the workspace schema migrations.
 
 Each body is frozen in its own module under ``app.services.workspace_migrations``;
-this file only lists them in order and applies the ones a database has not
-recorded yet. Add a migration by adding a module and one registry line.
+this file only lists them in order. :mod:`app.services.schema_ledger` applies the
+ones a database has not recorded in ``ws_schema_migrations``. Add a migration by
+adding a module and one registry line.
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 from typing import Any
 
+from app.services.schema_ledger import Ledger, Renumbered, Step
+from app.services.workspace_migrations import m000_base_tables
 from app.services.workspace_migrations import m001_v3_job_foundation
 from app.services.workspace_migrations import m002_workspace_read_versions
 from app.services.workspace_migrations import m003_git_read_cache
@@ -63,11 +65,10 @@ from app.services.workspace_migrations import m053_system_step_exports
 from app.services.workspace_migrations import m054_system_harness_outputs
 
 
-logger = logging.getLogger(__name__)
-
 Migration = Callable[[Any], None]
 
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
+    (0, "base_tables", m000_base_tables.migrate),
     (1, "v3_job_foundation", m001_v3_job_foundation.migrate),
     (2, "workspace_read_versions", m002_workspace_read_versions.migrate),
     (3, "git_read_cache", m003_git_read_cache.migrate),
@@ -121,40 +122,26 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
-# The ledger keys on version, so without this the old row would hide another
-# migration's version and the new one would fail on the unique name.
 RENUMBERED: tuple[tuple[str, int, int], ...] = (
     ("repository_origin", 26, 41),
 )
 
 
-def apply_workspace_migrations(conn: Any) -> None:
-    """Apply versioned, additive workspace migrations under the caller's lock."""
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ws_schema_migrations (
-            version INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
+def _ledger() -> Ledger:
+    return Ledger(
+        name="workspace",
+        schema="workspace",
+        table="ws_schema_migrations",
+        steps=tuple(Step(version, name, body) for version, name, body in MIGRATIONS),
+        renumbered=tuple(Renumbered(name, old, new) for name, old, new in RENUMBERED),
     )
-    for name, old_version, new_version in RENUMBERED:
-        conn.execute(
-            "UPDATE ws_schema_migrations SET version = %s WHERE version = %s AND name = %s",
-            (new_version, old_version, name),
-        )
-    applied = {
-        int(row["version"])
-        for row in conn.execute("SELECT version FROM ws_schema_migrations").fetchall()
-    }
-    for version, name, migration in MIGRATIONS:
-        if version in applied:
-            continue
-        logger.info("Applying workspace schema migration %s (%s)", version, name)
-        migration(conn)
-        conn.execute(
-            "INSERT INTO ws_schema_migrations(version, name) VALUES (%s, %s)",
-            (version, name),
-        )
+
+
+WORKSPACE_LEDGER = _ledger()
+
+
+def apply_workspace_migrations(conn: Any) -> list[int]:
+    """Apply pending workspace steps under the caller's lock and ``search_path``."""
+
+    # Built per call so a test that patches MIGRATIONS or RENUMBERED is honoured.
+    return _ledger().apply(conn)

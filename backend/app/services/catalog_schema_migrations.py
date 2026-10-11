@@ -9,9 +9,9 @@ component, revision, release record, review decision and asset row on the
 installation -- and it would have surfaced for the first time on somebody's
 production database, mid-upgrade, after the old stack had already been stopped.
 
-Migrations here follow the same contract as
-:mod:`app.services.workspace_schema_migrations`: numbered, additive and
-idempotent, applied once under the caller's advisory lock and recorded in
+Migrations here follow the same contract as every other schema
+(:mod:`app.services.schema_ledger`): numbered, additive and idempotent, applied
+once under the catalog's advisory lock and recorded in
 ``catalog_schema_versions``. An upgrade may only add. Anything that removes or
 narrows waits for a later release, once the version that needed it is out of
 support, so that rolling the application back does not require restoring data.
@@ -19,17 +19,20 @@ support, so that rolling the application back does not require restoring data.
 Derived state stays out of this ladder on purpose. The component-head
 projections, search indexes and integrity guards are rebuilt whenever their
 definition version changes, which a run-once ledger cannot express; they keep
-their own version markers in ``catalog_meta``.
+their own version markers in ``catalog_meta``. The catalog's baseline (the
+epoch guard, ``create_base_schema`` and the metadata registry seed) also runs on
+every start, ahead of these steps, from
+``ComponentCatalogPostgresService.initialize``: the projections the first step
+widens are part of that baseline.
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 from typing import Any
 
+from app.services.schema_ledger import Ledger, Renumbered, Step
 
-logger = logging.getLogger(__name__)
 
 Migration = Callable[[Any], None]
 
@@ -210,6 +213,18 @@ def _module_connectors(conn: Any) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS catalog_module_connectors_part_idx ON catalog_module_connectors (part_id)")
 
 
+def _revision_assets_asset_index(conn: Any) -> None:
+    """Retention's reverse lookup, asset -> revision, without scanning every revision link.
+
+    ``LocalArtifactStore`` created this on every start before the single ledger,
+    so most databases already have it.
+    """
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_revision_assets_asset "
+        "ON revision_assets(asset_id, revision_id)"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (1, "portable_column_types", _portable_column_types),
     (2, "import_proposal_draft_column", _import_proposal_draft_column),
@@ -218,6 +233,7 @@ MIGRATIONS: tuple[tuple[int, str, Migration], ...] = (
     (5, "model_glb", _model_glb),
     (6, "agent_tokens_registry", _agent_tokens_registry),
     (7, "module_connectors", _module_connectors),
+    (8, "revision_assets_asset_index", _revision_assets_asset_index),
 )
 
 # Migrations that a long-lived branch database recorded under an earlier number.
@@ -246,66 +262,23 @@ def _adopt_legacy_markers(conn: Any) -> set[int]:
     return adopted
 
 
-def apply_catalog_migrations(conn: Any) -> None:
+CATALOG_LEDGER = Ledger(
+    name="catalog",
+    schema="catalog",
+    table="catalog_schema_versions",
+    steps=tuple(Step(version, name, body) for version, name, body in MIGRATIONS),
+    # Catalog jobs and the reset/survivor scripts take this lock; keep it.
+    lock="prism-component-catalog-schema",
+    renumbered=tuple(Renumbered(name, old, new) for name, old, new in RENUMBERED),
+    adopt=_adopt_legacy_markers,
+)
+
+
+def apply_catalog_migrations(conn: Any) -> list[int]:
     """Apply versioned, additive catalog migrations under the caller's lock."""
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS catalog_schema_versions (
-            version INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-    for name, old_version, new_version in RENUMBERED:
-        conn.execute(
-            "UPDATE catalog_schema_versions SET version = %s WHERE version = %s AND name = %s",
-            (new_version, old_version, name),
-        )
-    applied = {
-        int(row["version"])
-        for row in conn.execute("SELECT version FROM catalog_schema_versions").fetchall()
-    }
-    if not applied:
-        for version in _adopt_legacy_markers(conn):
-            name = next(entry[1] for entry in MIGRATIONS if entry[0] == version)
-            logger.info("Adopting catalog schema migration %s (%s) from its legacy marker", version, name)
-            conn.execute(
-                "INSERT INTO catalog_schema_versions(version, name) VALUES (%s, %s) "
-                "ON CONFLICT DO NOTHING",
-                (version, name),
-            )
-            applied.add(version)
-
-    for version, name, migration in MIGRATIONS:
-        if version in applied:
-            continue
-        logger.info("Applying catalog schema migration %s (%s)", version, name)
-        migration(conn)
-        conn.execute(
-            "INSERT INTO catalog_schema_versions(version, name) VALUES (%s, %s)",
-            (version, name),
-        )
+    return CATALOG_LEDGER.apply(conn)
 
 
 def pending_catalog_migrations(conn: Any) -> list[tuple[int, str]]:
-    """Migrations this build would really run, for reporting before an upgrade.
-
-    Read-only, and it accounts for adoption: a migration whose legacy marker is
-    already present will be recorded rather than replayed, so listing it here
-    would overstate what the upgrade is about to do.
-    """
-    existing = conn.execute(
-        "SELECT to_regclass('catalog.catalog_schema_versions') AS relation"
-    ).fetchone()
-    applied: set[int] = set()
-    if existing and existing["relation"]:
-        renumbered = {(old, name): new for name, old, new in RENUMBERED}
-        applied = {
-            renumbered.get((int(row["version"]), str(row["name"])), int(row["version"]))
-            for row in conn.execute("SELECT version, name FROM catalog_schema_versions").fetchall()
-        }
-    if not applied:
-        applied |= _adopt_legacy_markers(conn)
-    return [(version, name) for version, name, _ in MIGRATIONS if version not in applied]
+    """Migrations this build would really run, for reporting before an upgrade."""
+    return CATALOG_LEDGER.pending(conn)
