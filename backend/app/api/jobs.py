@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from app.api._helpers import authorize_job_read
 from app.core import policy
 from app.core.security import AuthenticatedUser, require_admin, require_viewer
+from app.services.job_artifact_service import job_artifacts
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
 from app.services.postgres_database import database
@@ -170,12 +171,9 @@ async def get_job_artifact(
     artifact = await asyncio.to_thread(jobs.get_artifact_for_job, job_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="Job artifact not found")
-    root = (job_state_root() / "artifacts" / "objects" / "sha256").resolve()
-    path = Path(str(artifact.get("object_path") or "")).resolve()
-    try:
-        path.relative_to(root)
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail="Job artifact not found") from error
+    path = job_artifacts.store.contains(str(artifact.get("object_path") or ""))
+    if path is None:
+        raise HTTPException(status_code=404, detail="Job artifact not found")
     if not path.is_file():
         await asyncio.to_thread(
             jobs.invalidate_artifact,
