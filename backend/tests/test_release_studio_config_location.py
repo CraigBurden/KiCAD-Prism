@@ -15,7 +15,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.release_studio.config import parse_configuration_yaml, technical_config_digest
+from app.release_studio.config import (
+    ConfigLoadError,
+    list_configuration_keys,
+    parse_configuration_yaml,
+    technical_config_digest,
+)
 from app.services import release_studio_config_service as config_service
 from app.services.project_revision import ProjectLocation
 
@@ -124,8 +129,8 @@ class MonorepoConfigurationLocationTests(unittest.TestCase):
         self.assertEqual(alpha["production"]["board_rel"], "alpha/board.kicad_pcb")
         self.assertEqual(sorted(beta), ["release"])
 
-    def test_configurations_at_the_repository_root_still_read_for_a_subproject(self) -> None:
-        """Today's place for subproject reads: kept as a fallback, the subproject's own file wins."""
+    def test_a_subproject_does_not_read_configurations_at_the_repository_root(self) -> None:
+        """D30/D31: no repository-root fallback; registry and at-commit listing agree."""
 
         _write(self.repo, f"{CONFIG_DIR}/legacy.yaml", _config("root legacy", "alpha/board.kicad_pcb", "alpha/board.kicad_sch"))
         _write(self.repo, f"{CONFIG_DIR}/release.yaml", _config("root release", "beta/board.kicad_pcb", "beta/board.kicad_sch"))
@@ -134,11 +139,17 @@ class MonorepoConfigurationLocationTests(unittest.TestCase):
         commit = _git(self.repo, "rev-parse", "HEAD")
 
         alpha = self._listing("alpha", commit)
-        self.assertEqual(sorted(alpha), ["legacy", "release"])
+        self.assertEqual(sorted(alpha), ["release"])
         self.assertEqual(alpha["release"]["title"], "alpha release")
-        # Root-level files keep their repository paths, exactly as before.
-        self.assertEqual(alpha["legacy"]["board_rel"], "alpha/board.kicad_pcb")
-        self.assertEqual(alpha["legacy"]["title"], "root legacy")
+
+        candidate = {"config_key": "legacy", "commit_sha": commit, "technical_config_digest": "x"}
+        first, second, third = self._located("alpha")
+        with first, second, third, self.assertRaises(ConfigLoadError):
+            config_service.configuration_for_candidate("project-alpha", candidate)
+
+        # The Settings registry is built from the subproject checkout's own files.
+        registry = list_configuration_keys(self.repo / "alpha")
+        self.assertEqual(registry, sorted(alpha))
 
 
 if __name__ == "__main__":  # pragma: no cover

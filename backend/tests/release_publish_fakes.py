@@ -133,6 +133,7 @@ class FakeForge:
         tag: str,
         notes: str,
         assets: Sequence[tuple[str, bytes]],
+        new_tag: bool = False,
     ) -> dict[str, str]:
         self.calls.append("create_release")
         if tag in self.releases_by_tag:
@@ -150,7 +151,9 @@ class FakeForge:
         }
         return {"url": url, "tag": tag, "forge": self.target.kind}
 
-    def remove_release(self, tag: str) -> None:
+    def remove_release(self, tag: str, *, with_tag: bool = False) -> None:
         self.calls.append("remove_release")
         self.releases_by_tag.pop(tag, None)
+        if with_tag:
+            self.tags.discard(tag)
 

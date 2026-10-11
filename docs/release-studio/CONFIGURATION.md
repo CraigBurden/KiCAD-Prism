@@ -154,9 +154,9 @@ references are relative to the project folder. For a project at the repository
 root that is the repository root. For a monorepo subproject it is the
 subproject's folder: Settings saves there, and reads at a commit (candidates,
 builds) read there, turning the references into repository paths for the
-closure. A configuration committed at the repository root still reads for a
-subproject that has no file of that name, with repository-relative references
-as before; Prism logs that fallback once per configuration.
+closure. A subproject never reads the repository root's configurations, so
+Settings and the at-commit listing show the same set (see `docs/UPGRADES.md`
+to move older root-level files into the subproject).
 
 ## Semantics
 

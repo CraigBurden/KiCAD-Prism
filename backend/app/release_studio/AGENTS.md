@@ -37,7 +37,7 @@ as a spurious change in a customer's release comparison.**
 | `document_pipeline.py` | Gathers typed `DocumentInputs` and writes composed sheets as a member-producing step. |
 | `documents/` | Document generation — `documents/acquisition.py` acquires views, `documents/engine.py` composes sheets, the rest render. |
 | `canonical/` | Byte-canonical encoding and JSON. Frozen by default. |
-| `config/` | Schema, loader, substitution, and digest classification. `config/loader.py` holds the one configuration-location rule: `<project>/.prism/release-studio/`, references relative to the project, returned as repository paths when read at a commit; a subproject falls back to the repository root's file. |
+| `config/` | Schema, loader, substitution, and digest classification. `config/loader.py` holds the one configuration-location rule: `<project>/.prism/release-studio/`, references relative to the project, returned as repository paths when read at a commit; no repository-root fallback for a subproject. |
 | `vendors/` | Vendor-specific packaging (`vendors/jlcpcb.py`, `vendors/pack.py`, `vendors/registry.py`). |
 | `dossier.py` | Final manifest and evidence assembly. |
 | `projections.py` · `semantic.py` · `impedance.py` | Derived views over the build. |
