@@ -59,9 +59,15 @@ the two, and `library-preview-pair.ts` decides which representation's assets a
 pair draws. Navigation belongs to the viewer, not to the frame around it — see
 `frontend/src/lib/ecad-renderer.ts`.
 
-**Import** — `library-import-center.tsx`,
+**Catalog client** — `catalog-client.ts` is the one place that knows
+`/api/catalog` URLs: one function per operation over `frontend/src/lib/api.ts`.
+Components call it; component tests fake it (`vi.mock("./catalog-client")`) and
+`catalog-client.test.ts` pins the wire format.
+
+**Import** — `library-import-center.tsx` (scan polling through `usePoll` in
+`frontend/src/lib/server-state.ts`),
 `library-import-session-proposals.ts` (proposals keyed by session ID; abort
-superseded reads; non-overlapping scan polling),
+superseded reads),
 `library-import-remediation-dialog.tsx`, `library-import-remediation-grid.tsx`
 (both take readiness from `frontend/src/lib/catalog-field-rules.ts`, the rules
 the server enforces on accept),
