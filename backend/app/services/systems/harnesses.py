@@ -108,6 +108,20 @@ def is_linkable(harness: Mapping[str, Any]) -> bool:
     return len(used) == len(set(used))
 
 
+def end_components(harness: Mapping[str, Any], interfaces: Mapping[str, Any]) -> dict[str, Component]:
+    """``end ID -> mated component`` (None when it no longer resolves) from ``interfaces`` by instance.
+    Ends whose interface is missing (not extracted yet), and unmated ends, are left out."""
+    out: dict[str, Component] = {}
+    for end in harness["ends"]:
+        if not end["mates_instance_id"] or not end["mates_port"]:
+            continue
+        interface = interfaces.get(end["mates_instance_id"])
+        if interface is None:
+            continue
+        out[end["id"]] = exposure.component_by_key(interface, end["mates_port"]["portKey"])
+    return out
+
+
 def findings(harness: Mapping[str, Any], components: Mapping[str, Component],
              overrides: Mapping[str, Mapping[str, str]], optional_rules: Sequence[str],
              finding) -> list[dict]:

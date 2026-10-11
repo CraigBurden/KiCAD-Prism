@@ -12,8 +12,9 @@ The class is assembled from mixins by area (``service_documents``,
 ``service_assemblies``, ``service_harnesses``, ``service_reviews``, ``service_git``) over
 ``service_base.ServiceCore``; callers keep importing from this module.
 
-Documents are built unredacted (``_build``) and redacted for the reader last
-(``redaction``), so a snapshot can freeze one document and serve it to any
+Reads go through one ``loaded.LoadedSystem`` per transaction. Documents are built
+unredacted (``_build``, with ``validation.report``) and redacted for the reader at one
+exit (``_for_reader``), so a snapshot can freeze one document and serve it to any
 reader later (§9.1).
 """
 

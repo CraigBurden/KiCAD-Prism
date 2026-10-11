@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import (
-    child_drift, exports as exports_module, exposure, hierarchy, modules, redaction, sources, system_nets, validation,
-    scene as scene_module, visibility,
+    child_drift, exports as exports_module, exposure, hierarchy, modules, redaction, sources, system_nets, scene as scene_module, visibility,
 )
 from app.services.systems import interface_cache
 from app.services.systems.bundles import BundleUnreadable
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
 from app.services.systems.placement import harness_checks, harness_route, poses as poses_module
+from app.services.systems.loaded import LoadedSystem
 from app.services.systems.store import Conflict, Forbidden, Invalid, NotFound, SystemStore
 from app.services.systems.service_base import Caller, Result, logger, _FULL_SHA, _ACTIVE_JOB_STATES, _BUNDLE_BUILDERS
 
@@ -19,58 +19,6 @@ from app.services.systems.service_base import Caller, Result, logger, _FULL_SHA,
 class AssembliesMixin:
     # ------------------------------------------------------------------
     # Assembly and module instances (CONTRACTS_P2 §5)
-
-    def _mate_pair_findings(self, links: Sequence[Mapping[str, Any]], harness_rows: Sequence[Mapping[str, Any]],
-                            interfaces: Mapping[str, dict]) -> list[dict]:
-        """SYS-V18 (CONTRACTS_P2 §18): a b2b pair, or a harness end's part and its board connector,
-        whose two catalog parts are both known and not related by mates-with. Unknown parts: not evaluated."""
-
-        def connector(instance_id: Optional[str], port: Optional[Mapping[str, Any]]) -> Optional[dict]:
-            interface = interfaces.get(instance_id) if instance_id else None
-            return exposure.component_by_key(interface, port["portKey"]) if interface and port else None
-
-        b2b = [(link, [connector(link[f"{e}_instance_id"], link[f"{e}_port"]) for e in ("a", "b")])
-               for link in links if link.get("type") == "b2b"]
-        ends = [(harness, end, connector(end["mates_instance_id"], end["mates_port"]))
-                for harness in harness_rows for end in harness["ends"]
-                if end["catalog_component_id"] and end["mates_instance_id"]]
-        mpns = [c["mpn"] for _link, pair in b2b for c in pair if c and c.get("mpn")] + \
-               [c["mpn"] for _h, _e, c in ends if c and c.get("mpn")]
-        if not mpns:
-            return []
-        try:
-            catalog = self._catalog()
-            parts = catalog.parts_by_mpn(mpns)
-
-            def part(component: Optional[Mapping[str, Any]]) -> Optional[str]:
-                if not component or not component.get("mpn"):
-                    return None
-                return (parts.get(component["mpn"].strip().lower()) or {}).get("componentId")
-
-            known = {p for _link, pair in b2b for p in map(part, pair) if p} | \
-                    {p for _h, e, c in ends for p in (part(c), e["catalog_component_id"]) if p}
-            pairs = catalog.mate_pairs(sorted(known))
-        except Exception:  # the catalog is a separate service; findings wait for it
-            logger.exception("Could not read catalog mates for SYS-V18")
-            return []
-
-        def related(x: str, y: str) -> bool:
-            return (min(x, y), max(x, y)) in pairs
-
-        out = []
-        for link, pair in b2b:
-            ids = [part(c) for c in pair]
-            if all(ids) and ids[0] != ids[1] and not related(*ids):
-                out.append(validation.make_finding("SYS-V18", link_id=link["id"],
-                                                   detail={"partA": ids[0], "partB": ids[1]}))
-        for harness, end, component in ends:
-            board_part = part(component)
-            if board_part and not related(board_part, end["catalog_component_id"]):
-                out.append(validation.make_finding(
-                    "SYS-V18", instance_id=end["mates_instance_id"], reference=(end["mates_port"] or {}).get("reference"),
-                    detail={"harnessId": harness["id"], "endId": end["id"], "part": end["catalog_component_id"],
-                            "connectorPart": board_part}))
-        return out
 
     def end_suggestions(self, caller: Caller, system_id: str, harness_id: str, end_id: str) -> dict:
         """``GET …/harnesses/{hid}/ends/{eid}/suggestions`` (§18): the mated connector's part and its known
@@ -343,10 +291,9 @@ class AssembliesMixin:
         import hashlib
 
         with self._tx(consistent=True) as store:
-            self._system(store, system_id, caller)
-            tree = self._tree(store, system_id)  # SB2-95: one resolve, one read of the system
-            occurrences = {o["path"]: o for o in self._hierarchy_view(store, caller, system_id, tree)["occurrences"]}
-            root = self._net_level(store, system_id, tree)
+            loaded = self._load(store, system_id, caller)  # SB2-95: one resolve, one read of the system
+            occurrences = {o["path"]: o for o in self._hierarchy_view(store, caller, system_id, loaded.tree)["occurrences"]}
+            root = loaded.level
         visible = {path for path, o in occurrences.items() if not o["restricted"]}
 
         def shown(path: Optional[str]) -> bool:
@@ -378,20 +325,6 @@ class AssembliesMixin:
                 "members": members, "hops": hops,
             })
         return out, occurrences
-
-    def _net_level(self, store: SystemStore, system_id: str, tree: Optional[hierarchy.Tree] = None) -> system_nets.Level:
-        """The root level of the connectivity walk: links, exports and harnesses, with every resolved child."""
-        instances = store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)
-        root = system_nets.Level(
-            prefix="", kinds={i["id"]: i["kind"] for i in instances}, labels={i["id"]: i["label"] for i in instances},
-            links=store.list_links(system_id), harnesses=store.list_harnesses(system_id),
-            exports=[{"id": e["id"], "target": ({"instanceId": e["target_instance_id"], "portKey": e["target_port"]["portKey"],
-                                                 "port": e["target_port"]} if e["target_port"]
-                                                else {"instanceId": e["target_instance_id"], "exportId": e["target_export_id"]})}
-                     for e in store.list_exports(system_id)],
-        )
-        system_nets.attach_children(root, tree or self._tree(store, system_id))
-        return root
 
     def nets(self, caller: Caller, system_id: str, *, search: str = "", occurrence: Optional[str] = None,
              net: Optional[str] = None, members: bool = False, limit: int = 50, offset: int = 0) -> dict:
@@ -462,8 +395,7 @@ class AssembliesMixin:
         """``GET …/hierarchy`` (§11): every occurrence, redacted for the reader (§5.4)."""
 
         with self._tx() as store:
-            self._system(store, system_id, caller)
-            return self._hierarchy_view(store, caller, system_id, self._tree(store, system_id))
+            return self._hierarchy_view(store, caller, system_id, self._load(store, system_id, caller).tree)
 
     def _hierarchy_view(self, store: SystemStore, caller: Caller, system_id: str, tree: hierarchy.Tree) -> dict:
         """``hierarchy()``'s body for a tree the caller already resolved (SB2-95: once per request)."""
@@ -495,12 +427,13 @@ class AssembliesMixin:
         """
 
         with self._tx(consistent=True) as store:
-            version = int(self._system(store, system_id, caller)["version"])
-            tree = self._tree(store, system_id)  # SB2-95: one resolve, one read of the system
+            loaded = self._load(store, system_id, caller)  # SB2-95: one resolve, one read of the system
+            version = int(loaded.version)
+            tree = loaded.tree
             shown = {o["path"]: o for o in self._hierarchy_view(store, caller, system_id, tree)["occurrences"]}
-            level = self._net_level(store, system_id, tree)
+            level = loaded.level
             harnesses = system_nets.harness_layout(level)
-            placement, interfaces = self._placement(store, system_id, tree, level)
+            placement, interfaces = loaded.placement, loaded.extents
             interface_of, component_of = self._occurrence_lookups(store, interfaces)
             scene_module.harness_connectors(harnesses, tree.occurrences, level, component_of)
             self._attach_housings(harnesses)
@@ -545,23 +478,17 @@ class AssembliesMixin:
                         "alignment": {k: found["alignment"][k] for k in ("offsetMm", "rotationDeg", "scale")}}
                 end["housing"] = models[part]
 
-    def _harness_checks(self, store: SystemStore, system_id: str, harness_rows: Sequence[Mapping[str, Any]],
-                        placed: Optional[tuple] = None) -> dict:
+    def _harness_checks(self, loaded: LoadedSystem) -> dict:
         """The root level's harnesses routed where the System 3D view draws them (§17.10), by harness
         ID: ``{lengths, collisions, tightBends}``; a harness with fewer than two posed ends is left out.
-        Collisions are checked against every board of the tree that has an outline. ``placed`` is
-        ``(tree, level, placement, extents)`` when the caller already solved them (SB2-93)."""
-        if not harness_rows:
+        Collisions are checked against every board of the tree that has an outline."""
+        if not loaded.harnesses:
             return {}
-        if placed is None:
-            tree = self._tree(store, system_id)
-            level = self._net_level(store, system_id, tree)
-            placed = (tree, level, *self._placement(store, system_id, tree, level))
-        tree, _level, placement, _extents = placed
-        routes, matrices = self._harness_routes(store, placed, root_only=True)
+        tree, placement = loaded.tree, loaded.placement
+        routes, matrices = self._harness_routes(loaded, root_only=True)
         boards = [{"id": o.path, "matrix": matrices[o.path], **placement["local"][o.path]}
                   for o in tree.occurrences if o.kind == "board" and placement["local"].get(o.path)]
-        allowance = {row["id"]: row["service_allowance_pct"] for row in harness_rows}
+        allowance = {row["id"]: row["service_allowance_pct"] for row in loaded.harnesses}
         out = {}
         for harness, routed in routes:
             out[harness["id"]] = {
@@ -577,40 +504,20 @@ class AssembliesMixin:
             }
         return out
 
-    def _harness_routes(self, store: SystemStore, placed: tuple, root_only: bool) -> tuple[list[tuple[dict, dict]], dict]:
-        """``([(scene harness, route)], world matrix by occurrence path)`` for the solved ``placed``
-        (``(tree, level, placement, extents)``): the root level's harnesses, or every level's (a child
-        system's copies each routed through their own frame). Harnesses with no route are left out."""
-        tree, level, placement, extents = placed
+    def _harness_routes(self, loaded: LoadedSystem, root_only: bool) -> tuple[list[tuple[dict, dict]], dict]:
+        """``([(scene harness, route)], world matrix by occurrence path)`` for the loaded placement: the
+        root level's harnesses, or every level's (a child system's copies each routed through their own
+        frame). Harnesses with no route are left out."""
+        tree, level, placement = loaded.tree, loaded.level, loaded.placement
         harnesses = [h for h in system_nets.harness_layout(level) if not (root_only and h["level"])]
         scene_module.harness_connectors(harnesses, tree.occurrences, level,
-                                        self._occurrence_lookups(store, extents)[1])
+                                        self._occurrence_lookups(loaded.rows, loaded.extents)[1])
         self._attach_housings(harnesses)
         matrices = {path: poses_module.matrix(pose)
                     for path, pose in scene_module.world_poses(tree.occurrences, placement["placed"]).items()}
         routes = [(harness, routed) for harness in harnesses
                   if (routed := harness_route.route(harness, matrices.get)) is not None]
         return routes, matrices
-
-    def _placement(self, store: SystemStore, system_id: str, tree: Optional[hierarchy.Tree] = None,
-                   level: Optional[system_nets.Level] = None) -> tuple[dict, dict]:
-        """Every occurrence placed with its mates solved (§14.9), and the board extents used.
-
-        Reads only each board's outline and thickness and the mated connectors, never a
-        whole artifact (megabytes per board).
-        """
-        tree = tree or self._tree(store, system_id)
-        level = level or self._net_level(store, system_id, tree)
-        # Modules mate like boards (§5.6): their stored frames count too.
-        level.mating = store.mating_of([i["id"] for i in store.list_instances(system_id, kinds=("board", "module"))])
-        level.driving = store.list_driving_mates(system_id)
-        extents = {(o.project_id, o.baseline_commit): store.get_interface_extent(o.project_id, o.baseline_commit,
-                                                                                 EXTRACTOR_VERSION)
-                   for o in tree.boards if o.project_id and o.baseline_commit}
-        interface_of, component_of = self._occurrence_lookups(store, extents)
-        placement = scene_module.place_tree(tree.occurrences, interface_of, store.list_poses(system_id), level,
-                                            component_of)
-        return placement, extents
 
     def _occurrence_lookups(self, store: SystemStore, extents: Mapping[tuple, Optional[dict]]):
         """``(interface_of, component_of)`` for an occurrence: a board's extent and one connector read from

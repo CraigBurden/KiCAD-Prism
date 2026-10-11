@@ -5,15 +5,14 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 from app.services.systems import (
-    exports as exports_module, exposure, harnesses as harnesses_module, mating as mating_module, redaction, sources,
+    exports as exports_module, exposure, redaction, sources,
     renames as renames_module, subports as subports_module, validation, visibility,
 )
 from app.services.systems.interface_extractor import EXTRACTOR_VERSION
-from app.services.systems.placement import harness_spec
 from app.services.systems.jobs import (
-    EXTRACT_JOB_KIND,
     artifact_key,
 )
+from app.services.systems.loaded import LoadedSystem
 from app.services.systems.store import Conflict, Invalid, NotFound, StaleVersion, SystemStore
 from app.services.systems.store_base import MAX_EXPORTS
 from app.services.systems.service_base import Caller, Result, _mating_summary, _iso, logger
@@ -132,102 +131,37 @@ class DocumentsMixin:
     # ------------------------------------------------------------------
     # The system document (§8.1)
 
-    def _build(self, store: SystemStore, system: Mapping[str, Any]) -> tuple[dict, list[dict], dict]:
-        """The unredacted system document with its full validation report.
+    def _load(self, store: SystemStore, system_id: str, caller: Caller) -> LoadedSystem:
+        """The system as this transaction reads it, after checking the caller may see it."""
+        return LoadedSystem(store, self._system(store, system_id, caller), self)
 
-        Snapshots freeze exactly this; readers get it through ``redact_document``.
-        Also returns the instance rows and their latest extraction jobs.
+    def _build(self, loaded: LoadedSystem) -> dict:
+        """The unredacted system document with its full validation report (``validation.report``).
+
+        Snapshots freeze exactly this; every read returns it through ``_for_reader``.
         """
 
-        system_id = system["id"]
-        instances = store.list_instances(system_id)
-        links = store.list_links(system_id)
-        names = visibility.project_access(store.conn, [i["project_id"] for i in instances], "admin")
-        interfaces: dict[str, dict] = {}
-        for instance in instances:
-            found = store.get_interface(instance["project_id"], instance["baseline_commit"], EXTRACTOR_VERSION)
-            if found is not None:
-                interfaces[instance["id"]] = found
-        pending = [i for i in instances if i["id"] not in interfaces]
-        job_state = self._latest_jobs(store, pending)
-        for child in store.list_instances(system_id, kinds=("assembly", "module", "part")):
-            synthetic = self._instance_interface(store, child)
-            if synthetic is not None:
-                interfaces[child["id"]] = synthetic
-        # SB2-93: overrides and mating read once, in one query each, for every use below.
-        all_overrides = store.overrides_of([i["id"] for i in instances])
-        overrides = {iid: found for iid, found in all_overrides.items() if iid in interfaces}
-        open_reviews = store.list_reviews(system_id, status="open")
-        exports = store.list_exports(system_id)
-        report = self._validate(store, system_id, instances, links, interfaces, job_state, open_reviews, exports,
-                                system.get("optionalRules") or (), all_overrides)
-        catalog_docs = [self._catalog_instance_doc(i, store)
-                        for i in store.list_instances(system_id, kinds=("assembly", "module", "part"))]
-        report = validation.with_findings(report, validation.child_findings([
-            {"instanceId": doc["id"], "releaseStatus": doc["catalog"]["releaseStatus"],
-             "openReviewCount": doc["catalog"]["openReviewCount"],
-             "blocked": (store.get_source_check(doc["id"]) or {}).get("last_outcome") == "advance_blocked"}
-            for doc in catalog_docs
-        ]))
-        stale = []
-        mating = store.mating_of([instance["id"] for instance in instances])
-        for instance in instances:
-            stored = mating[instance["id"]]
-            if not stored or instance["id"] not in interfaces:
-                continue
-            for port_key, record in sorted(stored.items()):
-                component = exposure.component_by_key(interfaces[instance["id"]], port_key)
-                if mating_module.is_stale(component, record):
-                    stale.append({"instanceId": instance["id"], "portKey": port_key, "mode": record["mode"],
-                                  "reference": (component or {}).get("reference")})
-        report = validation.with_findings(report, validation.mating_findings(stale))
-        harness_rows = store.list_harnesses(system_id)
-        has_b2b = any(link.get("type") == "b2b" for link in links)
-        placed = None
-        if has_b2b or harness_rows:
-            # SB2-93: one tree, net level and placement for both checks below.
-            tree = self._tree(store, system_id)
-            level = self._net_level(store, system_id, tree)
-            placed = (tree, level, *self._placement(store, system_id, tree, level))
-        if has_b2b:
-            # SYS-V11 (§14.9): the root level's mates, solved as the System 3D view places them.
-            solved = placed[2]["results"].get("")
-            if solved:
-                report = validation.with_findings(report, validation.mate_mismatch_findings(solved["mismatches"]))
-        # SB2-46 (§17.10): routed where the System 3D view draws them, for lengths and V12/V13/V20.
-        checked = self._harness_checks(store, system_id, harness_rows, placed)
-        report = validation.with_findings(report, validation.harness_route_findings(
-            checked, {h["id"]: h["cut_length_mm"] for h in harness_rows}, harness_spec.LENGTH_MISMATCH_TOLERANCE))
+        interfaces = loaded.interfaces
+        overrides = {iid: found for iid, found in loaded.overrides.items() if iid in interfaces}
+        subports_by_id = {row["id"]: row for row in loaded.subports}
         harness_docs = []
-        for harness in harness_rows:
-            components = self._end_components(store, harness, interfaces)
-            doc = self._harness_doc(harness, components)
-            found = checked.get(harness["id"])
+        for harness in loaded.harnesses:
+            doc = self._harness_doc(harness, loaded.end_components[harness["id"]])
+            # SB2-46 (§17.10): routed where the System 3D view draws them.
+            found = loaded.harness_checks.get(harness["id"])
             doc["lengths"] = _rounded_lengths(found["lengths"]) if found else None
             harness_docs.append(doc)
-            report = validation.with_findings(report, harnesses_module.findings(
-                harness, components, all_overrides,
-                system.get("optionalRules") or (), validation.make_finding))
-        report = validation.with_findings(report, self._mate_pair_findings(links, harness_rows, interfaces))
-        subport_rows = store.list_subports(system_id)  # SB2-105 (P2 §22)
-        report = validation.with_findings(report, validation.subport_findings(subport_rows, interfaces))
-        # SB2-106 (P2 §23.4): V09 findings on a net with an open rename proposal say so.
-        open_renames = store.list_renames(system_id)
-        report = {**report, "findings": renames_module.annotate(report["findings"], links, open_renames)}
-        review_rows = sorted({rid for review in open_reviews for item in review["items"] for rid in item["row_ids"]})
-        subports_by_id = {row["id"]: row for row in subport_rows}
-        drift_rows = store.drift_links(system_id) if open_renames else links  # rows and harness wires
-        link_docs = [self._link_doc(link, interfaces, overrides, mating, subports_by_id) for link in links]
-        export_docs = [self._export_doc(export, interfaces, overrides, subports_by_id) for export in exports]
-        all_instances = store.list_instances(system_id, kinds=SystemStore.ALL_KINDS)
+        link_docs = [self._link_doc(link, interfaces, overrides, loaded.mating, subports_by_id) for link in loaded.links]
+        export_docs = [self._export_doc(export, interfaces, overrides, subports_by_id) for export in loaded.exports]
         instance_docs = [
-            self._instance_doc(i, names.get(i["project_id"]), interfaces.get(i["id"]),
+            self._instance_doc(i, loaded.project_names.get(i["project_id"]), interfaces.get(i["id"]),
                                overrides.get(i["id"], {}),
-                               job_state.get(artifact_key(i["project_id"], i["baseline_commit"])))
-            for i in instances
-        ] + catalog_docs
+                               loaded.job_state.get(artifact_key(i["project_id"], i["baseline_commit"])))
+            for i in loaded.boards
+        ] + [dict(doc) for doc in loaded.catalog_docs]
         for doc in instance_docs:
-            doc["subports"] = [_subport_entry(row) for row in subport_rows if row["instance_id"] == doc["id"]]
+            doc["subports"] = [_subport_entry(row) for row in loaded.subports if row["instance_id"] == doc["id"]]
+        all_instances = loaded.all_instances
         # SB2-98: what the 3D scene and the system nets depend on, so readers re-read them only when
         # these change rather than on every version (a signal label moves neither).
         scene_key = _digest({
@@ -235,14 +169,15 @@ class DocumentsMixin:
                            i.get("catalog_revision_id")] for i in all_instances],
             "links": [[link["id"], link.get("type"), _end_key(link["a"]), _end_key(link["b"]),
                        link.get("stackHeightMm")] for link in link_docs],
-            "harnesses": harness_docs, "mating": mating, "poses": store.list_poses(system_id),
-            "driving": store.list_driving_mates(system_id),
+            "harnesses": harness_docs, "mating": loaded.mating, "poses": loaded.poses,
+            "driving": loaded.driving,
         })
-        # SB2-108 (P2 §24.2): collisions from the last check while it matches this placement.
-        report = collision_report(report, store.get_collision_check(system_id), scene_key)
-        # SB2-100 (D-P2-56): waivers last, over every finding above.
-        report = validation.apply_waivers(report, store.list_waivers(system_id))
-        store.record_finding_counts(system_id, system["version"], report["counts"])  # SB2-101: for the systems list
+        report = validation.report(loaded, mates=self._mate_catalog(loaded), scene_key=scene_key)
+        open_renames = loaded.open_renames
+        drift_rows = loaded.rows.drift_links(loaded.id) if open_renames else loaded.links  # rows and harness wires
+        review_rows = sorted({rid for review in loaded.open_reviews for item in review["items"]
+                              for rid in item["row_ids"]})
+        system = loaded.system
         return {
             "system": dict(system),
             "instances": instance_docs,
@@ -267,64 +202,93 @@ class DocumentsMixin:
             "findingCounts": report["counts"],
             "validation": report,
             "reviewRowIds": review_rows,
-        }, instances, job_state
+        }
+
+    def _mate_catalog(self, loaded: LoadedSystem) -> Optional[validation.MateCatalog]:
+        """The catalog's parts and mates-with pairs for SYS-V18; None with nothing to look up or when
+        the catalog (a separate service) cannot be read: the findings then wait for it."""
+        mpns = validation.mate_mpns(loaded.links, loaded.harnesses, loaded.interfaces)
+        if not mpns:
+            return None
+        try:
+            catalog = self._catalog()
+            parts = catalog.parts_by_mpn(mpns)
+            pairs = catalog.mate_pairs(validation.mate_parts(loaded.links, loaded.harnesses, loaded.interfaces, parts))
+        except Exception:
+            logger.exception("Could not read catalog mates for SYS-V18")
+            return None
+        return validation.MateCatalog(parts, pairs)
+
+    @staticmethod
+    def _record_counts(loaded: LoadedSystem, built: Mapping[str, Any]) -> None:
+        """SB2-101: the counts of this version for the systems list. Kept on every path that builds
+        the document, as before AC-16 (DECISIONS.md: whether reads should write this is open)."""
+        loaded.rows.record_finding_counts(loaded.id, loaded.version, built["findingCounts"])
+
+    def _built(self, loaded: LoadedSystem) -> dict:
+        built = self._build(loaded)
+        self._record_counts(loaded, built)
+        return built
+
+    # The reader exit: every read returns the document or its report through these, redacted for the
+    # caller by today's access (§8.2, P2 §5.4). The unredacted ``_build`` output is only frozen into
+    # snapshots (and compared, redacted with both sides' restrictions, in diffs).
+
+    @staticmethod
+    def _for_reader(loaded: LoadedSystem, caller: Caller, document: Mapping[str, Any]) -> dict:
+        return redaction.redact_document(document, loaded.restricted(caller))
+
+    @staticmethod
+    def _report_for_reader(loaded: LoadedSystem, caller: Caller, report: Mapping[str, Any]) -> dict:
+        return redaction.redact_findings(report, loaded.restricted(caller))
+
+    def _loaded_board_total(self, loaded: LoadedSystem) -> Optional[int]:
+        """``_board_total`` from the loaded tree."""
+        if not loaded.system.get("subsystemCount"):
+            return int(loaded.system.get("instanceCount") or 0)
+        try:
+            return len(loaded.tree.boards)
+        except Invalid:
+            return None
 
     def document(self, caller: Caller, system_id: str, *, include_validation: bool = False) -> Result:
         with self._tx() as store:
-            system = self._system(store, system_id, caller)
-            built, instances, job_state = self._build(store, system)
-            restricted = self._restricted_instances(store, system_id, caller)
-            board_total = self._board_total(store, system)  # SB2-101
+            loaded = self._load(store, system_id, caller)
+            built = self._built(loaded)
+            restricted = loaded.restricted(caller)
+            board_total = self._loaded_board_total(loaded)  # SB2-101
+            dropped = ("reviewRowIds",) if include_validation else ("validation", "reviewRowIds")
+            body = {k: v for k, v in built.items() if k not in dropped}
+            body["system"] = {**body["system"], "boardTotal": board_total}
+            body = self._for_reader(loaded, caller, body)
         ready = {i["id"] for i in built["instances"] if i["interface"]["status"] == "ready"}
-        for instance in instances:
+        for instance in loaded.boards:
             key = artifact_key(instance["project_id"], instance["baseline_commit"])
             if (instance["id"] not in ready and instance["id"] not in restricted
-                    and key not in job_state and instance["resolution"] == "resolved"):
+                    and key not in loaded.job_state and instance["resolution"] == "resolved"):
                 self._enqueue_quietly(instance["project_id"], instance["baseline_commit"], caller)
-        dropped = ("reviewRowIds",) if include_validation else ("validation", "reviewRowIds")
-        body = {k: v for k, v in built.items() if k not in dropped}
-        body["system"] = {**body["system"], "boardTotal": board_total}
-        return Result(redaction.redact_document(body, restricted), system_id, system["version"])
-
-    def _validate(
-        self, store: SystemStore, system_id: str, instances: Sequence[dict], links: Sequence[dict],
-        interfaces: Mapping[str, dict], job_state: Mapping[str, dict], open_reviews: Sequence[dict],
-        exports: Sequence[dict] = (), optional_rules: Sequence[str] = (),
-        overrides: Optional[Mapping[str, Mapping[str, str]]] = None,
-    ) -> dict:
-        """§7.2 over the live state; an instance's failed extraction makes its source unavailable."""
-
-        unavailable = {}
-        for instance in instances:
-            job = job_state.get(artifact_key(instance["project_id"], instance["baseline_commit"]))
-            if instance["id"] not in interfaces and job and job["status"] in ("failed", "cancelled"):
-                unavailable[instance["id"]] = job["error_code"] or "extraction_failed"
-        return validation.validate(
-            # The full map: board rules read boards only; re-export checks need assemblies (P2 §4).
-            instances, links, dict(interfaces),
-            overrides if overrides is not None else store.overrides_of([i["id"] for i in instances]),
-            open_reviews, unavailable=unavailable, exports=exports, optional_rules=optional_rules,
-        )
+        return Result(body, system_id, loaded.version)
 
     def validation_report(self, caller: Caller, system_id: str) -> Result:
         """``GET …/validation`` (§7.2), redacted for restricted boards (§8.2)."""
 
         with self._tx() as store:
-            system = self._system(store, system_id, caller)
-            built, _instances, _jobs = self._build(store, system)
-            restricted = self._restricted_instances(store, system_id, caller)
-        return Result(redaction.redact_findings(built["validation"], restricted), system_id, system["version"])
+            loaded = self._load(store, system_id, caller)
+            report = self._report_for_reader(loaded, caller, self._built(loaded)["validation"])
+        return Result(report, system_id, loaded.version)
+
+    def _reader_report(self, caller: Caller, system_id: str, version: int) -> dict:
+        """The reader's report at ``version`` from one consistent read without the lock (SB2-94)."""
+        with self._tx(consistent=True) as store:
+            loaded = self._load(store, system_id, caller)
+            if int(loaded.version) != int(version):
+                raise StaleVersion(int(loaded.version))
+            return self._report_for_reader(loaded, caller, self._built(loaded)["validation"])
 
     def waive_finding(self, caller: Caller, system_id: str, version: int, finding_key: str, note: str) -> Result:
         """SB2-100 (D-P2-56): waive one warning or info finding with a note. The finding is found and
         checked from a consistent read without the lock; the lock only stores the waiver (SB2-94)."""
-        with self._tx(consistent=True) as store:
-            system = self._system(store, system_id, caller)
-            if int(system["version"]) != int(version):
-                raise StaleVersion(int(system["version"]))
-            built, _instances, _jobs = self._build(store, system)
-            restricted = self._restricted_instances(store, system_id, caller)
-        report = redaction.redact_findings(built["validation"], restricted)
+        report = self._reader_report(caller, system_id, version)
         finding = next((f for f in report["findings"] if f["key"] == finding_key and not f.get("redacted")), None)
         if finding is None:
             raise NotFound("Finding not found")
@@ -344,13 +308,7 @@ class DocumentsMixin:
         keys = list(dict.fromkeys(finding_keys))
         if not keys or len(keys) > MAX_BATCH_WAIVERS:
             raise Invalid(f"waive 1 to {MAX_BATCH_WAIVERS} findings at once")
-        with self._tx(consistent=True) as store:
-            system = self._system(store, system_id, caller)
-            if int(system["version"]) != int(version):
-                raise StaleVersion(int(system["version"]))
-            built, _instances, _jobs = self._build(store, system)
-            restricted = self._restricted_instances(store, system_id, caller)
-        report = redaction.redact_findings(built["validation"], restricted)
+        report = self._reader_report(caller, system_id, version)
         by_key = {f["key"]: f for f in report["findings"] if not f.get("redacted")}
         missing = [key for key in keys if key not in by_key]
         if missing:
@@ -374,21 +332,6 @@ class DocumentsMixin:
             with store.mutation(system_id, expected_version=version, actor=caller.actor) as change:
                 store.delete_waiver(change, waiver_id)
         return Result(None, system_id, change.version)
-
-    def _latest_jobs(self, store: SystemStore, instances: Sequence[dict]) -> dict[str, dict]:
-        keys = sorted({artifact_key(i["project_id"], i["baseline_commit"]) for i in instances})
-        if not keys:
-            return {}
-        rows = store.conn.execute(
-            """
-            SELECT DISTINCT ON (artifact_key) id, artifact_key, status, error_code
-            FROM ws_jobs
-            WHERE kind = %s AND artifact_key = ANY(%s)
-            ORDER BY artifact_key, created_at DESC
-            """,
-            (EXTRACT_JOB_KIND, keys),
-        ).fetchall()
-        return {row["artifact_key"]: dict(row) for row in rows}
 
     @staticmethod
     def _interface_state(interface: Optional[dict], job: Optional[dict]) -> dict:
@@ -533,10 +476,8 @@ class DocumentsMixin:
 
     def list_exports(self, caller: Caller, system_id: str) -> list[dict]:
         with self._tx() as store:
-            system = self._system(store, system_id, caller)
-            built, _instances, _jobs = self._build(store, system)
-            restricted = self._restricted_instances(store, system_id, caller)
-        return redaction.redact_document(built, restricted)["exports"]
+            loaded = self._load(store, system_id, caller)
+            return self._for_reader(loaded, caller, self._built(loaded))["exports"]
 
     def create_export(
         self, caller: Caller, system_id: str, version: int, *, name: str, description: str,
@@ -582,10 +523,7 @@ class DocumentsMixin:
                                                        subport_id=item.get("subportId"))["id"])
                     except (Invalid, Conflict, NotFound) as problem:
                         raise type(problem)(f"{item['name']}: {problem}") from problem
-        with self._tx() as store:
-            built, _instances, _jobs = self._build(store, self._system(store, system_id, caller))
-        by_id = {e["id"]: e for e in built["exports"]}
-        return Result({"exports": [by_id[i] for i in ids if i in by_id]}, system_id, change.version)
+        return Result({"exports": self._export_entries(caller, system_id, ids)}, system_id, change.version)
 
     @staticmethod
     def _require_subport(store: SystemStore, system_id: str, instance_id: str, port: Mapping[str, Any],
@@ -627,26 +565,45 @@ class DocumentsMixin:
         return export
 
     def _export_body(self, caller: Caller, system_id: str, export_id: str) -> dict:
-        """The export as the document shows it, built after the change commits (SB2-94: a document
+        """The export as the document shows it, read after the change commits (SB2-94: a document
         build under the system lock queued every other editor behind it)."""
-        with self._tx() as store:
-            built, _instances, _jobs = self._build(store, self._system(store, system_id, caller))
-        found = next((e for e in built["exports"] if e["id"] == export_id), None)
-        if found is None:  # deleted by another editor in between
+        found = self._export_entries(caller, system_id, [export_id])
+        if not found:  # deleted by another editor in between
             raise NotFound("Export not found")
-        return found
+        return found[0]
+
+    def _export_entries(self, caller: Caller, system_id: str, export_ids: Sequence[str]) -> list[dict]:
+        """The document's entries for ``export_ids``, redacted for the reader, without building the whole
+        document. IDs deleted in between are left out."""
+        with self._tx() as store:
+            loaded = self._load(store, system_id, caller)
+            restricted = loaded.restricted(caller)
+            subports_by_id = {row["id"]: row for row in loaded.subports}
+            out = []
+            for export_id in export_ids:
+                try:
+                    export = store.get_export(system_id, export_id)
+                except NotFound:
+                    continue
+                iid = export["target_instance_id"]
+                interface = loaded.interface(iid)
+                interfaces = {} if interface is None else {iid: interface}
+                overrides = {iid: loaded.overrides[iid]} if interface is not None and iid in loaded.overrides else {}
+                out.append(redaction.redact_export(self._export_doc(export, interfaces, overrides, subports_by_id),
+                                                   restricted))
+        return out
 
     def export_interface(self, caller: Caller, system_id: str, snapshot_id: Optional[str] = None) -> dict:
         """``GET …/export-interface`` (P2 §4.3), live or at a snapshot, redacted for the reader."""
 
         with self._tx() as store:
-            self._system(store, system_id, caller)
+            loaded = self._load(store, system_id, caller)
             if snapshot_id is None:
-                instances = {i["id"]: i for i in store.list_instances(system_id)}
-                children = {i["id"]: i for i in store.list_instances(system_id, kinds=("assembly", "module", "part"))}
-                exports = store.list_exports(system_id)
-                restricted = self._restricted_instances(store, system_id, caller)
-                subport_rows = store.list_subports(system_id)
+                instances = {i["id"]: i for i in loaded.boards}
+                children = {i["id"]: i for i in loaded.children}
+                exports = loaded.exports
+                restricted = loaded.restricted(caller)
+                subport_rows = loaded.subports
             else:
                 row = store.get_snapshot(system_id, snapshot_id)
                 if row["manifest"] is None:
@@ -792,17 +749,3 @@ def rename_doc(rename: Mapping[str, Any], rows: Optional[int] = None) -> dict:
             "note": rename["note"], "state": rename["state"], "rows": rows, "createdBy": rename["created_by"],
             "createdAt": _iso(rename["created_at"]), "closedBy": rename.get("closed_by"),
             "closedAt": _iso(rename.get("closed_at")), "closedCommit": rename.get("closed_commit")}
-
-
-def collision_report(report: Mapping[str, Any], check: Optional[Mapping[str, Any]], scene_key: str) -> dict:
-    """SYS-V22 (P2 §24.2): the stored check's collisions while it was made for ``scene_key``.
-    ``collisionCheck`` says whether it is ``current``, ``stale`` or ``not_checked``, and lists the
-    occurrences it could not check (no 3D bundle or model): never a pass."""
-    if check is None or check["scene_key"] != scene_key:
-        state = {"state": "not_checked" if check is None else "stale", "checkedAt": _iso(check["checked_at"]) if check else None,
-                 "notEvaluated": []}
-        return {**report, "collisionCheck": state}
-    result = check["result"]
-    report = validation.with_findings(report, validation.collision_findings(result.get("collisions") or []))
-    return {**report, "collisionCheck": {"state": "current", "checkedAt": _iso(check["checked_at"]),
-                                         "notEvaluated": list(result.get("notEvaluated") or [])}}

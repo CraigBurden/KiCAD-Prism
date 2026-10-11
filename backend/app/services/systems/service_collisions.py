@@ -17,7 +17,7 @@ from app.services.systems import (
 )
 from app.services.systems.placement import poses as poses_module
 from app.services.systems.service_base import Caller, Result
-from app.services.systems.store import NotFound, SystemStore
+from app.services.systems.store import NotFound
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +71,10 @@ class CollisionsMixin:
         """Build every body, intersect them and store the result with its scene key."""
         started = time.perf_counter()
         with self._tx(consistent=True) as store:
-            system = self._system(store, system_id, CHECKER)
-            built, _instances, _jobs = self._build(store, system)
-            bodies, gaps, exempt = self._collision_bodies(store, system_id)
+            loaded = self._load(store, system_id, CHECKER)
+            system = loaded.system
+            built = self._built(loaded)
+            bodies, gaps, exempt = self._collision_bodies(loaded)
         found = collisions.check(bodies, exempt)
         result = {"collisions": found, "notEvaluated": gaps,
                   "stats": {"bodies": len(bodies), "triangles": int(sum(len(b.faces) for b in bodies)),
@@ -83,15 +84,13 @@ class CollisionsMixin:
                                          result=result, job_id=job_id)
         return result
 
-    def _collision_bodies(self, store: SystemStore, system_id: str) -> tuple[list, list, set]:
+    def _collision_bodies(self, loaded: Any) -> tuple[list, list, set]:
         from app.services.catalog.models import alignment_matrix
         from app.services.semantic_visualizer_service import bundle_dir, semantic_store_root
 
-        tree = self._tree(store, system_id)
-        level = self._net_level(store, system_id, tree)
-        placement, extents = self._placement(store, system_id, tree, level)
+        tree, level, placement = loaded.tree, loaded.level, loaded.placement
         world = scene_module.world_poses(tree.occurrences, placement["placed"])
-        interface_of, _component_of = self._occurrence_lookups(store, extents)
+        interface_of, _component_of = self._occurrence_lookups(loaded.rows, loaded.extents)
         cache_root = semantic_store_root().parent / "system-collision-meshes"
         bodies, gaps = [], []
         for occurrence in tree.occurrences:

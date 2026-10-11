@@ -55,6 +55,13 @@ def redact_instance(instance: Mapping[str, Any]) -> dict:
     }
 
 
+def redact_export(export: Mapping[str, Any], restricted: Collection[str]) -> Mapping[str, Any]:
+    """An export entry as the reader sees it: one on a hidden board keeps its name, not its port."""
+    if export["instanceId"] in restricted:
+        return {**export, "portKey": None, "port": None, "resolved": None, "redacted": True}
+    return export
+
+
 def redact_link(link: Mapping[str, Any], restricted: Collection[str]) -> dict:
     out = copy.deepcopy(dict(link))
     hidden = [end for end in ("a", "b") if out[end]["instanceId"] in restricted]
@@ -138,11 +145,7 @@ def redact_document(document: Mapping[str, Any], restricted: Collection[str]) ->
         return dict(document)
     out = copy.deepcopy(dict(document))
     out["instances"] = [redact_instance(i) if i["id"] in restricted else i for i in out["instances"]]
-    out["exports"] = [
-        {**e, "portKey": None, "port": None, "resolved": None, "redacted": True}
-        if e["instanceId"] in restricted else e
-        for e in out.get("exports") or []
-    ]
+    out["exports"] = [redact_export(e, restricted) for e in out.get("exports") or []]
     out["links"] = [redact_link(link, restricted) for link in out["links"]]
     out["harnesses"] = [redact_harness(h, restricted) for h in out.get("harnesses") or []]
     # P2 §23: a proposal for a board the reader cannot see names none of its nets.

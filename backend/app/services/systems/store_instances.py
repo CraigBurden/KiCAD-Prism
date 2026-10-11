@@ -290,6 +290,22 @@ class InstancesStore:
                 out[row["instance_id"]][row["port_key"]] = row["state"]
         return out
 
+    def latest_jobs(self, kind: str, artifact_keys: Sequence[str]) -> dict[str, dict]:
+        """The newest ``kind`` job per artifact key: ``{key: {id, artifact_key, status, error_code}}``."""
+        keys = sorted(set(artifact_keys))
+        if not keys:
+            return {}
+        rows = self.conn.execute(
+            """
+            SELECT DISTINCT ON (artifact_key) id, artifact_key, status, error_code
+            FROM ws_jobs
+            WHERE kind = %s AND artifact_key = ANY(%s)
+            ORDER BY artifact_key, created_at DESC
+            """,
+            (kind, keys),
+        ).fetchall()
+        return {row["artifact_key"]: dict(row) for row in rows}
+
     def mating_of(self, instance_ids: Sequence[str]) -> dict[str, dict[str, dict]]:
         """``list_mating`` for many instances in one query (SB2-93); every ID gets a map."""
         out: dict[str, dict[str, dict]] = {iid: {} for iid in instance_ids}
