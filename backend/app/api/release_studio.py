@@ -31,7 +31,8 @@ from app.core.security import (
 from app.services import forge_publish_service as forge_publish
 from app.services import release_studio_build_service as build_service
 from app.services import release_studio_service as store
-from app.services.job_service import jobs
+from app.services.job_kinds import JobSubject
+from app.services.release_studio_build_service import RELEASE_BUILD
 
 router = APIRouter(dependencies=[Depends(require_viewer)])
 logger = logging.getLogger(__name__)
@@ -205,8 +206,7 @@ async def create_candidate(
 
     project = authorized_project(user, project_id, "design")
     _require_enqueue_identity(request.identity, project)
-    job = jobs.enqueue(
-        "release_studio_build",
+    job = RELEASE_BUILD.enqueue(
         {
             "project_id": project_id,
             "config_key": request.config_key,
@@ -221,16 +221,12 @@ async def create_candidate(
             "stackup_pdf_b64": request.stackup_pdf_b64,
             "author": user.email,
         },
-        project_id=project_id,
+        subject=JobSubject(project_id=project_id),
         requested_by=user.email,
         artifact_key=(
             f"release-studio:{project_id}:{request.commit_sha}:"
             f"{request.variant}:{request.identity.get('tag') or request.config_key}"
         ),
-        # A build runs kicad-cli and a Cruncher board load; two of them on one
-        # worker have been measured at 6.4 GiB peak RSS. Take the same slot
-        # every other heavy job takes so they serialize instead of racing.
-        resources={"prism_worker": 1},
     )
     _remember_source_defaults(
         project_id,

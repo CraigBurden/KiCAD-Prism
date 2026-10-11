@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from app.services import job_service
 from app.services import project_import_service
 
 
@@ -114,7 +115,7 @@ class ImportFollowUpSchedulingTests(unittest.TestCase):
                 "get_project_by_id",
                 return_value={"id": "prj-1", "repo_id": "repo-1"},
             ),
-            mock.patch.object(project_import_service.v3_jobs, "enqueue", side_effect=enqueue),
+            mock.patch.object(job_service.jobs, "enqueue", side_effect=enqueue),
             mock.patch.object(
                 project_import_service.workspace,
                 "delete_project",

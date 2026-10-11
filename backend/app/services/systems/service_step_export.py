@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
 
+from app.services.job_kinds import JobKind
 from app.services.kicad_tools import KicadTool, kicad_cli
 from app.services.systems import step_assembly, visibility
 from app.services.systems.placement import poses as poses_module
@@ -83,18 +84,16 @@ def board_step(project: Any, commit: str, *, tool: Optional[KicadTool] = None) -
 class StepExportMixin:
     def request_step_export(self, caller: Caller, system_id: str) -> dict:
         """``POST …/step``: queue an export at the current version, or join the one running (§25)."""
-        from app.services.job_service import jobs
-
         with self._tx() as store:
             system = self._system(store, system_id, caller)
             current = store.get_step_export(system_id)
         version = int(system["version"])
         if current and current["state"] == "running" and int(current["version"]) == version and current["job_id"]:
             return {"jobId": current["job_id"]}
-        job = jobs.enqueue(STEP_JOB_KIND, {"systemId": system_id, "role": caller.role, "email": caller.email},
-                           worker_pool="prism", artifact_key=f"system-step:{system_id}:{version}",
-                           requested_by=caller.email, resources={"prism_worker": 1})
-        job_id = job.get("job_id") if isinstance(job, dict) else getattr(job, "job_id", None)
+        # The export runs with the requester's role (the payload carries it).
+        job = STEP_EXPORT.enqueue({"systemId": system_id, "role": caller.role, "email": caller.email},
+                                  artifact_key=f"system-step:{system_id}:{version}", requested_by=caller.email)
+        job_id = job["job_id"]
         with self._tx() as store:
             store.record_step_export(system_id, version=version, state="running", job_id=job_id)
         return {"jobId": job_id}
@@ -328,3 +327,6 @@ def run_step_job(context: Any) -> Any:
         return JobResult(message="The system no longer exists", details={})
     return JobResult(message=f"STEP export ready ({result['sizeBytes'] // 1_000_000} MB)", details=result)
 
+
+STEP_EXPORT = JobKind(STEP_JOB_KIND, run_step_job)
+JOB_KINDS = (STEP_EXPORT,)

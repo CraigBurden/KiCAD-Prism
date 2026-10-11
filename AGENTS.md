@@ -39,13 +39,17 @@ skills automatically should open the relevant linked playbook directly.
 
 ## How work reaches a worker
 
-Long-running operations use the job system. Start at
-`backend/app/services/job_handlers.py`, which builds the worker registry;
-catalog job kinds are delegated through the `HANDLERS` registry in
-`backend/app/services/catalog_worker_tasks.py`. Jobs are claimed from PostgreSQL
-with leases and fencing (`backend/app/services/job_service.py`,
-`backend/app/services/job_runtime.py`) and executed by
-`backend/app/prism_worker.py` or the catalog worker. The browser waits on a
+Long-running operations use the job system. A job kind is declared once, next
+to its handler, as a `JobKind` (`backend/app/services/job_kinds.py`: pool,
+resource slots, lock shape, attempts, priority, and an optional end hook) in
+the module's `JOB_KINDS`; callers queue with `KIND.enqueue(payload, subject=...)`.
+`backend/app/services/job_handlers.py` registers the kinds (catalog kinds come
+from `backend/app/services/catalog_worker_tasks.py`). Jobs are claimed from
+PostgreSQL with leases and fencing (`backend/app/services/job_service.py`,
+`backend/app/services/job_runtime.py`, whose `JobContext` also carries a
+handler's checkpoint) and executed by `backend/app/prism_worker.py` or the
+catalog worker. When a job ends, its kind's end hook settles the kind's own
+rows; the worker sweeps for rows a dead process left behind. The browser waits on a
 job only through `frontend/src/lib/jobs.ts` (`watchPrismJob` on
 `/api/jobs/{id}`; `frontend/src/hooks/use-job-watcher.ts` ties a watch to a
 component's lifetime).

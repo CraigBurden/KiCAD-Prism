@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping, Optional
 
+from app.services.job_kinds import JobKind
 from app.services.systems import drift, exports
 from app.services.systems.detection import _item_row, _pending_changes, _silent_row
 
@@ -87,16 +88,12 @@ def followers(connect: Any, component_id: str) -> list[tuple[str, str]]:
 
 def enqueue_child_check(component_id: str, revision_id: str, *, requested_by: str = CHILD_ACTOR) -> Optional[dict]:
     """Queue one check per released revision, only when some parent follows the component."""
-    from app.services.job_service import jobs
     from app.services.systems.jobs import workspace_connection
 
     if not followers(workspace_connection, component_id):
         return None
-    return jobs.enqueue(
-        CHILD_CHECK_JOB_KIND, {"componentId": component_id, "revisionId": revision_id},
-        worker_pool="prism", artifact_key=f"system-child-check:{revision_id}", requested_by=requested_by,
-        resources={"prism_worker": 1},
-    )
+    return CHILD_CHECK.enqueue({"componentId": component_id, "revisionId": revision_id},
+                               artifact_key=f"system-child-check:{revision_id}", requested_by=requested_by)
 
 
 def run_child_check_job(context: Any) -> Any:
@@ -118,3 +115,7 @@ def run_child_check_job(context: Any) -> Any:
             outcome = "check_failed"
         counts[outcome] = counts.get(outcome, 0) + 1
     return JobResult(message=f"Checked {sum(counts.values())} parent instance(s)", details={"outcomes": counts})
+
+
+CHILD_CHECK = JobKind(CHILD_CHECK_JOB_KIND, run_child_check_job)
+JOB_KINDS = (CHILD_CHECK,)

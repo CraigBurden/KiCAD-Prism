@@ -18,6 +18,7 @@ from app.api import catalog_admin  # noqa: E402
 from app.api.catalog_admin import _can_transition_workflow  # noqa: E402
 from app.core.security import AuthenticatedUser, require_catalog_admin  # noqa: E402
 from app.services import catalog_worker_tasks  # noqa: E402
+from tests.in_memory_jobs import run_catalog_task  # noqa: E402
 from app.services.catalog.conflicts import (  # noqa: E402
     ASSET_REFERENCED_CODE,
     CatalogConflict,
@@ -47,7 +48,8 @@ class CatalogAdminPermissionTests(unittest.TestCase):
         updates: list[dict[str, object]] = []
         expected = {"batch_id": "batch-1", "status": "partial", "applied": 1, "failed": 0}
         with patch.object(catalog_worker_tasks.catalog_service, "apply_metadata_batch", return_value=expected) as apply:
-            result = catalog_worker_tasks.run_metadata_batch(
+            result = run_catalog_task(
+                catalog_worker_tasks.run_metadata_batch,
                 {
                     "payload": {
                         "batch_id": "batch-1",
@@ -93,7 +95,8 @@ class CatalogAdminPermissionTests(unittest.TestCase):
                 return_value={"component": {"id": "cmp-1", "validation": {"status": "passed"}}},
             ),
         ):
-            result = catalog_worker_tasks.run_validation(
+            result = run_catalog_task(
+                catalog_worker_tasks.run_validation,
                 {"payload": {"component_ids": ["cmp-1"]}, "checkpoint": {}, "result": {}},
                 record_update,
             )
@@ -120,7 +123,8 @@ class CatalogAdminPermissionTests(unittest.TestCase):
             patch.object(catalog_worker_tasks.catalog_service, "list_components", side_effect=list_page),
             patch.object(catalog_worker_tasks.catalog_service, "validate_component_klc", side_effect=validate),
         ):
-            result = catalog_worker_tasks.run_validation(
+            result = run_catalog_task(
+                catalog_worker_tasks.run_validation,
                 {"payload": {"component_ids": None}, "checkpoint": {}, "result": {}},
                 lambda **fields: updates.append(fields) or True,
             )

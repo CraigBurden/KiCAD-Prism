@@ -2243,6 +2243,11 @@ class CruncherViewportTests(unittest.TestCase):
             "kicad_cruncher": None,
             "kicad_cruncher.config_json": None,
         }
+        # Import outside patch.dict: it drops every module first imported
+        # inside it, and numpy cannot be imported twice in one process.
+        import kicad_monkey.kicad_pcb  # noqa: F401
+        import kicad_monkey.kicad_pcb_bounds  # noqa: F401
+
         with patch.dict(sys.modules, without_cruncher), patch(
             "kicad_monkey.kicad_pcb.KiCadPcb.from_file", return_value=pcb
         ), patch(

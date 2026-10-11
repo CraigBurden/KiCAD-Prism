@@ -72,11 +72,8 @@ class TemporaryPathTests(unittest.TestCase):
         from app.services import design_compare_service
 
         temporary = Path(tempfile.gettempdir())
-        for root in (
-            design_compare_service._CACHE_ROOT,
-            design_compare_service._JOB_ROOT,
-        ):
-            self.assertEqual(root.parent, temporary, root)
+        root = design_compare_service._CACHE_ROOT
+        self.assertEqual(root.parent, temporary, root)
 
 
 class DirectorySyncTests(unittest.TestCase):

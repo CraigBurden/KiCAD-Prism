@@ -79,8 +79,8 @@ def run_build(root: Path, tool_for: Any) -> tuple[dict[str, Any], Any, dict[str,
         return {"id": kwargs["build_id"], "status": "succeeded"}
 
     with (
-        patch.object(build_service.store, "start_build", return_value={"id": "build-replay"}),
-        patch.object(build_service.store, "complete_build", side_effect=complete_build),
+        patch.object(build_service.attempts, "start_build", return_value={"id": "build-replay"}),
+        patch.object(build_service.attempts, "complete_build", side_effect=complete_build),
         patch.object(build_service, "executor_image", return_value="prism/kicad@sha256:" + "e" * 64),
     ):
         result = build_service.execute_build(
@@ -91,6 +91,8 @@ def run_build(root: Path, tool_for: Any) -> tuple[dict[str, Any], Any, dict[str,
             artifacts=JobArtifactService(root=root / "artifacts"),
             tools=KicadTools(cli=cli, cruncher=None),
         )
+        # The build row succeeds in the job's completion transaction.
+        result["build"] = result["settle"](None)
     return result, cli, completed
 
 

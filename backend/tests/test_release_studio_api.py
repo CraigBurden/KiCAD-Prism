@@ -24,6 +24,8 @@ if str(REPO_ROOT) not in sys.path:  # pragma: no cover - import bootstrap
 from fastapi import HTTPException  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
+from app.services.job_service import jobs as job_queue  # noqa: E402
+
 
 @dataclass
 class _User:
@@ -66,7 +68,7 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
 
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
-            patch.object(self.api.jobs, "enqueue", side_effect=enqueue),
+            patch.object(job_queue, "enqueue", side_effect=enqueue),
             patch.object(self.api, "authorized_project", return_value={"repo_url": "https://github.com/org/repo.git"}),
             patch.object(self.api.forge_publish, "tag_exists", return_value=False),
         ):
@@ -283,7 +285,7 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
         with (
             patch.object(self.api, "get_project_for_role_or_404"),
             patch.object(self.api, "authorized_project", return_value={"repo_url": ""}),
-            patch.object(self.api.jobs, "enqueue") as enqueue,
+            patch.object(job_queue, "enqueue") as enqueue,
         ):
             with self.assertRaises(HTTPException) as caught:
                 _run(
@@ -306,7 +308,7 @@ class ReleaseStudioRequestAndCoverageTests(unittest.TestCase):
                 return_value={"repo_url": "https://github.com/org/repo.git"},
             ),
             patch.object(self.api.forge_publish, "tag_exists", return_value=True),
-            patch.object(self.api.jobs, "enqueue") as enqueue,
+            patch.object(job_queue, "enqueue") as enqueue,
         ):
             with self.assertRaises(HTTPException) as caught:
                 _run(
