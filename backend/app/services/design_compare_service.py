@@ -40,7 +40,6 @@ from app.services.workspace_service import workspace
 # original names so existing call sites — and the test suite, which patches a
 # dozen of the names that stayed — keep working unchanged.
 from .design_compare_sources import (  # noqa: F401
-    _GENERATED_PARTS,
     _find_pcb,
     _find_pro,
     _is_generated_kicad_path,

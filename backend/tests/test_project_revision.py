@@ -230,5 +230,50 @@ class ProjectRevisionTests(unittest.TestCase):
             project_revision.path_config_at(root_project, "HEAD")
 
 
+class SourceSetRuleTests(unittest.TestCase):
+    """``is_generated`` is the one rule every source reader applies."""
+
+    def test_kicad_generated_files_are_not_design_sources(self) -> None:
+        for path in (
+            "_autosave-board.kicad_sch",
+            "sheets/~autosave-power.kicad_sch",
+            "board.kicad_pcb-bak",
+            "~board.kicad_pcb.lck",
+            "board-backups/board-2026-01-01.zip",
+            "fp-info-cache",
+            "board-cache.lib",
+            "RemoteLibrary/symbols/remote.kicad_sym",
+            "autosave/board.kicad_pcb",
+            "backup/board.kicad_sch",
+            "board-backup-2026.kicad_sch",
+            "._board.kicad_sch",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(project_revision.is_generated(path))
+
+    def test_design_files_and_prism_settings_are_sources(self) -> None:
+        for path in (
+            "board.kicad_sch",
+            "sheets/power.kicad_sch",
+            ".prism.json",
+            "fp-lib-table",
+            "libs/Project.pretty/R.kicad_mod",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(project_revision.is_generated(path))
+
+    def test_source_sets_that_read_text_leave_generated_files_out(self) -> None:
+        for source_set in (
+            project_revision.KICAD_SOURCES,
+            project_revision.COMPARE_INPUTS,
+            project_revision.SEMANTIC_SOURCES,
+        ):
+            with self.subTest(source_set=source_set.name):
+                self.assertTrue(source_set.includes("board.kicad_sch"))
+                self.assertTrue(source_set.includes(".prism.json"))
+                self.assertFalse(source_set.includes("_autosave-board.kicad_sch"))
+        self.assertTrue(project_revision.FULL_TREE.includes("RemoteLibrary/symbols/remote.kicad_sym"))
+
+
 if __name__ == "__main__":
     unittest.main()
