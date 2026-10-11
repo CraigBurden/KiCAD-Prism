@@ -7,6 +7,36 @@ from pathlib import Path
 from app.core.config import settings
 
 
+# Files outside the generator packages that still shape a bundle.
+_GENERATOR_FILES = (
+    "package.json",
+    "package-lock.json",
+    "requirements-runtime.txt",
+    "pyproject.toml",
+    "viewer/app.js",
+    "viewer/styles.css",
+    "viewer/viewer.template.html",
+)
+
+
+def generator_inputs(viewer_root: Path) -> list[Path]:
+    """Every source file that writes a bundle, found from the packages themselves.
+
+    The compiler package and the glTF tool are globbed rather than listed, so a
+    new or forgotten module (native_clipper.py once was) still invalidates
+    cached bundles. Tests are left out: they never run in a build.
+    """
+
+    compiler = sorted((viewer_root / "pipeline" / "topology_compiler").rglob("*.py"))
+    gltf_tool = sorted(
+        path
+        for path in (viewer_root / "tools" / "semantic-gltf").rglob("*")
+        if path.suffix in {".mjs", ".js", ".json"} and not path.name.endswith(".test.mjs")
+    )
+    fixed = [viewer_root / rel_path for rel_path in _GENERATOR_FILES]
+    return [path for path in (*compiler, *gltf_tool, *fixed) if path.is_file()]
+
+
 def update_native_geometry_fingerprint(hasher) -> None:
     """Add the selected PCB backend and native helper identity to a hash."""
     geometry_backend = settings.PRISM_PCB_GEOMETRY_BACKEND

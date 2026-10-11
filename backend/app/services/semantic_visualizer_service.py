@@ -16,41 +16,11 @@ from typing import Any, Callable, Dict, Mapping, Optional
 from app.core.config import settings
 from app.services import path_config_service
 from app.services.job_service import jobs
-from app.services.semantic_viewer_runtime import find_viewer_repo_root, pythonpath as semantic_viewer_pythonpath, update_native_geometry_fingerprint
+from app.services.semantic_viewer_runtime import find_viewer_repo_root, generator_inputs, pythonpath as semantic_viewer_pythonpath, update_native_geometry_fingerprint
 
 SCHEMA = "prism.visualizer_bundle.a0"
 GENERATOR_NAME = "kicad-prism-webgpu-3d"
 GENERATOR_VERSION = "0.2.0"
-
-
-# Files outside the generator packages that still shape a bundle.
-_GENERATOR_FILES = (
-    "package.json",
-    "package-lock.json",
-    "requirements-runtime.txt",
-    "pyproject.toml",
-    "viewer/app.js",
-    "viewer/styles.css",
-    "viewer/viewer.template.html",
-)
-
-
-def _generator_inputs(viewer_root: Path) -> list[Path]:
-    """Every source file that writes a bundle, found from the packages themselves.
-
-    The compiler package and the glTF tool are globbed rather than listed, so a
-    new or forgotten module (native_clipper.py once was) still invalidates
-    cached bundles. Tests are left out: they never run in a build.
-    """
-
-    compiler = sorted((viewer_root / "pipeline" / "topology_compiler").rglob("*.py"))
-    gltf_tool = sorted(
-        path
-        for path in (viewer_root / "tools" / "semantic-gltf").rglob("*")
-        if path.suffix in {".mjs", ".js", ".json"} and not path.name.endswith(".test.mjs")
-    )
-    fixed = [viewer_root / rel_path for rel_path in _GENERATOR_FILES]
-    return [path for path in (*compiler, *gltf_tool, *fixed) if path.is_file()]
 
 
 def _compute_build_fingerprint() -> str:
@@ -62,7 +32,7 @@ def _compute_build_fingerprint() -> str:
         hasher.update(base.encode("utf-8"))
         update_native_geometry_fingerprint(hasher)
         hasher.update(settings.PRISM_KICAD_MONKEY_SOURCE.encode("utf-8"))
-        for path in _generator_inputs(viewer_root):
+        for path in generator_inputs(viewer_root):
             hasher.update(path.relative_to(viewer_root).as_posix().encode("utf-8"))
             hasher.update(path.read_bytes())
         monkey_spec = importlib.util.find_spec("kicad_monkey")
