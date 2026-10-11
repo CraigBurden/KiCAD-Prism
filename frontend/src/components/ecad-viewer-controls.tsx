@@ -22,6 +22,7 @@ import {
     X,
 } from "lucide-react";
 
+import { MeasureModeToggle } from "@/components/pcb-measure";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -158,7 +159,12 @@ export function EcadViewerControls({
             ariaLabel={context === "SCH" ? "Schematic pages" : "PCB display controls"}
             icon={context === "SCH" ? <ListFilter className="size-4" /> : <Layers3 className="size-4" />}
             title={context === "SCH" ? "Schematic pages" : "Board display"}
-            actions={<InsetModeToggle viewer={viewer} />}
+            actions={(
+                <>
+                    {context === "PCB" && <MeasureModeToggle viewer={viewer} />}
+                    <InsetModeToggle viewer={viewer} />
+                </>
+            )}
             onVisibleWidthChange={onVisibleWidthChange}
         >
             {context === "SCH" && <SchematicPageTree viewer={viewer} />}

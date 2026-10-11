@@ -407,6 +407,36 @@ export interface EcadTransitionTraceDetail {
     detail?: Record<string, unknown>;
 }
 
+export type EcadMeasureUnits = "mm" | "mil";
+
+export interface EcadMeasureSnap {
+    kind: "pad" | "via" | "track-end" | "track" | "free";
+    /** Board millimetres. */
+    x: number;
+    y: number;
+    /** "U1 · 25", "via", "track"; empty for a free point. */
+    label: string;
+    net: string | null;
+}
+
+export interface EcadMeasurement {
+    a: EcadMeasureSnap;
+    b: EcadMeasureSnap;
+    /** Millimetres; dx and dy are absolute. */
+    distance: number;
+    dx: number;
+    dy: number;
+    /** Degrees above the horizontal, 0–90. */
+    angle: number;
+}
+
+export interface EcadMeasureState {
+    phase: "idle" | "placing" | "done";
+    /** While placing, B is the point under the pointer. */
+    measurement: EcadMeasurement | null;
+    hover: EcadMeasureSnap | null;
+}
+
 export interface ECadViewerElement extends HTMLElement {
     readonly isReady: boolean;
     /** Design-variant API (packet 3.4); required by the vendored bundle. */
@@ -429,6 +459,18 @@ export interface ECadViewerElement extends HTMLElement {
     /** Close the inset preview, else all insets; true if anything closed. */
     escapeInsets?(): boolean;
     closeInsets?(): boolean;
+    /**
+     * PCB measure mode: click two points to measure between them; pads,
+     * vias and tracks snap, Shift places a free point. `Cmd/Ctrl+Shift+M`
+     * toggles it (event "ecad-viewer:measure-mode", detail.on); every change
+     * of points emits "ecad-viewer:measure" with an EcadMeasureState.
+     */
+    setMeasureMode?(on: boolean): void;
+    readonly measureMode?: boolean;
+    /** Clear the points, else leave measure mode; true if anything happened. */
+    escapeMeasure?(): boolean;
+    setMeasureUnits?(units: EcadMeasureUnits): void;
+    readonly measureState?: EcadMeasureState | null;
     /** IN-61: the host's 3D board for this element's PCB insets (T). */
     setInset3D?(scene: EcadInsetScene3D | null): void;
     resize?(): void;
