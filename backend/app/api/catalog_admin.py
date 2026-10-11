@@ -142,7 +142,7 @@ class MetadataGridPreferencesRequest(BaseModel):
 
 class MetadataBatchItemRequest(BaseModel):
     component_id: str
-    expected_revision_id: str
+    expected_revision_id: str  # per row, not If-Match: one header cannot name many rows (D38)
     patch: dict[str, str] = Field(default_factory=dict)
 
 
@@ -160,7 +160,7 @@ class ReleaseStatusRequest(BaseModel):
     workflow_stage: str = ""
     self_approval_override_reason: str = ""
     review_note: str = ""
-    expected_manifest_hash: str = ""
+    expected_manifest_hash: str = ""  # beside the component If-Match, 409 manifest_conflict (D39)
 
 
 class ProjectComponentSelectionRequest(BaseModel):

@@ -55,7 +55,15 @@ admin-only, project-scoped, and OAuth endpoints with different dependencies.
   route reads the version with `if_match(request, kind, id, required=...)`,
   the service raises its `StaleVersion` (412, current `ETag` header) when it
   moved on, and a missing required header is 428. Do not carry a revision in
-  the body. 409 is for conflicts no ETag describes.
+  the body. 409 is for conflicts no ETag describes. The two documented
+  exceptions (D38, D39): a catalog metadata batch carries one
+  `expected_revision_id` per row (one `If-Match` cannot name many rows; a
+  stale row fails that item), and the catalog workflow transition also guards
+  on `expected_manifest_hash` in the body (409 `manifest_conflict`) beside the
+  component `If-Match`.
+- FastAPI's request validation (422, code `validation_error`, the array joined
+  into one message) and a plain `HTTPException` (code from its status) render
+  in the same flat body; do not register a per-router exception handler.
 - The browser reads every response through `frontend/src/lib/api.ts`
   (`fetchJson`, `fetchText`, `fetchBlob`, `fetchChecked`), which throws
   `ApiHttpError` with `code`, `payload` and `isAuth`/`isPermission`/

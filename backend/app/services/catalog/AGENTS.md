@@ -76,6 +76,9 @@ rationale are recorded in `docs/CATALOG_DECOMPOSITION_HANDOFF.md`.
   stale revision is 412 `revision_conflict` (with the current `ETag`); referential and manifest conflicts are 409. Bodies are the app's one
   flat shape `{"detail", "code"}` (`backend/app/core/errors.py`). Single-component
   writes take the component ETag (`"component:<id>:<revision id>"`) as `If-Match`.
+  Two body guards stay by decision (D38, D39): metadata batches carry a per-row
+  `expected_revision_id` (a stale row fails that item), and the workflow
+  transition also checks `expected_manifest_hash` (409 `manifest_conflict`).
 - Canonical asset paths under the store root (`asset_files.py`, `runtime.py`).
 - Paginated catalog and remote-head lists end `ORDER BY` with immutable
   component identity (`component_queries.py`, `remote_heads.py`). This is a

@@ -8,8 +8,8 @@
  * so a caller never parses an error body itself.
  *
  * Error bodies (see `backend/app/core/errors.py`) have one shape:
- * `{"detail": "<message>", "code": "<code>", ...extra}`. FastAPI's own request
- * validation sends `detail` as an array, which is read into one message.
+ * `{"detail": "<message>", "code": "<code>", ...extra}`, request validation
+ * (422 `validation_error`) and plain `HTTPException`s included.
  * Non-JSON bodies (a proxy's 502 page) fall back to the caller's message.
  *
  * Guarded writes send the ETag they read as `If-Match` (`ifMatch`). A stale one
@@ -19,10 +19,8 @@
  * KiCad agent) and immutable static assets.
  */
 
-type ValidationEntry = { loc?: unknown[]; msg?: string };
-
 export interface ApiErrorPayload {
-  detail?: string | ValidationEntry[];
+  detail?: unknown;
   code?: string;
   [key: string]: unknown;
 }
@@ -80,10 +78,7 @@ function parseApiErrorPayload(raw: unknown, fallback: string): ParsedApiError {
     return { message: fallback, payload: {} };
   }
   const { detail, code, ...rest } = raw as ApiErrorPayload;
-  const message = Array.isArray(detail)
-    ? detail.map((entry) => `${entry.loc?.slice(-1)?.[0] || "Field"}: ${entry.msg}`).join(", ")
-    : detail;
-  return { message: nonEmpty(message) ?? fallback, code: nonEmpty(code), payload: rest };
+  return { message: nonEmpty(detail) ?? fallback, code: nonEmpty(code), payload: rest };
 }
 
 /** The `If-Match` header for a guarded write: the resource's ETag `"<kind>:<id>:<version>"`. */

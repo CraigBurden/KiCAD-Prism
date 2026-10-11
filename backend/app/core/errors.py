@@ -7,14 +7,22 @@ caller, so it may reach the client. Routers do not translate these: the handler
 
     {"detail": "<message>", "code": "<code>", ...extra}
 
-That is the only error body Prism sends (FastAPI's own 422 validation arrays
-aside). ``detail`` is always a string and keeps FastAPI's key so every existing
+That is the only error body Prism sends. ``detail`` is a string and keeps FastAPI's key so every existing
 reader (browser, KiCad panel, scripts) keeps working. ``code`` is always present:
 a service passes a specific one (``revision_conflict``, ``publication_required``,
 ``interface_not_ready`` ...) or the class default applies (``not_found``,
 ``stale_version`` ...). Extra fields (``currentRevision``, ``requiredRole`` ...)
 sit beside it. ``headers`` (an ``ETag`` on a stale write) are sent with the
 response.
+
+The same handler set renders the framework's own errors in that shape:
+FastAPI's request validation (422) joins its array into one message
+(``"<field>: <msg>, ..."``, code ``validation_error``, the request input never
+echoed), and a plain ``HTTPException`` (a router's, or Starlette's unknown
+route / method) gets the code of its status: the typed class's code where one
+exists (404 ``not_found``), else the status phrase (401 ``unauthorized``).
+A ``HTTPException`` whose ``detail`` is not a string (the readiness payload)
+keeps it as is beside the code.
 
 Guarded writes (a whole System, a comment or reply, a catalog component) use
 one conflict shape: the client sends ``If-Match`` with the ETag it read
@@ -34,8 +42,12 @@ import logging
 from contextlib import contextmanager
 from typing import Any, Iterator, Mapping
 
+from http import HTTPStatus
+
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -151,10 +163,54 @@ async def _domain_error_handler(_request: Request, error: Exception) -> JSONResp
     return error_response(error)
 
 
+def validation_message(problems: list[dict[str, Any]]) -> str:
+    """FastAPI's validation array as one message: ``"<field>: <msg>, ..."``."""
+
+    parts = []
+    for problem in problems:
+        loc = problem.get("loc") or ()
+        parts.append(f"{loc[-1] if loc else 'Field'}: {problem.get('msg', 'Invalid value')}")
+    return ", ".join(parts) or "Invalid request"
+
+
+async def _validation_error_handler(_request: Request, error: Exception) -> JSONResponse:
+    assert isinstance(error, RequestValidationError)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": validation_message(list(error.errors())), "code": "validation_error"},
+    )
+
+
+def status_code_name(status_code: int) -> str:
+    """The machine code for a bare status: the typed class's code, else the HTTP phrase."""
+
+    cls = _CLASS_FOR_STATUS.get(status_code)
+    if cls is not None:
+        return cls.code
+    try:
+        return HTTPStatus(status_code).phrase.lower().replace(" ", "_").replace("-", "_")
+    except ValueError:
+        return DomainError.code
+
+
+async def _http_exception_handler(_request: Request, error: Exception) -> JSONResponse:
+    assert isinstance(error, StarletteHTTPException)
+    headers = getattr(error, "headers", None)
+    if error.status_code in (204, 304):  # no body allowed
+        return JSONResponse(status_code=error.status_code, content=None, headers=headers)
+    return JSONResponse(
+        status_code=error.status_code,
+        content={"detail": error.detail, "code": status_code_name(error.status_code)},
+        headers=headers,
+    )
+
+
 def install_error_handlers(app: FastAPI) -> None:
-    """Register the domain-error handler. ``app.main`` calls this once."""
+    """Register the error handlers. ``app.main`` calls this once."""
 
     app.add_exception_handler(DomainError, _domain_error_handler)
+    app.add_exception_handler(RequestValidationError, _validation_error_handler)
+    app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
 
 
 _CLASS_FOR_STATUS: dict[int, type[DomainError]] = {
@@ -246,5 +302,7 @@ __all__ = [
     "error_response",
     "from_value_error",
     "install_error_handlers",
+    "status_code_name",
+    "validation_message",
     "value_errors_as",
 ]

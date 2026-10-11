@@ -6,6 +6,7 @@ import unittest
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from app.core.errors import install_error_handlers  # noqa: E402
 from app.core import errors
@@ -108,6 +109,74 @@ class HandlerTest(unittest.TestCase):
             from app.main import app
 
         self.assertIn(errors.DomainError, app.exception_handlers)
+        from fastapi.exceptions import RequestValidationError
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        self.assertIs(app.exception_handlers[RequestValidationError], errors._validation_error_handler)
+        self.assertIs(app.exception_handlers[StarletteHTTPException], errors._http_exception_handler)
+
+
+class _ItemBody(BaseModel):
+    name: str
+    count: int
+
+
+class FrameworkErrorsTest(unittest.TestCase):
+    """D40: FastAPI's 422 arrays and plain HTTPExceptions use the one flat body too."""
+
+    def _app(self) -> TestClient:
+        from fastapi import HTTPException
+
+        app = FastAPI()
+        errors.install_error_handlers(app)
+
+        @app.post("/items")
+        def create(body: _ItemBody):
+            return body
+
+        @app.get("/plain")
+        def plain():
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        @app.get("/auth")
+        def auth():
+            raise HTTPException(status_code=401, detail="Authentication required", headers={"WWW-Authenticate": "Basic"})
+
+        @app.get("/payload")
+        def payload():
+            raise HTTPException(status_code=503, detail={"status": "not_ready"})
+
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_validation_array_becomes_one_message(self) -> None:
+        response = self._app().post("/items", json={"count": "many", "secret": "x"})
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json(),
+            {"detail": "name: Field required, count: Input should be a valid integer, unable to parse string as an integer",
+             "code": "validation_error"},
+        )
+        self.assertNotIn("many", response.text)  # the request input is never echoed
+
+    def test_plain_http_exception_gets_the_status_code(self) -> None:
+        client = self._app()
+        self.assertEqual(client.get("/plain").json(), {"detail": "Project not found", "code": "not_found"})
+        response = client.get("/auth")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers["www-authenticate"], "Basic")
+        self.assertEqual(response.json(), {"detail": "Authentication required", "code": "unauthorized"})
+
+    def test_unknown_route_and_method_are_flat(self) -> None:
+        client = self._app()
+        self.assertEqual(client.get("/nowhere").json(), {"detail": "Not Found", "code": "not_found"})
+        response = client.get("/items")
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.json(), {"detail": "Method Not Allowed", "code": "method_not_allowed"})
+
+    def test_structured_detail_is_kept_beside_the_code(self) -> None:
+        response = self._app().get("/payload")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), {"detail": {"status": "not_ready"}, "code": "unavailable"})
 
 
 class ValueErrorBridgeTest(unittest.TestCase):

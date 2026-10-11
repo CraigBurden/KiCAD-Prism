@@ -501,12 +501,10 @@ class ConnectorAdminApiTests(unittest.TestCase):
                 },
             ]
         )
-        response = run(
-            connectors_api._validation_exception_handler(
-                SimpleNamespace(url=SimpleNamespace(path="/api/admin/trackers/connectors")),
-                exc,
-            )
-        )
+        # D40: the app-wide handler joins the array into one message and never echoes input.
+        from app.core import errors as core_errors
+
+        response = run(core_errors._validation_error_handler(SimpleNamespace(), exc))
         self.assertEqual(response.status_code, 422)
         body_text = response.body.decode()
         self.assertNotIn(INSTALLATION_MATERIAL, body_text)
