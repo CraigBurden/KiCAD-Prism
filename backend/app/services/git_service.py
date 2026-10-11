@@ -345,53 +345,6 @@ def get_releases_filtered(
     )
 
 
-def get_file_from_commit_with_prefix(repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None) -> str:
-    """
-    Get file content from a specific commit.
-    For Type-2 projects, relative_prefix is prepended to file_path.
-    """
-    try:
-        repo = Repo(repo_path)
-        commit = repo.commit(commit_hash)
-        
-        # Prepend relative_prefix for Type-2 projects
-        full_path = file_path
-        if relative_prefix:
-            full_path = os.path.join(relative_prefix, file_path)
-        
-        try:
-            blob = commit.tree / full_path
-            content = blob.data_stream.read()
-            return content.decode('utf-8')
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="Binary file cannot be decoded")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
-
-
-def file_exists_in_commit_with_prefix(repo_path: str, commit_hash: str, file_path: str, relative_prefix: str = None) -> bool:
-    """
-    Check if a file exists in a specific commit.
-    For Type-2 projects, relative_prefix is prepended to file_path.
-    """
-    try:
-        repo = Repo(repo_path)
-        commit = repo.commit(commit_hash)
-        
-        full_path = file_path
-        if relative_prefix:
-            full_path = os.path.join(relative_prefix, file_path)
-        
-        try:
-            _ = commit.tree / full_path
-            return True
-        except KeyError:
-            return False
-    except:
-        return False
-
 def get_releases(
     repo_path: str,
     ref: str = None,
@@ -563,42 +516,6 @@ def get_branches(repo_path: str, relative_path: str = None) -> dict[str, Any]:
         "current_branch": active_branch,
         "default_ref": default_branch["ref"] if default_branch else None,
     }
-
-def get_file_from_commit(repo_path: str, commit_hash: str, file_path: str) -> str:
-    """
-    Get file content from a specific commit.
-    Returns file content as string.
-    """
-    try:
-        repo = Repo(repo_path)
-        commit = repo.commit(commit_hash)
-        
-        try:
-            blob = commit.tree / file_path
-            content = blob.data_stream.read()
-            return content.decode('utf-8')
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"File {file_path} not found in commit")
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="Binary file cannot be decoded")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Git error: {str(e)}")
-
-def file_exists_in_commit(repo_path: str, commit_hash: str, file_path: str) -> bool:
-    """
-    Check if a file exists in a specific commit.
-    """
-    try:
-        repo = Repo(repo_path)
-        commit = repo.commit(commit_hash)
-        try:
-            _ = commit.tree / file_path
-            return True
-        except KeyError:
-            return False
-    except:
-        return False
-
 
 _EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 

@@ -34,14 +34,7 @@ class ProjectComponentImportServiceTests(unittest.TestCase):
             "repo_url": "https://example.test/power-board.git",
             "import_type": "type1",
         }
-        with (
-            mock.patch.object(project_service.workspace, "get_project_by_id", return_value=row),
-            mock.patch.object(
-                project_service,
-                "get_registered_project_records",
-                side_effect=AssertionError("legacy registry should not be read"),
-            ),
-        ):
+        with mock.patch.object(project_service.workspace, "get_project_by_id", return_value=row):
             project = project_service.get_project_by_id("prj_workspace")
 
         self.assertIsNotNone(project)
