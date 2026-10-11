@@ -381,7 +381,7 @@ def save_configuration(
     """
 
     from app.services.design_compare_service import _repo_paths
-    from app.services.project_import_service import git_env
+    from app.services.git_remote_access import git_env
 
     repo_root, _relative, checkout = _repo_paths(project_id)
     repo_root = repo_root.resolve()

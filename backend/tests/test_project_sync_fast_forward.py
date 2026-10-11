@@ -130,7 +130,7 @@ class SyncFastForwardsOnly(unittest.TestCase):
         # Built locally, it drifts. This is what let the policies diverge.
         project_import_service.sync_project("prj_1")
         env = self.origin.fetch.call_args.kwargs["env"]
-        expected = project_import_service.git_env()
+        expected = project_import_service.git_remote_access.git_env()
         self.assertEqual(env["GIT_SSH_COMMAND"], expected["GIT_SSH_COMMAND"])
         self.assertEqual(env["GIT_TERMINAL_PROMPT"], expected["GIT_TERMINAL_PROMPT"])
 
@@ -168,7 +168,7 @@ class NoHostKeyPolicyIsWrittenByHand(unittest.TestCase):
             "StrictHostKeyChecking",
             # git_env is the single definition; git_failures only matches on the
             # string when explaining a failure it did not cause.
-            skip=("project_import_service.py", "git_failures.py"),
+            skip=("git_remote_access.py", "git_failures.py"),
         )
         self.assertEqual(
             offenders,

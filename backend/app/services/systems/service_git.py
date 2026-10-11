@@ -35,7 +35,7 @@ def resolve_remote(url: str) -> Remote:
     """§21.1: the project-import URL policy and a read-only reachability check."""
     from app.services.git_access_service import check_repository_access
     from app.services.git_remote_url import RemoteUrlError, parse_remote_url
-    from app.services.project_import_service import git_env, remote_url_policy
+    from app.services.git_remote_access import git_env, remote_url_policy
 
     try:
         parsed = parse_remote_url(url, remote_url_policy())

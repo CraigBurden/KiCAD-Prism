@@ -86,7 +86,7 @@ def commit_message(snapshot: Mapping[str, Any]) -> str:
 
 
 def _env(extra: Optional[Mapping[str, str]] = None) -> dict[str, str]:
-    from app.services.project_import_service import git_env
+    from app.services.git_remote_access import git_env
 
     return {**git_env(), **(extra or {})}
 

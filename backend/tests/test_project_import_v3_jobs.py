@@ -101,12 +101,12 @@ class ProjectImportV3JobTests(unittest.TestCase):
             "HTTPS credentials required", reason="credentials-required"
         )
         with mock.patch.object(
-            project_import_service,
+            project_import_service.git_remote_access,
             "list_remote_branches",
             side_effect=[credential_error, (["main"], "main")],
         ) as list_branches:
             resolved, branches, default_branch = (
-                project_import_service.resolve_remote_access(https)
+                project_import_service.git_remote_access.resolve_remote_access(https)
             )
 
         self.assertEqual(resolved.url, "git@github.com:example/private-board.git")
@@ -125,12 +125,12 @@ class ProjectImportV3JobTests(unittest.TestCase):
             "https://github.com/example/public-board.git"
         )
         with mock.patch.object(
-            project_import_service,
+            project_import_service.git_remote_access,
             "list_remote_branches",
             return_value=(["main"], "main"),
         ) as list_branches:
             resolved, _branches, _default_branch = (
-                project_import_service.resolve_remote_access(https)
+                project_import_service.git_remote_access.resolve_remote_access(https)
             )
 
         self.assertIs(resolved, https)
@@ -141,7 +141,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
             "https://github.com/example/private-board"
         )
         with mock.patch.object(
-            project_import_service,
+            project_import_service.git_remote_access,
             "list_remote_branches",
             side_effect=[
                 GitAccessError("HTTPS credentials required", reason="credentials-required"),
@@ -149,7 +149,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
             ],
         ):
             with self.assertRaises(GitAccessError) as caught:
-                project_import_service.resolve_remote_access(https)
+                project_import_service.git_remote_access.resolve_remote_access(https)
 
         self.assertEqual(caught.exception.reason, "ssh-key-not-authorized")
 
@@ -182,7 +182,7 @@ class ProjectImportV3JobTests(unittest.TestCase):
                 return_value=projects,
             ),
             mock.patch.object(
-                project_import_service,
+                project_import_service.git_remote_access,
                 "list_remote_branches",
                 return_value=(["main", "release/v2"], "main"),
             ),

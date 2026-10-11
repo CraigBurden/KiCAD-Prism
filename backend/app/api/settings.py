@@ -11,8 +11,8 @@ from app.core.security import AuthenticatedUser, require_admin
 from app.services import (
     access_service,
     git_access_service,
+    git_remote_access,
     password_credential_service,
-    project_import_service,
     session_store_service,
 )
 from app.services.git_remote_url import RemoteUrlError, parse_remote_url
@@ -153,14 +153,14 @@ class CheckAccessRequest(BaseModel):
 async def check_git_access(request: CheckAccessRequest):
     """Ask a Git server whether Prism may read one repository, right now."""
     try:
-        parsed = parse_remote_url(request.url, project_import_service.remote_url_policy())
+        parsed = parse_remote_url(request.url, git_remote_access.remote_url_policy())
     except RemoteUrlError as error:
         raise HTTPException(status_code=400, detail=str(error))
 
     result = await asyncio.to_thread(
         git_access_service.check_repository_access,
         parsed,
-        git_env=project_import_service.git_env(),
+        git_env=git_remote_access.git_env(),
     )
     guidance = git_access_service.guidance_for(parsed)
     return {

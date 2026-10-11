@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from app.services import kicad_jobset_service, project_import_service, project_service
+from app.services import git_remote_access, kicad_jobset_service, project_service
 from app.services.job_runtime import JobResult
 
 
@@ -53,7 +53,7 @@ class KicadJobsetServiceTests(unittest.TestCase):
                     return_value=process,
                 ) as popen,
                 mock.patch.object(
-                    project_import_service,
+                    git_remote_access,
                     "git_env",
                     return_value={"GIT_TERMINAL_PROMPT": "0"},
                 ) as git_env,
@@ -211,7 +211,7 @@ class KicadJobsetServiceTests(unittest.TestCase):
                 ),
                 mock.patch.object(project_service, "Repo", return_value=repository),
                 mock.patch.object(
-                    project_import_service,
+                    git_remote_access,
                     "git_env",
                     return_value={"GIT_TERMINAL_PROMPT": "0"},
                 ),
