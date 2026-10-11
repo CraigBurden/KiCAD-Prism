@@ -323,13 +323,25 @@ class HistoricalRevisionsHonourTheAnchor(unittest.TestCase):
 
     def test_the_commit_reader_uses_the_same_merge(self) -> None:
         # The live reader and the commit reader disagreeing is the bug; this
-        # holds them to one implementation.
+        # holds the route's commit reader to the anchor-scoped merge.
         from app.api import projects as projects_api
+        from app.services import project_revision, project_service
 
-        self.assertIs(
-            projects_api._merge_commit_config,
-            path_config_service.config_for_anchor,
+        project = project_service.Project(
+            id="prj_base",
+            name="base",
+            description="",
+            path="/tmp/shared",
+            last_modified="",
+            project_file="base.kicad_pro",
         )
+        with mock.patch.object(
+            project_revision, "read_file", return_value=json.dumps(self.RAW).encode("utf-8")
+        ):
+            config = projects_api._path_config_from_commit(project, "deadbeef")
+        merged = path_config_service.config_for_anchor(self.RAW, "base.kicad_pro")
+        self.assertEqual(config.schematic, merged["schematic"])
+        self.assertEqual(config.pcb, merged["pcb"])
 
     def test_default_commit_globs_select_the_anchored_schematic(self) -> None:
         from app.api import projects as projects_api

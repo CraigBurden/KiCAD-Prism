@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
-import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -66,22 +65,19 @@ def _multiply(a: list[float], b: list[float]) -> list[float]:
 
 def board_step(project: Any, commit: str) -> Path:
     """The board's STEP at ``commit`` (§25), exported once per commit and KiCad version."""
-    from app.services import semantic_visualizer_service as sv
+    from app.services import project_revision
 
     cli = _cli()
     target = _step_root() / str(project.id) / f"{commit}-{_cli_version(cli)}.step"
     if target.is_file():
         return target
-    repo = sv._repo_root(Path(project.path))
-    resolved = sv._resolve_commit(repo, commit)
-    relative = sv._project_relative_path(repo, Path(project.path), sv.path_config_service.anchor_for_project(project))
-    with tempfile.TemporaryDirectory(prefix="system-step-") as tmp:
-        checkout = Path(tmp) / "checkout"
-        sv._archive_checkout(repo, resolved, checkout)
-        pcb = (checkout / relative).with_suffix(".kicad_pcb")
+    location = project_revision.locate(project)
+    relative = project_revision.project_file_rel(location)
+    with project_revision.checkout(location, commit, prefix="system-step-") as revision:
+        pcb = revision.path(relative).with_suffix(".kicad_pcb")
         if not pcb.is_file():
             raise RuntimeError(f"No board file in {commit[:12]}")
-        out = Path(tmp) / "board.step"
+        out = revision.root.parent / "board.step"
         done = subprocess.run([cli, "pcb", "export", "step", "--force", "--subst-models", "-o", str(out), str(pcb)],
                               capture_output=True, text=True, timeout=BOARD_TIMEOUT_S)
         if done.returncode != 0 or not out.is_file():

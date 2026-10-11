@@ -9,7 +9,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path, PurePosixPath
@@ -19,6 +18,7 @@ from app.core.config import settings
 from app.services import (
     kicad_monkey_design_adapter,
     path_config_service,
+    project_revision,
     project_source_snapshot,
     semantic_index_nets,
     semantic_index_variants,
@@ -239,11 +239,10 @@ def _revision_identity(project: Any, commit: str | None) -> tuple[str, str | Non
             None,
         )
 
-    repo_root = semantic_visualizer_service._repo_root(Path(project.path))
-    resolved_commit = semantic_visualizer_service._resolve_commit(repo_root, commit)
-    project_rel = semantic_visualizer_service._project_relative_path(
-        repo_root, Path(project.path), anchor
-    )
+    location = project_revision.locate(project)
+    repo_root = location.repo_root
+    resolved_commit = project_revision.resolve_commit(location, commit)
+    project_rel = project_revision.project_file_rel(location)
     project_dir = PurePosixPath(project_rel).parent.as_posix()
     if project_dir == ".":
         project_dir = ""
@@ -264,15 +263,11 @@ def _project_file_for_revision(project: Any, commit: str | None) -> Iterator[tup
         yield semantic_visualizer_service.find_kicad_project(project.path, anchor), None
         return
 
-    repo_root = semantic_visualizer_service._repo_root(Path(project.path))
-    resolved_commit = semantic_visualizer_service._resolve_commit(repo_root, commit)
-    project_rel = semantic_visualizer_service._project_relative_path(
-        repo_root, Path(project.path), anchor
-    )
-    with tempfile.TemporaryDirectory(prefix="semantic-index-commit-") as tmp:
-        checkout = Path(tmp) / "checkout"
-        semantic_visualizer_service._archive_checkout(repo_root, resolved_commit, checkout)
-        project_file = checkout / project_rel
+    location = project_revision.locate(project)
+    resolved_commit = project_revision.resolve_commit(location, commit)
+    project_rel = project_revision.project_file_rel(location)
+    with project_revision.checkout(location, resolved_commit, prefix="semantic-index-commit-") as revision:
+        project_file = revision.path(project_rel)
         if not project_file.is_file():
             raise ValueError(f"KiCad project file not found in commit {resolved_commit}: {project_rel}")
         yield project_file, resolved_commit

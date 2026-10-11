@@ -14,7 +14,7 @@ from functools import wraps
 from typing import Callable, List, Optional, Sequence
 from dataclasses import dataclass
 from git import Repo, RemoteProgress
-from app.services import derived_assets, git_remote_access, project_service, path_config_service
+from app.services import derived_assets, git_remote_access, project_revision, project_service, path_config_service
 from app.services.git_failures import GitAccessError, as_access_error
 from app.services.git_remote_url import ParsedRemote, RemoteUrlPolicy, parse_remote_url
 from app.services.job_runtime import JobContext, JobResult, PermanentJobError
@@ -1134,12 +1134,11 @@ def run_project_metadata_job_v3(context: JobContext) -> JobResult:
     )
     schematic_path = project_service.find_schematic_file(project_path, anchor)
     pcb_path = project_service.find_pcb_file(project_path, anchor)
-    # The workspace row already resolves the checkout: parent_repo_path is the
-    # clone, relative_path is "." for a root project or the subproject path.
-    # Same split _repo_context makes on the API side.
-    repo_path = str(row.get("parent_repo_path") or project_path)
-    raw_relative = str(row.get("relative_path") or ".").strip()
-    relative_path = None if raw_relative in (".", "", "/") else raw_relative.strip("/")
+    try:
+        location = project_revision.locate(row)
+        repo_path, relative_path = str(location.repo_root), location.sub_path
+    except project_revision.ProjectNotInRepository:
+        repo_path, relative_path = project_path, None
     context.check_cancelled()
 
     computed = project_metadata_service.refresh_project_metadata(

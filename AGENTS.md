@@ -64,7 +64,9 @@ hop usually requires checking its consumers and tests.
 **Import a project from Git**
 `backend/app/api/projects.py` · `backend/app/api/folders.py` →
 `backend/app/services/project_import_service.py` (`run_project_analyze_job_v3`
-then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
+then `run_project_import_job_v3`) →
+`backend/app/services/git_remote_access.py` (credentials, host keys, ls-remote) ·
+`backend/app/services/git_service.py` ·
 `backend/app/services/git_access_service.py` → worker →
 `frontend/src/components/import-dialog.tsx` →
 `frontend/src/components/workspace.tsx`
@@ -72,7 +74,8 @@ then `run_project_import_job_v3`) → `backend/app/services/git_service.py` ·
 **Compare two commits**
 `backend/app/api/design_compare.py` →
 `backend/app/services/design_compare_service.py` (`run_design_compare_job_v3`)
-→ `backend/app/services/design_compare_nodes.py` (parse) →
+→ `backend/app/services/project_revision.py` (location, commit, snapshot) →
+`backend/app/services/design_compare_nodes.py` (parse) →
 `backend/app/services/design_compare_semantics.py` (grouping) →
 `backend/app/services/design_compare_artifacts.py` →
 `frontend/src/components/history-viewer.tsx` →
@@ -175,7 +178,7 @@ invariant, not the tool workaround.
 - Never put exception detail in an error response. Database errors can carry
   credentials (`backend/app/api/health.py`).
 - Never pin Git host keys with `accept-new`
-  (`backend/app/services/project_import_service.py`).
+  (`backend/app/services/git_remote_access.py`).
 
 ### Scope
 

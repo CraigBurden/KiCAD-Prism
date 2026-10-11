@@ -9,15 +9,10 @@ can read anything.
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.services.project_revision import GENERATED_DIR_PARTS
 
-_GENERATED_PARTS = {
-    ".cache",
-    ".kicad-prism",
-    "archive",
-    "autosave",
-    "backup",
-    "backups",
-}
+# The same directories a comparison snapshot leaves out of a revision.
+_GENERATED_PARTS = set(GENERATED_DIR_PARTS)
 
 
 def _is_generated_kicad_path(path: Path, root: Path) -> bool:

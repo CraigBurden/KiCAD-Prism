@@ -25,6 +25,7 @@ from app.services import (
     project_deletion,
     project_import_service,
     project_metadata_service,
+    project_revision,
     project_service,
     semantic_index_service,
     semantic_visualizer_service,
@@ -126,13 +127,24 @@ class ProjectPropertiesResponse(BaseModel):
     files: ProjectPropertiesFiles
 
 
+def _project_location(project: project_service.Project) -> project_revision.ProjectLocation:
+    """Where the project sits in its repository (``project_revision`` decides).
+
+    A project whose checkout is missing keeps its own path as the root, so the
+    Git read that follows reports the missing commit or file as before.
+    """
+    try:
+        return project_revision.locate(project)
+    except project_revision.ProjectNotInRepository:
+        return project_revision.ProjectLocation(
+            Path(project.path), "", project_service.project_anchor(project)
+        )
+
+
 def _repo_context(project: project_service.Project) -> tuple[str, Optional[str]]:
-    """Return repository path and optional subproject relative path for project-scoped git operations."""
-    if project.parent_repo_path and project.sub_path:
-        return project.parent_repo_path, project.sub_path
-    if project.import_type == "type2_subproject":
-        return project.parent_repo_path or os.path.dirname(project.path), project.sub_path
-    return project.path, None
+    """Repository root and subproject path for project-scoped git operations."""
+    location = _project_location(project)
+    return str(location.repo_root), location.sub_path
 
 
 def _resolve_output_dir(project: project_service.Project, output_type: str) -> str:
@@ -161,54 +173,15 @@ def _join_relative_paths(*parts: Optional[str]) -> str:
     return posixpath.join(*cleaned) if cleaned else ""
 
 
-#: One implementation of the `.prism.json` merge for both the working tree and
-#: a Git commit; they disagreed, and that disagreement was the bug.
-_merge_commit_config = path_config_service.config_for_anchor
-
-
-def _default_commit_path_config() -> PathConfig:
-    return PathConfig(**path_config_service.DEFAULT_PATHS)
-
-
 def _path_config_from_commit(project: project_service.Project, commit: Optional[str]) -> PathConfig:
     if not commit:
         return project_service.path_config_for(project)
-
-    repo_path, sub_path = _repo_context(project)
     try:
-        prism_file = file_service.read_file_from_commit(
-            repo_path,
-            commit,
-            ".prism.json",
-            relative_prefix=sub_path,
-            not_found_detail=".prism.json not found",
-        )
-    except HTTPException as error:
-        if error.status_code == 404:
-            return _default_commit_path_config()
-        raise
-
-    try:
-        raw_config = json.loads(prism_file.content.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise HTTPException(status_code=500, detail=f"Invalid .prism.json in commit: {error}") from error
-
-    if not isinstance(raw_config, dict):
-        return _default_commit_path_config()
-
-    # Settings for one project of several sharing a directory live under
-    # `projects.<anchor>`. Flattening the file without that namespace handed a
-    # co-located sibling the first project's paths -- or the bare defaults --
-    # at every historical revision, while the working tree looked right.
-    merged: Dict[str, object] = dict(
-        _merge_commit_config(raw_config, project_service.project_anchor(project))
-    )
-
-    for key, default_value in path_config_service.DEFAULT_PATHS.items():
-        if not str(merged.get(key) or "").strip():
-            merged[key] = default_value
-
-    return PathConfig(**merged)
+        return project_revision.path_config_at(_project_location(project), commit)
+    except project_revision.RevisionNotFound as error:
+        raise HTTPException(status_code=404, detail=f"Commit not found: {commit}") from error
+    except ValueError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
 
 def _output_dir_from_config(config: PathConfig, output_type: str) -> str:
