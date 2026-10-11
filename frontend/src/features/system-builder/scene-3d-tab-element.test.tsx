@@ -1,7 +1,8 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Scene3dTab } from "./scene-3d-tab";
+import { renderInSession } from "./session/memory-session";
 import { instance, systemDocument } from "./test-fixtures";
 
 // With the element defined (as the viewer bundle does), its ref runs on every
@@ -28,12 +29,8 @@ describe("Scene3dTab with the viewer element defined", () => {
     vi.stubGlobal("navigator", { ...navigator, gpu: {} });
     const scene = { schema: "prism.system_scene.a0", systemId: "sys_1", systemVersion: 3, units: "mm", assets: [], occurrences: [] };
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(scene), { status: 200, headers: { "Content-Type": "application/json" } })));
-    render(
-      <Scene3dTab
-        systemId="sys_1" document={systemDocument([instance("OBC-1")])} etag='"sys:sys_1:3"' canEdit user={null}
-        reload={vi.fn(async () => undefined)} onNavigate={vi.fn()}
-      />,
-    );
+    const document = systemDocument([instance("OBC-1")]);
+    renderInSession(<Scene3dTab systemId="sys_1" document={document} canEdit user={null} onNavigate={vi.fn()} />, { document });
     await screen.findByTitle(/^0 boards/);
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     const settled = calls.setNetEmphasis;

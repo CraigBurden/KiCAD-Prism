@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseOption } from "@/test/select";
@@ -6,6 +6,7 @@ import { chooseOption } from "@/test/select";
 import type { Finding } from "@/types/system";
 
 import { LinkEditor, endLabel } from "./link-editor";
+import { renderInSession } from "./session/memory-session";
 import { instance, link, systemDocument } from "./test-fixtures";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -45,10 +46,8 @@ function stubApi() {
 }
 
 function renderEditor(canEdit = true, findings: Finding[] = []) {
-  const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
-  render(<LinkEditor systemId="sys_1" document={doc} link={theLink} etag='"sys:sys_1:1"' canEdit={canEdit}
-    findings={findings} busy={null} run={run as never} onDeleted={vi.fn()} />);
-  return run;
+  renderInSession(<LinkEditor systemId="sys_1" document={doc} link={theLink} canEdit={canEdit}
+    findings={findings} onDeleted={vi.fn()} />, { document: doc });
 }
 
 const rowFinding = (rowId: string, patch: Partial<Finding> = {}): Finding => ({

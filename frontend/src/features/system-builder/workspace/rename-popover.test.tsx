@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Finding, NetRename, SystemDocument } from "@/types/system";
 
+import { memorySystem, renderInSession } from "../session/memory-session";
 import { instance, link, systemDocument } from "../test-fixtures";
 import { UsedInPanel } from "../used-in-panel";
 import { FindingsTray } from "./findings-tray";
@@ -30,12 +31,9 @@ function doc(findings: Finding[], renames: NetRename[] = []): SystemDocument {
 }
 
 function renderTray(document: SystemDocument) {
-  const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify(proposal), {
-    status: 201, headers: { "Content-Type": "application/json", ETag: '"sys:s:2"' } }));
-  vi.stubGlobal("fetch", fetchMock);
-  render(<FindingsTray systemId="s" document={document} etag='"sys:s:1"' canEdit run={run as never} onSelect={vi.fn()} />);
-  return { run, fetchMock };
+  const memory = memorySystem(document, { edits: { proposeRename: () => proposal } });
+  renderInSession(<FindingsTray document={document} canEdit onSelect={vi.fn()} />, { document, transport: memory.transport });
+  return memory;
 }
 
 describe("net rename proposals (SB2-106)", () => {
@@ -45,16 +43,13 @@ describe("net rename proposals (SB2-106)", () => {
   });
 
   it("proposes a rename from a SYS-V09 row", async () => {
-    const { fetchMock } = renderTray(doc([v09]));
+    const memory = renderTray(doc([v09]));
     fireEvent.click(screen.getByRole("button", { name: "Rename" }));
     fireEvent.click(screen.getByRole("radio", { name: /PAY/ }));
     expect((screen.getByLabelText("New net name") as HTMLInputElement).value).toBe("TM_MON");
     fireEvent.click(screen.getByRole("radio", { name: /OBC/ }));
     fireEvent.click(screen.getByRole("button", { name: "Propose" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect([url, init.method]).toEqual(["/api/systems/s/renames", "POST"]);
-    expect(JSON.parse(String(init.body))).toEqual({ instanceId: obc.id, net: "/Payload IF/TM_MON", name: "GND_3" });
+    await waitFor(() => expect(memory.calls).toEqual([{ name: "proposeRename", args: [{ instanceId: obc.id, net: "/Payload IF/TM_MON", name: "GND_3" }] }]));
   });
 
   it("shows a proposed rename on its row, and lists open proposals with Withdraw", () => {

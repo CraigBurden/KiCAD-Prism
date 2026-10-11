@@ -1,10 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseOption, openSelect } from "@/test/select";
 
 import { ImportTab } from "./import-tab";
 import { boardValues, entrySide, missingTargets, suggestBoardMap, unmappedBoards } from "./import-model";
+import { renderInSession } from "./session/memory-session";
 import { instance, systemDocument } from "./test-fixtures";
 import type { ImportUpload } from "@/types/system";
 
@@ -59,8 +60,7 @@ describe("ImportTab", () => {
       return json({ importId: "sim_1", created: 1, updated: 0, unchanged: 0, linksCreated: ["slk_1"], reviewId: null,
         counts: { matched: 1, needsReview: 0, unresolved: 0, conflict: 0 }, unresolved: [], conflict: [] });
     }));
-    const reload = vi.fn(async () => undefined);
-    const { container } = render(<ImportTab systemId="sys_1" document={doc} etag='"sys:sys_1:2"' canEdit user={null} reload={reload} onNavigate={vi.fn()} />);
+    const { container, loads } = renderInSession(<ImportTab systemId="sys_1" document={doc} canEdit user={null} onNavigate={vi.fn()} />, { document: doc });
 
     const input = container.querySelector("input[type=file]") as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(["x"], "wiring.csv", { type: "text/csv" })] } });
@@ -87,14 +87,14 @@ describe("ImportTab", () => {
     expect(await screen.findByText("Import committed")).toBeTruthy();
     const commit = calls.find(([url]) => url.endsWith("/commit"))!;
     const preview = calls.find(([url]) => url.endsWith("/preview"))!;
-    expect(new Headers(commit[1].headers).get("If-Match")).toBe('"sys:sys_1:2"');
+    expect(new Headers(commit[1].headers).get("If-Match")).toBe(doc.system.etag);
     expect(JSON.parse(String(commit[1].body))).toEqual(JSON.parse(String(preview[1].body)));
     expect(JSON.parse(String(commit[1].body)).boardMap).toEqual({ "obc-a": obc.id, PWR: pwr.id, HARNESS: "skip", SECRET: "skip" });
-    expect(reload).toHaveBeenCalled();
+    expect(loads()).toBe(1);
   });
 
   it("is closed to viewers", () => {
-    render(<ImportTab systemId="sys_1" document={doc} etag="e" canEdit={false} user={null} reload={vi.fn()} onNavigate={vi.fn()} />);
+    renderInSession(<ImportTab systemId="sys_1" document={doc} canEdit={false} user={null} onNavigate={vi.fn()} />, { document: doc });
     expect(screen.getByText(/Only designers can import/)).toBeTruthy();
   });
 });

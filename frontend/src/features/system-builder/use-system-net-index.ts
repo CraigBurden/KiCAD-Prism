@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 
-import { listSystemNetMembers } from "@/lib/systems-api";
 import type { SystemNetListed } from "@/types/system";
+
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead } from "./session/use-system-session";
 
 /** Board net → its system net: keys are `occurrence\nnet`. */
 export type SystemNetIndex = ReadonlyMap<string, SystemNetListed>;
@@ -23,20 +25,10 @@ export function indexSystemNets(groups: readonly SystemNetListed[]): SystemNetIn
  * again only when the system's connectivity (`netsKey`) changes; a failed read
  * leaves the search on board nets alone.
  */
-export function useSystemNetIndex(systemId: string, netsKey: string, wanted: boolean): SystemNetIndex {
-  const [read, setRead] = useState<{ key: string; index: SystemNetIndex } | null>(null);
-  const key = `${systemId}\n${netsKey}`;
-  const needed = wanted && read?.key !== key;
-  useEffect(() => {
-    if (!needed) return;
-    const controller = new AbortController();
-    listSystemNetMembers(systemId, controller.signal)
-      .then((list) => setRead({ key, index: indexSystemNets(list.groups) }))
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [systemId, key, needed]);
-  // Keep the last version's index until the new one arrives.
-  return read?.index ?? EMPTY;
+export function useSystemNetIndex(wanted: boolean): SystemNetIndex {
+  // The session keeps the last connectivity's list until the new one arrives.
+  const list = useSessionRead(wanted ? sessionReads.netMembers() : null).data;
+  return useMemo(() => (list ? indexSystemNets(list.groups) : EMPTY), [list]);
 }
 
 const EMPTY: SystemNetIndex = new Map();

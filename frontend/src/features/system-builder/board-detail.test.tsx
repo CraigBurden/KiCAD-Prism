@@ -1,12 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseMenuItem, openMenu } from "@/test/select";
 import type { SystemDocument } from "@/types/system";
 
 import { BoardDetail, linkedPortKeys, portState } from "./board-detail";
+import { memorySystem, renderInSession } from "./session/memory-session";
+import type { SystemTransport } from "./session/system-session";
 import { exportOf, instance, link, port, systemDocument } from "./test-fixtures";
-import { useSystemMutation } from "./use-system-mutation";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -15,17 +16,12 @@ const pay = instance("PAY");
 const doc = systemDocument([obc, pay, instance("SECRET", { restricted: true, projectId: null, ports: null })],
   [link("L1", obc.id, "J7", pay.id, "J1", 3)]);
 
-function Board({ document, instanceId, canEdit, reload }: { document: SystemDocument; instanceId: string; canEdit: boolean; reload: () => Promise<void> }) {
-  const { busy, run } = useSystemMutation(reload);
-  const selected = document.instances.find((item) => item.id === instanceId);
-  return selected ? <BoardDetail systemId="sys_1" document={document} instance={selected} etag='"sys:sys_1:1"' canEdit={canEdit} busy={busy} run={run} /> : null;
-}
-
-function renderTab(props: { document?: SystemDocument; canEdit?: boolean } = {}, instanceId?: string) {
-  const reload = vi.fn(async () => undefined);
+function renderTab(props: { document?: SystemDocument; canEdit?: boolean; transport?: SystemTransport } = {}, instanceId?: string) {
   const document = props.document ?? doc;
-  render(<Board document={document} instanceId={instanceId ?? document.instances[0].id} canEdit={props.canEdit ?? true} reload={reload} />);
-  return reload;
+  const selected = document.instances.find((item) => item.id === (instanceId ?? document.instances[0].id))!;
+  // Returns how many times the document was re-read.
+  return renderInSession(<BoardDetail systemId="sys_1" document={document} instance={selected} canEdit={props.canEdit ?? true} />,
+    { document, transport: props.transport }).loads;
 }
 
 describe("port helpers", () => {
@@ -51,19 +47,13 @@ describe("BoardDetail", () => {
     expect(screen.getByRole("menuitem", { name: /Hide \(linked\)/ }).getAttribute("aria-disabled")).toBe("true");
   });
 
-  it("sends overrides with If-Match and reloads", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(port("J5")), {
-      status: 200, headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:2"' },
-    }));
-    vi.stubGlobal("fetch", fetchMock);
-    const reload = renderTab();
+  it("resets an override through the session and re-reads", async () => {
+    const memory = memorySystem(doc);
+    const loads = renderTab({ transport: memory.transport });
     await chooseMenuItem("Actions for J5", /Reset/);
-    await waitFor(() => expect(reload).toHaveBeenCalled());
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/systems/sys_1/instances/sin_OBC/ports/key-J5/override");
-    expect(init.method).toBe("PUT");
-    expect(JSON.parse(String(init.body))).toEqual({ state: null });
-    expect(new Headers(init.headers).get("If-Match")).toBe('"sys:sys_1:1"');
+    await waitFor(() => expect(loads()).toBe(1));
+    expect(memory.calls).toEqual([{ name: "setPortOverride", args: ["sin_OBC", "key-J5", null] }]);
+    expect(memory.etag()).toBe('"sys:sys_1:2"');
   });
 
   it("warns that removing a linked board deletes its links", async () => {
@@ -106,9 +96,9 @@ describe("BoardDetail", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const tracked = instance("OBC", { trackedRef: "main", ports: [port("J7")] });
-    const reload = renderTab({ document: systemDocument([tracked], []) });
+    const loads = renderTab({ document: systemDocument([tracked], []) });
     fireEvent.click(screen.getByRole("button", { name: /Check now/ }));
-    await waitFor(() => expect(reload).toHaveBeenCalled(), { timeout: 4000 });
+    await waitFor(() => expect(loads()).toBe(1), { timeout: 4000 });
     const urls = fetchMock.mock.calls.map(([url]) => url);
     expect(urls[0]).toBe(`/api/systems/sys_1/instances/${tracked.id}/check`);
     expect(urls.filter((url) => url === "/api/jobs/chk-1")).toHaveLength(3);

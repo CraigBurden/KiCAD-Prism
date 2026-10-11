@@ -4,11 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { createHarness, createLink, type LinkEndInput } from "@/lib/systems-api";
+import type { LinkEndInput } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { SystemDocument } from "@/types/system";
 
-import type { Mutate } from "./use-system-mutation";
+import { useSystemSession } from "./session/use-system-session";
 import type { WorkspaceSelection } from "./workspace/workspace-state";
 
 type Kind = "link" | "b2b" | "harness";
@@ -103,16 +103,14 @@ function Picker({ title, options, kind, chosen, query, onQuery, onChoose }: {
  * SB2-115: make a link, board-to-board mate or harness by picking both connectors from lists, with their MPN and pin
  * count, rather than dragging between port handles on the diagram.
  */
-export function ConnectDialog({ systemId, document, etag, run, from, onClose, onCreated }: {
-  systemId: string;
+export function ConnectDialog({ document, from, onClose, onCreated }: {
   document: SystemDocument;
-  etag: string;
-  run: Mutate;
   /** The connector the dialog was opened from (a port's Connect…), fixed as end A. */
   from?: LinkEndInput;
   onClose: () => void;
   onCreated: (selection: WorkspaceSelection) => void;
 }) {
+  const { edit } = useSystemSession();
   const options = useMemo(() => connectorOptions(document), [document]);
   const fixed = from ? options.find((option) => option.end.instanceId === from.instanceId && option.end.portKey === from.portKey
     && option.end.subportId === from.subportId) ?? null : null;
@@ -128,8 +126,8 @@ export function ConnectDialog({ systemId, document, etag, run, from, onClose, on
     setBusy(true);
     try {
       const created = kind === "harness"
-        ? await run("harness", () => createHarness(systemId, etag, { name: "Harness", ends: [a.end, b.end], identity: true }), "Harness created")
-        : await run("link", () => createLink(systemId, etag, { a: a.end, b: b.end, ...(kind === "b2b" ? { type: "b2b" } : {}) }),
+        ? await edit("harness", (system) => system.createHarness({ name: "Harness", ends: [a.end, b.end], identity: true }), "Harness created")
+        : await edit("link", (system) => system.createLink({ a: a.end, b: b.end, ...(kind === "b2b" ? { type: "b2b" } : {}) }),
           kind === "b2b" ? "Board-to-board link created" : "Link created");
       if (created) onCreated({ kind: kind === "harness" ? "harness" : "link", id: created.body.id, edit: true });
     } finally {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowRight, CheckCircle2, GitCommitHorizontal, Layers, Pin, Wand2 } from "lucide-react";
 
@@ -6,15 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  decideManifestImport,
-  decideReviewItem,
-  getHistory,
-  keepPinned,
-  listReviews,
-  rebaseInstance,
-  rebaseSubsystem,
-} from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
 import type { AuditEvent, Decision, ImportEntry, Review, ReviewItem, SystemDocument, SystemInstance } from "@/types/system";
 
@@ -30,16 +21,9 @@ import {
 import { entrySide } from "./import-model";
 import type { SystemTabProps } from "./system-tab-content";
 import { shortSha, timeAgo } from "./system-format";
-import { useSystemMutation } from "./use-system-mutation";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession, type Edit } from "./session/use-system-session";
 import { endReference } from "./subport-model";
-
-type Mutate = ReturnType<typeof useSystemMutation>["run"];
-
-interface Loaded {
-  etag: string;
-  reviews: Review[];
-  events: AuditEvent[];
-}
 
 function linkName(document: SystemDocument, linkId: string | null): string {
   const link = document.links.find((candidate) => candidate.id === linkId);
@@ -48,29 +32,13 @@ function linkName(document: SystemDocument, linkId: string | null): string {
   return harness ? harness.name : "deleted link";
 }
 
-export function ChangesTab({ systemId, document, etag, canEdit, reload, onNavigate }: SystemTabProps) {
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [failed, setFailed] = useState<string | null>(null);
-  const { busy, run } = useSystemMutation(reload);
-
+export function ChangesTab({ document, canEdit, onNavigate }: SystemTabProps) {
   // Reviews and recent automatic changes follow the system version.
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([listReviews(systemId, "open"), getHistory(systemId, null, 50)])
-      .then(([reviews, history]) => {
-        if (!cancelled) {
-          setLoaded({ etag, reviews, events: history.events });
-          setFailed(null);
-        }
-      })
-      .catch((error: unknown) => !cancelled && setFailed(error instanceof Error ? error.message : "Could not load changes"));
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, etag]);
+  const changes = useSessionRead(sessionReads.changes());
+  const loaded = changes.data;
 
-  if (failed && !loaded) {
-    return <p className="p-4 text-sm text-destructive" role="alert">{failed}</p>;
+  if (changes.error && !loaded) {
+    return <p className="p-4 text-sm text-destructive" role="alert">{changes.error instanceof Error ? changes.error.message : "Could not load changes"}</p>;
   }
   if (!loaded) {
     return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
@@ -92,14 +60,10 @@ export function ChangesTab({ systemId, document, etag, canEdit, reload, onNaviga
       {loaded.reviews.map((review) => (
         <ReviewCard
           key={review.id}
-          systemId={systemId}
           document={document}
           review={review}
           instance={review.instanceId ? instances.get(review.instanceId) ?? null : null}
-          etag={etag}
           canEdit={canEdit}
-          busy={busy}
-          run={run}
           onOpenLink={(linkId) => onNavigate("connectivity", { link: linkId })}
         />
       ))}
@@ -108,7 +72,7 @@ export function ChangesTab({ systemId, document, etag, canEdit, reload, onNaviga
         <section className="space-y-2">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Updates on pinned boards</h2>
           {updates.map((instance) => (
-            <UpdateRow key={instance.id} systemId={systemId} instance={instance} etag={etag} canEdit={canEdit} busy={busy} run={run} />
+            <UpdateRow key={instance.id} instance={instance} canEdit={canEdit} />
           ))}
         </section>
       )}
@@ -148,18 +112,15 @@ function automaticSummary(event: AuditEvent, instances: Map<string, SystemInstan
 }
 
 interface ReviewCardProps {
-  systemId: string;
   document: SystemDocument;
   review: Review;
   instance: SystemInstance | null;
-  etag: string;
   canEdit: boolean;
-  busy: string | null;
-  run: Mutate;
   onOpenLink: (linkId: string) => void;
 }
 
-function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy, run, onOpenLink }: ReviewCardProps) {
+function ReviewCard({ document, review, instance, canEdit, onOpenLink }: ReviewCardProps) {
+  const { busy, edit } = useSystemSession();
   const title = review.kind === "import" ? "CSV import" : review.kind === "manifest_import" ? "Repository manifest"
     : instance?.label ?? "Board";
   const { decided, total } = progress(review);
@@ -188,7 +149,7 @@ function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy,
         {editable && (review.kind === "source_update" || review.kind === "child_update") && (
           <Button variant="outline" size="sm" className="ml-auto" disabled={busy !== null}
             title="Close this review, keep the current baseline and pin the board"
-            onClick={() => void run("pin", () => keepPinned(systemId, etag, review.id), `${title} kept pinned`)}>
+            onClick={() => void edit("pin", (system) => system.keepPinned(review.id), `${title} kept pinned`)}>
             <Pin className="mr-1 h-4 w-4" /> Keep pinned
           </Button>
         )}
@@ -197,7 +158,7 @@ function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy,
       {review.redacted && <p className="text-sm text-muted-foreground">This review is on a board you cannot see.</p>}
 
       {review.kind === "manifest_import" && (
-        <ManifestImport systemId={systemId} review={review} etag={etag} editable={editable} busy={busy} run={run} />
+        <ManifestImport review={review} editable={editable} />
       )}
 
       {review.kind === "baseline_unreachable" && instance && (
@@ -205,7 +166,7 @@ function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy,
           <p title="The branch was probably rewritten. Rebase the board onto a commit that exists to re-check its connections.">
             Baseline <span className="font-mono">{shortSha(instance.baselineCommit)}</span> is no longer in the repository.
           </p>
-          {editable && <RebaseForm systemId={systemId} instance={instance} etag={etag} busy={busy} run={run} />}
+          {editable && <RebaseForm instance={instance} />}
         </div>
       )}
 
@@ -227,16 +188,16 @@ function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy,
       {groups.conflict.length > 0 && (
         <Group title="Conflicts: choose a new mapping" tone="error">
           {groups.conflict.map((item) => (
-            <ItemRow key={item.id} systemId={systemId} document={document} review={review} item={item} etag={etag}
-              editable={editable} busy={busy} run={run} onOpenLink={onOpenLink} />
+            <ItemRow key={item.id} document={document} review={review} item={item}
+              editable={editable} onOpenLink={onOpenLink} />
           ))}
         </Group>
       )}
       {groups.review.length > 0 && (
         <Group title="Review required" tone="warning">
           {groups.review.map((item) => (
-            <ItemRow key={item.id} systemId={systemId} document={document} review={review} item={item} etag={etag}
-              editable={editable} busy={busy} run={run} onOpenLink={onOpenLink} />
+            <ItemRow key={item.id} document={document} review={review} item={item}
+              editable={editable} onOpenLink={onOpenLink} />
           ))}
         </Group>
       )}
@@ -247,9 +208,8 @@ function ReviewCard({ systemId, document, review, instance, etag, canEdit, busy,
 const AREAS = [["instances", "Boards and subsystems"], ["links", "Links"], ["harnesses", "Harnesses"], ["exports", "Exports"]] as const;
 
 /** P2 §21.3: a manifest pushed outside Prism, accepted (the system becomes it) or rejected as a whole. */
-function ManifestImport({ systemId, review, etag, editable, busy, run }: {
-  systemId: string; review: Review; etag: string; editable: boolean; busy: string | null; run: Mutate;
-}) {
+function ManifestImport({ review, editable }: { review: Review; editable: boolean }) {
+  const { busy, edit } = useSystemSession();
   const summary = review.pendingChanges?.summary ?? null;
   const problems = review.pendingChanges?.problems ?? [];
   const lines = summary ? AREAS.flatMap(([area, label]) => (["added", "removed", "changed"] as const)
@@ -258,8 +218,8 @@ function ManifestImport({ systemId, review, etag, editable, busy, run }: {
   if (summary?.system.length) lines.unshift(`System ${summary.system.join(", ")} changed`);
   if (summary?.placement) lines.push("3D placement changed");
   if (summary?.layout) lines.push("Canvas layout changed");
-  const decide = (decision: "accept" | "reject") => run(`manifest-${decision}`,
-    () => decideManifestImport(systemId, etag, review.id, decision),
+  const decide = (decision: "accept" | "reject") => edit(`manifest-${decision}`,
+    (system) => system.decideManifestImport(review.id, decision),
     decision === "accept" ? "Repository manifest imported" : "Repository manifest rejected");
   return (
     <div className="space-y-2 text-sm">
@@ -298,21 +258,18 @@ function Group({ title, tone, children }: { title: string; tone: "ok" | "warning
 }
 
 interface ItemRowProps {
-  systemId: string;
   document: SystemDocument;
   review: Review;
   item: ReviewItem;
-  etag: string;
   editable: boolean;
-  busy: string | null;
-  run: Mutate;
   onOpenLink: (linkId: string) => void;
 }
 
 /** An import item's stored proposal: a link row, or a harness wire (§17.4). */
 type ImportProposal = Pick<ImportEntry, "from" | "to" | "signal" | "linkName" | "kind" | "fromEnd" | "fromPin" | "toEnd" | "toPin">;
 
-function ItemRow({ systemId, document, review, item, etag, editable, busy, run, onOpenLink }: ItemRowProps) {
+function ItemRow({ document, review, item, editable, onOpenLink }: ItemRowProps) {
+  const { busy, edit } = useSystemSession();
   const [pad, setPad] = useState("");
   const [candidate, setCandidate] = useState(item.candidates?.[0]?.portKey ?? "");
   const [signal, setSignal] = useState("");
@@ -320,7 +277,7 @@ function ItemRow({ systemId, document, review, item, etag, editable, busy, run, 
   const proposal = review.kind === "import" ? (item.observed as ImportProposal | null) : null;
 
   const decide = (decision: Decision, payload?: Record<string, unknown>) =>
-    run("decide", () => decideReviewItem(systemId, etag, review.id, item.id, decision, payload),
+    edit("decide", (system) => system.decideReviewItem(review.id, item.id, decision, payload),
       `${DECISION_LABELS[decision]} recorded`);
 
   if (item.redacted) {
@@ -420,29 +377,23 @@ function ItemRow({ systemId, document, review, item, etag, editable, busy, run, 
   );
 }
 
-interface RebaseProps {
-  systemId: string;
-  instance: SystemInstance;
-  etag: string;
-  busy: string | null;
-  run: Mutate;
-}
-
-function RebaseForm({ systemId, instance, etag, busy, run }: RebaseProps) {
+function RebaseForm({ instance }: { instance: SystemInstance }) {
+  const { busy, edit } = useSystemSession();
   const [commit, setCommit] = useState(instance.tipCommit ?? "");
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Input aria-label="Commit to rebase onto" className="h-8 w-80 font-mono text-xs" value={commit} maxLength={40}
         placeholder="commit SHA" onChange={(event) => setCommit(event.target.value)} />
       <Button size="sm" variant="outline" disabled={busy !== null || commit.trim().length < 7}
-        onClick={() => void rebase(systemId, instance, etag, commit.trim(), run)}>
+        onClick={() => void rebase(instance, commit.trim(), edit)}>
         Rebase
       </Button>
     </div>
   );
 }
 
-function UpdateRow({ systemId, instance, etag, canEdit, busy, run }: RebaseProps & { canEdit: boolean }) {
+function UpdateRow({ instance, canEdit }: { instance: SystemInstance; canEdit: boolean }) {
+  const { busy, edit } = useSystemSession();
   const latest = instance.catalog?.latestReleasedRevisionId;
   if (instance.kind === "assembly") {
     return (
@@ -453,7 +404,7 @@ function UpdateRow({ systemId, instance, etag, canEdit, busy, run }: RebaseProps
         </span>
         {canEdit && latest && (
           <Button size="sm" variant="outline" className="ml-auto" disabled={busy !== null}
-            onClick={() => void run("rebase", () => rebaseSubsystem(systemId, etag, instance.id, latest)).then((result) => {
+            onClick={() => void edit("rebase", (system) => system.rebaseSubsystem(instance.id, latest)).then((result) => {
               if (result?.body.outcome === "review_opened") toast.warning(`${instance.label}: some connections need review.`);
               else if (result) toast.success(`${instance.label} moved to the latest released revision.`);
             })}>
@@ -471,7 +422,7 @@ function UpdateRow({ systemId, instance, etag, canEdit, busy, run }: RebaseProps
       </span>
       {canEdit && instance.tipCommit && (
         <Button size="sm" variant="outline" className="ml-auto" disabled={busy !== null}
-          onClick={() => void rebase(systemId, instance, etag, instance.tipCommit as string, run)}>
+          onClick={() => void rebase(instance, instance.tipCommit as string, edit)}>
           Rebase to tip
         </Button>
       )}
@@ -479,8 +430,8 @@ function UpdateRow({ systemId, instance, etag, canEdit, busy, run }: RebaseProps
   );
 }
 
-async function rebase(systemId: string, instance: SystemInstance, etag: string, commit: string, run: Mutate) {
-  const result = await run("rebase", () => rebaseInstance(systemId, etag, instance.id, commit));
+async function rebase(instance: SystemInstance, commit: string, edit: Edit) {
+  const result = await edit("rebase", (system) => system.rebaseInstance(instance.id, commit));
   if (!result) {
     return;
   }

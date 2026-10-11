@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, FileSpreadsheet, ListTree, Loader2 } from "lucide-react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { fetchApi, readApiError } from "@/lib/api";
 import { icdUrl } from "@/lib/systems-api";
 
+import { sessionReads } from "../session/session-reads";
+import { useSessionRead } from "../session/use-system-session";
 import { FloatingToolbar } from "./floating-toolbar";
 import { ToolbarButton } from "./toolbar-button";
 
@@ -33,24 +34,13 @@ function interFaces(): string {
  * same-origin lets the page theme it like the app, scale it to fit the width
  * and jump to its sections. Open in a new tab gives the white, printable document.
  */
-export function IcdView({ systemId, etag }: { systemId: string; etag: string }) {
-  const [state, setState] = useState<{ etag: string; html: string | null; error: string | null } | null>(null);
+export function IcdView({ systemId }: { systemId: string }) {
+  const icd = useSessionRead(sessionReads.icd());
+  // The last ICD stays shown while the next version's is generated; a failure replaces it.
+  const state = icd.error ? { html: null, error: icd.error instanceof Error ? icd.error.message : String(icd.error) }
+    : icd.data !== undefined ? { html: icd.data, error: null } : null;
   const [sections, setSections] = useState<{ id: string; label: string }[]>([]);
   const frame = useRef<HTMLIFrameElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchApi(icdUrl(systemId, "html"))
-      .then(async (response) => {
-        if (!response.ok) throw new Error(await readApiError(response, "The ICD could not be generated"));
-        return response.text();
-      })
-      .then((html) => !cancelled && setState({ etag, html, error: null }))
-      .catch((error: unknown) => !cancelled && setState({ etag, html: null, error: error instanceof Error ? error.message : String(error) }));
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, etag]);
 
   const fit = useCallback(() => {
     const element = frame.current;
@@ -94,7 +84,7 @@ export function IcdView({ systemId, etag }: { systemId: string; etag: string }) 
         <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden /> Generating the ICD…</p>
       )}
       <FloatingToolbar label="ICD" className="absolute right-5 top-3">
-        {state && state.etag !== etag && <Loader2 className="mx-1 size-3.5 animate-spin text-muted-foreground" aria-label="Updating" />}
+        {state && !icd.current && !icd.error && <Loader2 className="mx-1 size-3.5 animate-spin text-muted-foreground" aria-label="Updating" />}
         {sections.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

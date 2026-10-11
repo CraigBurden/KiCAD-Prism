@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { readFileSync } from "node:fs";
@@ -10,6 +10,7 @@ import type { LinkMate, PortMating, SystemLink, SystemPlacement } from "@/types/
 import { LinkEditor } from "./link-editor";
 import { previewOf } from "./mate-preview";
 import { matingSummary, placementStatus } from "./mating-panel";
+import { renderInSession } from "./session/memory-session";
 import { instance, link, systemDocument } from "./test-fixtures";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -51,9 +52,8 @@ function stubApi(ports: Record<string, PortMating>, extra: { placement?: SystemP
 }
 
 function renderEditor(theLink: SystemLink = { ...link("L1", obc.id, "J1", cmbd.id, "J1", 1), type: "b2b", stackHeightMm: 8 }) {
-  const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
-  render(<LinkEditor systemId="sys_1" document={systemDocument([obc, cmbd], [theLink])} link={theLink}
-    etag='"sys:sys_1:1"' canEdit findings={[]} busy={null} run={run as never} onDeleted={vi.fn()} />);
+  const document = systemDocument([obc, cmbd], [theLink]);
+  renderInSession(<LinkEditor systemId="sys_1" document={document} link={theLink} canEdit findings={[]} onDeleted={vi.fn()} />, { document });
 }
 
 describe("matingSummary", () => {

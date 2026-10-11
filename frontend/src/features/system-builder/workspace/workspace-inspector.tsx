@@ -10,7 +10,6 @@ import { ExportsSection } from "../exports-section";
 import { findingsOf, levelCounts } from "../findings";
 import { groupFindings } from "../findings-ui";
 import { endLabel } from "../link-editor";
-import type { Mutate } from "../use-system-mutation";
 import type { PartDetail } from "./part-detail";
 import { PartInspector } from "./part-inspector";
 import { InspectorFacts } from "./inspector-facts";
@@ -22,14 +21,11 @@ import { documentIndex } from "../document-index";
 interface InspectorProps {
   systemId: string;
   document: SystemDocument;
-  etag: string;
   canEdit: boolean;
   findings: Finding[];
   selection: WorkspaceSelection | null;
   /** The part picked on the selected board in the 3D view. */
   part?: PartDetail | null;
-  busy: string | null;
-  run: Mutate;
   onSelect: (selection: WorkspaceSelection | null) => void;
   /** Where the 3D view puts its move, route and trace panels (the large-screen inspector only). */
   slot?: (node: HTMLElement | null) => void;
@@ -85,7 +81,7 @@ function boardsText(total: number | null | undefined, direct: number, subsystems
   return direct ? `${total} · ${direct} direct` : `${total} in ${subsystems} ${subsystems === 1 ? "subsystem" : "subsystems"}`;
 }
 
-function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect }: InspectorProps) {
+function SystemOverview({ document, canEdit, onSelect }: InspectorProps) {
   const { system } = document;
   const kinds = (kind: string) => document.instances.filter((item) => (item.kind ?? "board") === kind).length;
   const counts = document.findingCounts;
@@ -101,7 +97,7 @@ function SystemOverview({ systemId, document, etag, canEdit, busy, run, onSelect
         { label: "To review", value: document.openReviewCount ? String(document.openReviewCount) : <span className="text-muted-foreground">None</span> },
         { label: "Findings", value: counts ? countSummary(counts.error, counts.warning) : <span className="text-muted-foreground">Not evaluated</span> },
       ]} />
-      <ExportsSection systemId={systemId} document={document} etag={etag} canEdit={canEdit} busy={busy} run={run}
+      <ExportsSection document={document} canEdit={canEdit}
         onOpenBoard={(instanceId) => onSelect({ kind: "instance", id: instanceId })} />
     </div>
   );
@@ -190,8 +186,8 @@ export function WorkspaceInspector(props: InspectorProps) {
       {instance ? (
         <div className="space-y-5">
           {props.part && <PartInspector part={props.part} />}
-          <BoardDetail key={instance.id} systemId={props.systemId} document={document} instance={instance} etag={props.etag}
-            canEdit={props.canEdit} busy={props.busy} run={props.run} onConnected={props.onSelect} />
+          <BoardDetail key={instance.id} systemId={props.systemId} document={document} instance={instance}
+            canEdit={props.canEdit} onConnected={props.onSelect} />
         </div>
       ) : link ? (
         <LinkSummary document={document} link={link} findings={findings} onEditRows={props.onEditRows} />

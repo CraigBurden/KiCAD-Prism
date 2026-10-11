@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Cable, MoreHorizontal, Pencil, Plus, Trash2, Unlink, Wand2, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -15,26 +15,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  addHarnessEnd,
-  deleteHarness,
-  getEndSuggestions,
-  deleteHarnessEnd,
-  generateWires,
-  harnessToLink,
-  replaceWires,
-  updateHarness,
-  updateHarnessEnd,
-  type EndSuggestions,
-  type WireInput,
-} from "@/lib/systems-api";
+import type { WireInput } from "@/lib/systems-api";
 import type { Finding, GeneratorKind, HarnessEnd, SystemDocument, SystemHarness } from "@/types/system";
 
 import { endLabel, endWireCount } from "./diagram-model";
 import { findingsOf } from "./findings";
 import { FindingsAlert } from "./findings-ui";
 import { comparePads } from "./pads";
-import type { Mutate } from "./use-system-mutation";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 import { WireTable } from "./wire-table";
 import { useDraftGuard } from "./draft-guard";
 import { HarnessOutputsSection } from "./harness-outputs-section";
@@ -111,11 +100,8 @@ interface HarnessEditorProps {
   systemId: string;
   document: SystemDocument;
   harness: SystemHarness;
-  etag: string;
   canEdit: boolean;
   findings: Finding[];
-  busy: string | null;
-  run: Mutate;
   onDeleted: () => void;
   onConverted: (linkId: string) => void;
 }
@@ -124,32 +110,21 @@ interface HarnessEditorProps {
  * An end's mating block: Generic or a catalog part (§17.2), with the catalog partners of the mated
  * connector as suggestions (§18). A part is only assigned when the user picks one.
  */
-function MatingBlock({ systemId, harnessId, end, etag, editable, busy, run }: {
-  systemId: string; harnessId: string; end: HarnessEnd; etag: string; editable: boolean; busy: boolean; run: Mutate;
-}) {
-  const [state, setState] = useState<{ key: string; body: EndSuggestions | null } | null>(null);
+function MatingBlock({ harnessId, end, editable }: { harnessId: string; end: HarnessEnd; editable: boolean }) {
+  const session = useSystemSession();
+  const { edit } = session;
+  const busy = session.busy !== null;
   const [picking, setPicking] = useState<"part" | "contact" | null>(null);
-  const key = `${end.id}:${etag}`;
   const lookup = Boolean(end.mates && !end.mates.redacted);
-  useEffect(() => {
-    if (!lookup) return undefined;
-    let cancelled = false;
-    getEndSuggestions(systemId, harnessId, end.id)
-      .then((body) => !cancelled && setState({ key, body }))
-      .catch(() => !cancelled && setState({ key, body: null }));
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, harnessId, end.id, key, lookup]);
-  const body = state?.key === key ? state.body : null;
+  const body = useSessionRead(lookup ? sessionReads.endSuggestions(harnessId, end.id) : null).data ?? null;
   const suggestions = body?.suggestions ?? [];
   const hint = end.part || !body ? null : suggestions.length
     ? `Mates with ${suggestions.map((part) => part.mpn || part.name).join(", ")}`
     : body.connectorPart ? `No mating part recorded for ${body.connectorPart.mpn}` : null;
   const assign = (part: { componentId: string } | null, done: string) =>
-    run("harness", () => updateHarnessEnd(systemId, etag, harnessId, end.id, { part }), done);
+    edit("harness", (system) => system.updateHarnessEnd(harnessId, end.id, { part }), done);
   const setContact = (contact: { componentId: string } | null, done: string) =>
-    run("harness", () => updateHarnessEnd(systemId, etag, harnessId, end.id, { contact }), done);
+    edit("harness", (system) => system.updateHarnessEnd(harnessId, end.id, { contact }), done);
   return (
     <>
       <span data-testid="mating-block">
@@ -293,7 +268,8 @@ function DetailsDialog({ harness, busy, onClose, onSave }: {
   );
 }
 
-export function HarnessEditor({ systemId, document, harness, etag, canEdit, findings, busy, run, onDeleted, onConverted }: HarnessEditorProps) {
+export function HarnessEditor({ systemId, document, harness, canEdit, findings, onDeleted, onConverted }: HarnessEditorProps) {
+  const { busy, edit } = useSystemSession();
   const [draft, setDraft] = useState<DraftWire[] | null>(null);
   // SB2-102: the wires before the last save, for one level of Undo; dropped on the next edit.
   const [undo, setUndo] = useState<{ harnessId: string; wires: WireInput[] } | null>(null);
@@ -309,14 +285,14 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
   const own = findingsOf(findings).harness(harness.id);
   const isBusy = busy !== null;
 
-  const edit = (update: (rows: DraftWire[]) => DraftWire[]) => {
+  const editDraft = (update: (rows: DraftWire[]) => DraftWire[]) => {
     setUndo(null);
     setDraft((current) => update(current ?? draftFromHarness(harness)));
   };
   const save = async () => {
     if (!draft) return;
     const before = draftFromHarness(harness).map(toInput);
-    const done = await run("wires", () => replaceWires(systemId, etag, harness.id, draft.map(toInput)), "Wires saved");
+    const done = await edit("wires", (system) => system.replaceWires(harness.id, draft.map(toInput)), "Wires saved");
     if (done) {
       setDraft(null);
       setUndo({ harnessId: harness.id, wires: before });
@@ -324,13 +300,13 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
   };
   const undoSave = async () => {
     if (!undo) return;
-    const done = await run("wires", () => replaceWires(systemId, etag, undo.harnessId, undo.wires), "Wires restored");
+    const done = await edit("wires", (system) => system.replaceWires(undo.harnessId, undo.wires), "Wires restored");
     if (done) setUndo(null);
   };
   const generate = async () => {
-    const proposal = await run("generate", () => generateWires(systemId, harness.id,
+    const proposal = await edit("generate", (system) => system.generateWires(harness.id,
       { fromEnd: pair.from, toEnd: pair.to, generator: pair.generator }));
-    if (proposal) edit((rows) => [...rows, ...proposal.wires.map((wire) => ({ ...wire, key: newKey() }))]);
+    if (proposal) editDraft((rows) => [...rows, ...proposal.wires.map((wire) => ({ ...wire, key: newKey() }))]);
   };
   const pinMapEnd = typeof dialog === "object" && dialog ? harness.ends.find((end) => end.id === dialog.pinMap) : undefined;
 
@@ -358,7 +334,7 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuItem onSelect={() => setDialog("details")}><Pencil className="mr-2 h-4 w-4" /> Edit details</DropdownMenuItem>
               <DropdownMenuItem disabled={!harness.linkable}
-                onSelect={() => void run("harness", () => harnessToLink(systemId, etag, harness.id), "Converted to a link")
+                onSelect={() => void edit("harness", (system) => system.harnessToLink(harness.id), "Converted to a link")
                   .then((done) => done && onConverted(done.body.id))}>
                 <Unlink className="mr-2 h-4 w-4" /> Convert to a link
               </DropdownMenuItem>
@@ -378,7 +354,7 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
           <h3 className="text-sm font-semibold">Ends</h3>
           {editable && (
             <Button variant="outline" size="sm" disabled={isBusy}
-              onClick={() => void run("harness", () => addHarnessEnd(systemId, etag, harness.id, { pinCount: 2 }), "Generic end added")}>
+              onClick={() => void edit("harness", (system) => system.addHarnessEnd(harness.id, { pinCount: 2 }), "Generic end added")}>
               <Plus className="mr-1 h-4 w-4" /> Generic end
             </Button>
           )}
@@ -398,8 +374,7 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
                     <td className="px-3 py-2 font-medium">{endLabel(end)}</td>
                     <td className="px-3 py-2">{matesText(document, end)}</td>
                     <td className="px-3 py-2 text-muted-foreground">
-                      <MatingBlock systemId={systemId} harnessId={harness.id} end={end} etag={etag} editable={editable}
-                        busy={isBusy} run={run} />
+                      <MatingBlock harnessId={harness.id} end={end} editable={editable} />
                     </td>
                     <td className="px-3 py-2">
                       {editable && end.mates && !end.mates.redacted ? (
@@ -414,13 +389,13 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
                         <span className="inline-flex gap-1">
                           {end.mates && (
                             <Button variant="ghost" size="sm" disabled={isBusy} aria-label={`Unmate ${endLabel(end)}`}
-                              onClick={() => void run("harness", () => updateHarnessEnd(systemId, etag, harness.id, end.id, { mates: null }), "End unmated")}>
+                              onClick={() => void edit("harness", (system) => system.updateHarnessEnd(harness.id, end.id, { mates: null }), "End unmated")}>
                               Unmate
                             </Button>
                           )}
                           <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isBusy || harness.ends.length === 1}
                             aria-label={`Remove ${endLabel(end)}`}
-                            onClick={() => void run("harness", () => deleteHarnessEnd(systemId, etag, harness.id, end.id), "End removed")}>
+                            onClick={() => void edit("harness", (system) => system.deleteHarnessEnd(harness.id, end.id), "End removed")}>
                             <X className="h-4 w-4" />
                           </Button>
                         </span>
@@ -460,11 +435,11 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
             </div>
           )}
         </div>
-        <WireTable harness={harness} wires={wires} editable={editable} problems={problems} spliced={spliced} edit={edit} />
+        <WireTable harness={harness} wires={wires} editable={editable} problems={problems} spliced={spliced} edit={editDraft} />
         {editable && (
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" disabled={harness.ends.length < 2}
-              onClick={() => edit((rows) => [...rows, { key: newKey(), from: { end: harness.ends[0].id, pin: "" },
+              onClick={() => editDraft((rows) => [...rows, { key: newKey(), from: { end: harness.ends[0].id, pin: "" },
                 to: { end: harness.ends[1].id, pin: "" }, signal: "" }])}>
               <Plus className="mr-1 h-4 w-4" /> Add wire
             </Button>
@@ -482,22 +457,22 @@ export function HarnessEditor({ systemId, document, harness, etag, canEdit, find
         )}
       </section>
 
-      <HarnessOutputsSection systemId={systemId} harness={harness} etag={etag} editable={editable} busy={isBusy} run={run} />
+      <HarnessOutputsSection systemId={systemId} harness={harness} editable={editable} />
 
       {dialog === "details" && (
         <DetailsDialog harness={harness} busy={isBusy} onClose={() => setDialog(null)}
-          onSave={(fields) => run("harness", () => updateHarness(systemId, etag, harness.id, fields), "Harness updated")} />
+          onSave={(fields) => edit("harness", (system) => system.updateHarness(harness.id, fields), "Harness updated")} />
       )}
       {pinMapEnd && (
         <PinMapDialog end={pinMapEnd} busy={isBusy} onClose={() => setDialog(null)}
           pads={[...new Set([...(pinMapEnd.matePads.length ? pinMapEnd.matePads : pinMapEnd.pins),
             ...Object.values(pinMapEnd.pinMap ?? {})])].sort(comparePads)}
-          onSave={(pinMap) => run("harness", () => updateHarnessEnd(systemId, etag, harness.id, pinMapEnd.id, { pinMap }), "Pin map saved")} />
+          onSave={(pinMap) => edit("harness", (system) => system.updateHarnessEnd(harness.id, pinMapEnd.id, { pinMap }), "Pin map saved")} />
       )}
       <ConfirmDialog open={dialog === "delete"} onOpenChange={(open) => !open && setDialog(null)}
         title={`Delete ${harness.name}?`} description="Its ends and wires are deleted. The boards are not changed."
         confirmLabel="Delete harness" destructive
-        onConfirm={() => void run("harness", () => deleteHarness(systemId, etag, harness.id), "Harness deleted").then(() => onDeleted())} />
+        onConfirm={() => void edit("harness", (system) => system.deleteHarness(harness.id), "Harness deleted").then(() => onDeleted())} />
     </div>
   );
 }

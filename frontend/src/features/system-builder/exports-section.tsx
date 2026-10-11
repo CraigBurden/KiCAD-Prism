@@ -8,12 +8,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { deleteExport, updateExport } from "@/lib/systems-api";
 import type { SystemDocument, SystemExport } from "@/types/system";
 
 import { ExportManyDialog } from "./export-many-dialog";
 import { subportLabel } from "./subport-model";
-import type { Mutate } from "./use-system-mutation";
+import { useSystemSession } from "./session/use-system-session";
 import { InspectorSection } from "./workspace/inspector-section";
 
 /** The export (if any) whose target is this board port, or one of its sub-ports (CONTRACTS_P2 §22.2). */
@@ -80,17 +79,14 @@ export function ExportDialog({ title, description, initial, existingNames, busy,
 }
 
 interface ExportsSectionProps {
-  systemId: string;
   document: SystemDocument;
-  etag: string;
   canEdit: boolean;
-  busy: string | null;
-  run: Mutate;
   onOpenBoard: (instanceId: string) => void;
 }
 
 /** The connectors this system publishes, for parent systems to link to (CONTRACTS_P2 §4). */
-export function ExportsSection({ systemId, document, etag, canEdit, busy, run, onOpenBoard }: ExportsSectionProps) {
+export function ExportsSection({ document, canEdit, onOpenBoard }: ExportsSectionProps) {
+  const { busy, edit } = useSystemSession();
   const [editing, setEditing] = useState<SystemExport | null>(null);
   const [removing, setRemoving] = useState<SystemExport | null>(null);
   const [adding, setAdding] = useState(false);
@@ -147,12 +143,12 @@ export function ExportsSection({ systemId, document, etag, canEdit, busy, run, o
           existingNames={exports.flatMap((entry) => (entry.id === editing.id ? [] : [entry.name]))}
           busy={busy === "export"} onClose={() => setEditing(null)}
           onSubmit={async (value) => {
-            const done = await run("export", () => updateExport(systemId, etag, editing.id, value), "Export updated");
+            const done = await edit("export", (system) => system.updateExport(editing.id, value), "Export updated");
             if (done) setEditing(null);
           }} />
       )}
       {adding && (
-        <ExportManyDialog systemId={systemId} document={document} etag={etag} busy={busy === "export"} run={run}
+        <ExportManyDialog document={document}
           onClose={() => setAdding(false)} />
       )}
       <ConfirmDialog
@@ -165,7 +161,7 @@ export function ExportsSection({ systemId, document, etag, canEdit, busy, run, o
         busy={busy === "export"}
         onConfirm={() => {
           if (!removing) return;
-          void run("export", () => deleteExport(systemId, etag, removing.id), `Removed ${removing.name}`).then(() => setRemoving(null));
+          void edit("export", (system) => system.deleteExport(removing.id), `Removed ${removing.name}`).then(() => setRemoving(null));
         }}
       />
     </InspectorSection>

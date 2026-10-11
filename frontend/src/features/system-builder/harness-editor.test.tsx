@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseOption } from "@/test/select";
@@ -6,6 +6,7 @@ import { chooseOption } from "@/test/select";
 import type { Finding } from "@/types/system";
 
 import { HarnessEditor, draftFromHarness, splices, wireProblems } from "./harness-editor";
+import { renderInSession } from "./session/memory-session";
 import { harness, harnessEnd, instance, systemDocument } from "./test-fixtures";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -56,9 +57,9 @@ function stubApi() {
 }
 
 function renderEditor(target = five, findings: Finding[] = []) {
-  const run = vi.fn(async (_label: string, action: () => Promise<unknown>) => action());
-  render(<HarnessEditor systemId="sys_1" document={{ ...doc, harnesses: [target] }} harness={target} etag='"sys:sys_1:1"'
-    canEdit findings={findings} busy={null} run={run as never} onDeleted={vi.fn()} onConverted={vi.fn()} />);
+  const document = { ...doc, harnesses: [target] };
+  renderInSession(<HarnessEditor systemId="sys_1" document={document} harness={target}
+    canEdit findings={findings} onDeleted={vi.fn()} onConverted={vi.fn()} />, { document });
 }
 
 describe("harness drafts", () => {

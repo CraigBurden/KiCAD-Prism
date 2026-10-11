@@ -2,19 +2,16 @@ import { Archive, ArrowLeft, Camera, GitBranch, ListTree, PanelRight } from "luc
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getGitLink, listSnapshots } from "@/lib/systems-api";
 import { cn } from "@/lib/utils";
-import type { GitLink, SnapshotMeta, SystemDocument } from "@/types/system";
+import type { SystemDocument } from "@/types/system";
 
 import { shortSha, timeAgo } from "../system-format";
-import { repositoryReadKey } from "../use-system-mutation";
-import { useKeyedRead } from "../use-keyed-read";
+import { sessionReads } from "../session/session-reads";
+import { useSessionRead } from "../session/use-system-session";
 import { WORKSPACE_VIEWS, type WorkspaceView } from "./workspace-state";
 
 interface TopBarProps {
-  systemId: string;
   document: SystemDocument;
-  etag: string;
   view: WorkspaceView;
   canEdit: boolean;
   onBack: () => void;
@@ -29,13 +26,6 @@ interface TopBarProps {
   has3d: boolean;
 }
 
-/** The repository link and the latest snapshot. SB2-98: edits leave them alone; they are re-read
- * after a snapshot, publish or git action (`invalidateReads`), not on every version. */
-function useRepositoryState(systemId: string) {
-  return useKeyedRead<{ git: GitLink | null; snapshot: SnapshotMeta | null }>(repositoryReadKey(systemId), () =>
-    Promise.all([getGitLink(systemId).catch(() => null), listSnapshots(systemId).catch(() => [])])
-      .then(([git, snapshots]) => ({ git, snapshot: snapshots[0] ?? null }))).data ?? null;
-}
 
 /** SB2-117: open errors and warnings inside the subsystems, as their pinned snapshots froze them. */
 export function childFindingCounts(document: SystemDocument): { error: number; warning: number } {
@@ -51,11 +41,12 @@ export function childFindingCounts(document: SystemDocument): { error: number; w
 }
 
 /** The workspace's top bar (PLAN M8): the system, the view switch, its state and Take snapshot. */
-export function WorkspaceTopBar({ systemId, document, view, canEdit, onBack, onView, onFindings, onHistory, onTakeSnapshot, onOutline, onInspector, has3d }: TopBarProps) {
+export function WorkspaceTopBar({ document, view, canEdit, onBack, onView, onFindings, onHistory, onTakeSnapshot, onOutline, onInspector, has3d }: TopBarProps) {
   const { system } = document;
   const counts = document.findingCounts;
   const inChildren = childFindingCounts(document);
-  const repository = useRepositoryState(systemId);
+  // SB2-98: edits leave the git link and latest snapshot alone; the session re-reads them after a snapshot, publish or git action.
+  const repository = useSessionRead(sessionReads.repository()).data ?? null;
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 sm:gap-3 md:gap-5 md:px-4">
       <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to the workspace"><ArrowLeft className="size-4" /></Button>

@@ -1,7 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { renderInSession } from "../session/memory-session";
+import { systemDocument } from "../test-fixtures";
 import { IcdView } from "./icd-view";
+
+const document = systemDocument([]);
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -10,7 +14,7 @@ describe("IcdView", () => {
     const fetch = vi.fn<(url: string) => Promise<Response>>(async () => new Response("<!DOCTYPE html><html><head></head><body><h1>ICD</h1></body></html>",
       { headers: { "Content-Type": "text/html" } }));
     vi.stubGlobal("fetch", fetch);
-    render(<IcdView systemId="sys_1" etag='"e1"' />);
+    renderInSession(<IcdView systemId="sys_1" />, { document });
     const frame = await screen.findByTitle("Interface control document");
     expect(frame).toHaveAttribute("srcdoc", expect.stringContaining("<h1>ICD</h1>"));
     // Same-origin so the page can theme and scale it; no allow-scripts, so nothing in it runs.
@@ -23,7 +27,7 @@ describe("IcdView", () => {
   it("says why when the ICD cannot be generated", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: "System not found" }),
       { status: 404, headers: { "Content-Type": "application/json" } })));
-    render(<IcdView systemId="sys_1" etag='"e1"' />);
+    renderInSession(<IcdView systemId="sys_1" />, { document });
     expect(await screen.findByText(/System not found/)).toBeInTheDocument();
   });
 });

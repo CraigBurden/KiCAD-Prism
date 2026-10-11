@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { GitBranch, Pencil, RefreshCw, TriangleAlert, Unlink } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -6,53 +6,41 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { deleteGitLink, fetchGitLink, getGitLink, putGitLink, retrySnapshotGit } from "@/lib/systems-api";
-import type { GitLink, SnapshotGit } from "@/types/system";
+import type { SnapshotGit } from "@/types/system";
 
 import { shortSha, timeAgo } from "./system-format";
-import type { Mutate } from "./use-system-mutation";
+import { sessionReads } from "./session/session-reads";
+import { useSessionRead, useSystemSession } from "./session/use-system-session";
 
 interface GitLinkPanelProps {
-  systemId: string;
-  etag: string;
-  /** Changes whenever the link must be re-read. */
-  refresh: string;
   canEdit: boolean;
-  busy: string | null;
-  run: Mutate;
 }
 
 /** The system's repository link (CONTRACTS_P2 §21): where snapshots are committed. */
-export function GitLinkPanel({ systemId, etag, refresh, canEdit, busy, run }: GitLinkPanelProps) {
-  const [link, setLink] = useState<{ refresh: string; value: GitLink | null } | null>(null);
+export function GitLinkPanel({ canEdit }: GitLinkPanelProps) {
+  const { session, busy, edit } = useSystemSession();
+  const read = sessionReads.gitLink();
+  const link = useSessionRead(read);
   const [editing, setEditing] = useState(false);
   const [url, setUrl] = useState("");
   const [branch, setBranch] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
-    getGitLink(systemId).then((value) => !cancelled && setLink({ refresh, value })).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [systemId, refresh]);
-
-  const current = link?.value ?? null;
+  const current = link.data ?? null;
   const open = () => {
     setUrl(current?.url ?? "");
     setBranch(current?.branch ?? "");
     setEditing(true);
   };
   const save = async () => {
-    const done = await run("git-link", () => putGitLink(systemId, etag, { url: url.trim(), branch: branch.trim() || undefined }),
+    const done = await edit("git-link", (system) => system.putGitLink({ url: url.trim(), branch: branch.trim() || undefined }),
       "Repository linked");
     if (done) {
-      setLink({ refresh, value: done.body });
+      session.store(read.key, done.body);
       setEditing(false);
     }
   };
 
-  if (!link || (!current && !canEdit)) return null;
+  if (link.data === undefined || (!current && !canEdit)) return null;
   return (
     <section className="text-sm" aria-label="Repository">
       <div className="flex h-9 items-center gap-2">
@@ -74,7 +62,7 @@ export function GitLinkPanel({ systemId, etag, refresh, canEdit, busy, run }: Gi
           <span className="ml-auto flex shrink-0 items-center">
             {current && (
               <Button variant="ghost" size="icon-sm" disabled={busy !== null} aria-label="Fetch now" title="Fetch the repository now"
-                onClick={() => void run("git-fetch", () => fetchGitLink(systemId), "Fetching the repository")}>
+                onClick={() => void edit("git-fetch", (system) => system.fetchGitLink(), "Fetching the repository")}>
                 <RefreshCw className="size-4" />
               </Button>
             )}
@@ -87,8 +75,8 @@ export function GitLinkPanel({ systemId, etag, refresh, canEdit, busy, run }: Gi
             )}
             {current && (
               <Button variant="ghost" size="icon-sm" disabled={busy !== null} aria-label="Unlink" title="Unlink the repository"
-                onClick={() => void run("git-unlink", () => deleteGitLink(systemId, etag), "Repository unlinked")
-                  .then((done) => done && setLink({ refresh, value: null }))}>
+                onClick={() => void edit("git-unlink", (system) => system.deleteGitLink(), "Repository unlinked")
+                  .then((done) => done && session.store(read.key, null))}>
                 <Unlink className="size-4" />
               </Button>
             )}
@@ -136,13 +124,14 @@ export function GitLinkPanel({ systemId, etag, refresh, canEdit, busy, run }: Gi
 const FAILED_LABEL: Record<string, string> = { "push-denied": "push refused", "branch-busy": "branch busy", unlinked: "unlinked" };
 
 /** A snapshot's commit status, with a retry for failed and refused commits. */
-export function SnapshotGitBadge({ systemId, snapshotId, name, git, canEdit, run }: {
-  systemId: string; snapshotId: string; name: string; git: SnapshotGit | null | undefined; canEdit: boolean; run: Mutate;
+export function SnapshotGitBadge({ snapshotId, name, git, canEdit }: {
+  snapshotId: string; name: string; git: SnapshotGit | null | undefined; canEdit: boolean;
 }) {
+  const { edit } = useSystemSession();
   if (!git || git.state === "skipped") return null;
   const retry = canEdit && (git.state === "failed" || git.state === "refused") && (
     <Button variant="link" size="sm" className="h-auto p-0 text-xs" aria-label={`Retry the commit of ${name}`}
-      onClick={() => void run("git-retry", () => retrySnapshotGit(systemId, snapshotId), "Commit queued")}>
+      onClick={() => void edit("git-retry", (system) => system.retrySnapshotGit(snapshotId), "Commit queued")}>
       Retry
     </Button>
   );

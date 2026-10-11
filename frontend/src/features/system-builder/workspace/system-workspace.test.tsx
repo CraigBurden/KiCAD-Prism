@@ -1,9 +1,10 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chooseMenuItem, chooseOption } from "@/test/select";
 import type { SystemDocument } from "@/types/system";
 
+import { renderInSession } from "../session/memory-session";
 import { exportOf, instance, link, systemDocument } from "../test-fixtures";
 import { SystemWorkspace } from "./system-workspace";
 import type { WorkspaceState } from "./workspace-state";
@@ -33,9 +34,10 @@ function stub() {
 
 function renderWorkspace(state: WorkspaceState) {
   const onState = vi.fn();
-  render(
-    <SystemWorkspace systemId="sys_1" document={doc} etag='"sys:sys_1:1"' canEdit user={null} reload={vi.fn(async () => undefined)}
+  renderInSession(
+    <SystemWorkspace systemId="sys_1" document={doc} canEdit user={null}
       state={state} importing={false} onState={onState} onImporting={vi.fn()} onBack={vi.fn()} />,
+    { document: doc },
   );
   return onState;
 }
@@ -43,11 +45,12 @@ function renderWorkspace(state: WorkspaceState) {
 describe("SystemWorkspace", () => {
   it("opens an empty system on the Diagram, not an empty 3D view (SB2-118)", () => {
     stub();
-    // Its own system ID: the diagram keeps per-system state that the other tests' "sys_1" must not see.
-    render(
-      <SystemWorkspace systemId="sys_empty" document={{ ...doc, instances: [], links: [] }} etag='"sys:sys_empty:1"' canEdit user={null}
-        reload={vi.fn(async () => undefined)} state={{ view: "3d", tray: null, selection: null }} importing={false} onState={vi.fn()}
+    const empty = { ...doc, instances: [], links: [] };
+    renderInSession(
+      <SystemWorkspace systemId="sys_1" document={empty} canEdit user={null}
+        state={{ view: "3d", tray: null, selection: null }} importing={false} onState={vi.fn()}
         onImporting={vi.fn()} onBack={vi.fn()} />,
+      { document: empty },
     );
     expect(screen.getByRole("tab", { name: "Diagram" }).getAttribute("aria-selected")).toBe("true");
   });
@@ -113,13 +116,13 @@ describe("SystemWorkspace: what the Overview and Boards tabs did", () => {
   const ok = (body: unknown = {}, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ETag: '"sys:sys_1:2"' } });
 
   function renderWith(document: SystemDocument, canEdit = true) {
-    const reload = vi.fn(async () => undefined);
     const onState = vi.fn();
-    render(
-      <SystemWorkspace systemId="sys_1" document={document} etag='"sys:sys_1:1"' canEdit={canEdit} user={null} reload={reload}
+    const { loads } = renderInSession(
+      <SystemWorkspace systemId="sys_1" document={document} canEdit={canEdit} user={null}
         state={{ view: "icd", tray: null, selection: null }} importing={false} onState={onState} onImporting={vi.fn()} onBack={vi.fn()} />,
+      { document },
     );
-    return { reload, onState };
+    return { loads, onState };
   }
 
   it("offers no Add without edit rights, and no opt-in check (SYS-V09 runs on every system, D-P2-57)", () => {
@@ -201,9 +204,10 @@ describe("SystemWorkspace without WebGPU", () => {
       { view: "diagram", tray: "findings", selection: { kind: "link", id: "L1" } },
       { view: "icd", tray: null, selection: { kind: "instance", id: obc.id } },
     ] as WorkspaceState[]) {
-      const view = render(
-        <SystemWorkspace systemId="sys_1" document={doc} etag='"sys:sys_1:1"' canEdit user={null} reload={vi.fn(async () => undefined)}
+      const view = renderInSession(
+        <SystemWorkspace systemId="sys_1" document={doc} canEdit user={null}
           state={state} importing={false} onState={vi.fn()} onImporting={vi.fn()} onBack={vi.fn()} />,
+        { document: doc },
       );
       await act(async () => undefined);
       const unnamed = screen.queryAllByRole("button", { name: "" });
