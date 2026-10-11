@@ -62,6 +62,18 @@ connections from the internet, replace `Caddyfile` with `Caddyfile.dns-01`,
 build a proxy image from `Dockerfile.caddy-dns`, and set `PRISM_CADDY_IMAGE`.
 Ports 80 and 443 then stay closed to the internet. See the Deployment guide.
 
+If another service already uses port 80 or 443 on the host, the proxy fails to
+start with `Ports are not available`. Set other host ports in `.env`:
+
+```bash
+PRISM_CADDY_HTTP_PORT=8081
+PRISM_CADDY_HTTPS_PORT=8443
+```
+
+Include the port in the HTTPS origin, for example `https://prism.example.com:8443`.
+Public ACME certificates through `Caddyfile` need ports 80 and 443 reachable from
+the internet, so with other ports use `Caddyfile.internal` or `Caddyfile.dns-01`.
+
 ## Verify
 
 ```bash

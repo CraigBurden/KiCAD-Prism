@@ -233,6 +233,11 @@ For a private CA or custom certificate:
 3. distribute the issuing root CA to browsers and KiCad workstations;
 4. start the same `proxy` profile.
 
+If the host already uses port 80 or 443, set `PRISM_CADDY_HTTP_PORT` and
+`PRISM_CADDY_HTTPS_PORT` in `.env` and include the HTTPS port in the public
+origin. Public ACME issuance with `Caddyfile` needs 80 and 443 reachable, so use
+`Caddyfile.internal` or `Caddyfile.dns-01` with other ports.
+
 ### Tailscale
 
 If the team already uses Tailscale, this is the least work of any option. A
