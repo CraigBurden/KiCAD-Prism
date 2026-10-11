@@ -527,6 +527,11 @@ jobs:
           rustup toolchain install "$channel" --profile minimal --component rustfmt --component clippy
           cargo --version
 
+      - name: Install the SDK's system link libraries
+        # The SDK manifest links pthread, rt, stdc++, dl and X11 (OCCT). The image's builder stage
+        # (rust:bookworm, a buildpack-deps image) ships libx11-dev; the runner does not.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libx11-dev
+
       - name: Fetch the Geometer SDK the image links
         working-directory: ${{ github.workspace }}
         run: |
