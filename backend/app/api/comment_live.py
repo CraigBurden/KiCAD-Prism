@@ -42,7 +42,7 @@ def _read_batch(project_id: str, after: int, limit: int = _BATCH_SIZE) -> dict:
 
 
 def _can_read_live(user: AuthenticatedUser) -> bool:
-    return policy.allows(user, "scoped_read")
+    return policy.allows(user, "read")
 
 
 def _origin_allowed(websocket: WebSocket, user: AuthenticatedUser) -> bool:

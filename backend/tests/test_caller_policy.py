@@ -48,14 +48,13 @@ CREDENTIALS = {
     "no_scope": ("service_client", []),
 }
 
-ANY_API = {"session", "read_token", "write_token", "agent_token", "wildcard", "no_scope"}
-READERS = {"session", "read_token", "agent_token", "wildcard"}
+# api:write implies api:read; "*" holds every scope; sessions carry none and need none.
+READERS = {"session", "read_token", "write_token", "agent_token", "wildcard"}
 WRITERS = {"session", "write_token", "agent_token", "wildcard"}
 
 # action -> (credential kinds that pass, roles that pass)
 EXPECTED: dict[str, tuple[set[str], frozenset[str]]] = {
-    "read": (ANY_API, ALL),
-    "scoped_read": (READERS, ALL),
+    "read": (READERS, ALL),
     "comment": (WRITERS, ALL),
     "design": (WRITERS, frozenset({"designer", "admin"})),
     "release": (WRITERS, frozenset({"designer", "qa", "admin"})),
@@ -101,6 +100,30 @@ class CallerPolicyTableTests(unittest.TestCase):
             policy.refusal(_Caller(role="viewer", auth_type="agent", scopes=["api:write"]), "design"),
             "Designer role required",
         )
+
+    def test_bearer_scope_rule_table(self) -> None:
+        # (held scopes, required scope) -> satisfied
+        cases = [
+            ([], "api:read", False),
+            (["api:read"], "api:read", True),
+            (["api:write"], "api:read", True),
+            (["api:read", "api:write"], "api:read", True),
+            (["*"], "api:read", True),
+            (["remote_symbols.read"], "api:read", False),
+            (["api:read"], "api:write", False),
+            (["api:write"], "api:write", True),
+            (["*"], "api:write", True),
+            (["api:write"], "remote_symbols.read", False),
+            (["remote_symbols.read"], "remote_symbols.read", True),
+        ]
+        for held, required, expected in cases:
+            caller = _Caller(role="viewer", auth_type="service_client", scopes=held)
+            with self.subTest(held=held, required=required):
+                self.assertEqual(policy.has_scope(caller, required), expected)
+
+    def test_sessions_need_no_scope_to_read(self) -> None:
+        for role in ROLES:
+            self.assertTrue(policy.allows(_Caller(role=role), "read"))
 
     def test_role_allows_is_the_role_half_only(self) -> None:
         for action, (_credentials, roles) in EXPECTED.items():

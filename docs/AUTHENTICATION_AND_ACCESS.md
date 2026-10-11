@@ -155,9 +155,20 @@ Do not reuse KiCad provider tokens as general API credentials. Prism refuses
 them everywhere except the `/api/remote-provider/*` routes KiCad and its panel
 call (the signed asset download and `/oauth/*` take no Prism credential).
 
-Bearer tokens need `api:write` for every mutation and `api:read` for catalog
-reads, Git clones, and the live comment stream. Project, comment, system, and
-release reads currently check only the token's role.
+Bearer tokens need `api:read` for every read (projects, comments, systems,
+release studio, catalog, Git clone, the live comment stream) and `api:write`
+for every mutation. `api:write` implies `api:read`, and `*` holds every scope.
+Browser sessions carry no scopes and need none. Token issuers:
+
+- KiCad agent tokens: `api:read api:write` by default, or a subset the agent
+  asks for; every subset can read.
+- Service clients: the scopes an administrator gave the client (default
+  `api:read`), or a subset requested at issuance. A client created with
+  neither `api:read` nor `api:write` cannot read; give it `api:read`.
+- External JWTs: the scopes in `OAUTH_EXTERNAL_JWT_SCOPES_CLAIM`. The identity
+  provider must issue `api:read` (or `api:write`) for the token to read.
+- KiCad provider tokens: `remote_symbols.read` only, accepted on
+  `/api/remote-provider/*` and nowhere else.
 
 Prism can also validate externally issued JWTs when issuer, audience, role
 claim, and scope claim settings are configured. Audience validation is

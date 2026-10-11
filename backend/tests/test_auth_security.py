@@ -126,13 +126,17 @@ class AuthSecurityTests(unittest.TestCase):
             role="viewer",
             auth_type="service_client",
             client_id="prism_client",
-            scopes=["api:write"],
+            scopes=["catalog:export"],
         )
 
         with self.assertRaises(HTTPException) as ctx:
             asyncio.run(require_remote_symbol_reader(user))
 
         self.assertEqual(ctx.exception.status_code, 403)
+
+        # api:write implies api:read, which the remote-symbol routes accept.
+        writer = user.model_copy(update={"scopes": ["api:write"]})
+        self.assertIs(asyncio.run(require_remote_symbol_reader(writer)), writer)
 
     def test_remote_provider_scope_defaults_to_remote_symbols_read(self) -> None:
         self.assertEqual(provider_auth_service.normalize_provider_scope(""), "remote_symbols.read")

@@ -43,7 +43,6 @@ class Caller(Protocol):
 
 Action = Literal[
     "read",
-    "scoped_read",
     "comment",
     "design",
     "release",
@@ -76,11 +75,8 @@ class Rule:
 
 
 RULES: dict[Action, Rule] = {
-    # Project, comment, system and release reads. Bearer scopes are not checked
-    # here today; see docs/AUTHENTICATION_AND_ACCESS.md.
-    "read": Rule(ALL_ROLES),
-    # Reads whose bearer callers must hold api:read: Git clone, the live comment stream.
-    "scoped_read": Rule(ALL_ROLES, scopes=("api:read",)),
+    # Project, comment, system and release reads, Git clone, the live comment stream.
+    "read": Rule(ALL_ROLES, scopes=("api:read",)),
     "comment": Rule(ALL_ROLES, scopes=("api:write",), provider_refusal=_PROVIDER_MODIFY),
     "design": Rule(
         frozenset({"designer", "admin"}),
@@ -106,8 +102,20 @@ RULES: dict[Action, Rule] = {
 }
 
 
+# A held scope that grants others: a client allowed to write may always read.
+IMPLIED_SCOPES: dict[str, tuple[str, ...]] = {"api:write": ("api:read",)}
+
+
+def effective_scopes(scopes: list[str]) -> set[str]:
+    held = set(scopes)
+    for scope in list(held):
+        held.update(IMPLIED_SCOPES.get(scope, ()))
+    return held
+
+
 def has_scope(caller: Caller, *scopes: str) -> bool:
-    held = set(caller.scopes)
+    """Whether a bearer caller holds one of ``scopes``; "*" holds every scope."""
+    held = effective_scopes(caller.scopes)
     return "*" in held or any(scope in held for scope in scopes)
 
 
