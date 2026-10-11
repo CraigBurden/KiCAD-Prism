@@ -8,6 +8,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.services.catalog.asset_files import CatalogAssetFiles
+from app.services.catalog.field_rules import missing_metadata_findings
 from app.services.component_catalog_service import catalog_service
 from app.services.local_artifact_store import artifact_store
 from app.services.kicad_library_discovery import discover_library, footprint_name_from_text
@@ -240,20 +241,13 @@ def build_folder_proposals(
             mpn = _field(properties, "Manufacturer Part Number", "MPN", "Part Number")
             description = _field(properties, "Description")
             datasheet = _field(properties, "Datasheet", "Data Sheet")
-            findings: list[dict[str, str]] = []
-            required = {
+            findings: list[dict[str, str]] = missing_metadata_findings({
+                "value": value,
                 "description": description,
                 "datasheet": datasheet,
                 "manufacturer": manufacturer,
                 "manufacturer_part_number": mpn,
-            }
-            for field_name, field_value in required.items():
-                if not field_value:
-                    findings.append({
-                        "code": f"missing_metadata_{field_name}",
-                        "severity": "error",
-                        "message": f"Required component metadata is missing: {field_name.replace('_', ' ')}.",
-                    })
+            })
             assets = [
                 _staged_asset(
                     session_id=session_id,

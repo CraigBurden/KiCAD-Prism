@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.catalog.metadata_fields import validate_metadata_value
-from app.services.catalog.metadata_normalization import IDENTITY_KIND_PROVISIONAL_IPN
+from app.services.catalog.field_rules import CONTEXT_BULK, field_error, is_field_required
 from app.services.catalog.normalization import json_loads as _json_loads
 
 
@@ -72,13 +71,14 @@ class CatalogMetadataBatchStaging:
             errors.append("Component revision conflict: refresh or re-export before applying")
         else:
             extras = _json_loads(component["extra_fields"], {})
+            identity_kind = str(component["identity_kind"] or "")
             for field_key, raw_value in dict(raw_item.get("patch") or {}).items():
                 field = fields.get(str(field_key))
                 if not field or field.get("archived"):
                     errors.append(f"Unknown or archived field: {field_key}")
                     continue
                 value = str(raw_value or "").strip()
-                validation_error = validate_metadata_value(field, value)
+                validation_error = field_error(field, value, context=CONTEXT_BULK, identity_kind=identity_kind)
                 if validation_error:
                     errors.append(f"{field['label']}: {validation_error}")
                     continue
@@ -86,18 +86,14 @@ class CatalogMetadataBatchStaging:
                 if before != value:
                     normalized_patch[str(field_key)] = value
                     diff.append({"field": str(field_key), "label": str(field["label"]), "before": before, "after": value})
-            provisional = str(component["identity_kind"] or "") == IDENTITY_KIND_PROVISIONAL_IPN
             for field_key, field in fields.items():
-                if not field.get("required") or field.get("archived"):
-                    continue
-                if provisional and field_key == "mpn":
-                    # A provisional part has no manufacturer part number yet.
+                if field.get("archived") or not is_field_required(field, identity_kind=identity_kind):
                     continue
                 if field["storage_kind"] == "column":
                     resulting = normalized_patch.get(field_key, str(component[field["storage_key"]] or ""))
                 else:
                     resulting = normalized_patch.get(field_key, str(extras.get(field["storage_key"], "")))
-                required_error = validate_metadata_value(field, resulting)
+                required_error = field_error(field, resulting, context=CONTEXT_BULK, identity_kind=identity_kind)
                 if required_error:
                     errors.append(f"{field['label']}: {required_error}")
             target_manufacturer = normalized_patch.get("manufacturer", str(component["manufacturer"] or ""))

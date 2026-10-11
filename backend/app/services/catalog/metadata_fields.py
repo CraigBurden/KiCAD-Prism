@@ -7,8 +7,8 @@ import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
 
+from app.services.catalog.field_rules import CONTEXT_BULK, field_error
 from app.services.catalog.metadata_schema import (
     BUILTIN_METADATA_FIELDS,
     CatalogMetadataSchema,
@@ -19,27 +19,6 @@ from app.services.catalog.normalization import (
     json_loads as _json_loads,
     utc_now_iso as _utc_now_iso,
 )
-
-
-def validate_metadata_value(field: dict[str, Any], value: str) -> str:
-    value = str(value or "").strip()
-    if not value:
-        return "Value is required" if field.get("required") else ""
-    field_type = str(field.get("type") or "text")
-    if field_type == "number":
-        try:
-            float(value)
-        except ValueError:
-            return "Enter a valid number"
-    elif field_type == "url":
-        parsed = urlparse(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            return "Enter a valid HTTP(S) URL"
-    elif field_type == "boolean" and value.casefold() not in {"true", "false", "1", "0", "yes", "no"}:
-        return "Enter true or false"
-    elif field_type == "enum" and value not in field.get("enum_values", []):
-        return "Choose a configured enum value"
-    return ""
 
 
 @dataclass(frozen=True)
@@ -139,7 +118,7 @@ class CatalogMetadataFields:
             candidate = {**before, "type": field_type, "enum_values": enum_values, "required": next_required}
             for row in rows:
                 value = str(_json_loads(row["extra_fields"], {}).get(before["key"], ""))
-                if validate_metadata_value(candidate, value):
+                if field_error(candidate, value, context=CONTEXT_BULK):
                     invalid += 1
             if invalid:
                 raise ValueError(f"Field schema change would invalidate {invalid} current component value(s)")
@@ -178,4 +157,4 @@ class CatalogMetadataFields:
         self._metadata_schema.append_field_event(conn, field_id, "archived" if archived else "restored", actor, before, after)
         return after
 
-__all__ = ["CatalogMetadataFields", "PreparedMetadataField", "validate_metadata_value"]
+__all__ = ["CatalogMetadataFields", "PreparedMetadataField"]
