@@ -34,12 +34,20 @@ parallel `useState` for viewer readiness.
 **Data in** — `use-design-compare-job.ts`, `comparison-result-loader.ts`,
 `revision-sources.ts`, `types.ts`.
 
-**Review shaping** — `comparison-review-groups.ts`, `comparison-review-noise.ts`,
-`comparison-review-policy.ts`, `comparison-review-queue.ts`,
-`comparison-review-report.ts`, `comparison-change-facts.ts`,
-`comparison-change-vocabulary.ts`.
+**Review shaping** — `comparison-change-kinds.ts`, `comparison-review-groups.ts`,
+`comparison-review-noise.ts`, `comparison-review-policy.ts`,
+`comparison-review-queue.ts`, `comparison-review-report.ts`,
+`comparison-change-facts.ts`, `comparison-change-vocabulary.ts`.
 This is where "what counts as one change" is decided. Grouping and noise
-suppression are the subtlest logic in the directory.
+suppression are the subtlest logic in the directory. The backend sends
+changes ungrouped; grouping happens here only.
+
+**Object kinds** live in one table, `comparison-change-kinds.ts`: each kind's
+domain, reviewer noun and traits (wiring, copper, via span, component child,
+rule, …). The other review modules derive their kind sets from it, so a new
+kind is one row plus the parser (see
+`.agents/skills/prism-comparison-change-kind/SKILL.md`). Kinds arrive in the
+backend's canonical spelling; never add a parser spelling here.
 
 **Presentation** — `comparison-presentation-shell.tsx`,
 `design-comparison-workspace.tsx`, `differences-pane.tsx`,
