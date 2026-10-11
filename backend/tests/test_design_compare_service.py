@@ -43,6 +43,35 @@ class DesignCompareServiceTests(unittest.TestCase):
             }],
         }
 
+    def test_repo_paths_locate_a_monorepo_subproject_from_its_workspace_row(self) -> None:
+        # The row as workspace_service._project_row_to_dict returns it: the
+        # subproject directory is `relative_path`; nothing sets `sub_path`.
+        row = {
+            "id": "prj_sub",
+            "path": "/clones/mono/boards/a",
+            "parent_repo_path": "/clones/mono",
+            "relative_path": "boards/a",
+            "import_type": "multi",
+        }
+        with mock.patch.object(design_compare_service.workspace, "get_project_by_id", return_value=row):
+            located = design_compare_service._repo_paths("prj_sub")
+        self.assertEqual(
+            located,
+            (Path("/clones/mono"), "boards/a", Path("/clones/mono/boards/a")),
+        )
+
+    def test_repo_paths_locate_a_repository_root_project(self) -> None:
+        row = {
+            "id": "prj_root",
+            "path": "/clones/single",
+            "parent_repo_path": "/clones/single",
+            "relative_path": ".",
+            "import_type": "single",
+        }
+        with mock.patch.object(design_compare_service.workspace, "get_project_by_id", return_value=row):
+            located = design_compare_service._repo_paths("prj_root")
+        self.assertEqual(located, (Path("/clones/single"), None, Path("/clones/single")))
+
     def test_generated_kicad_files_are_folded_out_of_semantic_sources(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

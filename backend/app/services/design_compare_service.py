@@ -135,13 +135,12 @@ def _repo_paths(project_id: str) -> Tuple[Path, Optional[str], Path]:
     if not row:
         raise ValueError(f"Project '{project_id}' not found")
     checkout = Path(row["path"])
-    import_type = row.get("import_type")
     parent = row.get("parent_repo_path")
-    sub = row.get("sub_path")
-    if parent and sub:
-        return Path(parent), sub, checkout
-    if import_type == "type2_subproject":
-        return Path(parent or checkout.parent), sub, checkout
+    # Workspace rows carry the subproject directory as `relative_path`; only
+    # the API's Pydantic model renames it to `sub_path`.
+    relative = str(row.get("relative_path") or ".")
+    if parent and relative != ".":
+        return Path(parent), relative, checkout
     return checkout, None, checkout
 
 
