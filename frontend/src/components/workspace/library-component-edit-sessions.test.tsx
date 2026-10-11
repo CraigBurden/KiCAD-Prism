@@ -109,7 +109,7 @@ function builtinEditorFields(): CatalogMetadataField[] {
 
 function patchCallBody() {
     const [, patch] = vi.mocked(patchComponent).mock.calls[0] ?? [];
-    return JSON.parse(JSON.stringify(patch)) as Record<string, unknown>;
+    return patch as Record<string, unknown>;
 }
 
 function mockMetadataRoutes(options?: {
