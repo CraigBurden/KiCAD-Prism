@@ -297,6 +297,24 @@ Requirements:
 To drop something, ship the code that stops using it first. Remove the column a
 release later.
 
+## Project settings move out of the checkout
+
+Earlier releases wrote project-property edits (name, description, paths) into
+the checkout's `.prism.json`. A tracked file changed that way made the checkout
+dirty, and Sync stopped fast-forwarding the project.
+
+These settings now live in the workspace database (migration 55,
+`project_path_settings`). On the first start after upgrading, Prism reads each
+checkout's `.prism.json` once. If the file is untracked, or a tracked file
+differs from `HEAD`, the values that differ are copied into the database. The
+file itself is left in place, because it may hold edits nobody committed.
+
+A checkout that was already dirty this way still blocks Sync until the file is
+cleaned up. Once the upgrade has imported it, either commit the file upstream so
+the team shares the settings, or restore the committed version with
+`git -C <checkout> checkout -- .prism.json` (or delete an untracked file). The
+values stay in Prism's database either way.
+
 ## Why the catalog gate is gone
 
 Until [`catalog_schema_migrations.py`](../backend/app/services/catalog_schema_migrations.py)
