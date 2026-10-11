@@ -107,9 +107,9 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
                 "prepare_candidate",
                 side_effect=RuntimeError("closure token=super-secret unavailable"),
             ),
-            patch.object(build_service.store, "record_prepare_failure", return_value=retained) as record,
+            patch.object(build_service.attempts, "record_prepare_failure", return_value=retained) as record,
             patch.object(
-                build_service.store,
+                build_service.attempts,
                 "fail_build",
                 side_effect=lambda build_id, **kwargs: terminal.append(
                     {"build_id": build_id, **kwargs}
@@ -202,8 +202,8 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
             raise RuntimeError("tool token=post-start-secret failed")
 
         with (
-            patch.object(build_service.store, "start_build", return_value=build),
-            patch.object(build_service.store, "fail_build", side_effect=fail_build),
+            patch.object(build_service.attempts, "start_build", return_value=build),
+            patch.object(build_service.attempts, "fail_build", side_effect=fail_build),
         ):
             with self.assertRaisesRegex(RuntimeError, "post-start-secret"):
                 build_service.execute_build(
@@ -249,9 +249,9 @@ class ReleaseStudioFailureRetentionTests(unittest.TestCase):
         cli = FakeTool(cancel_mid_step)
 
         with (
-            patch.object(build_service.store, "start_build", return_value=build),
+            patch.object(build_service.attempts, "start_build", return_value=build),
             patch.object(
-                build_service.store, "cancel_build",
+                build_service.attempts, "cancel_build",
                 side_effect=lambda build_id, **kwargs: cancelled.append(
                     {"id": build_id, "status": "cancelled", **kwargs}
                 ),

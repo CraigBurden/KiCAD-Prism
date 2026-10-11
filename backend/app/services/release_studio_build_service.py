@@ -63,6 +63,7 @@ from app.release_studio.steps import (
 )
 from app.release_studio.vendors import generate_vendor_outputs, resolve_vendor_ids
 from app.services import project_revision
+from app.services import release_build_attempts as attempts
 from app.services import release_studio_service as store
 from app.services.job_artifact_service import JobArtifactService
 from app.services.job_runtime import JobCancelled, JobContext, JobResult
@@ -855,7 +856,7 @@ def execute_build(
 
     artifact_service = artifacts or JobArtifactService()
     tools = (tools or KicadTools.resolve()).with_cancel(context.check_cancelled)
-    build = store.start_build(
+    build = attempts.start_build(
         candidate["id"], job_id=context.job_id, fence=context.fence
     )
     tracker: PipelineTracker | None = None
@@ -1125,7 +1126,7 @@ def execute_build(
                 "the build's fence is no longer authoritative; artifacts were "
                 "not registered"
             )
-        completed = store.complete_build(
+        completion = dict(
             build_id=build["id"],
             dossier=assembled,
             toolchain=toolchain,
@@ -1149,17 +1150,19 @@ def execute_build(
                 *document_warnings,
             ],
         )
-        # Completion is terminal and immutable. A best-effort progress update
-        # must never turn a committed success into a generic failure/cancel.
-        try:
-            tracker.succeed("package", percent=100)
-        except Exception:
-            logger.warning("Release Studio build completed but final progress update failed", exc_info=True)
+        tracker.succeed("package", percent=100)
         return {
-            "build": completed,
+            "build": {
+                "id": build["id"],
+                "manifest_digest": assembled.manifest_digest,
+                "dossier_digest": assembled.dossier_digest,
+            },
             "dossier": assembled,
             "artifacts": (dossier_artifact, evidence_artifact),
             "pipeline": tracker.snapshot,
+            # The build row succeeds inside the job's completion transaction
+            # (JobResult.settle), never before the job is known to complete.
+            "settle": lambda conn: attempts.complete_build(conn=conn, **completion),
         }
     except JobCancelled as exc:
         evidence_artifact_id = _failure_evidence_id(
@@ -1172,7 +1175,7 @@ def execute_build(
             pipeline=tracker.snapshot if tracker is not None else None,
             timings=timings,
         )
-        store.cancel_build(
+        attempts.cancel_build(
             build["id"],
             message=_redact_failure_text(exc),
             evidence_artifact_id=evidence_artifact_id,
@@ -1189,7 +1192,7 @@ def execute_build(
             pipeline=tracker.snapshot if tracker is not None else None,
             timings=timings,
         )
-        store.fail_build(
+        attempts.fail_build(
             build["id"],
             error_code="step_failed",
             error_message=_redact_failure_text(exc),
@@ -1207,7 +1210,7 @@ def execute_build(
             pipeline=tracker.snapshot if tracker is not None else None,
             timings=timings,
         )
-        store.fail_build(
+        attempts.fail_build(
             build["id"],
             error_code="build_failed",
             error_message=_redact_failure_text(exc),
@@ -1440,7 +1443,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
             tracker.fail("closure", message=_redact_failure_text(exc))
         except Exception:  # noqa: BLE001 - retain the failure even if progress is stale
             logger.debug("Could not report failed closure progress", exc_info=True)
-        failed_build = store.record_prepare_failure(
+        failed_build = attempts.record_prepare_failure(
             project_id=project_id,
             repository_id=repository_id,
             config_key=config_key,
@@ -1466,7 +1469,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
             error=exc,
             pipeline=tracker.snapshot,
         )
-        store.fail_build(
+        attempts.fail_build(
             str(failed_build["id"]),
             error_code="prepare_failed",
             error_message=_redact_failure_text(exc),
@@ -1539,6 +1542,7 @@ def run_release_studio_build_job(context: JobContext) -> JobResult:
         },
         artifact=result["artifacts"][0],
         sidecar_artifacts=(result["artifacts"][1],),
+        settle=result["settle"],
     )
 
 

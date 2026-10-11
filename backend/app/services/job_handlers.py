@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import logging
+from typing import Any, Callable, Iterable, Mapping
+
 from app.services.job_runtime import JobHandler
 
+logger = logging.getLogger(__name__)
 
 _HANDLERS: dict[str, JobHandler] = {}
+# kind -> (settle(job row), orphans() -> job ids)
+_ON_END: dict[str, tuple[Callable[[Mapping[str, Any]], Any], Callable[[], Iterable[str]]]] = {}
 
 
 def register_job_handler(kind: str, handler: JobHandler) -> None:
@@ -13,6 +19,47 @@ def register_job_handler(kind: str, handler: JobHandler) -> None:
     if normalized in _HANDLERS and _HANDLERS[normalized] is not handler:
         raise RuntimeError(f"Job handler already registered: {normalized}")
     _HANDLERS[normalized] = handler
+
+
+def register_job_end(
+    kind: str,
+    settle: Callable[[Mapping[str, Any]], Any],
+    orphans: Callable[[], Iterable[str]],
+) -> None:
+    """Let a kind settle its own rows from the job's end state.
+
+    ``settle(job)`` must be idempotent and leave rows of a still-executing
+    attempt alone; ``orphans()`` lists jobs whose rows were left behind.
+    """
+
+    _ON_END[kind] = (settle, orphans)
+
+
+def settle_job_end(job_id: str, service: Any) -> None:
+    """Run the kind's end hook for ``job_id``; failures are logged, never raised."""
+
+    try:
+        load_builtin_job_handlers()
+        job = service.get(job_id)
+        hook = _ON_END.get(str((job or {}).get("kind") or ""))
+        if job is not None and hook is not None:
+            hook[0](job)
+    except Exception:
+        logger.exception("Could not settle the end of job %s", job_id)
+
+
+def sweep_job_ends(service: Any) -> None:
+    """Settle rows whose job ended without its process settling them."""
+
+    load_builtin_job_handlers()
+    for kind, (_settle, orphans) in sorted(_ON_END.items()):
+        try:
+            job_ids = list(orphans())
+        except Exception:
+            logger.exception("Could not list unsettled %s jobs", kind)
+            continue
+        for job_id in job_ids:
+            settle_job_end(job_id, service)
 
 
 def get_job_handler(kind: str) -> JobHandler | None:
@@ -48,6 +95,13 @@ def load_builtin_job_handlers() -> None:
 
     register_job_handler("design_compare", run_design_compare_job_v3)
     register_job_handler("release_studio_build", run_release_studio_build_job)
+    from app.services import release_build_attempts
+
+    register_job_end(
+        "release_studio_build",
+        release_build_attempts.settle_build_job,
+        release_build_attempts.orphaned_jobs,
+    )
     register_job_handler(
         "release_studio_configuration_publish",
         run_release_studio_configuration_publish_job,

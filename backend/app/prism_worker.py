@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import IO
 
 from app.core.config import settings
+from app.services.job_handlers import settle_job_end, sweep_job_ends
 from app.services.job_runtime import job_state_root
 from app.services.job_service import jobs
 
@@ -87,6 +88,7 @@ class PrismWorker:
         self._auto_sync_attempts: dict[str, datetime] = {}
         self._next_auto_sync_scan = 0.0
         self._next_tracker_scan = 0.0
+        self._next_end_sweep = 0.0
 
     @staticmethod
     def resource_capacities() -> dict[str, int]:
@@ -392,6 +394,7 @@ class PrismWorker:
                                 error_code="runner_exited",
                                 error_message=f"Job runner exited with code {return_code}",
                             )
+                        settle_job_end(job_id, jobs)
                     except Exception:
                         self._log_database_error(f"finalize exited job {job_id}")
                         self._queue_pending_release(
@@ -535,6 +538,14 @@ class PrismWorker:
         schedule_due_tracker_jobs()
         self._next_tracker_scan = time.monotonic() + 5
 
+    def sweep_job_ends(self) -> None:
+        """Settle feature rows whose job's process died before settling them."""
+
+        if self.worker_pool != "prism" or time.monotonic() < self._next_end_sweep:
+            return
+        self._next_end_sweep = time.monotonic() + 60
+        sweep_job_ends(jobs)
+
     def mount_tracker_composition(self) -> None:
         """The scheduling loop needs the same mounts as the API and job runner.
 
@@ -582,6 +593,10 @@ class PrismWorker:
                 self.schedule_tracker_jobs()
             except Exception:
                 self._log_database_error("schedule tracker jobs")
+            try:
+                self.sweep_job_ends()
+            except Exception:
+                self._log_database_error("settle ended jobs")
             self.supervise()
             available_slots = self.concurrency - len(self.running) - len(self.pending_releases)
             while available_slots > 0:

@@ -65,6 +65,10 @@ class JobResult:
     details: Mapping[str, Any] = field(default_factory=dict)
     artifact: PreparedArtifact | None = None
     sidecar_artifacts: tuple[PreparedArtifact, ...] = ()
+    # Runs inside the job's completion transaction with its connection, so a
+    # feature row (a release build) succeeds exactly when the job completes.
+    # It must not use another connection on the job row: that would deadlock.
+    settle: Callable[[Any], Any] | None = None
 
 
 def job_state_root() -> Path:

@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from app.services.postgres_database import database
 from app.services.workspace_service import workspace
@@ -850,44 +850,12 @@ class JobService:
         result_digest: str | None = None,
         message: str = "Completed",
         details: Mapping[str, Any] | None = None,
+        settle: Callable[[Any], Any] | None = None,
     ) -> bool:
-        with self._connect() as conn:
-            conn.execute("SET search_path TO workspace, public")
-            if not self._authoritative_claim(
-                conn,
-                job_id,
-                worker_id,
-                fence,
-            ):
-                conn.commit()
-                return False
-            cursor = conn.execute(
-                """
-                UPDATE ws_jobs
-                SET status = 'completed', stage = 'completed', message = %s,
-                    percent = 100, result_path = %s, result_digest = %s,
-                    result_metadata = %s::jsonb,
-                    completed_at = NOW(), heartbeat_at = NOW(),
-                    lease_owner = '', lease_expires_at = NULL, updated_at = NOW()
-                WHERE id = %s AND fence = %s AND lease_owner = %s
-                  AND status = 'running'
-                  AND lease_expires_at >= NOW()
-                """,
-                (
-                    message,
-                    result_path,
-                    result_digest,
-                    _json(dict(details or {})),
-                    job_id,
-                    fence,
-                    worker_id,
-                ),
-            )
-            if cursor.rowcount == 1:
-                self._release_claims(conn, job_id, fence)
-                self._event(conn, job_id, "completed", details=dict(details or {}))
-            conn.commit()
-            return cursor.rowcount == 1
+        return self._complete(
+            job_id, worker_id, fence, result_path=result_path, result_digest=result_digest,
+            message=message, details=details, settle=settle,
+        )
 
     def publish_partial_artifact(
         self,
@@ -1024,18 +992,39 @@ class JobService:
         extra_artifacts: Sequence[Mapping[str, Any]] = (),
         message: str = "Completed",
         details: Mapping[str, Any] | None = None,
+        settle: Callable[[Any], Any] | None = None,
     ) -> bool:
+        return self._complete(
+            job_id, worker_id, fence, result_path=artifact["object_path"],
+            result_digest=artifact["digest"], message=message, details=details,
+            settle=settle, artifacts=(artifact, *extra_artifacts),
+        )
+
+    def _complete(
+        self,
+        job_id: str,
+        worker_id: str,
+        fence: int,
+        *,
+        result_path: str | None,
+        result_digest: str | None,
+        message: str,
+        details: Mapping[str, Any] | None,
+        settle: Callable[[Any], Any] | None,
+        artifacts: Sequence[Mapping[str, Any]] = (),
+    ) -> bool:
+        """The one completion transaction.
+
+        ``settle(conn)`` runs inside it, after the job row and its artifacts,
+        so a feature row the handler settles commits with the job or not at
+        all; a raise rolls the completion back and propagates.
+        """
+
         with self._connect() as conn:
             conn.execute("SET search_path TO workspace, public")
-            if not self._authoritative_claim(
-                conn,
-                job_id,
-                worker_id,
-                fence,
-            ):
+            if not self._authoritative_claim(conn, job_id, worker_id, fence):
                 conn.commit()
                 return False
-            artifact_id = str(uuid.uuid4())
             cursor = conn.execute(
                 """
                 UPDATE ws_jobs
@@ -1048,46 +1037,24 @@ class JobService:
                   AND status = 'running'
                   AND lease_expires_at >= NOW()
                 """,
-                (
-                    message,
-                    artifact["object_path"],
-                    artifact["digest"],
-                    _json(dict(details or {})),
-                    job_id,
-                    fence,
-                    worker_id,
-                ),
+                (message, result_path, result_digest, _json(dict(details or {})), job_id, fence, worker_id),
             )
             if cursor.rowcount == 1:
-                self._insert_artifact(
-                    conn,
-                    artifact_id,
-                    artifact,
-                    job_id=job_id,
-                    fence=fence,
-                )
-                for extra_artifact in extra_artifacts:
-                    self._insert_artifact(
-                        conn,
-                        str(uuid.uuid4()),
-                        extra_artifact,
-                        job_id=job_id,
-                        fence=fence,
-                    )
-                if artifact.get("kind") == "webgpu_3d":
-                    self._upsert_webgpu_ready(
-                        conn,
-                        job_id=job_id,
-                        fence=fence,
-                        details=dict(details or {}),
-                    )
+                for artifact in artifacts:
+                    self._insert_artifact(conn, str(uuid.uuid4()), artifact, job_id=job_id, fence=fence)
+                if artifacts and artifacts[0].get("kind") == "webgpu_3d":
+                    self._upsert_webgpu_ready(conn, job_id=job_id, fence=fence, details=dict(details or {}))
+                if settle is not None:
+                    try:
+                        settle(conn)
+                    except BaseException:
+                        conn.rollback()
+                        raise
                 self._release_claims(conn, job_id, fence)
-                self._event(
-                    conn,
-                    job_id,
-                    "completed",
-                    details={"digest": artifact["digest"], **dict(details or {})},
-                )
+                event = dict(details or {})
+                if artifacts:
+                    event = {"digest": artifacts[0]["digest"], **event}
+                self._event(conn, job_id, "completed", details=event)
             conn.commit()
             return cursor.rowcount == 1
 
